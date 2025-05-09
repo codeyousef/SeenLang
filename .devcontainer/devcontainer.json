@@ -1,0 +1,92 @@
+{
+    // A human-readable name for your development container configuration.
+    "name": "Rust Development Container (RustRover/VSCode)",
+
+    // --- Docker Configuration ---
+    // Tells the environment how to build or find your Docker image.
+    "build": {
+        // Path to the Dockerfile, relative to this devcontainer.json file.
+        // If your Dockerfile is in the project root (one level up from .devcontainer/):
+        "dockerfile": "../Dockerfile",
+        // The build context (the directory Docker uses to find files for the build).
+        // ".." means the project root directory.
+        "context": ".."
+        // You can add build arguments here if your Dockerfile uses them.
+        // "args": {
+        //  "VARIANT": "latest"
+        // }
+    },
+    // Alternatively, if you have already built and pushed your image to a registry:
+    // "image": "your-docker-hub-username/my-rust-dev-container:latest",
+
+    // --- Workspace Mounting ---
+    // Specifies how your local project files are made available inside the container.
+    "workspaceFolder": "/usr/src/app", // The default directory to open in the container.
+    "workspaceMount": "source=${localWorkspaceFolder},target=/usr/src/app,type=bind,consistency=cached",
+
+    // --- VS Code Specific Customizations (Optional but good practice) ---
+    // These settings primarily affect VS Code if the project is opened with it.
+    // RustRover will have its own settings but uses the same container environment.
+    "customizations": {
+        "vscode": {
+            // Extensions to install automatically inside the container for VS Code.
+            "extensions": [
+                "rust-lang.rust-analyzer",     // Essential for Rust language support (autocompletion, errors, etc.)
+                "serayuzgur.crates",           // Helps manage Cargo.toml dependencies
+                "tamasfe.even-better-toml",    // Enhanced TOML file support
+                "vadimcn.vscode-lldb",         // LLDB debugger support (ensure lldb is in your Dockerfile)
+                "mutantdino.resourcemonitor",  // Optional: To monitor container resource usage in VS Code
+                "GitHub.copilot"               // Optional: If you use GitHub Copilot
+            ],
+            // VS Code settings to apply specifically within this container.
+            "settings": {
+                "editor.formatOnSave": true,
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+                },
+                "terminal.integrated.defaultProfile.linux": "bash", // Or "zsh" if you install and prefer it
+                // If you installed lldb in your Dockerfile:
+                "lldb.executable": "/usr/bin/lldb",
+                // Point rust-analyzer to the rustc and cargo in the container
+                "rust-analyzer.cargo.path": "/usr/local/cargo/bin/cargo",
+                "rust-analyzer.rustc.path": "/usr/local/cargo/bin/rustc"
+            }
+        }
+    },
+
+    // --- Lifecycle Hooks (Optional) ---
+    // Commands to run at different stages of the container lifecycle.
+
+    // "initializeCommand": "echo 'Initializing container setup...'", // Runs once when definition is built or updated.
+    // "onCreateCommand": "echo 'Container created. Setting up project dependencies...'", // Runs when container is created.
+    // "updateContentCommand": "echo 'Project content updated.'", // Runs when content changes if supported.
+    // "postCreateCommand": "rustc --version && cargo --version && echo 'Dev container ready!'", // Runs after container is created, good for checking versions or installing project deps.
+    // "postStartCommand": "echo 'Container started.'", // Runs every time container starts.
+    // "postAttachCommand": "echo 'Attached to container.'", // Runs when you attach to an already running container.
+
+    // --- Port Forwarding (Optional) ---
+    // If your Rust application is a web server, specify ports to forward.
+    // "forwardPorts": [8000, 3000], // Example: forward container ports 8000 and 3000 to localhost
+
+    // --- User Configuration ---
+    // Specifies the user the container will run as.
+    // If you created a non-root user in your Dockerfile (e.g., 'vscode' or 'rustdev'), set it here.
+    // "remoteUser": "vscode", // Or "rustdev" or whatever user you created. Defaults to root if not specified or if user doesn't exist.
+
+    // --- Environment Variables (Optional) ---
+    // Set environment variables that should be available inside the container.
+    // "remoteEnv": {
+    //  "DATABASE_URL": "your_database_connection_string_for_dev",
+    //  "RUST_LOG": "actix_web=debug,info" // Example for logging
+    // },
+
+    // --- Run Arguments (Optional) ---
+    // Additional arguments for the 'docker run' command.
+    // "runArgs": ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined"], // For certain debugging scenarios
+
+    // --- Mounts (Optional, beyond workspaceMount) ---
+    // Mount other volumes or bind mounts.
+    // "mounts": [
+    //  "source=my-volume,target=/opt/data,type=volume" // Example of a named volume
+    // ]
+}

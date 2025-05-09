@@ -1,0 +1,19 @@
+[package]
+name = "seen_lexer"
+version = "0.1.0"
+edition = "2021"
+description = "Lexical analyzer for the Seen programming language"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+toml = "0.8.0"           # For parsing the keywords.toml and seen.toml files
+serde = { version = "1.0", features = ["derive"] }  # For serialization/deserialization
+thiserror = "1.0"        # For error handling
+unicode-xid = "0.2.4"    # For validating Unicode identifiers
+regex = "1.9"            # For complex token patterns
+log = "0.4"              # For logging
+json_schema_validator = "0.16"  # For validating toml against JSON schema if needed
+lasso = "0.7.0"
+# For Unicode segmentation if handling complex scripts
+unicode-segmentation = "1.11.0"

@@ -1,0 +1,15 @@
+[package]
+name = "seen_compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+seen_lexer = { path = "../seen_lexer" }
+seen_parser = { path = "../seen_parser" }
+seen_ir = { path = "../seen_ir" }
+# Optional: if you use LLVM
+inkwell = { version = "0.6.0", features = ["llvm18-1"] } 
+# For error handling
+thiserror = "2.0.12"
+# For source code location tracking (spans)
+codespan-reporting = "0.12.0"

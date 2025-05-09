@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Seen Language Keywords Schema",
+  "description": "Schema for the keywords.toml file defining mappings between language-specific keywords and internal tokens",
+  "type": "object",
+  "required": ["languages", "keyword_mappings"],
+  "properties": {
+    "languages": {
+      "type": "array",
+      "description": "List of supported languages for keywords",
+      "items": {
+        "type": "object",
+        "required": ["code", "name", "direction"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "ISO 639-1 language code (e.g., 'en', 'ar')",
+            "pattern": "^[a-z]{2}$"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable language name (e.g., 'English', 'Arabic')"
+          },
+          "direction": {
+            "type": "string",
+            "description": "Text direction for this language",
+            "enum": ["ltr", "rtl"]
+          }
+        }
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "keyword_mappings": {
+      "type": "object",
+      "description": "Mapping from internal token names to language-specific keywords",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Internal token mapped to keywords in different languages",
+        "propertyNames": {
+          "pattern": "^[a-z]{2}$"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "description": "Keyword in the specific language"
+        },
+        "minProperties": 1
+      },
+      "minProperties": 1
+    }
+  }
+}

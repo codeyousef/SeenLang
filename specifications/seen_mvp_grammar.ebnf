@@ -1,0 +1,79 @@
+// Seen Language MVP Grammar (EBNF)
+// This grammar defines the minimal syntax for the Seen language, supporting bilingual keywords
+
+// Program is the entry point for any Seen program
+Program ::= (Declaration | Statement)*
+
+// Declarations
+Declaration ::= FunctionDeclaration | VariableDeclaration
+
+// Function Declaration
+FunctionDeclaration ::= ('func' | 'دالة') Identifier '(' ParameterList? ')' ('->' Type)? Block
+
+// Parameter List
+ParameterList ::= Parameter (',' Parameter)*
+Parameter ::= Identifier ':' Type
+
+// Variable Declaration
+VariableDeclaration ::= (('val' | 'ثابت') | ('var' | 'متغير')) Identifier (':' Type)? '=' Expression ';'
+
+// Types
+Type ::= Identifier | ArrayType
+ArrayType ::= '[' Type ']'
+
+// Statements
+Statement ::= ExpressionStatement | Block | ReturnStatement | IfStatement | WhileStatement | PrintStatement
+
+// Expression Statement
+ExpressionStatement ::= Expression ';'
+
+// Block
+Block ::= '{' Statement* '}'
+
+// Return Statement
+ReturnStatement ::= ('return' | 'إرجاع') Expression? ';'
+
+// If Statement
+IfStatement ::= ('if' | 'إذا') '(' Expression ')' Statement (('else' | 'وإلا') Statement)?
+
+// While Statement
+WhileStatement ::= ('while' | 'طالما') '(' Expression ')' Statement
+
+// Print Statement (for Hello World MVP)
+PrintStatement ::= ('println' | 'اطبع') '(' Expression ')' ';'
+
+// Expressions
+Expression ::= AssignmentExpression | BinaryExpression | UnaryExpression | 
+                LiteralExpression | IdentifierExpression | CallExpression | 
+                ParenthesizedExpression
+
+// Assignment
+AssignmentExpression ::= Identifier '=' Expression
+
+// Binary Expression
+BinaryExpression ::= Expression Operator Expression
+Operator ::= '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '&&' | '||'
+
+// Unary Expression
+UnaryExpression ::= UnaryOperator Expression
+UnaryOperator ::= '-' | '!' | '+'
+
+// Literal Expression
+LiteralExpression ::= NumberLiteral | StringLiteral | BooleanLiteral | NullLiteral
+NumberLiteral ::= [0-9]+ ('.' [0-9]+)?
+StringLiteral ::= '"' [^"]* '"'
+BooleanLiteral ::= 'true' | 'false' | 'صحيح' | 'خطأ'
+NullLiteral ::= 'null' | 'فارغ'
+
+// Identifier Expression
+IdentifierExpression ::= Identifier
+
+// Call Expression
+CallExpression ::= Identifier '(' ArgumentList? ')'
+ArgumentList ::= Expression (',' Expression)*
+
+// Parenthesized Expression
+ParenthesizedExpression ::= '(' Expression ')'
+
+// Identifier
+Identifier ::= [a-zA-Z_\u0600-\u06FF][a-zA-Z0-9_\u0600-\u06FF]*

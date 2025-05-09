@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "seen_compiler", # Core compiler logic
+    "seen_lexer",    # Lexical analysis (tokenizer)
+    "seen_parser",   # Syntax analysis (AST generation)
+    "seen_ir",       # Intermediate Representation(s)
+    "seen_cli"       # Command-line interface tool
+    # Add more crates as needed, e.g., for static analysis, standard library
+]
+
+resolver = "2" # Use the new feature resolver for better dependency management
+
+[profile.release]
+lto = true           # Enable Link Time Optimization for release builds
+codegen-units = 1    # Optimize for binary size and runtime speed (slower compile)
+panic = "abort"      # Abort on panic for smaller binaries
+strip = true         # Strip symbols from the binary
