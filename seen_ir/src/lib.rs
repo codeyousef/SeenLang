@@ -1,14 +1,12 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! LLVM IR generation for the Seen programming language
+//!
+//! This module is responsible for translating the AST from the parser
+//! into LLVM IR for further optimization and code generation.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod codegen;
+pub mod error;
+pub mod mapping;
+pub mod types;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use codegen::CodeGenerator;
+pub use error::CodeGenError;

@@ -1,6 +1,21 @@
 [package]
 name = "seen_ir"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "IR generation and optimization for the Seen programming language"
 
 [dependencies]
+# LLVM bindings
+inkwell = { version = "0.2.0", features = ["llvm15-0"] } 
+
+# Seen language components
+seen_parser = { path = "../seen_parser" }
+
+# Error handling
+thiserror = "2.0.12"
+
+# Serialization/Deserialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Logging
+log = "0.4"

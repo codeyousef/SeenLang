@@ -47,7 +47,7 @@ impl fmt::Display for Location {
 }
 
 /// The language-neutral token type for Seen language
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum TokenType {
     // Keywords
     Val,      // val (EN) / ثابت (AR)

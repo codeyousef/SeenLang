@@ -354,7 +354,7 @@ impl<'a> Lexer<'a> {
     
     /// Process an identifier or keyword
     fn identifier_or_keyword(&mut self) -> Result<Token, LexerError> {
-        let start_position = self.position;
+        let _start_position = self.position;
         let mut value = String::new();
         
         // First character is already consumed and validated

@@ -1,0 +1,336 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Seen Language Diagnostic Message",
+  "description": "Schema for diagnostic messages in the Seen programming language, with bilingual support",
+  "type": "object",
+  "required": ["id", "severity", "message", "location", "source_text"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the diagnostic message, used for documentation and lookup",
+      "pattern": "^[A-Z]+\\d{4}$",
+      "examples": ["LEX0001", "PAR0002", "SEM0003", "GEN0004"]
+    },
+    "severity": {
+      "type": "string",
+      "description": "Severity level of the diagnostic",
+      "enum": ["error", "warning", "info", "hint"]
+    },
+    "message": {
+      "type": "object",
+      "description": "Message text in different languages",
+      "required": ["en"],
+      "properties": {
+        "en": {
+          "type": "string",
+          "description": "English message text"
+        },
+        "ar": {
+          "type": "string",
+          "description": "Arabic message text"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Message text in other languages"
+      }
+    },
+    "location": {
+      "type": "object",
+      "description": "Location information for the diagnostic",
+      "required": ["file", "start", "end"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path to the source file"
+        },
+        "start": {
+          "type": "object",
+          "description": "Start position of the diagnostic range",
+          "required": ["line", "column"],
+          "properties": {
+            "line": {
+              "type": "integer",
+              "description": "Line number (1-based)",
+              "minimum": 1
+            },
+            "column": {
+              "type": "integer",
+              "description": "Column number (1-based)",
+              "minimum": 1
+            }
+          }
+        },
+        "end": {
+          "type": "object",
+          "description": "End position of the diagnostic range",
+          "required": ["line", "column"],
+          "properties": {
+            "line": {
+              "type": "integer",
+              "description": "Line number (1-based)",
+              "minimum": 1
+            },
+            "column": {
+              "type": "integer",
+              "description": "Column number (1-based)",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "source_text": {
+      "type": "string",
+      "description": "The source text that triggered the diagnostic, preserved in its original form (English or Arabic keywords)"
+    },
+    "expected_text": {
+      "type": "string",
+      "description": "What was expected instead (optional)",
+      "examples": ["';'", "identifier", "expression"]
+    },
+    "fix_suggestions": {
+      "type": "array",
+      "description": "Suggestions for fixing the issue (optional)",
+      "items": {
+        "type": "object",
+        "required": ["message", "replacement"],
+        "properties": {
+          "message": {
+            "type": "object",
+            "description": "Suggestion message in different languages",
+            "required": ["en"],
+            "properties": {
+              "en": {
+                "type": "string",
+                "description": "English suggestion message"
+              },
+              "ar": {
+                "type": "string",
+                "description": "Arabic suggestion message"
+              }
+            }
+          },
+          "replacement": {
+            "type": "string",
+            "description": "The text to replace the source_text with"
+          },
+          "replacement_range": {
+            "type": "object",
+            "description": "Custom range for the replacement (defaults to the main diagnostic range if not specified)",
+            "required": ["start", "end"],
+            "properties": {
+              "start": {
+                "type": "object",
+                "description": "Start position of the replacement range",
+                "required": ["line", "column"],
+                "properties": {
+                  "line": {
+                    "type": "integer",
+                    "description": "Line number (1-based)",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "description": "Column number (1-based)",
+                    "minimum": 1
+                  }
+                }
+              },
+              "end": {
+                "type": "object",
+                "description": "End position of the replacement range",
+                "required": ["line", "column"],
+                "properties": {
+                  "line": {
+                    "type": "integer",
+                    "description": "Line number (1-based)",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "description": "Column number (1-based)",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "related_information": {
+      "type": "array",
+      "description": "Related diagnostic information (optional)",
+      "items": {
+        "type": "object",
+        "required": ["message", "location"],
+        "properties": {
+          "message": {
+            "type": "object",
+            "description": "Related information message in different languages",
+            "required": ["en"],
+            "properties": {
+              "en": {
+                "type": "string",
+                "description": "English related information message"
+              },
+              "ar": {
+                "type": "string",
+                "description": "Arabic related information message"
+              }
+            }
+          },
+          "location": {
+            "type": "object",
+            "description": "Location information for the related information",
+            "required": ["file", "start", "end"],
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "Path to the source file"
+              },
+              "start": {
+                "type": "object",
+                "description": "Start position",
+                "required": ["line", "column"],
+                "properties": {
+                  "line": {
+                    "type": "integer",
+                    "description": "Line number (1-based)",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "description": "Column number (1-based)",
+                    "minimum": 1
+                  }
+                }
+              },
+              "end": {
+                "type": "object",
+                "description": "End position",
+                "required": ["line", "column"],
+                "properties": {
+                  "line": {
+                    "type": "integer",
+                    "description": "Line number (1-based)",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "description": "Column number (1-based)",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "documentation_url": {
+      "type": "string",
+      "description": "URL to documentation explaining the error in more detail (optional)",
+      "format": "uri"
+    },
+    "language_context": {
+      "type": "string",
+      "description": "The language context in which the error occurred (english, arabic, or mixed)",
+      "enum": ["english", "arabic", "mixed"]
+    }
+  },
+  "examples": [
+    {
+      "id": "LEX0001",
+      "severity": "error",
+      "message": {
+        "en": "Unterminated string literal",
+        "ar": "سلسلة نصية غير مغلقة"
+      },
+      "location": {
+        "file": "main.seen",
+        "start": { "line": 5, "column": 10 },
+        "end": { "line": 5, "column": 20 }
+      },
+      "source_text": "\"Hello, World",
+      "expected_text": "\"",
+      "fix_suggestions": [
+        {
+          "message": {
+            "en": "Add a closing quote",
+            "ar": "أضف علامة اقتباس للإغلاق"
+          },
+          "replacement": "\"Hello, World\""
+        }
+      ],
+      "language_context": "english"
+    },
+    {
+      "id": "PAR0002",
+      "severity": "error",
+      "message": {
+        "en": "Expected ';' after this statement",
+        "ar": "يجب وضع ';' بعد هذه العبارة"
+      },
+      "location": {
+        "file": "main.seen",
+        "start": { "line": 6, "column": 20 },
+        "end": { "line": 6, "column": 20 }
+      },
+      "source_text": "println(\"Hello, World!\")",
+      "expected_text": ";",
+      "fix_suggestions": [
+        {
+          "message": {
+            "en": "Add a semicolon",
+            "ar": "أضف فاصلة منقوطة"
+          },
+          "replacement": "println(\"Hello, World!\");"
+        }
+      ],
+      "language_context": "english"
+    },
+    {
+      "id": "SEM0003",
+      "severity": "error",
+      "message": {
+        "en": "Cannot assign to immutable variable",
+        "ar": "لا يمكن التعيين إلى متغير غير قابل للتغيير"
+      },
+      "location": {
+        "file": "main.seen",
+        "start": { "line": 7, "column": 1 },
+        "end": { "line": 7, "column": 4 }
+      },
+      "source_text": "x = 10",
+      "related_information": [
+        {
+          "message": {
+            "en": "Variable 'x' is declared here as immutable",
+            "ar": "تم تعريف المتغير 'x' هنا كمتغير غير قابل للتغيير"
+          },
+          "location": {
+            "file": "main.seen",
+            "start": { "line": 6, "column": 1 },
+            "end": { "line": 6, "column": 9 }
+          }
+        }
+      ],
+      "fix_suggestions": [
+        {
+          "message": {
+            "en": "Change declaration to 'var' instead of 'val'",
+            "ar": "غيّر التعريف إلى 'متغير' بدلاً من 'ثابت'"
+          },
+          "replacement": "var x = 5",
+          "replacement_range": {
+            "start": { "line": 6, "column": 1 },
+            "end": { "line": 6, "column": 9 }
+          }
+        }
+      ],
+      "language_context": "english"
+    }
+  ]
+}

@@ -12,6 +12,9 @@ pub enum ProjectConfigError {
     #[error("TOML parsing error: {0}")]
     TomlError(#[from] toml::de::Error),
     
+    #[error("TOML serialization error: {0}")]
+    TomlSerError(#[from] toml::ser::Error),
+    
     #[error("Schema validation error: {0}")]
     SchemaError(String),
     
@@ -123,7 +126,7 @@ pub fn create_default_project_config<P: AsRef<Path>>(path: P, project_name: &str
     };
     
     let toml_string = toml::to_string_pretty(&config)
-        .map_err(|e| ProjectConfigError::TomlError(e))?;
+        .map_err(|e| ProjectConfigError::TomlSerError(e))?;
     
     fs::write(path, toml_string)?;
     
