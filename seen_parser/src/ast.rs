@@ -62,6 +62,7 @@ pub enum Statement {
     If(IfStatement),
     While(WhileStatement),
     Print(PrintStatement),
+    DeclarationStatement(Declaration),
 }
 
 /// Expression statement (expression followed by semicolon)
@@ -105,7 +106,7 @@ pub struct WhileStatement {
 /// Print statement (for Hello World MVP)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrintStatement {
-    pub expression: Box<Expression>,
+    pub arguments: Vec<Expression>,
     pub location: Location,
 }
 

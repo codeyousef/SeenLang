@@ -83,7 +83,7 @@ fn compile_project(project_path: &Path, main_file: &Path, output_dir: &Path, con
         .context("Failed to create keyword manager")?;
     
     // Create the lexer
-    let mut lexer = seen_lexer::lexer::Lexer::new(&source_code, &keyword_manager);
+    let mut lexer = seen_lexer::lexer::Lexer::new(&source_code, &keyword_manager, config.language.clone());
     
     // Tokenize the source code
     let tokens = lexer.tokenize()

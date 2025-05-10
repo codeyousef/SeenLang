@@ -54,7 +54,7 @@ pub struct KeywordConfig {
     pub keyword_mappings: HashMap<String, HashMap<String, String>>,
     
     /// Base directory where language files are stored
-    base_dir: PathBuf,
+    pub base_dir: PathBuf,
 }
 
 impl KeywordConfig {
@@ -231,13 +231,13 @@ impl KeywordManager {
     
     /// Check if a string is a keyword in the active language
     pub fn is_keyword(&self, text: &str) -> bool {
-        let key = format!("{}:{}", self.active_language, text);
+        let key = format!("{}{}", self.active_language, text);
         self.keyword_to_token.contains_key(&key)
     }
     
     /// Get the token type for a keyword in the active language
     pub fn get_token_type(&self, text: &str) -> Option<TokenType> {
-        let key = format!("{}:{}", self.active_language, text);
+        let key = format!("{}{}", self.active_language, text);
         self.keyword_to_token.get(&key).cloned()
     }
     

@@ -23,16 +23,3 @@ pub mod prelude {
     pub use crate::lexer::{Lexer, LexerError};
     pub use crate::project_config::{ProjectConfig, ProjectConfigError};
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::Path;
-
-    // We'll add lexer tests once we have the full implementation
-    #[test]
-    fn lexer_creates_tokens() {
-        // This is just a placeholder test that will be replaced with proper tests
-        assert!(true);
-    }
-}

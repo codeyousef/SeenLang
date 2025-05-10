@@ -23,37 +23,30 @@ pub enum LexerError {
 
 /// The lexer for the Seen programming language
 pub struct Lexer<'a> {
-    /// The source code being lexed
-    source: &'a str,
-    
     /// Character iterator over the source
     chars: Peekable<Chars<'a>>,
     
-    /// Current position in the source
+    /// Current position in the source, pointing to the START of the next character to be processed.
     position: Position,
-    
-    /// Current line being processed
-    current_line: &'a str,
     
     /// Keyword manager for handling bilingual keywords
     keyword_manager: &'a KeywordManager,
     
     /// Has the lexer reached the end of input?
     is_at_end: bool,
+    
+    /// Language of the source code
+    language: String,
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(source: &'a str, keyword_manager: &'a KeywordManager) -> Self {
-        // Split the source by line to make line tracking easier
-        let first_line = source.lines().next().unwrap_or("");
-        
+    pub fn new(source: &'a str, keyword_manager: &'a KeywordManager, language: String) -> Self {
         Self {
-            source,
             chars: source.chars().peekable(),
             position: Position::new(1, 1), // 1-indexed line and column
-            current_line: first_line,
             keyword_manager,
             is_at_end: source.is_empty(),
+            language,
         }
     }
     
@@ -62,146 +55,87 @@ impl<'a> Lexer<'a> {
         self.skip_whitespace();
         
         if self.is_at_end {
-            return Ok(self.create_token(TokenType::EOF, ""));
+            return Ok(self.create_token(TokenType::EOF, "", self.position));
         }
         
-        let start_position = self.position;
-        let c = self.advance();
+        let token_start_pos = self.position; // Mark position before advancing
+        let c = self.advance(); // Consumes char at token_start_pos, self.position now points to char *after* c
         
         match c {
             // Delimiters
-            '(' => Ok(self.create_token(TokenType::LeftParen, "(")),
-            ')' => Ok(self.create_token(TokenType::RightParen, ")")),
-            '{' => Ok(self.create_token(TokenType::LeftBrace, "{")),
-            '}' => Ok(self.create_token(TokenType::RightBrace, "}")),
-            '[' => Ok(self.create_token(TokenType::LeftBracket, "[")),
-            ']' => Ok(self.create_token(TokenType::RightBracket, "]")),
-            ';' => Ok(self.create_token(TokenType::Semicolon, ";")),
-            ':' => Ok(self.create_token(TokenType::Colon, ":")),
-            ',' => Ok(self.create_token(TokenType::Comma, ",")),
-            '.' => Ok(self.create_token(TokenType::Dot, ".")),
+            '(' => Ok(self.create_token(TokenType::LeftParen, "(", token_start_pos)),
+            ')' => Ok(self.create_token(TokenType::RightParen, ")", token_start_pos)),
+            '{' => Ok(self.create_token(TokenType::LeftBrace, "{", token_start_pos)),
+            '}' => Ok(self.create_token(TokenType::RightBrace, "}", token_start_pos)),
+            '[' => Ok(self.create_token(TokenType::LeftBracket, "[", token_start_pos)),
+            ']' => Ok(self.create_token(TokenType::RightBracket, "]", token_start_pos)),
+            ';' => Ok(self.create_token(TokenType::Semicolon, ";", token_start_pos)),
+            ':' => Ok(self.create_token(TokenType::Colon, ":", token_start_pos)),
+            ',' => Ok(self.create_token(TokenType::Comma, ",", token_start_pos)),
+            '.' => Ok(self.create_token(TokenType::Dot, ".", token_start_pos)),
             
             // Operators (single character)
-            '+' => Ok(self.create_token(TokenType::Plus, "+")),
+            '+' => Ok(self.create_token(TokenType::Plus, "+", token_start_pos)),
             '-' => {
-                // Check for arrow "->"
-                if self.match_char('>') {
-                    Ok(self.create_token(TokenType::Arrow, "->"))
+                if self.match_char('>') { 
+                    Ok(self.create_token(TokenType::Arrow, "->", token_start_pos))
                 } else {
-                    Ok(self.create_token(TokenType::Minus, "-"))
+                    Ok(self.create_token(TokenType::Minus, "-", token_start_pos))
                 }
             },
-            '*' => Ok(self.create_token(TokenType::Multiply, "*")),
+            '*' => Ok(self.create_token(TokenType::Multiply, "*", token_start_pos)),
             '/' => {
-                // Handle comments
-                if self.match_char('/') {
-                    // Skip until end of line
+                if self.match_char('/') { 
                     while self.peek() != '\n' && !self.is_at_end {
                         self.advance();
                     }
-                    // Recursively get the next token after the comment
                     self.next_token()
                 } else {
-                    Ok(self.create_token(TokenType::Divide, "/"))
+                    Ok(self.create_token(TokenType::Divide, "/", token_start_pos))
                 }
             },
-            '%' => Ok(self.create_token(TokenType::Modulo, "%")),
+            '%' => Ok(self.create_token(TokenType::Modulo, "%", token_start_pos)),
             
             // Operators (potentially two characters)
             '=' => {
                 if self.match_char('=') {
-                    Ok(self.create_token(TokenType::Equal, "=="))
+                    Ok(self.create_token(TokenType::Equal, "==", token_start_pos))
                 } else {
-                    Ok(self.create_token(TokenType::Assign, "="))
+                    Ok(self.create_token(TokenType::Assign, "=", token_start_pos))
                 }
             },
-            '!' => {
-                if self.match_char('=') {
-                    Ok(self.create_token(TokenType::NotEqual, "!="))
-                } else {
-                    Ok(self.create_token(TokenType::Not, "!"))
+            '!' => match self.peek() {
+                '=' => {
+                    self.advance(); // Consume '='
+                    Ok(self.create_token(TokenType::NotEqual, "!=", token_start_pos))
                 }
+                _ => Ok(self.create_token(TokenType::Not, "!", token_start_pos)),
             },
-            '<' => {
-                if self.match_char('=') {
-                    Ok(self.create_token(TokenType::LessEqual, "<="))
-                } else {
-                    Ok(self.create_token(TokenType::LessThan, "<"))
+            '<' => match self.peek() {
+                '=' => {
+                    self.advance(); // Consume '='
+                    Ok(self.create_token(TokenType::LessEqual, "<=", token_start_pos))
                 }
+                _ => Ok(self.create_token(TokenType::LessThan, "<", token_start_pos)),
             },
-            '>' => {
-                if self.match_char('=') {
-                    Ok(self.create_token(TokenType::GreaterEqual, ">="))
-                } else {
-                    Ok(self.create_token(TokenType::GreaterThan, ">"))
+            '>' => match self.peek() {
+                '=' => {
+                    self.advance(); // Consume '='
+                    Ok(self.create_token(TokenType::GreaterEqual, ">=", token_start_pos))
                 }
-            },
-            
-            // Logical operators
-            '&' => {
-                if self.match_char('&') {
-                    Ok(self.create_token(TokenType::And, "&&"))
-                } else {
-                    Err(LexerError::UnexpectedCharacter('&', start_position))
-                }
-            },
-            '|' => {
-                if self.match_char('|') {
-                    Ok(self.create_token(TokenType::Or, "||"))
-                } else {
-                    Err(LexerError::UnexpectedCharacter('|', start_position))
-                }
+                _ => Ok(self.create_token(TokenType::GreaterThan, ">", token_start_pos)),
             },
             
             // String literals
-            '"' => self.string(),
+            '"' => self.string(token_start_pos),
             
-            // Number literals
-            c if c.is_ascii_digit() => self.number(),
-            
+            // Numbers
+            c if c.is_ascii_digit() => self.number(c, token_start_pos),
+
             // Identifiers and keywords
-            c if is_identifier_start(c) => self.identifier_or_keyword(),
+            c if is_identifier_start(c) => self.identifier_or_keyword(c, token_start_pos),
             
-            // Arabic comments
-            '#' => {
-                if self.match_char('#') {
-                    // Skip until end of line
-                    while self.peek() != '\n' && !self.is_at_end {
-                        self.advance();
-                    }
-                    // Recursively get the next token after the comment
-                    self.next_token()
-                } else {
-                    Err(LexerError::UnexpectedCharacter('#', start_position))
-                }
-            },
-            
-            // Multi-line comments
-            c if c == '/' && self.peek() == '*' => {
-                self.advance(); // Consume '*'
-                let mut level = 1;
-                
-                while level > 0 && !self.is_at_end {
-                    let c = self.advance();
-                    if c == '*' && self.peek() == '/' {
-                        self.advance(); // Consume '/'
-                        level -= 1;
-                    } else if c == '/' && self.peek() == '*' {
-                        self.advance(); // Consume '*'
-                        level += 1;
-                    }
-                }
-                
-                if level > 0 {
-                    Err(LexerError::UnterminatedString(start_position))
-                } else {
-                    // Recursively get the next token after the comment
-                    self.next_token()
-                }
-            },
-            
-            // Unexpected characters
-            _ => Err(LexerError::UnexpectedCharacter(c, start_position)),
+            _ => Err(LexerError::UnexpectedCharacter(c, token_start_pos)),
         }
     }
     
@@ -225,21 +159,19 @@ impl<'a> Lexer<'a> {
     
     // Helper methods
     
-    /// Create a token with the current location
-    fn create_token(&self, token_type: TokenType, lexeme: &str) -> Token {
-        let start = self.position;
-        // Adjust end position based on lexeme length
-        let end = Position::new(
-            start.line,
-            start.column + lexeme.chars().count() - 1,
-        );
-        
-        Token::new(
+    /// Create a token with a specific start position
+    fn create_token(&self, token_type: TokenType, lexeme: &str, start_pos: Position) -> Token {
+        let end_pos = self.position; // Current lexer position is the end of this token
+
+        Token {
             token_type,
-            lexeme.to_string(),
-            Location::new(start, end),
-            self.keyword_manager.get_active_language().to_string(),
-        )
+            lexeme: lexeme.to_string(),
+            location: Location {
+                start: start_pos,
+                end: end_pos,
+            },
+            language: self.language.clone(),
+        }
     }
     
     /// Advance to the next character
@@ -249,10 +181,6 @@ impl<'a> Lexer<'a> {
             if c == '\n' {
                 self.position.line += 1;
                 self.position.column = 1;
-                
-                // Get the next line
-                let line_index = self.position.line - 1; // 0-indexed
-                self.current_line = self.source.lines().nth(line_index).unwrap_or("");
             } else {
                 self.position.column += 1;
             }
@@ -294,83 +222,75 @@ impl<'a> Lexer<'a> {
         }
     }
     
-    /// Process a string literal
-    fn string(&mut self) -> Result<Token, LexerError> {
-        let start_position = self.position;
+    /// Process a string literal, `start_pos` is the position of the opening quote.
+    fn string(&mut self, start_pos: Position) -> Result<Token, LexerError> {
         let mut value = String::new();
         
         while self.peek() != '"' && !self.is_at_end {
-            let c = self.advance();
-            value.push(c);
+            // Handle escape sequences if necessary (not implemented in this snippet)
+            value.push(self.advance());
         }
         
-        if self.is_at_end {
-            return Err(LexerError::UnterminatedString(start_position));
+        if self.is_at_end { // Unterminated string
+            return Err(LexerError::UnterminatedString(start_pos));
         }
         
-        // Consume the closing "
-        self.advance();
+        self.advance(); // Consume the closing "
         
-        // Create the token with the string value (not including the quotes)
-        let token = self.create_token(TokenType::StringLiteral, &value);
-        Ok(token)
+        Ok(self.create_token(TokenType::StringLiteral, &value, start_pos))
     }
     
-    /// Process a number literal
-    fn number(&mut self) -> Result<Token, LexerError> {
-        let start_position = self.position;
+    /// Process a number literal, `first_digit` is the initial digit char, `start_pos` is its position.
+    fn number(&mut self, first_digit: char, start_pos: Position) -> Result<Token, LexerError> {
         let mut value = String::new();
+        value.push(first_digit);
         
         // Get integer part
         while self.peek().is_ascii_digit() && !self.is_at_end {
             value.push(self.advance());
         }
         
-        // Look for fractional part
         let mut is_float = false;
-        if self.peek() == '.' && self.chars.clone().nth(1).map_or(false, |c| c.is_ascii_digit()) {
-            is_float = true;
-            value.push(self.advance()); // Consume the '.'
-            
-            // Get fractional part
-            while self.peek().is_ascii_digit() && !self.is_at_end {
-                value.push(self.advance());
+        if self.peek() == '.' {
+            // Create a clone of the char iterator to peek ahead for a digit after '.'
+            let mut next_chars = self.chars.clone();
+            if next_chars.nth(1).map_or(false, |ch| ch.is_ascii_digit()) { // Check char after '.'
+                is_float = true;
+                value.push(self.advance()); // Consume the '.'
+                
+                while self.peek().is_ascii_digit() && !self.is_at_end {
+                    value.push(self.advance());
+                }
             }
         }
         
-        // Validate the number
         if is_float {
             if value.parse::<f64>().is_err() {
-                return Err(LexerError::InvalidNumber(start_position, value));
+                return Err(LexerError::InvalidNumber(start_pos, value));
             }
-            Ok(self.create_token(TokenType::FloatLiteral, &value))
+            Ok(self.create_token(TokenType::FloatLiteral, &value, start_pos))
         } else {
             if value.parse::<i64>().is_err() {
-                return Err(LexerError::InvalidNumber(start_position, value));
+                return Err(LexerError::InvalidNumber(start_pos, value));
             }
-            Ok(self.create_token(TokenType::IntLiteral, &value))
+            Ok(self.create_token(TokenType::IntLiteral, &value, start_pos))
         }
     }
     
-    /// Process an identifier or keyword
-    fn identifier_or_keyword(&mut self) -> Result<Token, LexerError> {
-        let _start_position = self.position;
+    /// Process an identifier or keyword, `first_char` is its first char, `start_pos` is its position.
+    fn identifier_or_keyword(&mut self, first_char: char, start_pos: Position) -> Result<Token, LexerError> {
         let mut value = String::new();
+        value.push(first_char);
         
-        // First character is already consumed and validated
-        value.push(self.chars.clone().nth(0).unwrap_or('\0'));
-        
-        // Get the rest of the identifier
         while !self.is_at_end && is_identifier_continue(self.peek()) {
             value.push(self.advance());
         }
         
-        // Check if this is a keyword in the active language
         let token_type = self.keyword_manager
             .get_token_type(&value)
             .unwrap_or(TokenType::Identifier);
         
-        Ok(self.create_token(token_type, &value))
+        Ok(self.create_token(token_type, &value, start_pos))
     }
 }
 

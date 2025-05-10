@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
@@ -74,7 +73,7 @@ pub struct ProjectConfig {
 
 impl ProjectConfig {
     /// Load project configuration from a TOML file
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ProjectConfigError> {
+    pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ProjectConfigError> {
         let content = fs::read_to_string(path)?;
         let config: ProjectConfig = toml::from_str(&content)?;
         
@@ -106,7 +105,7 @@ impl ProjectConfig {
 }
 
 /// Create a new project configuration file
-pub fn create_default_project_config<P: AsRef<Path>>(path: P, project_name: &str) -> Result<(), ProjectConfigError> {
+pub fn create_default_project_config<P: AsRef<std::path::Path>>(path: P, project_name: &str) -> Result<(), ProjectConfigError> {
     let config = ProjectConfig {
         project: ProjectMetadata {
             name: project_name.to_string(),
@@ -131,4 +130,49 @@ pub fn create_default_project_config<P: AsRef<Path>>(path: P, project_name: &str
     fs::write(path, toml_string)?;
     
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_create_default_project_config_success() {
+        let test_project_name = "my_test_project";
+        let test_file_path = "./test_seen.toml";
+
+        // Ensure the file doesn't exist before the test
+        let _ = fs::remove_file(test_file_path); 
+
+        let result = create_default_project_config(test_file_path, test_project_name);
+        assert!(result.is_ok(), "Failed to create default project config: {:?}", result.err());
+
+        // Verify file content
+        let content = fs::read_to_string(test_file_path)
+            .expect("Failed to read created config file");
+        let config: ProjectConfig = toml::from_str(&content)
+            .expect("Failed to parse created config file");
+
+        // Assert project metadata
+        assert_eq!(config.project.name, test_project_name);
+        assert_eq!(config.project.version, "0.1.0");
+        assert_eq!(config.project.description, Some("A Seen language project".to_string()));
+        assert_eq!(config.project.authors, vec!["Your Name <your.email@example.com>".to_string()]);
+
+        // Assert language settings
+        assert_eq!(config.language.keywords, "en");
+        assert!(!config.language.allow_mixed);
+
+        // Assert build settings
+        let build_settings = config.build.expect("Build settings should exist");
+        assert_eq!(build_settings.target, default_target());
+        assert_eq!(build_settings.output_dir, default_output_dir());
+
+        // Assert dependencies
+        assert!(config.dependencies.is_empty());
+
+        // Clean up the test file
+        fs::remove_file(test_file_path).expect("Failed to remove test config file");
+    }
 }

@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod lexer_tests {
-    use std::path::Path;
-    use crate::{KeywordConfig, KeywordManager, Lexer, TokenType};
+    use crate::{KeywordConfig, KeywordManager, Lexer, TokenType, Language};
 
     // Helper function to create a test keyword manager
     fn create_test_keyword_manager(active_language: &str) -> KeywordManager {
@@ -92,7 +91,7 @@ mod lexer_tests {
         }
         "#;
         
-        let mut lexer = Lexer::new(source, &keyword_manager);
+        let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
         let tokens = lexer.tokenize().unwrap();
         
         // Verify some key tokens
@@ -127,7 +126,7 @@ mod lexer_tests {
         }
         "#;
         
-        let mut lexer = Lexer::new(source, &keyword_manager);
+        let mut lexer = Lexer::new(source, &keyword_manager, "ar".to_string());
         let tokens = lexer.tokenize().unwrap();
         
         // Verify some key tokens
@@ -148,7 +147,7 @@ mod lexer_tests {
         
         let source = "10 + 20.5 * (30 - 5) / 2 <= 100";
         
-        let mut lexer = Lexer::new(source, &keyword_manager);
+        let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
         let tokens = lexer.tokenize().unwrap();
         
         // Verify token types
@@ -175,7 +174,7 @@ mod lexer_tests {
         }
         "#;
         
-        let mut lexer = Lexer::new(source, &keyword_manager);
+        let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
         let tokens = lexer.tokenize().unwrap();
         
         // Find identifiers

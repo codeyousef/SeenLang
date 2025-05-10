@@ -82,7 +82,7 @@ impl Parser {
 
     /// Parse a function declaration
     fn function_declaration(&mut self) -> Result<FunctionDeclaration, ParserError> {
-        let start_pos = self.previous().location.start;
+        let func_keyword_start_pos = self.previous().location.start; // 'func' token location
 
         // Function name
         let name = self.consume_identifier("Expected function name")?;
@@ -104,15 +104,29 @@ impl Parser {
         };
 
         // Function body
-        let body = self.block()?;
-        let end_pos = body.location.end;
+        self.consume(TokenType::LeftBrace, "Expected '{' before function body")?;
+        let body_start_pos = self.previous().location.start; // Position of '{'
 
+        let mut statements = Vec::new();
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            statements.push(self.statement()?);
+        }
+
+        self.consume(TokenType::RightBrace, "Expected '}' after function body")?;
+        let body_end_pos = self.previous().location.end; // Position of '}'
+        
+        let body = Block {
+            statements,
+            location: Location::new(body_start_pos, body_end_pos),
+        };
+
+        // The overall location of the function declaration is from the 'func' keyword to the closing '}' of the body.
         Ok(FunctionDeclaration {
             name,
             parameters,
             return_type,
             body,
-            location: Location::new(start_pos, end_pos),
+            location: Location::new(func_keyword_start_pos, body_end_pos),
         })
     }
 
@@ -200,7 +214,14 @@ impl Parser {
 
     /// Parse a statement
     fn statement(&mut self) -> Result<Statement, ParserError> {
-        if self.match_tokens(&[TokenType::LeftBrace]) {
+        if self.match_tokens(&[TokenType::Val, TokenType::Var]) {
+            // This is a variable declaration statement
+            // We need to capture the start location before consuming 'val'/'var'
+            // However, variable_declaration itself handles its full location.
+            // The previous token ('val' or 'var') is already consumed by match_tokens.
+            let var_decl = self.variable_declaration()?;
+            Ok(Statement::DeclarationStatement(Declaration::Variable(var_decl)))
+        } else if self.match_tokens(&[TokenType::LeftBrace]) {
             // Block statement
             self.block().map(Statement::Block)
         } else if self.match_tokens(&[TokenType::Return]) {
@@ -314,18 +335,21 @@ impl Parser {
 
     /// Parse a print statement
     fn print_statement(&mut self) -> Result<PrintStatement, ParserError> {
-        let start_pos = self.previous().location.start;
-        
-        // Print expression
-        self.consume(TokenType::LeftParen, "Expected '(' after 'println'")?;
-        let expression = Box::new(self.expression()?);
-        self.consume(TokenType::RightParen, "Expected ')' after print expression")?;
+        let start_pos = self.previous().location.start; // 'println' keyword
+        self.consume(TokenType::LeftParen, "Expected '(' after println keyword")?;
+
+        let arguments = if self.check(TokenType::RightParen) {
+            Vec::new() // No arguments
+        } else {
+            self.argument_list()? // Use existing argument_list helper
+        };
+
+        self.consume(TokenType::RightParen, "Expected ')' after println arguments")?;
         self.consume(TokenType::Semicolon, "Expected ';' after print statement")?;
-        
-        let end_pos = self.previous().location.end;
-        
+        let end_pos = self.previous().location.end; // Semicolon
+
         Ok(PrintStatement {
-            expression,
+            arguments, // Use the new field
             location: Location::new(start_pos, end_pos),
         })
     }
@@ -745,6 +769,16 @@ impl StatementLocation for Statement {
             Statement::If(stmt) => &stmt.location,
             Statement::While(stmt) => &stmt.location,
             Statement::Print(stmt) => &stmt.location,
+            Statement::DeclarationStatement(decl) => decl.location(), // Added this line
+        }
+    }
+}
+
+impl Declaration {
+    pub fn location(&self) -> &Location {
+        match self {
+            Declaration::Function(decl) => &decl.location,
+            Declaration::Variable(decl) => &decl.location,
         }
     }
 }
