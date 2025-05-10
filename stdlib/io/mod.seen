@@ -1,0 +1,20 @@
+// Seen Standard Library - I/O Module
+// Version 0.1 (Placeholder)
+
+// This module will provide functionalities for input and output operations,
+// such as reading from and writing to files, console I/O, etc.
+
+// Example structures and functions (conceptual):
+
+// pub struct File {
+//     // internal handle
+// }
+
+// pub func open(path: String) -> Result<File, Error>;
+// pub func (self: File) read(buffer: &mut [u8]) -> Result<usize, Error>;
+// pub func (self: File) write(buffer: &[u8]) -> Result<usize, Error>;
+// pub func (self: File) close() -> Result<(), Error>;
+
+// pub func println(text: String); // May be re-exported from core or defined here
+
+// More to come...

@@ -1,5 +1,5 @@
-use seen_parser::ast;
 use thiserror::Error;
+use inkwell::builder::BuilderError;
 
 /// Errors that can occur during code generation
 #[derive(Debug, Error)]
@@ -9,6 +9,9 @@ pub enum CodeGenError {
 
     #[error("Undefined symbol: {0}")]
     UndefinedSymbol(String),
+
+    #[error("LLVM Builder Error: {0}")]
+    BuilderError(#[from] BuilderError),
 
     #[error("Type mismatch: expected {expected}, got {actual}")]
     TypeMismatch {

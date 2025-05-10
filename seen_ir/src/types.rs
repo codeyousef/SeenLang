@@ -31,6 +31,7 @@ impl<'ctx> TypeSystem<'ctx> {
                     BasicTypeEnum::ArrayType(t) => t.array_type(10).into(),
                     BasicTypeEnum::StructType(t) => t.array_type(10).into(),
                     BasicTypeEnum::VectorType(t) => t.array_type(10).into(),
+                    BasicTypeEnum::ScalableVectorType(_) => todo!("Handle ScalableVectorType in array creation"),
                 };
                 
                 Ok(array_type)
@@ -47,7 +48,7 @@ impl<'ctx> TypeSystem<'ctx> {
             "string" => {
                 // In LLVM, strings are typically represented as pointers to character arrays
                 // For our MVP, we'll use i8 pointers to represent strings
-                Ok(self.context.i8_type().ptr_type(0.into()).into())
+                Ok(self.context.ptr_type(0.into()).into())
             }
             "void" => {
                 // For void return types, use a special case in the calling code
@@ -80,6 +81,6 @@ impl<'ctx> TypeSystem<'ctx> {
 
     /// Get the string type (pointer to i8)
     pub fn string_type(&self) -> inkwell::types::PointerType<'ctx> {
-        self.context.i8_type().ptr_type(0.into())
+        self.context.ptr_type(0.into())
     }
 }

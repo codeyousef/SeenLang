@@ -1,0 +1,3 @@
+[env]
+LLVM_SYS_181_LINK_LIBS = "LLVMipo;LLVMInstrumentation;LLVMVectorize;LLVMFrontendOpenMP;LLVMFrontendOffloading;LLVMLinker;LLVMCodeGen;LLVMTarget;LLVMScalarOpts;LLVMInstCombine;LLVMAggressiveInstCombine;LLVMObjCARCOpts;LLVMTransformUtils;LLVMCodeGenTypes;LLVMBitWriter;LLVMAnalysis;LLVMProfileData;LLVMSymbolize;LLVMDebugInfoBTF;LLVMDebugInfoPDB;LLVMDebugInfoMSF;LLVMDebugInfoDWARF;LLVMObject;LLVMTextAPI;LLVMMCParser;LLVMIRReader;LLVMAsmParser;LLVMMC;LLVMDebugInfoCodeView;LLVMBitReader;LLVMCore;LLVMRemarks;LLVMBitstreamReader;LLVMBinaryFormat;LLVMTargetParser;LLVMSupport;LLVMDemangle"
+LLVM_SYS_181_LINK_STATIC = "0"

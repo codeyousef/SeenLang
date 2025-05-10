@@ -36,4 +36,4 @@ tera = "1.19.1"
 colored = "2.1.0"
 
 # For LLVM bindings
-inkwell = { version = "0.2.0", features = ["llvm15-0"] }
+inkwell = { version = "0.6.0", features = ["llvm18-1"] }

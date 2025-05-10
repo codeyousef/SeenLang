@@ -107,8 +107,7 @@ fn compile_project(project_path: &Path, main_file: &Path, output_dir: &Path, con
     
     // Create LLVM context
     let context = inkwell::context::Context::create();
-    let mut codegen = seen_ir::CodeGenerator::new(&context, &config.name)
-        .context("Failed to create code generator")?;
+    let mut codegen = seen_ir::CodeGenerator::new(&context, &config.name);
     
     // Generate LLVM IR
     let module = codegen.generate(&ast)

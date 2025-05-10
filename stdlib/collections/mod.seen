@@ -1,0 +1,24 @@
+// Seen Standard Library - Collections Module
+// Version 0.1 (Placeholder)
+
+// This module will provide common data structures.
+
+// Example structures (conceptual):
+
+// pub struct Vector<T> {
+//     // internal implementation
+// }
+
+// pub func (self: &mut Vector<T>) push(value: T);
+// pub func (self: &Vector<T>) get(index: usize) -> Option<&T>;
+// // ... other vector methods
+
+// pub struct HashMap<K, V> {
+//     // internal implementation
+// }
+
+// pub func (self: &mut HashMap<K, V>) insert(key: K, value: V) -> Option<V>;
+// pub func (self: &HashMap<K, V>) get(key: &K) -> Option<&V>;
+// // ... other HashMap methods
+
+// More to come...

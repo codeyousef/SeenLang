@@ -1,0 +1,26 @@
+// Seen Standard Library - Core Module
+// Version 0.1 (Placeholder)
+
+// This module will contain fundamental types, traits, and functions
+// that are often part of the language's prelude or are essential for all programs.
+
+// Examples (actual implementation will be in Seen):
+
+// pub type Option<T> = enum {
+//     Some(T),
+//     None,
+// }
+
+// pub type Result<T, E> = enum {
+//     Ok(T),
+//     Err(E),
+// }
+
+// Basic integer, float, bool, char, String types will be defined or aliased here if not built-in.
+
+// pub func println(text: String) { /* ... */ }
+
+// Bilingual Example (Conceptual - how it might look in source)
+// pub func طباعة_سطر(نص: String) { /* ... */ }
+
+// More to come...

@@ -30,10 +30,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Also install dev packages and lldb
 RUN wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh && \
     chmod +x /tmp/llvm.sh && \
-    # Execute the script to add repo and install version 18 runtime/tools
+    # Execute the script to add repo and install specific version 18 runtime/tools
     # This handles the GPG key and sources list addition.
-    # It needs lsb-release and software-properties-common to be installed first.
-    /tmp/llvm.sh 18 && \
+    # We explicitly list components to avoid installing 'polly' by default.
+    /tmp/llvm.sh 18 llvm clang lld lldb && \
     # Install development files and lldb specifically after adding the repo
     apt-get update && \
     apt-get install -y --no-install-recommends \

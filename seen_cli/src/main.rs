@@ -1,11 +1,8 @@
 //! Command-line interface for the Seen programming language
 
 use clap::{Parser, Subcommand};
-use colored::*;
-use std::path::{Path, PathBuf};
-use anyhow::{Result, Context, bail};
-use std::process::Command;
-use std::fs;
+use std::path::PathBuf;
+use anyhow::Result;
 
 mod config;
 mod project;

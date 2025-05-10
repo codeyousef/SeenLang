@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-// Note: In inkwell 0.2.0, we use numeric address spaces
-use inkwell::passes::PassManager;
-use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::types::{BasicTypeEnum, BasicType};
 use inkwell::OptimizationLevel;
+use inkwell::passes::PassBuilderOptions;
+use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::Either;
+
 use seen_parser::ast::{self, Expression, Statement, Declaration, Program};
 use crate::error::{CodeGenError, Result};
 use crate::mapping::{map_binary_operator, map_unary_operator};
@@ -61,38 +63,22 @@ pub struct CodeGenerator<'ctx> {
     builder: Builder<'ctx>,
     type_system: TypeSystem<'ctx>,
     environment: Environment<'ctx>,
-    pass_manager: PassManager<FunctionValue<'ctx>>,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
     /// Create a new code generator
-    pub fn new(context: &'ctx Context, module_name: &str) -> Result<Self> {
-        let module = context.create_module(module_name);
+    pub fn new(context: &'ctx Context, module_name: &str) -> Self {
         let builder = context.create_builder();
-        let type_system = TypeSystem::new(context);
+        let module = context.create_module(module_name);
         let environment = Environment::new();
-        let pass_manager = PassManager::create(&module);
-
-        // Add optimization passes
-        pass_manager.add_instruction_combining_pass();
-        pass_manager.add_reassociate_pass();
-        pass_manager.add_gvn_pass();
-        pass_manager.add_cfg_simplification_pass();
-        pass_manager.add_basic_alias_analysis_pass();
-        pass_manager.add_promote_memory_to_register_pass();
-        pass_manager.add_instruction_combining_pass();
-        pass_manager.add_reassociate_pass();
-
-        pass_manager.initialize();
-
-        Ok(Self {
+        let type_system = TypeSystem::new(context);
+        CodeGenerator {
             context,
-            module,
             builder,
-            type_system,
+            module,
             environment,
-            pass_manager,
-        })
+            type_system,
+        }
     }
 
     /// Generate LLVM IR for a program
@@ -104,6 +90,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         for declaration in &program.declarations {
             self.generate_declaration(declaration)?;
         }
+
+        // Run optimization passes after all IR is generated.
+        self.run_optimization_passes()?;
 
         Ok(&self.module)
     }
@@ -176,7 +165,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             let param_ptr = self.create_entry_block_alloca(&param.name, param_value.get_type());
             
             // Store the parameter value in the alloca
-            self.builder.build_store(param_ptr, param_value);
+            self.builder.build_store(param_ptr, param_value)?;
 
             // Add the parameter to the environment
             self.environment.define(&param.name, param_ptr);
@@ -187,8 +176,6 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         // Verify the function
         if function.verify(true) {
-            // Run optimization passes on the function
-            self.pass_manager.run_on(&function);
             Ok(function)
         } else {
             // Remove the invalid function
@@ -221,9 +208,10 @@ impl<'ctx> CodeGenerator<'ctx> {
             BasicValueEnum::IntValue(v) => global.set_initializer(&v),
             BasicValueEnum::FloatValue(v) => global.set_initializer(&v),
             BasicValueEnum::PointerValue(v) => global.set_initializer(&v),
-            BasicValueEnum::StructValue(v) => global.set_initializer(&v),
             BasicValueEnum::ArrayValue(v) => global.set_initializer(&v),
+            BasicValueEnum::StructValue(v) => global.set_initializer(&v),
             BasicValueEnum::VectorValue(v) => global.set_initializer(&v),
+            BasicValueEnum::ScalableVectorValue(_) => todo!("Handle ScalableVectorValue initialization"),
         }
 
         // Set the linkage (internal for constants, external for variables)
@@ -264,56 +252,37 @@ impl<'ctx> CodeGenerator<'ctx> {
             Statement::Return(ret_stmt) => {
                 if let Some(expr) = &ret_stmt.value {
                     let return_value = self.generate_expression(expr)?;
-                    self.builder.build_return(Some(&return_value));
+                    self.builder.build_return(Some(&return_value))?;
                 } else {
-                    self.builder.build_return(None);
+                    self.builder.build_return(None)?;
                 }
                 Ok(())
             },
             Statement::If(if_stmt) => {
-                // Generate condition
-                let condition = self.generate_expression(&if_stmt.condition)?;
-                
-                // Convert condition to boolean (0 = false, 1 = true)
-                let condition_val = if condition.is_int_value() {
-                    let int_val = condition.into_int_value();
-                    self.builder.build_int_compare(
-                        inkwell::IntPredicate::NE,
-                        int_val,
-                        self.context.bool_type().const_zero(),
-                        "ifcond",
-                    )
-                } else {
-                    return Err(CodeGenError::TypeMismatch {
-                        expected: "boolean".to_string(),
-                        actual: "non-boolean".to_string(),
-                    });
-                };
+                let condition_val = self.generate_expression(&if_stmt.condition)?;
+                let condition_val = self.builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    condition_val.into_int_value(),
+                    self.type_system.bool_type().const_int(0, false),
+                    "ifcond",
+                )?;
 
-                // Get the current function
-                let function = self.builder
-                    .get_insert_block()
-                    .and_then(|block| block.get_parent())
-                    .ok_or_else(|| CodeGenError::CodeGeneration("Failed to get current function".to_string()))?;
+                let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
 
-                // Create basic blocks for the then, else, and merge
                 let then_block = self.context.append_basic_block(function, "then");
                 let else_block = self.context.append_basic_block(function, "else");
                 let merge_block = self.context.append_basic_block(function, "ifcont");
 
-                // Create the conditional branch
-                self.builder.build_conditional_branch(condition_val, then_block, else_block);
+                self.builder.build_conditional_branch(condition_val, then_block, else_block)?;
 
-                // Generate code for the then block
                 self.builder.position_at_end(then_block);
                 self.generate_statement(&if_stmt.then_branch)?;
-                
+
                 // Branch to merge block if not terminated
                 if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(merge_block);
+                    self.builder.build_unconditional_branch(merge_block)?;
                 }
 
-                // Generate code for the else block
                 self.builder.position_at_end(else_block);
                 if let Some(else_branch) = &if_stmt.else_branch {
                     self.generate_statement(else_branch)?;
@@ -321,197 +290,153 @@ impl<'ctx> CodeGenerator<'ctx> {
 
                 // Branch to merge block if not terminated
                 if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(merge_block);
+                    self.builder.build_unconditional_branch(merge_block)?;
                 }
 
-                // Continue from the merge block
                 self.builder.position_at_end(merge_block);
 
                 Ok(())
             },
             Statement::While(while_stmt) => {
-                // Get the current function
-                let function = self.builder
-                    .get_insert_block()
-                    .and_then(|block| block.get_parent())
-                    .ok_or_else(|| CodeGenError::CodeGeneration("Failed to get current function".to_string()))?;
+                let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
 
-                // Create basic blocks for the condition, loop, and merge
                 let cond_block = self.context.append_basic_block(function, "while.cond");
                 let loop_block = self.context.append_basic_block(function, "while.body");
                 let merge_block = self.context.append_basic_block(function, "while.end");
 
-                // Branch to the condition block
-                self.builder.build_unconditional_branch(cond_block);
+                self.builder.build_unconditional_branch(cond_block)?;
+
                 self.builder.position_at_end(cond_block);
+                let condition_val = self.generate_expression(&while_stmt.condition)?;
+                let condition_val = self.builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    condition_val.into_int_value(),
+                    self.type_system.bool_type().const_int(0, false),
+                    "whilecond",
+                )?;
 
-                // Generate condition
-                let condition = self.generate_expression(&while_stmt.condition)?;
-                
-                // Convert condition to boolean (0 = false, 1 = true)
-                let condition_val = if condition.is_int_value() {
-                    let int_val = condition.into_int_value();
-                    self.builder.build_int_compare(
-                        inkwell::IntPredicate::NE,
-                        int_val,
-                        self.context.bool_type().const_zero(),
-                        "whilecond",
-                    )
-                } else {
-                    return Err(CodeGenError::TypeMismatch {
-                        expected: "boolean".to_string(),
-                        actual: "non-boolean".to_string(),
-                    });
-                };
+                self.builder.build_conditional_branch(condition_val, loop_block, merge_block)?;
 
-                // Create the conditional branch
-                self.builder.build_conditional_branch(condition_val, loop_block, merge_block);
-
-                // Generate code for the loop block
                 self.builder.position_at_end(loop_block);
                 self.generate_statement(&while_stmt.body)?;
-                
+
                 // Branch back to the condition block if not terminated
                 if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(cond_block);
+                    self.builder.build_unconditional_branch(cond_block)?;
                 }
 
-                // Continue from the merge block
                 self.builder.position_at_end(merge_block);
 
                 Ok(())
             },
             Statement::Print(print_stmt) => {
-                // Generate the expression to print
-                let value = self.generate_expression(&print_stmt.expression)?;
+                if print_stmt.arguments.is_empty() {
+                    return Err(CodeGenError::InvalidASTNode {
+                        location: format!("{:?}", print_stmt.location),
+                        message: "Print statement has no arguments".to_string(),
+                    });
+                }
+
+                let mut llvm_values = Vec::with_capacity(print_stmt.arguments.len());
+                for arg_expr in &print_stmt.arguments {
+                    llvm_values.push(self.generate_expression(arg_expr)?);
+                }
                 
-                // Call the appropriate printf function based on the value type
-                self.build_printf_call(value)?;
-                
+                self.build_printf_call(&llvm_values)?;
                 Ok(())
             },
+            Statement::DeclarationStatement(decl) => self.generate_declaration(decl),
         }
     }
 
     /// Generate code for an expression
     fn generate_expression(&mut self, expression: &Expression) -> Result<BasicValueEnum<'ctx>> {
         match expression {
-            Expression::Assignment(assign_expr) => {
-                // Generate the value to assign
-                let value = self.generate_expression(&assign_expr.value)?;
-                
-                // Get the variable
-                let var_ptr = self.environment.get(&assign_expr.name)
-                    .ok_or_else(|| CodeGenError::UndefinedSymbol(assign_expr.name.clone()))?;
-                
-                // Store the value in the variable
-                self.builder.build_store(var_ptr, value);
-                
-                // The value of an assignment expression is the assigned value
-                Ok(value)
-            },
-            Expression::Binary(binary_expr) => {
-                // Generate code for the left and right operands
-                let left = self.generate_expression(&binary_expr.left)?;
-                let right = self.generate_expression(&binary_expr.right)?;
-                
-                // Map the operator to LLVM instructions
-                map_binary_operator(
-                    &binary_expr.operator,
-                    left,
-                    right,
-                    &self.builder,
-                    |msg| CodeGenError::UnsupportedOperation(msg),
-                )
-            },
-            Expression::Unary(unary_expr) => {
-                // Generate code for the operand
-                let operand = self.generate_expression(&unary_expr.operand)?;
-                
-                // Map the operator to LLVM instructions
-                map_unary_operator(
-                    &unary_expr.operator,
-                    operand,
-                    &self.builder,
-                    |msg| CodeGenError::UnsupportedOperation(msg),
-                )
-            },
-            Expression::Literal(literal) => {
-                match literal {
-                    ast::LiteralExpression::Number(num) => {
-                        if num.is_float {
-                            // Parse the floating-point value
-                            let float_val = num.value.parse::<f64>()
-                                .map_err(|_| CodeGenError::CodeGeneration(format!("Invalid float literal: {}", num.value)))?;
-                            
-                            // Create an LLVM float constant
+            Expression::Identifier(ident_expr) => {
+                let var_ptr = self.environment.get(&ident_expr.name).ok_or_else(|| {
+                    CodeGenError::UndefinedSymbol(format!("Undefined variable: {}", ident_expr.name))
+                })?;
+                // TODO: Retrieve actual type of var_ptr for build_load.
+                let loaded_value = self.builder.build_load(self.context.i64_type(), var_ptr, &ident_expr.name)?;
+                Ok(loaded_value)
+            }
+            Expression::Literal(lit_expr) => {
+                match lit_expr {
+                    ast::LiteralExpression::Number(num_lit) => {
+                        if num_lit.is_float {
+                            let float_val = num_lit.value.parse::<f64>()
+                                .map_err(|_| CodeGenError::CodeGeneration(format!("Invalid float literal: {}", num_lit.value)))?;
                             Ok(self.context.f64_type().const_float(float_val).into())
                         } else {
-                            // Parse the integer value
-                            let int_val = num.value.parse::<i64>()
-                                .map_err(|_| CodeGenError::CodeGeneration(format!("Invalid integer literal: {}", num.value)))?;
-                            
-                            // Create an LLVM integer constant
+                            let int_val = num_lit.value.parse::<i64>()
+                                .map_err(|_| CodeGenError::CodeGeneration(format!("Invalid integer literal: {}", num_lit.value)))?;
                             Ok(self.context.i64_type().const_int(int_val as u64, true).into())
                         }
-                    },
+                    }
                     ast::LiteralExpression::String(str_lit) => {
-                        // Create a global string constant
-                        let string_value = self.builder.build_global_string_ptr(&str_lit.value, "str");
-                        
-                        // Return the pointer to the string
+                        let string_value = self.builder.build_global_string_ptr(&str_lit.value, ".str")?;
                         Ok(string_value.as_pointer_value().into())
-                    },
+                    }
                     ast::LiteralExpression::Boolean(bool_lit) => {
-                        // Create an LLVM boolean constant
                         Ok(self.context.bool_type().const_int(bool_lit.value as u64, false).into())
-                    },
-                    ast::LiteralExpression::Null(_) => {
-                        // Create a null pointer
-                        Ok(self.context.i8_type().ptr_type(0.into()).const_null().into())
-                    },
+                    }
+                    ast::LiteralExpression::Null(_null_lit) => {
+                        Ok(self.context.ptr_type(0.into()).const_null().into())
+                    }
                 }
-            },
-            Expression::Identifier(ident) => {
-                // Get the variable from the environment
-                let var_ptr = self.environment.get(&ident.name)
-                    .ok_or_else(|| CodeGenError::UndefinedSymbol(ident.name.clone()))?;
-                
-                // Load the value from the variable
-                // In inkwell 0.2.0, we need a different approach to get the element type
-                // Just use i32 as a placeholder - this would need proper type tracking in production
-                let value = self.builder.build_load(self.context.i32_type(), var_ptr, &ident.name);
-                
-                Ok(value)
-            },
-            Expression::Call(call_expr) => {
-                // Look up the function in the module
-                let function = self.module.get_function(&call_expr.callee)
-                    .ok_or_else(|| CodeGenError::UndefinedSymbol(call_expr.callee.clone()))?;
-                
-                // Generate code for the arguments
-                let mut args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
-                for arg in &call_expr.arguments {
-                    args.push(self.generate_expression(arg)?.into());
+            }
+            Expression::Unary(unary_expr) => {
+                let operand_val = self.generate_expression(&unary_expr.operand)?;
+                let value_result = map_unary_operator(&unary_expr.operator, operand_val, &self.builder, |msg| {
+                    CodeGenError::UnsupportedOperation(msg)
+                });
+                Ok(value_result?)
+            }
+            Expression::Binary(binary_expr) => {
+                let left_val = self.generate_expression(&binary_expr.left)?;
+                let right_val = self.generate_expression(&binary_expr.right)?;
+                let value_result = map_binary_operator(&binary_expr.operator, left_val, right_val, &self.builder, |msg| {
+                    CodeGenError::UnsupportedOperation(msg)
+                });
+                Ok(value_result?)
+            }
+            Expression::Assignment(assign_expr) => { // assign_expr is AssignmentExpression
+                let var_ptr = self.environment.get(&assign_expr.name).ok_or_else(|| {
+                    CodeGenError::UndefinedSymbol(format!("Undefined variable for assignment: {}", assign_expr.name))
+                })?;
+                let val_to_assign = self.generate_expression(&assign_expr.value)?;
+                self.builder.build_store(var_ptr, val_to_assign)?;
+                Ok(val_to_assign)
+            }
+            Expression::Call(call_expr) => { // call_expr is CallExpression
+                let function = self.module.get_function(&call_expr.callee).ok_or_else(|| {
+                    CodeGenError::UndefinedSymbol(format!("Function '{}' not found", call_expr.callee))
+                })?;
+
+                let mut args = Vec::new();
+                for arg_expr in &call_expr.arguments {
+                    args.push(self.generate_expression(arg_expr)?.into());
                 }
-                
-                // Call the function
-                let call_site_value = self.builder.build_call(function, &args, "call")
-                    .try_as_basic_value()
-                    .left();
-                
-                match call_site_value {
-                    Some(value) => Ok(value),
-                    None => {
-                        // If the function returns void, return a dummy value
-                        Ok(self.context.i32_type().const_int(0, false).into())
-                    },
+
+                let call_site_value = self.builder.build_call(function, &args, "call")?;
+                // Check if the function returns void or a value
+                if function.get_type().get_return_type().is_some() {
+                    match call_site_value.try_as_basic_value() {
+                        Either::Left(basic_value) => Ok(basic_value),
+                        Either::Right(_) => Err(CodeGenError::CodeGeneration(
+                            "Call did not produce a basic value as expected".to_string(),
+                        )),
+                    }
+                } else {
+                    // If function is void, we can't return its value.
+                    // For now, returning a dummy i32 zero. This might need adjustment
+                    // depending on how void calls are handled in expressions.
+                    Ok(self.context.i32_type().const_zero().into())
                 }
-            },
+            }
             Expression::Parenthesized(paren_expr) => {
-                // Simply generate code for the inner expression
                 self.generate_expression(&paren_expr.expression)
-            },
+            }
         }
     }
 
@@ -544,54 +469,82 @@ impl<'ctx> CodeGenerator<'ctx> {
             },
         }
         
-        builder.build_alloca(ty, name)
+        builder.build_alloca(ty, name).expect("Failed to build alloca")
     }
 
     /// Declare the printf function for use in print statements
     fn declare_printf(&self) -> FunctionValue<'ctx> {
-        // Check if printf is already declared
         if let Some(printf) = self.module.get_function("printf") {
             return printf;
         }
 
-        // Create the printf function type:
-        // int printf(const char *format, ...);
         let printf_type = self.context.i32_type().fn_type(
-            &[self.context.i8_type().ptr_type(0.into()).into()],
-            true,
+            &[self.context.ptr_type(inkwell::AddressSpace::default()).into()], // Format string (char*)
+            true, // is_var_args
         );
 
-        // Declare the printf function
         self.module.add_function("printf", printf_type, None)
     }
 
-    /// Build a call to printf with the appropriate format string
-    fn build_printf_call(&self, value: BasicValueEnum<'ctx>) -> Result<()> {
+    /// Build a call to printf with the appropriate format string for multiple values
+    fn build_printf_call(&self, values: &[BasicValueEnum<'ctx>]) -> Result<()> {
         let printf = self.declare_printf();
         
-        let format_string = match value {
-            BasicValueEnum::IntValue(_) => {
-                self.builder.build_global_string_ptr("%lld\n", "int_format")
-            },
-            BasicValueEnum::FloatValue(_) => {
-                self.builder.build_global_string_ptr("%lf\n", "float_format")
-            },
-            BasicValueEnum::PointerValue(_) => {
-                // Assume pointer to string
-                self.builder.build_global_string_ptr("%s\n", "str_format")
-            },
-            _ => {
-                return Err(CodeGenError::UnsupportedOperation(
-                    "Cannot print this type of value".to_string()
-                ));
-            },
-        };
+        if values.is_empty() {
+            // Optionally, print just a newline or handle as an error/do nothing
+            let format_string_ptr = self.builder.build_global_string_ptr("\n", "empty_print_format")?;
+            self.builder.build_call(
+                printf,
+                &[format_string_ptr.as_pointer_value().into()],
+                "printf_call_empty",
+            )?;
+            return Ok(());
+        }
+
+        let mut format_string = String::new();
+        let mut call_args = Vec::with_capacity(values.len() + 1);
+
+        for (i, value) in values.iter().enumerate() {
+            match value {
+                BasicValueEnum::IntValue(iv) => {
+                    // Check if it's a boolean (i1). If so, print true/false string or 0/1.
+                    // For simplicity here, we'll print 0/1 for i1, and decimal for others.
+                    // A more robust solution would involve type information from the AST.
+                    if iv.get_type().get_bit_width() == 1 {
+                        format_string.push_str("%d"); // or handle as string "true"/"false"
+                    } else {
+                        format_string.push_str("%lld"); // long long for i64, standard for others
+                    }
+                },
+                BasicValueEnum::FloatValue(_) => {
+                    format_string.push_str("%f"); // %f for double, %lf is for scanf
+                },
+                BasicValueEnum::PointerValue(_pv) => {
+                    // Assuming pointer is a C string (char*)
+                    // A more robust system would check the actual pointed-to type.
+                    // Especially if you have pointers to other things like structs/arrays.
+                    format_string.push_str("%s");
+                },
+                _ => {
+                    return Err(CodeGenError::UnsupportedOperation(
+                        format!("Cannot print value of type {:?} at argument {}", value.get_type(), i)
+                    ));
+                },
+            }
+            if i < values.len() - 1 {
+                format_string.push(' '); // Add a space between format specifiers
+            }
+        }
+        format_string.push('\n'); // Add a newline at the end
+
+        let format_string_ptr = self.builder.build_global_string_ptr(&format_string, "dynamic_format_str")?;
+        call_args.push(format_string_ptr.as_pointer_value().into());
+
+        for value in values {
+            call_args.push((*value).into());
+        }
         
-        self.builder.build_call(
-            printf,
-            &[format_string.as_pointer_value().into(), value.into()],
-            "printf_call",
-        );
+        self.builder.build_call(printf, &call_args, "printf_call_multi")?;
         
         Ok(())
     }
@@ -599,7 +552,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     /// Compile the generated module to an object file
     pub fn compile_to_object(&self, filename: &str) -> Result<()> {
         let target_triple = inkwell::targets::TargetMachine::get_default_triple();
-        
+
         inkwell::targets::Target::initialize_all(&inkwell::targets::InitializationConfig::default());
         
         let target = inkwell::targets::Target::from_triple(&target_triple)
@@ -619,6 +572,54 @@ impl<'ctx> CodeGenerator<'ctx> {
         target_machine
             .write_to_file(&self.module, inkwell::targets::FileType::Object, filename.as_ref())
             .map_err(|e| CodeGenError::CodeGeneration(format!("Failed to write object file: {:?}", e)))?;
+        
+        Ok(())
+    }
+
+    fn run_optimization_passes(&self) -> Result<()> {
+        // Initialize all targets for the current platform.
+        Target::initialize_native(&InitializationConfig::default())
+            .map_err(|e| CodeGenError::CodeGeneration(format!("Failed to initialize native target: {:?}", e)))?;
+
+        let target_triple = TargetMachine::get_default_triple();
+        let target = Target::from_triple(&target_triple)
+            .map_err(|e| CodeGenError::CodeGeneration(format!("Failed to create target from triple: {:?}", e)))?;
+        
+        // Create a target machine for the host
+        // TODO: Allow specifying target CPU and features, or use a more generic target for broader compatibility if needed.
+        let target_machine = target.create_target_machine(
+                &target_triple, 
+                "generic", // Use "native" for host CPU, or "generic" for general compatibility
+                "", // CPU features. Use "+avx2" for example, or an empty string for no specific features.
+                OptimizationLevel::Default, // This opt level is for the TM, passes are specified below
+                RelocMode::Default, // Or RelocMode::PIC for position-independent code
+                CodeModel::Default, // Or CodeModel::Small, Medium, Large
+            ).ok_or_else(|| CodeGenError::CodeGeneration("Failed to create target machine".to_string()))?;
+
+        // Define the sequence of passes to run.
+        // These are common and generally safe starting passes.
+        let passes = [
+            "instcombine",       // Combine redundant instructions
+            "reassociate",       // Reassociate expressions
+            "gvn",               // Global Value Numbering
+            "simplifycfg",       // Simplify control-flow graph
+            "mem2reg",           // Promote memory to registers (SROA)
+            // Add more passes as needed, e.g.:
+            // "early-cse",         // Early Common Subexpression Elimination
+            // "loop-simplify",     // Simplify loops
+            // "loop-unroll",       // Unroll loops
+            // "sccp",              // Sparse Conditional Constant Propagation
+            // "adce",              // Aggressive Dead Code Elimination
+            // "dce"                // Dead Code Elimination
+        ].join(",");
+
+        let pass_builder_options = PassBuilderOptions::create();
+        // Example: Set optimization level for the pass pipeline if desired
+        // pass_builder_options.set_optimization_level(OptimizationLevel::Aggressive);
+        // pass_builder_options.set_verify_each(true); // For debugging passes
+
+        self.module.run_passes(&passes, &target_machine, pass_builder_options)
+            .map_err(|e_str| CodeGenError::CodeGeneration(format!("Failed to run optimization passes: {}", e_str)))?;
         
         Ok(())
     }
