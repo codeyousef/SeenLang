@@ -12,10 +12,18 @@ inkwell = { version = "0.6.0", features = ["llvm18-1"] }
 seen_parser = { path = "../seen_parser" }
 
 # Error handling
-thiserror = "2.0.12"
+thiserror = { workspace = true }
 
 # Serialization/Deserialization
-serde = { version = "1.0", features = ["derive"] }
+serde = { workspace = true }
 
 # Logging
-log = "0.4"
+log = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+test-case = { workspace = true }
+rstest = { workspace = true }
+insta = { workspace = true }
+tempfile = { workspace = true }

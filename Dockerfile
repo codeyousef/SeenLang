@@ -1,5 +1,5 @@
 # Use the official Rust image as a base.
-FROM rust:1.78-bookworm
+FROM rust:1.88-bookworm
 
 # Set a working directory in the container
 WORKDIR /usr/src/app

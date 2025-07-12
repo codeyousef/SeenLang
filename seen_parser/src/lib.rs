@@ -7,6 +7,7 @@ pub mod ast;
 pub mod parser;
 
 pub use parser::{Parser, ParserError};
+pub use parse as parse_program;
 
 /// Parse a sequence of tokens into an AST
 pub fn parse(tokens: Vec<seen_lexer::token::Token>) -> Result<ast::Program, parser::ParserError> {
@@ -730,3 +731,5 @@ mod tests {
     }
 
 }
+
+

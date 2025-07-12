@@ -7,9 +7,17 @@ edition = "2021"
 seen_lexer = { path = "../seen_lexer" }
 seen_parser = { path = "../seen_parser" }
 seen_ir = { path = "../seen_ir" }
-# Optional: if you use LLVM
-inkwell = { version = "0.6.0", features = ["llvm18-1"] } 
+# Optional: if you use LLVM (disabled due to Polly dependency issue)
+# inkwell = { version = "0.6.0", features = ["llvm18-1"] } 
 # For error handling
-thiserror = "2.0.12"
+thiserror = { workspace = true }
 # For source code location tracking (spans)
 codespan-reporting = "0.12.0"
+
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+test-case = { workspace = true }
+rstest = { workspace = true }
+insta = { workspace = true }
+tempfile = { workspace = true }

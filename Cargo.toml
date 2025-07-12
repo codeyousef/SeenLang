@@ -3,6 +3,8 @@ members = [
     "seen_compiler", # Core compiler logic
     "seen_lexer",    # Lexical analysis (tokenizer)
     "seen_parser",   # Syntax analysis (AST generation)
+    "seen_typechecker", # Type system and checking
+    "seen_interpreter", # Tree-walking interpreter
     "seen_ir",       # Intermediate Representation(s)
     "seen_cli"       # Command-line interface tool
     # Add more crates as needed, e.g., for static analysis, standard library
@@ -10,8 +12,33 @@ members = [
 
 resolver = "2" # Use the new feature resolver for better dependency management
 
+[workspace.dependencies]
+# Testing dependencies
+proptest = "1.5"
+criterion = { version = "0.6.0", features = ["html_reports"] }
+mockall = "0.13"
+pretty_assertions = "1.4"
+test-case = "3.3"
+rstest = "0.25.0"
+insta = { version = "1.41", features = ["yaml"] }
+tempfile = "3.19"
+
+# Common dependencies
+thiserror = "2.0"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
 [profile.release]
 lto = true           # Enable Link Time Optimization for release builds
 codegen-units = 1    # Optimize for binary size and runtime speed (slower compile)
 panic = "abort"      # Abort on panic for smaller binaries
 strip = true         # Strip symbols from the binary
+
+[profile.test]
+opt-level = 1        # Some optimization for faster test execution
+
+[profile.bench]
+opt-level = 3        # Maximum optimization for benchmarks
