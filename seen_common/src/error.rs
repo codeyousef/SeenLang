@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
-use serde::{Serialize, Deserialize};
 
 /// Represents a position in the source code
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

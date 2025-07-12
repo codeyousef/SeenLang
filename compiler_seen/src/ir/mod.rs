@@ -4,11 +4,11 @@
 // This file will re-export key components of the IR for easier access
 // from other parts of the compiler.
 
-pub mod types;
-pub mod instruction;
 pub mod basic_block;
 pub mod function;
+pub mod instruction;
 pub mod module;
+pub mod types;
 
 // Example re-exports (to be filled in as structs are defined):
 // pub use types::IrType;

@@ -9,28 +9,36 @@ pub enum Operand {
     Constant(ConstantValue),
     Register(VirtualRegister), // Represents a value held in a virtual register (SSA form)
     // GlobalSymbol(String),    // For global variables/functions, might be needed directly
-    Label(BasicBlockId),  // For branch targets
+    Label(BasicBlockId), // For branch targets
 }
 
 /// Represents a constant value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstantValue {
     Bool(bool),
-    I8(i8), I16(i16), I32(i32), I64(i64), I128(i128),
-    U8(u8), U16(u16), U32(u32), U64(u64), U128(u128),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    I128(i128),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
     F32(f32), // Note: f32/f64 PartialEq is tricky due to NaN. Consider wrapping in a struct that handles this.
     F64(f64),
     Char(char),
     StringLiteral(String), // For global string constants, actual storage might be elsewhere
-    NullPtr(Box<IrType>),   // Null pointer of a specific pointer type
-    Undef(Box<IrType>),   // Undefined value of a specific type
+    NullPtr(Box<IrType>),  // Null pointer of a specific pointer type
+    Undef(Box<IrType>),    // Undefined value of a specific type
 }
 
 /// Uniquely identifies a virtual register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VirtualRegister {
     pub id: u32, // Simple unique ID for now
-    // pub ty: IrType, // Type might be stored with the register definition or here
+                 // pub ty: IrType, // Type might be stored with the register definition or here
 }
 
 /// Uniquely identifies a basic block.
@@ -79,28 +87,49 @@ impl Instruction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpCode {
     // Binary Arithmetic (result, op1, op2)
-    Add, Sub, Mul, Div, SDiv, UDiv, Rem, SRem, URem,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    SDiv,
+    UDiv,
+    Rem,
+    SRem,
+    URem,
     // Bitwise (result, op1, op2)
-    And, Or, Xor, Shl, LShr, AShr, // Logical Shift Right, Arithmetic Shift Right
+    And,
+    Or,
+    Xor,
+    Shl,
+    LShr,
+    AShr, // Logical Shift Right, Arithmetic Shift Right
     // Unary (result, op1)
-    Neg, Not,
+    Neg,
+    Not,
 
     // Memory (address is usually an operand; value for store is an operand)
-    Alloc, // result_ptr = alloc <type>, <size_bytes_operand>
-    Load,  // result_val = load <type>, <ptr_operand>
-    Store, // store <type>, <val_operand>, <ptr_operand> (no result register)
+    Alloc,         // result_ptr = alloc <type>, <size_bytes_operand>
+    Load,          // result_val = load <type>, <ptr_operand>
+    Store,         // store <type>, <val_operand>, <ptr_operand> (no result register)
     GetElementPtr, // result_ptr = getelementptr <type>, <base_ptr_op>, <idx_op1>, ...
 
     // Terminator Instructions (operands vary)
-    Br,          // br <label_target_block_operand>
-    BrCond,      // br_cond <cond_operand>, <label_true_block_op>, <label_false_block_op>
-    Return,      // return [val_operand_opt]
-    Unreachable, 
+    Br,     // br <label_target_block_operand>
+    BrCond, // br_cond <cond_operand>, <label_true_block_op>, <label_false_block_op>
+    Return, // return [val_operand_opt]
+    Unreachable,
 
     // Conversion (result, op1)
-    CastIntTrunc, CastIntSignExt, CastIntZeroExt,
-    CastIntToFloat, CastFloatToInt, CastFloatTrunc, CastFloatExt, 
-    CastPtrToInt, CastIntToPtr, CastBitcast,
+    CastIntTrunc,
+    CastIntSignExt,
+    CastIntZeroExt,
+    CastIntToFloat,
+    CastFloatToInt,
+    CastFloatTrunc,
+    CastFloatExt,
+    CastPtrToInt,
+    CastIntToPtr,
+    CastBitcast,
 
     // Call (result_opt, func_name_or_ptr_op, arg_op1, arg_op2, ...)
     Call,
@@ -113,7 +142,7 @@ pub enum OpCode {
     Fcmp, // Float comparison (requires a predicate: OEq, ONe, Olt, Ogt, Ole, Oge, UEQ, UNE, etc.)
 
     // Move/Assign operation
-    Mov,  // result = mov <operand>
+    Mov, // result = mov <operand>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,9 +1,9 @@
 // compiler_seen/src/ir/function.rs
 // Defines a Function in the IR, which contains Basic Blocks, arguments, etc.
 
-use super::types::IrType;
 use super::basic_block::{BasicBlock, BasicBlockId};
 use super::instruction::VirtualRegister;
+use super::types::IrType;
 // use super::module::ModuleId; // If needed for context
 
 /// Represents a Function in the IR.
@@ -13,18 +13,18 @@ pub struct Function {
     // pub parent_module: ModuleId, // ID of the module this function belongs to
     pub parameters: Vec<Parameter>,
     pub return_type: IrType,
-    
+
     pub basic_blocks: Vec<BasicBlock>, // Owned by the function
     pub entry_block_id: Option<BasicBlockId>,
-    
+
     pub local_vars: Vec<LocalVarAllocation>, // For stack-allocated variables not in SSA registers initially
-    next_virtual_reg_id: u32, // Counter for allocating new virtual registers
-    next_basic_block_id: u32, // Counter for allocating new basic block IDs
+    next_virtual_reg_id: u32,                // Counter for allocating new virtual registers
+    next_basic_block_id: u32,                // Counter for allocating new basic block IDs
 }
 
 #[derive(Debug, Clone)]
 pub struct Parameter {
-    pub name: String,            // Original parameter name (for debugging)
+    pub name: String, // Original parameter name (for debugging)
     pub ty: IrType,
     pub register: VirtualRegister, // Virtual register holding this parameter's value at entry
 }
@@ -33,11 +33,11 @@ pub struct Parameter {
 /// These are variables whose address might be taken or that are not (yet) promoted to SSA registers.
 #[derive(Debug, Clone)]
 pub struct LocalVarAllocation {
-    pub name: Option<String>,      // Original variable name (for debugging)
-    pub ty: IrType,                // Type of the allocated variable (the type pointed to by the alloca)
+    pub name: Option<String>, // Original variable name (for debugging)
+    pub ty: IrType,           // Type of the allocated variable (the type pointed to by the alloca)
     pub alloca_result_reg: VirtualRegister, // The virtual register holding the pointer from the 'alloca' instruction
-    // pub size: Option<u32>,      // Size in bytes, if known at compile time (might be dynamic for VLAs)
-    // pub alignment: Option<u32>,
+                                            // pub size: Option<u32>,      // Size in bytes, if known at compile time (might be dynamic for VLAs)
+                                            // pub alignment: Option<u32>,
 }
 
 impl Function {
@@ -57,7 +57,11 @@ impl Function {
 
     pub fn add_parameter(&mut self, name: String, ty: IrType) -> VirtualRegister {
         let reg = self.new_virtual_register();
-        self.parameters.push(Parameter { name, ty, register: reg });
+        self.parameters.push(Parameter {
+            name,
+            ty,
+            register: reg,
+        });
         reg
     }
 

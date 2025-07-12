@@ -7,12 +7,21 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IrType {
     // Primitive Types
-    Void,      // Represents the absence of a type, e.g., for functions not returning a value.
-    Bool,      // Boolean type
-    I8, I16, I32, I64, I128, // Signed integers
-    U8, U16, U32, U64, U128, // Unsigned integers
-    F32, F64,               // Floating-point numbers
-    Char,                  // Unicode character
+    Void, // Represents the absence of a type, e.g., for functions not returning a value.
+    Bool, // Boolean type
+    I8,
+    I16,
+    I32,
+    I64,
+    I128, // Signed integers
+    U8,
+    U16,
+    U32,
+    U64,
+    U128, // Unsigned integers
+    F32,
+    F64,  // Floating-point numbers
+    Char, // Unicode character
 
     Ptr(Box<IrType>), // Pointer to another IrType (e.g., Ptr(Box::new(IrType::I32)) for an i32*)
 
@@ -32,7 +41,7 @@ pub enum IrType {
         return_type: Box<IrType>,
         // is_var_arg: bool, // For C-style varargs, if ever needed
     },
-    
+
     // Special type for labels (basic blocks)
     Label,
 }
@@ -40,8 +49,19 @@ pub enum IrType {
 impl IrType {
     /// Returns true if the type is an integer type.
     pub fn is_integer(&self) -> bool {
-        matches!(self, IrType::I8 | IrType::I16 | IrType::I32 | IrType::I64 | IrType::I128 |
-                       IrType::U8 | IrType::U16 | IrType::U32 | IrType::U64 | IrType::U128)
+        matches!(
+            self,
+            IrType::I8
+                | IrType::I16
+                | IrType::I32
+                | IrType::I64
+                | IrType::I128
+                | IrType::U8
+                | IrType::U16
+                | IrType::U32
+                | IrType::U64
+                | IrType::U128
+        )
     }
 
     /// Returns true if the type is a floating-point type.

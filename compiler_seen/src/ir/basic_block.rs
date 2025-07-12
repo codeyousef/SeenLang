@@ -2,20 +2,19 @@
 // Defines Basic Blocks, which are sequences of non-branching instructions
 // followed by a single terminator instruction.
 
-use super::instruction::{Instruction, BasicBlockId};
+use super::instruction::{BasicBlockId, Instruction};
 // use super::function::FunctionId; // If needed for context
 
 /// Represents a Basic Block in the Control Flow Graph (CFG).
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
-    pub id: BasicBlockId,         // Unique identifier for this block
+    pub id: BasicBlockId, // Unique identifier for this block
     // pub parent_function: FunctionId, // ID of the function this block belongs to
     pub instructions: Vec<Instruction>, // Instructions in this block, terminator is last
-    
+
     // For CFG construction - these would store BasicBlockIds
     pub predecessors: Vec<BasicBlockId>,
     pub successors: Vec<BasicBlockId>,
-
     // pub name: Option<String>, // Optional name for debugging (e.g., "entry", "loop.header")
 }
 
@@ -41,11 +40,12 @@ impl BasicBlock {
     /// A well-formed basic block must end with a terminator instruction.
     pub fn get_terminator(&self) -> Option<&Instruction> {
         self.instructions.last().filter(|instr| {
-            matches!(instr.opcode, 
-                super::instruction::OpCode::Br |
-                super::instruction::OpCode::BrCond |
-                super::instruction::OpCode::Return |
-                super::instruction::OpCode::Unreachable
+            matches!(
+                instr.opcode,
+                super::instruction::OpCode::Br
+                    | super::instruction::OpCode::BrCond
+                    | super::instruction::OpCode::Return
+                    | super::instruction::OpCode::Unreachable
             )
         })
     }

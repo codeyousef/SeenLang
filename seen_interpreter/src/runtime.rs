@@ -1,9 +1,9 @@
 //! Runtime environment for the Seen interpreter
 
-use std::collections::HashMap;
-use crate::value::Value;
 use crate::errors::InterpreterError;
+use crate::value::Value;
 use seen_lexer::token::Location;
+use std::collections::HashMap;
 
 /// The runtime environment for executing Seen programs
 #[derive(Debug, Clone)]

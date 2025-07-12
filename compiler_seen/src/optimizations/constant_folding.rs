@@ -1,8 +1,8 @@
 // compiler_seen/src/optimizations/constant_folding.rs
 // Implements the constant folding optimization pass.
 
-use crate::ir::instruction::{Instruction, Operand, ConstantValue, OpCode, ComparisonPredicate, IntegerComparePredicate, FloatComparePredicate};
 use crate::ir::function::Function;
+use crate::ir::instruction::{ComparisonPredicate, ConstantValue, FloatComparePredicate, Instruction, IntegerComparePredicate, OpCode, Operand};
 use crate::ir::module::Module;
 use crate::ir::types::IrType;
 
@@ -279,9 +279,9 @@ impl ConstantValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::function::Function;
     use crate::ir::basic_block::BasicBlockId;
-    use crate::ir::instruction::{Instruction, OpCode, Operand, VirtualRegister, ConstantValue};
+    use crate::ir::function::Function;
+    use crate::ir::instruction::{ConstantValue, Instruction, OpCode, Operand, VirtualRegister};
     use crate::ir::types::IrType;
 
     // Helper to create a simple function with one basic block and specific instructions

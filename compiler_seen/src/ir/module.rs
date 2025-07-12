@@ -7,7 +7,7 @@ use super::types::IrType;
 /// Represents a compilation unit (e.g., a single Seen file or a linked set of files).
 #[derive(Debug, Clone)]
 pub struct Module {
-    pub name: String, // Name of the module (e.g., file path or package name)
+    pub name: String,             // Name of the module (e.g., file path or package name)
     pub functions: Vec<Function>, // Functions defined in this module
     pub global_variables: Vec<GlobalVariable>,
     // pub struct_declarations: Vec<StructDeclaration>, // Definitions of struct types used in this module
@@ -19,10 +19,10 @@ pub struct Module {
 pub struct GlobalVariable {
     pub name: String,
     pub ty: IrType, // Type of the global variable (must be sized)
-    // pub initializer: Option<ConstantValue>, // Optional initializer (must be a constant)
-    // pub linkage: LinkageType, // e.g., Public, Private, External
-    // pub is_constant: bool, // If the global is a constant
-    // pub thread_local: bool,
+                    // pub initializer: Option<ConstantValue>, // Optional initializer (must be a constant)
+                    // pub linkage: LinkageType, // e.g., Public, Private, External
+                    // pub is_constant: bool, // If the global is a constant
+                    // pub thread_local: bool,
 }
 
 // enum LinkageType { Public, PrivateInternal, External, ... }

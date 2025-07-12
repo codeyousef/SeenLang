@@ -1,8 +1,8 @@
-use seen_lexer::{Lexer, KeywordManager};
+use seen_interpreter::interpret_program;
 use seen_lexer::keyword_config::KeywordConfig;
+use seen_lexer::{KeywordManager, Lexer};
 use seen_parser::Parser;
 use seen_typechecker::type_check_program;
-use seen_interpreter::interpret_program;
 use std::path::PathBuf;
 
 fn create_test_keyword_manager() -> KeywordManager {

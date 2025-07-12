@@ -5,10 +5,10 @@ pub mod interpreter;
 pub mod value;
 pub mod errors;
 
+pub use errors::{InterpreterError, RuntimeError};
 pub use interpreter::Interpreter;
 pub use runtime::Runtime;
 pub use value::Value;
-pub use errors::{InterpreterError, RuntimeError};
 
 /// Result of interpreting a program
 #[derive(Debug, Clone)]

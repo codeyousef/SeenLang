@@ -1,45 +1,28 @@
 //! Error definitions for the Seen interpreter
 
-use thiserror::Error;
 use seen_lexer::token::Location;
+use thiserror::Error;
 
 /// Errors that can occur during interpretation
 #[derive(Debug, Clone, Error)]
 pub enum InterpreterError {
     #[error("Runtime error: {message} at {location}")]
-    Runtime {
-        message: String,
-        location: Location,
-    },
+    Runtime { message: String, location: Location },
 
     #[error("Type error: {message} at {location}")]
-    Type {
-        message: String,
-        location: Location,
-    },
+    Type { message: String, location: Location },
 
     #[error("Undefined variable '{name}' at {location}")]
-    UndefinedVariable {
-        name: String,
-        location: Location,
-    },
+    UndefinedVariable { name: String, location: Location },
 
     #[error("Undefined function '{name}' at {location}")]
-    UndefinedFunction {
-        name: String,
-        location: Location,
-    },
+    UndefinedFunction { name: String, location: Location },
 
     #[error("Division by zero at {location}")]
-    DivisionByZero {
-        location: Location,
-    },
+    DivisionByZero { location: Location },
 
     #[error("Array index out of bounds: index {index} at {location}")]
-    IndexOutOfBounds {
-        index: usize,
-        location: Location,
-    },
+    IndexOutOfBounds { index: usize, location: Location },
 
     #[error("Invalid operation: {operation} on {value_type} at {location}")]
     InvalidOperation {
@@ -57,20 +40,13 @@ pub enum InterpreterError {
     },
 
     #[error("Stack overflow at {location}")]
-    StackOverflow {
-        location: Location,
-    },
+    StackOverflow { location: Location },
 
     #[error("Return statement outside function at {location}")]
-    ReturnOutsideFunction {
-        location: Location,
-    },
+    ReturnOutsideFunction { location: Location },
 
     #[error("IO error: {message} at {location}")]
-    IO {
-        message: String,
-        location: Location,
-    },
+    IO { message: String, location: Location },
 }
 
 /// Runtime errors that can occur during interpretation
@@ -143,12 +119,26 @@ impl InterpreterError {
 
     /// Create an invalid operation error
     pub fn invalid_operation(operation: String, value_type: String, location: Location) -> Self {
-        Self::InvalidOperation { operation, value_type, location }
+        Self::InvalidOperation {
+            operation,
+            value_type,
+            location,
+        }
     }
 
     /// Create an argument count mismatch error
-    pub fn argument_count_mismatch(name: String, expected: usize, actual: usize, location: Location) -> Self {
-        Self::ArgumentCountMismatch { name, expected, actual, location }
+    pub fn argument_count_mismatch(
+        name: String,
+        expected: usize,
+        actual: usize,
+        location: Location,
+    ) -> Self {
+        Self::ArgumentCountMismatch {
+            name,
+            expected,
+            actual,
+            location,
+        }
     }
 
     /// Create a stack overflow error
@@ -169,17 +159,17 @@ impl InterpreterError {
     /// Get the location where this error occurred
     pub fn location(&self) -> &Location {
         match self {
-            InterpreterError::Runtime { location, .. } |
-            InterpreterError::Type { location, .. } |
-            InterpreterError::UndefinedVariable { location, .. } |
-            InterpreterError::UndefinedFunction { location, .. } |
-            InterpreterError::DivisionByZero { location } |
-            InterpreterError::IndexOutOfBounds { location, .. } |
-            InterpreterError::InvalidOperation { location, .. } |
-            InterpreterError::ArgumentCountMismatch { location, .. } |
-            InterpreterError::StackOverflow { location } |
-            InterpreterError::ReturnOutsideFunction { location } |
-            InterpreterError::IO { location, .. } => location,
+            InterpreterError::Runtime { location, .. }
+            | InterpreterError::Type { location, .. }
+            | InterpreterError::UndefinedVariable { location, .. }
+            | InterpreterError::UndefinedFunction { location, .. }
+            | InterpreterError::DivisionByZero { location }
+            | InterpreterError::IndexOutOfBounds { location, .. }
+            | InterpreterError::InvalidOperation { location, .. }
+            | InterpreterError::ArgumentCountMismatch { location, .. }
+            | InterpreterError::StackOverflow { location }
+            | InterpreterError::ReturnOutsideFunction { location }
+            | InterpreterError::IO { location, .. } => location,
         }
     }
 }
@@ -189,20 +179,28 @@ impl From<RuntimeError> for InterpreterError {
         let location = Location::from_positions(0, 0, 0, 0);
         match error {
             RuntimeError::DivisionByZero => InterpreterError::division_by_zero(location),
-            RuntimeError::IndexOutOfBounds(index, _length) => InterpreterError::index_out_of_bounds(index as usize, location),
-            RuntimeError::InvalidOperation { operation, value_type } => {
-                InterpreterError::invalid_operation(operation, value_type, location)
+            RuntimeError::IndexOutOfBounds(index, _length) => {
+                InterpreterError::index_out_of_bounds(index as usize, location)
             }
-            RuntimeError::UndefinedVariable { name } => InterpreterError::undefined_variable(name, location),
-            RuntimeError::UndefinedFunction { name } => InterpreterError::undefined_function(name, location),
+            RuntimeError::InvalidOperation {
+                operation,
+                value_type,
+            } => InterpreterError::invalid_operation(operation, value_type, location),
+            RuntimeError::UndefinedVariable { name } => {
+                InterpreterError::undefined_variable(name, location)
+            }
+            RuntimeError::UndefinedFunction { name } => {
+                InterpreterError::undefined_function(name, location)
+            }
             RuntimeError::TypeError { message } => InterpreterError::type_error(message, location),
             RuntimeError::StackOverflow => InterpreterError::stack_overflow(location),
-            RuntimeError::ReturnOutsideFunction => InterpreterError::return_outside_function(location),
+            RuntimeError::ReturnOutsideFunction => {
+                InterpreterError::return_outside_function(location)
+            }
             RuntimeError::IO { message } => InterpreterError::io_error(message, location),
-            RuntimeError::NotImplemented(feature) => InterpreterError::runtime(
-                format!("Not implemented: {}", feature), 
-                location
-            ),
+            RuntimeError::NotImplemented(feature) => {
+                InterpreterError::runtime(format!("Not implemented: {}", feature), location)
+            }
         }
     }
 }

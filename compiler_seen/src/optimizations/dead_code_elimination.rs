@@ -1,12 +1,12 @@
 // compiler_seen/src/optimizations/dead_code_elimination.rs
 // Implements the dead code elimination optimization pass.
 
-use crate::ir::function::Function;
-use crate::ir::module::Module;
-use crate::ir::basic_block::BasicBlockId;
-use crate::ir::instruction::{Instruction, OpCode};
-use crate::ir::types::IrType;
 use crate::analysis::liveness::{analyze_liveness, LivenessResult};
+use crate::ir::basic_block::BasicBlockId;
+use crate::ir::function::Function;
+use crate::ir::instruction::{Instruction, OpCode};
+use crate::ir::module::Module;
+use crate::ir::types::IrType;
 use std::collections::{HashSet, VecDeque};
 
 // --- Bilingual Note Placeholder ---
@@ -47,19 +47,25 @@ pub fn eliminate_dead_code_in_function(func: &mut Function) {
             if let Some(terminator) = current_block.get_terminator() {
                 match terminator.opcode {
                     OpCode::Br => {
-                        if let Some(crate::ir::instruction::Operand::Label(target_id)) = terminator.operands.get(0) {
+                        if let Some(crate::ir::instruction::Operand::Label(target_id)) =
+                            terminator.operands.get(0)
+                        {
                             if reachable_blocks.insert(*target_id) {
                                 work_list.push_back(*target_id);
                             }
                         }
                     }
                     OpCode::BrCond => {
-                        if let Some(crate::ir::instruction::Operand::Label(true_target_id)) = terminator.operands.get(1) {
+                        if let Some(crate::ir::instruction::Operand::Label(true_target_id)) =
+                            terminator.operands.get(1)
+                        {
                             if reachable_blocks.insert(*true_target_id) {
                                 work_list.push_back(*true_target_id);
                             }
                         }
-                        if let Some(crate::ir::instruction::Operand::Label(false_target_id)) = terminator.operands.get(2) {
+                        if let Some(crate::ir::instruction::Operand::Label(false_target_id)) =
+                            terminator.operands.get(2)
+                        {
                             if reachable_blocks.insert(*false_target_id) {
                                 work_list.push_back(*false_target_id);
                             }
@@ -73,17 +79,30 @@ pub fn eliminate_dead_code_in_function(func: &mut Function) {
         }
     }
     let original_block_count = func.basic_blocks.len();
-    func.basic_blocks.retain(|block| reachable_blocks.contains(&block.id));
+    func.basic_blocks
+        .retain(|block| reachable_blocks.contains(&block.id));
     if func.basic_blocks.len() < original_block_count {
-        let remaining_block_ids: HashSet<BasicBlockId> = func.basic_blocks.iter().map(|b| b.id).collect();
+        let remaining_block_ids: HashSet<BasicBlockId> =
+            func.basic_blocks.iter().map(|b| b.id).collect();
         for block in &mut func.basic_blocks {
-            block.predecessors.retain(|pred_id| remaining_block_ids.contains(pred_id));
-            block.successors.retain(|succ_id| remaining_block_ids.contains(succ_id));
+            block
+                .predecessors
+                .retain(|pred_id| remaining_block_ids.contains(pred_id));
+            block
+                .successors
+                .retain(|succ_id| remaining_block_ids.contains(succ_id));
         }
-        println!("DCE: Removed {} unreachable blocks from function '{}'.", original_block_count - func.basic_blocks.len(), func.name);
+        println!(
+            "DCE: Removed {} unreachable blocks from function '{}'.",
+            original_block_count - func.basic_blocks.len(),
+            func.name
+        );
     } else if original_block_count > 0 && original_block_count == func.basic_blocks.len() {
         // Check added to prevent printing if basic_blocks was empty to begin with
-        println!("DCE: No unreachable blocks found in function '{}'.", func.name);
+        println!(
+            "DCE: No unreachable blocks found in function '{}'.",
+            func.name
+        );
     }
 
     // --- 2. Dead Store Elimination ---
@@ -106,7 +125,10 @@ pub fn eliminate_dead_code_in_function(func: &mut Function) {
                     if instruction_has_no_side_effects_for_dse(instr) {
                         dead_store = true;
                         instructions_removed_count += 1;
-                        println!("DCE: Identified dead store in func '{}', block {}: {:?}", func.name, block.id.0, instr);
+                        println!(
+                            "DCE: Identified dead store in func '{}', block {}: {:?}",
+                            func.name, block.id.0, instr
+                        );
                     }
                 }
             }
@@ -123,14 +145,18 @@ pub fn eliminate_dead_code_in_function(func: &mut Function) {
             "DCE: Removed {} dead store instructions from function '{}'.",
             instructions_removed_count, func.name
         );
-    } else if original_block_count > 0 { // Only print if there were blocks to begin with
-         println!("DCE: No dead stores found in function '{}'.", func.name);
+    } else if original_block_count > 0 {
+        // Only print if there were blocks to begin with
+        println!("DCE: No dead stores found in function '{}'.", func.name);
     }
 }
 
 /// Performs dead code elimination on an entire IR module.
 pub fn eliminate_dead_code_in_module(module: &mut Module) {
-    println!("Running dead code elimination pass for module: {}", module.name);
+    println!(
+        "Running dead code elimination pass for module: {}",
+        module.name
+    );
     for func in &mut module.functions {
         eliminate_dead_code_in_function(func);
     }
@@ -139,9 +165,9 @@ pub fn eliminate_dead_code_in_module(module: &mut Module) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::function::Function;
     use crate::ir::basic_block::{BasicBlock, BasicBlockId};
-    use crate::ir::instruction::{Instruction, OpCode, Operand, VirtualRegister, ConstantValue};
+    use crate::ir::function::Function;
+    use crate::ir::instruction::{ConstantValue, Instruction, OpCode, Operand, VirtualRegister};
     use crate::ir::types::IrType;
 
     #[test]
@@ -150,7 +176,7 @@ mod tests {
 
         // Entry block (B0)
         let b0_id = func.new_basic_block(); // Becomes entry block
-        
+
         // Reachable block (B1), successor of B0
         let b1_id = func.new_basic_block();
 
@@ -173,7 +199,8 @@ mod tests {
         // Setup B1: (no explicit terminator, implicitly ends, or add a Ret for completeness)
         let b1 = func.get_basic_block_mut(b1_id).unwrap();
         b1.predecessors.push(b0_id);
-        b1.add_instruction(Instruction { // Add a dummy instruction
+        b1.add_instruction(Instruction {
+            // Add a dummy instruction
             opcode: OpCode::Mov,
             operands: vec![Operand::Constant(ConstantValue::I32(1))],
             result: Some(func.new_virtual_register()),
@@ -182,7 +209,8 @@ mod tests {
             source_span: None,
             predicate: None,
         });
-         b1.add_instruction(Instruction { // Add a Ret terminator
+        b1.add_instruction(Instruction {
+            // Add a Ret terminator
             opcode: OpCode::Return,
             operands: vec![],
             result: None,
@@ -198,15 +226,22 @@ mod tests {
 
         eliminate_dead_code_in_function(&mut func);
 
-        assert_eq!(func.basic_blocks.len(), 2, "Function should have 2 blocks after DCE");
+        assert_eq!(
+            func.basic_blocks.len(),
+            2,
+            "Function should have 2 blocks after DCE"
+        );
         assert!(func.get_basic_block(b0_id).is_some(), "B0 should remain");
         assert!(func.get_basic_block(b1_id).is_some(), "B1 should remain");
-        assert!(func.get_basic_block(b2_id).is_none(), "B2 should be removed");
+        assert!(
+            func.get_basic_block(b2_id).is_none(),
+            "B2 should be removed"
+        );
 
         // Check successor/predecessor integrity
         let b0_after_dce = func.get_basic_block(b0_id).unwrap();
         assert_eq!(b0_after_dce.successors, vec![b1_id]);
-        
+
         let b1_after_dce = func.get_basic_block(b1_id).unwrap();
         assert_eq!(b1_after_dce.predecessors, vec![b0_id]);
     }
@@ -226,7 +261,9 @@ mod tests {
             operands: vec![Operand::Constant(ConstantValue::I32(10))],
             result: Some(vr0),
             result_type: Some(IrType::I32),
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
 
         // vr1 = 20 (used store)
@@ -235,7 +272,9 @@ mod tests {
             operands: vec![Operand::Constant(ConstantValue::I32(20))],
             result: Some(vr1),
             result_type: Some(IrType::I32),
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
 
         // Use vr1: ret vr1 (or some other op that uses vr1)
@@ -244,13 +283,19 @@ mod tests {
             operands: vec![Operand::Register(vr1)], // For simplicity, assume Return uses its operand
             result: None,
             result_type: None,
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
 
         eliminate_dead_code_in_function(&mut func);
 
         let b0_after_dce = func.get_basic_block(b0_id).unwrap();
-        assert_eq!(b0_after_dce.instructions.len(), 2, "Should have 2 instructions after DSE");
+        assert_eq!(
+            b0_after_dce.instructions.len(),
+            2,
+            "Should have 2 instructions after DSE"
+        );
         // The first instruction (mov vr0, 10) should be removed.
         // The second instruction (mov vr1, 20) should remain.
         assert_eq!(b0_after_dce.instructions[0].result, Some(vr1));
@@ -271,7 +316,9 @@ mod tests {
             operands: vec![Operand::Constant(ConstantValue::I32(10))],
             result: Some(vr0),
             result_type: Some(IrType::I32),
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
 
         // Use vr0: ret vr0
@@ -280,13 +327,19 @@ mod tests {
             operands: vec![Operand::Register(vr0)],
             result: None,
             result_type: None,
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
 
         eliminate_dead_code_in_function(&mut func);
 
         let b0_after_dce = func.get_basic_block(b0_id).unwrap();
-        assert_eq!(b0_after_dce.instructions.len(), 2, "Should still have 2 instructions");
+        assert_eq!(
+            b0_after_dce.instructions.len(),
+            2,
+            "Should still have 2 instructions"
+        );
         assert_eq!(b0_after_dce.instructions[0].result, Some(vr0));
     }
 
@@ -305,35 +358,51 @@ mod tests {
         // store some_val, vr_addr (side effect, no result register to check for liveness for DSE itself)
         b0.add_instruction(Instruction {
             opcode: OpCode::Store,
-            operands: vec![Operand::Constant(ConstantValue::I32(5)), Operand::Register(vr_addr)],
+            operands: vec![
+                Operand::Constant(ConstantValue::I32(5)),
+                Operand::Register(vr_addr),
+            ],
             result: None, // Store has no result register
             result_type: None,
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
 
         // vr_val_unused_result = call some_func() (Call has side effects)
         // Even if vr_val_unused_result is not live, the Call instruction should remain.
         b0.add_instruction(Instruction {
             opcode: OpCode::Call,
-            operands: vec![Operand::Constant(ConstantValue::StringLiteral("some_func".to_string()))], // Simplified Call
+            operands: vec![Operand::Constant(ConstantValue::StringLiteral(
+                "some_func".to_string(),
+            ))], // Simplified Call
             result: Some(vr_val_unused_result),
             result_type: Some(IrType::I32), // Assuming func returns i32
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
 
         // ret
         b0.add_instruction(Instruction {
             opcode: OpCode::Return,
             operands: vec![],
-            result: None, result_type: None,
-            parent_block: Some(b0_id), source_span: None, predicate: None,
+            result: None,
+            result_type: None,
+            parent_block: Some(b0_id),
+            source_span: None,
+            predicate: None,
         });
-        
+
         let original_instruction_count = b0.instructions.len();
         eliminate_dead_code_in_function(&mut func);
 
         let b0_after_dce = func.get_basic_block(b0_id).unwrap();
-        assert_eq!(b0_after_dce.instructions.len(), original_instruction_count, "Side-effecting instructions should remain even if result unused");
+        assert_eq!(
+            b0_after_dce.instructions.len(),
+            original_instruction_count,
+            "Side-effecting instructions should remain even if result unused"
+        );
         assert_eq!(b0_after_dce.instructions[0].opcode, OpCode::Store);
         assert_eq!(b0_after_dce.instructions[1].opcode, OpCode::Call);
     }

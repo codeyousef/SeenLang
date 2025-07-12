@@ -8,8 +8,8 @@ pub mod error;
 
 // Re-export common types for convenience
 pub use error::{
-    Diagnostic, Diagnostics, DiagnosticFormatter,
-    LexicalError, SyntaxError, SemanticError, CodeGenError,
-    Location, Position, LocalizedMessage, LanguageContext, LanguagePreference, 
-    Severity, FixSuggestion, RelatedInformation,
+    CodeGenError, Diagnostic, DiagnosticFormatter,
+    Diagnostics, FixSuggestion, LanguageContext, LanguagePreference,
+    LexicalError, LocalizedMessage, Location, Position, RelatedInformation,
+    SemanticError, Severity, SyntaxError,
 };

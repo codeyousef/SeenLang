@@ -1,7 +1,7 @@
 //! Value representation for the Seen interpreter
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 /// Values that can be computed by the interpreter
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -134,7 +134,11 @@ impl Value {
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a + *b as f64)),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
-            _ => Err(format!("Cannot add {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot add {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -145,7 +149,11 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a - *b as f64)),
-            _ => Err(format!("Cannot subtract {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot subtract {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -156,7 +164,11 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 * b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a * *b as f64)),
-            _ => Err(format!("Cannot multiply {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot multiply {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -191,7 +203,11 @@ impl Value {
                     Ok(Value::Float(a / *b as f64))
                 }
             }
-            _ => Err(format!("Cannot divide {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot divide {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -203,7 +219,11 @@ impl Value {
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Boolean((*a as f64) < *b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Boolean(*a < (*b as f64))),
             (Value::String(a), Value::String(b)) => Ok(Value::Boolean(a < b)),
-            _ => Err(format!("Cannot compare {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot compare {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -252,7 +272,11 @@ impl Value {
                     Ok(Value::Float(a % (*b as f64)))
                 }
             }
-            _ => Err(format!("Cannot perform modulo on {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot perform modulo on {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 }
@@ -271,7 +295,7 @@ mod tests {
     fn test_value_arithmetic() {
         let a = Value::Integer(5);
         let b = Value::Integer(3);
-        
+
         assert_eq!(a.add(&b).unwrap(), Value::Integer(8));
         assert_eq!(a.subtract(&b).unwrap(), Value::Integer(2));
         assert_eq!(a.multiply(&b).unwrap(), Value::Integer(15));

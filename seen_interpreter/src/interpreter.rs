@@ -1,12 +1,12 @@
 //! Main interpreter implementation for the Seen programming language
 
-use std::collections::HashMap;
-use seen_parser::ast::*;
-use seen_lexer::token::Location;
-use crate::value::Value;
-use crate::runtime::Runtime;
 use crate::errors::InterpreterError;
+use crate::runtime::Runtime;
+use crate::value::Value;
 use crate::InterpreterResult;
+use seen_lexer::token::Location;
+use seen_parser::ast::*;
+use std::collections::HashMap;
 
 /// The main interpreter for Seen programs
 pub struct Interpreter {
@@ -521,8 +521,8 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use seen_parser::Parser;
     use seen_lexer::Lexer;
+    use seen_parser::Parser;
 
     fn create_test_keyword_manager() -> seen_lexer::KeywordManager {
         use seen_lexer::keyword_config::KeywordConfig;

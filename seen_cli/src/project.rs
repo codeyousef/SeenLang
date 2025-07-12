@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use colored::*;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tera::{Tera, Context as TeraContext};
+use tera::{Context as TeraContext, Tera};
 
 use crate::config::SeenConfig;
 

@@ -1,8 +1,8 @@
 // compiler_seen/src/analysis/liveness.rs
 // Implements liveness analysis for virtual registers.
 
-use crate::ir::function::Function;
 use crate::ir::basic_block::BasicBlockId;
+use crate::ir::function::Function;
 use crate::ir::instruction::VirtualRegister;
 use std::collections::{HashMap, HashSet};
 
@@ -22,23 +22,40 @@ pub struct LivenessResult {
 
 impl LivenessResult {
     pub fn new() -> Self {
-        LivenessResult { live_in: HashMap::new(), live_out: HashMap::new() }
+        LivenessResult {
+            live_in: HashMap::new(),
+            live_out: HashMap::new(),
+        }
     }
 
     /// Checks if a register is live immediately before a specific instruction in a block.
     /// This would require more detailed per-instruction liveness, not just per-block.
     /// For now, this is a placeholder for more advanced queries.
-    pub fn is_live_before_instr(&self, _reg: VirtualRegister, _instr_idx: usize, _block_id: BasicBlockId) -> bool {
+    pub fn is_live_before_instr(
+        &self,
+        _reg: VirtualRegister,
+        _instr_idx: usize,
+        _block_id: BasicBlockId,
+    ) -> bool {
         // TODO: Implement this by calculating liveness backward through the block from live_out[block_id]
         unimplemented!("Per-instruction liveness check not yet implemented.");
     }
 
     /// Checks if a register is live immediately after a specific instruction in a block.
-    pub fn is_live_after_instr(&self, reg: VirtualRegister, instr_idx: usize, block_id: BasicBlockId, func: &Function) -> bool {
+    pub fn is_live_after_instr(
+        &self,
+        reg: VirtualRegister,
+        instr_idx: usize,
+        block_id: BasicBlockId,
+        func: &Function,
+    ) -> bool {
         if let Some(block) = func.get_basic_block(block_id) {
             if instr_idx + 1 >= block.instructions.len() {
                 // After the last instruction (or if instruction is the last one), liveness is determined by live_out of the block.
-                return self.live_out.get(&block_id).map_or(false, |s| s.contains(&reg));
+                return self
+                    .live_out
+                    .get(&block_id)
+                    .map_or(false, |s| s.contains(&reg));
             }
 
             // Calculate liveness backwards from the end of the block (or next instruction) to this point.
@@ -65,7 +82,7 @@ impl LivenessResult {
 }
 
 /// Performs liveness analysis on a function.
-/// 
+///
 /// This is a standard iterative dataflow analysis algorithm.
 /// It computes `live_in` and `live_out` sets for each basic block.
 pub fn analyze_liveness(func: &Function) -> LivenessResult {
@@ -76,7 +93,7 @@ pub fn analyze_liveness(func: &Function) -> LivenessResult {
 
     let mut use_map: HashMap<BasicBlockId, HashSet<VirtualRegister>> = HashMap::new();
     let mut def_map: HashMap<BasicBlockId, HashSet<VirtualRegister>> = HashMap::new();
-    
+
     let block_ids: Vec<BasicBlockId> = func.basic_blocks.iter().map(|bb| bb.id).collect();
 
     // 1. Compute USE and DEF sets for each basic block
@@ -108,7 +125,8 @@ pub fn analyze_liveness(func: &Function) -> LivenessResult {
         changed = false;
         // Process blocks in reverse order (approximates reverse post-order for simplicity for now)
         // A true reverse post-order traversal of CFG would be better for convergence.
-        for &block_id in block_ids.iter().rev() { // Iterating over a clone or collected IDs is safer if modifying func
+        for &block_id in block_ids.iter().rev() {
+            // Iterating over a clone or collected IDs is safer if modifying func
             // live_out[B] = Union of live_in[S] for all successors S of B
             let mut new_live_out = HashSet::new();
             if let Some(block) = func.get_basic_block(block_id) {
@@ -116,20 +134,30 @@ pub fn analyze_liveness(func: &Function) -> LivenessResult {
                 if let Some(terminator) = block.get_terminator() {
                     match terminator.opcode {
                         crate::ir::instruction::OpCode::Br => {
-                            if let Some(crate::ir::instruction::Operand::Label(succ_id)) = terminator.operands.get(0) {
+                            if let Some(crate::ir::instruction::Operand::Label(succ_id)) =
+                                terminator.operands.get(0)
+                            {
                                 if let Some(live_in_succ) = liveness_result.live_in.get(succ_id) {
                                     new_live_out.extend(live_in_succ);
                                 }
                             }
                         }
                         crate::ir::instruction::OpCode::BrCond => {
-                            if let Some(crate::ir::instruction::Operand::Label(true_succ_id)) = terminator.operands.get(1) {
-                                if let Some(live_in_succ) = liveness_result.live_in.get(true_succ_id) {
+                            if let Some(crate::ir::instruction::Operand::Label(true_succ_id)) =
+                                terminator.operands.get(1)
+                            {
+                                if let Some(live_in_succ) =
+                                    liveness_result.live_in.get(true_succ_id)
+                                {
                                     new_live_out.extend(live_in_succ);
                                 }
                             }
-                            if let Some(crate::ir::instruction::Operand::Label(false_succ_id)) = terminator.operands.get(2) {
-                                if let Some(live_in_succ) = liveness_result.live_in.get(false_succ_id) {
+                            if let Some(crate::ir::instruction::Operand::Label(false_succ_id)) =
+                                terminator.operands.get(2)
+                            {
+                                if let Some(live_in_succ) =
+                                    liveness_result.live_in.get(false_succ_id)
+                                {
                                     new_live_out.extend(live_in_succ);
                                 }
                             }
@@ -143,10 +171,12 @@ pub fn analyze_liveness(func: &Function) -> LivenessResult {
                     }
                 }
             }
-            
+
             let current_live_out = liveness_result.live_out.get(&block_id).unwrap(); // Should exist
             if *current_live_out != new_live_out {
-                liveness_result.live_out.insert(block_id, new_live_out.clone());
+                liveness_result
+                    .live_out
+                    .insert(block_id, new_live_out.clone());
                 changed = true;
             }
 
@@ -159,10 +189,10 @@ pub fn analyze_liveness(func: &Function) -> LivenessResult {
             for def_reg in def_b {
                 live_out_minus_def.remove(def_reg);
             }
-            
+
             let mut new_live_in = use_b.clone();
             new_live_in.extend(live_out_minus_def);
-            
+
             let current_live_in = liveness_result.live_in.get(&block_id).unwrap(); // Should exist
             if *current_live_in != new_live_in {
                 liveness_result.live_in.insert(block_id, new_live_in);
