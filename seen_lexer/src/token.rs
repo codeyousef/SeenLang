@@ -112,6 +112,8 @@ pub enum TokenType {
     Comma,      // ,
     Dot,        // .
     Arrow,      // ->
+    Question,   // ?
+    DotDot,     // ..
     
     // Special
     EOF,

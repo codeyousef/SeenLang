@@ -11,11 +11,12 @@ pub struct Program {
     pub location: Location,
 }
 
-/// Declarations in the program (functions or variables)
+/// Declarations in the program (functions, variables, or structs)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Declaration {
     Function(FunctionDeclaration),
     Variable(VariableDeclaration),
+    Struct(StructDeclaration),  // NEW: Struct support
 }
 
 /// Function declaration
@@ -46,11 +47,28 @@ pub struct VariableDeclaration {
     pub location: Location,
 }
 
+/// Struct declaration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructDeclaration {
+    pub name: String,
+    pub fields: Vec<StructField>,
+    pub location: Location,
+}
+
+/// Struct field definition
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructField {
+    pub name: String,
+    pub field_type: Type,
+    pub location: Location,
+}
+
 /// Type definitions
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Type {
     Simple(String),  // Simple types like "int", "string", etc.
     Array(Box<Type>), // Array types like [int], [string], etc.
+    Struct(String),   // NEW: Struct types like "Point", "Person", etc.
 }
 
 /// Statements in the program
@@ -63,6 +81,7 @@ pub enum Statement {
     While(WhileStatement),
     Print(PrintStatement),
     DeclarationStatement(Declaration),
+    For(ForStatement),
 }
 
 /// Expression statement (expression followed by semicolon)
@@ -120,6 +139,13 @@ pub enum Expression {
     Identifier(IdentifierExpression),
     Call(CallExpression),
     Parenthesized(ParenthesizedExpression),
+    // NEW: Struct-related expressions
+    StructLiteral(StructLiteralExpression),
+    FieldAccess(FieldAccessExpression),
+    // Array-related expressions
+    ArrayLiteral(ArrayLiteralExpression),
+    Index(IndexExpression),
+    Range(RangeExpression),
 }
 
 /// Assignment expression
@@ -231,3 +257,60 @@ pub struct ParenthesizedExpression {
     pub expression: Box<Expression>,
     pub location: Location,
 }
+
+/// Struct literal expression: Point { x: 10, y: 20 }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructLiteralExpression {
+    pub struct_name: String,
+    pub fields: Vec<StructFieldInit>,
+    pub location: Location,
+}
+
+/// Field initialization in struct literal
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructFieldInit {
+    pub field_name: String,
+    pub value: Box<Expression>,
+    pub location: Location,
+}
+
+/// Field access expression: object.field
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldAccessExpression {
+    pub object: Box<Expression>,
+    pub field: String,
+    pub location: Location,
+}
+
+/// Array literal expression: [1, 2, 3]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArrayLiteralExpression {
+    pub elements: Vec<Expression>,
+    pub location: Location,
+}
+
+/// Index expression: array[index]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IndexExpression {
+    pub object: Box<Expression>,
+    pub index: Box<Expression>,
+    pub location: Location,
+}
+
+/// Range expression: start..end
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RangeExpression {
+    pub start: Box<Expression>,
+    pub end: Box<Expression>,
+    pub location: Location,
+}
+
+/// For statement: for x in collection { ... }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ForStatement {
+    pub variable: String,
+    pub iterable: Expression,
+    pub body: Box<Statement>,
+    pub location: Location,
+}
+

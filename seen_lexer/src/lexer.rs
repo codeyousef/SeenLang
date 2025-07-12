@@ -72,7 +72,13 @@ impl<'a> Lexer<'a> {
             ';' => Ok(self.create_token(TokenType::Semicolon, ";", token_start_pos)),
             ':' => Ok(self.create_token(TokenType::Colon, ":", token_start_pos)),
             ',' => Ok(self.create_token(TokenType::Comma, ",", token_start_pos)),
-            '.' => Ok(self.create_token(TokenType::Dot, ".", token_start_pos)),
+            '.' => {
+                if self.match_char('.') {
+                    Ok(self.create_token(TokenType::DotDot, "..", token_start_pos))
+                } else {
+                    Ok(self.create_token(TokenType::Dot, ".", token_start_pos))
+                }
+            },
             
             // Operators (single character)
             '+' => Ok(self.create_token(TokenType::Plus, "+", token_start_pos)),
@@ -86,8 +92,23 @@ impl<'a> Lexer<'a> {
             '*' => Ok(self.create_token(TokenType::Multiply, "*", token_start_pos)),
             '/' => {
                 if self.match_char('/') { 
+                    // Single-line comment
                     while self.peek() != '\n' && !self.is_at_end {
                         self.advance();
+                    }
+                    self.next_token()
+                } else if self.match_char('*') {
+                    // Block comment
+                    while !self.is_at_end {
+                        if self.peek() == '*' {
+                            self.advance();
+                            if self.peek() == '/' {
+                                self.advance();
+                                break;
+                            }
+                        } else {
+                            self.advance();
+                        }
                     }
                     self.next_token()
                 } else {
@@ -95,6 +116,7 @@ impl<'a> Lexer<'a> {
                 }
             },
             '%' => Ok(self.create_token(TokenType::Modulo, "%", token_start_pos)),
+            '?' => Ok(self.create_token(TokenType::Question, "?", token_start_pos)),
             
             // Operators (potentially two characters)
             '=' => {
@@ -124,6 +146,20 @@ impl<'a> Lexer<'a> {
                     Ok(self.create_token(TokenType::GreaterEqual, ">=", token_start_pos))
                 }
                 _ => Ok(self.create_token(TokenType::GreaterThan, ">", token_start_pos)),
+            },
+            '&' => {
+                if self.match_char('&') {
+                    Ok(self.create_token(TokenType::And, "&&", token_start_pos))
+                } else {
+                    Err(LexerError::UnexpectedCharacter(c, token_start_pos))
+                }
+            },
+            '|' => {
+                if self.match_char('|') {
+                    Ok(self.create_token(TokenType::Or, "||", token_start_pos))
+                } else {
+                    Err(LexerError::UnexpectedCharacter(c, token_start_pos))
+                }
             },
             
             // String literals
