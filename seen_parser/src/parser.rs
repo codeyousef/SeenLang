@@ -672,14 +672,15 @@ impl Parser {
         Ok(expr)
     }
 
-    /// Parse a factor expression (multiplication/division)
+    /// Parse a factor expression (multiplication/division/modulo)
     fn factor(&mut self) -> Result<Expression, ParserError> {
         let mut expr = self.unary()?;
 
-        while self.match_tokens(&[TokenType::Multiply, TokenType::Divide]) {
+        while self.match_tokens(&[TokenType::Multiply, TokenType::Divide, TokenType::Modulo]) {
             let operator = match self.previous().token_type {
                 TokenType::Multiply => BinaryOperator::Multiply,
                 TokenType::Divide => BinaryOperator::Divide,
+                TokenType::Modulo => BinaryOperator::Modulo,
                 _ => unreachable!(),
             };
             let right = Box::new(self.unary()?);

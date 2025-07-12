@@ -52,6 +52,11 @@ impl Interpreter {
             Declaration::Variable(var_decl) => {
                 self.interpret_variable_declaration(var_decl)
             }
+            Declaration::Struct(_struct_decl) => {
+                // For now, just ignore struct declarations in the interpreter
+                // TODO: Implement struct type registration
+                Ok(None)
+            }
         }
     }
 
@@ -108,6 +113,9 @@ impl Interpreter {
             }
             Statement::DeclarationStatement(decl) => {
                 self.interpret_declaration(decl)
+            }
+            Statement::For(for_stmt) => {
+                self.interpret_for_statement(for_stmt)
             }
         }
     }
@@ -200,6 +208,44 @@ impl Interpreter {
         Ok(Some(Value::Unit))
     }
 
+    /// Interpret a for statement
+    fn interpret_for_statement(&mut self, for_stmt: &ForStatement) -> Result<Option<Value>, InterpreterError> {
+        let iterable = self.interpret_expression(&for_stmt.iterable)?;
+        
+        match iterable {
+            Value::Array(values) => {
+                // Create new scope for the loop
+                self.runtime.push_environment(false);
+                
+                let mut last_value = None;
+                for value in values {
+                    // Bind the loop variable
+                    self.runtime.define_variable(for_stmt.variable.clone(), value.clone());
+                    
+                    // Execute the body
+                    match self.interpret_statement(&for_stmt.body)? {
+                        Some(v) => {
+                            // Check if it's a return value
+                            if matches!(self.runtime.get_return_value(), Some(_)) {
+                                self.runtime.pop_environment();
+                                return Ok(Some(v));
+                            }
+                            last_value = Some(v);
+                        }
+                        None => {}
+                    }
+                }
+                
+                self.runtime.pop_environment();
+                Ok(last_value)
+            }
+            _ => Err(InterpreterError::runtime(
+                format!("Cannot iterate over {}", iterable.type_name()),
+                for_stmt.location
+            ))
+        }
+    }
+
     /// Interpret an expression
     fn interpret_expression(&mut self, expression: &Expression) -> Result<Value, InterpreterError> {
         match expression {
@@ -224,6 +270,27 @@ impl Interpreter {
             }
             Expression::Parenthesized(paren) => {
                 self.interpret_expression(&paren.expression)
+            }
+            Expression::StructLiteral(expr) => {
+                Err(InterpreterError::runtime(
+                    "struct literals not implemented".to_string(),
+                    expr.location
+                ))
+            }
+            Expression::FieldAccess(expr) => {
+                Err(InterpreterError::runtime(
+                    "field access not implemented".to_string(),
+                    expr.location
+                ))
+            }
+            Expression::ArrayLiteral(array) => {
+                self.interpret_array_literal(array)
+            }
+            Expression::Index(index) => {
+                self.interpret_index_expression(index)
+            }
+            Expression::Range(range) => {
+                self.interpret_range_expression(range)
             }
         }
     }
@@ -262,10 +329,7 @@ impl Interpreter {
             BinaryOperator::Subtract => left.subtract(&right),
             BinaryOperator::Multiply => left.multiply(&right),
             BinaryOperator::Divide => left.divide(&right),
-            BinaryOperator::Modulo => {
-                // TODO: Implement modulo
-                Err("Modulo not yet implemented".to_string())
-            }
+            BinaryOperator::Modulo => left.modulo(&right),
             BinaryOperator::Equal => Ok(Value::Boolean(left.equals(&right))),
             BinaryOperator::NotEqual => Ok(Value::Boolean(!left.equals(&right))),
             BinaryOperator::LessThan => left.less_than(&right),
@@ -395,6 +459,62 @@ impl Interpreter {
 impl Default for Interpreter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Interpreter {
+    /// Interpret an array literal
+    fn interpret_array_literal(&mut self, array: &ArrayLiteralExpression) -> Result<Value, InterpreterError> {
+        let mut elements = Vec::new();
+        for element in &array.elements {
+            elements.push(self.interpret_expression(element)?);
+        }
+        Ok(Value::Array(elements))
+    }
+
+    /// Interpret an index expression
+    fn interpret_index_expression(&mut self, index: &IndexExpression) -> Result<Value, InterpreterError> {
+        let object = self.interpret_expression(&index.object)?;
+        let index_value = self.interpret_expression(&index.index)?;
+        
+        match (&object, &index_value) {
+            (Value::Array(arr), Value::Integer(i)) => {
+                if *i < 0 || *i as usize >= arr.len() {
+                    Err(InterpreterError::runtime(
+                        format!("Array index out of bounds: {}, array length: {}", *i, arr.len()),
+                        index.location
+                    ))
+                } else {
+                    Ok(arr[*i as usize].clone())
+                }
+            }
+            _ => Err(InterpreterError::runtime(
+                format!("Cannot index {:?} with {:?}", object.type_name(), index_value.type_name()),
+                index.location
+            ))
+        }
+    }
+
+    /// Interpret a range expression
+    fn interpret_range_expression(&mut self, range: &RangeExpression) -> Result<Value, InterpreterError> {
+        let start = self.interpret_expression(&range.start)?;
+        let end = self.interpret_expression(&range.end)?;
+        
+        match (&start, &end) {
+            (Value::Integer(s), Value::Integer(e)) => {
+                // Create an array with values from start to end (exclusive)
+                let mut values = Vec::new();
+                for i in *s..*e {
+                    values.push(Value::Integer(i));
+                }
+                Ok(Value::Array(values))
+            }
+            _ => Err(InterpreterError::runtime(
+                format!("Range bounds must be integers, got {:?} and {:?}", 
+                        start.type_name(), end.type_name()),
+                range.location
+            ))
+        }
     }
 }
 

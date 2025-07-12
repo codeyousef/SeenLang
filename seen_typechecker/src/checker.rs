@@ -68,6 +68,23 @@ impl Environment {
     fn has_function(&self, name: &str) -> bool {
         self.functions.contains_key(name)
     }
+
+    /// Push a new scope
+    fn push_scope(&mut self) {
+        let new_env = Environment {
+            variables: HashMap::new(),
+            functions: HashMap::new(),
+            parent: Some(Box::new(self.clone())),
+        };
+        *self = new_env;
+    }
+
+    /// Pop the current scope
+    fn pop_scope(&mut self) {
+        if let Some(parent) = &self.parent {
+            *self = parent.as_ref().clone();
+        }
+    }
 }
 
 /// Main type checker
@@ -133,6 +150,9 @@ impl TypeChecker {
             Declaration::Variable(var_decl) => {
                 self.check_variable_declaration(var_decl);
             }
+            Declaration::Struct(struct_decl) => {
+                self.check_struct_declaration(struct_decl);
+            }
         }
     }
 
@@ -177,6 +197,14 @@ impl TypeChecker {
         };
 
         self.env.define_variable(var_decl.name.clone(), var_type);
+    }
+
+    /// Type check a struct declaration
+    fn check_struct_declaration(&mut self, struct_decl: &StructDeclaration) {
+        // For now, just register the struct type
+        // TODO: Implement proper struct field type checking
+        let struct_type = Type::Struct(struct_decl.name.clone());
+        // We would register this in a type environment if we had one
     }
 
     /// Type check a function declaration
@@ -254,6 +282,9 @@ impl TypeChecker {
             Statement::DeclarationStatement(decl) => {
                 self.check_declaration(decl);
             }
+            Statement::For(for_stmt) => {
+                self.check_for_statement(for_stmt);
+            }
         }
     }
 
@@ -271,6 +302,33 @@ impl TypeChecker {
         self.check_statement(&if_stmt.then_branch);
         if let Some(else_branch) = &if_stmt.else_branch {
             self.check_statement(else_branch);
+        }
+    }
+
+    /// Type check a for statement
+    fn check_for_statement(&mut self, for_stmt: &ForStatement) {
+        // Check the iterable expression
+        let iterable_type = self.check_expression(&for_stmt.iterable);
+        
+        // For now, only support arrays
+        match iterable_type {
+            Type::Array(element_type) => {
+                // Create new scope for loop variable
+                self.env.push_scope();
+                self.env.define_variable(for_stmt.variable.clone(), *element_type);
+                
+                // Check the body
+                self.check_statement(&for_stmt.body);
+                
+                self.env.pop_scope();
+            }
+            _ => {
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: Type::Array(Box::new(Type::Unknown)),
+                    actual: iterable_type,
+                    position: self.expression_location(&for_stmt.iterable),
+                });
+            }
         }
     }
 
@@ -359,6 +417,24 @@ impl TypeChecker {
             }
             Expression::Parenthesized(paren) => {
                 self.check_expression(&paren.expression)
+            }
+            Expression::StructLiteral(_) => {
+                // TODO: Implement struct literal type checking
+                Type::Unknown
+            }
+            Expression::FieldAccess(_) => {
+                // TODO: Implement field access type checking
+                Type::Unknown
+            }
+            Expression::ArrayLiteral(array) => {
+                self.check_array_literal(array)
+            }
+            Expression::Index(index) => {
+                self.check_index_expression(index)
+            }
+            Expression::Range(_) => {
+                // Range expressions return arrays of integers
+                Type::Array(Box::new(Type::Int))
             }
         }
     }
@@ -569,6 +645,11 @@ impl TypeChecker {
             Expression::Identifier(i) => &i.location,
             Expression::Call(c) => &c.location,
             Expression::Parenthesized(p) => &p.location,
+            Expression::StructLiteral(s) => &s.location,
+            Expression::FieldAccess(f) => &f.location,
+            Expression::ArrayLiteral(a) => &a.location,
+            Expression::Index(i) => &i.location,
+            Expression::Range(r) => &r.location,
         };
         self.location_to_position(location)
     }
@@ -576,6 +657,59 @@ impl TypeChecker {
     /// Convert Location to Position (for compatibility)
     fn location_to_position(&self, location: &Location) -> seen_lexer::token::Position {
         seen_lexer::token::Position::new(location.start.line, location.start.column)
+    }
+
+    /// Type check an array literal
+    fn check_array_literal(&mut self, array: &ArrayLiteralExpression) -> Type {
+        if array.elements.is_empty() {
+            // Empty array - we can't infer the type
+            Type::Array(Box::new(Type::Unknown))
+        } else {
+            // Check the first element to determine the array type
+            let first_type = self.check_expression(&array.elements[0]);
+            
+            // Check that all elements have the same type
+            for element in &array.elements[1..] {
+                let element_type = self.check_expression(element);
+                if !element_type.is_assignable_to(&first_type) {
+                    self.result.add_error(TypeError::TypeMismatch {
+                        expected: first_type.clone(),
+                        actual: element_type,
+                        position: self.expression_location(element),
+                    });
+                }
+            }
+            
+            Type::Array(Box::new(first_type))
+        }
+    }
+
+    /// Type check an index expression
+    fn check_index_expression(&mut self, index: &IndexExpression) -> Type {
+        let object_type = self.check_expression(&index.object);
+        let index_type = self.check_expression(&index.index);
+        
+        // Index must be an integer
+        if !index_type.is_assignable_to(&Type::Int) {
+            self.result.add_error(TypeError::TypeMismatch {
+                expected: Type::Int,
+                actual: index_type,
+                position: self.expression_location(&index.index),
+            });
+        }
+        
+        // Object must be an array
+        match object_type {
+            Type::Array(element_type) => *element_type,
+            _ => {
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: Type::Array(Box::new(Type::Unknown)),
+                    actual: object_type,
+                    position: self.expression_location(&index.object),
+                });
+                Type::Unknown
+            }
+        }
     }
 }
 

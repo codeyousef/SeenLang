@@ -79,8 +79,8 @@ pub enum RuntimeError {
     #[error("Division by zero")]
     DivisionByZero,
 
-    #[error("Array index out of bounds: {index}")]
-    IndexOutOfBounds { index: usize },
+    #[error("Array index out of bounds: {0}, array length: {1}")]
+    IndexOutOfBounds(i64, usize),
 
     #[error("Invalid operation: {operation} on {value_type}")]
     InvalidOperation {
@@ -105,6 +105,9 @@ pub enum RuntimeError {
 
     #[error("IO error: {message}")]
     IO { message: String },
+
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 }
 
 impl InterpreterError {
@@ -186,7 +189,7 @@ impl From<RuntimeError> for InterpreterError {
         let location = Location::from_positions(0, 0, 0, 0);
         match error {
             RuntimeError::DivisionByZero => InterpreterError::division_by_zero(location),
-            RuntimeError::IndexOutOfBounds { index } => InterpreterError::index_out_of_bounds(index, location),
+            RuntimeError::IndexOutOfBounds(index, _length) => InterpreterError::index_out_of_bounds(index as usize, location),
             RuntimeError::InvalidOperation { operation, value_type } => {
                 InterpreterError::invalid_operation(operation, value_type, location)
             }
@@ -196,6 +199,10 @@ impl From<RuntimeError> for InterpreterError {
             RuntimeError::StackOverflow => InterpreterError::stack_overflow(location),
             RuntimeError::ReturnOutsideFunction => InterpreterError::return_outside_function(location),
             RuntimeError::IO { message } => InterpreterError::io_error(message, location),
+            RuntimeError::NotImplemented(feature) => InterpreterError::runtime(
+                format!("Not implemented: {}", feature), 
+                location
+            ),
         }
     }
 }

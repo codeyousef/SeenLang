@@ -220,6 +220,41 @@ impl Value {
     pub fn logical_not(&self) -> Value {
         Value::Boolean(!self.is_truthy())
     }
+
+    /// Perform modulo operation
+    pub fn modulo(&self, other: &Value) -> Result<Value, String> {
+        match (self, other) {
+            (Value::Integer(a), Value::Integer(b)) => {
+                if *b == 0 {
+                    Err("Modulo by zero".to_string())
+                } else {
+                    Ok(Value::Integer(a % b))
+                }
+            }
+            (Value::Float(a), Value::Float(b)) => {
+                if *b == 0.0 {
+                    Err("Modulo by zero".to_string())
+                } else {
+                    Ok(Value::Float(a % b))
+                }
+            }
+            (Value::Integer(a), Value::Float(b)) => {
+                if *b == 0.0 {
+                    Err("Modulo by zero".to_string())
+                } else {
+                    Ok(Value::Float((*a as f64) % b))
+                }
+            }
+            (Value::Float(a), Value::Integer(b)) => {
+                if *b == 0 {
+                    Err("Modulo by zero".to_string())
+                } else {
+                    Ok(Value::Float(a % (*b as f64)))
+                }
+            }
+            _ => Err(format!("Cannot perform modulo on {} and {}", self.type_name(), other.type_name())),
+        }
+    }
 }
 
 impl std::fmt::Display for Value {

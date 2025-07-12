@@ -169,6 +169,9 @@ impl From<&seen_parser::ast::Type> for Type {
             seen_parser::ast::Type::Array(inner) => {
                 Type::Array(Box::new(Type::from(inner.as_ref())))
             },
+            seen_parser::ast::Type::Struct(name) => {
+                Type::Struct(name.clone())
+            },
         }
     }
 }
