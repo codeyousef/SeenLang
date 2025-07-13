@@ -1,5 +1,5 @@
-use thiserror::Error;
 use inkwell::builder::BuilderError;
+use thiserror::Error;
 
 /// Errors that can occur during code generation
 #[derive(Debug, Error)]
@@ -14,10 +14,7 @@ pub enum CodeGenError {
     BuilderError(#[from] BuilderError),
 
     #[error("Type mismatch: expected {expected}, got {actual}")]
-    TypeMismatch {
-        expected: String,
-        actual: String,
-    },
+    TypeMismatch { expected: String, actual: String },
 
     #[error("Operation not supported: {0}")]
     UnsupportedOperation(String),
@@ -35,10 +32,7 @@ pub enum CodeGenError {
     InvalidVariableAccess(String),
 
     #[error("Invalid AST node at {location}: {message}")]
-    InvalidASTNode {
-        location: String,
-        message: String,
-    },
+    InvalidASTNode { location: String, message: String },
 }
 
 /// Result type for code generation operations

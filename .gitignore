@@ -3598,3 +3598,4 @@ debug.log
 /target-wsl/debug/libseen_typechecker.rlib
 /target-wsl/.rustc_info.json
 /target-wsl/CACHEDIR.TAG
+/target-wsl/

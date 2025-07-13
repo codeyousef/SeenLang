@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use seen_ir::{CodeGenerator, compile_program};
-use seen_parser::parse_program;
 use inkwell::context::Context;
+use seen_ir::{compile_program, CodeGenerator};
+use seen_parser::parse_program;
 
 fn benchmark_simple_program(c: &mut Criterion) {
     let source = r#"
@@ -10,10 +10,10 @@ fn benchmark_simple_program(c: &mut Criterion) {
         println(x);
     }
     "#;
-    
+
     let program = parse_program(source).unwrap();
-    
-    c.bench_function("ir_gen_simple",  < /dev/null | b| {
+
+    c.bench_function("ir_gen_simple", < /dev / null | b | {
         b.iter(|| {
             let context = Context::create();
             compile_program(&context, black_box(&program))
@@ -31,9 +31,9 @@ fn benchmark_complex_program(c: &mut Criterion) {
         ));
     }
     source.push_str("func main() { println(function_0(42)); }");
-    
+
     let program = parse_program(&source).unwrap();
-    
+
     c.bench_function("ir_gen_complex", |b| {
         b.iter(|| {
             let context = Context::create();
@@ -53,17 +53,17 @@ fn benchmark_optimization_passes(c: &mut Criterion) {
         return e;
     }
     "#;
-    
+
     let program = parse_program(source).unwrap();
-    
+
     c.bench_function("ir_gen_with_opts", |b| {
         b.iter(|| {
             let context = Context::create();
             let module = compile_program(&context, black_box(&program)).unwrap();
             // Run optimization passes
-            module.run_passes("instcombine,reassociate,gvn,simplifycfg", 
-                inkwell::targets::TargetMachine::get_default_triple().as_str().to_str().unwrap(),
-                inkwell::OptimizationLevel::Default).unwrap();
+            module.run_passes("instcombine,reassociate,gvn,simplifycfg",
+                              inkwell::targets::TargetMachine::get_default_triple().as_str().to_str().unwrap(),
+                              inkwell::OptimizationLevel::Default).unwrap();
         });
     });
 }

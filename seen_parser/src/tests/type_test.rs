@@ -8,7 +8,8 @@ use super::*;
 use crate::ast::*;
 use pretty_assertions::assert_eq;
 
-#[test] 
+#[test]
+#[ignore = "Parser tests need parse_expression/parse_statement methods"]
 fn test_placeholder() {
     // Placeholder test - will be implemented once parser supports
     // individual expression/statement/declaration parsing methods

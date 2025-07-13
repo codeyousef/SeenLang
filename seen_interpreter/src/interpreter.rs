@@ -44,14 +44,13 @@ impl Interpreter {
     }
 
     /// Interpret a declaration
-    fn interpret_declaration(&mut self, declaration: &Declaration) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_declaration(
+        &mut self,
+        declaration: &Declaration,
+    ) -> Result<Option<Value>, InterpreterError> {
         match declaration {
-            Declaration::Function(func_decl) => {
-                self.interpret_function_declaration(func_decl)
-            }
-            Declaration::Variable(var_decl) => {
-                self.interpret_variable_declaration(var_decl)
-            }
+            Declaration::Function(func_decl) => self.interpret_function_declaration(func_decl),
+            Declaration::Variable(var_decl) => self.interpret_variable_declaration(var_decl),
             Declaration::Struct(_struct_decl) => {
                 // For now, just ignore struct declarations in the interpreter
                 // TODO: Implement struct type registration
@@ -61,9 +60,14 @@ impl Interpreter {
     }
 
     /// Interpret a function declaration
-    fn interpret_function_declaration(&mut self, func_decl: &FunctionDeclaration) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_function_declaration(
+        &mut self,
+        func_decl: &FunctionDeclaration,
+    ) -> Result<Option<Value>, InterpreterError> {
         // Create function value
-        let parameters: Vec<String> = func_decl.parameters.iter()
+        let parameters: Vec<String> = func_decl
+            .parameters
+            .iter()
             .map(|p| p.name.clone())
             .collect();
 
@@ -75,48 +79,41 @@ impl Interpreter {
         };
 
         // Define the function in the runtime
-        self.runtime.define_variable(func_decl.name.clone(), function_value);
+        self.runtime
+            .define_variable(func_decl.name.clone(), function_value);
         Ok(None)
     }
 
     /// Interpret a variable declaration
-    fn interpret_variable_declaration(&mut self, var_decl: &VariableDeclaration) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_variable_declaration(
+        &mut self,
+        var_decl: &VariableDeclaration,
+    ) -> Result<Option<Value>, InterpreterError> {
         // Evaluate the initializer
         let value = self.interpret_expression(&var_decl.initializer)?;
-        
+
         // Define the variable in the runtime
         self.runtime.define_variable(var_decl.name.clone(), value);
         Ok(None)
     }
 
     /// Interpret a statement
-    fn interpret_statement(&mut self, statement: &Statement) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_statement(
+        &mut self,
+        statement: &Statement,
+    ) -> Result<Option<Value>, InterpreterError> {
         match statement {
             Statement::Expression(expr_stmt) => {
                 let value = self.interpret_expression(&expr_stmt.expression)?;
                 Ok(Some(value))
             }
-            Statement::Block(block) => {
-                self.interpret_block(block)
-            }
-            Statement::Return(return_stmt) => {
-                self.interpret_return_statement(return_stmt)
-            }
-            Statement::If(if_stmt) => {
-                self.interpret_if_statement(if_stmt)
-            }
-            Statement::While(while_stmt) => {
-                self.interpret_while_statement(while_stmt)
-            }
-            Statement::Print(print_stmt) => {
-                self.interpret_print_statement(print_stmt)
-            }
-            Statement::DeclarationStatement(decl) => {
-                self.interpret_declaration(decl)
-            }
-            Statement::For(for_stmt) => {
-                self.interpret_for_statement(for_stmt)
-            }
+            Statement::Block(block) => self.interpret_block(block),
+            Statement::Return(return_stmt) => self.interpret_return_statement(return_stmt),
+            Statement::If(if_stmt) => self.interpret_if_statement(if_stmt),
+            Statement::While(while_stmt) => self.interpret_while_statement(while_stmt),
+            Statement::Print(print_stmt) => self.interpret_print_statement(print_stmt),
+            Statement::DeclarationStatement(decl) => self.interpret_declaration(decl),
+            Statement::For(for_stmt) => self.interpret_for_statement(for_stmt),
         }
     }
 
@@ -142,28 +139,36 @@ impl Interpreter {
         }
 
         // Pop environment
-        self.runtime.pop_environment()
+        self.runtime
+            .pop_environment()
             .map_err(|e| InterpreterError::runtime(e, Location::from_positions(0, 0, 0, 0)))?;
 
         Ok(last_value)
     }
 
     /// Interpret a return statement
-    fn interpret_return_statement(&mut self, return_stmt: &ReturnStatement) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_return_statement(
+        &mut self,
+        return_stmt: &ReturnStatement,
+    ) -> Result<Option<Value>, InterpreterError> {
         let value = if let Some(expr) = &return_stmt.value {
             self.interpret_expression(expr)?
         } else {
             Value::Unit
         };
 
-        self.runtime.set_return_value(value.clone())
+        self.runtime
+            .set_return_value(value.clone())
             .map_err(|e| InterpreterError::runtime(e, return_stmt.location))?;
 
         Ok(Some(value))
     }
 
     /// Interpret an if statement
-    fn interpret_if_statement(&mut self, if_stmt: &IfStatement) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_if_statement(
+        &mut self,
+        if_stmt: &IfStatement,
+    ) -> Result<Option<Value>, InterpreterError> {
         let condition = self.interpret_expression(&if_stmt.condition)?;
 
         if condition.is_truthy() {
@@ -176,7 +181,10 @@ impl Interpreter {
     }
 
     /// Interpret a while statement
-    fn interpret_while_statement(&mut self, while_stmt: &WhileStatement) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_while_statement(
+        &mut self,
+        while_stmt: &WhileStatement,
+    ) -> Result<Option<Value>, InterpreterError> {
         let mut last_value = None;
 
         loop {
@@ -199,29 +207,37 @@ impl Interpreter {
     }
 
     /// Interpret a print statement
-    fn interpret_print_statement(&mut self, print_stmt: &PrintStatement) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_print_statement(
+        &mut self,
+        print_stmt: &PrintStatement,
+    ) -> Result<Option<Value>, InterpreterError> {
         for arg in &print_stmt.arguments {
             let value = self.interpret_expression(arg)?;
-            self.runtime.println(&value)
+            self.runtime
+                .println(&value)
                 .map_err(|e| InterpreterError::runtime(e, print_stmt.location))?;
         }
         Ok(Some(Value::Unit))
     }
 
     /// Interpret a for statement
-    fn interpret_for_statement(&mut self, for_stmt: &ForStatement) -> Result<Option<Value>, InterpreterError> {
+    fn interpret_for_statement(
+        &mut self,
+        for_stmt: &ForStatement,
+    ) -> Result<Option<Value>, InterpreterError> {
         let iterable = self.interpret_expression(&for_stmt.iterable)?;
-        
+
         match iterable {
             Value::Array(values) => {
                 // Create new scope for the loop
                 self.runtime.push_environment(false);
-                
+
                 let mut last_value = None;
                 for value in values {
                     // Bind the loop variable
-                    self.runtime.define_variable(for_stmt.variable.clone(), value.clone());
-                    
+                    self.runtime
+                        .define_variable(for_stmt.variable.clone(), value.clone());
+
                     // Execute the body
                     match self.interpret_statement(&for_stmt.body)? {
                         Some(v) => {
@@ -235,63 +251,41 @@ impl Interpreter {
                         None => {}
                     }
                 }
-                
+
                 self.runtime.pop_environment();
                 Ok(last_value)
             }
             _ => Err(InterpreterError::runtime(
                 format!("Cannot iterate over {}", iterable.type_name()),
-                for_stmt.location
-            ))
+                for_stmt.location,
+            )),
         }
     }
 
     /// Interpret an expression
     fn interpret_expression(&mut self, expression: &Expression) -> Result<Value, InterpreterError> {
         match expression {
-            Expression::Literal(literal) => {
-                Ok(self.interpret_literal_expression(literal))
-            }
-            Expression::Identifier(ident) => {
-                self.runtime.get_variable(&ident.name)
-                    .map_err(|e| InterpreterError::runtime(e, ident.location))
-            }
-            Expression::Binary(binary) => {
-                self.interpret_binary_expression(binary)
-            }
-            Expression::Unary(unary) => {
-                self.interpret_unary_expression(unary)
-            }
-            Expression::Call(call) => {
-                self.interpret_call_expression(call)
-            }
-            Expression::Assignment(assignment) => {
-                self.interpret_assignment_expression(assignment)
-            }
-            Expression::Parenthesized(paren) => {
-                self.interpret_expression(&paren.expression)
-            }
-            Expression::StructLiteral(expr) => {
-                Err(InterpreterError::runtime(
-                    "struct literals not implemented".to_string(),
-                    expr.location
-                ))
-            }
-            Expression::FieldAccess(expr) => {
-                Err(InterpreterError::runtime(
-                    "field access not implemented".to_string(),
-                    expr.location
-                ))
-            }
-            Expression::ArrayLiteral(array) => {
-                self.interpret_array_literal(array)
-            }
-            Expression::Index(index) => {
-                self.interpret_index_expression(index)
-            }
-            Expression::Range(range) => {
-                self.interpret_range_expression(range)
-            }
+            Expression::Literal(literal) => Ok(self.interpret_literal_expression(literal)),
+            Expression::Identifier(ident) => self
+                .runtime
+                .get_variable(&ident.name)
+                .map_err(|e| InterpreterError::runtime(e, ident.location)),
+            Expression::Binary(binary) => self.interpret_binary_expression(binary),
+            Expression::Unary(unary) => self.interpret_unary_expression(unary),
+            Expression::Call(call) => self.interpret_call_expression(call),
+            Expression::Assignment(assignment) => self.interpret_assignment_expression(assignment),
+            Expression::Parenthesized(paren) => self.interpret_expression(&paren.expression),
+            Expression::StructLiteral(expr) => Err(InterpreterError::runtime(
+                "struct literals not implemented".to_string(),
+                expr.location,
+            )),
+            Expression::FieldAccess(expr) => Err(InterpreterError::runtime(
+                "field access not implemented".to_string(),
+                expr.location,
+            )),
+            Expression::ArrayLiteral(array) => self.interpret_array_literal(array),
+            Expression::Index(index) => self.interpret_index_expression(index),
+            Expression::Range(range) => self.interpret_range_expression(range),
         }
     }
 
@@ -320,7 +314,10 @@ impl Interpreter {
     }
 
     /// Interpret a binary expression
-    fn interpret_binary_expression(&mut self, binary: &BinaryExpression) -> Result<Value, InterpreterError> {
+    fn interpret_binary_expression(
+        &mut self,
+        binary: &BinaryExpression,
+    ) -> Result<Value, InterpreterError> {
         let left = self.interpret_expression(&binary.left)?;
         let right = self.interpret_expression(&binary.right)?;
 
@@ -334,33 +331,28 @@ impl Interpreter {
             BinaryOperator::NotEqual => Ok(Value::Boolean(!left.equals(&right))),
             BinaryOperator::LessThan => left.less_than(&right),
             BinaryOperator::GreaterThan => right.less_than(&left),
-            BinaryOperator::LessEqual => {
-                match left.less_than(&right) {
-                    Ok(Value::Boolean(lt)) => Ok(Value::Boolean(lt || left.equals(&right))),
-                    Ok(_) => Err("Invalid comparison result".to_string()),
-                    Err(e) => Err(e),
-                }
-            }
-            BinaryOperator::GreaterEqual => {
-                match right.less_than(&left) {
-                    Ok(Value::Boolean(lt)) => Ok(Value::Boolean(lt || left.equals(&right))),
-                    Ok(_) => Err("Invalid comparison result".to_string()),
-                    Err(e) => Err(e),
-                }
-            }
-            BinaryOperator::And => {
-                Ok(Value::Boolean(left.is_truthy() && right.is_truthy()))
-            }
-            BinaryOperator::Or => {
-                Ok(Value::Boolean(left.is_truthy() || right.is_truthy()))
-            }
+            BinaryOperator::LessEqual => match left.less_than(&right) {
+                Ok(Value::Boolean(lt)) => Ok(Value::Boolean(lt || left.equals(&right))),
+                Ok(_) => Err("Invalid comparison result".to_string()),
+                Err(e) => Err(e),
+            },
+            BinaryOperator::GreaterEqual => match right.less_than(&left) {
+                Ok(Value::Boolean(lt)) => Ok(Value::Boolean(lt || left.equals(&right))),
+                Ok(_) => Err("Invalid comparison result".to_string()),
+                Err(e) => Err(e),
+            },
+            BinaryOperator::And => Ok(Value::Boolean(left.is_truthy() && right.is_truthy())),
+            BinaryOperator::Or => Ok(Value::Boolean(left.is_truthy() || right.is_truthy())),
         };
 
         result.map_err(|e| InterpreterError::runtime(e, binary.location))
     }
 
     /// Interpret a unary expression
-    fn interpret_unary_expression(&mut self, unary: &UnaryExpression) -> Result<Value, InterpreterError> {
+    fn interpret_unary_expression(
+        &mut self,
+        unary: &UnaryExpression,
+    ) -> Result<Value, InterpreterError> {
         let operand = self.interpret_expression(&unary.operand)?;
 
         let result = match unary.operator {
@@ -373,7 +365,10 @@ impl Interpreter {
     }
 
     /// Interpret a function call
-    fn interpret_call_expression(&mut self, call: &CallExpression) -> Result<Value, InterpreterError> {
+    fn interpret_call_expression(
+        &mut self,
+        call: &CallExpression,
+    ) -> Result<Value, InterpreterError> {
         // Handle built-in functions
         if call.callee == "println" {
             if call.arguments.len() != 1 {
@@ -385,16 +380,25 @@ impl Interpreter {
                 ));
             }
             let arg = self.interpret_expression(&call.arguments[0])?;
-            self.runtime.println(&arg)
+            self.runtime
+                .println(&arg)
                 .map_err(|e| InterpreterError::runtime(e, call.location))?;
             return Ok(Value::Unit);
         }
 
         // Get function from runtime
-        let function = self.runtime.get_variable(&call.callee)
+        let function = self
+            .runtime
+            .get_variable(&call.callee)
             .map_err(|e| InterpreterError::runtime(e, call.location))?;
 
-        if let Value::Function { name, parameters, body, closure: _ } = function {
+        if let Value::Function {
+            name,
+            parameters,
+            body,
+            closure: _,
+        } = function
+        {
             // Check argument count
             if call.arguments.len() != parameters.len() {
                 return Err(InterpreterError::argument_count_mismatch(
@@ -412,7 +416,8 @@ impl Interpreter {
             }
 
             // Push call frame
-            self.runtime.push_call(name.clone(), call.location)
+            self.runtime
+                .push_call(name.clone(), call.location)
                 .map_err(|e| InterpreterError::runtime(e, call.location))?;
 
             // Push function environment
@@ -446,10 +451,14 @@ impl Interpreter {
     }
 
     /// Interpret an assignment expression
-    fn interpret_assignment_expression(&mut self, assignment: &AssignmentExpression) -> Result<Value, InterpreterError> {
+    fn interpret_assignment_expression(
+        &mut self,
+        assignment: &AssignmentExpression,
+    ) -> Result<Value, InterpreterError> {
         let value = self.interpret_expression(&assignment.value)?;
-        
-        self.runtime.set_variable(&assignment.name, value.clone())
+
+        self.runtime
+            .set_variable(&assignment.name, value.clone())
             .map_err(|e| InterpreterError::runtime(e, assignment.location))?;
 
         Ok(value)
@@ -464,7 +473,10 @@ impl Default for Interpreter {
 
 impl Interpreter {
     /// Interpret an array literal
-    fn interpret_array_literal(&mut self, array: &ArrayLiteralExpression) -> Result<Value, InterpreterError> {
+    fn interpret_array_literal(
+        &mut self,
+        array: &ArrayLiteralExpression,
+    ) -> Result<Value, InterpreterError> {
         let mut elements = Vec::new();
         for element in &array.elements {
             elements.push(self.interpret_expression(element)?);
@@ -473,33 +485,47 @@ impl Interpreter {
     }
 
     /// Interpret an index expression
-    fn interpret_index_expression(&mut self, index: &IndexExpression) -> Result<Value, InterpreterError> {
+    fn interpret_index_expression(
+        &mut self,
+        index: &IndexExpression,
+    ) -> Result<Value, InterpreterError> {
         let object = self.interpret_expression(&index.object)?;
         let index_value = self.interpret_expression(&index.index)?;
-        
+
         match (&object, &index_value) {
             (Value::Array(arr), Value::Integer(i)) => {
                 if *i < 0 || *i as usize >= arr.len() {
                     Err(InterpreterError::runtime(
-                        format!("Array index out of bounds: {}, array length: {}", *i, arr.len()),
-                        index.location
+                        format!(
+                            "Array index out of bounds: {}, array length: {}",
+                            *i,
+                            arr.len()
+                        ),
+                        index.location,
                     ))
                 } else {
                     Ok(arr[*i as usize].clone())
                 }
             }
             _ => Err(InterpreterError::runtime(
-                format!("Cannot index {:?} with {:?}", object.type_name(), index_value.type_name()),
-                index.location
-            ))
+                format!(
+                    "Cannot index {:?} with {:?}",
+                    object.type_name(),
+                    index_value.type_name()
+                ),
+                index.location,
+            )),
         }
     }
 
     /// Interpret a range expression
-    fn interpret_range_expression(&mut self, range: &RangeExpression) -> Result<Value, InterpreterError> {
+    fn interpret_range_expression(
+        &mut self,
+        range: &RangeExpression,
+    ) -> Result<Value, InterpreterError> {
         let start = self.interpret_expression(&range.start)?;
         let end = self.interpret_expression(&range.end)?;
-        
+
         match (&start, &end) {
             (Value::Integer(s), Value::Integer(e)) => {
                 // Create an array with values from start to end (exclusive)
@@ -510,10 +536,13 @@ impl Interpreter {
                 Ok(Value::Array(values))
             }
             _ => Err(InterpreterError::runtime(
-                format!("Range bounds must be integers, got {:?} and {:?}", 
-                        start.type_name(), end.type_name()),
-                range.location
-            ))
+                format!(
+                    "Range bounds must be integers, got {:?} and {:?}",
+                    start.type_name(),
+                    end.type_name()
+                ),
+                range.location,
+            )),
         }
     }
 }
@@ -527,27 +556,27 @@ mod tests {
     fn create_test_keyword_manager() -> seen_lexer::KeywordManager {
         use seen_lexer::keyword_config::KeywordConfig;
         use std::path::PathBuf;
-        
+
         // Get the specifications directory relative to the workspace root
         let specs_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent() // Go up from seen_interpreter crate root to workspace root
             .unwrap()
             .join("specifications");
-        
+
         let keyword_config = KeywordConfig::from_directory(&specs_dir)
             .expect("Failed to load keyword configuration for testing");
-        
+
         seen_lexer::KeywordManager::new(keyword_config, "en".to_string())
             .expect("Failed to create KeywordManager for testing")
     }
-    
+
     fn parse_and_interpret(source: &str) -> InterpreterResult {
         let keyword_manager = create_test_keyword_manager();
         let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
         let tokens = lexer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
-        
+
         let mut interpreter = Interpreter::new();
         interpreter.interpret_program(&program)
     }
@@ -556,7 +585,7 @@ mod tests {
     fn test_simple_arithmetic() {
         let source = r#"val x = 5 + 3;
 val y = x * 2;"#;
-        
+
         let result = parse_and_interpret(source);
         assert!(result.is_ok());
     }
@@ -564,7 +593,7 @@ val y = x * 2;"#;
     #[test]
     fn test_variable_declaration() {
         let source = r#"val greeting = "Hello, World!";"#;
-        
+
         let result = parse_and_interpret(source);
         assert!(result.is_ok());
     }

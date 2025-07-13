@@ -8,14 +8,14 @@ use std::path::Path;
 pub struct SeenConfig {
     /// Project name
     pub name: String,
-    
+
     /// Active language for keywords (e.g., "english", "arabic")
     pub language: String,
-    
+
     /// Version of the Seen language
     #[serde(default = "default_version")]
     pub version: String,
-    
+
     /// Build configuration
     #[serde(default)]
     pub build: BuildConfig,
@@ -27,7 +27,7 @@ pub struct BuildConfig {
     /// Output directory for compiled files
     #[serde(default = "default_output_dir")]
     pub output_dir: String,
-    
+
     /// Optimization level
     #[serde(default = "default_optimization")]
     pub optimization: String,
@@ -55,26 +55,25 @@ impl SeenConfig {
             build: BuildConfig::default(),
         }
     }
-    
+
     /// Load configuration from a file
     pub fn load(path: &Path) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read configuration file: {}", path.display()))?;
-        
+
         let config: SeenConfig = toml::from_str(&content)
             .with_context(|| format!("Failed to parse configuration file: {}", path.display()))?;
-        
+
         Ok(config)
     }
-    
+
     /// Save configuration to a file
     pub fn save(&self, path: &Path) -> Result<()> {
-        let content = toml::to_string_pretty(self)
-            .context("Failed to serialize configuration")?;
-        
+        let content = toml::to_string_pretty(self).context("Failed to serialize configuration")?;
+
         fs::write(path, content)
             .with_context(|| format!("Failed to write configuration file: {}", path.display()))?;
-        
+
         Ok(())
     }
 }

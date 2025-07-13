@@ -72,13 +72,13 @@ fn test_large_file_performance() {
     let duration = start.elapsed();
     
     // Assert reasonable performance (adjust threshold as needed)
-    assert\!(duration.as_secs() < 1, "Lexing took too long: {:?}", duration);
+    assert!(duration.as_secs() < 1, "Lexing took too long: {:?}", duration);
 }
 
 #[test]
 fn test_real_world_examples() {
     // Test with actual Seen code examples
-    let examples = vec\![
+    let examples = vec![
         // Fibonacci
         r#"
         func fibonacci(n: Int) -> Int {

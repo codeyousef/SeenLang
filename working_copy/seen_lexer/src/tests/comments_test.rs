@@ -13,8 +13,8 @@ fn test_single_line_comment_english() {
     let tokens = lexer.tokenize().unwrap();
     
     // Comment should be skipped
-    assert_eq\!(tokens[0].token_type, TokenType::Func);
-    assert_eq\!(tokens[0].line, 2); // Should be on line 2
+    assert_eq!(tokens[0].token_type, TokenType::Func);
+    assert_eq!(tokens[0].line, 2); // Should be on line 2
 }
 
 #[test]
@@ -26,8 +26,8 @@ fn test_single_line_comment_arabic() {
     let tokens = lexer.tokenize().unwrap();
     
     // Comment should be skipped
-    assert_eq\!(tokens[0].token_type, TokenType::Func);
-    assert_eq\!(tokens[0].line, 2); // Should be on line 2
+    assert_eq!(tokens[0].token_type, TokenType::Func);
+    assert_eq!(tokens[0].line, 2); // Should be on line 2
 }
 
 #[test]
@@ -39,8 +39,8 @@ fn test_multi_line_comment() {
     let tokens = lexer.tokenize().unwrap();
     
     // Comment should be skipped
-    assert_eq\!(tokens[0].token_type, TokenType::Func);
-    assert_eq\!(tokens[0].line, 4); // Should be on line 4
+    assert_eq!(tokens[0].token_type, TokenType::Func);
+    assert_eq!(tokens[0].line, 4); // Should be on line 4
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn test_nested_comments() {
     let tokens = lexer.tokenize().unwrap();
     
     // All comments should be skipped
-    assert_eq\!(tokens[0].token_type, TokenType::Func);
+    assert_eq!(tokens[0].token_type, TokenType::Func);
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn test_unterminated_comment_error() {
     let mut lexer = Lexer::new(source, &keyword_manager);
     let result = lexer.tokenize();
     
-    assert\!(result.is_err(), "Expected error for unterminated comment");
+    assert!(result.is_err(), "Expected error for unterminated comment");
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn test_comment_at_end_of_line() {
         .filter(|t| t.token_type \!= TokenType::Eof)
         .collect();
     
-    assert_eq\!(non_eof_tokens.last().unwrap().token_type, TokenType::RightBrace);
+    assert_eq!(non_eof_tokens.last().unwrap().token_type, TokenType::RightBrace);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn test_mixed_comment_styles() {
     let tokens = lexer.tokenize().unwrap();
     
     // All comments should be skipped, verify structure
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Func));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Val));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::IntegerLiteral && t.lexeme == "42"));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Func));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Val));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::IntegerLiteral && t.lexeme == "42"));
 }

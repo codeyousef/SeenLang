@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 /// Represents a source position in the code
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,7 +32,12 @@ impl Location {
         Self { start, end }
     }
 
-    pub fn from_positions(start_line: usize, start_column: usize, end_line: usize, end_column: usize) -> Self {
+    pub fn from_positions(
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
+    ) -> Self {
         Self {
             start: Position::new(start_line, start_column),
             end: Position::new(end_line, end_column),
@@ -74,47 +79,47 @@ pub enum TokenType {
     Own,      // own (EN) / ملك (AR)
     Async,    // async (EN) / غير_متزامن (AR)
     Await,    // await (EN) / انتظر (AR)
-    
+
     // Literals
     IntLiteral,
     FloatLiteral,
     StringLiteral,
-    
+
     // Identifiers
     Identifier,
-    
+
     // Operators
-    Plus,       // +
-    Minus,      // -
-    Multiply,   // *
-    Divide,     // /
-    Modulo,     // %
-    Assign,     // =
-    Equal,      // ==
-    NotEqual,   // !=
-    LessThan,   // <
-    GreaterThan, // >
-    LessEqual,  // <=
+    Plus,         // +
+    Minus,        // -
+    Multiply,     // *
+    Divide,       // /
+    Modulo,       // %
+    Assign,       // =
+    Equal,        // ==
+    NotEqual,     // !=
+    LessThan,     // <
+    GreaterThan,  // >
+    LessEqual,    // <=
     GreaterEqual, // >=
-    And,        // &&
-    Or,         // ||
-    Not,        // !
-    
+    And,          // &&
+    Or,           // ||
+    Not,          // !
+
     // Delimiters
-    LeftParen,  // (
-    RightParen, // )
-    LeftBrace,  // {
-    RightBrace, // }
-    LeftBracket, // [
+    LeftParen,    // (
+    RightParen,   // )
+    LeftBrace,    // {
+    RightBrace,   // }
+    LeftBracket,  // [
     RightBracket, // ]
-    Semicolon,  // ;
-    Colon,      // :
-    Comma,      // ,
-    Dot,        // .
-    Arrow,      // ->
-    Question,   // ?
-    DotDot,     // ..
-    
+    Semicolon,    // ;
+    Colon,        // :
+    Comma,        // ,
+    Dot,          // .
+    Arrow,        // ->
+    Question,     // ?
+    DotDot,       // ..
+
     // Special
     EOF,
     Error,
@@ -125,19 +130,24 @@ pub enum TokenType {
 pub struct Token {
     /// The canonical type of this token
     pub token_type: TokenType,
-    
+
     /// The actual text as it appeared in the source
     pub lexeme: String,
-    
+
     /// Location in the source code
     pub location: Location,
-    
+
     /// The language the token was written in (e.g., "en", "ar")
     pub language: String,
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, lexeme: String, location: Location, language: String) -> Self {
+    pub fn new(
+        token_type: TokenType,
+        lexeme: String,
+        location: Location,
+        language: String,
+    ) -> Self {
         Self {
             token_type,
             lexeme,

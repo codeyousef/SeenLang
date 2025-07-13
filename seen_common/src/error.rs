@@ -80,7 +80,7 @@ impl LocalizedMessage {
             ar: None,
         }
     }
-    
+
     /// Create a new bilingual message
     pub fn bilingual(en: impl Into<String>, ar: impl Into<String>) -> Self {
         Self {
@@ -88,7 +88,7 @@ impl LocalizedMessage {
             ar: Some(ar.into()),
         }
     }
-    
+
     /// Get the message in the preferred language
     pub fn get(&self, lang_pref: LanguagePreference) -> &str {
         match (lang_pref, &self.ar) {
@@ -173,11 +173,11 @@ impl DiagnosticFormatter {
             use_colors,
         }
     }
-    
+
     /// Format a diagnostic message
     pub fn format(&self, diagnostic: &Diagnostic) -> String {
         let mut output = String::new();
-        
+
         // Format the header with severity and location
         let severity_str = match diagnostic.severity {
             Severity::Error => {
@@ -209,7 +209,7 @@ impl DiagnosticFormatter {
                 }
             }
         };
-        
+
         output.push_str(&format!(
             "{}[{}]: {} at {}:{}:{}\n",
             severity_str,
@@ -219,21 +219,24 @@ impl DiagnosticFormatter {
             diagnostic.location.start.line,
             diagnostic.location.start.column
         ));
-        
+
         // Add the source line
         // Note: In a real implementation, we would read the source file and display the specific line
         output.push_str(&format!("    {}\n", diagnostic.source_text));
-        
+
         // Add the caret line
         let caret_padding = " ".repeat(diagnostic.location.start.column + 3);
-        let caret_length = std::cmp::max(1, diagnostic.location.end.column - diagnostic.location.start.column + 1);
+        let caret_length = std::cmp::max(
+            1,
+            diagnostic.location.end.column - diagnostic.location.start.column + 1,
+        );
         let caret = if self.use_colors {
             format!("\x1b[31m{}\x1b[0m", "^".repeat(caret_length))
         } else {
             "^".repeat(caret_length)
         };
         output.push_str(&format!("{}{}\n", caret_padding, caret));
-        
+
         // Add the expected text if available
         if let Some(expected) = &diagnostic.expected_text {
             let expected_msg = match self.language_pref {
@@ -242,16 +245,16 @@ impl DiagnosticFormatter {
             };
             output.push_str(&format!("    {}\n", expected_msg));
         }
-        
+
         // Add fix suggestions if available
         if !diagnostic.fix_suggestions.is_empty() {
             let suggestion_header = match self.language_pref {
                 LanguagePreference::English => "suggestion:",
                 LanguagePreference::Arabic => "اقتراح:",
             };
-            
+
             output.push_str(&format!("\n{}\n", suggestion_header));
-            
+
             for (i, suggestion) in diagnostic.fix_suggestions.iter().enumerate() {
                 output.push_str(&format!(
                     "    {}: {}\n",
@@ -260,16 +263,16 @@ impl DiagnosticFormatter {
                 ));
             }
         }
-        
+
         // Add related information if available
         if !diagnostic.related_information.is_empty() {
             let related_header = match self.language_pref {
                 LanguagePreference::English => "related:",
                 LanguagePreference::Arabic => "ذو صلة:",
             };
-            
+
             output.push_str(&format!("\n{}\n", related_header));
-            
+
             for related in &diagnostic.related_information {
                 output.push_str(&format!(
                     "    {} at {}:{}:{}\n",
@@ -280,7 +283,7 @@ impl DiagnosticFormatter {
                 ));
             }
         }
-        
+
         // Add documentation URL if available
         if let Some(url) = &diagnostic.documentation_url {
             let doc_msg = match self.language_pref {
@@ -289,7 +292,7 @@ impl DiagnosticFormatter {
             };
             output.push_str(&format!("\n{}\n", doc_msg));
         }
-        
+
         output
     }
 }
@@ -329,7 +332,10 @@ impl LexicalError {
     /// Convert the lexical error to a diagnostic
     pub fn to_diagnostic(&self) -> Diagnostic {
         match self {
-            LexicalError::UnexpectedCharacter { location, character } => Diagnostic {
+            LexicalError::UnexpectedCharacter {
+                location,
+                character,
+            } => Diagnostic {
                 id: "LEX0001".to_string(),
                 severity: Severity::Error,
                 message: LocalizedMessage::bilingual(
@@ -354,16 +360,14 @@ impl LexicalError {
                 location: location.clone(),
                 source_text: "\"...".to_string(), // Placeholder, actual value determined at runtime
                 expected_text: Some("\"".to_string()),
-                fix_suggestions: vec![
-                    FixSuggestion {
-                        message: LocalizedMessage::bilingual(
-                            "Add a closing double quote",
-                            "أضف علامة اقتباس مزدوجة للإغلاق",
-                        ),
-                        replacement: "\"...\"".to_string(), // Placeholder, actual value determined at runtime
-                        replacement_range: None,
-                    },
-                ],
+                fix_suggestions: vec![FixSuggestion {
+                    message: LocalizedMessage::bilingual(
+                        "Add a closing double quote",
+                        "أضف علامة اقتباس مزدوجة للإغلاق",
+                    ),
+                    replacement: "\"...\"".to_string(), // Placeholder, actual value determined at runtime
+                    replacement_range: None,
+                }],
                 related_information: vec![],
                 documentation_url: None,
                 language_context: LanguageContext::Mixed, // Determined at runtime
@@ -439,7 +443,11 @@ impl SyntaxError {
     /// Convert the syntax error to a diagnostic
     pub fn to_diagnostic(&self) -> Diagnostic {
         match self {
-            SyntaxError::UnexpectedToken { location, found, expected } => {
+            SyntaxError::UnexpectedToken {
+                location,
+                found,
+                expected,
+            } => {
                 let expected_str = if expected.len() == 1 {
                     expected[0].clone()
                 } else {
@@ -447,7 +455,7 @@ impl SyntaxError {
                     s.push_str(&format!(" or {}", expected[expected.len() - 1]));
                     s
                 };
-                
+
                 Diagnostic {
                     id: "PAR0001".to_string(),
                     severity: Severity::Error,
@@ -463,7 +471,7 @@ impl SyntaxError {
                     documentation_url: None,
                     language_context: LanguageContext::Mixed, // Determined at runtime
                 }
-            },
+            }
             SyntaxError::UnexpectedEOF { location, expected } => {
                 let expected_str = if expected.len() == 1 {
                     expected[0].clone()
@@ -472,7 +480,7 @@ impl SyntaxError {
                     s.push_str(&format!(" or {}", expected[expected.len() - 1]));
                     s
                 };
-                
+
                 Diagnostic {
                     id: "PAR0002".to_string(),
                     severity: Severity::Error,
@@ -488,7 +496,7 @@ impl SyntaxError {
                     documentation_url: None,
                     language_context: LanguageContext::Mixed, // Determined at runtime
                 }
-            },
+            }
             SyntaxError::MissingSemicolon { location } => Diagnostic {
                 id: "PAR0003".to_string(),
                 severity: Severity::Error,
@@ -499,16 +507,11 @@ impl SyntaxError {
                 location: location.clone(),
                 source_text: "".to_string(), // Placeholder, actual value determined at runtime
                 expected_text: Some(";".to_string()),
-                fix_suggestions: vec![
-                    FixSuggestion {
-                        message: LocalizedMessage::bilingual(
-                            "Add a semicolon",
-                            "أضف فاصلة منقوطة",
-                        ),
-                        replacement: ";".to_string(),
-                        replacement_range: None,
-                    },
-                ],
+                fix_suggestions: vec![FixSuggestion {
+                    message: LocalizedMessage::bilingual("Add a semicolon", "أضف فاصلة منقوطة"),
+                    replacement: ";".to_string(),
+                    replacement_range: None,
+                }],
                 related_information: vec![],
                 documentation_url: None,
                 language_context: LanguageContext::Mixed, // Determined at runtime
@@ -581,12 +584,19 @@ impl SemanticError {
                 documentation_url: None,
                 language_context: LanguageContext::Mixed, // Determined at runtime
             },
-            SemanticError::TypeMismatch { location, expected, actual } => Diagnostic {
+            SemanticError::TypeMismatch {
+                location,
+                expected,
+                actual,
+            } => Diagnostic {
                 id: "SEM0002".to_string(),
                 severity: Severity::Error,
                 message: LocalizedMessage::bilingual(
                     format!("Type mismatch: expected '{}', got '{}'", expected, actual),
-                    format!("عدم تطابق النوع: المتوقع '{}', الفعلي '{}'", expected, actual),
+                    format!(
+                        "عدم تطابق النوع: المتوقع '{}', الفعلي '{}'",
+                        expected, actual
+                    ),
                 ),
                 location: location.clone(),
                 source_text: "".to_string(), // Placeholder, actual value determined at runtime
@@ -596,7 +606,11 @@ impl SemanticError {
                 documentation_url: None,
                 language_context: LanguageContext::Mixed, // Determined at runtime
             },
-            SemanticError::ImmutableAssignment { location, name, declaration_location } => Diagnostic {
+            SemanticError::ImmutableAssignment {
+                location,
+                name,
+                declaration_location,
+            } => Diagnostic {
                 id: "SEM0003".to_string(),
                 severity: Severity::Error,
                 message: LocalizedMessage::bilingual(
@@ -606,25 +620,21 @@ impl SemanticError {
                 location: location.clone(),
                 source_text: name.clone(),
                 expected_text: None,
-                fix_suggestions: vec![
-                    FixSuggestion {
-                        message: LocalizedMessage::bilingual(
-                            "Change declaration to 'var' instead of 'val'",
-                            "غيّر التعريف إلى 'متغير' بدلاً من 'ثابت'",
-                        ),
-                        replacement: "var".to_string(), // Simplified, actual would depend on language context
-                        replacement_range: Some(declaration_location.clone()),
-                    },
-                ],
-                related_information: vec![
-                    RelatedInformation {
-                        message: LocalizedMessage::bilingual(
-                            format!("Variable '{}' is declared here as immutable", name),
-                            format!("تم تعريف المتغير '{}' هنا كمتغير غير قابل للتغيير", name),
-                        ),
-                        location: declaration_location.clone(),
-                    },
-                ],
+                fix_suggestions: vec![FixSuggestion {
+                    message: LocalizedMessage::bilingual(
+                        "Change declaration to 'var' instead of 'val'",
+                        "غيّر التعريف إلى 'متغير' بدلاً من 'ثابت'",
+                    ),
+                    replacement: "var".to_string(), // Simplified, actual would depend on language context
+                    replacement_range: Some(declaration_location.clone()),
+                }],
+                related_information: vec![RelatedInformation {
+                    message: LocalizedMessage::bilingual(
+                        format!("Variable '{}' is declared here as immutable", name),
+                        format!("تم تعريف المتغير '{}' هنا كمتغير غير قابل للتغيير", name),
+                    ),
+                    location: declaration_location.clone(),
+                }],
                 documentation_url: None,
                 language_context: LanguageContext::Mixed, // Determined at runtime
             },
@@ -679,7 +689,10 @@ impl CodeGenError {
                 documentation_url: None,
                 language_context: LanguageContext::Mixed, // Determined at runtime
             },
-            CodeGenError::TypeConversionError { location, seen_type } => Diagnostic {
+            CodeGenError::TypeConversionError {
+                location,
+                seen_type,
+            } => Diagnostic {
                 id: "GEN0002".to_string(),
                 severity: Severity::Error,
                 message: LocalizedMessage::bilingual(
@@ -694,7 +707,11 @@ impl CodeGenError {
                 documentation_url: None,
                 language_context: LanguageContext::Mixed, // Determined at runtime
             },
-            CodeGenError::FunctionCallError { location, name, message } => Diagnostic {
+            CodeGenError::FunctionCallError {
+                location,
+                name,
+                message,
+            } => Diagnostic {
                 id: "GEN0003".to_string(),
                 severity: Severity::Error,
                 message: LocalizedMessage::bilingual(
@@ -727,47 +744,47 @@ impl Diagnostics {
             messages: Vec::new(),
         }
     }
-    
+
     /// Add a diagnostic
     pub fn add(&mut self, diagnostic: Diagnostic) {
         self.messages.push(diagnostic);
     }
-    
+
     /// Add a lexical error
     pub fn add_lexical_error(&mut self, error: &LexicalError) {
         self.add(error.to_diagnostic());
     }
-    
+
     /// Add a syntax error
     pub fn add_syntax_error(&mut self, error: &SyntaxError) {
         self.add(error.to_diagnostic());
     }
-    
+
     /// Add a semantic error
     pub fn add_semantic_error(&mut self, error: &SemanticError) {
         self.add(error.to_diagnostic());
     }
-    
+
     /// Add a code generation error
     pub fn add_codegen_error(&mut self, error: &CodeGenError) {
         self.add(error.to_diagnostic());
     }
-    
+
     /// Check if there are any error diagnostics
     pub fn has_errors(&self) -> bool {
         self.messages.iter().any(|d| d.severity == Severity::Error)
     }
-    
+
     /// Format all diagnostics
     pub fn format(&self, language_pref: LanguagePreference, use_colors: bool) -> String {
         let formatter = DiagnosticFormatter::new(language_pref, use_colors);
-        
+
         let mut output = String::new();
         for diagnostic in &self.messages {
             output.push_str(&formatter.format(diagnostic));
             output.push('\n');
         }
-        
+
         output
     }
 }

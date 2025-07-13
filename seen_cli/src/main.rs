@@ -4,9 +4,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+mod build;
 mod config;
 mod project;
-mod build;
 mod run;
 
 /// Seen Programming Language CLI
@@ -46,27 +46,21 @@ enum Commands {
 fn main() -> Result<()> {
     // Initialize logging
     env_logger::init();
-    
+
     // Parse command line arguments
     let cli = Cli::parse();
-    
+
     // Set up logging verbosity
     match cli.verbose {
         0 => log::set_max_level(log::LevelFilter::Info),
         1 => log::set_max_level(log::LevelFilter::Debug),
         _ => log::set_max_level(log::LevelFilter::Trace),
     }
-    
+
     // Execute the requested command
     match cli.command {
-        Commands::New { name } => {
-            project::create_new_project(&name)
-        },
-        Commands::Build { project_path } => {
-            build::build_project(&project_path)
-        },
-        Commands::Run { project_path } => {
-            run::run_project(&project_path)
-        },
+        Commands::New { name } => project::create_new_project(&name),
+        Commands::Build { project_path } => build::build_project(&project_path),
+        Commands::Run { project_path } => run::run_project(&project_path),
     }
 }

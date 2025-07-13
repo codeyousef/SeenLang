@@ -184,7 +184,8 @@ impl Runtime {
             self.environments.len(),
             self.call_stack.len(),
             self.globals.len(),
-            self.call_stack.last()
+            self.call_stack
+                .last()
                 .map(|f| f.function_name.as_str())
                 .unwrap_or("none")
         )
@@ -220,7 +221,6 @@ impl Default for Runtime {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,7 +239,10 @@ mod tests {
 
         // Can access both variables
         assert_eq!(runtime.get_variable("x").unwrap(), Value::Integer(42));
-        assert_eq!(runtime.get_variable("y").unwrap(), Value::String("hello".to_string()));
+        assert_eq!(
+            runtime.get_variable("y").unwrap(),
+            Value::String("hello".to_string())
+        );
 
         // Pop scope
         runtime.pop_environment().unwrap();
@@ -258,7 +261,9 @@ mod tests {
 
         assert!(!runtime.in_function());
 
-        runtime.push_call("test_func".to_string(), location).unwrap();
+        runtime
+            .push_call("test_func".to_string(), location)
+            .unwrap();
         assert!(runtime.in_function());
         assert_eq!(runtime.call_depth(), 1);
 

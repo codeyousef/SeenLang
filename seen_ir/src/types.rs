@@ -1,8 +1,8 @@
-use inkwell::types::BasicTypeEnum;
+use crate::error::{CodeGenError, Result};
 // Note: In inkwell 0.2.0, we use numeric address space instead of named variants
 use inkwell::context::Context;
+use inkwell::types::BasicTypeEnum;
 use seen_parser::ast::Type as AstType;
-use crate::error::{CodeGenError, Result};
 
 /// Type system for the Seen language
 pub struct TypeSystem<'ctx> {
@@ -21,7 +21,7 @@ impl<'ctx> TypeSystem<'ctx> {
             AstType::Simple(name) => self.get_type_by_name(name),
             AstType::Array(element_type) => {
                 let element_llvm_type = self.convert_type(element_type)?;
-                
+
                 // For MVP, we'll use fixed size arrays of length 10
                 // Later versions would support variable length arrays
                 let array_type = match element_llvm_type {
@@ -31,9 +31,11 @@ impl<'ctx> TypeSystem<'ctx> {
                     BasicTypeEnum::ArrayType(t) => t.array_type(10).into(),
                     BasicTypeEnum::StructType(t) => t.array_type(10).into(),
                     BasicTypeEnum::VectorType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::ScalableVectorType(_) => todo!("Handle ScalableVectorType in array creation"),
+                    BasicTypeEnum::ScalableVectorType(_) => {
+                        todo!("Handle ScalableVectorType in array creation")
+                    }
                 };
-                
+
                 Ok(array_type)
             }
         }
@@ -53,7 +55,9 @@ impl<'ctx> TypeSystem<'ctx> {
             "void" => {
                 // For void return types, use a special case in the calling code
                 // This is a placeholder to maintain interface consistency
-                Err(CodeGenError::UnknownType(format!("Void type not valid in this context")))
+                Err(CodeGenError::UnknownType(format!(
+                    "Void type not valid in this context"
+                )))
             }
             _ => Err(CodeGenError::UnknownType(name.to_string())),
         }

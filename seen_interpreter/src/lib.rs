@@ -1,9 +1,9 @@
 //! Tree-walking interpreter for the Seen programming language
 
-pub mod runtime;
-pub mod interpreter;
-pub mod value;
 pub mod errors;
+pub mod interpreter;
+pub mod runtime;
+pub mod value;
 
 pub use errors::{InterpreterError, RuntimeError};
 pub use interpreter::Interpreter;
@@ -27,22 +27,22 @@ impl InterpreterResult {
             errors: Vec::new(),
         }
     }
-    
+
     /// Check if interpretation was successful
     pub fn is_ok(&self) -> bool {
         self.errors.is_empty()
     }
-    
+
     /// Check if interpretation failed
     pub fn is_err(&self) -> bool {
         !self.errors.is_empty()
     }
-    
+
     /// Add an error
     pub fn add_error(&mut self, error: InterpreterError) {
         self.errors.push(error);
     }
-    
+
     /// Set the result value
     pub fn set_value(&mut self, value: Value) {
         self.value = Some(value);

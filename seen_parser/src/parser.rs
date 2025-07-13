@@ -233,6 +233,53 @@ impl Parser {
         })
     }
 
+    /// Parse a struct literal expression
+    fn struct_literal(&mut self, struct_name: String, start_loc: Position) -> Result<Expression, ParserError> {
+        self.consume(TokenType::LeftBrace, "Expected '{' after struct name")?;
+        
+        let mut fields = Vec::new();
+        
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            let field_start = self.peek_position();
+            
+            // Parse field name
+            let field_name = self.consume_identifier("Expected field name")?;
+            
+            // Consume colon
+            self.consume(TokenType::Colon, "Expected ':' after field name")?;
+            
+            // Parse field value
+            let value = Box::new(self.expression()?);
+            let field_end = self.previous().location.end;
+            
+            fields.push(StructFieldInit {
+                field_name,
+                value,
+                location: Location::new(field_start, field_end),
+            });
+            
+            // Handle optional comma
+            if self.match_tokens(&[TokenType::Comma]) {
+                // Consumed comma, continue
+            } else if !self.check(TokenType::RightBrace) {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "',' or '}'".to_string(),
+                    got: self.peek().lexeme.clone(),
+                    position: self.peek_position(),
+                });
+            }
+        }
+        
+        self.consume(TokenType::RightBrace, "Expected '}' after struct fields")?;
+        let end_loc = self.previous().location.end;
+        
+        Ok(Expression::StructLiteral(StructLiteralExpression {
+            struct_name,
+            fields,
+            location: Location::new(start_loc, end_loc),
+        }))
+    }
+
     /// Parse a struct field
     fn struct_field(&mut self) -> Result<StructField, ParserError> {
         let start_pos = self.peek_position();
@@ -256,6 +303,13 @@ impl Parser {
 
     /// Parse a type annotation
     fn parse_type(&mut self) -> Result<Type, ParserError> {
+        // Check for array type syntax: [Type]
+        if self.match_tokens(&[TokenType::LeftBracket]) {
+            let inner_type = Box::new(self.parse_type()?);
+            self.consume(TokenType::RightBracket, "Expected ']' after array type")?;
+            return Ok(Type::Array(inner_type));
+        }
+        
         if self.check(TokenType::Identifier) {
             let type_name = self.advance().lexeme.clone();
             
@@ -842,10 +896,16 @@ impl Parser {
 
         if self.match_tokens(&[TokenType::Identifier]) {
             let name = self.previous().lexeme.clone();
-            let location = self.previous().location;
+            let start_loc = self.previous().location.start;
+            
+            // Check if this is a struct literal
+            if self.check(TokenType::LeftBrace) {
+                return self.struct_literal(name, start_loc);
+            }
+            
             return Ok(Expression::Identifier(IdentifierExpression {
                 name,
-                location,
+                location: Location::new(start_loc, self.previous().location.end),
             }));
         }
 

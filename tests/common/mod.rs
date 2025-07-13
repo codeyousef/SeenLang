@@ -1,8 +1,11 @@
-//\! Common test utilities for the Seen language test suite
+//! Common test utilities for the Seen language test suite
 
 use tempfile::TempDir;
 use std::path::{Path, PathBuf};
 use std::fs;
+
+// Include the new test utilities module
+pub mod test_utils;
 
 /// Represents the language variant for testing
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +159,7 @@ pub mod assertions {
             }
         }
         
-        assert\!(
+        assert!(
             current_needle.is_none(),
             "Subsequence {:?} not found in {:?}",
             needle,

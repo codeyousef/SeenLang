@@ -11,10 +11,10 @@ fn create_test_keyword_manager() -> KeywordManager {
         .parent() // Go up from seen_interpreter crate root to workspace root
         .unwrap()
         .join("specifications");
-    
+
     let keyword_config = KeywordConfig::from_directory(&specs_dir)
         .expect("Failed to load keyword configuration for testing");
-    
+
     KeywordManager::new(keyword_config, "en".to_string())
         .expect("Failed to create KeywordManager for testing")
 }
@@ -22,20 +22,20 @@ fn create_test_keyword_manager() -> KeywordManager {
 #[test]
 fn test_simple_hello_world() {
     let source = r#"val greeting = "Hello, World!";"#;
-    
+
     // Tokenize
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     // Parse
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     // Type check
     let type_result = type_check_program(&program);
     assert!(type_result.is_ok(), "Type checking should pass");
-    
+
     // Interpret
     let interpret_result = interpret_program(&program);
     assert!(interpret_result.is_ok(), "Interpretation should pass");
@@ -46,20 +46,20 @@ fn test_arithmetic_operations() {
     let source = r#"val x = 5 + 3;
 val y = x * 2;
 val z = y - 4;"#;
-    
+
     // Tokenize
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     // Parse
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     // Type check
     let type_result = type_check_program(&program);
     assert!(type_result.is_ok(), "Type checking should pass");
-    
+
     // Interpret
     let interpret_result = interpret_program(&program);
     assert!(interpret_result.is_ok(), "Interpretation should pass");
@@ -71,20 +71,20 @@ fn test_basic_values() {
 val float_val = 3.14;
 val bool_val = true;
 val string_val = "test";"#;
-    
+
     // Tokenize
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     // Parse
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     // Type check
     let type_result = type_check_program(&program);
     assert!(type_result.is_ok(), "Type checking should pass");
-    
+
     // Interpret
     let interpret_result = interpret_program(&program);
     assert!(interpret_result.is_ok(), "Interpretation should pass");
@@ -96,16 +96,20 @@ fn test_array_features() {
         val arr = [1, 2, 3];
         val first = arr[0];
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "Array interpretation should pass: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "Array interpretation should pass: {:?}",
+        interpret_result.errors
+    );
 }
 
 #[test]
@@ -114,16 +118,20 @@ fn test_range_features() {
         val range = 0..3;
         val first = range[0];
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "Range interpretation should pass: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "Range interpretation should pass: {:?}",
+        interpret_result.errors
+    );
 }
 
 #[test]
@@ -135,16 +143,20 @@ fn test_for_loop() {
             }
         }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "For loop interpretation should pass: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "For loop interpretation should pass: {:?}",
+        interpret_result.errors
+    );
 }
 
 #[test]
@@ -173,19 +185,27 @@ fn test_complete_hello_world() {
             }
         }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let type_result = type_check_program(&program);
-    assert!(type_result.is_ok(), "Type checking should pass: {:?}", type_result);
-    
+    assert!(
+        type_result.is_ok(),
+        "Type checking should pass: {:?}",
+        type_result
+    );
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "Complete Hello World should pass: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "Complete Hello World should pass: {:?}",
+        interpret_result.errors
+    );
 }
 
 #[test]
@@ -194,16 +214,20 @@ fn test_modulo_operation() {
         val x = 10 % 3;
         val y = 15.5 % 4.0;
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "Modulo operation should pass: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "Modulo operation should pass: {:?}",
+        interpret_result.errors
+    );
 }
 
 #[test]
@@ -248,16 +272,20 @@ fn test_stdlib_functions() {
             println(fact);
         }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "Stdlib functions should work: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "Stdlib functions should work: {:?}",
+        interpret_result.errors
+    );
 }
 
 #[test]
@@ -285,16 +313,20 @@ fn test_basic_seen_compiler() {
             println(compiled_result);
         }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "Basic Seen compiler should work: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "Basic Seen compiler should work: {:?}",
+        interpret_result.errors
+    );
 }
 
 #[test]
@@ -335,14 +367,18 @@ fn test_bootstrap_capability() {
             }
         }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager();
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().expect("Lexer should work");
-    
+
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("Parser should work");
-    
+
     let interpret_result = interpret_program(&program);
-    assert!(interpret_result.is_ok(), "Bootstrap capability should work: {:?}", interpret_result.errors);
+    assert!(
+        interpret_result.is_ok(),
+        "Bootstrap capability should work: {:?}",
+        interpret_result.errors
+    );
 }

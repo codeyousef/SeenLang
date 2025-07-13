@@ -21,8 +21,8 @@ fn test_single_char_operators(input: &str, expected: TokenType) {
     let mut lexer = Lexer::new(input, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
     
-    assert_eq\!(tokens[0].token_type, expected);
-    assert_eq\!(tokens[0].lexeme, input);
+    assert_eq!(tokens[0].token_type, expected);
+    assert_eq!(tokens[0].lexeme, input);
 }
 
 #[test_case("==", TokenType::EqualEqual)]
@@ -38,8 +38,8 @@ fn test_multi_char_operators(input: &str, expected: TokenType) {
     let mut lexer = Lexer::new(input, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
     
-    assert_eq\!(tokens[0].token_type, expected);
-    assert_eq\!(tokens[0].lexeme, input);
+    assert_eq!(tokens[0].token_type, expected);
+    assert_eq!(tokens[0].lexeme, input);
 }
 
 #[test]
@@ -56,11 +56,11 @@ fn test_operator_sequences() {
             TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash))
         .collect();
     
-    assert_eq\!(operators.len(), 4);
-    assert_eq\!(operators[0].token_type, TokenType::Plus);
-    assert_eq\!(operators[1].token_type, TokenType::Minus);
-    assert_eq\!(operators[2].token_type, TokenType::Star);
-    assert_eq\!(operators[3].token_type, TokenType::Slash);
+    assert_eq!(operators.len(), 4);
+    assert_eq!(operators[0].token_type, TokenType::Plus);
+    assert_eq!(operators[1].token_type, TokenType::Minus);
+    assert_eq!(operators[2].token_type, TokenType::Star);
+    assert_eq!(operators[3].token_type, TokenType::Slash);
 }
 
 #[test_case("(", TokenType::LeftParen)]
@@ -78,8 +78,8 @@ fn test_delimiters(input: &str, expected: TokenType) {
     let mut lexer = Lexer::new(input, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
     
-    assert_eq\!(tokens[0].token_type, expected);
-    assert_eq\!(tokens[0].lexeme, input);
+    assert_eq!(tokens[0].token_type, expected);
+    assert_eq!(tokens[0].lexeme, input);
 }
 
 #[test]
@@ -91,12 +91,12 @@ fn test_complex_expression() {
     let tokens = lexer.tokenize().unwrap();
     
     // Verify we have all expected token types
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Equal));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::LeftParen));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Plus));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::RightParen));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Star));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::GreaterEqual));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::AmpersandAmpersand));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::BangEqual));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Equal));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::LeftParen));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Plus));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::RightParen));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Star));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::GreaterEqual));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::AmpersandAmpersand));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::BangEqual));
 }

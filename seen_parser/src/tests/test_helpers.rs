@@ -2,7 +2,9 @@
 
 use crate::{Parser, ParserError};
 use crate::ast::*;
-use seen_lexer::{Lexer, Token, TokenType, KeywordManager, Location};
+use seen_lexer::lexer::Lexer;
+use seen_lexer::token::{Token, TokenType, Location};
+use seen_lexer::keyword_config::{KeywordConfig, KeywordManager};
 
 pub type ParseResult<T> = Result<T, ParserError>;
 
@@ -13,7 +15,6 @@ pub fn create_parser(tokens: Vec<Token>) -> Parser {
 
 /// Parse a source string and return the AST
 pub fn parse_source(source: &str) -> ParseResult<Program> {
-    use seen_lexer::KeywordConfig;
     use std::path::PathBuf;
     
     // Get the specifications directory relative to the parser crate
@@ -62,7 +63,12 @@ pub fn assert_parse_ok(source: &str) -> Program {
 
 /// Create a simple token for testing
 pub fn token(token_type: TokenType, lexeme: &str) -> Token {
-    Token::new(token_type, lexeme.to_string(), Location::default(), "en".to_string())
+    Token {
+        token_type,
+        lexeme: lexeme.to_string(),
+        location: Location::from_positions(1, 1, 1, 1),
+        language: "en".to_string(),
+    }
 }
 
 /// Create an EOF token

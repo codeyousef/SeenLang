@@ -17,13 +17,13 @@ fn test_ascii_identifiers(input: &str) {
     let mut lexer = Lexer::new(input, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
     
-    assert_eq\!(tokens[0].token_type, TokenType::Identifier);
-    assert_eq\!(tokens[0].lexeme, input);
+    assert_eq!(tokens[0].token_type, TokenType::Identifier);
+    assert_eq!(tokens[0].lexeme, input);
 }
 
 #[test]
 fn test_arabic_identifiers() {
-    let test_cases = vec\![
+    let test_cases = vec![
         "متغير",
         "رقم",
         "نص",
@@ -38,14 +38,14 @@ fn test_arabic_identifiers() {
         let mut lexer = Lexer::new(identifier, &keyword_manager);
         let tokens = lexer.tokenize().unwrap();
         
-        assert_eq\!(tokens[0].token_type, TokenType::Identifier);
-        assert_eq\!(tokens[0].lexeme, identifier);
+        assert_eq!(tokens[0].token_type, TokenType::Identifier);
+        assert_eq!(tokens[0].lexeme, identifier);
     }
 }
 
 #[test]
 fn test_mixed_script_identifiers() {
-    let test_cases = vec\![
+    let test_cases = vec![
         "user_اسم",
         "data_بيانات",
         "mixed_مختلط_123",
@@ -57,14 +57,14 @@ fn test_mixed_script_identifiers() {
         let mut lexer = Lexer::new(identifier, &keyword_manager);
         let tokens = lexer.tokenize().unwrap();
         
-        assert_eq\!(tokens[0].token_type, TokenType::Identifier);
-        assert_eq\!(tokens[0].lexeme, identifier);
+        assert_eq!(tokens[0].token_type, TokenType::Identifier);
+        assert_eq!(tokens[0].lexeme, identifier);
     }
 }
 
 #[test]
 fn test_invalid_identifier_start() {
-    let invalid_starts = vec\![
+    let invalid_starts = vec![
         "123abc",  // Starts with digit
         "-identifier",  // Starts with operator
         "@name",  // Starts with invalid character
@@ -77,7 +77,7 @@ fn test_invalid_identifier_start() {
         let tokens = lexer.tokenize().unwrap();
         
         // Should not tokenize as a single identifier
-        assert_ne\!(tokens[0].token_type, TokenType::Identifier);
+        assert_ne!(tokens[0].token_type, TokenType::Identifier);
     }
 }
 
@@ -97,7 +97,7 @@ fn test_unicode_normalization() {
     let mut lexer2 = Lexer::new(e_acute_decomposed, &keyword_manager);
     let tokens2 = lexer2.tokenize().unwrap();
     
-    assert_eq\!(tokens1[0].token_type, TokenType::Identifier);
-    assert_eq\!(tokens2[0].token_type, TokenType::Identifier);
+    assert_eq!(tokens1[0].token_type, TokenType::Identifier);
+    assert_eq!(tokens2[0].token_type, TokenType::Identifier);
     // Note: Exact equality depends on normalization strategy
 }

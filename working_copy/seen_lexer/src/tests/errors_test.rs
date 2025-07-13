@@ -12,7 +12,7 @@ fn test_invalid_character_error() {
     let mut lexer = Lexer::new(source, &keyword_manager);
     let result = lexer.tokenize();
     
-    assert\!(result.is_err());
+    assert!(result.is_err());
     // Verify error details when LexerError is properly defined
 }
 
@@ -25,13 +25,13 @@ fn test_unterminated_string_recovery() {
     let result = lexer.tokenize();
     
     // Should error on unterminated string but potentially recover
-    assert\!(result.is_err());
+    assert!(result.is_err());
 }
 
 #[test]
 fn test_invalid_number_format() {
     let keyword_manager = KeywordManager::new_for_testing("english");
-    let invalid_numbers = vec\![
+    let invalid_numbers = vec![
         "123.456.789",  // Multiple decimal points
         "1e",  // Incomplete scientific notation
         "0x",  // Incomplete hex literal (if supported)
@@ -69,7 +69,7 @@ fn test_mixed_valid_invalid_tokens() {
     let result = lexer.tokenize();
     
     // Should error when encountering @
-    assert\!(result.is_err());
+    assert!(result.is_err());
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn test_unicode_edge_cases() {
     let keyword_manager = KeywordManager::new_for_testing("english");
     
     // Test various Unicode edge cases
-    let test_cases = vec\![
+    let test_cases = vec![
         "\u{200B}",  // Zero-width space
         "\u{FEFF}",  // Byte order mark
         "\u{2028}",  // Line separator

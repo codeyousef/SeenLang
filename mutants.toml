@@ -1,0 +1,37 @@
+# Cargo Mutants configuration for mutation testing
+# Run with: cargo mutants
+
+# Timeout for each mutant test run (in seconds)
+timeout_multiplier = 1.5
+
+# Number of parallel jobs (auto-detect by default)
+# jobs = 4
+
+# Additional cargo test arguments
+additional_cargo_test_args = ["--all-features"]
+
+# Additional cargo build arguments  
+additional_cargo_args = []
+
+# Paths to exclude from mutation
+exclude_globs = [
+    "*/tests/**",
+    "*/benches/**",
+    "**/target/**",
+    "*/examples/**",
+    "**/build.rs"
+]
+
+# Functions/modules to exclude from mutation
+skip_calls = [
+    "::fmt",
+    "println",
+    "eprintln",
+    "debug!",
+    "info!",
+    "warn!",
+    "error!",
+    "trace!",
+    "log::*",
+    "std::fmt::*"
+]

@@ -1,0 +1,79 @@
+# Tarpaulin configuration for code coverage
+# Run with: cargo tarpaulin --config tarpaulin.toml
+
+[default]
+# Output formats
+out = ["Html", "Xml", "Lcov"]
+
+# Exclude patterns
+exclude-files = [
+    "*/tests/*",
+    "*/benches/*",
+    "*/target/*",
+    "*/.cargo/*",
+    "*/build.rs",
+]
+
+# Include only source files
+include = [
+    "seen_lexer/src/*",
+    "seen_parser/src/*",
+    "seen_typechecker/src/*",
+    "seen_interpreter/src/*",
+    "seen_ir/src/*",
+    "seen_cli/src/*",
+    "seen_compiler/src/*",
+]
+
+# Coverage options
+ignore-panics = true
+ignore-tests = false
+run-types = ["Tests", "Doctests"]
+timeout = "300s"
+release = false
+all-features = true
+workspace = true
+
+# Parallel execution
+jobs = 4
+
+# Output directory
+output-dir = "target/coverage"
+
+# Verbose output
+verbose = true
+
+# Follow exec
+follow-exec = true
+
+# Engine (default is llvm)
+engine = "llvm"
+
+# Per-package configurations
+[[package]]
+name = "seen_lexer"
+exclude-files = ["*/tests/*", "*/benches/*"]
+
+[[package]]
+name = "seen_parser"
+exclude-files = ["*/tests/*", "*/benches/*"]
+
+[[package]]
+name = "seen_typechecker"
+exclude-files = ["*/tests/*"]
+
+[[package]]
+name = "seen_interpreter"
+exclude-files = ["*/tests/*"]
+
+[[package]]
+name = "seen_ir"
+exclude-files = ["*/tests/*", "*/benches/*"]
+
+[[package]]
+name = "seen_cli"
+exclude-files = ["*/tests/*"]
+
+[[package]]
+name = "seen_compiler"
+exclude-files = ["*/tests/*"]

@@ -18,9 +18,9 @@ func main() {
     let tokens = lexer.tokenize().unwrap();
     
     // Verify key tokens are present
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Func));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Val));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::StringLiteral 
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Func));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Val));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::StringLiteral
         && t.lexeme.contains("Hello, World\!")));
 }
 
@@ -38,9 +38,9 @@ fn test_hello_world_arabic() {
     let tokens = lexer.tokenize().unwrap();
     
     // Verify key tokens are present
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Func));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Val));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::StringLiteral 
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Func));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Val));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::StringLiteral
         && t.lexeme.contains("مرحباً، يا عالم\!")));
 }
 
@@ -98,19 +98,19 @@ func main() {
     let tokens = lexer.tokenize().unwrap();
     
     // Verify various token types are present
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Func));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::If));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Else));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::While));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Return));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Val));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Var));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Func));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::If));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Else));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::While));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Return));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Val));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Var));
     
     // Verify operators
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Plus));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Minus));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::Less));
-    assert\!(tokens.iter().any(|t| t.token_type == TokenType::LessEqual));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Plus));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Minus));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::Less));
+    assert!(tokens.iter().any(|t| t.token_type == TokenType::LessEqual));
 }
 
 #[test]
@@ -123,11 +123,11 @@ fn test_source_location_tracking() {
     
     // Find specific tokens and verify their line numbers
     let func_token = tokens.iter().find(|t| t.token_type == TokenType::Func).unwrap();
-    assert_eq\!(func_token.line, 1);
+    assert_eq!(func_token.line, 1);
     
     let main_token = tokens.iter().find(|t| t.lexeme == "main").unwrap();
-    assert_eq\!(main_token.line, 2);
+    assert_eq!(main_token.line, 2);
     
     let val_token = tokens.iter().find(|t| t.token_type == TokenType::Val).unwrap();
-    assert_eq\!(val_token.line, 4);
+    assert_eq!(val_token.line, 4);
 }

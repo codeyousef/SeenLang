@@ -6,6 +6,9 @@
 pub mod ast;
 pub mod parser;
 
+#[cfg(test)]
+mod tests;
+
 pub use parser::{Parser, ParserError};
 pub use parse as parse_program;
 
@@ -16,7 +19,7 @@ pub fn parse(tokens: Vec<seen_lexer::token::Token>) -> Result<ast::Program, pars
 }
 
 #[cfg(test)]
-mod tests {
+mod inline_tests {
     use super::*; // Make items from parent module (lib.rs) accessible
     use seen_lexer::lexer::Lexer;
     use seen_lexer::token::{Token, TokenType, Location};

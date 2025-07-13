@@ -125,7 +125,22 @@
       "Bash(CARGO_TARGET_DIR=/tmp/seen_target cargo test -p seen_interpreter test_basic_seen_compiler -- --nocapture)",
       "Bash(CARGO_TARGET_DIR=/tmp/seen_target cargo test -p seen_interpreter test_bootstrap_capability -- --nocapture)",
       "Bash(CARGO_TARGET_DIR=/tmp/seen_target cargo test -p seen_interpreter -- --nocapture)",
-      "Bash(CARGO_TARGET_DIR=/tmp/seen_target cargo test -p seen_parser -- --nocapture)"
+      "Bash(CARGO_TARGET_DIR=/tmp/seen_target cargo test -p seen_parser -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_lexer)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_cli)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test --no-default-features -p seen_parser -p seen_interpreter -p seen_typechecker)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser struct_literal)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_parse_struct_literal_basic)",
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-target cargo test -p seen_parser test_parse_struct_literal_basic)",
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-target cargo test -p seen_parser --lib)",
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-target cargo test -p seen_parser --lib -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser --lib -- --list)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser --lib)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_parse_array_field_struct)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_lexer -p seen_parser -p seen_interpreter -p seen_typechecker)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
