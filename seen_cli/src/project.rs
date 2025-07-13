@@ -121,7 +121,7 @@ seen run
 ```
 "#,
     )
-    .context("Failed to create template for README")?;
+        .context("Failed to create template for README")?;
 
     // Set up context with variables
     let mut context = TeraContext::new();

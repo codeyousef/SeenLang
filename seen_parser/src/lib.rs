@@ -9,8 +9,8 @@ pub mod parser;
 #[cfg(test)]
 mod tests;
 
-pub use parser::{Parser, ParserError};
 pub use parse as parse_program;
+pub use parser::{Parser, ParserError};
 
 /// Parse a sequence of tokens into an AST
 pub fn parse(tokens: Vec<seen_lexer::token::Token>) -> Result<ast::Program, parser::ParserError> {
@@ -20,10 +20,10 @@ pub fn parse(tokens: Vec<seen_lexer::token::Token>) -> Result<ast::Program, pars
 
 #[cfg(test)]
 mod inline_tests {
-    use super::*; // Make items from parent module (lib.rs) accessible
-    use seen_lexer::lexer::Lexer;
-    use seen_lexer::token::{Token, TokenType, Location};
     use seen_lexer::keyword_config::{KeywordConfig, KeywordManager};
+    // Make items from parent module (lib.rs) accessible
+    use seen_lexer::lexer::Lexer;
+    use seen_lexer::token::{Location, Token, TokenType};
     use std::path::PathBuf;
 
     // Helper function to tokenize source and filter out non-essential tokens for parser tests
@@ -36,7 +36,7 @@ mod inline_tests {
 
         let keyword_config = KeywordConfig::from_directory(&lang_files_dir)
             .unwrap_or_else(|e| panic!("Failed to load keyword configuration from {:?}: {:?}", lang_files_dir, e));
-        
+
         let active_lang = "en".to_string();
         let keyword_manager = KeywordManager::new(keyword_config, active_lang.clone())
             .unwrap_or_else(|e| panic!("Failed to create KeywordManager: {:?}", e));
@@ -140,20 +140,20 @@ mod inline_tests {
 
         // Parse the tokens
         let result = super::parse(tokens);
-        
+
         // Check that parsing succeeded
         assert!(result.is_ok(), "test_basic_parsing failed: {:?}", result.err());
-        
+
         // Basic validation of the AST structure
         let program = result.unwrap();
         assert_eq!(program.declarations.len(), 1);
-        
+
         if let ast::Declaration::Function(func) = &program.declarations[0] {
             assert_eq!(func.name, "main");
             assert_eq!(func.parameters.len(), 0);
             assert!(func.return_type.is_none());
             assert_eq!(func.body.statements.len(), 1);
-            
+
             if let ast::Statement::Print(print_stmt) = &func.body.statements[0] {
                 assert_eq!(print_stmt.arguments.len(), 1);
                 if let ast::Expression::Literal(ast::LiteralExpression::String(string_lit)) = &print_stmt.arguments[0] {
@@ -309,11 +309,11 @@ mod inline_tests {
     fn test_if_statements() {
         // Case 1: func testIf() { if (true) { println("then"); } }
         let tokens_if_in_func = vec![
-            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1,1,1,5), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "testIf".to_string(), location: Location::from_positions(1,6,1,12), language: "en".to_string() },
-            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1,12,1,13), language: "en".to_string() },
-            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1,13,1,14), language: "en".to_string() },
-            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1,15,1,16), language: "en".to_string() }, // Func body opens
+            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1, 1, 1, 5), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "testIf".to_string(), location: Location::from_positions(1, 6, 1, 12), language: "en".to_string() },
+            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1, 12, 1, 13), language: "en".to_string() },
+            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1, 13, 1, 14), language: "en".to_string() },
+            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1, 15, 1, 16), language: "en".to_string() }, // Func body opens
             // Actual if statement tokens from tokens_if_only, adjusting line/col if needed (here, assuming same line for simplicity)
             Token { token_type: TokenType::If, lexeme: "if".to_string(), location: Location::from_positions(2, 1, 2, 3), language: "en".to_string() },
             Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(2, 4, 2, 5), language: "en".to_string() },
@@ -326,8 +326,8 @@ mod inline_tests {
             Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(2, 27, 2, 28), language: "en".to_string() },
             Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(2, 28, 2, 29), language: "en".to_string() },
             Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(2, 30, 2, 31), language: "en".to_string() },
-            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3,1,3,2), language: "en".to_string() }, // Func body closes
-            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3,2,3,2), language: "en".to_string() },
+            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3, 1, 3, 2), language: "en".to_string() }, // Func body closes
+            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3, 2, 3, 2), language: "en".to_string() },
         ];
 
         let result_if_in_func = super::parse(tokens_if_in_func);
@@ -348,14 +348,14 @@ mod inline_tests {
                 if let ast::Statement::Block(then_block) = &*if_stmt.then_branch {
                     assert_eq!(then_block.statements.len(), 1);
                     if let ast::Statement::Print(print_stmt) = &then_block.statements[0] {
-                         assert_eq!(print_stmt.arguments.len(), 1);
-                         if let ast::Expression::Literal(ast::LiteralExpression::String(str_lit)) = &print_stmt.arguments[0] {
+                        assert_eq!(print_stmt.arguments.len(), 1);
+                        if let ast::Expression::Literal(ast::LiteralExpression::String(str_lit)) = &print_stmt.arguments[0] {
                             assert_eq!(str_lit.value, "then");
                         } else {
                             panic!("Expected string literal in println in then_branch");
                         }
                     } else {
-                         panic!("Expected Println statement in then_branch block");
+                        panic!("Expected Println statement in then_branch block");
                     }
                 } else {
                     panic!("Expected Block statement for then_branch");
@@ -369,12 +369,12 @@ mod inline_tests {
 
         // Case 2: func testIfElse() { if (false) { println("then"); } else { println("else"); } }
         let tokens_if_else_in_func = vec![
-            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1,1,1,5), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "testIfElse".to_string(), location: Location::from_positions(1,6,1,16), language: "en".to_string() },
-            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1,16,1,17), language: "en".to_string() },
-            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1,17,1,18), language: "en".to_string() },
-            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1,19,1,20), language: "en".to_string() }, // Func body opens
-            
+            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1, 1, 1, 5), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "testIfElse".to_string(), location: Location::from_positions(1, 6, 1, 16), language: "en".to_string() },
+            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1, 16, 1, 17), language: "en".to_string() },
+            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1, 17, 1, 18), language: "en".to_string() },
+            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1, 19, 1, 20), language: "en".to_string() }, // Func body opens
+
             Token { token_type: TokenType::If, lexeme: "if".to_string(), location: Location::from_positions(2, 1, 2, 3), language: "en".to_string() },
             Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(2, 4, 2, 5), language: "en".to_string() },
             Token { token_type: TokenType::False, lexeme: "false".to_string(), location: Location::from_positions(2, 5, 2, 10), language: "en".to_string() },
@@ -394,9 +394,9 @@ mod inline_tests {
             Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(2, 54, 2, 55), language: "en".to_string() },
             Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(2, 55, 2, 56), language: "en".to_string() },
             Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(2, 57, 2, 58), language: "en".to_string() }, // End else branch
-            
-            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3,1,3,2), language: "en".to_string() }, // Func body closes
-            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3,2,3,2), language: "en".to_string() },
+
+            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3, 1, 3, 2), language: "en".to_string() }, // Func body closes
+            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3, 2, 3, 2), language: "en".to_string() },
         ];
 
         let result_if_else_in_func = super::parse(tokens_if_else_in_func);
@@ -452,12 +452,12 @@ mod inline_tests {
     fn test_while_statements() {
         // Test case: func testWhile() { while (true) { println("loop"); } }
         let tokens_while_in_func = vec![
-            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1,1,1,5), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "testWhile".to_string(), location: Location::from_positions(1,6,1,15), language: "en".to_string() },
-            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1,15,1,16), language: "en".to_string() },
-            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1,16,1,17), language: "en".to_string() },
-            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1,18,1,19), language: "en".to_string() }, // Func body opens
-            
+            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1, 1, 1, 5), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "testWhile".to_string(), location: Location::from_positions(1, 6, 1, 15), language: "en".to_string() },
+            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1, 15, 1, 16), language: "en".to_string() },
+            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1, 16, 1, 17), language: "en".to_string() },
+            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1, 18, 1, 19), language: "en".to_string() }, // Func body opens
+
             Token { token_type: TokenType::While, lexeme: "while".to_string(), location: Location::from_positions(2, 5, 2, 10), language: "en".to_string() },
             Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(2, 11, 2, 12), language: "en".to_string() },
             Token { token_type: TokenType::True, lexeme: "true".to_string(), location: Location::from_positions(2, 12, 2, 16), language: "en".to_string() },
@@ -469,9 +469,9 @@ mod inline_tests {
             Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(2, 34, 2, 35), language: "en".to_string() },
             Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(2, 35, 2, 36), language: "en".to_string() },
             Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(2, 37, 2, 38), language: "en".to_string() }, // While body closes
-            
-            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3,1,3,2), language: "en".to_string() }, // Func body closes
-            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3,2,3,2), language: "en".to_string() },
+
+            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3, 1, 3, 2), language: "en".to_string() }, // Func body closes
+            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3, 2, 3, 2), language: "en".to_string() },
         ];
 
         let result_while = super::parse(tokens_while_in_func);
@@ -492,14 +492,14 @@ mod inline_tests {
                 if let ast::Statement::Block(body_block) = &*while_stmt.body {
                     assert_eq!(body_block.statements.len(), 1);
                     if let ast::Statement::Print(print_stmt) = &body_block.statements[0] {
-                         assert_eq!(print_stmt.arguments.len(), 1);
-                         if let ast::Expression::Literal(ast::LiteralExpression::String(str_lit)) = &print_stmt.arguments[0] {
+                        assert_eq!(print_stmt.arguments.len(), 1);
+                        if let ast::Expression::Literal(ast::LiteralExpression::String(str_lit)) = &print_stmt.arguments[0] {
                             assert_eq!(str_lit.value, "loop");
                         } else {
                             panic!("Expected string literal in println in while loop body");
                         }
                     } else {
-                         panic!("Expected Println statement in while loop body block");
+                        panic!("Expected Println statement in while loop body block");
                     }
                 } else {
                     panic!("Expected Block statement for while loop body");
@@ -516,15 +516,15 @@ mod inline_tests {
     fn test_return_statements() {
         // Case 1: func testReturnVoid() { return; }
         let tokens_return_void = vec![
-            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1,1,1,5), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "testReturnVoid".to_string(), location: Location::from_positions(1,6,1,20), language: "en".to_string() },
-            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1,20,1,21), language: "en".to_string() },
-            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1,21,1,22), language: "en".to_string() },
-            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1,23,1,24), language: "en".to_string() },
-            Token { token_type: TokenType::Return, lexeme: "return".to_string(), location: Location::from_positions(1,25,1,31), language: "en".to_string() },
-            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(1,31,1,32), language: "en".to_string() },
-            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(1,33,1,34), language: "en".to_string() },
-            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(1,34,1,34), language: "en".to_string() },
+            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1, 1, 1, 5), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "testReturnVoid".to_string(), location: Location::from_positions(1, 6, 1, 20), language: "en".to_string() },
+            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1, 20, 1, 21), language: "en".to_string() },
+            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1, 21, 1, 22), language: "en".to_string() },
+            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1, 23, 1, 24), language: "en".to_string() },
+            Token { token_type: TokenType::Return, lexeme: "return".to_string(), location: Location::from_positions(1, 25, 1, 31), language: "en".to_string() },
+            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(1, 31, 1, 32), language: "en".to_string() },
+            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(1, 33, 1, 34), language: "en".to_string() },
+            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(1, 34, 1, 34), language: "en".to_string() },
         ];
 
         let result_return_void = super::parse(tokens_return_void);
@@ -545,16 +545,16 @@ mod inline_tests {
 
         // Case 2: func testReturnWithValue() { return 42; }
         let tokens_return_with_value = vec![
-            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1,1,1,5), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "testReturnWithValue".to_string(), location: Location::from_positions(1,6,1,25), language: "en".to_string() },
-            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1,25,1,26), language: "en".to_string() },
-            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1,26,1,27), language: "en".to_string() },
-            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1,28,1,29), language: "en".to_string() },
-            Token { token_type: TokenType::Return, lexeme: "return".to_string(), location: Location::from_positions(1,30,1,36), language: "en".to_string() },
-            Token { token_type: TokenType::IntLiteral, lexeme: "42".to_string(), location: Location::from_positions(1,37,1,39), language: "en".to_string() },
-            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(1,39,1,40), language: "en".to_string() },
-            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(1,41,1,42), language: "en".to_string() },
-            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(1,42,1,42), language: "en".to_string() },
+            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1, 1, 1, 5), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "testReturnWithValue".to_string(), location: Location::from_positions(1, 6, 1, 25), language: "en".to_string() },
+            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1, 25, 1, 26), language: "en".to_string() },
+            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1, 26, 1, 27), language: "en".to_string() },
+            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1, 28, 1, 29), language: "en".to_string() },
+            Token { token_type: TokenType::Return, lexeme: "return".to_string(), location: Location::from_positions(1, 30, 1, 36), language: "en".to_string() },
+            Token { token_type: TokenType::IntLiteral, lexeme: "42".to_string(), location: Location::from_positions(1, 37, 1, 39), language: "en".to_string() },
+            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(1, 39, 1, 40), language: "en".to_string() },
+            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(1, 41, 1, 42), language: "en".to_string() },
+            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(1, 42, 1, 42), language: "en".to_string() },
         ];
 
         let result_return_with_value = super::parse(tokens_return_with_value);
@@ -587,32 +587,32 @@ mod inline_tests {
     fn test_block_statements() {
         // Test case: func testBlock() { { val x: int = 1; println(x); } }
         let tokens_block_in_func = vec![
-            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1,1,1,5), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "testBlock".to_string(), location: Location::from_positions(1,6,1,15), language: "en".to_string() },
-            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1,15,1,16), language: "en".to_string() },
-            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1,16,1,17), language: "en".to_string() },
-            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1,18,1,19), language: "en".to_string() }, // Func body opens
-            
+            Token { token_type: TokenType::Func, lexeme: "func".to_string(), location: Location::from_positions(1, 1, 1, 5), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "testBlock".to_string(), location: Location::from_positions(1, 6, 1, 15), language: "en".to_string() },
+            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(1, 15, 1, 16), language: "en".to_string() },
+            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(1, 16, 1, 17), language: "en".to_string() },
+            Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(1, 18, 1, 19), language: "en".to_string() }, // Func body opens
+
             // Start of the actual block statement
             Token { token_type: TokenType::LeftBrace, lexeme: "{".to_string(), location: Location::from_positions(2, 5, 2, 6), language: "en".to_string() }, // Block opens
             // val x: int = 1;
-            Token { token_type: TokenType::Val, lexeme: "val".to_string(), location: Location::from_positions(2,7,2,10), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "x".to_string(), location: Location::from_positions(2,11,2,12), language: "en".to_string() },
-            Token { token_type: TokenType::Colon, lexeme: ":".to_string(), location: Location::from_positions(2,12,2,13), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "int".to_string(), location: Location::from_positions(2,14,2,17), language: "en".to_string() }, // Type 'int'
-            Token { token_type: TokenType::Assign, lexeme: "=".to_string(), location: Location::from_positions(2,18,2,19), language: "en".to_string() },
-            Token { token_type: TokenType::IntLiteral, lexeme: "1".to_string(), location: Location::from_positions(2,20,2,21), language: "en".to_string() },
-            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(2,21,2,22), language: "en".to_string() },
+            Token { token_type: TokenType::Val, lexeme: "val".to_string(), location: Location::from_positions(2, 7, 2, 10), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "x".to_string(), location: Location::from_positions(2, 11, 2, 12), language: "en".to_string() },
+            Token { token_type: TokenType::Colon, lexeme: ":".to_string(), location: Location::from_positions(2, 12, 2, 13), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "int".to_string(), location: Location::from_positions(2, 14, 2, 17), language: "en".to_string() }, // Type 'int'
+            Token { token_type: TokenType::Assign, lexeme: "=".to_string(), location: Location::from_positions(2, 18, 2, 19), language: "en".to_string() },
+            Token { token_type: TokenType::IntLiteral, lexeme: "1".to_string(), location: Location::from_positions(2, 20, 2, 21), language: "en".to_string() },
+            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(2, 21, 2, 22), language: "en".to_string() },
             // println(x);
-            Token { token_type: TokenType::Println, lexeme: "println".to_string(), location: Location::from_positions(2,23,2,30), language: "en".to_string() },
-            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(2,30,2,31), language: "en".to_string() },
-            Token { token_type: TokenType::Identifier, lexeme: "x".to_string(), location: Location::from_positions(2,31,2,32), language: "en".to_string() },
-            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(2,32,2,33), language: "en".to_string() },
-            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(2,33,2,34), language: "en".to_string() },
-            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(2,35,2,36), language: "en".to_string() }, // Block closes
-            
-            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3,1,3,2), language: "en".to_string() }, // Func body closes
-            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3,2,3,2), language: "en".to_string() },
+            Token { token_type: TokenType::Println, lexeme: "println".to_string(), location: Location::from_positions(2, 23, 2, 30), language: "en".to_string() },
+            Token { token_type: TokenType::LeftParen, lexeme: "(".to_string(), location: Location::from_positions(2, 30, 2, 31), language: "en".to_string() },
+            Token { token_type: TokenType::Identifier, lexeme: "x".to_string(), location: Location::from_positions(2, 31, 2, 32), language: "en".to_string() },
+            Token { token_type: TokenType::RightParen, lexeme: ")".to_string(), location: Location::from_positions(2, 32, 2, 33), language: "en".to_string() },
+            Token { token_type: TokenType::Semicolon, lexeme: ";".to_string(), location: Location::from_positions(2, 33, 2, 34), language: "en".to_string() },
+            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(2, 35, 2, 36), language: "en".to_string() }, // Block closes
+
+            Token { token_type: TokenType::RightBrace, lexeme: "}".to_string(), location: Location::from_positions(3, 1, 3, 2), language: "en".to_string() }, // Func body closes
+            Token { token_type: TokenType::EOF, lexeme: "".to_string(), location: Location::from_positions(3, 2, 3, 2), language: "en".to_string() },
         ];
 
         let result_block = super::parse(tokens_block_in_func);
@@ -624,7 +624,7 @@ mod inline_tests {
             assert_eq!(func_decl.name, "testBlock");
             // Now expecting 3 statements: var x = 0; var y = 0; x = y;
             assert_eq!(func_decl.body.statements.len(), 1, "Function body should contain one statement (the block statement)");
-            
+
             // func_decl.body.statements[0] is the ast::Statement::Block for { val x: int = 1; println(x); }
             if let ast::Statement::Block(the_block_in_function_body) = &func_decl.body.statements[0] {
                 assert_eq!(the_block_in_function_body.statements.len(), 2, "The block in function body should contain two statements");
@@ -690,7 +690,7 @@ mod inline_tests {
             if let ast::Statement::Expression(expr_stmt) = &func_decl.body.statements[2] { // Check 3rd statement
                 if let ast::Expression::Assignment(assign_expr) = &*expr_stmt.expression { // Dereference Box
                     assert_eq!(assign_expr.name, "x");
-                    
+
                     if let ast::Expression::Identifier(value_ident) = &*assign_expr.value { // Dereference Box for value
                         assert_eq!(value_ident.name, "y");
                     } else {
@@ -732,7 +732,6 @@ mod inline_tests {
             panic!("Expected FunctionDeclaration for call test");
         }
     }
-
 }
 
 

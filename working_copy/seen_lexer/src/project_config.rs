@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
-use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 /// Errors that can occur when working with project configurations
@@ -7,19 +7,19 @@ use thiserror::Error;
 pub enum ProjectConfigError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("TOML parsing error: {0}")]
     TomlError(#[from] toml::de::Error),
-    
+
     #[error("TOML serialization error: {0}")]
     TomlSerError(#[from] toml::ser::Error),
-    
+
     #[error("Schema validation error: {0}")]
     SchemaError(String),
-    
+
     #[error("Required setting '{0}' is missing")]
     MissingSetting(String),
-    
+
     #[error("Invalid project configuration: {0}")]
     InvalidConfig(String),
 }
@@ -76,28 +76,28 @@ impl ProjectConfig {
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ProjectConfigError> {
         let content = fs::read_to_string(path)?;
         let config: ProjectConfig = toml::from_str(&content)?;
-        
+
         // Validate the configuration
         if config.project.name.is_empty() {
             return Err(ProjectConfigError::MissingSetting("project.name".to_string()));
         }
-        
+
         if config.project.version.is_empty() {
             return Err(ProjectConfigError::MissingSetting("project.version".to_string()));
         }
-        
+
         if config.language.keywords.is_empty() {
             return Err(ProjectConfigError::MissingSetting("language.keywords".to_string()));
         }
-        
+
         Ok(config)
     }
-    
+
     /// Get the active language code for keywords
     pub fn get_active_language(&self) -> &str {
         &self.language.keywords
     }
-    
+
     /// Check if mixed language keywords are allowed
     pub fn allows_mixed_keywords(&self) -> bool {
         self.language.allow_mixed
@@ -123,12 +123,12 @@ pub fn create_default_project_config<P: AsRef<std::path::Path>>(path: P, project
         }),
         dependencies: std::collections::HashMap::new(),
     };
-    
+
     let toml_string = toml::to_string_pretty(&config)
         .map_err(|e| ProjectConfigError::TomlSerError(e))?;
-    
+
     fs::write(path, toml_string)?;
-    
+
     Ok(())
 }
 
@@ -143,7 +143,7 @@ mod tests {
         let test_file_path = "./test_seen.toml";
 
         // Ensure the file doesn't exist before the test
-        let _ = fs::remove_file(test_file_path); 
+        let _ = fs::remove_file(test_file_path);
 
         let result = create_default_project_config(test_file_path, test_project_name);
         assert!(result.is_ok(), "Failed to create default project config: {:?}", result.err());

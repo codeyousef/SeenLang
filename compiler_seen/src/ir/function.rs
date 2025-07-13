@@ -36,8 +36,8 @@ pub struct LocalVarAllocation {
     pub name: Option<String>, // Original variable name (for debugging)
     pub ty: IrType,           // Type of the allocated variable (the type pointed to by the alloca)
     pub alloca_result_reg: VirtualRegister, // The virtual register holding the pointer from the 'alloca' instruction
-                                            // pub size: Option<u32>,      // Size in bytes, if known at compile time (might be dynamic for VLAs)
-                                            // pub alignment: Option<u32>,
+    // pub size: Option<u32>,      // Size in bytes, if known at compile time (might be dynamic for VLAs)
+    // pub alignment: Option<u32>,
 }
 
 impl Function {

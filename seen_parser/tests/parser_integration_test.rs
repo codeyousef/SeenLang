@@ -1,7 +1,7 @@
 //! Integration tests for the Seen parser
 
+use seen_lexer::{KeywordConfig, KeywordManager, Lexer};
 use seen_parser::{parse_program, Parser};
-use seen_lexer::{Lexer, KeywordManager, KeywordConfig};
 use std::path::PathBuf;
 
 /// Helper function to create keyword manager for testing
@@ -11,16 +11,16 @@ fn create_test_keyword_manager(language: &str) -> KeywordManager {
         .parent() // Go up from seen_parser crate root to workspace root
         .unwrap()
         .join("specifications");
-    
+
     let keyword_config = KeywordConfig::from_directory(&lang_files_dir)
         .expect("Failed to load keyword configuration for testing");
-    
+
     let active_lang = match language {
         "english" | "en" => "en".to_string(),
         "arabic" | "ar" => "ar".to_string(),
         _ => "en".to_string(), // Default to English
     };
-    
+
     KeywordManager::new(keyword_config, active_lang)
         .expect("Failed to create KeywordManager for testing")
 }
@@ -33,13 +33,13 @@ fn test_parse_hello_world_english() {
         println(greeting);
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
-    
+
     // Should have one function declaration
     assert_eq!(program.declarations.len(), 1);
 }
@@ -52,13 +52,13 @@ fn test_parse_hello_world_arabic() {
         اطبع(تحية);
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("arabic");
     let mut lexer = Lexer::new(source, &keyword_manager, "ar".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
-    
+
     // Should have one function declaration
     assert_eq!(program.declarations.len(), 1);
 }
@@ -82,13 +82,13 @@ fn test_parse_fibonacci_program() {
         }
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
-    
+
     // Should have two function declarations
     assert_eq!(program.declarations.len(), 2);
 }
@@ -105,13 +105,13 @@ fn test_parse_complex_expressions() {
         val f = foo(bar(1, 2), baz(3));
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
-    
+
     assert_eq!(program.declarations.len(), 1);
 }
 
@@ -132,13 +132,13 @@ fn test_parse_control_flow() {
         }
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
-    
+
     assert_eq!(program.declarations.len(), 1);
 }
 
@@ -166,13 +166,13 @@ fn test_parse_nested_structures() {
         return inner();
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
-    
+
     assert_eq!(program.declarations.len(), 1);
 }
 
@@ -190,13 +190,13 @@ fn test_parse_various_types() {
         val h: Array<Array<Float>> = [[1.0, 2.0], [3.0, 4.0]];
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
-    
+
     assert_eq!(program.declarations.len(), 1);
 }
 
@@ -207,11 +207,11 @@ fn test_parse_error_invalid_syntax() {
         val x = ;  // Missing expression
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let result = parse_program(tokens);
     assert!(result.is_err());
 }
@@ -220,11 +220,11 @@ fn test_parse_error_invalid_syntax() {
 fn test_parse_whitespace_handling() {
     // Test that parser handles various whitespace correctly
     let source = r#"func compact(){val x=1+2*3;return x;}"#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
     assert_eq!(program.declarations.len(), 1);
 }
@@ -238,11 +238,11 @@ fn test_parse_comments_between_tokens() {
         return x; // return the result
     }
     "#;
-    
+
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
-    
+
     let program = parse_program(tokens).unwrap();
     assert_eq!(program.declarations.len(), 1);
 }

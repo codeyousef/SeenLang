@@ -143,9 +143,9 @@ fn evaluate_binary_op(op: OpCode, v1: &ConstantValue, v2: &ConstantValue, res_ty
             // TODO: UDiv (unsigned) needs separate handling or rely on type info for SDiv vs UDiv choice
             // For SDiv/UDiv distinction, we'd need to know the type from res_type or operands.
             // Assuming signed division for I* types for now if SDiv is chosen, and standard for Div.
-            
+
             // Floating point division by zero yields infinity/NaN, which is a valid ConstantValue state
-            (ConstantValue::F32(a), ConstantValue::F32(b)) => Some(ConstantValue::F32(a / b)), 
+            (ConstantValue::F32(a), ConstantValue::F32(b)) => Some(ConstantValue::F32(a / b)),
             (ConstantValue::F64(a), ConstantValue::F64(b)) => Some(ConstantValue::F64(a / b)),
             _ => None, // Division by zero for integers, or type mismatch
         },
@@ -186,8 +186,7 @@ fn evaluate_binary_op(op: OpCode, v1: &ConstantValue, v2: &ConstantValue, res_ty
                     else { Some(ConstantValue::I32(((*a as u32).wrapping_shr(*b as u32)) as i32)) } // Simulate logical for signed
                 }
                 (ConstantValue::I64(a), ConstantValue::I64(b)) if *b >= 0 && *b < 64 => {
-                    if op == OpCode::AShr { Some(ConstantValue::I64(a.wrapping_shr(*b as u32))) }
-                    else { Some(ConstantValue::I64(((*a as u64).wrapping_shr(*b as u32)) as i64)) }
+                    if op == OpCode::AShr { Some(ConstantValue::I64(a.wrapping_shr(*b as u32))) } else { Some(ConstantValue::I64(((*a as u64).wrapping_shr(*b as u32)) as i64)) }
                 }
                 // TODO: U* types for LShr
                 _ => None,
@@ -221,7 +220,7 @@ fn evaluate_comparison(predicate: ComparisonPredicate, v1: &ConstantValue, v2: &
         ComparisonPredicate::Int(int_pred) => {
             // Promote to i64 for comparison if types are different but compatible integers (simplification)
             // A more robust solution would handle all type pairs or use type from operands.
-            let val1_i64 = v1.as_i64()?; 
+            let val1_i64 = v1.as_i64()?;
             let val2_i64 = v2.as_i64()?;
             match int_pred {
                 IntegerComparePredicate::EQ => Some(ConstantValue::Bool(val1_i64 == val2_i64)),
@@ -327,7 +326,7 @@ mod tests {
         let bb_id = func.new_basic_block();
         let main_block = func.get_basic_block_mut(bb_id).unwrap();
         main_block.add_instruction(add_instr);
-        
+
         // Run the constant folding pass on the function
         fold_constants_in_function(&mut func);
 

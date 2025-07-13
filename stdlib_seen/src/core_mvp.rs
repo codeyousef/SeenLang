@@ -7,9 +7,9 @@ extern "C" {
 }
 
 /// Seen language println function (English API name)
-/// 
+///
 /// Prints a message to the standard output followed by a newline.
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.
@@ -21,10 +21,10 @@ pub unsafe extern "C" fn println(text: *const c_char) -> c_int {
 }
 
 /// Seen language println function (Arabic API name)
-/// 
+///
 /// Prints a message to the standard output followed by a newline.
 /// This is the Arabic alias for the println function.
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.
@@ -35,7 +35,7 @@ pub unsafe extern "C" fn اطبع(text: *const c_char) -> c_int {
 }
 
 /// Print an integer to standard output (English API name)
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn println_int(value: i64) -> c_int {
 }
 
 /// Print an integer to standard output (Arabic API name)
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.
@@ -56,7 +56,7 @@ pub unsafe extern "C" fn اطبع_رقم(value: i64) -> c_int {
 }
 
 /// Print a floating-point number to standard output (English API name)
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn println_float(value: f64) -> c_int {
 }
 
 /// Print a floating-point number to standard output (Arabic API name)
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn اطبع_عدد(value: f64) -> c_int {
 }
 
 /// Print a boolean value to standard output (English API name)
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.
@@ -92,7 +92,7 @@ pub unsafe extern "C" fn println_bool(value: bool) -> c_int {
 }
 
 /// Print a boolean value to standard output (Arabic API name)
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it calls the C printf function.

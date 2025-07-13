@@ -700,15 +700,15 @@ impl<'ctx> CodeGenerator<'ctx> {
             "gvn",         // Global Value Numbering
             "simplifycfg", // Simplify control-flow graph
             "mem2reg",     // Promote memory to registers (SROA)
-                           // Add more passes as needed, e.g.:
-                           // "early-cse",         // Early Common Subexpression Elimination
-                           // "loop-simplify",     // Simplify loops
-                           // "loop-unroll",       // Unroll loops
-                           // "sccp",              // Sparse Conditional Constant Propagation
-                           // "adce",              // Aggressive Dead Code Elimination
-                           // "dce"                // Dead Code Elimination
+            // Add more passes as needed, e.g.:
+            // "early-cse",         // Early Common Subexpression Elimination
+            // "loop-simplify",     // Simplify loops
+            // "loop-unroll",       // Unroll loops
+            // "sccp",              // Sparse Conditional Constant Propagation
+            // "adce",              // Aggressive Dead Code Elimination
+            // "dce"                // Dead Code Elimination
         ]
-        .join(",");
+            .join(",");
 
         let pass_builder_options = PassBuilderOptions::create();
         // Example: Set optimization level for the pass pipeline if desired

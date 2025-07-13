@@ -140,7 +140,19 @@
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser --lib)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_parse_array_field_struct)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_lexer -p seen_parser -p seen_interpreter -p seen_typechecker)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker --lib)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo check -p seen_typechecker)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker --lib -- --list)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_ir)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker test_struct_instantiation)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker test_struct_field_access)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker test_struct_missing_field)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker struct_type_tests)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker function_type_tests)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker test_function_call_wrong_arg_count)",
+      "Bash(CARGO_TARGET_DIR=/tmp/cargo_target cargo test --package seen_typechecker)",
+      "Bash(CARGO_TARGET_DIR=/tmp/cargo_target cargo test --package seen_ir)"
     ],
     "deny": []
   }

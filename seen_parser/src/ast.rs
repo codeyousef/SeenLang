@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use seen_lexer::token::Location;
+use serde::{Deserialize, Serialize};
 
 /// The Abstract Syntax Tree (AST) for the Seen programming language
 /// This represents the hierarchical structure of a Seen program

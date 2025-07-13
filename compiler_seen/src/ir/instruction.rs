@@ -38,7 +38,7 @@ pub enum ConstantValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VirtualRegister {
     pub id: u32, // Simple unique ID for now
-                 // pub ty: IrType, // Type might be stored with the register definition or here
+    // pub ty: IrType, // Type might be stored with the register definition or here
 }
 
 /// Uniquely identifies a basic block.

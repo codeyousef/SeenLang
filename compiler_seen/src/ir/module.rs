@@ -19,10 +19,10 @@ pub struct Module {
 pub struct GlobalVariable {
     pub name: String,
     pub ty: IrType, // Type of the global variable (must be sized)
-                    // pub initializer: Option<ConstantValue>, // Optional initializer (must be a constant)
-                    // pub linkage: LinkageType, // e.g., Public, Private, External
-                    // pub is_constant: bool, // If the global is a constant
-                    // pub thread_local: bool,
+    // pub initializer: Option<ConstantValue>, // Optional initializer (must be a constant)
+    // pub linkage: LinkageType, // e.g., Public, Private, External
+    // pub is_constant: bool, // If the global is a constant
+    // pub thread_local: bool,
 }
 
 // enum LinkageType { Public, PrivateInternal, External, ... }

@@ -1,29 +1,27 @@
+use crate::ast::*;
 // Struct parsing tests - TDD RED phase (these should fail initially)
 use crate::parser::Parser;
-use crate::ast::*;
-use seen_lexer::token::{Token, TokenType, Location};
+use seen_lexer::token::{Location, Token, TokenType};
 
 #[cfg(test)]
 mod struct_parsing_tests {
-    use super::*;
-
     fn create_test_tokens(source: &str) -> Vec<Token> {
         use seen_lexer::lexer::Lexer;
         use seen_lexer::keyword_config::{KeywordConfig, KeywordManager};
         use std::path::PathBuf;
-        
+
         // Get the specifications directory relative to the parser crate
         let lang_files_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent() // Go up from seen_parser crate root to workspace root
             .unwrap()
             .join("specifications");
-        
+
         let keyword_config = KeywordConfig::from_directory(&lang_files_dir)
             .expect("Failed to load keyword configuration for testing");
-        
+
         let keyword_manager = KeywordManager::new(keyword_config, "en".to_string())
             .expect("Failed to create KeywordManager for testing");
-            
+
         let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
         lexer.tokenize().expect("Failed to tokenize")
     }
@@ -35,9 +33,9 @@ mod struct_parsing_tests {
         let source = "struct Point { x: int, y: int }";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         // This should parse to a Program with one StructDeclaration
         match result {
             Ok(program) => {
@@ -46,11 +44,11 @@ mod struct_parsing_tests {
                     Declaration::Struct(struct_decl) => {
                         assert_eq!(struct_decl.name, "Point");
                         assert_eq!(struct_decl.fields.len(), 2);
-                        
+
                         // Check first field
                         assert_eq!(struct_decl.fields[0].name, "x");
                         assert_eq!(struct_decl.fields[0].field_type, Type::Simple("int".to_string()));
-                        
+
                         // Check second field
                         assert_eq!(struct_decl.fields[1].name, "y");
                         assert_eq!(struct_decl.fields[1].field_type, Type::Simple("int".to_string()));
@@ -69,9 +67,9 @@ mod struct_parsing_tests {
         let source = "struct Empty {}";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         match result {
             Ok(program) => {
                 assert_eq!(program.declarations.len(), 1);
@@ -94,9 +92,9 @@ mod struct_parsing_tests {
         let source = "struct Mixed { name: string, age: int, active: bool }";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         match result {
             Ok(program) => {
                 assert_eq!(program.declarations.len(), 1);
@@ -104,7 +102,7 @@ mod struct_parsing_tests {
                     Declaration::Struct(struct_decl) => {
                         assert_eq!(struct_decl.name, "Mixed");
                         assert_eq!(struct_decl.fields.len(), 3);
-                        
+
                         // Verify field types
                         assert_eq!(struct_decl.fields[0].field_type, Type::Simple("string".to_string()));
                         assert_eq!(struct_decl.fields[1].field_type, Type::Simple("int".to_string()));
@@ -125,9 +123,9 @@ mod struct_parsing_tests {
         let source = "هيكل نقطة { x: int, y: int }";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         match result {
             Ok(program) => {
                 assert_eq!(program.declarations.len(), 1);
@@ -150,9 +148,9 @@ mod struct_parsing_tests {
         let source = "struct Data { items: [int], names: [string] }";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         match result {
             Ok(program) => {
                 assert_eq!(program.declarations.len(), 1);
@@ -160,7 +158,7 @@ mod struct_parsing_tests {
                     Declaration::Struct(struct_decl) => {
                         assert_eq!(struct_decl.name, "Data");
                         assert_eq!(struct_decl.fields.len(), 2);
-                        
+
                         // Check array types
                         assert_eq!(struct_decl.fields[0].field_type, Type::Array(Box::new(Type::Simple("int".to_string()))));
                         assert_eq!(struct_decl.fields[1].field_type, Type::Array(Box::new(Type::Simple("string".to_string()))));
@@ -179,9 +177,9 @@ mod struct_parsing_tests {
         let source = "struct Bad { x: int y: int }";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         // This should fail with a parse error
         assert!(result.is_err(), "Expected parse error for missing comma");
     }
@@ -193,9 +191,9 @@ mod struct_parsing_tests {
         let source = "struct Bad { x: int, x: string }";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         // This should fail with a parse error for duplicate fields
         assert!(result.is_err(), "Expected parse error for duplicate fields");
     }
@@ -207,9 +205,9 @@ mod struct_parsing_tests {
         let source = "val point = Point { x: 10, y: 20 };";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         match result {
             Ok(program) => {
                 assert_eq!(program.declarations.len(), 1);
@@ -238,9 +236,9 @@ mod struct_parsing_tests {
         let source = "val x = point.x;";
         let tokens = create_test_tokens(source);
         let mut parser = Parser::new(tokens);
-        
+
         let result = parser.parse();
-        
+
         match result {
             Ok(program) => {
                 assert_eq!(program.declarations.len(), 1);

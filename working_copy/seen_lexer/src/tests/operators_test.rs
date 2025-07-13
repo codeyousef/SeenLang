@@ -1,7 +1,7 @@
 //\! Tests for operator and delimiter tokenization
 
 use super::*;
-use crate::{Lexer, TokenType, KeywordManager};
+use crate::{KeywordManager, Lexer, TokenType};
 use pretty_assertions::assert_eq;
 use test_case::test_case;
 
@@ -20,7 +20,7 @@ fn test_single_char_operators(input: &str, expected: TokenType) {
     let keyword_manager = KeywordManager::new_for_testing("english");
     let mut lexer = Lexer::new(input, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     assert_eq!(tokens[0].token_type, expected);
     assert_eq!(tokens[0].lexeme, input);
 }
@@ -37,7 +37,7 @@ fn test_multi_char_operators(input: &str, expected: TokenType) {
     let keyword_manager = KeywordManager::new_for_testing("english");
     let mut lexer = Lexer::new(input, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     assert_eq!(tokens[0].token_type, expected);
     assert_eq!(tokens[0].lexeme, input);
 }
@@ -46,16 +46,16 @@ fn test_multi_char_operators(input: &str, expected: TokenType) {
 fn test_operator_sequences() {
     let keyword_manager = KeywordManager::new_for_testing("english");
     let source = "a + b - c * d / e";
-    
+
     let mut lexer = Lexer::new(source, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     // Find operator tokens
     let operators: Vec<_> = tokens.iter()
-        .filter(|t| matches\!(t.token_type, 
-            TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash))
+        .filter(|t| matches\!(t.token_type,
+                              TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash))
         .collect();
-    
+
     assert_eq!(operators.len(), 4);
     assert_eq!(operators[0].token_type, TokenType::Plus);
     assert_eq!(operators[1].token_type, TokenType::Minus);
@@ -77,7 +77,7 @@ fn test_delimiters(input: &str, expected: TokenType) {
     let keyword_manager = KeywordManager::new_for_testing("english");
     let mut lexer = Lexer::new(input, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     assert_eq!(tokens[0].token_type, expected);
     assert_eq!(tokens[0].lexeme, input);
 }
@@ -86,10 +86,10 @@ fn test_delimiters(input: &str, expected: TokenType) {
 fn test_complex_expression() {
     let keyword_manager = KeywordManager::new_for_testing("english");
     let source = "result = (a + b) * c >= d && e \!= f";
-    
+
     let mut lexer = Lexer::new(source, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     // Verify we have all expected token types
     assert!(tokens.iter().any(|t| t.token_type == TokenType::Equal));
     assert!(tokens.iter().any(|t| t.token_type == TokenType::LeftParen));

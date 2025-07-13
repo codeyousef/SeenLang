@@ -1,8 +1,8 @@
 //! Type checking error definitions
 
-use thiserror::Error;
-use seen_lexer::token::Position;
 use crate::types::Type;
+use seen_lexer::token::Position;
+use thiserror::Error;
 
 /// Errors that can occur during type checking
 #[derive(Debug, Clone, Error)]
@@ -13,27 +13,28 @@ pub enum TypeError {
         actual: Type,
         position: Position,
     },
-    
+
     #[error("Undefined variable '{name}' at {position}")]
     UndefinedVariable {
         name: String,
         position: Position,
     },
-    
+
     #[error("Undefined function '{name}' at {position}")]
     UndefinedFunction {
         name: String,
         position: Position,
     },
-    
-    #[error("Function '{name}' expects {expected} arguments, but {actual} were provided at {position}")]
+
+    #[error("Function '{name}' expects {expected} arguments, but {actual} were provided at {position}"
+    )]
     ArgumentCountMismatch {
         name: String,
         expected: usize,
         actual: usize,
         position: Position,
     },
-    
+
     #[error("Invalid operation '{operation}' for types {left_type} and {right_type} at {position}")]
     InvalidOperation {
         operation: String,
@@ -41,68 +42,90 @@ pub enum TypeError {
         right_type: Type,
         position: Position,
     },
-    
+
     #[error("Cannot assign to immutable variable '{name}' at {position}")]
     ImmutableAssignment {
         name: String,
         position: Position,
     },
-    
+
     #[error("Variable '{name}' is already defined at {position}")]
     DuplicateVariable {
         name: String,
         position: Position,
     },
-    
+
     #[error("Function '{name}' is already defined at {position}")]
     DuplicateFunction {
         name: String,
         position: Position,
     },
-    
+
     #[error("Cannot use null value with non-nullable type {expected_type} at {position}")]
     NullSafety {
         expected_type: Type,
         position: Position,
     },
-    
+
     #[error("Array index out of bounds at {position}")]
     IndexOutOfBounds {
         position: Position,
     },
-    
+
     #[error("Invalid array index type: expected Int, found {actual_type} at {position}")]
     InvalidIndexType {
         actual_type: Type,
         position: Position,
     },
-    
+
     #[error("Return type mismatch: function expects {expected}, found {actual} at {position}")]
     ReturnTypeMismatch {
         expected: Type,
         actual: Type,
         position: Position,
     },
-    
+
     #[error("Missing return statement in function '{function_name}' at {position}")]
     MissingReturn {
         function_name: String,
         position: Position,
     },
-    
-    #[error("Generic constraint violation: type {actual_type} does not satisfy constraint at {position}")]
+
+    #[error("Generic constraint violation: type {actual_type} does not satisfy constraint at {position}"
+    )]
     GenericConstraintViolation {
         actual_type: Type,
         position: Position,
     },
-    
+
     #[error("Type inference failed: unable to determine type at {position}")]
     InferenceFailed {
         position: Position,
     },
-    
+
     #[error("Circular type dependency detected at {position}")]
     CircularDependency {
+        position: Position,
+    },
+
+    #[error("Missing field '{field}' in struct '{struct_name}' at {position}")]
+    MissingField {
+        struct_name: String,
+        field: String,
+        position: Position,
+    },
+
+    #[error("Unknown field '{field}' for struct '{struct_name}' at {position}")]
+    UnknownField {
+        struct_name: String,
+        field: String,
+        position: Position,
+    },
+
+    #[error("Wrong number of arguments: expected {expected}, found {actual} at {position}")]
+    WrongArgumentCount {
+        expected: usize,
+        actual: usize,
         position: Position,
     },
 }
@@ -122,6 +145,9 @@ pub enum TypeErrorKind {
     GenericError,
     InferenceError,
     CircularDependency,
+    MissingField,
+    UnknownField,
+    WrongArgumentCount,
 }
 
 impl TypeError {
@@ -143,10 +169,13 @@ impl TypeError {
             TypeError::MissingReturn { position, .. } |
             TypeError::GenericConstraintViolation { position, .. } |
             TypeError::InferenceFailed { position, .. } |
-            TypeError::CircularDependency { position, .. } => *position,
+            TypeError::CircularDependency { position, .. } |
+            TypeError::MissingField { position, .. } |
+            TypeError::UnknownField { position, .. } |
+            TypeError::WrongArgumentCount { position, .. } => *position,
         }
     }
-    
+
     /// Get the kind of this error
     pub fn kind(&self) -> TypeErrorKind {
         match self {
@@ -162,14 +191,17 @@ impl TypeError {
             TypeError::GenericConstraintViolation { .. } => TypeErrorKind::GenericError,
             TypeError::InferenceFailed { .. } => TypeErrorKind::InferenceError,
             TypeError::CircularDependency { .. } => TypeErrorKind::CircularDependency,
+            TypeError::MissingField { .. } => TypeErrorKind::MissingField,
+            TypeError::UnknownField { .. } => TypeErrorKind::UnknownField,
+            TypeError::WrongArgumentCount { .. } => TypeErrorKind::WrongArgumentCount,
         }
     }
-    
+
     /// Check if this is a type mismatch error
     pub fn is_type_mismatch(&self) -> bool {
         matches!(self.kind(), TypeErrorKind::TypeMismatch)
     }
-    
+
     /// Get the expected type if this is a type mismatch
     pub fn expected_type(&self) -> Option<&Type> {
         match self {
@@ -178,7 +210,7 @@ impl TypeError {
             _ => None,
         }
     }
-    
+
     /// Get the actual type if this is a type mismatch
     pub fn actual_type(&self) -> Option<&Type> {
         match self {

@@ -1,5 +1,5 @@
 //! Type system and type checking for the Seen programming language
-//! 
+//!
 //! This crate provides static type checking, type inference, and type validation
 //! for Seen programs. It operates on the AST produced by the parser.
 
@@ -8,9 +8,12 @@ pub mod checker;
 pub mod inference;
 pub mod errors;
 
+#[cfg(test)]
+mod tests;
+
 pub use checker::TypeChecker;
-pub use types::{Type, TypeInfo};
 pub use errors::{TypeError, TypeErrorKind};
+pub use types::{Type, TypeInfo};
 
 /// The result of type checking a program
 #[derive(Debug, Clone)]
@@ -47,37 +50,37 @@ impl TypeCheckResult {
             errors: Vec::new(),
         }
     }
-    
+
     /// Check if type checking was successful (no errors)
     pub fn is_ok(&self) -> bool {
         self.errors.is_empty()
     }
-    
+
     /// Check if type checking failed (has errors)
     pub fn is_err(&self) -> bool {
         !self.errors.is_empty()
     }
-    
+
     /// Get the type of a variable by name
     pub fn get_variable_type(&self, name: &str) -> Option<&Type> {
         self.variables.get(name)
     }
-    
+
     /// Get the signature of a function by name
     pub fn get_function_signature(&self, name: &str) -> Option<&FunctionSignature> {
         self.functions.get(name)
     }
-    
+
     /// Add a type error
     pub fn add_error(&mut self, error: TypeError) {
         self.errors.push(error);
     }
-    
+
     /// Add a variable with its type
     pub fn add_variable(&mut self, name: String, var_type: Type) {
         self.variables.insert(name, var_type);
     }
-    
+
     /// Add a function signature
     pub fn add_function(&mut self, name: String, signature: FunctionSignature) {
         self.functions.insert(name, signature);

@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 
 use crate::test_harness::{TestCase, TestHarness, TestStatus};
 
@@ -29,36 +29,36 @@ fn create_hello_world_test_cases() -> Vec<TestCase> {
 /// Run the Hello World tests
 pub fn run_hello_world_tests() -> bool {
     println!("Running Hello World tests...");
-    
+
     // Get the path to the compiler
     let compiler_path = env::current_dir()
         .expect("Failed to get current directory")
         .join("target/debug/seen");
-    
+
     if !compiler_path.exists() {
         println!("Error: Compiler not found at {}", compiler_path.display());
         println!("Please build the compiler first with 'cargo build'");
         return false;
     }
-    
+
     // Create a temporary directory for test artifacts
     let temp_dir = env::temp_dir().join("seen_tests");
     fs::create_dir_all(&temp_dir).expect("Failed to create temporary directory");
-    
+
     // Create the test harness
     let mut harness = TestHarness::new(compiler_path, temp_dir);
-    
+
     // Add the test cases
     for test_case in create_hello_world_test_cases() {
         harness.add_test_case(test_case);
     }
-    
+
     // Run the tests
     let results = harness.run_all_tests();
-    
+
     // Report the results
     harness.report_results(&results);
-    
+
     // Return true if all tests passed
     results.iter().all(|r| r.status == TestStatus::Pass)
 }

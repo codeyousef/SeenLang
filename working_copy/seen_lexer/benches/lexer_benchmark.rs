@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use seen_lexer::{Lexer, KeywordManager};
+use seen_lexer::{KeywordManager, Lexer};
 
 fn benchmark_small_program(c: &mut Criterion) {
     let source = r#"
@@ -8,8 +8,8 @@ fn benchmark_small_program(c: &mut Criterion) {
         println(x);
     }
     "#;
-    
-    c.bench_function("lex_small_program",  < /dev/null | b| {
+
+    c.bench_function("lex_small_program", < /dev / null | b | {
         // TODO: Create keyword manager
         // let keyword_manager = KeywordManager::new("english");
         b.iter(|| {
@@ -28,7 +28,7 @@ fn benchmark_large_program(c: &mut Criterion) {
             i, i
         ));
     }
-    
+
     c.bench_function("lex_large_program", |b| {
         // TODO: Create keyword manager
         // let keyword_manager = KeywordManager::new("english");
@@ -49,7 +49,7 @@ fn benchmark_unicode_heavy(c: &mut Criterion) {
         }
     }
     "#;
-    
+
     c.bench_function("lex_unicode_heavy", |b| {
         // TODO: Create keyword manager
         // let keyword_manager = KeywordManager::new("arabic");

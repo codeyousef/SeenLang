@@ -61,23 +61,23 @@ impl TestRunner {
             temp_dir,
         }
     }
-    
+
     /// Run a test case
     pub fn run_test(&self, test_case: TestCase) -> TestResult {
         println!("Running test: {}", test_case.name);
-        
+
         // Compile the program
         let compile_start = Instant::now();
         let compile_result = self.compile(&test_case.source_file, &test_case.config_file);
         let compile_time = compile_start.elapsed();
-        
+
         match compile_result {
             Ok(executable) => {
                 // Run the program
                 let execution_start = Instant::now();
                 let execution_result = self.execute(&executable);
                 let execution_time = execution_start.elapsed();
-                
+
                 match execution_result {
                     Ok((output, exit_code)) => {
                         // Check if the output and exit code match expectations
@@ -148,7 +148,7 @@ impl TestRunner {
             }
         }
     }
-    
+
     /// Compile a Seen program
     fn compile(&self, source_file: &Path, config_file: &Path) -> Result<PathBuf, String> {
         // Create a unique output directory for this test
@@ -160,29 +160,29 @@ impl TestRunner {
                 .as_millis()
         ));
         fs::create_dir_all(&test_dir).map_err(|e| format!("Failed to create test directory: {}", e))?;
-        
+
         // Copy the source and config files to the test directory
         let test_source = test_dir.join(source_file.file_name().unwrap());
         let test_config = test_dir.join(config_file.file_name().unwrap());
-        
+
         fs::copy(source_file, &test_source)
             .map_err(|e| format!("Failed to copy source file: {}", e))?;
         fs::copy(config_file, &test_config)
             .map_err(|e| format!("Failed to copy config file: {}", e))?;
-        
+
         // Build the program using the Seen CLI
         let output = Command::new(&self.compiler_path)
             .args(["build", "--project-path", test_dir.to_str().unwrap()])
             .output()
             .map_err(|e| format!("Failed to execute compiler: {}", e))?;
-        
+
         if !output.status.success() {
             return Err(format!(
                 "Compilation failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
-        
+
         // Find the executable
         let mut executable_path = None;
         for entry in fs::read_dir(test_dir.join("target"))
@@ -190,25 +190,25 @@ impl TestRunner {
         {
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let path = entry.path();
-            
+
             if path.is_file() && path.extension().is_none() {
                 executable_path = Some(path);
                 break;
             }
         }
-        
+
         executable_path.ok_or_else(|| "Failed to find executable".to_string())
     }
-    
+
     /// Execute a compiled Seen program
     fn execute(&self, executable: &Path) -> Result<(String, i32), String> {
         let output = Command::new(executable)
             .output()
             .map_err(|e| format!("Failed to execute program: {}", e))?;
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let exit_code = output.status.code().unwrap_or(-1);
-        
+
         Ok((stdout, exit_code))
     }
 }
@@ -229,49 +229,49 @@ impl TestHarness {
             runner: TestRunner::new(compiler_path, temp_dir),
         }
     }
-    
+
     /// Add a test case
     pub fn add_test_case(&mut self, test_case: TestCase) {
         self.test_cases.push(test_case);
     }
-    
+
     /// Run all test cases
     pub fn run_all_tests(&self) -> Vec<TestResult> {
         let mut results = Vec::new();
-        
+
         for test_case in &self.test_cases {
             let result = self.runner.run_test(test_case.clone());
             results.push(result);
         }
-        
+
         results
     }
-    
+
     /// Report test results
     pub fn report_results(&self, results: &[TestResult]) {
         let total = results.len();
         let passed = results.iter().filter(|r| r.status == TestStatus::Pass).count();
         let failed = total - passed;
-        
+
         println!("\nTest Results:");
         println!("-------------");
         println!("Total tests:    {}", total);
         println!("Passed:         {}", passed);
         println!("Failed:         {}", failed);
-        
+
         if total > 0 {
             let success_rate = (passed as f64 / total as f64) * 100.0;
             println!("Success rate:   {:.1}%", success_rate);
         }
-        
+
         if failed > 0 {
             println!("\nFailures:");
             println!("---------");
-            
+
             for (i, result) in results.iter().enumerate() {
                 if result.status != TestStatus::Pass {
                     println!("{}. {}:", i + 1, result.test_case.name);
-                    
+
                     match result.status {
                         TestStatus::Pass => unreachable!(),
                         TestStatus::CompileFailed => {
@@ -291,11 +291,11 @@ impl TestHarness {
                             println!("   - Error: ExitCodeMismatch");
                         }
                     }
-                    
+
                     if let Some(error_message) = &result.error_message {
                         println!("   - Message: {:?}", error_message);
                     }
-                    
+
                     println!();
                 }
             }

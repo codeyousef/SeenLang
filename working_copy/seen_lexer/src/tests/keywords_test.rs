@@ -1,7 +1,7 @@
 //\! Tests for keyword tokenization in both English and Arabic
 
 use super::*;
-use crate::{Lexer, Token, TokenType, KeywordManager};
+use crate::{KeywordManager, Lexer, Token, TokenType};
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -9,7 +9,7 @@ fn test_english_func_keyword() {
     let keyword_manager = create_test_keyword_manager("english");
     let mut lexer = Lexer::new("func", &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     assert_eq!(tokens.len(), 2); // Token + EOF
     assert_eq!(tokens[0].token_type, TokenType::Func);
     assert_eq!(tokens[0].lexeme, "func");
@@ -21,7 +21,7 @@ fn test_arabic_func_keyword() {
     let keyword_manager = create_test_keyword_manager("arabic");
     let mut lexer = Lexer::new("دالة", &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     assert_eq!(tokens.len(), 2); // Token + EOF
     assert_eq!(tokens[0].token_type, TokenType::Func);
     assert_eq!(tokens[0].lexeme, "دالة");
@@ -42,13 +42,13 @@ fn test_english_all_keywords() {
         ("true", TokenType::True),
         ("false", TokenType::False),
     ];
-    
+
     let keyword_manager = create_test_keyword_manager("english");
-    
+
     for (keyword, expected_type) in test_cases {
         let mut lexer = Lexer::new(keyword, &keyword_manager);
         let tokens = lexer.tokenize().unwrap();
-        
+
         assert_eq!(tokens[0].token_type, expected_type,
                    "Failed for keyword: {}", keyword);
         assert_eq!(tokens[0].lexeme, keyword);
@@ -69,13 +69,13 @@ fn test_arabic_all_keywords() {
         ("صحيح", TokenType::True),
         ("خطأ", TokenType::False),
     ];
-    
+
     let keyword_manager = create_test_keyword_manager("arabic");
-    
+
     for (keyword, expected_type) in test_cases {
         let mut lexer = Lexer::new(keyword, &keyword_manager);
         let tokens = lexer.tokenize().unwrap();
-        
+
         assert_eq!(tokens[0].token_type, expected_type,
                    "Failed for keyword: {}", keyword);
         assert_eq!(tokens[0].lexeme, keyword);
@@ -85,12 +85,12 @@ fn test_arabic_all_keywords() {
 #[test]
 fn test_keyword_vs_identifier_disambiguation() {
     let keyword_manager = create_test_keyword_manager("english");
-    
+
     // "func" is a keyword in English
     let mut lexer = Lexer::new("func", &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
     assert_eq!(tokens[0].token_type, TokenType::Func);
-    
+
     // "دالة" is just an identifier in English mode
     let mut lexer = Lexer::new("دالة", &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
@@ -102,12 +102,12 @@ fn test_keyword_vs_identifier_disambiguation() {
 fn test_complete_function_english() {
     let keyword_manager = create_test_keyword_manager("english");
     let source = "func add(a: Int, b: Int) -> Int { return a + b; }";
-    
+
     let mut lexer = Lexer::new(source, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     // Verify key tokens
-    assert!(tokens.iter().any( < /dev/null | t| t.token_type == TokenType::Func));
+    assert!(tokens.iter().any(< /dev / null | t | t.token_type == TokenType::Func));
     assert!(tokens.iter().any(|t| t.token_type == TokenType::Return));
     assert!(tokens.iter().any(|t| t.token_type == TokenType::Identifier && t.lexeme == "add"));
 }
@@ -116,10 +116,10 @@ fn test_complete_function_english() {
 fn test_complete_function_arabic() {
     let keyword_manager = create_test_keyword_manager("arabic");
     let source = "دالة جمع(أ: صحيح، ب: صحيح) -> صحيح { ارجع أ + ب؛ }";
-    
+
     let mut lexer = Lexer::new(source, &keyword_manager);
     let tokens = lexer.tokenize().unwrap();
-    
+
     // Verify key tokens
     assert!(tokens.iter().any(|t| t.token_type == TokenType::Func));
     assert!(tokens.iter().any(|t| t.token_type == TokenType::Return));

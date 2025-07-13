@@ -1,8 +1,8 @@
 //! Common test utilities for the Seen language test suite
 
-use tempfile::TempDir;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
 
 // Include the new test utilities module
 pub mod test_utils;
@@ -38,22 +38,22 @@ impl TestProjectBuilder {
             files: Vec::new(),
         }
     }
-    
+
     pub fn language(mut self, language: TestLanguage) -> Self {
         self.language = language;
         self
     }
-    
+
     pub fn add_file(mut self, path: impl AsRef<Path>, content: impl Into<String>) -> Self {
         self.files.push((path.as_ref().to_path_buf(), content.into()));
         self
     }
-    
+
     pub fn build(self) -> Result<TestProject, std::io::Error> {
         let temp_dir = TempDir::new()?;
         let project_path = temp_dir.path().join(&self.name);
         fs::create_dir_all(&project_path)?;
-        
+
         // Create seen.toml
         let config_content = format\!(
             "[project]\nname = \"{}\"\nversion = \"0.1.0\"\nlanguage = \"{}\"\n",
@@ -61,11 +61,11 @@ impl TestProjectBuilder {
             self.language.to_string()
         );
         fs::write(project_path.join("seen.toml"), config_content)?;
-        
+
         // Create source directory
         let src_path = project_path.join("src");
         fs::create_dir_all(&src_path)?;
-        
+
         // Create files
         for (path, content) in self.files {
             let full_path = project_path.join(path);
@@ -74,7 +74,7 @@ impl TestProjectBuilder {
             }
             fs::write(full_path, content)?;
         }
-        
+
         Ok(TestProject {
             _temp_dir: temp_dir,
             path: project_path,
@@ -101,7 +101,7 @@ where
 {
     println\!("Testing {}: English variant", test_name);
     test_fn(TestLanguage::English);
-    
+
     println\!("Testing {}: Arabic variant", test_name);
     test_fn(TestLanguage::Arabic);
 }
@@ -109,7 +109,7 @@ where
 /// Common test source code snippets
 pub mod snippets {
     use super::TestLanguage;
-    
+
     pub fn hello_world(lang: TestLanguage) -> &'static str {
         match lang {
             TestLanguage::English => {
@@ -126,7 +126,7 @@ pub mod snippets {
             }
         }
     }
-    
+
     pub fn simple_function(lang: TestLanguage) -> &'static str {
         match lang {
             TestLanguage::English => {
@@ -146,11 +146,11 @@ pub mod snippets {
 /// Assertion helpers
 pub mod assertions {
     use std::fmt::Debug;
-    
+
     pub fn assert_contains_subsequence<T: Debug + PartialEq>(haystack: &[T], needle: &[T]) {
         let mut needle_iter = needle.iter();
         let mut current_needle = needle_iter.next();
-        
+
         for item in haystack {
             if let Some(needle_item) = current_needle {
                 if item == needle_item {
@@ -158,7 +158,7 @@ pub mod assertions {
                 }
             }
         }
-        
+
         assert!(
             current_needle.is_none(),
             "Subsequence {:?} not found in {:?}",

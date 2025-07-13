@@ -1,10 +1,10 @@
 //! Helper utilities for parser tests
 
-use crate::{Parser, ParserError};
 use crate::ast::*;
-use seen_lexer::lexer::Lexer;
-use seen_lexer::token::{Token, TokenType, Location};
+use crate::{Parser, ParserError};
 use seen_lexer::keyword_config::{KeywordConfig, KeywordManager};
+use seen_lexer::lexer::Lexer;
+use seen_lexer::token::{Location, Token, TokenType};
 
 pub type ParseResult<T> = Result<T, ParserError>;
 
@@ -16,19 +16,19 @@ pub fn create_parser(tokens: Vec<Token>) -> Parser {
 /// Parse a source string and return the AST
 pub fn parse_source(source: &str) -> ParseResult<Program> {
     use std::path::PathBuf;
-    
+
     // Get the specifications directory relative to the parser crate
     let lang_files_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent() // Go up from seen_parser crate root to workspace root
         .unwrap()
         .join("specifications");
-    
+
     let keyword_config = KeywordConfig::from_directory(&lang_files_dir)
         .expect("Failed to load keyword configuration for testing");
-    
+
     let keyword_manager = KeywordManager::new(keyword_config, "en".to_string())
         .expect("Failed to create KeywordManager for testing");
-        
+
     let mut lexer = Lexer::new(source, &keyword_manager, "en".to_string());
     let tokens = lexer.tokenize().unwrap();
     let mut parser = Parser::new(tokens);

@@ -1,5 +1,5 @@
-use seen_lexer::token::{Token, TokenType, Position, Location};
 use crate::ast::*;
+use seen_lexer::token::{Location, Position, Token, TokenType};
 
 /// Errors that can occur during parsing
 #[derive(Debug, thiserror::Error)]
@@ -138,7 +138,7 @@ impl Parser {
             let name = self.consume_identifier("Expected parameter name")?;
             self.consume(TokenType::Colon, "Expected ':' after parameter name")?;
             let param_type = self.parse_type()?;
-            
+
             parameters.push(Parameter {
                 name,
                 param_type,
@@ -159,7 +159,7 @@ impl Parser {
         let is_mutable = self.previous().token_type == TokenType::Var;
 
         let name = self.consume_identifier("Expected variable name")?;
-        
+
         // Optional type annotation
         let var_type = if self.match_tokens(&[TokenType::Colon]) {
             Some(self.parse_type()?)
@@ -185,20 +185,20 @@ impl Parser {
     /// Parse a struct declaration
     fn struct_declaration(&mut self) -> Result<StructDeclaration, ParserError> {
         let start_pos = self.previous().location.start; // 'struct' token location
-        
+
         // Struct name
         let name = self.consume_identifier("Expected struct name")?;
-        
+
         // Opening brace
         self.consume(TokenType::LeftBrace, "Expected '{' after struct name")?;
-        
+
         // Parse fields
         let mut fields = Vec::new();
         let mut field_names = std::collections::HashSet::new();
-        
+
         while !self.check(TokenType::RightBrace) && !self.is_at_end() {
             let field = self.struct_field()?;
-            
+
             // Check for duplicate field names
             if !field_names.insert(field.name.clone()) {
                 return Err(ParserError::UnexpectedToken {
@@ -207,9 +207,9 @@ impl Parser {
                     position: field.location.start,
                 });
             }
-            
+
             fields.push(field);
-            
+
             // Handle optional comma
             if self.match_tokens(&[TokenType::Comma]) {
                 // Consumed comma, continue
@@ -221,11 +221,11 @@ impl Parser {
                 });
             }
         }
-        
+
         // Closing brace
         self.consume(TokenType::RightBrace, "Expected '}' after struct fields")?;
         let end_pos = self.previous().location.end;
-        
+
         Ok(StructDeclaration {
             name,
             fields,
@@ -236,28 +236,28 @@ impl Parser {
     /// Parse a struct literal expression
     fn struct_literal(&mut self, struct_name: String, start_loc: Position) -> Result<Expression, ParserError> {
         self.consume(TokenType::LeftBrace, "Expected '{' after struct name")?;
-        
+
         let mut fields = Vec::new();
-        
+
         while !self.check(TokenType::RightBrace) && !self.is_at_end() {
             let field_start = self.peek_position();
-            
+
             // Parse field name
             let field_name = self.consume_identifier("Expected field name")?;
-            
+
             // Consume colon
             self.consume(TokenType::Colon, "Expected ':' after field name")?;
-            
+
             // Parse field value
             let value = Box::new(self.expression()?);
             let field_end = self.previous().location.end;
-            
+
             fields.push(StructFieldInit {
                 field_name,
                 value,
                 location: Location::new(field_start, field_end),
             });
-            
+
             // Handle optional comma
             if self.match_tokens(&[TokenType::Comma]) {
                 // Consumed comma, continue
@@ -269,10 +269,10 @@ impl Parser {
                 });
             }
         }
-        
+
         self.consume(TokenType::RightBrace, "Expected '}' after struct fields")?;
         let end_loc = self.previous().location.end;
-        
+
         Ok(Expression::StructLiteral(StructLiteralExpression {
             struct_name,
             fields,
@@ -283,17 +283,17 @@ impl Parser {
     /// Parse a struct field
     fn struct_field(&mut self) -> Result<StructField, ParserError> {
         let start_pos = self.peek_position();
-        
+
         // Field name
         let name = self.consume_identifier("Expected field name")?;
-        
+
         // Colon
         self.consume(TokenType::Colon, "Expected ':' after field name")?;
-        
+
         // Field type
         let field_type = self.parse_type()?;
         let end_pos = self.previous().location.end;
-        
+
         Ok(StructField {
             name,
             field_type,
@@ -309,15 +309,15 @@ impl Parser {
             self.consume(TokenType::RightBracket, "Expected ']' after array type")?;
             return Ok(Type::Array(inner_type));
         }
-        
+
         if self.check(TokenType::Identifier) {
             let type_name = self.advance().lexeme.clone();
-            
+
             // Check for generic/array types
             if self.match_tokens(&[TokenType::LessThan]) {
                 let inner_type = Box::new(self.parse_type()?);
                 self.consume(TokenType::GreaterThan, "Expected '>' after type parameter")?;
-                
+
                 match type_name.as_str() {
                     "Array" => Ok(Type::Array(inner_type)),
                     _ => {
@@ -335,7 +335,7 @@ impl Parser {
         } else if self.match_tokens(&[TokenType::LeftParen]) {
             // Function type
             let mut param_types = Vec::new();
-            
+
             if !self.check(TokenType::RightParen) {
                 loop {
                     param_types.push(self.parse_type()?);
@@ -344,11 +344,11 @@ impl Parser {
                     }
                 }
             }
-            
+
             self.consume(TokenType::RightParen, "Expected ')' in function type")?;
             self.consume(TokenType::Arrow, "Expected '->' in function type")?;
             let _return_type = Box::new(self.parse_type()?);
-            
+
             // Function types don't exist in AST, so represent as string for now
             Ok(Type::Simple("Function".to_string()))
         } else {
@@ -413,7 +413,7 @@ impl Parser {
     /// Parse a return statement
     fn return_statement(&mut self) -> Result<ReturnStatement, ParserError> {
         let start_pos = self.previous().location.start;
-        
+
         let value = if self.check(TokenType::Semicolon) {
             None
         } else {
@@ -444,7 +444,7 @@ impl Parser {
         };
 
         let then_branch = Box::new(self.statement()?);
-        
+
         let else_branch = if self.match_tokens(&[TokenType::Else]) {
             Some(Box::new(self.statement()?))
         } else {
@@ -492,20 +492,20 @@ impl Parser {
     /// Parse a for statement
     fn for_statement(&mut self) -> Result<ForStatement, ParserError> {
         let start_pos = self.previous().location.start;
-        
+
         let variable = if let TokenType::Identifier = self.peek().token_type {
             self.advance().lexeme.clone()
         } else {
             return Err(self.error("Expected variable name after 'for'"));
         };
-        
+
         self.consume(TokenType::In, "Expected 'in' after for loop variable")?;
-        
+
         let iterable = self.expression()?;
-        
+
         let body = Box::new(self.statement()?);
         let end_pos = body.location().end;
-        
+
         Ok(ForStatement {
             variable,
             iterable,
@@ -519,7 +519,7 @@ impl Parser {
         let start_pos = self.previous().location.start;
 
         self.consume(TokenType::LeftParen, "Expected '(' after 'println'")?;
-        
+
         let mut arguments = Vec::new();
         if !self.check(TokenType::RightParen) {
             loop {
@@ -561,15 +561,15 @@ impl Parser {
     /// Parse an assignment expression
     fn assignment(&mut self) -> Result<Expression, ParserError> {
         let expr = self.logical_or()?;
-        
+
         if self.match_tokens(&[TokenType::Assign]) {
             let value = Box::new(self.assignment()?);
-            
+
             // Check that the left-hand side is a valid assignment target
             if let Expression::Identifier(ident) = expr {
                 let start_pos = ident.location.start;
                 let end_pos = value.location().end;
-                
+
                 return Ok(Expression::Assignment(AssignmentExpression {
                     name: ident.name,
                     value,
@@ -583,7 +583,7 @@ impl Parser {
                 });
             }
         }
-        
+
         Ok(expr)
     }
 
@@ -596,7 +596,7 @@ impl Parser {
             let right = Box::new(self.logical_and()?);
             let start_pos = expr.location().start;
             let end_pos = right.location().end;
-            
+
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator,
@@ -617,7 +617,7 @@ impl Parser {
             let right = Box::new(self.equality()?);
             let start_pos = expr.location().start;
             let end_pos = right.location().end;
-            
+
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator,
@@ -642,7 +642,7 @@ impl Parser {
             let right = Box::new(self.comparison()?);
             let start_pos = expr.location().start;
             let end_pos = right.location().end;
-            
+
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator,
@@ -658,8 +658,8 @@ impl Parser {
     fn comparison(&mut self) -> Result<Expression, ParserError> {
         let mut expr = self.range()?;
 
-        while self.match_tokens(&[TokenType::GreaterThan, TokenType::GreaterEqual, 
-                                  TokenType::LessThan, TokenType::LessEqual]) {
+        while self.match_tokens(&[TokenType::GreaterThan, TokenType::GreaterEqual,
+            TokenType::LessThan, TokenType::LessEqual]) {
             let operator = match self.previous().token_type {
                 TokenType::LessThan => BinaryOperator::LessThan,
                 TokenType::GreaterThan => BinaryOperator::GreaterThan,
@@ -670,7 +670,7 @@ impl Parser {
             let right = Box::new(self.term()?);
             let start_pos = expr.location().start;
             let end_pos = right.location().end;
-            
+
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator,
@@ -690,7 +690,7 @@ impl Parser {
             let start_loc = expr.location().start;
             let end = Box::new(self.term()?);
             let end_loc = end.location().end;
-            
+
             expr = Expression::Range(RangeExpression {
                 start: Box::new(expr),
                 end,
@@ -714,7 +714,7 @@ impl Parser {
             let right = Box::new(self.factor()?);
             let start_pos = expr.location().start;
             let end_pos = right.location().end;
-            
+
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator,
@@ -740,7 +740,7 @@ impl Parser {
             let right = Box::new(self.unary()?);
             let start_pos = expr.location().start;
             let end_pos = right.location().end;
-            
+
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator,
@@ -763,7 +763,7 @@ impl Parser {
             let right = Box::new(self.unary()?);
             let start_pos = self.previous().location.start;
             let end_pos = right.location().end;
-            
+
             return Ok(Expression::Unary(UnaryExpression {
                 operator,
                 operand: right,
@@ -787,7 +787,7 @@ impl Parser {
                 let index = self.expression()?;
                 self.consume(TokenType::RightBracket, "Expected ']' after array index")?;
                 let end_loc = self.previous().location.end;
-                
+
                 expr = Expression::Index(IndexExpression {
                     object: Box::new(expr),
                     index: Box::new(index),
@@ -802,7 +802,7 @@ impl Parser {
                     return Err(self.error("Expected field name after '.'"));
                 };
                 let end_loc = self.previous().location.end;
-                
+
                 expr = Expression::FieldAccess(FieldAccessExpression {
                     object: Box::new(expr),
                     field: field_name,
@@ -897,12 +897,12 @@ impl Parser {
         if self.match_tokens(&[TokenType::Identifier]) {
             let name = self.previous().lexeme.clone();
             let start_loc = self.previous().location.start;
-            
+
             // Check if this is a struct literal
             if self.check(TokenType::LeftBrace) {
                 return self.struct_literal(name, start_loc);
             }
-            
+
             return Ok(Expression::Identifier(IdentifierExpression {
                 name,
                 location: Location::new(start_loc, self.previous().location.end),
@@ -919,7 +919,7 @@ impl Parser {
             // Array literal
             let start_loc = self.previous().location.start;
             let mut elements = Vec::new();
-            
+
             if !self.check(TokenType::RightBracket) {
                 loop {
                     elements.push(self.expression()?);
@@ -928,10 +928,10 @@ impl Parser {
                     }
                 }
             }
-            
+
             self.consume(TokenType::RightBracket, "Expected ']' after array elements")?;
             let end_loc = self.previous().location.end;
-            
+
             return Ok(Expression::ArrayLiteral(ArrayLiteralExpression {
                 elements,
                 location: Location::new(start_loc, end_loc),
@@ -942,7 +942,7 @@ impl Parser {
     }
 
     // Helper methods
-    
+
     /// Create an error with a message
     fn error(&self, message: &str) -> ParserError {
         ParserError::UnexpectedToken {
@@ -951,7 +951,7 @@ impl Parser {
             position: self.peek_position(),
         }
     }
-    
+
     /// Check if we're at the end of the token stream
     fn is_at_end(&self) -> bool {
         self.peek().token_type == TokenType::EOF

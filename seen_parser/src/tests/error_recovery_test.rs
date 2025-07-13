@@ -52,7 +52,7 @@ fn test_multiple_errors() {
 fn test_error_location_reporting() {
     let source = "val x = ;";  // Missing expression after =
     let result = parse_source(source);
-    
+
     assert!(result.is_err());
     match result {
         Err(err) => {

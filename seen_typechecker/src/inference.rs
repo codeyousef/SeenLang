@@ -1,8 +1,8 @@
 //! Type inference engine for the Seen programming language
 
-use std::collections::HashMap;
-use crate::types::Type;
 use crate::errors::TypeError;
+use crate::types::Type;
+use std::collections::HashMap;
 
 /// Type inference context
 #[derive(Debug, Clone)]
@@ -50,14 +50,14 @@ impl InferenceContext {
     pub fn fresh_type_var(&mut self) -> Type {
         let id = self.next_var_id;
         self.next_var_id += 1;
-        
+
         let var_name = format!("t{}", id);
         let type_var = TypeVariable {
             id,
             constraints: Vec::new(),
             resolved: None,
         };
-        
+
         self.type_variables.insert(var_name.clone(), type_var);
         Type::Generic(var_name)
     }
@@ -76,61 +76,61 @@ impl InferenceContext {
         match (t1, t2) {
             // Same types unify to themselves
             (a, b) if a == b => Ok(a.clone()),
-            
+
             // Type variables
             (Type::Generic(var), other) | (other, Type::Generic(var)) => {
                 self.unify_with_variable(var, other)
             }
-            
+
             // Arrays
             (Type::Array(elem1), Type::Array(elem2)) => {
                 let unified_elem = self.unify(elem1, elem2)?;
                 Ok(Type::Array(Box::new(unified_elem)))
             }
-            
+
             // Functions
             (Type::Function { params: p1, return_type: r1 },
-             Type::Function { params: p2, return_type: r2 }) => {
+                Type::Function { params: p2, return_type: r2 }) => {
                 if p1.len() != p2.len() {
-                    return Err(TypeError::InferenceFailed { 
-                        position: seen_lexer::token::Position::new(0, 0) 
+                    return Err(TypeError::InferenceFailed {
+                        position: seen_lexer::token::Position::new(0, 0)
                     });
                 }
-                
+
                 let unified_params = p1.iter()
                     .zip(p2.iter())
                     .map(|(a, b)| self.unify(a, b))
                     .collect::<Result<Vec<_>, _>>()?;
-                    
+
                 let unified_return = self.unify(r1, r2)?;
-                
+
                 Ok(Type::Function {
                     params: unified_params,
                     return_type: Box::new(unified_return),
                 })
             }
-            
+
             // Optionals
             (Type::Optional(inner1), Type::Optional(inner2)) => {
                 let unified_inner = self.unify(inner1, inner2)?;
                 Ok(Type::Optional(Box::new(unified_inner)))
             }
-            
+
             // Non-optional can unify with optional of same type
             (non_opt, Type::Optional(inner)) | (Type::Optional(inner), non_opt) => {
                 let unified = self.unify(non_opt, inner)?;
                 Ok(Type::Optional(Box::new(unified)))
             }
-            
+
             // Numeric promotion
             (Type::Int, Type::Float) | (Type::Float, Type::Int) => Ok(Type::Float),
-            
+
             // Unknown type unifies with anything
             (Type::Unknown, other) | (other, Type::Unknown) => Ok(other.clone()),
-            
+
             // Otherwise, types don't unify
-            _ => Err(TypeError::InferenceFailed { 
-                position: seen_lexer::token::Position::new(0, 0) 
+            _ => Err(TypeError::InferenceFailed {
+                position: seen_lexer::token::Position::new(0, 0)
             }),
         }
     }
@@ -143,7 +143,7 @@ impl InferenceContext {
             if let Some(resolved) = &var.resolved {
                 return self.unify(&resolved, other_type);
             }
-            
+
             // Check constraints
             if !self.satisfies_constraints(other_type, &var.constraints)? {
                 return Err(TypeError::GenericConstraintViolation {
@@ -151,7 +151,7 @@ impl InferenceContext {
                     position: seen_lexer::token::Position::new(0, 0),
                 });
             }
-            
+
             // Resolve the variable
             if let Some(var_mut) = self.type_variables.get_mut(var_name) {
                 var_mut.resolved = Some(other_type.clone());
@@ -200,10 +200,10 @@ impl InferenceContext {
             if var.resolved.is_some() {
                 return Ok(());
             }
-            
+
             // Try to infer type from constraints
             let mut candidate_type = None;
-            
+
             for constraint in &var.constraints {
                 match constraint {
                     TypeConstraint::EqualTo(t) => {
@@ -231,14 +231,14 @@ impl InferenceContext {
                     }
                 }
             }
-            
+
             if let Some(resolved_type) = candidate_type {
                 if let Some(var_mut) = self.type_variables.get_mut(var_name) {
                     var_mut.resolved = Some(resolved_type);
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -246,7 +246,7 @@ impl InferenceContext {
     pub fn resolve_all(&mut self) -> Result<(), Vec<TypeError>> {
         let mut errors = Vec::new();
         let var_names: Vec<String> = self.type_variables.keys().cloned().collect();
-        
+
         for var_name in var_names {
             if let Some(var) = self.type_variables.get(&var_name) {
                 if var.resolved.is_none() {
@@ -262,7 +262,7 @@ impl InferenceContext {
                 }
             }
         }
-        
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -319,7 +319,7 @@ mod tests {
         let mut ctx = InferenceContext::new();
         let var1 = ctx.fresh_type_var();
         let var2 = ctx.fresh_type_var();
-        
+
         assert!(matches!(var1, Type::Generic(_)));
         assert!(matches!(var2, Type::Generic(_)));
         assert_ne!(var1, var2);

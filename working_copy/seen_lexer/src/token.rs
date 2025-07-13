@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 /// Represents a source position in the code
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,15 +74,15 @@ pub enum TokenType {
     Own,      // own (EN) / ملك (AR)
     Async,    // async (EN) / غير_متزامن (AR)
     Await,    // await (EN) / انتظر (AR)
-    
+
     // Literals
     IntLiteral,
     FloatLiteral,
     StringLiteral,
-    
+
     // Identifiers
     Identifier,
-    
+
     // Operators
     Plus,       // +
     Minus,      // -
@@ -99,7 +99,7 @@ pub enum TokenType {
     And,        // &&
     Or,         // ||
     Not,        // !
-    
+
     // Delimiters
     LeftParen,  // (
     RightParen, // )
@@ -112,7 +112,7 @@ pub enum TokenType {
     Comma,      // ,
     Dot,        // .
     Arrow,      // ->
-    
+
     // Special
     EOF,
     Error,
@@ -123,13 +123,13 @@ pub enum TokenType {
 pub struct Token {
     /// The canonical type of this token
     pub token_type: TokenType,
-    
+
     /// The actual text as it appeared in the source
     pub lexeme: String,
-    
+
     /// Location in the source code
     pub location: Location,
-    
+
     /// The language the token was written in (e.g., "en", "ar")
     pub language: String,
 }

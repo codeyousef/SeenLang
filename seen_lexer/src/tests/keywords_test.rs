@@ -113,7 +113,7 @@ fn test_complete_function_english() {
     let tokens = lexer.tokenize().unwrap();
 
     // Verify key tokens
-    assert!(tokens.iter().any( < /dev/null | t| t.token_type == TokenType::Func));
+    assert!(tokens.iter().any(< /dev / null | t | t.token_type == TokenType::Func));
     assert!(tokens.iter().any(|t| t.token_type == TokenType::Return));
     assert!(tokens
         .iter()

@@ -14,6 +14,8 @@ struct Environment {
     variables: HashMap<String, Type>,
     /// Functions in scope with their signatures
     functions: HashMap<String, FunctionSignature>,
+    /// Struct definitions with their fields
+    structs: HashMap<String, Vec<StructField>>,
     /// Parent environment for nested scopes
     parent: Option<Box<Environment>>,
 }
@@ -24,6 +26,7 @@ impl Environment {
         Self {
             variables: HashMap::new(),
             functions: HashMap::new(),
+            structs: HashMap::new(),
             parent: None,
         }
     }
@@ -33,6 +36,7 @@ impl Environment {
         Self {
             variables: HashMap::new(),
             functions: HashMap::new(),
+            structs: HashMap::new(),
             parent: Some(Box::new(parent)),
         }
     }
@@ -47,6 +51,11 @@ impl Environment {
         self.functions.insert(name, signature);
     }
 
+    /// Define a struct in this environment
+    fn define_struct(&mut self, name: String, fields: Vec<StructField>) {
+        self.structs.insert(name, fields);
+    }
+
     /// Look up a variable type, checking parent environments
     fn get_variable(&self, name: &str) -> Option<&Type> {
         self.variables.get(name)
@@ -59,6 +68,12 @@ impl Environment {
             .or_else(|| self.parent.as_ref().and_then(|p| p.get_function(name)))
     }
 
+    /// Look up a struct definition, checking parent environments
+    fn get_struct(&self, name: &str) -> Option<&Vec<StructField>> {
+        self.structs.get(name)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get_struct(name)))
+    }
+
     /// Check if a variable is defined in this scope only
     fn has_variable(&self, name: &str) -> bool {
         self.variables.contains_key(name)
@@ -69,11 +84,17 @@ impl Environment {
         self.functions.contains_key(name)
     }
 
+    /// Check if a struct is defined in this scope only
+    fn has_struct(&self, name: &str) -> bool {
+        self.structs.contains_key(name)
+    }
+
     /// Push a new scope
     fn push_scope(&mut self) {
         let new_env = Environment {
             variables: HashMap::new(),
             functions: HashMap::new(),
+            structs: HashMap::new(),
             parent: Some(Box::new(self.clone())),
         };
         *self = new_env;
@@ -201,10 +222,17 @@ impl TypeChecker {
 
     /// Type check a struct declaration
     fn check_struct_declaration(&mut self, struct_decl: &StructDeclaration) {
-        // For now, just register the struct type
-        // TODO: Implement proper struct field type checking
-        let struct_type = Type::Struct(struct_decl.name.clone());
-        // We would register this in a type environment if we had one
+        // Check for duplicate struct
+        if self.env.has_struct(&struct_decl.name) {
+            self.result.add_error(TypeError::DuplicateFunction {
+                name: struct_decl.name.clone(),
+                position: self.location_to_position(&struct_decl.location),
+            });
+            return;
+        }
+
+        // Validate field types and register the struct
+        self.env.define_struct(struct_decl.name.clone(), struct_decl.fields.clone());
     }
 
     /// Type check a function declaration
@@ -225,14 +253,13 @@ impl TypeChecker {
         }).collect();
 
         let return_type = func_decl.return_type.as_ref()
-            .map(Type::from)
-            .unwrap_or(Type::Unit);
+            .map(Type::from);
 
         // Create function signature
         let signature = FunctionSignature {
             name: func_decl.name.clone(),
             parameters: param_types.clone(),
-            return_type: Some(return_type.clone()),
+            return_type: return_type.clone(),
         };
 
         // Define function in current environment
@@ -248,7 +275,7 @@ impl TypeChecker {
         }
 
         // Set current function return type
-        let old_return_type = std::mem::replace(&mut self.current_function_return_type, Some(return_type));
+        let old_return_type = std::mem::replace(&mut self.current_function_return_type, return_type);
 
         // Type check function body
         self.check_block(&func_decl.body);
@@ -418,13 +445,11 @@ impl TypeChecker {
             Expression::Parenthesized(paren) => {
                 self.check_expression(&paren.expression)
             }
-            Expression::StructLiteral(_) => {
-                // TODO: Implement struct literal type checking
-                Type::Unknown
+            Expression::StructLiteral(struct_lit) => {
+                self.check_struct_literal(struct_lit)
             }
-            Expression::FieldAccess(_) => {
-                // TODO: Implement field access type checking
-                Type::Unknown
+            Expression::FieldAccess(field_access) => {
+                self.check_field_access(field_access)
             }
             Expression::ArrayLiteral(array) => {
                 self.check_array_literal(array)
@@ -576,8 +601,7 @@ impl TypeChecker {
         if let Some(signature) = signature {
             // Check argument count
             if call.arguments.len() != signature.parameters.len() {
-                self.result.add_error(TypeError::ArgumentCountMismatch {
-                    name: call.callee.clone(),
+                self.result.add_error(TypeError::WrongArgumentCount {
                     expected: signature.parameters.len(),
                     actual: call.arguments.len(),
                     position: self.location_to_position(&call.location),
@@ -706,6 +730,112 @@ impl TypeChecker {
                     expected: Type::Array(Box::new(Type::Unknown)),
                     actual: object_type,
                     position: self.expression_location(&index.object),
+                });
+                Type::Unknown
+            }
+        }
+    }
+
+    /// Type check a struct literal
+    fn check_struct_literal(&mut self, struct_lit: &StructLiteralExpression) -> Type {
+        // Look up the struct definition
+        let struct_fields = match self.env.get_struct(&struct_lit.struct_name) {
+            Some(fields) => fields.clone(),
+            None => {
+                self.result.add_error(TypeError::UndefinedVariable {
+                    name: struct_lit.struct_name.clone(),
+                    position: self.location_to_position(&struct_lit.location),
+                });
+                return Type::Unknown;
+            }
+        };
+
+        // Check that all required fields are provided
+        let mut provided_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
+        
+        for field_init in &struct_lit.fields {
+            provided_fields.insert(field_init.field_name.clone());
+            
+            // Find the field definition
+            let field_def = struct_fields.iter().find(|f| f.name == field_init.field_name);
+            
+            match field_def {
+                Some(def) => {
+                    // Type check the field value
+                    let actual_type = self.check_expression(&field_init.value);
+                    let expected_type = Type::from(&def.field_type);
+                    
+                    if !actual_type.is_assignable_to(&expected_type) {
+                        self.result.add_error(TypeError::TypeMismatch {
+                            expected: expected_type,
+                            actual: actual_type,
+                            position: self.expression_location(&field_init.value),
+                        });
+                    }
+                }
+                None => {
+                    // Unknown field
+                    self.result.add_error(TypeError::UnknownField {
+                        struct_name: struct_lit.struct_name.clone(),
+                        field: field_init.field_name.clone(),
+                        position: self.location_to_position(&field_init.location),
+                    });
+                }
+            }
+        }
+
+        // Check for missing fields
+        for field_def in &struct_fields {
+            if !provided_fields.contains(&field_def.name) {
+                self.result.add_error(TypeError::MissingField {
+                    struct_name: struct_lit.struct_name.clone(),
+                    field: field_def.name.clone(),
+                    position: self.location_to_position(&struct_lit.location),
+                });
+            }
+        }
+
+        Type::Struct(struct_lit.struct_name.clone())
+    }
+
+    /// Type check a field access expression
+    fn check_field_access(&mut self, field_access: &FieldAccessExpression) -> Type {
+        let object_type = self.check_expression(&field_access.object);
+        
+        match object_type {
+            Type::Struct(struct_name) => {
+                // Look up the struct definition
+                let struct_fields = match self.env.get_struct(&struct_name) {
+                    Some(fields) => fields.clone(),
+                    None => {
+                        self.result.add_error(TypeError::UndefinedVariable {
+                            name: struct_name.clone(),
+                            position: self.expression_location(&field_access.object),
+                        });
+                        return Type::Unknown;
+                    }
+                };
+
+                // Find the field
+                let field_def = struct_fields.iter().find(|f| f.name == field_access.field);
+                
+                match field_def {
+                    Some(def) => Type::from(&def.field_type),
+                    None => {
+                        self.result.add_error(TypeError::UnknownField {
+                            struct_name: struct_name.clone(),
+                            field: field_access.field.clone(),
+                            position: self.location_to_position(&field_access.location),
+                        });
+                        Type::Unknown
+                    }
+                }
+            }
+            _ => {
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: Type::Struct("any".to_string()),
+                    actual: object_type,
+                    position: self.expression_location(&field_access.object),
                 });
                 Type::Unknown
             }
