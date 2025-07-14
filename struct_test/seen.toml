@@ -1,0 +1,7 @@
+name = "struct_test"
+language = "en"
+version = "0.1.0"
+
+[build]
+output_dir = ""
+optimization = ""

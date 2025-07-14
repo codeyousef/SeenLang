@@ -1,0 +1,34 @@
+// Phase 1 LLVM Core Features Test
+
+func fibonacci(n: Int) -> Int {
+    if n <= 1 {
+        return n;
+    } else {
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+}
+
+func main() {
+    // Test 1: Basic arithmetic
+    val x = 10;
+    val y = 5;
+    val sum = x + y;
+    val product = x * y;
+    val modulo = x % 3;
+    
+    println(sum);      // 15
+    println(product);  // 50  
+    println(modulo);   // 1
+    
+    // Test 2: Arrays
+    val numbers = [1, 2, 3, 4, 5];
+    val first = numbers[0];
+    val last = numbers[4];
+    
+    println(first);    // 1
+    println(last);     // 5
+    
+    // Test 3: Function calls and recursion
+    val fib6 = fibonacci(6);
+    println(fib6);     // 8
+}

@@ -1,0 +1,8 @@
+// Test program for Phase 1 LLVM features
+
+func main() {
+    val x = 10;
+    val y = 20;
+    val sum = x + y;
+    println(sum);
+}
