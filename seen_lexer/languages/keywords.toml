@@ -1,0 +1,8 @@
+# Keyword configuration mapping for Seen languages
+
+[languages]
+english = "en"
+arabic = "ar"
+
+[default]
+language = "english"

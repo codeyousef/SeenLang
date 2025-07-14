@@ -1,0 +1,17 @@
+// Basic test for Vec<T> dynamic arrays
+
+struct Vec<T> {
+    ptr: *T,
+    len: Int,
+    capacity: Int
+}
+
+func main() {
+    // Test Vec<Int> creation
+    val mut int_vec = Vec<Int> { ptr: null, len: 0, capacity: 0 };
+    
+    // vec.push(42);  // Will need method implementation
+    // vec.push(100);
+    
+    println("Vec<T> basic test");
+}

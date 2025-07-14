@@ -1,0 +1,42 @@
+// Complete test for generic functionality
+
+// Generic function
+func identity<T>(x: T) -> T {
+    return x;
+}
+
+// Generic struct
+struct Container<T> {
+    value: T
+}
+
+// Generic enum (already working)
+enum Option<T> {
+    Some(T),
+    None
+}
+
+// Generic enum with multiple parameters
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+
+func main() {
+    // Test generic function (needs instantiation)
+    val int_result = identity<Int>(42);
+    val string_result = identity<String>("hello");
+    
+    // Test generic struct (needs instantiation)
+    val int_container = Container<Int> { value: 100 };
+    val string_container = Container<String> { value: "world" };
+    
+    // Test generic enum instantiation
+    val some_int = Option<Int>.Some(42);
+    val none_int = Option<Int>.None;
+    
+    val ok_result = Result<String, Int>.Ok("success");
+    val err_result = Result<String, Int>.Err(404);
+    
+    println("Complete generics test");
+}

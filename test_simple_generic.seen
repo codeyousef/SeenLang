@@ -1,0 +1,10 @@
+// Simple test for generic enum parsing
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+func main() {
+    println("Generic enum parsing test");
+}
