@@ -1,0 +1,4 @@
+func test() -> Int {
+    val x = something()?
+    return x
+}

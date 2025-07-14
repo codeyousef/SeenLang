@@ -1,0 +1,9 @@
+func test_vec_creation() -> Int {
+    // We'll implement Vec creation manually for now
+    // Later we'll add constructors and methods
+    return 42
+}
+
+func main() -> Int {
+    return test_vec_creation()
+}

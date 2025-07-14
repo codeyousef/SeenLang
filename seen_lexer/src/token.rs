@@ -67,6 +67,7 @@ pub enum TokenType {
     False,    // false (EN) / خطأ (AR)
     Null,     // null (EN) / فارغ (AR)
     Println,  // println (EN) / اطبع (AR)
+    Match,    // match (EN) / طابق (AR) 
     When,     // when (EN) / عندما (AR)
     In,       // in (EN) / في (AR)
     Loop,     // loop (EN) / حلقة (AR)
@@ -117,8 +118,10 @@ pub enum TokenType {
     Comma,        // ,
     Dot,          // .
     Arrow,        // ->
+    FatArrow,     // =>
     Question,     // ?
     DotDot,       // ..
+    Underscore,   // _
 
     // Special
     EOF,

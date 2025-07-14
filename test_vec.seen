@@ -1,0 +1,7 @@
+func main() -> Int {
+    // Create a new Vec<Int>
+    val numbers: Vec<Int> = Vec { data: null, len: 0, capacity: 0 }
+    
+    // For now, just return 0 since we don't have push/pop methods yet
+    return 0
+}

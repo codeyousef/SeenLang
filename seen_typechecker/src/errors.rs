@@ -26,6 +26,12 @@ pub enum TypeError {
         position: Position,
     },
 
+    #[error("Undefined type '{name}' at {position}")]
+    UndefinedType {
+        name: String,
+        position: Position,
+    },
+
     #[error("Function '{name}' expects {expected} arguments, but {actual} were provided at {position}"
     )]
     ArgumentCountMismatch {
@@ -157,6 +163,7 @@ impl TypeError {
             TypeError::TypeMismatch { position, .. } |
             TypeError::UndefinedVariable { position, .. } |
             TypeError::UndefinedFunction { position, .. } |
+            TypeError::UndefinedType { position, .. } |
             TypeError::ArgumentCountMismatch { position, .. } |
             TypeError::InvalidOperation { position, .. } |
             TypeError::ImmutableAssignment { position, .. } |
@@ -180,7 +187,7 @@ impl TypeError {
     pub fn kind(&self) -> TypeErrorKind {
         match self {
             TypeError::TypeMismatch { .. } => TypeErrorKind::TypeMismatch,
-            TypeError::UndefinedVariable { .. } | TypeError::UndefinedFunction { .. } => TypeErrorKind::UndefinedReference,
+            TypeError::UndefinedVariable { .. } | TypeError::UndefinedFunction { .. } | TypeError::UndefinedType { .. } => TypeErrorKind::UndefinedReference,
             TypeError::ArgumentCountMismatch { .. } => TypeErrorKind::ArgumentMismatch,
             TypeError::InvalidOperation { .. } => TypeErrorKind::InvalidOperation,
             TypeError::ImmutableAssignment { .. } => TypeErrorKind::AssignmentError,

@@ -1,0 +1,13 @@
+// Test concrete Option<Int> usage
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+func main() {
+    val some_value = Option<Int>.Some(42);
+    val none_value = Option<Int>.None;
+    
+    println("Option<Int> test completed");
+}

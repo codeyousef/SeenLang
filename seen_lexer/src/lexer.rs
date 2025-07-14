@@ -69,6 +69,7 @@ impl<'a> Lexer<'a> {
             '}' => Ok(self.create_token(TokenType::RightBrace, "}", token_start_pos)),
             '[' => Ok(self.create_token(TokenType::LeftBracket, "[", token_start_pos)),
             ']' => Ok(self.create_token(TokenType::RightBracket, "]", token_start_pos)),
+            '_' => Ok(self.create_token(TokenType::Underscore, "_", token_start_pos)),
             ';' => Ok(self.create_token(TokenType::Semicolon, ";", token_start_pos)),
             ':' => Ok(self.create_token(TokenType::Colon, ":", token_start_pos)),
             ',' => Ok(self.create_token(TokenType::Comma, ",", token_start_pos)),
@@ -122,6 +123,8 @@ impl<'a> Lexer<'a> {
             '=' => {
                 if self.match_char('=') {
                     Ok(self.create_token(TokenType::Equal, "==", token_start_pos))
+                } else if self.match_char('>') {
+                    Ok(self.create_token(TokenType::FatArrow, "=>", token_start_pos))
                 } else {
                     Ok(self.create_token(TokenType::Assign, "=", token_start_pos))
                 }
