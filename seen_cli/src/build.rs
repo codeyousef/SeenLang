@@ -151,6 +151,7 @@ fn compile_project(
     let llc_status = Command::new("llc")
         .args([
             "-filetype=obj",
+            "-relocation-model=pic",
             ir_file.to_str().unwrap(),
             "-o",
             obj_file.to_str().unwrap(),
@@ -164,7 +165,12 @@ fn compile_project(
 
     // Link the object file to create an executable
     let clang_status = Command::new("clang")
-        .args([obj_file.to_str().unwrap(), "-o", exe_file.to_str().unwrap()])
+        .args([
+            "-fPIE",
+            obj_file.to_str().unwrap(),
+            "-o",
+            exe_file.to_str().unwrap(),
+        ])
         .status()
         .context("Failed to run clang (LLVM frontend compiler)")?;
 

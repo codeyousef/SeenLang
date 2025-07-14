@@ -202,6 +202,7 @@ impl KeywordManager {
                 "false" => TokenType::False,
                 "null" => TokenType::Null,
                 "println" => TokenType::Println,
+                "match" => TokenType::Match,
                 "when" => TokenType::When,
                 "in" => TokenType::In,
                 "loop" => TokenType::Loop,
