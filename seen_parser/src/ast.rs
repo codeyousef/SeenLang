@@ -11,18 +11,20 @@ pub struct Program {
     pub location: Location,
 }
 
-/// Declarations in the program (functions, variables, or structs)
+/// Declarations in the program (functions, variables, structs, or enums)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Declaration {
     Function(FunctionDeclaration),
     Variable(VariableDeclaration),
-    Struct(StructDeclaration),  // NEW: Struct support
+    Struct(StructDeclaration),
+    Enum(EnumDeclaration),  // NEW: Enum support for Phase 2
 }
 
 /// Function declaration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FunctionDeclaration {
     pub name: String,
+    pub type_parameters: Vec<String>,  // Generic type parameters like <T, U>
     pub parameters: Vec<Parameter>,
     pub return_type: Option<Type>,
     pub body: Block,
@@ -51,6 +53,7 @@ pub struct VariableDeclaration {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StructDeclaration {
     pub name: String,
+    pub type_parameters: Vec<String>,  // Generic type parameters like <T, U>
     pub fields: Vec<StructField>,
     pub location: Location,
 }
@@ -63,12 +66,32 @@ pub struct StructField {
     pub location: Location,
 }
 
+/// Enum declaration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumDeclaration {
+    pub name: String,
+    pub type_parameters: Vec<String>,  // Generic type parameters like <T, E>
+    pub variants: Vec<EnumVariant>,
+    pub location: Location,
+}
+
+/// Enum variant definition
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumVariant {
+    pub name: String,
+    pub data: Option<Vec<Type>>,  // For variants with data like Some(T)
+    pub location: Location,
+}
+
 /// Type definitions
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Type {
-    Simple(String),  // Simple types like "int", "string", etc.
-    Array(Box<Type>), // Array types like [int], [string], etc.
-    Struct(String),   // NEW: Struct types like "Point", "Person", etc.
+    Simple(String),     // Simple types like "int", "string", etc.
+    Array(Box<Type>),   // Array types like [int], [string], etc.
+    Struct(String),     // Struct types like "Point", "Person", etc.
+    Enum(String),       // Enum types like "Option", "Result", etc.
+    Generic(String, Vec<Type>), // Generic types like Option<T>, Result<T,E>
+    Pointer(Box<Type>), // Pointer types like *Int, *String, etc.
 }
 
 /// Statements in the program
@@ -82,6 +105,7 @@ pub enum Statement {
     Print(PrintStatement),
     DeclarationStatement(Declaration),
     For(ForStatement),
+    Match(MatchStatement),  // NEW: Pattern matching for Phase 2
 }
 
 /// Expression statement (expression followed by semicolon)
@@ -139,13 +163,18 @@ pub enum Expression {
     Identifier(IdentifierExpression),
     Call(CallExpression),
     Parenthesized(ParenthesizedExpression),
-    // NEW: Struct-related expressions
+    // Struct-related expressions
     StructLiteral(StructLiteralExpression),
     FieldAccess(FieldAccessExpression),
     // Array-related expressions
     ArrayLiteral(ArrayLiteralExpression),
     Index(IndexExpression),
     Range(RangeExpression),
+    // Pattern matching and enum expressions
+    Match(MatchExpression),
+    EnumLiteral(EnumLiteralExpression),
+    // Error handling expressions
+    Try(TryExpression),
 }
 
 /// Assignment expression
@@ -311,6 +340,85 @@ pub struct ForStatement {
     pub variable: String,
     pub iterable: Expression,
     pub body: Box<Statement>,
+    pub location: Location,
+}
+
+/// Match statement: match value { pattern => expr, ... }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MatchStatement {
+    pub value: Box<Expression>,
+    pub arms: Vec<MatchArm>,
+    pub location: Location,
+}
+
+/// Match expression: match value { pattern => expr, ... }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MatchExpression {
+    pub value: Box<Expression>,
+    pub arms: Vec<MatchArm>,
+    pub location: Location,
+}
+
+/// Match arm: pattern => expression
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub expression: Box<Expression>,
+    pub location: Location,
+}
+
+/// Patterns for match expressions
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Pattern {
+    Literal(LiteralPattern),
+    Identifier(IdentifierPattern),
+    EnumVariant(EnumVariantPattern),
+    Wildcard(WildcardPattern),
+}
+
+/// Literal pattern: 42, "hello", true
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiteralPattern {
+    pub value: LiteralExpression,
+    pub location: Location,
+}
+
+/// Identifier pattern: x (binds to variable)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdentifierPattern {
+    pub name: String,
+    pub location: Location,
+}
+
+/// Enum variant pattern: Some(x), None
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumVariantPattern {
+    pub enum_name: String,
+    pub variant_name: String,
+    pub patterns: Option<Vec<Pattern>>,
+    pub location: Location,
+}
+
+/// Wildcard pattern: _
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WildcardPattern {
+    pub location: Location,
+}
+
+/// Enum literal expression: Some(42), None
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumLiteralExpression {
+    pub enum_name: String,
+    pub type_arguments: Option<Vec<Type>>,  // For generic enums like Option<Int>
+    pub variant_name: String,
+    pub arguments: Option<Vec<Expression>>,
+    pub location: Location,
+}
+
+/// Try expression: expr? (for error propagation with Result<T, E>)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TryExpression {
+    pub expression: Box<Expression>,
     pub location: Location,
 }
 

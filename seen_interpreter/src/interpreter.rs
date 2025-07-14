@@ -56,6 +56,11 @@ impl Interpreter {
                 // TODO: Implement struct type registration
                 Ok(None)
             }
+            Declaration::Enum(_enum_decl) => {
+                // TODO: Implement enum declaration interpretation for Phase 2
+                // For now, just ignore enum declarations
+                Ok(None)
+            }
         }
     }
 
@@ -114,6 +119,10 @@ impl Interpreter {
             Statement::Print(print_stmt) => self.interpret_print_statement(print_stmt),
             Statement::DeclarationStatement(decl) => self.interpret_declaration(decl),
             Statement::For(for_stmt) => self.interpret_for_statement(for_stmt),
+            Statement::Match(_match_stmt) => {
+                // TODO: Implement match statement interpretation for Phase 2
+                Ok(None)
+            }
         }
     }
 
@@ -286,6 +295,27 @@ impl Interpreter {
             Expression::ArrayLiteral(array) => self.interpret_array_literal(array),
             Expression::Index(index) => self.interpret_index_expression(index),
             Expression::Range(range) => self.interpret_range_expression(range),
+            Expression::Match(_match_expr) => {
+                // TODO: Implement match expression interpretation for Phase 2
+                Err(InterpreterError::runtime(
+                    "match expressions not implemented".to_string(),
+                    seen_lexer::token::Location::from_positions(0, 0, 0, 0),
+                ))
+            }
+            Expression::EnumLiteral(_enum_literal) => {
+                // TODO: Implement enum literal interpretation for Phase 2
+                Err(InterpreterError::runtime(
+                    "enum literals not implemented".to_string(),
+                    seen_lexer::token::Location::from_positions(0, 0, 0, 0),
+                ))
+            }
+            Expression::Try(try_expr) => {
+                // TODO: Implement try expression interpretation for Phase 2
+                Err(InterpreterError::runtime(
+                    "try expressions (? operator) not implemented".to_string(),
+                    try_expr.location,
+                ))
+            }
         }
     }
 

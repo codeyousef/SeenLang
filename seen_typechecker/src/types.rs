@@ -30,6 +30,10 @@ pub enum Type {
     Enum(String),
     /// Generic type parameter
     Generic(String),
+    /// Parameterized generic type (e.g., Option<Int>, Result<String, Error>)
+    ParameterizedGeneric(String, Vec<Type>),
+    /// Pointer type (e.g., *Int, *String)
+    Pointer(Box<Type>),
     /// Unit/void type
     Unit,
     /// Unknown type (for inference)
@@ -88,6 +92,15 @@ impl Type {
                     r1.is_assignable_to(r2)
             }
 
+            // Parameterized generic types must match exactly for now
+            (Type::ParameterizedGeneric(n1, args1), Type::ParameterizedGeneric(n2, args2)) => {
+                n1 == n2 && args1.len() == args2.len() &&
+                    args1.iter().zip(args2).all(|(a, b)| a.is_assignable_to(b))
+            }
+
+            // Pointer types must have compatible pointed-to types
+            (Type::Pointer(a), Type::Pointer(b)) => a.is_assignable_to(b),
+
             // Unknown type is compatible with anything (for inference)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
 
@@ -112,6 +125,11 @@ impl Type {
             Type::Struct(name) => name.clone(),
             Type::Enum(name) => name.clone(),
             Type::Generic(name) => name.clone(),
+            Type::ParameterizedGeneric(name, args) => {
+                let arg_names: Vec<String> = args.iter().map(|a| a.name()).collect();
+                format!("{}<{}>", name, arg_names.join(", "))
+            },
+            Type::Pointer(inner) => format!("*{}", inner.name()),
             Type::Unit => "()".to_string(),
             Type::Unknown => "?".to_string(),
         }
@@ -171,6 +189,16 @@ impl From<&seen_parser::ast::Type> for Type {
             }
             seen_parser::ast::Type::Struct(name) => {
                 Type::Struct(name.clone())
+            }
+            seen_parser::ast::Type::Enum(name) => {
+                Type::Enum(name.clone())
+            }
+            seen_parser::ast::Type::Generic(name, args) => {
+                let type_args: Vec<Type> = args.iter().map(|arg| Type::from(arg)).collect();
+                Type::ParameterizedGeneric(name.clone(), type_args)
+            }
+            seen_parser::ast::Type::Pointer(inner) => {
+                Type::Pointer(Box::new(Type::from(inner.as_ref())))
             }
         }
     }

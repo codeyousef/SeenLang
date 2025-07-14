@@ -1,0 +1,99 @@
+// Phase 2 Integration Test: All features working together
+// Tests: Enums, Pattern Matching, Generics, Error Handling, Stdlib
+
+// Define a complex enum for AST-like manipulation
+enum Expression {
+    Number(Int),
+    Add(Int, Int),
+    Multiply(Int, Int),
+    Variable(String)
+}
+
+// Test Result<T,E> with error handling
+func safe_divide(a: Int, b: Int) -> Result<Int, String> {
+    if b == 0 {
+        return Result<Int, String>.Err("Division by zero")
+    } else {
+        return Result<Int, String>.Ok(a / b)
+    }
+}
+
+// Test Option<T> with pattern matching
+func find_max(a: Option<Int>, b: Option<Int>) -> Option<Int> {
+    match a {
+        Option<Int>.Some(val_a) => {
+            match b {
+                Option<Int>.Some(val_b) => {
+                    val max_val = max_int(val_a, val_b)
+                    return Option<Int>.Some(max_val)
+                }
+                Option<Int>.None => return a
+            }
+        }
+        Option<Int>.None => return b
+    }
+}
+
+// Test complex expression evaluation with pattern matching
+func evaluate_expression(expr: Expression) -> Int {
+    match expr {
+        Expression.Number(n) => return n
+        Expression.Add(a, b) => return a + b
+        Expression.Multiply(a, b) => return a * b
+        Expression.Variable(name) => return 42  // Dummy value for variables
+    }
+}
+
+// Test error propagation with ? operator
+func complex_calculation(x: Int, y: Int) -> Result<Int, String> {
+    val division_result = safe_divide(x, y)?
+    val abs_result = abs_int(division_result)
+    return Result<Int, String>.Ok(abs_result * 2)
+}
+
+// Test using multiple stdlib functions
+func math_operations_test() -> Int {
+    val a = abs_int(-15)           // Should be 15
+    val b = min_int(10, 20)        // Should be 10
+    val c = max_int(5, 8)          // Should be 8
+    return a + b + c               // Should be 33
+}
+
+// Main integration test function
+func main() -> Int {
+    println("=== Phase 2 Integration Test ===")
+    
+    // Test 1: Basic enum construction and pattern matching
+    val expr1 = Expression.Number(42)
+    val expr2 = Expression.Add(10, 20)
+    val expr3 = Expression.Multiply(3, 7)
+    
+    val result1 = evaluate_expression(expr1)  // Should be 42
+    val result2 = evaluate_expression(expr2)  // Should be 30
+    val result3 = evaluate_expression(expr3)  // Should be 21
+    
+    println("Expression evaluation results: ", result1, result2, result3)
+    
+    // Test 2: Option<T> pattern matching
+    val opt1 = Option<Int>.Some(100)
+    val opt2 = Option<Int>.Some(200)
+    val opt_none = Option<Int>.None
+    
+    val max_result = find_max(opt1, opt2)  // Should be Some(200)
+    val max_with_none = find_max(opt1, opt_none)  // Should be Some(100)
+    
+    // Test 3: Result<T,E> error handling
+    val good_calc = complex_calculation(20, 4)  // Should be Ok(10)
+    val bad_calc = complex_calculation(10, 0)   // Should be Err("Division by zero")
+    
+    // Test 4: Standard library functions
+    val math_result = math_operations_test()    // Should be 33
+    
+    println("Math operations result: ", math_result)
+    
+    // Test 5: Error propagation (this should work without crashing)
+    val final_result = result1 + result2 + result3 + math_result
+    println("Final integration test result: ", final_result)
+    
+    return final_result  // Should be 42 + 30 + 21 + 33 = 126
+}

@@ -83,6 +83,9 @@ impl Parser {
         } else if self.match_tokens(&[TokenType::Struct]) {
             // Struct declaration
             self.struct_declaration().map(Declaration::Struct)
+        } else if self.match_tokens(&[TokenType::Enum]) {
+            // Enum declaration
+            self.enum_declaration().map(Declaration::Enum)
         } else {
             // If it's not a declaration, try parsing it as a statement expression
             let _stmt = self.statement()?;
@@ -99,6 +102,19 @@ impl Parser {
 
         // Function name
         let name = self.consume_identifier("Expected function name")?;
+
+        // Optional generic type parameters <T, U, ...>
+        let mut type_parameters = Vec::new();
+        if self.match_tokens(&[TokenType::LessThan]) {
+            // Parse type parameters
+            type_parameters.push(self.consume_identifier("Expected type parameter name")?);
+            
+            while self.match_tokens(&[TokenType::Comma]) {
+                type_parameters.push(self.consume_identifier("Expected type parameter name")?);
+            }
+            
+            self.consume(TokenType::GreaterThan, "Expected '>' after type parameters")?;
+        }
 
         // Parameter list
         self.consume(TokenType::LeftParen, "Expected '(' after function name")?;
@@ -123,6 +139,7 @@ impl Parser {
 
         Ok(FunctionDeclaration {
             name,
+            type_parameters,
             parameters,
             return_type,
             body,
@@ -189,6 +206,19 @@ impl Parser {
         // Struct name
         let name = self.consume_identifier("Expected struct name")?;
 
+        // Optional generic type parameters <T, U, ...>
+        let mut type_parameters = Vec::new();
+        if self.match_tokens(&[TokenType::LessThan]) {
+            // Parse type parameters
+            type_parameters.push(self.consume_identifier("Expected type parameter name")?);
+            
+            while self.match_tokens(&[TokenType::Comma]) {
+                type_parameters.push(self.consume_identifier("Expected type parameter name")?);
+            }
+            
+            self.consume(TokenType::GreaterThan, "Expected '>' after type parameters")?;
+        }
+
         // Opening brace
         self.consume(TokenType::LeftBrace, "Expected '{' after struct name")?;
 
@@ -228,9 +258,153 @@ impl Parser {
 
         Ok(StructDeclaration {
             name,
+            type_parameters,
             fields,
             location: Location::new(start_pos, end_pos),
         })
+    }
+
+    /// Parse an enum declaration
+    fn enum_declaration(&mut self) -> Result<EnumDeclaration, ParserError> {
+        let enum_keyword_start_pos = self.previous().location.start; // 'enum' token location
+
+        // Enum name
+        let name = self.consume_identifier("Expected enum name")?;
+
+        // Optional generic parameters <T, E, ...>
+        let mut type_parameters = Vec::new();
+        if self.match_tokens(&[TokenType::LessThan]) {
+            // Parse type parameters
+            type_parameters.push(self.consume_identifier("Expected type parameter name")?);
+            
+            while self.match_tokens(&[TokenType::Comma]) {
+                type_parameters.push(self.consume_identifier("Expected type parameter name")?);
+            }
+            
+            self.consume(TokenType::GreaterThan, "Expected '>' after type parameters")?;
+        }
+
+        // Opening brace
+        self.consume(TokenType::LeftBrace, "Expected '{' after enum name")?;
+
+        // Parse enum variants
+        let mut variants = Vec::new();
+        let mut variant_names = std::collections::HashSet::new();
+
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            let variant = self.enum_variant()?;
+
+            // Check for duplicate variant names
+            if !variant_names.insert(variant.name.clone()) {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "unique variant name".to_string(),
+                    got: format!("duplicate variant '{}'", variant.name),
+                    position: variant.location.start,
+                });
+            }
+
+            variants.push(variant);
+
+            // Handle optional comma
+            if self.match_tokens(&[TokenType::Comma]) {
+                // Consumed comma, continue
+            } else if !self.check(TokenType::RightBrace) {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "',' or '}'".to_string(),
+                    got: self.peek().lexeme.clone(),
+                    position: self.peek_position(),
+                });
+            }
+        }
+
+        // Closing brace
+        self.consume(TokenType::RightBrace, "Expected '}' after enum variants")?;
+        let end_pos = self.previous().location.end;
+
+        Ok(EnumDeclaration {
+            name,
+            type_parameters,
+            variants,
+            location: Location::new(enum_keyword_start_pos, end_pos),
+        })
+    }
+
+    /// Parse an enum variant
+    fn enum_variant(&mut self) -> Result<EnumVariant, ParserError> {
+        let start_pos = self.peek_position();
+
+        // Variant name
+        let name = self.consume_identifier("Expected variant name")?;
+
+        // Optional data types (for variants with data)
+        let mut data = None;
+        if self.match_tokens(&[TokenType::LeftParen]) {
+            let mut types = Vec::new();
+
+            if !self.check(TokenType::RightParen) {
+                loop {
+                    types.push(self.parse_type()?);
+
+                    if !self.match_tokens(&[TokenType::Comma]) {
+                        break;
+                    }
+                }
+            }
+
+            self.consume(TokenType::RightParen, "Expected ')' after variant data types")?;
+            data = Some(types);
+        }
+
+        let end_pos = self.previous().location.end;
+
+        Ok(EnumVariant {
+            name,
+            data,
+            location: Location::new(start_pos, end_pos),
+        })
+    }
+
+    /// Parse an enum literal expression (EnumName.Variant or EnumName.Variant(args))
+    fn enum_literal(&mut self, enum_name: String, start_loc: Position) -> Result<Expression, ParserError> {
+        self.enum_literal_with_generics(enum_name, None, start_loc)
+    }
+
+    /// Parse an enum literal expression with optional generic type arguments
+    fn enum_literal_with_generics(&mut self, enum_name: String, type_arguments: Option<Vec<Type>>, start_loc: Position) -> Result<Expression, ParserError> {
+        // Consume the dot
+        self.consume(TokenType::Dot, "Expected '.' after enum name")?;
+
+        // Get the variant name
+        let variant_name = self.consume_identifier("Expected variant name after '.'")?;
+
+        // Check for arguments (for variants with data)
+        let mut arguments = None;
+        if self.match_tokens(&[TokenType::LeftParen]) {
+            let mut args = Vec::new();
+
+            if !self.check(TokenType::RightParen) {
+                loop {
+                    args.push(self.expression()?);
+
+                    if !self.match_tokens(&[TokenType::Comma]) {
+                        break;
+                    }
+                }
+            }
+
+            self.consume(TokenType::RightParen, "Expected ')' after enum variant arguments")?;
+            arguments = Some(args);
+        }
+
+        let end_loc = self.previous().location.end;
+
+        Ok(Expression::EnumLiteral(EnumLiteralExpression {
+            enum_name,
+            type_arguments,
+            variant_name,
+            arguments,
+            location: Location::new(start_loc, end_loc),
+        }))
     }
 
     /// Parse a struct literal expression
@@ -303,6 +477,12 @@ impl Parser {
 
     /// Parse a type annotation
     fn parse_type(&mut self) -> Result<Type, ParserError> {
+        // Check for pointer type syntax: *Type
+        if self.match_tokens(&[TokenType::Multiply]) {
+            let inner_type = Box::new(self.parse_type()?);
+            return Ok(Type::Pointer(inner_type));
+        }
+
         // Check for array type syntax: [Type]
         if self.match_tokens(&[TokenType::LeftBracket]) {
             let inner_type = Box::new(self.parse_type()?);
@@ -315,14 +495,33 @@ impl Parser {
 
             // Check for generic/array types
             if self.match_tokens(&[TokenType::LessThan]) {
-                let inner_type = Box::new(self.parse_type()?);
-                self.consume(TokenType::GreaterThan, "Expected '>' after type parameter")?;
+                let mut type_args = Vec::new();
+                
+                // Parse first type argument
+                type_args.push(self.parse_type()?);
+                
+                // Parse additional type arguments separated by commas
+                while self.match_tokens(&[TokenType::Comma]) {
+                    type_args.push(self.parse_type()?);
+                }
+                
+                self.consume(TokenType::GreaterThan, "Expected '>' after type parameters")?;
 
                 match type_name.as_str() {
-                    "Array" => Ok(Type::Array(inner_type)),
+                    "Array" => {
+                        // Arrays have only one type parameter
+                        if type_args.len() != 1 {
+                            return Err(ParserError::UnexpectedToken {
+                                expected: "exactly one type parameter for Array".to_string(),
+                                got: format!("{} type parameters", type_args.len()),
+                                position: self.peek_position(),
+                            });
+                        }
+                        Ok(Type::Array(Box::new(type_args.into_iter().next().unwrap())))
+                    },
                     _ => {
-                        // For now, just treat other generics as simple types since Generic doesn't exist in AST
-                        Ok(Type::Simple(format!("{}<...>", type_name)))
+                        // Generic types like Option<T>, Result<T, E>, etc.
+                        Ok(Type::Generic(type_name, type_args))
                     }
                 }
             } else if self.match_tokens(&[TokenType::Question]) {
@@ -380,6 +579,9 @@ impl Parser {
         } else if self.match_tokens(&[TokenType::For]) {
             // For statement
             self.for_statement().map(Statement::For)
+        } else if self.match_tokens(&[TokenType::Match]) {
+            // Match statement
+            self.match_statement().map(Statement::Match)
         } else if self.match_tokens(&[TokenType::Func]) {
             // Nested function declaration
             self.function_declaration().map(|f| Statement::DeclarationStatement(Declaration::Function(f)))
@@ -512,6 +714,165 @@ impl Parser {
             body,
             location: Location::new(start_pos, end_pos),
         })
+    }
+
+    /// Parse a match statement
+    fn match_statement(&mut self) -> Result<MatchStatement, ParserError> {
+        let start_pos = self.previous().location.start; // 'match' token location
+
+        // Parse the value expression to match against
+        let value = Box::new(self.expression()?);
+
+        // Opening brace
+        self.consume(TokenType::LeftBrace, "Expected '{' after match value")?;
+
+        // Parse match arms
+        let mut arms = Vec::new();
+
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            let arm = self.match_arm()?;
+            arms.push(arm);
+
+            // Arms can be separated by commas or newlines (optional)
+            self.match_tokens(&[TokenType::Comma]);
+        }
+
+        // Closing brace
+        self.consume(TokenType::RightBrace, "Expected '}' after match arms")?;
+        let end_pos = self.previous().location.end;
+
+        Ok(MatchStatement {
+            value,
+            arms,
+            location: Location::new(start_pos, end_pos),
+        })
+    }
+
+    /// Parse a match arm (pattern => expression)
+    fn match_arm(&mut self) -> Result<MatchArm, ParserError> {
+        let start_pos = self.peek_position();
+
+        // Parse the pattern
+        let pattern = self.parse_pattern()?;
+
+        // Expect '=>' arrow
+        self.consume(TokenType::FatArrow, "Expected '=>' after pattern")?;
+
+        // Parse the expression
+        let expression = Box::new(self.expression()?);
+
+        let end_pos = expression.location().end;
+
+        Ok(MatchArm {
+            pattern,
+            expression,
+            location: Location::new(start_pos, end_pos),
+        })
+    }
+
+    /// Parse a pattern for match expressions
+    fn parse_pattern(&mut self) -> Result<Pattern, ParserError> {
+        // Check for wildcard pattern first
+        if self.match_tokens(&[TokenType::Underscore]) {
+            let location = self.previous().location;
+            return Ok(Pattern::Wildcard(WildcardPattern { location }));
+        }
+
+        // Check for literals (numbers, strings, booleans)
+        if self.check(TokenType::IntLiteral) || self.check(TokenType::FloatLiteral) ||
+           self.check(TokenType::StringLiteral) || self.check(TokenType::True) || self.check(TokenType::False) {
+            let expr = self.primary()?;
+            if let Expression::Literal(lit) = expr {
+                let location = match &lit {
+                    LiteralExpression::Number(n) => n.location.clone(),
+                    LiteralExpression::String(s) => s.location.clone(),
+                    LiteralExpression::Boolean(b) => b.location.clone(),
+                    LiteralExpression::Null(n) => n.location.clone(),
+                };
+                return Ok(Pattern::Literal(LiteralPattern {
+                    value: lit,
+                    location,
+                }));
+            }
+        }
+
+        // Check for identifier pattern (could be variable binding or enum variant)
+        if self.check(TokenType::Identifier) {
+            let name = self.advance().lexeme.clone();
+            let start_loc = self.previous().location.start;
+
+            // Check if this is an enum variant pattern (EnumName.Variant)
+            if self.match_tokens(&[TokenType::Dot]) {
+                let variant_name = self.consume_identifier("Expected variant name after '.'")?;
+                
+                // Check for pattern arguments
+                let mut patterns = None;
+                if self.match_tokens(&[TokenType::LeftParen]) {
+                    let mut args = Vec::new();
+                    
+                    if !self.check(TokenType::RightParen) {
+                        loop {
+                            args.push(self.parse_pattern()?);
+                            if !self.match_tokens(&[TokenType::Comma]) {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    self.consume(TokenType::RightParen, "Expected ')' after enum variant patterns")?;
+                    patterns = Some(args);
+                }
+
+                let end_loc = self.previous().location.end;
+                return Ok(Pattern::EnumVariant(EnumVariantPattern {
+                    enum_name: name,
+                    variant_name,
+                    patterns,
+                    location: Location::new(start_loc, end_loc),
+                }));
+            } else {
+                // Simple identifier pattern (variable binding)
+                let end_loc = self.previous().location.end;
+                return Ok(Pattern::Identifier(IdentifierPattern {
+                    name,
+                    location: Location::new(start_loc, end_loc),
+                }));
+            }
+        }
+
+        Err(ParserError::ExpectedExpression { position: self.peek_position() })
+    }
+
+    /// Parse a match expression (returns a value)
+    fn match_expression(&mut self) -> Result<Expression, ParserError> {
+        let start_pos = self.previous().location.start; // 'match' token location
+
+        // Parse the value expression to match against
+        let value = Box::new(self.expression()?);
+
+        // Opening brace
+        self.consume(TokenType::LeftBrace, "Expected '{' after match value")?;
+
+        // Parse match arms
+        let mut arms = Vec::new();
+
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            let arm = self.match_arm()?;
+            arms.push(arm);
+
+            // Arms can be separated by commas (optional)
+            self.match_tokens(&[TokenType::Comma]);
+        }
+
+        // Closing brace
+        self.consume(TokenType::RightBrace, "Expected '}' after match arms")?;
+        let end_pos = self.previous().location.end;
+
+        Ok(Expression::Match(MatchExpression {
+            value,
+            arms,
+            location: Location::new(start_pos, end_pos),
+        }))
     }
 
     /// Parse a print statement
@@ -808,6 +1169,15 @@ impl Parser {
                     field: field_name,
                     location: Location::new(start_loc, end_loc),
                 });
+            } else if self.match_tokens(&[TokenType::Question]) {
+                // Handle ? operator (try expression)
+                let start_loc = expr.location().start;
+                let end_loc = self.previous().location.end;
+
+                expr = Expression::Try(TryExpression {
+                    expression: Box::new(expr),
+                    location: Location::new(start_loc, end_loc),
+                });
             } else {
                 break;
             }
@@ -898,9 +1268,46 @@ impl Parser {
             let name = self.previous().lexeme.clone();
             let start_loc = self.previous().location.start;
 
-            // Check if this is a struct literal
+            // Check for generic type arguments <T, U, ...>
+            let mut type_arguments = None;
+            if self.check(TokenType::LessThan) {
+                self.advance(); // consume '<'
+                let mut args = Vec::new();
+                
+                args.push(self.parse_type()?);
+                while self.match_tokens(&[TokenType::Comma]) {
+                    args.push(self.parse_type()?);
+                }
+                
+                self.consume(TokenType::GreaterThan, "Expected '>' after type arguments")?;
+                type_arguments = Some(args);
+            }
+
+            // Check if this is a struct literal (with or without generics)
             if self.check(TokenType::LeftBrace) {
+                if type_arguments.is_some() {
+                    // Generic struct literal - for now, treat as error
+                    return Err(ParserError::UnexpectedToken {
+                        expected: "generic struct literals not yet supported".to_string(),
+                        got: "generic struct literal".to_string(),
+                        position: start_loc,
+                    });
+                }
                 return self.struct_literal(name, start_loc);
+            }
+
+            // Check if this is an enum literal (EnumName.Variant or EnumName<T>.Variant)
+            if self.check(TokenType::Dot) {
+                return self.enum_literal_with_generics(name, type_arguments, start_loc);
+            }
+
+            // If we have type arguments but no dot, this is an error
+            if type_arguments.is_some() {
+                return Err(ParserError::UnexpectedToken {
+                    expected: "'.', '{', or function call after generic type".to_string(),
+                    got: self.peek().lexeme.clone(),
+                    position: self.peek_position(),
+                });
             }
 
             return Ok(Expression::Identifier(IdentifierExpression {
@@ -913,6 +1320,11 @@ impl Parser {
             let expr = self.expression()?;
             self.consume(TokenType::RightParen, "Expected ')' after expression")?;
             return Ok(expr);
+        }
+
+        // Match expression
+        if self.match_tokens(&[TokenType::Match]) {
+            return self.match_expression();
         }
 
         if self.match_tokens(&[TokenType::LeftBracket]) {
@@ -1039,6 +1451,7 @@ impl StatementLocation for Statement {
             Statement::Print(stmt) => &stmt.location,
             Statement::DeclarationStatement(decl) => decl.location(),
             Statement::For(stmt) => &stmt.location,
+            Statement::Match(stmt) => &stmt.location,
         }
     }
 }
@@ -1055,6 +1468,7 @@ impl Declaration {
             Declaration::Function(decl) => &decl.location,
             Declaration::Variable(decl) => &decl.location,
             Declaration::Struct(decl) => &decl.location,
+            Declaration::Enum(decl) => &decl.location,
         }
     }
 }
@@ -1082,6 +1496,9 @@ impl ExpressionLocation for Expression {
             Expression::ArrayLiteral(expr) => &expr.location,
             Expression::Index(expr) => &expr.location,
             Expression::Range(expr) => &expr.location,
+            Expression::Match(expr) => &expr.location,
+            Expression::EnumLiteral(expr) => &expr.location,
+            Expression::Try(expr) => &expr.location,
         }
     }
 }

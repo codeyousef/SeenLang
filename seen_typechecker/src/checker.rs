@@ -16,6 +16,8 @@ struct Environment {
     functions: HashMap<String, FunctionSignature>,
     /// Struct definitions with their fields
     structs: HashMap<String, Vec<StructField>>,
+    /// Enum definitions with their variants
+    enums: HashMap<String, Vec<EnumVariant>>,
     /// Parent environment for nested scopes
     parent: Option<Box<Environment>>,
 }
@@ -27,6 +29,7 @@ impl Environment {
             variables: HashMap::new(),
             functions: HashMap::new(),
             structs: HashMap::new(),
+            enums: HashMap::new(),
             parent: None,
         }
     }
@@ -37,6 +40,7 @@ impl Environment {
             variables: HashMap::new(),
             functions: HashMap::new(),
             structs: HashMap::new(),
+            enums: HashMap::new(),
             parent: Some(Box::new(parent)),
         }
     }
@@ -54,6 +58,11 @@ impl Environment {
     /// Define a struct in this environment
     fn define_struct(&mut self, name: String, fields: Vec<StructField>) {
         self.structs.insert(name, fields);
+    }
+
+    /// Define an enum in this environment
+    fn define_enum(&mut self, name: String, variants: Vec<EnumVariant>) {
+        self.enums.insert(name, variants);
     }
 
     /// Look up a variable type, checking parent environments
@@ -74,6 +83,12 @@ impl Environment {
             .or_else(|| self.parent.as_ref().and_then(|p| p.get_struct(name)))
     }
 
+    /// Look up an enum definition, checking parent environments
+    fn get_enum(&self, name: &str) -> Option<&Vec<EnumVariant>> {
+        self.enums.get(name)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get_enum(name)))
+    }
+
     /// Check if a variable is defined in this scope only
     fn has_variable(&self, name: &str) -> bool {
         self.variables.contains_key(name)
@@ -89,12 +104,18 @@ impl Environment {
         self.structs.contains_key(name)
     }
 
+    /// Check if an enum is defined in this scope only
+    fn has_enum(&self, name: &str) -> bool {
+        self.enums.contains_key(name)
+    }
+
     /// Push a new scope
     fn push_scope(&mut self) {
         let new_env = Environment {
             variables: HashMap::new(),
             functions: HashMap::new(),
             structs: HashMap::new(),
+            enums: HashMap::new(),
             parent: Some(Box::new(self.clone())),
         };
         *self = new_env;
@@ -174,6 +195,9 @@ impl TypeChecker {
             Declaration::Struct(struct_decl) => {
                 self.check_struct_declaration(struct_decl);
             }
+            Declaration::Enum(enum_decl) => {
+                self.check_enum_declaration(enum_decl);
+            }
         }
     }
 
@@ -233,6 +257,44 @@ impl TypeChecker {
 
         // Validate field types and register the struct
         self.env.define_struct(struct_decl.name.clone(), struct_decl.fields.clone());
+    }
+
+    /// Type check an enum declaration
+    fn check_enum_declaration(&mut self, enum_decl: &EnumDeclaration) {
+        // Check for duplicate enum
+        if self.env.has_enum(&enum_decl.name) {
+            self.result.add_error(TypeError::DuplicateFunction {
+                name: enum_decl.name.clone(),
+                position: self.location_to_position(&enum_decl.location),
+            });
+            return;
+        }
+
+        // For generic enums, we need to validate the type parameters are used correctly
+        if !enum_decl.type_parameters.is_empty() {
+            // Create a temporary type environment with the type parameters
+            let mut temp_type_params = std::collections::HashSet::new();
+            for param in &enum_decl.type_parameters {
+                if !temp_type_params.insert(param.clone()) {
+                    self.result.add_error(TypeError::DuplicateFunction {
+                        name: format!("Duplicate type parameter '{}'", param),
+                        position: self.location_to_position(&enum_decl.location),
+                    });
+                }
+            }
+            
+            // Validate that variant data types use valid types (including type parameters)
+            for variant in &enum_decl.variants {
+                if let Some(data_types) = &variant.data {
+                    for data_type in data_types {
+                        self.validate_type_with_params(data_type, &enum_decl.type_parameters, &variant.location);
+                    }
+                }
+            }
+        }
+
+        // Register the enum (generic enums are templates, concrete instances are created on use)
+        self.env.define_enum(enum_decl.name.clone(), enum_decl.variants.clone());
     }
 
     /// Type check a function declaration
@@ -311,6 +373,9 @@ impl TypeChecker {
             }
             Statement::For(for_stmt) => {
                 self.check_for_statement(for_stmt);
+            }
+            Statement::Match(match_stmt) => {
+                self.check_match_statement(match_stmt);
             }
         }
     }
@@ -399,6 +464,93 @@ impl TypeChecker {
         }
     }
 
+    /// Type check a match statement
+    fn check_match_statement(&mut self, match_stmt: &MatchStatement) {
+        let value_type = self.check_expression(&match_stmt.value);
+        
+        // Check each match arm
+        for arm in &match_stmt.arms {
+            // Type check the pattern and bind any variables
+            self.env.push_scope();
+            self.check_pattern(&arm.pattern, &value_type);
+            
+            // Type check the expression
+            self.check_expression(&arm.expression);
+            
+            self.env.pop_scope();
+        }
+    }
+
+    /// Type check a pattern and bind variables
+    fn check_pattern(&mut self, pattern: &Pattern, expected_type: &Type) {
+        match pattern {
+            Pattern::Literal(lit_pattern) => {
+                let literal_type = self.check_literal_expression(&lit_pattern.value);
+                if !literal_type.is_assignable_to(expected_type) {
+                    self.result.add_error(type_mismatch(
+                        expected_type.clone(),
+                        literal_type,
+                        self.location_to_position(&lit_pattern.location),
+                    ));
+                }
+            }
+            Pattern::Identifier(id_pattern) => {
+                // Bind the identifier to the expected type
+                self.env.define_variable(id_pattern.name.clone(), expected_type.clone());
+            }
+            Pattern::EnumVariant(enum_pattern) => {
+                // Check that the enum exists and has this variant
+                if let Some(variants) = self.env.get_enum(&enum_pattern.enum_name) {
+                    let variant = variants.iter().find(|v| v.name == enum_pattern.variant_name);
+                    if let Some(enum_variant) = variant {
+                        // Check that the pattern matches the variant structure
+                        match (&enum_pattern.patterns, &enum_variant.data) {
+                            (Some(patterns), Some(data_types)) => {
+                                if patterns.len() != data_types.len() {
+                                    // Pattern arity mismatch
+                                    return;
+                                }
+                                // Clone data types to avoid borrowing issues
+                                let data_types_clone = data_types.clone();
+                                // Check each sub-pattern against the corresponding data type
+                                for (sub_pattern, data_type) in patterns.iter().zip(data_types_clone.iter()) {
+                                    let converted_type = Type::from(data_type);
+                                    self.check_pattern(sub_pattern, &converted_type);
+                                }
+                            }
+                            (None, None) => {
+                                // Unit variant - no data
+                            }
+                            _ => {
+                                // Mismatch between expected data and actual pattern
+                                self.result.add_error(TypeError::TypeMismatch {
+                                    expected: expected_type.clone(),
+                                    actual: Type::Enum(enum_pattern.enum_name.clone()),
+                                    position: self.location_to_position(&enum_pattern.location),
+                                });
+                            }
+                        }
+                    } else {
+                        // Variant not found
+                        self.result.add_error(TypeError::UndefinedVariable {
+                            name: format!("{}::{}", enum_pattern.enum_name, enum_pattern.variant_name),
+                            position: self.location_to_position(&enum_pattern.location),
+                        });
+                    }
+                } else {
+                    // Enum not found
+                    self.result.add_error(TypeError::UndefinedVariable {
+                        name: enum_pattern.enum_name.clone(),
+                        position: self.location_to_position(&enum_pattern.location),
+                    });
+                }
+            }
+            Pattern::Wildcard(_) => {
+                // Wildcard matches anything - no type checking needed
+            }
+        }
+    }
+
     /// Type check a block
     fn check_block(&mut self, block: &Block) {
         // Create new scope
@@ -460,6 +612,15 @@ impl TypeChecker {
             Expression::Range(_) => {
                 // Range expressions return arrays of integers
                 Type::Array(Box::new(Type::Int))
+            }
+            Expression::Match(match_expr) => {
+                self.check_match_expression(match_expr)
+            }
+            Expression::EnumLiteral(enum_literal) => {
+                self.check_enum_literal(enum_literal)
+            }
+            Expression::Try(try_expr) => {
+                self.check_try_expression(try_expr)
             }
         }
     }
@@ -674,6 +835,9 @@ impl TypeChecker {
             Expression::ArrayLiteral(a) => &a.location,
             Expression::Index(i) => &i.location,
             Expression::Range(r) => &r.location,
+            Expression::Match(m) => &m.location,
+            Expression::EnumLiteral(e) => &e.location,
+            Expression::Try(t) => &t.location,
         };
         self.location_to_position(location)
     }
@@ -681,6 +845,61 @@ impl TypeChecker {
     /// Convert Location to Position (for compatibility)
     fn location_to_position(&self, location: &Location) -> seen_lexer::token::Position {
         seen_lexer::token::Position::new(location.start.line, location.start.column)
+    }
+
+    /// Validate that a type is valid within a generic context
+    fn validate_type_with_params(&mut self, type_ref: &seen_parser::ast::Type, type_params: &[String], location: &Location) {
+        match type_ref {
+            seen_parser::ast::Type::Simple(name) => {
+                // Check if it's a type parameter or a known type
+                if !type_params.contains(name) && !self.is_known_type(name) {
+                    self.result.add_error(TypeError::UndefinedType {
+                        name: name.clone(),
+                        position: self.location_to_position(location),
+                    });
+                }
+            }
+            seen_parser::ast::Type::Array(inner) => {
+                self.validate_type_with_params(inner, type_params, location);
+            }
+            seen_parser::ast::Type::Struct(name) => {
+                if !self.env.has_struct(name) {
+                    self.result.add_error(TypeError::UndefinedType {
+                        name: name.clone(),
+                        position: self.location_to_position(location),
+                    });
+                }
+            }
+            seen_parser::ast::Type::Enum(name) => {
+                if !self.env.has_enum(name) {
+                    self.result.add_error(TypeError::UndefinedType {
+                        name: name.clone(),
+                        position: self.location_to_position(location),
+                    });
+                }
+            }
+            seen_parser::ast::Type::Generic(name, args) => {
+                // Validate the base type and all arguments
+                if !type_params.contains(name) && !self.is_known_type(name) && !self.env.has_enum(name) {
+                    self.result.add_error(TypeError::UndefinedType {
+                        name: name.clone(),
+                        position: self.location_to_position(location),
+                    });
+                }
+                for arg in args {
+                    self.validate_type_with_params(arg, type_params, location);
+                }
+            }
+            seen_parser::ast::Type::Pointer(inner) => {
+                // Validate the pointed-to type
+                self.validate_type_with_params(inner, type_params, location);
+            }
+        }
+    }
+
+    /// Check if a type name is a known primitive type
+    fn is_known_type(&self, name: &str) -> bool {
+        matches!(name, "Int" | "Float" | "Bool" | "String" | "Char" | "()")
     }
 
     /// Type check an array literal
@@ -840,6 +1059,134 @@ impl TypeChecker {
                 Type::Unknown
             }
         }
+    }
+
+    /// Type check an enum literal expression
+    fn check_enum_literal(&mut self, enum_literal: &EnumLiteralExpression) -> Type {
+        // Check that the enum exists
+        if let Some(variants) = self.env.get_enum(&enum_literal.enum_name) {
+            // Check that the variant exists
+            let variant = variants.iter().find(|v| v.name == enum_literal.variant_name);
+            if let Some(enum_variant) = variant {
+                // Check that the arguments match the variant structure
+                match (&enum_literal.arguments, &enum_variant.data) {
+                    (Some(args), Some(data_types)) => {
+                        if args.len() != data_types.len() {
+                            self.result.add_error(TypeError::WrongArgumentCount {
+                                expected: data_types.len(),
+                                actual: args.len(),
+                                position: self.location_to_position(&enum_literal.location),
+                            });
+                            return Type::Unknown;
+                        }
+                        // Clone data types to avoid borrowing issues
+                        let data_types_clone = data_types.clone();
+                        // Check each argument against the corresponding data type
+                        for (arg, data_type) in args.iter().zip(data_types_clone.iter()) {
+                            let arg_type = self.check_expression(arg);
+                            let expected_type = Type::from(data_type);
+                            if !arg_type.is_assignable_to(&expected_type) {
+                                self.result.add_error(TypeError::TypeMismatch {
+                                    expected: expected_type,
+                                    actual: arg_type,
+                                    position: self.expression_location(arg),
+                                });
+                            }
+                        }
+                    }
+                    (None, None) => {
+                        // Unit variant - no arguments expected
+                    }
+                    (Some(_), None) => {
+                        // Variant expects no arguments but got some
+                        self.result.add_error(TypeError::WrongArgumentCount {
+                            expected: 0,
+                            actual: enum_literal.arguments.as_ref().unwrap().len(),
+                            position: self.location_to_position(&enum_literal.location),
+                        });
+                        return Type::Unknown;
+                    }
+                    (None, Some(data_types)) => {
+                        // Variant expects arguments but got none
+                        self.result.add_error(TypeError::WrongArgumentCount {
+                            expected: data_types.len(),
+                            actual: 0,
+                            position: self.location_to_position(&enum_literal.location),
+                        });
+                        return Type::Unknown;
+                    }
+                }
+                Type::Enum(enum_literal.enum_name.clone())
+            } else {
+                // Variant not found
+                self.result.add_error(TypeError::UndefinedVariable {
+                    name: format!("{}::{}", enum_literal.enum_name, enum_literal.variant_name),
+                    position: self.location_to_position(&enum_literal.location),
+                });
+                Type::Unknown
+            }
+        } else {
+            // Enum not found
+            self.result.add_error(TypeError::UndefinedVariable {
+                name: enum_literal.enum_name.clone(),
+                position: self.location_to_position(&enum_literal.location),
+            });
+            Type::Unknown
+        }
+    }
+
+    /// Type check a try expression (? operator)
+    fn check_try_expression(&mut self, try_expr: &TryExpression) -> Type {
+        let expr_type = self.check_expression(&try_expr.expression);
+        
+        // The ? operator should only be used on Result<T, E> types
+        match &expr_type {
+            Type::ParameterizedGeneric(name, args) if name == "Result" && args.len() == 2 => {
+                // Extract the T type from Result<T, E>
+                args[0].clone()
+            }
+            _ => {
+                self.result.add_error(TypeError::InvalidOperation {
+                    operation: "? operator".to_string(),
+                    left_type: expr_type.clone(),
+                    right_type: Type::Unit, // Not used for unary operations
+                    position: self.location_to_position(&try_expr.location),
+                });
+                Type::Unknown
+            }
+        }
+    }
+
+    /// Type check a match expression
+    fn check_match_expression(&mut self, match_expr: &MatchExpression) -> Type {
+        let value_type = self.check_expression(&match_expr.value);
+        let mut return_type: Option<Type> = None;
+        
+        // Check each match arm
+        for arm in &match_expr.arms {
+            // Type check the pattern and bind any variables
+            self.env.push_scope();
+            self.check_pattern(&arm.pattern, &value_type);
+            
+            // Type check the expression and ensure all arms have compatible types
+            let arm_type = self.check_expression(&arm.expression);
+            match &return_type {
+                None => return_type = Some(arm_type),
+                Some(expected) => {
+                    if !arm_type.is_assignable_to(expected) {
+                        self.result.add_error(TypeError::TypeMismatch {
+                            expected: expected.clone(),
+                            actual: arm_type,
+                            position: self.expression_location(&arm.expression),
+                        });
+                    }
+                }
+            }
+            
+            self.env.pop_scope();
+        }
+        
+        return_type.unwrap_or(Type::Unit)
     }
 }
 

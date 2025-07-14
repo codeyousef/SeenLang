@@ -1,0 +1,57 @@
+// Vec<T> and Advanced Generics Integration Test
+
+// Test Vec<T> struct creation and basic operations
+func test_vec_creation() -> Int {
+    // Create Vec<Int> manually (since we don't have constructors yet)
+    val numbers: Vec<Int> = Vec<Int> { 
+        data: null, 
+        len: 0, 
+        capacity: 0 
+    }
+    
+    // For now, just test that the type system accepts Vec<Int>
+    // In the future, this would use Vec_Int_new(), Vec_Int_push(), etc.
+    return 42
+}
+
+// Test multiple Vec<T> instantiations
+func test_multiple_vec_types() -> Int {
+    val int_vec: Vec<Int> = Vec<Int> { data: null, len: 0, capacity: 0 }
+    val float_vec: Vec<Float> = Vec<Float> { data: null, len: 0, capacity: 0 }
+    
+    // Test that different Vec<T> types are handled correctly
+    return 100
+}
+
+// Test nested generics with Result<Vec<T>, E>
+func create_result_vec() -> Result<Vec<Int>, String> {
+    val vec: Vec<Int> = Vec<Int> { data: null, len: 0, capacity: 0 }
+    return Result<Vec<Int>, String>.Ok(vec)
+}
+
+// Test Option<Vec<T>>
+func maybe_get_vec() -> Option<Vec<Int>> {
+    val vec: Vec<Int> = Vec<Int> { data: null, len: 0, capacity: 0 }
+    return Option<Vec<Int>>.Some(vec)
+}
+
+func main() -> Int {
+    println("=== Vec<T> Integration Test ===")
+    
+    // Test basic Vec<T> creation
+    val result1 = test_vec_creation()
+    println("Vec creation test: ", result1)
+    
+    // Test multiple Vec types
+    val result2 = test_multiple_vec_types()
+    println("Multiple Vec types test: ", result2)
+    
+    // Test complex generic combinations
+    val vec_result = create_result_vec()
+    val maybe_vec = maybe_get_vec()
+    
+    val final_result = result1 + result2
+    println("Vec integration test result: ", final_result)
+    
+    return final_result  // Should be 142
+}

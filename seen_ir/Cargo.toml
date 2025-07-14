@@ -10,6 +10,7 @@ inkwell = { version = "0.6.0", features = ["llvm18-1"] }
 
 # Seen language components
 seen_parser = { path = "../seen_parser" }
+seen_lexer = { path = "../seen_lexer" }
 
 # Error handling
 thiserror = { workspace = true }
