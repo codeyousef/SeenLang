@@ -7,8 +7,8 @@ edition = "2021"
 seen_lexer = { path = "../seen_lexer" }
 seen_parser = { path = "../seen_parser" }
 seen_ir = { path = "../seen_ir" }
-# Optional: if you use LLVM (disabled due to Polly dependency issue)
-# inkwell = { version = "0.6.0", features = ["llvm18-1"] } 
+# LLVM bindings
+inkwell = { version = "0.6.0", features = ["llvm18-1"] } 
 # For error handling
 thiserror = { workspace = true }
 # For source code location tracking (spans)
