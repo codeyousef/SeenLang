@@ -1,0 +1,72 @@
+--- a/seen_ir/src/codegen.rs
++++ b/seen_ir/src/codegen.rs
+@@ -102,6 +102,11 @@
+             Declaration::Variable(var_decl) => {
+                 self.generate_global_variable(var_decl)?;
+             }
++            Declaration::Struct(_struct_decl) => {
++                // TODO: Implement struct declaration code generation
++                return Err(CodeGenError::UnsupportedFeature(
++                    "Struct declarations not yet implemented in IR generation".to_string()
++                ));
++            }
+         }
+ 
+@@ -256,6 +261,11 @@
+             Statement::Return(ret_stmt) => {
+                 self.generate_return(ret_stmt)?;
+             }
++            Statement::For(_for_stmt) => {
++                // TODO: Implement for loop code generation
++                return Err(CodeGenError::UnsupportedFeature(
++                    "For loops not yet implemented in IR generation".to_string()
++                ));
++            }
+             Statement::DeclarationStatement(decl) => self.generate_declaration(decl)?,
+         }
+ 
+@@ -394,6 +404,21 @@
+             Expression::Call(call) => self.generate_call(call),
+             Expression::Unary(unary) => self.generate_unary(unary),
+             Expression::Assign(assign) => self.generate_assignment(assign),
++            Expression::StructLiteral(_struct_lit) => {
++                Err(CodeGenError::UnsupportedFeature(
++                    "Struct literals not yet implemented in IR generation".to_string()
++                ))
++            }
++            Expression::FieldAccess(_field_access) => {
++                Err(CodeGenError::UnsupportedFeature(
++                    "Field access not yet implemented in IR generation".to_string()
++                ))
++            }
++            Expression::ArrayLiteral(_array_lit) => {
++                Err(CodeGenError::UnsupportedFeature(
++                    "Array literals not yet implemented in IR generation".to_string()
++                ))
++            }
++            Expression::Index(_index_expr) => {
++                Err(CodeGenError::UnsupportedFeature(
++                    "Array indexing not yet implemented in IR generation".to_string()
++                ))
++            }
++            Expression::Range(_range_expr) => {
++                Err(CodeGenError::UnsupportedFeature(
++                    "Range expressions not yet implemented in IR generation".to_string()
++                ))
++            }
+         }
+     }
+
+--- a/seen_ir/src/types.rs
++++ b/seen_ir/src/types.rs
+@@ -20,6 +20,9 @@
+             Type::Array(elem_type) => {
+                 self.convert_type(elem_type)?.array_type(0).as_basic_type_enum()
+             }
++            Type::Struct(_struct_name) => {
++                return Err(CodeGenError::UnsupportedFeature(
++                    "Struct types not yet implemented in IR generation".to_string()
++                ))
++            }
+         })
+     }
