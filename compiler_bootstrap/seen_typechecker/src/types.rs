@@ -44,6 +44,16 @@ pub enum Type {
         name: String,
         bounds: Vec<Type>,
     },
+    /// Struct types
+    Struct {
+        name: String,
+        fields: Vec<(String, Type)>,
+    },
+    /// Enum types
+    Enum {
+        name: String,
+        variants: Vec<(String, Vec<Type>)>,
+    },
     /// Error type for error recovery
     Error,
 }
@@ -89,6 +99,30 @@ impl TypeEnvironment {
     pub fn lookup(&self, name: &str) -> Option<&Type> {
         self.bindings.get(name)
             .or_else(|| self.parent.as_ref().and_then(|p| p.lookup(name)))
+    }
+    
+    pub fn insert_function(&mut self, name: String, func_type: Type) {
+        self.bindings.insert(format!("func:{}", name), func_type);
+    }
+    
+    pub fn insert_type(&mut self, name: String, type_def: Type) {
+        self.bindings.insert(format!("type:{}", name), type_def);
+    }
+    
+    pub fn get_function_type(&self, name: &str) -> Option<&Type> {
+        self.bindings.get(&format!("func:{}", name))
+    }
+    
+    pub fn get_type(&self, name: &str) -> Option<&Type> {
+        self.bindings.get(&format!("type:{}", name))
+    }
+    
+    pub fn get_variable_type(&self, name: &str) -> Option<&Type> {
+        self.bindings.get(&format!("var:{}", name))
+    }
+    
+    pub fn contains_function(&self, name: &str) -> bool {
+        self.bindings.contains_key(&format!("func:{}", name))
     }
 }
 
@@ -229,6 +263,30 @@ impl fmt::Display for Type {
                     }
                 }
                 Ok(())
+            }
+            Type::Struct { name, fields } => {
+                write!(f, "struct {} {{", name)?;
+                for (i, (field_name, field_type)) in fields.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}: {}", field_name, field_type)?;
+                }
+                write!(f, "}}")
+            }
+            Type::Enum { name, variants } => {
+                write!(f, "enum {} {{", name)?;
+                for (i, (variant_name, variant_types)) in variants.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", variant_name)?;
+                    if !variant_types.is_empty() {
+                        write!(f, "(")?;
+                        for (j, variant_type) in variant_types.iter().enumerate() {
+                            if j > 0 { write!(f, ", ")?; }
+                            write!(f, "{}", variant_type)?;
+                        }
+                        write!(f, ")")?;
+                    }
+                }
+                write!(f, "}}")
             }
             Type::Error => write!(f, "<!error!>"),
         }

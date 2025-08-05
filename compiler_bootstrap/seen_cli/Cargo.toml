@@ -16,6 +16,9 @@ seen_common = { path = "../seen_common" }
 seen_lexer = { path = "../seen_lexer" }
 seen_parser = { path = "../seen_parser" }
 seen_typechecker = { path = "../seen_typechecker" }
+seen_memory = { path = "../seen_memory" }
+seen_ir = { path = "../seen_ir" }
+seen_process = { path = "../seen_process" }
 clap = { workspace = true }
 toml = { workspace = true }
 serde = { workspace = true }
@@ -30,3 +33,8 @@ chrono = { version = "0.4", features = ["serde"] }
 [dev-dependencies]
 tempfile = { workspace = true }
 pretty_assertions = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "build_system_benchmark"
+harness = false

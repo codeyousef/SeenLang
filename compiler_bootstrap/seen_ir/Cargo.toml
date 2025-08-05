@@ -19,3 +19,12 @@ serde = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 tempfile = { workspace = true }
+seen_lexer = { path = "../seen_lexer" }
+
+[[bench]]
+name = "codegen_performance"
+harness = false
+
+[[bench]]
+name = "llvm_ir_quality"
+harness = false

@@ -10,3 +10,15 @@ repository = "https://github.com/seenlang/seenlang"
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+seen_lexer = { path = "../seen_lexer" }
+seen_parser = { path = "../seen_parser" }
+seen_typechecker = { path = "../seen_typechecker" }
+seen_memory = { path = "../seen_memory" }
+seen_ir = { path = "../seen_ir" }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "phase2_benchmarks"
+harness = false

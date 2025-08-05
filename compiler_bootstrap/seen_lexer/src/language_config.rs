@@ -16,6 +16,26 @@ pub struct LanguageConfig {
 }
 
 impl LanguageConfig {
+    /// Create a basic English configuration for testing
+    pub fn new_english() -> Self {
+        let mut keywords = HashMap::new();
+        keywords.insert("func".to_string(), "TokenFunc".to_string());
+        keywords.insert("return".to_string(), "TokenReturn".to_string());
+        keywords.insert("i32".to_string(), "TokenI32".to_string());
+        keywords.insert("let".to_string(), "TokenLet".to_string());
+        
+        let mut operators = HashMap::new();
+        operators.insert("+".to_string(), "TokenPlus".to_string());
+        operators.insert("=".to_string(), "TokenAssign".to_string());
+        
+        Self {
+            keywords,
+            operators,
+            name: "English".to_string(),
+            description: Some("English language configuration for testing".to_string()),
+        }
+    }
+
     /// Load language configuration from a TOML file
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> SeenResult<Self> {
         let content = std::fs::read_to_string(path)

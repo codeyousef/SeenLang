@@ -1,0 +1,20 @@
+[package]
+name = "seen_memory"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seen Language Team"]
+description = "Vale-style memory model for the Seen programming language"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+seen_common = { path = "../seen_common" }
+seen_typechecker = { path = "../seen_typechecker" }
+hashbrown = "0.14"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "memory_benchmark"
+harness = false

@@ -116,7 +116,7 @@ fn bench_lexer_token_types(c: &mut Criterion) {
     ];
     
     for (name, code) in test_cases.iter() {
-        group.bench_function(name, |b| {
+        group.bench_function(name.to_string(), |b| {
             b.iter(|| {
                 let mut lexer = Lexer::new(code, 0, &config);
                 lexer.tokenize().unwrap()
@@ -139,7 +139,7 @@ fn bench_lexer_error_recovery(c: &mut Criterion) {
     ];
     
     for (name, code) in error_cases.iter() {
-        group.bench_function(name, |b| {
+        group.bench_function(name.to_string(), |b| {
             b.iter(|| {
                 let mut lexer = Lexer::new(code, 0, &config);
                 // Don't unwrap - we expect errors

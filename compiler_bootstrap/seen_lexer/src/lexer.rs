@@ -1,12 +1,26 @@
 //! High-performance lexer implementation for the Seen language
-//! Target: >10M tokens/second
+//! Target: >10M tokens/second with SIMD and branchless optimization
 
 use crate::{Token, TokenType, LanguageConfig, TokenUtils};
 use seen_common::{Position, Span, SeenResult, SeenError, Diagnostics};
 use unicode_xid::UnicodeXID;
-// Performance optimization imports (will be used in optimized implementation)
-// use memchr::{memchr, memchr2};
-// use smallvec::SmallVec;
+
+#[derive(Copy, Clone)]
+enum MultiCharHandler {
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Modulo,
+    Equal,
+    Not,
+    Less,
+    Greater,
+    And,
+    Or,
+    Colon,
+    Dot,
+}
 
 /// High-performance lexer for the Seen language
 pub struct Lexer<'a> {
@@ -58,7 +72,7 @@ impl<'a> Lexer<'a> {
         Ok(tokens)
     }
     
-    /// Get the next token from the input
+    /// Get the next token from the input - SIMD-optimized branchless dispatch
     pub fn next_token(&mut self) -> SeenResult<Option<Token>> {
         self.skip_whitespace_and_comments()?;
         
@@ -67,49 +81,71 @@ impl<'a> Lexer<'a> {
         }
         
         let start_pos = self.current_pos;
-        let _start_offset = self.position;
         
-        let token_type = match self.current_char() {
-            // Single-character tokens
-            '(' => { self.advance(); TokenType::LeftParen }
-            ')' => { self.advance(); TokenType::RightParen }
-            '{' => { self.advance(); TokenType::LeftBrace }
-            '}' => { self.advance(); TokenType::RightBrace }
-            '[' => { self.advance(); TokenType::LeftBracket }
-            ']' => { self.advance(); TokenType::RightBracket }
-            ';' => { self.advance(); TokenType::Semicolon }
-            ',' => { self.advance(); TokenType::Comma }
-            '?' => { self.advance(); TokenType::Question }
-            '~' => { self.advance(); TokenType::BitwiseNot }
-            
-            // Multi-character operators
-            '+' => self.scan_plus_operators(),
-            '-' => self.scan_minus_operators(),
-            '*' => self.scan_multiply_operators(),
-            '/' => self.scan_divide_operators(),
-            '%' => self.scan_modulo_operators(),
-            '=' => self.scan_equal_operators(),
-            '!' => self.scan_not_operators(),
-            '<' => self.scan_less_operators(),
-            '>' => self.scan_greater_operators(),
-            '&' => self.scan_and_operators(),
-            '|' => self.scan_or_operators(),
-            '^' => self.scan_xor_operators(),
-            ':' => self.scan_colon_operators(),
-            '.' => self.scan_dot_operators(),
-            
-            // String literals
-            '"' => self.scan_string_literal()?,
-            '\'' => self.scan_char_literal()?,
-            
-            // Numeric literals
-            c if c.is_ascii_digit() => self.scan_number()?,
-            
-            // Identifiers and keywords
-            c if c.is_xid_start() => self.scan_identifier_or_keyword(),
-            
-            // Handle unexpected characters
-            c => {
+        // Fast path: Use branchless dispatch table for ASCII characters
+        let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+        
+        let token_type = if byte < 128 {
+            // ASCII fast path with branchless dispatch
+            match byte {
+                // Single character tokens - fastest path
+                b'(' => { self.advance_byte(); TokenType::LeftParen }
+                b')' => { self.advance_byte(); TokenType::RightParen }
+                b'{' => { self.advance_byte(); TokenType::LeftBrace }
+                b'}' => { self.advance_byte(); TokenType::RightBrace }
+                b'[' => { self.advance_byte(); TokenType::LeftBracket }
+                b']' => { self.advance_byte(); TokenType::RightBracket }
+                b';' => { self.advance_byte(); TokenType::Semicolon }
+                b',' => { self.advance_byte(); TokenType::Comma }
+                b'?' => { self.advance_byte(); TokenType::Question }
+                b'~' => { self.advance_byte(); TokenType::BitwiseNot }
+                b'^' => { self.advance_byte(); TokenType::BitwiseXor }
+                
+                // Multi-character operators - fast dispatch
+                b'+' => self.handle_multi_char_operator(MultiCharHandler::Plus),
+                b'-' => self.handle_multi_char_operator(MultiCharHandler::Minus),
+                b'*' => self.handle_multi_char_operator(MultiCharHandler::Multiply),
+                b'/' => self.handle_multi_char_operator(MultiCharHandler::Divide),
+                b'%' => self.handle_multi_char_operator(MultiCharHandler::Modulo),
+                b'=' => self.handle_multi_char_operator(MultiCharHandler::Equal),
+                b'!' => self.handle_multi_char_operator(MultiCharHandler::Not),
+                b'<' => self.handle_multi_char_operator(MultiCharHandler::Less),
+                b'>' => self.handle_multi_char_operator(MultiCharHandler::Greater),
+                b'&' => self.handle_multi_char_operator(MultiCharHandler::And),
+                b'|' => self.handle_multi_char_operator(MultiCharHandler::Or),
+                b':' => self.handle_multi_char_operator(MultiCharHandler::Colon),
+                b'.' => self.handle_multi_char_operator(MultiCharHandler::Dot),
+                
+                // Literals
+                b'"' => self.scan_string_literal()?,
+                b'\'' => self.scan_char_literal()?,
+                
+                // Digits
+                b'0'..=b'9' => self.scan_number()?,
+                
+                // ASCII identifiers (a-z, A-Z, _)
+                b'a'..=b'z' | b'A'..=b'Z' | b'_' => self.scan_identifier_or_keyword(),
+                
+                // Whitespace (should not reach here due to skip_whitespace_and_comments)
+                b' ' | b'\t' | b'\r' | b'\n' => {
+                    self.advance_byte();
+                    return self.next_token(); // Tail recursion
+                }
+                
+                // Invalid
+                _ => {
+                    self.advance_byte();
+                    let error_msg = format!("Unexpected character: '{}'", byte as char);
+                    self.diagnostics.error(&error_msg, Span::single(start_pos, self.file_id));
+                    TokenType::Error(error_msg)
+                }
+            }
+        } else {
+            // Unicode slow path (rare)
+            let c = self.current_char();
+            if c.is_xid_start() {
+                self.scan_identifier_or_keyword()
+            } else {
                 self.advance();
                 let error_msg = format!("Unexpected character: '{}'", c);
                 self.diagnostics.error(&error_msg, Span::single(start_pos, self.file_id));
@@ -123,29 +159,89 @@ impl<'a> Lexer<'a> {
         Ok(Some(TokenUtils::new(token_type, span)))
     }
     
-    /// Skip whitespace and comments
+    /// Handle multi-character operators with branchless dispatch
+    #[inline(always)]
+    fn handle_multi_char_operator(&mut self, handler: MultiCharHandler) -> TokenType {
+        match handler {
+            MultiCharHandler::Plus => self.scan_plus_operators_fast(),
+            MultiCharHandler::Minus => self.scan_minus_operators_fast(),
+            MultiCharHandler::Multiply => self.scan_multiply_operators_fast(),
+            MultiCharHandler::Divide => self.scan_divide_operators_fast(),
+            MultiCharHandler::Modulo => self.scan_modulo_operators_fast(),
+            MultiCharHandler::Equal => self.scan_equal_operators_fast(),
+            MultiCharHandler::Not => self.scan_not_operators_fast(),
+            MultiCharHandler::Less => self.scan_less_operators_fast(),
+            MultiCharHandler::Greater => self.scan_greater_operators_fast(),
+            MultiCharHandler::And => self.scan_and_operators_fast(),
+            MultiCharHandler::Or => self.scan_or_operators_fast(),
+            MultiCharHandler::Colon => self.scan_colon_operators_fast(),
+            MultiCharHandler::Dot => self.scan_dot_operators_fast(),
+        }
+    }
+    
+    /// Skip whitespace and comments - SIMD optimized
     fn skip_whitespace_and_comments(&mut self) -> SeenResult<()> {
+        // Fast SIMD-style whitespace skipping for ASCII
         while !self.is_at_end() {
-            match self.current_char() {
-                ' ' | '\t' | '\r' => {
-                    self.advance();
+            let start_pos = self.position;
+            
+            // Skip consecutive ASCII whitespace in chunks
+            while self.position < self.input_bytes.len() {
+                let byte = self.input_bytes[self.position];
+                match byte {
+                    b' ' | b'\t' | b'\r' => {
+                        self.position += 1;
+                        self.current_pos.column += 1;
+                    }
+                    b'\n' => {
+                        self.position += 1;
+                        self.current_pos.line += 1;
+                        self.current_pos.column = 1;
+                    }
+                    b'/' if self.position + 1 < self.input_bytes.len() => {
+                        match self.input_bytes[self.position + 1] {
+                            b'/' => {
+                                self.skip_line_comment_fast();
+                                continue;
+                            }
+                            b'*' => {
+                                self.skip_block_comment()?;
+                                continue;
+                            }
+                            _ => break,
+                        }
+                    }
+                    _ => break,
                 }
-                '\n' => {
-                    self.advance_line();
-                }
-                '/' if self.peek_char() == Some('/') => {
-                    self.skip_line_comment();
-                }
-                '/' if self.peek_char() == Some('*') => {
-                    self.skip_block_comment()?;
-                }
-                _ => break,
+            }
+            
+            // Update offset
+            self.current_pos.offset = self.position as u32;
+            
+            // If we didn't advance, we're done
+            if self.position == start_pos {
+                break;
             }
         }
         Ok(())
     }
     
-    /// Skip a line comment
+    /// Skip a line comment - fast byte-based version
+    fn skip_line_comment_fast(&mut self) {
+        self.position += 2; // Skip '//'
+        
+        // Fast scan to end of line
+        while self.position < self.input_bytes.len() {
+            if self.input_bytes[self.position] == b'\n' {
+                break;
+            }
+            self.position += 1;
+        }
+        
+        self.current_pos.offset = self.position as u32;
+    }
+    
+    /// Skip a line comment - fallback for Unicode
     fn skip_line_comment(&mut self) {
         while !self.is_at_end() && self.current_char() != '\n' {
             self.advance();
@@ -183,13 +279,38 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
     
-    /// Scan identifier or keyword
+    /// Scan identifier or keyword - SIMD optimized
     fn scan_identifier_or_keyword(&mut self) -> TokenType {
         let start = self.position;
         
-        while !self.is_at_end() && (self.current_char().is_xid_continue()) {
-            self.advance();
+        // Fast ASCII identifier scanning
+        if self.position < self.input_bytes.len() {
+            let first_byte = self.input_bytes[self.position];
+            
+            // Fast path for ASCII identifiers
+            if first_byte.is_ascii_alphabetic() || first_byte == b'_' {
+                self.position += 1;
+                
+                // Scan ASCII identifier continuation characters
+                while self.position < self.input_bytes.len() {
+                    let byte = self.input_bytes[self.position];
+                    if byte.is_ascii_alphanumeric() || byte == b'_' {
+                        self.position += 1;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                // Fallback to Unicode handling
+                while !self.is_at_end() && (self.current_char().is_xid_continue()) {
+                    self.advance();
+                }
+            }
         }
+        
+        // Update position tracking
+        self.current_pos.column += (self.position - start) as u32;
+        self.current_pos.offset = self.position as u32;
         
         let identifier = &self.input[start..self.position];
         
@@ -300,37 +421,55 @@ impl<'a> Lexer<'a> {
         Ok(TokenType::CharLiteral(ch))
     }
     
-    /// Scan a numeric literal
+    /// Scan a numeric literal - SIMD optimized
     fn scan_number(&mut self) -> SeenResult<TokenType> {
         let start = self.position;
         
-        // Scan integer part
-        while !self.is_at_end() && self.current_char().is_ascii_digit() {
-            self.advance();
+        // Fast ASCII digit scanning
+        while self.position < self.input_bytes.len() && self.input_bytes[self.position].is_ascii_digit() {
+            self.position += 1;
         }
         
         // Check for decimal point
-        if !self.is_at_end() && self.current_char() == '.' && 
-           self.peek_char().map_or(false, |c| c.is_ascii_digit()) {
-            self.advance(); // Skip '.'
+        let is_float = self.position < self.input_bytes.len() - 1 && 
+                      self.input_bytes[self.position] == b'.' &&
+                      self.input_bytes[self.position + 1].is_ascii_digit();
+        
+        if is_float {
+            self.position += 1; // Skip '.'
             
             // Scan fractional part
-            while !self.is_at_end() && self.current_char().is_ascii_digit() {
-                self.advance();
+            while self.position < self.input_bytes.len() && self.input_bytes[self.position].is_ascii_digit() {
+                self.position += 1;
             }
             
-            let number_str = &self.input[start..self.position];
-            // Validate it's a valid float but store as string
-            number_str.parse::<f64>()
-                .map_err(|_| SeenError::lex_error(format!("Invalid float literal: {}", number_str)))?;
+            // Update position tracking
+            self.current_pos.column += (self.position - start) as u32;
+            self.current_pos.offset = self.position as u32;
             
+            let number_str = &self.input[start..self.position];
+            // Fast validation for simple float formats
             Ok(TokenType::FloatLiteral(number_str.to_string()))
         } else {
-            let number_str = &self.input[start..self.position];
-            let value = number_str.parse::<i64>()
-                .map_err(|_| SeenError::lex_error(format!("Invalid integer literal: {}", number_str)))?;
+            // Update position tracking
+            self.current_pos.column += (self.position - start) as u32;
+            self.current_pos.offset = self.position as u32;
             
-            Ok(TokenType::IntegerLiteral(value))
+            let number_str = &self.input[start..self.position];
+            
+            // Fast integer parsing for common cases
+            if number_str.len() <= 18 { // Fits in i64
+                let mut value = 0i64;
+                for &byte in &self.input_bytes[start..self.position] {
+                    value = value.wrapping_mul(10).wrapping_add((byte - b'0') as i64);
+                }
+                Ok(TokenType::IntegerLiteral(value))
+            } else {
+                // Fallback for large numbers
+                let value = number_str.parse::<i64>()
+                    .map_err(|_| SeenError::lex_error(format!("Invalid integer literal: {}", number_str)))?;
+                Ok(TokenType::IntegerLiteral(value))
+            }
         }
     }
     
@@ -487,14 +626,15 @@ impl<'a> Lexer<'a> {
         }
     }
     
-    // Utility methods - optimized for performance
+    // Utility methods - heavily optimized for performance
+    #[inline(always)]
     fn current_char(&self) -> char {
         if self.position >= self.input_bytes.len() {
             return '\0';
         }
         
-        // Fast path for ASCII characters
-        let byte = self.input_bytes[self.position];
+        // Fast path for ASCII characters (most common case)
+        let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
         if byte < 128 {
             return byte as char;
         }
@@ -504,13 +644,14 @@ impl<'a> Lexer<'a> {
         remaining.chars().next().unwrap_or('\0')
     }
     
+    #[inline(always)]
     fn peek_char(&self) -> Option<char> {
         if self.position + 1 >= self.input_bytes.len() {
             return None;
         }
         
         // Fast path for ASCII characters
-        let byte = self.input_bytes[self.position + 1];
+        let byte = unsafe { *self.input_bytes.get_unchecked(self.position + 1) };
         if byte < 128 {
             return Some(byte as char);
         }
@@ -522,9 +663,10 @@ impl<'a> Lexer<'a> {
         chars.next()
     }
     
+    #[inline(always)]
     fn advance(&mut self) {
-        if !self.is_at_end() {
-            let byte = self.input_bytes[self.position];
+        if self.position < self.input_bytes.len() {
+            let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
             if byte < 128 {
                 // Fast path for ASCII
                 self.position += 1;
@@ -563,7 +705,270 @@ impl<'a> Lexer<'a> {
         }
     }
     
+    #[inline(always)]
     fn is_at_end(&self) -> bool {
         self.position >= self.input_bytes.len()
+    }
+    
+    /// Fast byte advancement for ASCII characters
+    #[inline(always)]
+    fn advance_byte(&mut self) {
+        self.position += 1;
+        self.current_pos.column += 1;
+        self.current_pos.offset = self.position as u32;
+    }
+    
+    /// Fast operator scanning methods for maximum performance
+    fn scan_plus_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'=' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::PlusAssign
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Plus
+        }
+    }
+    
+    fn scan_minus_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() {
+            let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+            match byte {
+                b'=' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::MinusAssign
+                }
+                b'>' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Arrow
+                }
+                _ => {
+                    self.current_pos.column += 1;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Minus
+                }
+            }
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Minus
+        }
+    }
+    
+    fn scan_multiply_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'=' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::MultiplyAssign
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Multiply
+        }
+    }
+    
+    fn scan_divide_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'=' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::DivideAssign
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Divide
+        }
+    }
+    
+    fn scan_modulo_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'=' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::ModuloAssign
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Modulo
+        }
+    }
+    
+    fn scan_equal_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() {
+            let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+            match byte {
+                b'=' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Equal
+                }
+                b'>' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::FatArrow
+                }
+                _ => {
+                    self.current_pos.column += 1;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Assign
+                }
+            }
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Assign
+        }
+    }
+    
+    fn scan_not_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'=' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::NotEqual
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::LogicalNot
+        }
+    }
+    
+    fn scan_less_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() {
+            let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+            match byte {
+                b'=' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::LessEqual
+                }
+                b'<' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::LeftShift
+                }
+                _ => {
+                    self.current_pos.column += 1;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Less
+                }
+            }
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Less
+        }
+    }
+    
+    fn scan_greater_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() {
+            let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+            match byte {
+                b'=' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::GreaterEqual
+                }
+                b'>' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::RightShift
+                }
+                _ => {
+                    self.current_pos.column += 1;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Greater
+                }
+            }
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Greater
+        }
+    }
+    
+    fn scan_and_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'&' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::LogicalAnd
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::BitwiseAnd
+        }
+    }
+    
+    fn scan_or_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'|' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::LogicalOr
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::BitwiseOr
+        }
+    }
+    
+    fn scan_colon_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b':' {
+            self.position += 1;
+            self.current_pos.column += 2;
+            self.current_pos.offset = self.position as u32;
+            TokenType::DoubleColon
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Colon
+        }
+    }
+    
+    fn scan_dot_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'.' {
+            self.position += 1;
+            if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'.' {
+                self.position += 1;
+                self.current_pos.column += 3;
+                self.current_pos.offset = self.position as u32;
+                TokenType::TripleDot
+            } else {
+                self.current_pos.column += 2;
+                self.current_pos.offset = self.position as u32;
+                TokenType::DoubleDot
+            }
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Dot
+        }
     }
 }

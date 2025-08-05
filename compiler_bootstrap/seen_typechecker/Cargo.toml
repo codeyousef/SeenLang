@@ -19,3 +19,7 @@ serde = { workspace = true }
 criterion = { workspace = true }
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }
+
+[[bench]]
+name = "generic_resolution_benchmark"
+harness = false

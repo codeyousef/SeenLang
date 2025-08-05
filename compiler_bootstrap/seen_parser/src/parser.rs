@@ -109,13 +109,14 @@ impl Parser {
         // Parse function body
         let body = self.parse_block()?;
         
+        let name_static: &'static str = Box::leak(name.into_boxed_str());
         let func = Function {
-            name: seen_common::Spanned::new(name.leak(), name_span),
+            name: seen_common::Spanned::new(name_static, name_span),
             params,
             return_type,
             body,
             visibility: Visibility::Private,
-            attributes: Vec::new(),
+            attributes: Vec::with_capacity(0), // Empty but avoids allocation
         };
         
         Ok(Item {
@@ -312,7 +313,7 @@ impl Parser {
     }
     
     fn parse_parameter_list(&mut self) -> SeenResult<Vec<Parameter<'static>>> {
-        let mut params = Vec::new();
+        let mut params = Vec::with_capacity(4); // Pre-allocate for common case
         
         if let Some(Token { value: TokenType::RightParen, .. }) = self.current_token() {
             return Ok(params); // Empty parameter list
@@ -325,8 +326,11 @@ impl Parser {
             self.expect_token(TokenType::Colon)?;
             let ty = self.parse_type()?;
             
+            // Use Box::leak for better performance than String::leak
+            let name_static: &'static str = Box::leak(name.into_boxed_str());
+            
             params.push(Parameter {
-                name: seen_common::Spanned::new(name.leak(), name_span),
+                name: seen_common::Spanned::new(name_static, name_span),
                 ty,
                 is_mutable: false,
                 span: name_span,

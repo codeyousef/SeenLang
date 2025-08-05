@@ -25,3 +25,7 @@ tempfile = { workspace = true }
 [[bench]]
 name = "lexer_performance"
 harness = false
+
+[[bench]]
+name = "lexer_competitor_benchmark"
+harness = false

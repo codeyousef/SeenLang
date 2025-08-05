@@ -1,0 +1,12 @@
+[package]
+name = "seen_process"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+seen_common = { path = "../seen_common" }
+nix = { version = "0.29", features = ["process", "signal", "poll"] }
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3.0"

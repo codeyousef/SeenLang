@@ -13,6 +13,7 @@ pub mod token;
 pub mod lexer;
 pub mod language_config;
 pub mod error_recovery;
+pub mod char_stream;
 
 pub use token::*;
 pub use lexer::*;

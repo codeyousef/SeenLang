@@ -23,6 +23,9 @@ pub enum SeenError {
     
     #[error("Configuration error: {message}")]
     ConfigError { message: String },
+    
+    #[error("Runtime error: {message}")]
+    RuntimeError { message: String },
 }
 
 /// Result type alias for Seen compiler operations
@@ -51,5 +54,9 @@ impl SeenError {
     
     pub fn config_error(message: impl Into<String>) -> Self {
         Self::ConfigError { message: message.into() }
+    }
+    
+    pub fn runtime_error(message: impl Into<String>) -> Self {
+        Self::RuntimeError { message: message.into() }
     }
 }

@@ -13,7 +13,7 @@ pub enum Instruction {
     Call { dest: Option<u32>, func: String, args: Vec<u32> },
     /// Return from function
     Return { value: Option<u32> },
-    /// Placeholder
+    /// No operation (for optimization placeholders)
     Nop,
 }
 

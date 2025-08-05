@@ -160,6 +160,68 @@ enum Commands {
         #[arg(long)]
         document_private_items: bool,
     },
+    
+    /// Spawn a subprocess (for self-hosting infrastructure)
+    Spawn {
+        /// Command to execute
+        command: String,
+        
+        /// Arguments to pass to the command
+        args: Vec<String>,
+        
+        /// Timeout in milliseconds
+        #[arg(long)]
+        timeout: Option<u64>,
+        
+        /// Return the exit code
+        #[arg(long)]
+        exit_code: bool,
+    },
+    
+    /// Pipe data between processes
+    Pipe {
+        /// Mode: producer or consumer
+        mode: String,
+    },
+    
+    /// Environment variable management
+    Env {
+        /// Action: get or set
+        action: String,
+        
+        /// Variable name
+        var_name: String,
+        
+        /// Variable value (for set action)
+        var_value: Option<String>,
+    },
+    
+    /// Print working directory
+    Pwd,
+    
+    /// Change directory
+    Cd {
+        /// Directory to change to
+        path: String,
+    },
+    
+    /// Exit with a specific code
+    Exit {
+        /// Exit code
+        code: i32,
+    },
+    
+    /// Capture process output
+    Capture {
+        /// What to capture: stdout, stderr, or both
+        stream: String,
+        
+        /// Command to execute
+        command: String,
+        
+        /// Arguments for the command
+        args: Vec<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -215,6 +277,27 @@ fn main() -> Result<()> {
         }
         Commands::Doc { open, document_private_items } => {
             doc::execute(open, document_private_items)
+        }
+        Commands::Spawn { command, args, timeout, exit_code } => {
+            spawn::execute(command, args, timeout, exit_code)
+        }
+        Commands::Pipe { mode } => {
+            pipe::execute(mode)
+        }
+        Commands::Env { action, var_name, var_value } => {
+            env::execute(action, var_name, var_value)
+        }
+        Commands::Pwd => {
+            pwd::execute()
+        }
+        Commands::Cd { path } => {
+            cd::execute(path)
+        }
+        Commands::Exit { code } => {
+            std::process::exit(code)
+        }
+        Commands::Capture { stream, command, args } => {
+            capture::execute(stream, command, args)
         }
     }
 }

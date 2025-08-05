@@ -23,3 +23,7 @@ insta = { workspace = true }
 [[bench]]
 name = "parser_performance"
 harness = false
+
+[[bench]]
+name = "ast_memory_benchmark"
+harness = false

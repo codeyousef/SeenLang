@@ -4,7 +4,9 @@ members = [
     "compiler_bootstrap/seen_lexer",      # Lexical analysis (>10M tokens/sec)
     "compiler_bootstrap/seen_parser",     # Syntax analysis & AST (>1M lines/sec)
     "compiler_bootstrap/seen_typechecker", # Type system & inference (<100μs/func)
+    "compiler_bootstrap/seen_memory",     # Vale-style memory model (<5% overhead)
     "compiler_bootstrap/seen_ir",         # Intermediate representation & codegen
+    "compiler_bootstrap/seen_process",    # Process management & self-hosting infrastructure
     "compiler_bootstrap/seen_cli",        # Command-line interface (build/run/check/clean/test/format)
     "seen_std/core",                      # Standard library core types
     "seen_std/collections",               # Standard library collections
