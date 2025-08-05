@@ -1,9 +1,0 @@
-func main() {
-    val arr = [1, 2, 3];
-    val first = arr[0];
-    println(first);
-    
-    for i in 0..3 {
-        println(i);
-    }
-}

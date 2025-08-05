@@ -1,7 +1,0 @@
-name = "hello_world_english"
-language = "english"
-version = "0.1.0"
-
-[build]
-output_dir = "target"
-optimization = "default"

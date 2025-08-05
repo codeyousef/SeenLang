@@ -1,206 +1,133 @@
-# CLAUDE.md
+# Seen Language Project - Claude Code Context
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**Version**: 2.1 | **Phase**: MVP Development | **Target**: Self-hosting compiler in 3 months
 
 ## Project Overview
 
-Seenlang (س) is a systems programming language targeting performance superiority over C++, Rust, and Zig while providing automated memory safety without garbage collection. It features native bilingual support (English/Arabic) and Kotlin-inspired syntax.
+Seen (س) is a revolutionary systems programming language designed to be the world's most performant language while providing intuitive developer experience. Key innovations:
 
-**Current Status**: Phase 0-2 Complete (Core compiler & self-hosting kernel implemented)
-**Next Target**: Phase 3 - Self-hosting compiler and FFI
+- **Dual execution**: `seen run` (JIT <50ms) + `seen build` (AOT beats C/Rust)
+- **Vale-style memory model**: Zero overhead safety without borrow checker complexity
+- **Universal deployment**: Same codebase for backend, web (WASM), mobile (iOS/Android), desktop
+- **Zig-style C interop**: Import C headers directly, no bindings needed
+- **Self-hosting goal**: Compiler written in Seen within 3 months
+- **Multi-target**: Native, WASM, mobile from single source
 
-## Build Commands
+## Critical Development Rules
 
-### Basic Build
-```bash
-# Set environment for LLVM (required for codegen)
-export LLVM_SYS_181_PREFIX=/usr/lib/llvm-18
-export CARGO_TARGET_DIR=target-wsl  # Or /tmp/cargo_target to avoid WSL issues
+### Rule 0: Complete Implementation Only
+- **NO MOCKS, STUBS, OR TODOs** - Ever. Every function must be fully implemented
+- **NO WORKAROUNDS** - Solve problems correctly the first time
+- **REAL CODE ONLY** - All examples must be actual working implementations
+- **NO PLACEHOLDERS** - Every component must be production-ready
 
-# Build all packages
-cargo build --all
+### Rule 1: Test-Driven Development (Mandatory)
+- **Tests written FIRST** - No exceptions. Write failing test, then implement
+- **Real implementation testing** - No mocking internal functions
+- **Performance benchmarks required** - All components must meet performance targets
+- **Integration tests mandatory** - Test actual system behavior, not isolated units
 
-# Build specific packages
-cargo build -p seen_lexer
-cargo build -p seen_parser
-cargo build -p seen_typechecker
-cargo build -p seen_interpreter
-cargo build -p seen_ir
-cargo build -p seen_cli
+### Rule 2: Single Responsibility Principle
+- **One purpose per file** - Each file should have a single, clear responsibility
+- **Maximum 500 lines per file** - Split larger files into focused modules
+- **Clear naming conventions** - Names should immediately convey purpose
+- **Minimal dependencies** - Each module should have minimal external dependencies
+
+### Rule 3: Performance First
+- **All code must meet performance targets** - No performance regressions allowed
+- **Benchmark everything** - Every optimization claim must be proven
+- **Memory efficiency mandatory** - Track and optimize memory usage continuously
+- **Profile-guided development** - Use profiling data to guide implementation decisions
+
+## Project Structure
+
+```
+seenlang/
+├── CLAUDE.md                    # This file
+├── Development Plans/           # Phase-based development roadmaps
+│   ├── 0-MVP Development Plan.md
+│   ├── 1-Alpha Development Plan.md  
+│   ├── 2-Beta Development Plan.md
+│   └── 3-Release Development Plan.md
+├── compiler_seen/              # Self-hosted Seen compiler (target)
+│   ├── src/                    # Seen compiler source (written in Seen)
+│   ├── tests/                  # Comprehensive test suite
+│   └── benchmarks/             # Performance benchmarks
+├── compiler_bootstrap/         # Bootstrap Rust compiler (temporary)
+│   ├── lexer/                  # Lexical analysis
+│   ├── parser/                 # Syntax analysis & AST
+│   ├── typechecker/            # Type system & inference
+│   ├── ir/                     # Intermediate representation
+│   └── codegen/                # Code generation (LLVM/MLIR)
+├── seen_std/                   # Standard library
+│   ├── core/                   # Core types & primitives
+│   ├── collections/            # Data structures
+│   ├── io/                     # I/O operations
+│   └── net/                    # Networking
+├── seen_runtime/               # Runtime system
+│   ├── memory/                 # Memory management
+│   ├── gc/                     # Region-based allocation
+│   └── threading/              # Concurrency primitives
+├── tools/                      # Development tools
+│   ├── lsp/                    # Language server
+│   ├── formatter/              # Code formatter
+│   └── debugger/               # Debug support
+├── tests/                      # Integration tests
+│   ├── performance/            # Performance test suite
+│   ├── compatibility/          # C interop tests
+│   └── showcase/               # Real-world applications
+└── docs/                       # Documentation
+    ├── language_spec/          # Language specification
+    ├── api/                    # API documentation
+    └── tutorials/              # Learning materials
 ```
 
-### LLVM Build (for code generation)
-```bash
-# Use the build script
-./build_with_llvm.sh
+## Essential Commands
 
-# Or manually with LLVM environment
-export LLVM_SYS_181_PREFIX=/usr/lib/llvm-18
-export CARGO_TARGET_DIR=/tmp/cargo_target
-cargo build --package seen_ir
-cargo build --package seen_cli
+### Build Commands
+```bash
+# Core development (Bootstrap phase - Rust)
+cargo build --release          # Build bootstrap compiler
+cargo test                     # Run all tests
+cargo bench                    # Run benchmarks
+
+# Self-hosted development (Post-MVP - Seen) 
+seen build                     # Build current project
+seen build --release          # Optimized build
+seen build --target wasm      # WebAssembly build
+seen test                      # Run all tests
+seen test --bench             # Run benchmarks
+seen format                    # Format all code/docs
+seen check                     # Fast syntax/type check
+seen clean                     # Clean build artifacts
 ```
 
-### Apply LLVM Fixes (if needed)
+### Development Workflow
 ```bash
-./apply_llvm_fixes.sh
+# Before making changes
+seen test                      # Ensure all tests pass
+seen format --check           # Verify formatting
+
+# After implementation  
+seen test                      # Verify new tests pass
+seen bench                     # Check performance targets
+seen format                    # Format all changes
+git add -A && git commit       # Commit with descriptive message
 ```
 
-## Testing Commands
+## Code Quality Standards
 
-### Run All Tests
-```bash
-CARGO_TARGET_DIR=target-wsl cargo test --all
-```
+### Testing Requirements
+- **100% test coverage** for all core components
+- **Performance tests required** for every optimization
+- **Integration tests mandatory** for language features
+- **Cross-platform testing** for all targets (native, WASM, mobile)
+- **Regression testing** to prevent performance degradation
 
-### Run Tests for Specific Crates
-```bash
-CARGO_TARGET_DIR=target-wsl cargo test -p seen_lexer
-CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser
-CARGO_TARGET_DIR=target-wsl cargo test -p seen_typechecker
-CARGO_TARGET_DIR=target-wsl cargo test -p seen_interpreter
-CARGO_TARGET_DIR=target-wsl cargo test -p seen_ir
-```
-
-### Run Specific Test
-```bash
-CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_parse_struct_literal_basic
-```
-
-### Test with Output
-```bash
-CARGO_TARGET_DIR=target-wsl cargo test -- --nocapture
-```
-
-### Quality Reports
-```bash
-# Generate test quality report
-./scripts/test-quality-report.sh
-
-# Run coverage analysis (requires cargo-tarpaulin)
-./scripts/coverage.sh
-
-# Run mutation testing (requires cargo-mutants)
-./scripts/mutation-test.sh
-```
-
-## CLI Usage
-
-### Create New Project
-```bash
-./target-wsl/debug/seen_cli new myproject
-```
-
-### Build Project
-```bash
-./target-wsl/debug/seen_cli build
-```
-
-### Run Project
-```bash
-./target-wsl/debug/seen_cli run
-```
-
-## Code Architecture
-
-### Crate Structure
-The project follows a modular architecture with separate crates for each compiler phase:
-
-- **seen_lexer**: Tokenization with bilingual keyword support
-  - Reads `keywords.toml` for language mappings
-  - UTF-8 source with Arabic/English identifiers
-  
-- **seen_parser**: AST generation
-  - Recursive descent parser
-  - Error recovery mechanisms
-  - Supports all Phase 2 features (enums, generics, pattern matching)
-
-- **seen_typechecker**: Type system and inference
-  - Type checking and inference
-  - Struct, enum, and generic type support
-  - Comprehensive error reporting
-
-- **seen_interpreter**: Tree-walking interpreter (for testing)
-  - Direct AST execution
-  - Used for validating semantics before codegen
-
-- **seen_ir**: LLVM IR generation
-  - Converts AST to LLVM IR
-  - Requires LLVM 18 with Polly
-  - Handles basic codegen (functions, primitives, control flow)
-
-- **seen_cli**: Command-line interface
-  - Project management (new, build, run)
-  - Orchestrates compilation pipeline
-
-### Key Technical Features
-
-1. **Automated GC-Free Memory Model**: Novel memory management combining linear types and generational references
-2. **E-Graph Optimization Engine**: Advanced optimization using equality saturation (planned)
-3. **Bilingual First-Class Tooling**: English/Arabic keywords throughout the toolchain
-4. **Performance-First Design**: Every feature benchmarked against C++/Rust/Zig equivalents
-
-### Important Files
-
-- `keywords.toml`: Bilingual keyword mappings
-- `seen.toml`: Project configuration (in each Seen project)
-- `specifications/`: Formal language and API specifications
-- `docs/Design Document.md`: Comprehensive language design
-- `docs/Development Plan.md`: Current roadmap (v6.0)
-
-## Development Workflow
-
-1. **Test-Driven Development**: Write failing tests before any implementation
-2. **Performance Benchmarks**: Create benchmarks alongside tests
-3. **Bilingual Testing**: Test both English and Arabic variants
-4. **Use Proper Target Directory**: Set `CARGO_TARGET_DIR` to avoid WSL issues
-5. **LLVM Environment**: Always set LLVM variables when working with codegen
-
-## Current Implementation Status
-
-### Completed (Phase 0-2)
-- Core language features (val/var, functions, structs, enums)
-- Type system with inference
-- Pattern matching and generics
-- Basic LLVM code generation
-- Bilingual lexer support
-- Standard library core (Option, Result, Vec, String)
-
-### In Progress (Phase 3)
-- Self-hosting compiler (rewriting in Seen)
-- C FFI implementation
-- Standard library I/O
-
-### Planned Features
-- E-graph optimization engine
-- Full memory model implementation
-- Advanced concurrency (async/await, M:N scheduler)
-- Python interoperability
-- LLM assistance integration
-
-## Known Issues & Workarounds
-
-1. **WSL File System**: Use `CARGO_TARGET_DIR=target-wsl` or `/tmp/` directories
-2. **LLVM Dependencies**: Ensure `libpolly-18-dev` is installed for LLVM builds
-3. **Codegen Limitations**: Some features (advanced patterns, full struct support in IR) are still being implemented
-
-## Testing Philosophy
-
-- **Red-Green-Refactor-Benchmark**: TDD cycle with performance validation
-- **No Stubs/TODOs**: Every implementation must be complete
-- **Performance Targets**: Must meet or exceed C/Rust equivalents
-- **Comprehensive Coverage**: Unit, integration, E2E, and performance tests
-
-## Lint and Type Check Commands
-
-When completing tasks, run these commands to ensure code quality:
-```bash
-# Format code
-cargo fmt --all
-
-# Lint code
-cargo clippy --all
-
-# Type check
-cargo check --all
-```
+### Performance Targets (Non-negotiable)
+- **Lexer**: >10M tokens/second
+- **Parser**: >1M lines/second
+- **Type checking**: <100μs per function
+- **JIT startup**: <50ms cold start
+- **Memory usage**: ≤ equivalent Rust programs
+- **C interop**:

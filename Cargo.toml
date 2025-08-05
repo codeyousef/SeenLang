@@ -1,44 +1,90 @@
 [workspace]
 members = [
-    "seen_compiler", # Core compiler logic
-    "seen_lexer",    # Lexical analysis (tokenizer)
-    "seen_parser",   # Syntax analysis (AST generation)
-    "seen_typechecker", # Type system and checking
-    "seen_interpreter", # Tree-walking interpreter
-    "seen_ir",       # Intermediate Representation(s)
-    "seen_cli"       # Command-line interface tool
-    # Add more crates as needed, e.g., for static analysis, standard library
+    "compiler_bootstrap/seen_common",     # Shared utilities and error types
+    "compiler_bootstrap/seen_lexer",      # Lexical analysis (>10M tokens/sec)
+    "compiler_bootstrap/seen_parser",     # Syntax analysis & AST (>1M lines/sec)
+    "compiler_bootstrap/seen_typechecker", # Type system & inference (<100μs/func)
+    "compiler_bootstrap/seen_ir",         # Intermediate representation & codegen
+    "compiler_bootstrap/seen_cli",        # Command-line interface (build/run/check/clean/test/format)
+    "seen_std/core",                      # Standard library core types
+    "seen_std/collections",               # Standard library collections
+    "seen_std/io",                        # Standard library I/O
 ]
 
-resolver = "2" # Use the new feature resolver for better dependency management
+resolver = "2"
 
 [workspace.dependencies]
-# Testing dependencies
-proptest = "1.5"
-criterion = { version = "0.6.0", features = ["html_reports"] }
-mockall = "0.13"
-pretty_assertions = "1.4"
-test-case = "3.3"
-rstest = "0.25.0"
-insta = { version = "1.41", features = ["yaml"] }
-tempfile = "3.19"
-
-# Common dependencies
-thiserror = "2.0"
-anyhow = "1.0"
-log = "0.4"
-env_logger = "0.11"
+# Core dependencies for language implementation
+# Note: LLVM dependencies will be added in Step 6 (Basic Code Generation)
+# For MVP Milestones 1-2, we focus on lexing, parsing, and type checking
+toml = "0.8"                            # Configuration file parsing
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+clap = { version = "4.5", features = ["derive", "cargo"] } # CLI argument parsing
+
+# Error handling and utilities
+thiserror = "2.0"                       # Error derive macros
+anyhow = "1.0"                          # Error context handling
+log = "0.4"                             # Logging framework
+env_logger = "0.11"                     # Environment-based logger
+
+# Performance and data structures
+hashbrown = "0.15"                      # High-performance HashMap
+smallvec = "1.13"                       # Stack-allocated vectors
+bumpalo = "3.16"                        # Bump allocator for AST nodes
+rayon = "1.10"                          # Data parallelism
+crossbeam = "0.8"                       # Lock-free concurrency primitives
+
+# String handling and regex
+regex = "1.11"                          # Regular expressions
+unicode-xid = "0.2"                     # Unicode identifier handling
+memchr = "2.7"                          # Fast string searching
+
+# File system and I/O
+walkdir = "2.5"                         # Directory traversal
+tempfile = "3.19"                       # Temporary file handling
+memmap2 = "0.9"                         # Memory-mapped files
+
+# Testing framework
+criterion = { version = "0.6.0", features = ["html_reports"] } # Benchmarking
+proptest = "1.5"                        # Property-based testing
+pretty_assertions = "1.4"               # Better assertion output
+test-case = "3.3"                       # Parameterized tests
+rstest = "0.25.0"                       # Fixture-based tests
+insta = { version = "1.41", features = ["yaml"] } # Snapshot testing
+
+# Development tools
+mockall = "0.13"                        # Mock generation (for testing only)
 
 [profile.release]
-lto = true           # Enable Link Time Optimization for release builds
-codegen-units = 1    # Optimize for binary size and runtime speed (slower compile)
-panic = "abort"      # Abort on panic for smaller binaries
-strip = true         # Strip symbols from the binary
+lto = true                              # Enable Link Time Optimization
+codegen-units = 1                       # Single codegen unit for max optimization
+panic = "abort"                         # Abort on panic for smaller binaries
+strip = true                            # Strip debug symbols
+opt-level = 3                           # Maximum optimization
+
+[profile.dev]
+opt-level = 1                           # Light optimization for faster dev builds
+debug = true                            # Full debug info for development
+panic = "unwind"                        # Unwind panics for better debugging
 
 [profile.test]
-opt-level = 1        # Some optimization for faster test execution
+opt-level = 1                           # Some optimization for faster test execution
+debug = 2                               # Full debug info for tests
 
 [profile.bench]
-opt-level = 3        # Maximum optimization for benchmarks
+opt-level = 3                           # Maximum optimization for benchmarks
+lto = true                              # LTO for accurate benchmarks
+codegen-units = 1                       # Single codegen unit for stable results
+debug = false                           # No debug info for benchmarks
+
+# Custom profiles for different compiler phases
+[profile.compiler-fast]
+inherits = "release"
+debug = 1                               # Minimal debug info for compiler debugging
+opt-level = 2                           # Balanced optimization for compiler development
+
+[profile.self-hosting]
+inherits = "release"
+debug = 2                               # Full debug info for self-hosting transition
+lto = "fat"                             # Aggressive LTO for self-hosted compiler

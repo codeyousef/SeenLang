@@ -1,6 +1,0 @@
-// Hello World example in Seen (English keywords)
-// This demonstrates the basic structure of a Seen program using English keywords
-
-func main() {
-    println("Hello, World!");
-}

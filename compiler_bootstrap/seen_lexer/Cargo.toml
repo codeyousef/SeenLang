@@ -1,0 +1,27 @@
+[package]
+name = "seen_lexer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seen Language Team"]
+description = "High-performance lexical analyzer for the Seen language (>10M tokens/sec)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/seenlang/seenlang"
+
+[dependencies]
+seen_common = { path = "../seen_common" }
+unicode-xid = { workspace = true }
+memchr = { workspace = true }
+smallvec = { workspace = true }
+hashbrown = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "lexer_performance"
+harness = false

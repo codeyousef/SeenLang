@@ -1,0 +1,26 @@
+// Hello World program in Seen (English syntax)
+// This demonstrates the basic structure of a Seen program
+
+func main() {
+    println("Hello, World!");
+    println("Welcome to the Seen programming language!");
+    
+    // Variables and basic types
+    let message = "Seen is fast and safe";
+    let count = 42;
+    let pi = 3.14159;
+    let is_awesome = true;
+    
+    println("Message: {}", message);
+    println("Count: {}", count);
+    println("Pi: {}", pi);
+    println("Is awesome: {}", is_awesome);
+    
+    // Function call
+    greet("Developer");
+}
+
+func greet(name: str) {
+    println("Hello, {}!", name);
+    println("Happy coding with Seen!");
+}

@@ -1,0 +1,15 @@
+[project]
+name = "hello_world"
+version = "0.1.0"
+author = "Seen Language Team"
+language = "en"  # Default to English, can be "ar" for Arabic
+
+[build]
+targets = ["native"]
+optimize = "speed"
+
+[format]
+line-width = 100
+indent = 4
+trailing-comma = true
+document-types = [".seen", ".md", ".toml"]

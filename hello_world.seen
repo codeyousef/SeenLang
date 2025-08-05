@@ -1,5 +1,0 @@
-func main() {
-    println("Hello, World!");
-    val greeting = "Welcome to Seen!";
-    println(greeting);
-}

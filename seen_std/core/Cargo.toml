@@ -1,0 +1,12 @@
+[package]
+name = "seen_std_core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seen Language Team"]
+description = "Core standard library types and primitives for the Seen language"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/seenlang/seenlang"
+
+[dependencies]
+seen_common = { path = "../../compiler_bootstrap/seen_common" }
+serde = { workspace = true }

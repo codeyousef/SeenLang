@@ -1,5 +1,0 @@
-func main() -> Int {
-    // Test that Vec<Int> type is recognized
-    // This is a basic syntax test - full Vec functionality will come later
-    return 42
-}

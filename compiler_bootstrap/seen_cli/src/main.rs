@@ -1,0 +1,220 @@
+//! Seen programming language command-line interface
+//! 
+//! This is the main entry point for the Seen compiler and toolchain.
+//! It provides cargo-like commands for building, running, testing, and managing Seen projects.
+
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+use anyhow::Result;
+
+mod commands;
+mod config;
+mod project;
+mod utils;
+
+use commands::*;
+
+/// Seen programming language compiler and toolchain
+#[derive(Parser)]
+#[command(name = "seen")]
+#[command(about = "The Seen programming language compiler and toolchain")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+    
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
+    
+    /// Suppress output
+    #[arg(short, long, global = true)]
+    quiet: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Build the current project
+    Build {
+        /// Build target (native, wasm, js)
+        #[arg(long, default_value = "native")]
+        target: String,
+        
+        /// Build in release mode with optimizations
+        #[arg(long)]
+        release: bool,
+        
+        /// Path to the project directory
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+    },
+    
+    /// Run the current project (JIT mode)
+    Run {
+        /// Arguments to pass to the program
+        args: Vec<String>,
+        
+        /// Build in release mode before running
+        #[arg(long)]
+        release: bool,
+        
+        /// Path to the project directory
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+    },
+    
+    /// Check the current project for errors without building
+    Check {
+        /// Path to the project directory
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+        
+        /// Watch for changes and re-check automatically
+        #[arg(long)]
+        watch: bool,
+    },
+    
+    /// Clean build artifacts
+    Clean {
+        /// Path to the project directory
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+    },
+    
+    /// Run tests
+    Test {
+        /// Run benchmarks instead of tests
+        #[arg(long)]
+        bench: bool,
+        
+        /// Generate code coverage report
+        #[arg(long)]
+        coverage: bool,
+        
+        /// Filter to run only tests matching this pattern
+        filter: Option<String>,
+        
+        /// Path to the project directory
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+    },
+    
+    /// Format source code and documents
+    Format {
+        /// Check formatting without making changes
+        #[arg(long)]
+        check: bool,
+        
+        /// Specific files or directories to format
+        paths: Vec<PathBuf>,
+    },
+    
+    /// Create a new Seen project
+    Init {
+        /// Name of the new project
+        name: String,
+        
+        /// Directory to create the project in
+        #[arg(long)]
+        path: Option<PathBuf>,
+        
+        /// Language to use (en, ar)
+        #[arg(long, default_value = "en")]
+        language: String,
+    },
+    
+    /// Add a dependency to the current project
+    Add {
+        /// Dependency name
+        dependency: String,
+        
+        /// Specific version to add
+        #[arg(long)]
+        version: Option<String>,
+    },
+    
+    /// Update dependencies
+    Update {
+        /// Specific dependency to update
+        dependency: Option<String>,
+    },
+    
+    /// Start the language server
+    Lsp {
+        /// Port to bind the language server to
+        #[arg(long)]
+        port: Option<u16>,
+        
+        /// Use stdio for communication
+        #[arg(long)]
+        stdio: bool,
+    },
+    
+    /// Generate documentation
+    Doc {
+        /// Open documentation in browser after generation
+        #[arg(long)]
+        open: bool,
+        
+        /// Include private items in documentation
+        #[arg(long)]
+        document_private_items: bool,
+    },
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    
+    // Initialize logging
+    let log_level = if cli.verbose {
+        log::LevelFilter::Debug
+    } else if cli.quiet {
+        log::LevelFilter::Error
+    } else {
+        log::LevelFilter::Info
+    };
+    
+    env_logger::Builder::from_default_env()
+        .filter_level(log_level)
+        .format_timestamp(None)
+        .format_module_path(false)
+        .format_target(false)
+        .init();
+    
+    // Execute the command
+    match cli.command {
+        Commands::Build { target, release, manifest_path } => {
+            build::execute(target, release, manifest_path)
+        }
+        Commands::Run { args, release, manifest_path } => {
+            run::execute(args, release, manifest_path)
+        }
+        Commands::Check { manifest_path, watch } => {
+            check::execute(manifest_path, watch)
+        }
+        Commands::Clean { manifest_path } => {
+            clean::execute(manifest_path)
+        }
+        Commands::Test { bench, coverage, filter, manifest_path } => {
+            test::execute(bench, coverage, filter, manifest_path)
+        }
+        Commands::Format { check, paths } => {
+            format::execute(check, paths)
+        }
+        Commands::Init { name, path, language } => {
+            init::execute(name, path, language)
+        }
+        Commands::Add { dependency, version } => {
+            add::execute(dependency, version)
+        }
+        Commands::Update { dependency } => {
+            update::execute(dependency)
+        }
+        Commands::Lsp { port, stdio } => {
+            lsp::execute(port, stdio)
+        }
+        Commands::Doc { open, document_private_items } => {
+            doc::execute(open, document_private_items)
+        }
+    }
+}

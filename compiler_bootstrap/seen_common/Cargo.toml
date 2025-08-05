@@ -1,0 +1,12 @@
+[package]
+name = "seen_common"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seen Language Team"]
+description = "Shared utilities and error types for the Seen language compiler"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/seenlang/seenlang"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }

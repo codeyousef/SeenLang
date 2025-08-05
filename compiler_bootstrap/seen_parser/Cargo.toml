@@ -1,0 +1,25 @@
+[package]
+name = "seen_parser"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seen Language Team"]
+description = "High-performance parser for the Seen language (>1M lines/second)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/seenlang/seenlang"
+
+[dependencies]
+seen_common = { path = "../seen_common" }
+seen_lexer = { path = "../seen_lexer" }
+smallvec = { workspace = true }
+bumpalo = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+insta = { workspace = true }
+
+[[bench]]
+name = "parser_performance"
+harness = false

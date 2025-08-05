@@ -1,0 +1,87 @@
+# English language configuration for the Seen programming language
+# This file defines the English keywords and operators used in Seen source code
+
+name = "English"
+description = "English keyword set for the Seen programming language"
+
+[keywords]
+# Control flow
+"func" = "TokenFunc"
+"if" = "TokenIf"
+"else" = "TokenElse"
+"while" = "TokenWhile"
+"for" = "TokenFor"
+"in" = "TokenIn"
+"match" = "TokenMatch"
+"break" = "TokenBreak"
+"continue" = "TokenContinue"
+"return" = "TokenReturn"
+
+# Variable declarations
+"let" = "TokenLet"
+"mut" = "TokenMut"
+"const" = "TokenConst"
+"static" = "TokenStatic"
+
+# Type definitions
+"struct" = "TokenStruct"
+"enum" = "TokenEnum"
+"trait" = "TokenTrait"
+"impl" = "TokenImpl"
+"type" = "TokenType"
+
+# Module system
+"module" = "TokenModule"
+"import" = "TokenImport"
+"pub" = "TokenPub"
+"priv" = "TokenPriv"
+
+# Literals
+"true" = "TokenTrue"
+"false" = "TokenFalse"
+
+[operators]
+# Arithmetic operators
+"+" = "TokenPlus"
+"-" = "TokenMinus"
+"*" = "TokenMultiply"
+"/" = "TokenDivide"
+"%" = "TokenModulo"
+
+# Assignment operators
+"=" = "TokenAssign"
+"+=" = "TokenPlusAssign"
+"-=" = "TokenMinusAssign"
+"*=" = "TokenMultiplyAssign"
+"/=" = "TokenDivideAssign"
+"%=" = "TokenModuloAssign"
+
+# Comparison operators
+"==" = "TokenEqual"
+"!=" = "TokenNotEqual"
+"<" = "TokenLess"
+"<=" = "TokenLessEqual"
+">" = "TokenGreater"
+">=" = "TokenGreaterEqual"
+
+# Logical operators
+"&&" = "TokenLogicalAnd"
+"||" = "TokenLogicalOr"
+"!" = "TokenLogicalNot"
+
+# Bitwise operators
+"&" = "TokenBitwiseAnd"
+"|" = "TokenBitwiseOr"
+"^" = "TokenBitwiseXor"
+"~" = "TokenBitwiseNot"
+"<<" = "TokenLeftShift"
+">>" = "TokenRightShift"
+
+# Special operators
+"->" = "TokenArrow"
+"=>" = "TokenFatArrow"
+"?" = "TokenQuestion"
+"." = "TokenDot"
+".." = "TokenDoubleDot"
+"..." = "TokenTripleDot"
+"::" = "TokenDoubleColon"

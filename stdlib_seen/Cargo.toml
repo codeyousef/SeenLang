@@ -1,8 +1,0 @@
-[package]
-name = "stdlib_seen"
-version = "0.1.0"
-edition = "2021"
-description = "Standard library for the Seen programming language"
-
-[dependencies]
-libc = "0.2"
