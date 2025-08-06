@@ -1,0 +1,118 @@
+// Advanced test cases demonstrating more complex Seen features
+// Tests arrays, loops, and control flow
+
+func test_arrays() {
+    let numbers = [1, 2, 3, 4, 5];
+    assert_eq(numbers.length(), 5);
+    assert_eq(numbers[0], 1);
+    assert_eq(numbers[4], 5);
+    
+    // Array iteration
+    let sum = 0;
+    for num in numbers {
+        sum = sum + num;
+    }
+    assert_eq(sum, 15);
+}
+
+func test_loops() {
+    // For loop
+    let count = 0;
+    for i in 0..10 {
+        count = count + 1;
+    }
+    assert_eq(count, 10);
+    
+    // While loop
+    let value = 0;
+    while value < 5 {
+        value = value + 1;
+    }
+    assert_eq(value, 5);
+}
+
+func test_conditionals() {
+    let x = 10;
+    let result = "";
+    
+    if x > 5 {
+        result = "greater";
+    } else {
+        result = "lesser";
+    }
+    assert_eq(result, "greater");
+    
+    // Ternary-like expression
+    let y = if x > 0 { "positive" } else { "negative" };
+    assert_eq(y, "positive");
+}
+
+func test_pattern_matching() {
+    let value = 42;
+    let category = match value {
+        0 => "zero",
+        1..10 => "small",
+        11..100 => "medium", 
+        _ => "large"
+    };
+    assert_eq(category, "medium");
+}
+
+func test_error_handling() {
+    let result = divide_safe(10, 2);
+    assert(result.is_ok());
+    assert_eq(result.unwrap(), 5);
+    
+    let error_result = divide_safe(10, 0);
+    assert(error_result.is_error());
+}
+
+func divide_safe(a: i32, b: i32) -> Result<i32, str> {
+    if b == 0 {
+        return Error("Division by zero");
+    }
+    return Ok(a / b);
+}
+
+func test_closures() {
+    let multiplier = |x: i32| x * 2;
+    let result = multiplier(5);
+    assert_eq(result, 10);
+    
+    // Higher-order function
+    let numbers = [1, 2, 3, 4, 5];
+    let doubled = numbers.map(multiplier);
+    assert_eq(doubled, [2, 4, 6, 8, 10]);
+}
+
+func test_structs() {
+    let person = Person {
+        name: "Alice",
+        age: 30,
+        email: "alice@example.com"
+    };
+    
+    assert_eq(person.name, "Alice");
+    assert_eq(person.age, 30);
+    assert_eq(person.email, "alice@example.com");
+    
+    let older_person = person.with_age(31);
+    assert_eq(older_person.age, 31);
+    assert_eq(older_person.name, "Alice"); // Other fields unchanged
+}
+
+struct Person {
+    name: str,
+    age: i32,
+    email: str
+}
+
+impl Person {
+    func with_age(self, new_age: i32) -> Person {
+        return Person {
+            name: self.name,
+            age: new_age,
+            email: self.email
+        };
+    }
+}

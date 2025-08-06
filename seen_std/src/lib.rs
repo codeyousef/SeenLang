@@ -24,6 +24,7 @@ pub mod toml;
 pub mod json;
 pub mod pretty_simple;
 pub mod graph;
+pub mod testing;
 
 // Re-export commonly used types
 pub use core::primitives::*;

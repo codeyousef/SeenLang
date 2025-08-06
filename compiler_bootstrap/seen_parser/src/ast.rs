@@ -9,21 +9,27 @@ use std::fmt;
 pub type NodeId = u32;
 
 /// A complete Seen program
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Program<'a> {
     pub items: Vec<Item<'a>>,
     pub span: Span,
 }
 
 /// Top-level items in a Seen program
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Item<'a> {
     pub kind: ItemKind<'a>,
     pub span: Span,
     pub id: NodeId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum ItemKind<'a> {
     Function(Function<'a>),
     Struct(Struct<'a>),
@@ -38,7 +44,9 @@ pub enum ItemKind<'a> {
 }
 
 /// Function definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Function<'a> {
     pub name: Spanned<&'a str>,
     pub params: Vec<Parameter<'a>>,
@@ -49,7 +57,9 @@ pub struct Function<'a> {
 }
 
 /// Function parameter
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Parameter<'a> {
     pub name: Spanned<&'a str>,
     pub ty: Type<'a>,
@@ -58,7 +68,9 @@ pub struct Parameter<'a> {
 }
 
 /// Struct definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Struct<'a> {
     pub name: Spanned<&'a str>,
     pub fields: Vec<Field<'a>>,
@@ -68,7 +80,9 @@ pub struct Struct<'a> {
 }
 
 /// Struct field
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Field<'a> {
     pub name: Spanned<&'a str>,
     pub ty: Type<'a>,
@@ -77,7 +91,9 @@ pub struct Field<'a> {
 }
 
 /// Enum definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Enum<'a> {
     pub name: Spanned<&'a str>,
     pub variants: Vec<Variant<'a>>,
@@ -87,14 +103,18 @@ pub struct Enum<'a> {
 }
 
 /// Enum variant
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Variant<'a> {
     pub name: Spanned<&'a str>,
     pub data: VariantData<'a>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum VariantData<'a> {
     Unit,
     Tuple(Vec<Type<'a>>),
@@ -102,7 +122,9 @@ pub enum VariantData<'a> {
 }
 
 /// Implementation block
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Impl<'a> {
     pub self_type: Type<'a>,
     pub trait_ref: Option<Type<'a>>,
@@ -111,14 +133,18 @@ pub struct Impl<'a> {
 }
 
 /// Item within an impl block
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct ImplItem<'a> {
     pub kind: ImplItemKind<'a>,
     pub span: Span,
     pub id: NodeId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum ImplItemKind<'a> {
     Function(Function<'a>),
     Const(Const<'a>),
@@ -126,7 +152,9 @@ pub enum ImplItemKind<'a> {
 }
 
 /// Trait definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct TraitDef<'a> {
     pub name: Spanned<&'a str>,
     pub items: Vec<TraitItem<'a>>,
@@ -136,21 +164,27 @@ pub struct TraitDef<'a> {
 }
 
 /// Item within a trait
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct TraitItem<'a> {
     pub kind: TraitItemKind<'a>,
     pub span: Span,
     pub id: NodeId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum TraitItemKind<'a> {
     Function(TraitFunction<'a>),
     Const(TraitConst<'a>),
     Type(TraitType<'a>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct TraitFunction<'a> {
     pub name: Spanned<&'a str>,
     pub params: Vec<Parameter<'a>>,
@@ -158,14 +192,18 @@ pub struct TraitFunction<'a> {
     pub default_body: Option<Block<'a>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct TraitConst<'a> {
     pub name: Spanned<&'a str>,
     pub ty: Type<'a>,
     pub default_value: Option<Expr<'a>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct TraitType<'a> {
     pub name: Spanned<&'a str>,
     pub bounds: Vec<Type<'a>>,
@@ -173,7 +211,9 @@ pub struct TraitType<'a> {
 }
 
 /// Module definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct ModuleDef<'a> {
     pub name: Spanned<&'a str>,
     pub items: Vec<Item<'a>>,
@@ -181,34 +221,44 @@ pub struct ModuleDef<'a> {
 }
 
 /// Import statement
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Import<'a> {
     pub path: ImportPath<'a>,
     pub kind: ImportKind<'a>,
     pub visibility: Visibility,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct ImportPath<'a> {
     pub segments: Vec<Spanned<&'a str>>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum ImportKind<'a> {
     Single,
     Glob,
     List(Vec<ImportItem<'a>>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct ImportItem<'a> {
     pub name: Spanned<&'a str>,
     pub alias: Option<Spanned<&'a str>>,
 }
 
 /// Type alias
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct TypeAlias<'a> {
     pub name: Spanned<&'a str>,
     pub ty: Type<'a>,
@@ -217,7 +267,9 @@ pub struct TypeAlias<'a> {
 }
 
 /// Constant definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Const<'a> {
     pub name: Spanned<&'a str>,
     pub ty: Type<'a>,
@@ -226,7 +278,9 @@ pub struct Const<'a> {
 }
 
 /// Static definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Static<'a> {
     pub name: Spanned<&'a str>,
     pub ty: Type<'a>,
@@ -236,7 +290,9 @@ pub struct Static<'a> {
 }
 
 /// Generic parameter
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct GenericParam<'a> {
     pub name: Spanned<&'a str>,
     pub bounds: Vec<Type<'a>>,
@@ -252,14 +308,18 @@ pub enum Visibility {
 }
 
 /// Attribute
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Attribute<'a> {
     pub name: Spanned<&'a str>,
     pub args: Vec<AttrArg<'a>>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum AttrArg<'a> {
     Literal(Literal<'a>),
     Identifier(Spanned<&'a str>),
@@ -267,13 +327,17 @@ pub enum AttrArg<'a> {
 }
 
 /// Type representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Type<'a> {
     pub kind: Box<TypeKind<'a>>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum TypeKind<'a> {
     /// Primitive types (i32, f64, bool, etc.)
     Primitive(PrimitiveType),
@@ -303,34 +367,44 @@ pub enum PrimitiveType {
 }
 
 /// Path (for types, functions, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Path<'a> {
     pub segments: Vec<PathSegment<'a>>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct PathSegment<'a> {
     pub name: Spanned<&'a str>,
     pub generic_args: Vec<Type<'a>>,
 }
 
 /// Block of statements
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Block<'a> {
     pub statements: Vec<Stmt<'a>>,
     pub span: Span,
 }
 
 /// Statement
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Stmt<'a> {
     pub kind: StmtKind<'a>,
     pub span: Span,
     pub id: NodeId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum StmtKind<'a> {
     /// Expression statement
     Expr(Expr<'a>),
@@ -343,7 +417,9 @@ pub enum StmtKind<'a> {
 }
 
 /// Variable declaration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Let<'a> {
     pub pattern: Pattern<'a>,
     pub ty: Option<Type<'a>>,
@@ -352,14 +428,18 @@ pub struct Let<'a> {
 }
 
 /// Pattern (for destructuring)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Pattern<'a> {
     pub kind: PatternKind<'a>,
     pub span: Span,
     pub id: NodeId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum PatternKind<'a> {
     /// Variable binding
     Identifier(Spanned<&'a str>),
@@ -375,21 +455,27 @@ pub enum PatternKind<'a> {
     Enum { path: Path<'a>, pattern: Option<Box<Pattern<'a>>> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct FieldPattern<'a> {
     pub name: Spanned<&'a str>,
     pub pattern: Pattern<'a>,
 }
 
 /// Expression
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Expr<'a> {
     pub kind: Box<ExprKind<'a>>,
     pub span: Span,
     pub id: NodeId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum ExprKind<'a> {
     /// Literal value
     Literal(Literal<'a>),
@@ -441,13 +527,17 @@ pub enum ExprKind<'a> {
     Cast { expr: Box<Expr<'a>>, ty: Box<Type<'a>> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct FieldExpr<'a> {
     pub name: Spanned<&'a str>,
     pub value: Expr<'a>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct MatchArm<'a> {
     pub pattern: Pattern<'a>,
     pub guard: Option<Expr<'a>>,
@@ -455,13 +545,17 @@ pub struct MatchArm<'a> {
 }
 
 /// Literal values
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub struct Literal<'a> {
     pub kind: LiteralKind<'a>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
 pub enum LiteralKind<'a> {
     Integer(i64),
     Float(f64),
