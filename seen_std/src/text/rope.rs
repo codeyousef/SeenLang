@@ -8,6 +8,7 @@ use crate::string::String;
 use std::fmt;
 
 /// Minimum size for leaf nodes - optimized for cache lines
+#[allow(dead_code)]
 const MIN_LEAF_SIZE: usize = 64;
 /// Maximum size for leaf nodes before splitting
 const MAX_LEAF_SIZE: usize = 4096;
@@ -62,6 +63,7 @@ impl RopeNode {
     }
     
     /// Checks if this node needs rebalancing
+    #[allow(dead_code)]
     fn needs_rebalance(&self) -> bool {
         match self {
             RopeNode::Leaf { byte_len, .. } => *byte_len > MAX_LEAF_SIZE,

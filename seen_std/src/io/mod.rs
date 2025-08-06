@@ -3,7 +3,7 @@
 //! High-performance I/O with zero-copy where possible
 
 use std::fs::{File as StdFile, OpenOptions as StdOpenOptions};
-use std::io::{self, Read as StdRead, Write as StdWrite, Seek as StdSeek, SeekFrom, BufRead};
+use std::io::{self, Read as StdRead, Write as StdWrite, Seek as StdSeek, SeekFrom};
 use std::path::Path;
 use crate::string::String;
 use crate::collections::Vec;
@@ -143,6 +143,7 @@ impl Default for OpenOptions {
 
 /// Buffered reader for efficient reading
 pub struct BufReader<R> {
+    #[allow(dead_code)]
     inner: std::io::BufReader<R>,
 }
 
@@ -164,6 +165,7 @@ impl<R: StdRead> BufReader<R> {
 
 /// Buffered writer for efficient writing
 pub struct BufWriter<W: StdWrite> {
+    #[allow(dead_code)]
     inner: std::io::BufWriter<W>,
 }
 
@@ -185,6 +187,7 @@ impl<W: StdWrite> BufWriter<W> {
 
 /// Standard input stream
 pub struct Stdin {
+    #[allow(dead_code)]
     inner: io::Stdin,
 }
 

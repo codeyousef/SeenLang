@@ -288,7 +288,9 @@ impl ModuleGraph {
 
     /// Add dependency: `module` depends on `dependency`
     pub fn add_dependency(&mut self, module: &str, dependency: &str) {
-        self.graph.add_edge(String::from(module), String::from(dependency));
+        // If module depends on dependency, then dependency must be built first
+        // So we add an edge FROM dependency TO module
+        self.graph.add_edge(String::from(dependency), String::from(module));
     }
 
     /// Get compilation order (topologically sorted)
@@ -322,16 +324,18 @@ impl ModuleGraph {
         circular_groups
     }
 
-    /// Get all dependencies of a module
+    /// Get all dependencies of a module (modules this module depends on)
     pub fn module_dependencies(&self, module: &str) -> Vec<String> {
         let module_name = String::from(module);
-        self.graph.dependencies(&module_name)
+        // Since edges go FROM dependency TO dependent, we need to find nodes that have edges TO this module
+        self.graph.dependents(&module_name)
     }
 
     /// Get all modules that depend on this module
     pub fn module_dependents(&self, module: &str) -> Vec<String> {
         let module_name = String::from(module);
-        self.graph.dependents(&module_name)
+        // Since edges go FROM dependency TO dependent, we need to find nodes this module has edges TO
+        self.graph.dependencies(&module_name)
     }
 
     /// Get all modules

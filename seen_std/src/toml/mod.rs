@@ -176,6 +176,12 @@ impl TomlParser {
                 let (_table_name, _is_array) = self.parse_table_header()?;
                 // For MVP, ignore array tables and nested tables
                 // Just treat all as top-level keys
+                
+                // Skip any trailing whitespace and newline after table header
+                self.skip_whitespace();
+                if !self.is_at_end() && (self.peek() == '\n' || self.peek() == '\r') {
+                    self.advance();
+                }
                 continue;
             }
             
@@ -188,6 +194,14 @@ impl TomlParser {
             
             current_table.insert(key, value);
             
+            self.skip_whitespace();
+            
+            // Skip inline comment if present
+            if !self.is_at_end() && self.peek() == '#' {
+                self.skip_comment();
+            }
+            
+            // Skip any trailing whitespace
             self.skip_whitespace();
             
             // Expect newline or end of file
@@ -209,12 +223,20 @@ impl TomlParser {
         
         self.skip_whitespace();
         
+        if self.is_at_end() {
+            return Err(TomlError::UnexpectedEof);
+        }
+        
         if self.peek() != '=' {
             return Err(TomlError::InvalidSyntax(String::from("Expected '=' after key")));
         }
         self.advance(); // consume '='
         
         self.skip_whitespace();
+        
+        if self.is_at_end() {
+            return Err(TomlError::UnexpectedEof);
+        }
         
         let value = self.parse_value()?;
         
@@ -352,6 +374,10 @@ impl TomlParser {
         
         self.skip_whitespace();
         
+        if self.is_at_end() {
+            return Err(TomlError::UnexpectedEof);
+        }
+        
         if self.peek() == ']' {
             self.advance(); // consume ']'
             return Ok(TomlValue::Array(array));
@@ -359,10 +385,19 @@ impl TomlParser {
         
         loop {
             self.skip_whitespace();
+            
+            if self.is_at_end() {
+                return Err(TomlError::UnexpectedEof);
+            }
+            
             let value = self.parse_value()?;
             array.push(value);
             
             self.skip_whitespace();
+            
+            if self.is_at_end() {
+                return Err(TomlError::UnexpectedEof);
+            }
             
             if self.peek() == ']' {
                 self.advance(); // consume ']'
@@ -488,6 +523,14 @@ impl TomlParser {
     fn skip_whitespace(&mut self) {
         while !self.is_at_end() && (self.peek() == ' ' || self.peek() == '\t') {
             self.advance();
+        }
+    }
+    
+    fn skip_comment(&mut self) {
+        if self.peek() == '#' {
+            while !self.is_at_end() && self.peek() != '\n' {
+                self.advance();
+            }
         }
     }
     

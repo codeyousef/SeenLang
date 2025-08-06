@@ -4,7 +4,7 @@
 //! following Zig-style approach where C headers can be imported directly.
 
 use crate::string::String;
-use std::ffi::{CStr, CString, OsStr, OsString};
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 

@@ -23,40 +23,39 @@
 
 ### Milestone 4: Advanced Tooling (Months 3-4)
 
-#### Step 11: LSP Server Implementation (Paradigm-Aware)
+#### Step 11: LSP Server Implementation (Multilingual-Aware)
 
 **Tests Written First:**
 
 - [ ] Test: LSP responses <50ms for all operations
-- [ ] Test: Autocomplete suggests appropriate paradigm patterns
-- [ ] Test: Go-to-definition works across traits and closures
-- [ ] Test: Real-time error highlighting for pattern exhaustiveness
-- [ ] Test: Refactoring preserves functional purity
-- [ ] Test: Memory usage <100MB for large mixed-paradigm projects
-- [ ] Test: Type inference hints for complex HOFs
-- [ ] Test: Trait implementation suggestions work
+- [ ] Test: Autocomplete works in all supported languages
+- [ ] Test: Go-to-definition works across modules
+- [ ] Test: Real-time error highlighting with language-specific messages
+- [ ] Test: Refactoring operations preserve semantics
+- [ ] Test: Memory usage <100MB for large projects
+- [ ] Test: Auto-translation suggestions shown inline
+- [ ] Test: Language switching updates all diagnostics
+- [ ] Test: Hover shows keyword translations
 
 **Implementation:**
 
 - [ ] **Enhanced Development Commands:**
     - [ ] `seen lsp` - Start language server
-    - [ ] `seen fmt` - Format source code (paradigm-aware)
+    - [ ] `seen fmt` - Format source code (respects RTL/LTR)
     - [ ] `seen fix` - Auto-fix common issues
-    - [ ] `seen doc` - Generate documentation
+    - [ ] `seen doc` - Generate documentation in project language
     - [ ] `seen check --watch` - Continuous checking
-    - [ ] `seen refactor` - Paradigm-specific refactorings
+    - [ ] `seen refactor` - Language-aware refactorings
 - [ ] Language Server Protocol implementation
 - [ ] Real-time syntax and semantic analysis
 - [ ] Incremental compilation for fast feedback
-- [ ] **Paradigm-Aware Features:**
-    - [ ] Functional code completions (HOFs, monadic chains)
-    - [ ] OO completions (method chains, trait implementations)
-    - [ ] Pattern match case generation
-    - [ ] Automatic trait implementation stubs
-    - [ ] Closure capture analysis and suggestions
-    - [ ] Async/await transformation suggestions
-    - [ ] Pure function detection and marking
-    - [ ] Effect system visualization
+- [ ] **Multilingual Features:**
+    - [ ] Keyword completions in project language
+    - [ ] Error messages in project language
+    - [ ] Translation hints on hover
+    - [ ] Quick action: "Translate to [language]"
+    - [ ] Side-by-side translation view
+    - [ ] Language learning mode (shows translations)
 - [ ] **Kotlin Feature Support:**
     - [ ] Extension function discovery and completion
     - [ ] Data class method generation
@@ -67,65 +66,48 @@
     - [ ] Coroutine scope tracking
     - [ ] Contract verification
     - [ ] Named parameter hints
-- [ ] Go-to-definition for all paradigm constructs
+- [ ] Go-to-definition for all constructs
 - [ ] Find-references including trait implementations
-- [ ] Refactoring operations:
-    - [ ] Extract function/method
-    - [ ] Convert between paradigms (loops ↔ HOFs)
-    - [ ] Introduce trait abstraction
-    - [ ] Lambda lifting/lowering
-    - [ ] Async function conversion
+- [ ] Refactoring operations (language-preserving)
 
 **Performance Benchmarks:**
 
 ```rust
 #[bench]
-fn bench_lsp_completion_speed(b: &mut Bencher) {
-    let project = load_large_mixed_paradigm_project(10_000_files);
-    let lsp = start_lsp_server(&project);
+fn bench_lsp_multilingual_performance(b: &mut Bencher) {
+    let projects = vec![
+        ("English", create_project("en")),
+        ("Arabic", create_project("ar")),
+        ("Spanish", create_project("es")),
+        ("Chinese", create_project("zh")),
+    ];
     
     b.iter(|| {
-        // Test functional completions
-        let hof_completions = lsp.get_completions_after("list.");
-        assert!(hof_completions.suggests_map_filter_fold());
-        assert!(hof_completions.response_time < Duration::from_millis(50));
-        
-        // Test OO completions
-        let trait_completions = lsp.get_trait_implementations();
-        assert!(trait_completions.suggests_all_required_methods());
-        assert!(trait_completions.response_time < Duration::from_millis(50));
-        
-        // Test pattern completions
-        let pattern_completions = lsp.get_pattern_cases();
-        assert!(pattern_completions.covers_all_variants());
-        assert!(pattern_completions.response_time < Duration::from_millis(50));
-    });
-}
-
-#[bench]
-fn bench_paradigm_refactoring(b: &mut Bencher) {
-    let code = load_imperative_loop_code();
-    let lsp = start_lsp_server();
-    
-    b.iter(|| {
-        let refactored = lsp.refactor_to_functional(&code);
-        assert!(refactored.uses_map_filter());
-        assert!(refactored.maintains_semantics());
-        assert!(refactored.time < Duration::from_millis(100));
+        for (lang, project) in &projects {
+            let lsp = start_lsp_server(&project);
+            
+            // Test completion speed in each language
+            let completion_time = measure_completion_time(&lsp);
+            assert!(completion_time < Duration::from_millis(50));
+            
+            // Test translation hint generation
+            let translation_time = measure_translation_hints(&lsp);
+            assert!(translation_time < Duration::from_millis(10));
+        }
     });
 }
 ```
 
-#### Step 12: Package Manager & Registry (Multi-Paradigm)
+#### Step 12: Package Manager & Registry (Multilingual)
 
 **Tests Written First:**
 
-- [ ] Test: `seen add` resolves trait dependencies correctly
-- [ ] Test: Version resolution handles typeclass conflicts
-- [ ] Test: Package features enable paradigm-specific code
-- [ ] Test: Functional package dependencies tracked
-- [ ] Test: Private registry supports enterprise packages
-- [ ] Test: Cross-paradigm compatibility verified
+- [ ] Test: Packages work regardless of source language
+- [ ] Test: Package metadata includes supported languages
+- [ ] Test: Auto-translation of package APIs works
+- [ ] Test: Version resolution handles dependencies correctly
+- [ ] Test: Documentation generated in user's language
+- [ ] Test: Cross-language package compatibility verified
 
 **Implementation:**
 
@@ -136,20 +118,34 @@ fn bench_paradigm_refactoring(b: &mut Bencher) {
     - [ ] `seen publish` - Publish to registry
     - [ ] `seen search <query>` - Search packages
     - [ ] `seen info <package>` - Show package details
-    - [ ] `seen features` - List available features
-- [ ] Dependency resolution with trait coherence
-- [ ] Package registry with paradigm tags
-- [ ] **Multi-Paradigm Package Features:**
-    - [ ] Feature flags for paradigm variants
-    - [ ] Trait orphan rule checking
-    - [ ] Typeclass instance resolution
-    - [ ] Effect system compatibility
-    - [ ] Async runtime selection
-    - [ ] Pure/impure function tracking
+    - [ ] `seen translate-deps` - Translate dependency APIs
+- [ ] Dependency resolution with version constraints
+- [ ] Package registry with language metadata
+- [ ] **Multilingual Package Features:**
+    - [ ] Packages marked with source language
+    - [ ] Automatic API translation on import
+    - [ ] Documentation in multiple languages
+    - [ ] Cross-language compatibility checks
+    - [ ] Language-specific examples
 - [ ] Secure package verification
 - [ ] Lockfile with exact resolutions
 - [ ] Workspace-aware dependencies
-- [ ] Binary caching per feature set
+- [ ] Binary caching per language
+
+**Performance Benchmarks:**
+
+```rust
+#[bench]
+fn bench_package_translation(b: &mut Bencher) {
+    let package = load_package_with_100_apis();
+    
+    b.iter(|| {
+        // Auto-translation should be fast
+        let translation_time = measure_api_translation(&package, "en", "ar");
+        assert!(translation_time < Duration::from_millis(100)); // <100ms for 100 APIs
+    });
+}
+```
 
 #### Step 13: Advanced C Interoperability & FFI
 
@@ -194,111 +190,61 @@ fn bench_paradigm_refactoring(b: &mut Bencher) {
 
 ### Milestone 5: Optimization & Performance (Months 4-5)
 
-#### Step 14: Advanced Optimization Pipeline (Paradigm-Optimized)
+#### Step 14: Advanced Optimization Pipeline (Language-Aware)
 
 **Tests Written First:**
 
-- [ ] Test: E-graph discovers functional fusion opportunities
-- [ ] Test: Monadic operations optimize to loops
-- [ ] Test: Virtual calls devirtualized when possible
-- [ ] Test: Closure allocations eliminated
-- [ ] Test: Tail recursion always optimized
-- [ ] Test: Pattern matching compiles to jump tables
-- [ ] Test: Async state machines minimized
-- [ ] Test: Effect tracking enables optimizations
+- [ ] Test: E-graph optimization works for all languages
+- [ ] Test: Perfect hash tables optimal for each language
+- [ ] Test: RTL language optimizations correct
+- [ ] Test: Translation doesn't affect optimization
+- [ ] Test: Language-specific idioms optimized
+- [ ] Test: Cross-language inlining works
 
 **Implementation:**
 
 - [ ] **Performance Analysis Commands:**
-    - [ ] `seen profile --paradigm` - Paradigm-specific profiling
-    - [ ] `seen optimize --functional` - Functional optimizations
-    - [ ] `seen optimize --devirtualize` - OO optimizations
-    - [ ] `seen analyze --purity` - Effect analysis
-- [ ] **Functional Optimizations:**
-    - [ ] Stream fusion for collection pipelines
-    - [ ] Deforestation for intermediate structures
-    - [ ] Closure conversion and lambda lifting
-    - [ ] Tail-call optimization guarantee
-    - [ ] Memoization detection and caching
-    - [ ] Lazy evaluation optimization
-    - [ ] Monadic operation inlining
-- [ ] **Object-Oriented Optimizations:**
-    - [ ] Devirtualization through whole-program analysis
-    - [ ] Inline caching for method dispatch
-    - [ ] Trait object fat pointer optimization
-    - [ ] Small object optimization
-    - [ ] Method specialization
-- [ ] **Cross-Paradigm Optimizations:**
-    - [ ] Convert functional chains to loops
-    - [ ] Eliminate temporary closures
-    - [ ] Fuse pattern matching branches
-    - [ ] Async operation batching
-    - [ ] Effect-guided optimization
-- [ ] **Next-Generation Techniques (from research):**
-    - [ ] E-graph equality saturation with paradigm rules
-    - [ ] MLIR dialect for functional patterns
-    - [ ] ML-guided paradigm selection
-    - [ ] Superoptimization for critical paths
+    - [ ] `seen profile --language` - Language-specific profiling
+    - [ ] `seen optimize --language-aware` - Language optimizations
+    - [ ] `seen analyze --translation-impact` - Translation overhead
+- [ ] **Language-Specific Optimizations:**
+    - [ ] Perfect hash generation per language
+    - [ ] Keyword frequency analysis
+    - [ ] Common pattern optimization
+    - [ ] RTL-specific optimizations
+    - [ ] Unicode handling optimization
+- [ ] **Universal Optimizations:**
+    - [ ] E-graph equality saturation
+    - [ ] MLIR pipeline
+    - [ ] Superoptimization
+    - [ ] Profile-guided optimization
+- [ ] **Translation Optimizations:**
+    - [ ] Translation result caching
+    - [ ] Incremental translation
+    - [ ] Parallel translation
+    - [ ] Binary diff minimization
 
 **Performance Benchmarks:**
 
 ```rust
 #[bench]
-fn bench_functional_fusion(b: &mut Bencher) {
-    let pipeline = generate_complex_pipeline();
+fn bench_language_optimization_parity(b: &mut Bencher) {
+    let languages = vec!["en", "ar", "zh", "es", "hi"];
+    let program = load_optimization_test();
+    
     b.iter(|| {
-        let naive = compile_without_fusion(&pipeline);
-        let fused = compile_with_stream_fusion(&pipeline);
-        
-        let speedup = measure_performance(&naive) / measure_performance(&fused);
-        assert!(speedup > 3.0); // 3x speedup from fusion
-        
-        let allocations_naive = count_allocations(&naive);
-        let allocations_fused = count_allocations(&fused);
-        assert!(allocations_fused < allocations_naive * 0.1); // 90% fewer allocations
-    });
-}
-
-#[bench]
-fn bench_devirtualization(b: &mut Bencher) {
-    let trait_heavy = generate_trait_object_code();
-    b.iter(|| {
-        let virtual_calls = compile_without_devirtualization(&trait_heavy);
-        let devirtualized = compile_with_whole_program_devirtualization(&trait_heavy);
-        
-        let virtual_overhead = measure_call_overhead(&virtual_calls);
-        let static_overhead = measure_call_overhead(&devirtualized);
-        assert!(static_overhead < virtual_overhead * 0.05); // 95% overhead eliminated
-    });
-}
-
-#[bench]
-fn bench_pattern_optimization(b: &mut Bencher) {
-    let patterns = generate_complex_pattern_matches();
-    b.iter(|| {
-        let decision_tree = compile_patterns_to_decision_tree(&patterns);
-        let jump_table = compile_patterns_to_jump_table(&patterns);
-        
-        let tree_perf = measure_pattern_performance(&decision_tree);
-        let table_perf = measure_pattern_performance(&jump_table);
-        assert!(table_perf > tree_perf * 2.0); // Jump tables 2x faster
-    });
-}
-
-#[bench]
-fn bench_async_optimization(b: &mut Bencher) {
-    let async_code = generate_async_heavy_code();
-    b.iter(|| {
-        let naive_state_machine = compile_async_naive(&async_code);
-        let optimized_state_machine = compile_async_optimized(&async_code);
-        
-        let naive_size = measure_state_machine_size(&naive_state_machine);
-        let optimized_size = measure_state_machine_size(&optimized_state_machine);
-        assert!(optimized_size < naive_size * 0.5); // 50% smaller state machines
-        
-        let naive_perf = measure_async_performance(&naive_state_machine);
-        let optimized_perf = measure_async_performance(&optimized_state_machine);
-        assert!(optimized_perf > naive_perf * 1.5); // 50% faster
+        for lang in &languages {
+            let translated = translate_program(&program, lang);
+            let optimized = optimize_program(&translated);
+            
+            // All languages should achieve same optimization level
+            let optimization_ratio = measure_optimization(&optimized);
+            assert!(optimization_ratio > 2.0); // >2x improvement
+            
+            // Final performance should be identical
+            let performance = measure_performance(&optimized);
+            assert!(performance.variance < 0.001); // <0.1% variance
+        }
     });
 }
 ```
@@ -505,129 +451,144 @@ fn bench_profiling_accuracy(b: &mut Bencher) {
 
 ## Alpha Command Interface Expansion
 
-### Enhanced Commands with Paradigm Support
+### Enhanced Commands with Multilingual Support
 
 ```bash
+# Language management
+seen translate --from <lang> --to <lang>    # Translate project
+seen translate --dry-run                    # Preview translation
+seen languages --list                       # List available languages
+seen languages --add <lang>                 # Add new language support
+seen languages --validate                   # Validate language definitions
+
 # Advanced build options
-seen build --paradigm <functional|oo|mixed>
-seen build --features <list>
-seen build --effect-check        # Verify effect annotations
+seen build --language <lang>               # Override project language
+seen build --embed-language                # Embed language in binary
+seen build --features <list>               # Conditional compilation
 
 # Development tools
-seen fmt --style <functional|imperative>
-seen fix --suggest-paradigm     # Suggest paradigm improvements
-seen doc --examples             # Extract and verify examples
-seen lsp --completions <smart|all>
+seen fmt                                   # Format code (RTL/LTR aware)
+seen fix                                   # Auto-fix issues
+seen doc --language <lang>                # Generate docs in specific language
+seen lsp                                   # Start language server
+seen check --watch                         # Continuous checking
 
 # Package management
-seen add <pkg> --features <list>
-seen search --paradigm <functional|oo>
-seen features --list           # Show all available features
+seen add <pkg>[@ver]                      # Add dependency
+seen remove <pkg>                         # Remove dependency
+seen update [pkg]                         # Update dependencies
+seen search <query>                       # Search packages
+seen publish                              # Publish package
+seen translate-deps                      # Translate dependency APIs
 
 # Performance analysis
-seen profile --paradigm         # Paradigm-specific profiling
-seen optimize --fusion          # Stream fusion optimization
-seen optimize --devirtualize    # Remove virtual calls
-seen benchmark --vs <lang>      # Compare with other languages
+seen profile                              # Profile performance
+seen benchmark --languages               # Compare language performance
+seen optimize --profile                  # Profile-guided optimization
+seen analyze --translation               # Translation impact analysis
+
+# WebAssembly
+seen wasm-pack                           # Package for web
+seen wasm-optimize                       # Optimize WASM
 
 # Debugging
-seen debug --functional         # Functional debugging mode
-seen debug --async             # Async debugging with traces
-seen trace --effects           # Trace computational effects
-seen replay <recording>        # Time-travel debugging
-
-# Analysis
-seen analyze --purity          # Check function purity
-seen analyze --effects         # Analyze computational effects
-seen analyze --ownership       # Ownership and borrowing analysis
+seen debug                               # Start debugger
+seen trace                               # Execution tracing
+seen fuzz                                # Automated testing
 ```
 
 ### Enhanced Configuration
 
-**Seen.toml** (Extended for Paradigms):
+**Seen.toml** (Alpha Extended):
 
 ```toml
 [project]
 name = "advanced-app"
 version = "0.2.0"
-language = "en"
+language = "en"  # Single project language
 edition = "2024"
-paradigm = "mixed"  # functional, oo, concurrent, mixed
+
+[languages]
+# Additional language support configuration
+fallback = "en"  # Fallback for missing translations
+strict = true    # Enforce complete translations
 
 [dependencies]
-http = { version = "1.0", features = ["async", "client", "server"] }
-actors = { version = "0.5", optional = true }
-stm = { version = "0.3", optional = true }
-lens = { version = "1.0", optional = true }
-
-[features]
-default = ["std"]
-functional = ["lens", "persistent-collections"]
-concurrent = ["actors", "stm", "channels"]
-no-std = []
+http = { version = "1.0", language = "en" }  # Package source language
+crypto = { version = "0.5" }
+gui = { version = "2.1", auto-translate = true }
 
 [build]
-tail-calls = true
-effect-checking = true
-purity-inference = true
+targets = ["native", "wasm", "android", "ios"]
+optimize = "speed"
+embed-language = true
+language-cache = true
 
 [profile.release]
 opt-level = 3
-fusion = true
-devirtualization = true
-inline-threshold = 1000
-
-[profile.dev]
-debug-paradigm = "all"
-effect-tracking = true
-purity-warnings = true
+debug = false
+lto = true
 
 [lsp]
-paradigm-hints = true
-effect-annotations = true
-purity-indicators = true
-async-visualization = true
+translation-hints = true
+multi-language-hover = true
+auto-translate-completions = true
+
+[package]
+description = "High-performance application"
+documentation-languages = ["en", "es", "zh"]  # Languages for docs
+license = "MIT"
+repository = "https://github.com/user/repo"
 ```
 
 ## Success Criteria
 
 ### Performance Targets
 
-- [ ] LSP response time: <50ms for all paradigm features
-- [ ] Package resolution: <5s with trait coherence checking
-- [ ] Stream fusion: >3x speedup on pipelines
-- [ ] Actor system: 1M actors with <1KB each
-- [ ] Parser combinators: >100MB/s throughput
+- [ ] LSP response time: <50ms for all languages
+- [ ] Package resolution: <5s with translation support
+- [ ] Translation speed: <10s for 1000 files
+- [ ] Keyword lookup: <10ns with perfect hashing
+- [ ] WASM performance: Within 50% of native
 - [ ] Debugging overhead: <2x with full features
 
 ### Functional Requirements
 
-- [ ] All functional patterns from Haskell/Scala supported
-- [ ] Actor model comparable to Erlang/Elixir
-- [ ] STM performance matching Clojure
-- [ ] Debugging experience exceeds all competitors
-- [ ] Package manager handles multi-paradigm dependencies
+- [ ] Complete IDE integration with translation hints
+- [ ] Seamless C interoperability with header translation
+- [ ] WebAssembly targets with embedded language
+- [ ] Package manager supports multilingual packages
+- [ ] Debugging experience supports all languages
+- [ ] Standard library documented in 5+ languages
 
 ### Quality Standards
 
-- [ ] 100% test coverage for paradigm features
-- [ ] Performance benchmarks for each paradigm
-- [ ] Documentation includes paradigm best practices
-- [ ] Static analysis catches paradigm-specific issues
+- [ ] All language versions pass same test suite
+- [ ] Performance benchmarks identical across languages
+- [ ] Documentation auto-translated and verified
+- [ ] Static analysis works for all languages
 
 ## Risk Mitigation
 
 ### Technical Risks
 
-- **Paradigm Integration Complexity**: Clear semantics and interaction rules
-- **Performance Overhead**: Continuous benchmarking per paradigm
-- **Type System Complexity**: Incremental implementation with extensive testing
-- **Debugging Complexity**: Paradigm-specific debugging modes
+- **Language Loading Performance**: Perfect hashing and binary caching
+- **Translation Accuracy**: Extensive testing, semantic validation
+- **WebAssembly Language Support**: Embed language at compile time
+- **C Header Translation**: Focus on common patterns first
+
+### Integration Risks
+
+- **IDE Language Support**: Test with multiple languages continuously
+- **Package Registry**: Support language metadata from start
+- **Cross-platform**: Ensure RTL/LTR works on all platforms
 
 ## Next Phase Preview
 
 **Beta Phase** will focus on:
-- Production applications showcasing paradigm strengths
-- Real-world performance optimization
-- Enterprise features for large-scale development
-- Advanced paradigm integration patterns
+- Production deployment for global teams
+- Showcase applications in multiple languages
+- Performance validation across all languages
+- Community building in multiple regions
+- Security hardening for multilingual systems
+- Documentation in 10+ languages

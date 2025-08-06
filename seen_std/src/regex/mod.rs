@@ -45,11 +45,13 @@ pub type RegexResult<T> = Result<T, RegexError>;
 #[derive(Clone)]
 pub struct Regex {
     pattern: String,
+    #[allow(dead_code)]
     compiled: CompiledRegex,
 }
 
 /// Internal compiled representation (NFA-based)
 #[derive(Clone)]
+#[allow(dead_code)]
 struct CompiledRegex {
     states: Vec<State>,
     start_state: usize,
@@ -58,6 +60,7 @@ struct CompiledRegex {
 
 /// NFA state representation
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct State {
     id: usize,
     transitions: Vec<Transition>,
@@ -66,6 +69,7 @@ struct State {
 
 /// State transition with condition
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct Transition {
     condition: TransitionCondition,
     target_state: usize,
@@ -73,6 +77,7 @@ struct Transition {
 
 /// Condition for state transition
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 enum TransitionCondition {
     /// Match a specific character
     Char(char),
@@ -92,6 +97,7 @@ enum TransitionCondition {
 
 /// Character range for character classes
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct CharRange {
     start: char,
     end: char,
@@ -106,6 +112,7 @@ impl CharRange {
         CharRange { start: ch, end: ch }
     }
     
+    #[allow(dead_code)]
     fn contains(&self, ch: char) -> bool {
         ch >= self.start && ch <= self.end
     }
@@ -394,6 +401,7 @@ impl Regex {
     }
     
     /// Simple pattern matching for MVP
+    #[allow(dead_code)]
     fn simple_match(&self, pattern: &[char], text: &[char], pat_idx: usize, text_idx: usize) -> bool {
         if pat_idx >= pattern.len() {
             return true; // Pattern consumed, match successful
@@ -503,6 +511,7 @@ impl Regex {
     }
     
     /// Computes epsilon closure of states
+    #[allow(dead_code)]
     fn epsilon_closure(&self, states: &mut Vec<usize>) {
         let mut i = 0;
         while i < states.len() {
@@ -521,6 +530,7 @@ impl Regex {
     }
     
     /// Checks if a transition condition matches
+    #[allow(dead_code)]
     fn matches_transition(&self, condition: &TransitionCondition, ch: char, pos: usize, text: &str) -> bool {
         match condition {
             TransitionCondition::Char(expected) => ch == *expected,

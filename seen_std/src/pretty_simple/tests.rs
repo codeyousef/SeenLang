@@ -176,7 +176,7 @@ mod tests {
         let printer = PrettyPrinter::new();
         let mut fields = Vec::new();
         
-        for i in 0..1000 {
+        for _i in 0..1000 {
             let key = String::from("key");
             let value = String::from("\"value\"");
             fields.push((key, value));
