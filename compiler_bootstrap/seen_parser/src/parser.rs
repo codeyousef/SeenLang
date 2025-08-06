@@ -92,8 +92,7 @@ impl Parser {
                 match name.as_str() {
                     "extension" => self.parse_extension_function(),
                     "data" => {
-                        #[cfg(test)]
-                        eprintln!("parse_item: Calling parse_data_class");
+                        self.advance(); // Consume the 'data' token
                         self.parse_data_class()
                     },
                     "sealed" => self.parse_sealed_class(),
@@ -435,7 +434,6 @@ impl Parser {
             self.advance();
             return Ok(result);
         }
-        
         self.error("Expected identifier");
         Err(seen_common::SeenError::parse_error("Expected identifier"))
     }
@@ -533,10 +531,11 @@ impl Parser {
             // Parse field visibility (default to public)
             let visibility = Visibility::Public;
             
-            // Check for 'var' or 'val' keywords
+            // Check for 'var' or 'val' keywords 
+            // Note: 'var' is tokenized as Identifier("var"), 'val' as KeywordVal
             let is_mutable = if self.match_identifier("var") {
                 true
-            } else if self.match_identifier("val") {
+            } else if self.match_token(&TokenType::KeywordVal) {
                 false
             } else {
                 false // Default to immutable
@@ -1770,16 +1769,10 @@ impl Parser {
     fn parse_data_class(&mut self) -> SeenResult<Item<'static>> {
         let start_span = self.current_span();
         
-        // Consume 'data'
-        self.expect_identifier("data")?;
-        
-        #[cfg(test)]
-        eprintln!("parse_data_class: After 'data', current token = {:?}", self.current_token());
+        // 'data' has already been consumed by the caller
         
         // Expect 'class' (or 'struct' for compatibility)
         if !self.match_identifier("class") && !self.match_identifier("struct") {
-            #[cfg(test)]
-            eprintln!("parse_data_class: Failed to match 'class' or 'struct'");
             return Err(seen_common::SeenError::parse_error("Expected 'class' or 'struct' after 'data'"));
         }
         

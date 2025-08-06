@@ -389,7 +389,13 @@
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser -q flow_dsl_tests generic_function_tests)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser -q flow_dsl_tests)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser -q generic_function_tests)",
-      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib translation -- --nocapture)"
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib translation -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser kotlin_features_test::test_data_class_parsing -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_data_class_parsing -- --nocapture)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_data_class_parsing -- --nocapture)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl rustc --edition 2021 /tmp/debug_var_token.rs --extern seen_lexer=target-wsl/debug/libseen_lexer.rlib -L target-wsl/debug/deps -o /tmp/debug_var_token)",
+      "Bash(/tmp:*)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser kotlin_features_tests)"
     ],
     "deny": []
   }
