@@ -218,9 +218,9 @@ impl AstDeserializer {
     }
 
     /// Deserialize from bytes
-    pub fn deserialize<T>(&self, data: &[u8]) -> Result<T, DeserializationError>
+    pub fn deserialize<'a, T>(&self, data: &'a [u8]) -> Result<T, DeserializationError>
     where
-        T: for<'de> Deserialize<'de>,
+        T: Deserialize<'a>,
     {
         match self.format {
             SerializationFormat::Json | SerializationFormat::CompactJson => {
@@ -253,7 +253,29 @@ impl AstDeserializer {
     {
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer)?;
-        self.deserialize(&buffer)
+        
+        // Use the appropriate deserialization based on format
+        match self.format {
+            SerializationFormat::Json | SerializationFormat::CompactJson => {
+                if self.check_version {
+                    let versioned: VersionedAst<T> = serde_json::from_slice(&buffer)?;
+                    if let Some(ref expected) = self.expected_version {
+                        if !version_compatible(&versioned.version, expected) {
+                            return Err(DeserializationError::VersionMismatch {
+                                expected: format!("{}.{}.{}", expected.major, expected.minor, expected.patch),
+                                actual: format!("{}.{}.{}", versioned.version.major, versioned.version.minor, versioned.version.patch),
+                            });
+                        }
+                    }
+                    Ok(versioned.ast)
+                } else {
+                    Ok(serde_json::from_slice(&buffer)?)
+                }
+            }
+            SerializationFormat::Binary | SerializationFormat::MessagePack => {
+                Ok(bincode::deserialize(&buffer)?)
+            }
+        }
     }
 
     /// Deserialize only specific parts of the AST using a JSON path
@@ -281,7 +303,7 @@ impl AstDeserializer {
 
 fn compact_json(value: serde_json::Value) -> serde_json::Value {
     match value {
-        serde_json::Value::Object(mut map) => {
+        serde_json::Value::Object(map) => {
             // Remove null values and compact field names
             let mut compacted = serde_json::Map::new();
             for (key, val) in map {
@@ -300,16 +322,9 @@ fn compact_json(value: serde_json::Value) -> serde_json::Value {
 }
 
 fn compact_field_name(name: &str) -> String {
-    // Simple field name compaction
-    match name {
-        "kind" => "k".to_string(),
-        "span" => "s".to_string(),
-        "visibility" => "v".to_string(),
-        "attributes" => "a".to_string(),
-        "statements" => "st".to_string(),
-        "expression" => "e".to_string(),
-        _ => name.to_string(),
-    }
+    // Don't compact field names - it breaks deserialization
+    // CompactJson just removes null values for now
+    name.to_string()
 }
 
 fn version_compatible(actual: &Version, expected: &Version) -> bool {

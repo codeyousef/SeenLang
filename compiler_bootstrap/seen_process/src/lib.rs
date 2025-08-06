@@ -11,7 +11,7 @@ pub use pipe::{Pipe, PipeEnd};
 pub use environment::{Environment, EnvVar};
 pub use working_dir::WorkingDirectory;
 
-use seen_common::{SeenResult, SeenError};
+use seen_common::SeenResult;
 
 /// Initialize the process management subsystem
 pub fn initialize() -> SeenResult<()> {

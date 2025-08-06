@@ -216,6 +216,11 @@ pub fn walk_stmt<'a, V: Visitor<'a>>(visitor: &mut V, stmt: &Stmt<'a>) {
         }
         StmtKind::Expr(expr) => visitor.visit_expr(expr),
         StmtKind::Item(item) => visitor.visit_item(item),
+        StmtKind::Return(expr_opt) => {
+            if let Some(ref expr) = expr_opt {
+                visitor.visit_expr(expr);
+            }
+        }
         StmtKind::Empty => {}
     }
 }
@@ -515,6 +520,11 @@ pub fn walk_stmt_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, stmt: &mut Stmt<'a>
         }
         StmtKind::Expr(expr) => visitor.visit_expr(expr),
         StmtKind::Item(item) => visitor.visit_item(item),
+        StmtKind::Return(expr_opt) => {
+            if let Some(ref mut expr) = expr_opt {
+                visitor.visit_expr(expr);
+            }
+        }
         StmtKind::Empty => {}
     }
 }

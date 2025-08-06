@@ -8,18 +8,16 @@
 
 use crate::parser::Parser;
 use seen_lexer::{Lexer, LanguageConfig};
-use seen_common::Diagnostics;
 
 #[cfg(test)]
 mod kotlin_features_tests {
     use super::*;
 
     fn setup_parser(input: &str) -> Parser {
-        let lang_config = LanguageConfig::default();
-        let mut lexer = Lexer::new(input, &lang_config);
+        let lang_config = LanguageConfig::new_english();
+        let mut lexer = Lexer::new(input, 0, &lang_config);
         let tokens = lexer.tokenize().expect("Failed to tokenize test input");
-        let diagnostics = Diagnostics::new();
-        Parser::new(tokens, diagnostics)
+        Parser::new(tokens)
     }
 
     #[test]
@@ -35,8 +33,16 @@ mod kotlin_features_tests {
         "#;
         
         let mut parser = setup_parser(code);
-        let program = parser.parse_program().expect("Failed to parse extension functions");
+        let program = match parser.parse_program() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Parse error: {:?}", e);
+                eprintln!("Diagnostics: {:?}", parser.diagnostics());
+                panic!("Failed to parse extension functions");
+            }
+        };
         
+        println!("Parsed {} items", program.items.len());
         assert_eq!(program.items.len(), 2);
         
         // First extension function
@@ -125,11 +131,11 @@ mod kotlin_features_tests {
                 
                 // Check parameter type is nullable String
                 assert_eq!(func.params.len(), 1);
-                match &func.params[0].ty {
-                    crate::ast::Type::Nullable(inner_type) => {
-                        match inner_type.as_ref() {
-                            crate::ast::Type::Path(path) => {
-                                assert_eq!(path.segments[0].value, "String");
+                match &*func.params[0].ty.kind {
+                    crate::ast::TypeKind::Nullable(inner_type) => {
+                        match &*inner_type.kind {
+                            crate::ast::TypeKind::Named { path, generic_args: _ } => {
+                                assert_eq!(path.segments[0].name.value, "String");
                             }
                             _ => panic!("Expected Path type inside Nullable"),
                         }
@@ -138,11 +144,11 @@ mod kotlin_features_tests {
                 }
                 
                 // Check return type is nullable Int
-                match func.return_type.as_ref().expect("Function should have return type") {
-                    crate::ast::Type::Nullable(inner_type) => {
-                        match inner_type.as_ref() {
-                            crate::ast::Type::Path(path) => {
-                                assert_eq!(path.segments[0].value, "Int");
+                match &*func.return_type.as_ref().expect("Function should have return type").kind {
+                    crate::ast::TypeKind::Nullable(inner_type) => {
+                        match &*inner_type.kind {
+                            crate::ast::TypeKind::Named { path, generic_args: _ } => {
+                                assert_eq!(path.segments[0].name.value, "Int");
                             }
                             _ => panic!("Expected Path type inside Nullable"),
                         }
@@ -255,7 +261,7 @@ mod kotlin_features_tests {
                 
                 // Check return statement has match expression
                 if let crate::ast::StmtKind::Return(Some(expr)) = &func.body.statements[0].kind {
-                    match &expr.kind {
+                    match &*expr.kind {
                         crate::ast::ExprKind::Match { scrutinee: _, arms } => {
                             assert_eq!(arms.len(), 5);
                             
@@ -357,6 +363,7 @@ mod kotlin_features_tests {
                                 }
                                 _ => panic!("Expected closure expression"),
                             }
+                        }
                     }
                 }
             }

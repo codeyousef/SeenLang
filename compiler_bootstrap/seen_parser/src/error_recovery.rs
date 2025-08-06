@@ -1,6 +1,6 @@
 //! Parser error recovery
 
-use seen_common::{Diagnostics, SeenError};
+use seen_common::Diagnostics;
 
 /// Parser error recovery strategy
 pub struct ErrorRecovery {

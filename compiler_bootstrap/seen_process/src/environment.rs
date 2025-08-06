@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::env;
-use seen_common::{SeenResult, SeenError};
+use seen_common::SeenResult;
 
 /// Environment variable representation
 #[derive(Debug, Clone, PartialEq, Eq)]

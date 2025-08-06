@@ -2,8 +2,8 @@
 
 use crate::types::*;
 use crate::inference::InferenceEngine;
-use seen_common::{SeenResult, SeenError, Diagnostics};
-use seen_parser::{Program, Block, Stmt, StmtKind, Expr, ExprKind, Literal, LiteralKind, BinaryOp, PatternKind, Let};
+use seen_common::{SeenResult, Diagnostics};
+use seen_parser::{Program, Stmt, StmtKind, Expr, ExprKind, Literal, LiteralKind, BinaryOp, PatternKind};
 
 /// Type checker
 pub struct TypeChecker {
@@ -121,6 +121,15 @@ impl TypeChecker {
                 }
                 seen_parser::ItemKind::Const(_) => {
                     // Const declarations - not needed for MVP type checking
+                }
+                seen_parser::ItemKind::ExtensionFunction(_) => {
+                    // Extension functions - implement in Step 11
+                }
+                seen_parser::ItemKind::DataClass(_) => {
+                    // Data classes - implement in Step 11
+                }
+                seen_parser::ItemKind::SealedClass(_) => {
+                    // Sealed classes - implement in Step 11
                 }
             }
         }

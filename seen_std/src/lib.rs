@@ -26,6 +26,7 @@ pub mod pretty_simple;
 pub mod graph;
 pub mod testing;
 pub mod formatting;
+pub mod reactive;
 
 // Re-export commonly used types
 pub use core::primitives::*;
@@ -39,4 +40,5 @@ pub mod prelude {
     pub use crate::error::{Result, Option};
     pub use crate::collections::{Vec, HashMap};
     pub use crate::string::String;
+    pub use crate::reactive::{Observable, Subject, BehaviorSubject};
 }

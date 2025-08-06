@@ -2,7 +2,6 @@
 
 use seen_common::{Span, Spanned};
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 use std::fmt;
 
 /// Type alias for node IDs
@@ -419,6 +418,8 @@ pub enum StmtKind<'a> {
     Let(Let<'a>),
     /// Item declaration
     Item(Item<'a>),
+    /// Return statement
+    Return(Option<Expr<'a>>),
     /// Empty statement (semicolon)
     Empty,
 }

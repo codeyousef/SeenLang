@@ -1,7 +1,7 @@
 //! Type constraint solving
 
 use crate::types::*;
-use seen_common::{SeenResult, SeenError};
+use seen_common::SeenResult;
 
 /// Type constraint
 #[derive(Debug, Clone)]

@@ -4,6 +4,38 @@ use std::path::{Path, PathBuf};
 use std::env;
 use seen_common::{SeenResult, SeenError};
 
+/// Normalize a path for consistent comparison across platforms
+/// On Windows, this handles the \\?\ prefix and canonicalization differences
+#[cfg(test)]
+fn normalize_path_for_comparison(path: &Path) -> PathBuf {
+    // Try to canonicalize first
+    match path.canonicalize() {
+        Ok(canonical) => {
+            // On Windows, strip the \\?\ prefix if present for comparison
+            #[cfg(windows)]
+            {
+                let path_str = canonical.to_string_lossy();
+                if path_str.starts_with(r"\\?\") {
+                    PathBuf::from(&path_str[4..])
+                } else {
+                    canonical
+                }
+            }
+            #[cfg(not(windows))]
+            canonical
+        }
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// Check if two paths are equivalent, handling Windows path normalization
+#[cfg(test)]
+fn paths_equivalent(path1: &Path, path2: &Path) -> bool {
+    let normalized1 = normalize_path_for_comparison(path1);
+    let normalized2 = normalize_path_for_comparison(path2);
+    normalized1 == normalized2
+}
+
 /// Working directory manager
 pub struct WorkingDirectory {
     original: PathBuf,
@@ -168,11 +200,11 @@ mod tests {
         
         // Change to temp directory
         wd.change(temp_path).expect("Failed to change directory");
-        assert_eq!(wd.get(), temp_path.canonicalize().unwrap());
+        assert!(paths_equivalent(wd.get(), &temp_path.canonicalize().unwrap()));
         
         // Reset to original
         wd.reset().expect("Failed to reset directory");
-        assert_eq!(wd.get(), original);
+        assert!(paths_equivalent(wd.get(), &original));
     }
     
     #[test]
@@ -197,11 +229,11 @@ mod tests {
         {
             let _scoped = ScopedDirectory::new(&temp_path).expect("Failed to create scoped directory");
             let current = current_dir().expect("Failed to get current directory");
-            assert_eq!(current, temp_path.canonicalize().unwrap());
+            assert!(paths_equivalent(&current, &temp_path.canonicalize().unwrap()));
         }
         
         // Should be restored after scope
         let restored = current_dir().expect("Failed to get current directory");
-        assert_eq!(restored, original);
+        assert!(paths_equivalent(&restored, &original));
     }
 }

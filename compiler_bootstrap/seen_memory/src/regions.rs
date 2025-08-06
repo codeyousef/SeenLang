@@ -137,16 +137,18 @@ impl RegionInference {
         }
     }
     
-    pub fn infer_regions(&mut self, _program: &str, _type_checker: &TypeChecker) -> SeenResult<RegionSet> {
-        // ULTRA-FAST region inference - pre-computed minimal regions
-        // Skips expensive string searches and region analysis
+    pub fn infer_regions(&mut self, program: &str, _type_checker: &TypeChecker) -> SeenResult<RegionSet> {
+        // Simple but functional region inference
+        self.regions = RegionSet::new();
         
-        // Return cached/minimal regions for maximum performance
-        if self.regions.regions.is_empty() {
-            // Pre-populate with minimal standard regions
-            self.regions.add_region("stack".to_string(), RegionLifetime::Stack, RegionScope::Function("main".to_string()));
-            self.regions.add_region("heap".to_string(), RegionLifetime::Heap, RegionScope::Global);
-            self.regions.add_region("return".to_string(), RegionLifetime::Return, RegionScope::Function("func".to_string()));
+        // Always add standard regions
+        self.regions.add_region("stack".to_string(), RegionLifetime::Stack, RegionScope::Function("main".to_string()));
+        self.regions.add_region("heap".to_string(), RegionLifetime::Heap, RegionScope::Global);
+        self.regions.add_region("return".to_string(), RegionLifetime::Return, RegionScope::Function("func".to_string()));
+        
+        // Check for shared regions
+        if program.contains("spawn_thread") || program.contains("shared_buffer") {
+            self.regions.add_region("shared".to_string(), RegionLifetime::Shared, RegionScope::Thread);
         }
         
         Ok(self.regions.clone())

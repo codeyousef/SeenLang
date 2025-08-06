@@ -161,8 +161,7 @@ impl TomlParser {
     /// Parses TOML input into a table
     pub fn parse(&mut self) -> TomlResult<HashMap<String, TomlValue>> {
         let mut table = HashMap::new();
-        let current_table = &mut table;
-        let _table_stack: Vec<HashMap<String, TomlValue>> = Vec::new();
+        let mut current_table_name = String::new();
         
         while !self.is_at_end() {
             self.skip_whitespace_and_comments();
@@ -173,9 +172,13 @@ impl TomlParser {
             
             // Check for table header
             if self.peek() == '[' {
-                let (_table_name, _is_array) = self.parse_table_header()?;
-                // For MVP, ignore array tables and nested tables
-                // Just treat all as top-level keys
+                let (table_name, _is_array) = self.parse_table_header()?;
+                current_table_name = table_name;
+                
+                // Ensure table exists
+                if !table.contains_key(&current_table_name) {
+                    table.insert(current_table_name.clone(), TomlValue::Table(HashMap::new()));
+                }
                 
                 // Skip any trailing whitespace and newline after table header
                 self.skip_whitespace();
@@ -188,11 +191,24 @@ impl TomlParser {
             // Parse key-value pair
             let (key, value) = self.parse_key_value_pair()?;
             
-            if current_table.contains_key(&key) {
-                return Err(TomlError::DuplicateKey(key));
+            // Insert into the appropriate table
+            if current_table_name.is_empty() {
+                // Top-level key
+                if table.contains_key(&key) {
+                    return Err(TomlError::DuplicateKey(key));
+                }
+                table.insert(key, value);
+            } else {
+                // Insert into the current table section
+                if let Some(TomlValue::Table(ref mut current_table)) = table.get_mut(&current_table_name) {
+                    if current_table.contains_key(&key) {
+                        return Err(TomlError::DuplicateKey(String::from(format!("{}.{}", current_table_name.as_str(), key.as_str()).as_str())));
+                    }
+                    current_table.insert(key, value);
+                } else {
+                    return Err(TomlError::InvalidTable(current_table_name.clone()));
+                }
             }
-            
-            current_table.insert(key, value);
             
             self.skip_whitespace();
             
@@ -575,6 +591,16 @@ pub fn get_integer(table: &HashMap<String, TomlValue>, key: &str) -> Option<i64>
 pub fn get_boolean(table: &HashMap<String, TomlValue>, key: &str) -> Option<bool> {
     table.get(key)?.as_boolean()
 }
+
+// Perfect hash functionality for high-performance keyword lookup
+pub mod perfect_hash;
+
+// Language definition loader with perfect hash optimization  
+pub mod language_loader;
+
+// Re-export commonly used types
+pub use perfect_hash::{PerfectHashFunction, LanguageHashTable, PerfectHashError, PerfectHashStats};
+pub use language_loader::{LanguageDefinition, LanguageLoader, LanguageLoadError, LanguagePerformanceStats};
 
 #[cfg(test)]
 mod tests;

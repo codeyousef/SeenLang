@@ -1,7 +1,7 @@
 //! Type inference engine
 
 use crate::types::*;
-use seen_common::{SeenResult, SeenError};
+use seen_common::SeenResult;
 
 /// Type inference engine
 pub struct InferenceEngine {

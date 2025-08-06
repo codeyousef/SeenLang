@@ -56,7 +56,7 @@ impl Process {
     }
     
     /// Wait for the process with a timeout
-    fn wait_with_timeout(mut self, timeout: Duration) -> SeenResult<ExitStatus> {
+    fn wait_with_timeout(self, timeout: Duration) -> SeenResult<ExitStatus> {
         let pid = self.child.id();
         let handle = Arc::new(Mutex::new(Some(self.child)));
         let handle_clone = Arc::clone(&handle);
