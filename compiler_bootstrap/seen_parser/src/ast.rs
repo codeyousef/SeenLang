@@ -41,6 +41,10 @@ pub enum ItemKind<'a> {
     TypeAlias(TypeAlias<'a>),
     Const(Const<'a>),
     Static(Static<'a>),
+    // Kotlin-inspired features
+    ExtensionFunction(ExtensionFunction<'a>),
+    DataClass(DataClass<'a>),
+    SealedClass(SealedClass<'a>),
 }
 
 /// Function definition
@@ -64,6 +68,7 @@ pub struct Parameter<'a> {
     pub name: Spanned<&'a str>,
     pub ty: Type<'a>,
     pub is_mutable: bool,
+    pub default_value: Option<Expr<'a>>, // Kotlin-style default parameters
     pub span: Span,
 }
 
@@ -351,6 +356,8 @@ pub enum TypeKind<'a> {
     Function { params: Vec<Type<'a>>, return_type: Box<Type<'a>> },
     /// Reference type
     Reference { inner: Box<Type<'a>>, is_mutable: bool },
+    /// Nullable type (Kotlin-style T?)
+    Nullable(Box<Type<'a>>),
     /// Inferred type (for type inference)
     Infer,
 }
@@ -525,6 +532,17 @@ pub enum ExprKind<'a> {
     Range { start: Option<Box<Expr<'a>>>, end: Option<Box<Expr<'a>>>, inclusive: bool },
     /// Type cast
     Cast { expr: Box<Expr<'a>>, ty: Box<Type<'a>> },
+    // Kotlin-inspired expressions
+    /// Closure expression (|param| body)
+    Closure(Closure<'a>),
+    /// Named argument in function call
+    NamedArg { name: Spanned<&'a str>, value: Box<Expr<'a>> },
+    /// Null literal
+    Null,
+    /// Safe call operator (?.)
+    SafeCall { receiver: Box<Expr<'a>>, method: Spanned<&'a str>, args: Vec<Expr<'a>> },
+    /// Elvis operator (?:)
+    Elvis { expr: Box<Expr<'a>>, fallback: Box<Expr<'a>> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -589,6 +607,117 @@ pub enum UnaryOp {
     RefMut,   // &mut
 }
 
+// ========================= Kotlin-Inspired Features =========================
+
+/// Extension function definition
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct ExtensionFunction<'a> {
+    pub receiver_type: Type<'a>,
+    pub function: Function<'a>,
+}
+
+/// Data class definition (Kotlin-style)
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct DataClass<'a> {
+    pub name: Spanned<&'a str>,
+    pub fields: Vec<DataClassField<'a>>,
+    pub visibility: Visibility,
+    pub generic_params: Vec<GenericParam<'a>>,
+    pub attributes: Vec<Attribute<'a>>,
+}
+
+/// Data class field with mutability and default values
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct DataClassField<'a> {
+    pub name: Spanned<&'a str>,
+    pub ty: Type<'a>,
+    pub is_mutable: bool, // val (false) vs var (true)
+    pub default_value: Option<Expr<'a>>,
+    pub visibility: Visibility,
+    pub span: Span,
+}
+
+/// Sealed class definition (for exhaustive pattern matching)
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct SealedClass<'a> {
+    pub name: Spanned<&'a str>,
+    pub variants: Vec<SealedClassVariant<'a>>,
+    pub visibility: Visibility,
+    pub generic_params: Vec<GenericParam<'a>>,
+    pub attributes: Vec<Attribute<'a>>,
+}
+
+/// Sealed class variant
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct SealedClassVariant<'a> {
+    pub name: Spanned<&'a str>,
+    pub fields: Vec<DataClassField<'a>>,
+    pub span: Span,
+}
+
+/// Closure expression
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct Closure<'a> {
+    pub params: Vec<ClosureParam<'a>>,
+    pub body: ClosureBody<'a>,
+    pub return_type: Option<Type<'a>>,
+}
+
+/// Closure parameter (simplified compared to function parameters)
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct ClosureParam<'a> {
+    pub name: Spanned<&'a str>,
+    pub ty: Option<Type<'a>>, // Type can be inferred
+}
+
+/// Closure body can be expression or block
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub enum ClosureBody<'a> {
+    Expression(Box<Expr<'a>>),
+    Block(Block<'a>),
+}
+
+// ========================= End Kotlin Features =========================
+
+impl<'a> Type<'a> {
+    /// Create a nullable version of this type (T -> T?)
+    pub fn make_nullable(self) -> Type<'a> {
+        Type {
+            kind: Box::new(TypeKind::Nullable(Box::new(self))),
+            span: Span::default(),
+        }
+    }
+
+    /// Check if this type is nullable
+    pub fn is_nullable(&self) -> bool {
+        matches!(*self.kind, TypeKind::Nullable(_))
+    }
+
+    /// Get the inner type if this is nullable, or self if not
+    pub fn non_nullable_type(&self) -> &Type<'a> {
+        match &*self.kind {
+            TypeKind::Nullable(inner) => inner,
+            _ => self,
+        }
+    }
+}
+
 // Display implementations for better error messages
 impl fmt::Display for PrimitiveType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -651,5 +780,79 @@ impl fmt::Display for UnaryOp {
             UnaryOp::RefMut => "&mut",
         };
         write!(f, "{}", op)
+    }
+}
+
+impl<'a> fmt::Display for Type<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &*self.kind {
+            TypeKind::Primitive(p) => write!(f, "{}", p),
+            TypeKind::Named { path, generic_args } => {
+                write!(f, "{}", path)?;
+                if !generic_args.is_empty() {
+                    write!(f, "<")?;
+                    for (i, arg) in generic_args.iter().enumerate() {
+                        if i > 0 { write!(f, ", ")?; }
+                        write!(f, "{}", arg)?;
+                    }
+                    write!(f, ">")?;
+                }
+                Ok(())
+            },
+            TypeKind::Tuple(types) => {
+                write!(f, "(")?;
+                for (i, ty) in types.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", ty)?;
+                }
+                write!(f, ")")
+            },
+            TypeKind::Array { element_type, size } => {
+                write!(f, "[{}]", element_type)?;
+                if let Some(_size) = size {
+                    // Size display is complex, skip for now
+                    write!(f, " /* size */")
+                } else {
+                    Ok(())
+                }
+            },
+            TypeKind::Function { params, return_type } => {
+                write!(f, "(")?;
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", param)?;
+                }
+                write!(f, ") -> {}", return_type)
+            },
+            TypeKind::Reference { inner, is_mutable } => {
+                if *is_mutable {
+                    write!(f, "&mut {}", inner)
+                } else {
+                    write!(f, "&{}", inner)
+                }
+            },
+            TypeKind::Nullable(inner) => {
+                write!(f, "{}?", inner)
+            },
+            TypeKind::Infer => write!(f, "_"),
+        }
+    }
+}
+
+impl<'a> fmt::Display for Path<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, segment) in self.segments.iter().enumerate() {
+            if i > 0 { write!(f, "::")?; }
+            write!(f, "{}", segment.name.value)?;
+            if !segment.generic_args.is_empty() {
+                write!(f, "<")?;
+                for (j, arg) in segment.generic_args.iter().enumerate() {
+                    if j > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ">")?;
+            }
+        }
+        Ok(())
     }
 }

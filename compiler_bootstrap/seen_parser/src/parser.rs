@@ -333,6 +333,7 @@ impl Parser {
                 name: seen_common::Spanned::new(name_static, name_span),
                 ty,
                 is_mutable: false,
+                default_value: None, // TODO: Parse default values for Kotlin features
                 span: name_span,
             });
             

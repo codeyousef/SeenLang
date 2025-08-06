@@ -589,34 +589,47 @@ Success rate: 100.0%
 - Support for `line_width`, `indent`, `trailing_comma`, and `document_types` settings
 - Test verification on multiple file types demonstrating proper functionality
 
-#### Step 11: Multi-Paradigm & Kotlin Features ❌ **NOT STARTED**
+#### Step 11: Multi-Paradigm & Kotlin Features 🚧 **IN PROGRESS**
 
 **Tests Written First:**
-- [ ] Test: Extension functions have zero overhead
-- [ ] Test: Data classes generate correct methods
-- [ ] Test: Pattern matching exhaustive and optimal
+- [x] Test: Extension functions have zero overhead
+- [x] Test: Data classes generate correct methods
+- [x] Test: Pattern matching exhaustive and optimal
 - [ ] Test: Smart casts eliminate redundant checks
-- [ ] Test: Closures capture variables efficiently
+- [x] Test: Closures capture variables efficiently
 - [ ] Test: Coroutines use <1KB memory each
 - [ ] Test: DSL builders are type-safe
-- [ ] Test: Null safety prevents all NPEs
+- [x] Test: Null safety prevents all NPEs
 
 **Implementation Required:**
+- [x] **AST Extensions for Kotlin Features:**
+    - [x] Extension function AST nodes (ExtensionFunction)
+    - [x] Data class AST nodes (DataClass, DataClassField) 
+    - [x] Sealed class AST nodes (SealedClass, SealedClassVariant)
+    - [x] Nullable type support (TypeKind::Nullable)
+    - [x] Closure AST nodes (Closure, ClosureParam, ClosureBody)
+    - [x] Named arguments (ExprKind::NamedArg)
+    - [x] Safe call operator (ExprKind::SafeCall)
+    - [x] Elvis operator (ExprKind::Elvis)
+    - [x] Null literal (ExprKind::Null)
+    - [x] Default parameter values in function signatures
+    - [x] Visitor pattern updates for all new AST nodes
+    - [x] Display implementations for Type and Path
 - [ ] **Kotlin-Inspired Features:**
-    - [ ] Extension functions with receiver types
-    - [ ] Data classes with auto-generated methods
-    - [ ] Sealed classes for exhaustive matching
+    - [ ] Extension functions with receiver types (parser support needed)
+    - [ ] Data classes with auto-generated methods (parser support needed)
+    - [ ] Sealed classes for exhaustive matching (parser support needed)
     - [ ] Smart casts after type checks
-    - [ ] Null safety with nullable types (T?)
-    - [ ] Default and named parameters
+    - [ ] Null safety with nullable types (T?) (parser support needed)
+    - [ ] Default and named parameters (parser support needed)
     - [ ] Delegation patterns
     - [ ] Inline functions for zero overhead
     - [ ] Coroutines with structured concurrency
     - [ ] DSL building features
 - [ ] **Functional Programming:**
     - [ ] First-class functions
-    - [ ] Closures with capture analysis
-    - [ ] Pattern matching with guards
+    - [ ] Closures with capture analysis (parser support needed)
+    - [x] Pattern matching with guards (AST already supports)
     - [ ] Algebraic data types
     - [ ] Tail recursion optimization
     - [ ] Higher-order functions
@@ -630,6 +643,14 @@ Success rate: 100.0%
     - [ ] Associated types and type families
     - [ ] Type aliases and newtypes
     - [ ] Contracts for optimization hints
+
+**Progress Summary:**
+- ✅ Complete AST extensions for all major Kotlin-inspired features
+- ✅ Comprehensive test suite written (needs parser implementation to pass)
+- ✅ All compilation issues fixed in parser crate
+- ✅ Visitor patterns updated for new AST nodes
+- ⏳ Parser implementation needed for new syntax support
+- ⏳ Type checker integration needed for null safety and type inference
 
 **Performance Benchmarks:**
 ```rust

@@ -328,7 +328,9 @@
       "Bash(CARGO_TARGET_DIR=/home/yousef/Development/SeenLang/target-wsl cargo run --manifest-path /home/yousef/Development/SeenLang/compiler_bootstrap/seen_cli/Cargo.toml --bin seen -- format badly_formatted.md)",
       "Bash(CARGO_TARGET_DIR=/home/yousef/Development/SeenLang/target-wsl cargo run --manifest-path /home/yousef/Development/SeenLang/compiler_bootstrap/seen_cli/Cargo.toml --bin seen -- format badly_formatted.toml)",
       "Bash(CARGO_TARGET_DIR=../../target-wsl cargo run -p seen_cli --bin seen -- format --help)",
-      "Bash(CARGO_TARGET_DIR=../../target-wsl cargo run -p seen_cli --bin seen -- format custom_format_test.seen)"
+      "Bash(CARGO_TARGET_DIR=../../target-wsl cargo run -p seen_cli --bin seen -- format custom_format_test.seen)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo check -p seen_parser --message-format=short)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser kotlin_features_test -- --nocapture)"
     ],
     "deny": []
   }

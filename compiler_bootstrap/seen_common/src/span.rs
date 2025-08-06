@@ -58,6 +58,16 @@ impl Span {
     }
 }
 
+impl Default for Span {
+    fn default() -> Self {
+        Self {
+            start: Position::start(),
+            end: Position::start(),
+            file_id: 0,
+        }
+    }
+}
+
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.start.line == self.end.line {

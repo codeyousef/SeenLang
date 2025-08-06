@@ -137,6 +137,29 @@ pub fn walk_item<'a, V: Visitor<'a>>(visitor: &mut V, item: &Item<'a>) {
             visitor.visit_type(&s.ty);
             visitor.visit_expr(&s.value);
         }
+        // Kotlin-inspired features
+        ItemKind::ExtensionFunction(ext_fn) => {
+            visitor.visit_type(&ext_fn.receiver_type);
+            visitor.visit_function(&ext_fn.function);
+        }
+        ItemKind::DataClass(data_class) => {
+            for field in &data_class.fields {
+                visitor.visit_type(&field.ty);
+                if let Some(ref default_value) = field.default_value {
+                    visitor.visit_expr(default_value);
+                }
+            }
+        }
+        ItemKind::SealedClass(sealed_class) => {
+            for variant in &sealed_class.variants {
+                for field in &variant.fields {
+                    visitor.visit_type(&field.ty);
+                    if let Some(ref default_value) = field.default_value {
+                        visitor.visit_expr(default_value);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -281,6 +304,35 @@ pub fn walk_expr<'a, V: Visitor<'a>>(visitor: &mut V, expr: &Expr<'a>) {
             visitor.visit_expr(expr);
             visitor.visit_type(ty);
         }
+        // Kotlin-inspired expressions
+        ExprKind::Closure(closure) => {
+            for param in &closure.params {
+                if let Some(ref param_type) = param.ty {
+                    visitor.visit_type(param_type);
+                }
+            }
+            if let Some(ref return_type) = closure.return_type {
+                visitor.visit_type(return_type);
+            }
+            match &closure.body {
+                crate::ast::ClosureBody::Expression(expr) => visitor.visit_expr(expr),
+                crate::ast::ClosureBody::Block(block) => visitor.visit_block(block),
+            }
+        }
+        ExprKind::NamedArg { value, .. } => {
+            visitor.visit_expr(value);
+        }
+        ExprKind::Null => {}
+        ExprKind::SafeCall { receiver, args, .. } => {
+            visitor.visit_expr(receiver);
+            for arg in args {
+                visitor.visit_expr(arg);
+            }
+        }
+        ExprKind::Elvis { expr, fallback } => {
+            visitor.visit_expr(expr);
+            visitor.visit_expr(fallback);
+        }
     }
 }
 
@@ -310,6 +362,7 @@ pub fn walk_type<'a, V: Visitor<'a>>(visitor: &mut V, ty: &Type<'a>) {
             visitor.visit_type(return_type);
         }
         TypeKind::Reference { inner, .. } => visitor.visit_type(inner),
+        TypeKind::Nullable(inner) => visitor.visit_type(inner),
     }
 }
 
@@ -382,6 +435,29 @@ pub fn walk_item_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, item: &mut Item<'a>
         ItemKind::Static(s) => {
             visitor.visit_type(&mut s.ty);
             visitor.visit_expr(&mut s.value);
+        }
+        // Kotlin-inspired features
+        ItemKind::ExtensionFunction(ext_fn) => {
+            visitor.visit_type(&mut ext_fn.receiver_type);
+            visitor.visit_function(&mut ext_fn.function);
+        }
+        ItemKind::DataClass(data_class) => {
+            for field in &mut data_class.fields {
+                visitor.visit_type(&mut field.ty);
+                if let Some(ref mut default_value) = field.default_value {
+                    visitor.visit_expr(default_value);
+                }
+            }
+        }
+        ItemKind::SealedClass(sealed_class) => {
+            for variant in &mut sealed_class.variants {
+                for field in &mut variant.fields {
+                    visitor.visit_type(&mut field.ty);
+                    if let Some(ref mut default_value) = field.default_value {
+                        visitor.visit_expr(default_value);
+                    }
+                }
+            }
         }
     }
 }
@@ -527,6 +603,35 @@ pub fn walk_expr_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, expr: &mut Expr<'a>
             visitor.visit_expr(expr);
             visitor.visit_type(ty);
         }
+        // Kotlin-inspired expressions  
+        ExprKind::Closure(closure) => {
+            for param in &mut closure.params {
+                if let Some(ref mut param_type) = param.ty {
+                    visitor.visit_type(param_type);
+                }
+            }
+            if let Some(ref mut return_type) = closure.return_type {
+                visitor.visit_type(return_type);
+            }
+            match &mut closure.body {
+                crate::ast::ClosureBody::Expression(expr) => visitor.visit_expr(expr),
+                crate::ast::ClosureBody::Block(block) => visitor.visit_block(block),
+            }
+        }
+        ExprKind::NamedArg { value, .. } => {
+            visitor.visit_expr(value);
+        }
+        ExprKind::Null => {}
+        ExprKind::SafeCall { receiver, args, .. } => {
+            visitor.visit_expr(receiver);
+            for arg in args {
+                visitor.visit_expr(arg);
+            }
+        }
+        ExprKind::Elvis { expr, fallback } => {
+            visitor.visit_expr(expr);
+            visitor.visit_expr(fallback);
+        }
     }
 }
 
@@ -556,6 +661,7 @@ pub fn walk_type_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, ty: &mut Type<'a>) 
             visitor.visit_type(return_type);
         }
         TypeKind::Reference { inner, .. } => visitor.visit_type(inner),
+        TypeKind::Nullable(inner) => visitor.visit_type(inner),
     }
 }
 

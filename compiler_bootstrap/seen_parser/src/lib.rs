@@ -16,6 +16,9 @@ pub mod error_recovery;
 pub mod visitor;
 pub mod serialization;
 
+#[cfg(test)]
+pub mod tests;
+
 pub use ast::*;
 pub use parser::*;
 pub use precedence::*;
