@@ -8,8 +8,11 @@ language = "en"  # Default to English, can be "ar" for Arabic
 targets = ["native"]
 optimize = "speed"
 
+[dependencies]
+# No external dependencies for this simple example
+
 [format]
-line-width = 100
-indent = 4
-trailing-comma = true
-document-types = [".seen", ".md", ".toml"]
+line_width = 60
+indent = 2
+trailing_comma = false
+document_types = [".seen", ".md", ".toml"]

@@ -3600,3 +3600,4 @@ debug.log
 /target-wsl/CACHEDIR.TAG
 /target-wsl/
 target-wsl/
+.claude/settings.local.json

@@ -25,6 +25,7 @@ pub mod json;
 pub mod pretty_simple;
 pub mod graph;
 pub mod testing;
+pub mod formatting;
 
 // Re-export commonly used types
 pub use core::primitives::*;
