@@ -22,6 +22,12 @@ impl Parser {
         }
     }
     
+    fn insert_token_at_current(&mut self, token_type: TokenType) {
+        let span = self.current_span();
+        let token = Token::new(token_type, span);
+        self.tokens.insert(self.current, token);
+    }
+    
     pub fn diagnostics(&self) -> &Diagnostics {
         &self.diagnostics
     }
@@ -78,6 +84,7 @@ impl Parser {
         
         match self.current_token() {
             Some(Token { value: TokenType::KeywordFunc, .. }) => self.parse_function(),
+            Some(Token { value: TokenType::KeywordSuspend, .. }) => self.parse_suspend_function(),
             Some(Token { value: TokenType::KeywordStruct, .. }) => self.parse_struct(),
             Some(Token { value: TokenType::KeywordEnum, .. }) => self.parse_enum(),
             Some(Token { value: TokenType::Identifier(name), .. }) => {
@@ -113,6 +120,13 @@ impl Parser {
         // Consume 'func'
         self.expect_keyword(TokenType::KeywordFunc)?;
         
+        // Parse optional generic type parameters
+        let type_params = if self.check(&TokenType::Less) {
+            self.parse_generic_type_params()?
+        } else {
+            Vec::new()
+        };
+        
         // Parse function name
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
@@ -135,11 +149,130 @@ impl Parser {
         let name_static: &'static str = Box::leak(name.into_boxed_str());
         let func = Function {
             name: seen_common::Spanned::new(name_static, name_span),
+            type_params,
             params,
             return_type,
             body,
             visibility: Visibility::Private,
             attributes: Vec::with_capacity(0), // Empty but avoids allocation
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Function(func),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+
+    fn parse_generic_type_params(&mut self) -> SeenResult<Vec<TypeParam<'static>>> {
+        let mut type_params = Vec::new();
+        
+        // Consume '<'
+        self.expect_token(TokenType::Less)?;
+        
+        if !self.check(&TokenType::Greater) {
+            loop {
+                let param_start_span = self.current_span();
+                let param_name = self.expect_identifier_value()?;
+                let param_name_span = self.previous_span();
+                
+                // Parse optional bounds (T: Trait1 + Trait2)
+                let bounds = if self.match_token(&TokenType::Colon) {
+                    let mut bounds = Vec::new();
+                    bounds.push(self.parse_type()?);
+                    
+                    while self.match_token(&TokenType::Plus) {
+                        bounds.push(self.parse_type()?);
+                    }
+                    bounds
+                } else {
+                    Vec::new()
+                };
+                
+                // Parse optional default type (T = String)
+                let default_type = if self.match_token(&TokenType::Assign) {
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                
+                let param_name_static: &'static str = Box::leak(param_name.into_boxed_str());
+                type_params.push(TypeParam {
+                    name: seen_common::Spanned::new(param_name_static, param_name_span),
+                    bounds,
+                    default_type,
+                    span: param_start_span.combine(self.previous_span()),
+                });
+                
+                if !self.match_token(&TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        
+        // Handle >> as two > tokens for nested generics
+        if matches!(self.current_token(), Some(Token { value: TokenType::RightShift, .. })) {
+            self.advance();
+            self.insert_token_at_current(TokenType::Greater);
+        } else {
+            self.expect_token(TokenType::Greater)?;
+        }
+        
+        Ok(type_params)
+    }
+
+    fn parse_suspend_function(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        
+        // Consume 'suspend'
+        self.expect_keyword(TokenType::KeywordSuspend)?;
+        
+        // Consume 'func'
+        self.expect_keyword(TokenType::KeywordFunc)?;
+        
+        // Parse optional generic type parameters
+        let type_params = if self.check(&TokenType::Less) {
+            self.parse_generic_type_params()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parse function name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse parameters
+        self.expect_token(TokenType::LeftParen)?;
+        let params = self.parse_parameter_list()?;
+        self.expect_token(TokenType::RightParen)?;
+        
+        // Parse optional return type (supports both ':' and '->' syntax)
+        let return_type = if self.match_token(&TokenType::Colon) || self.match_token(&TokenType::Arrow) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        // Parse function body
+        let body = self.parse_block()?;
+        
+        let name_static: &'static str = Box::leak(name.into_boxed_str());
+        
+        // Create a suspend attribute to mark this function as suspendable
+        let suspend_attr = Attribute {
+            name: seen_common::Spanned::new("suspend", start_span),
+            args: Vec::new(),
+            span: start_span,
+        };
+        
+        let func = Function {
+            name: seen_common::Spanned::new(name_static, name_span),
+            type_params,
+            params,
+            return_type,
+            body,
+            visibility: Visibility::Private,
+            attributes: vec![suspend_attr], // Mark as suspend function
         };
         
         Ok(Item {
@@ -629,15 +762,21 @@ impl Parser {
             if let Some(prim) = primitive {
                 TypeKind::Primitive(prim)
             } else {
-                // Named type
+                // Named type - check for generic arguments
+                let generic_args = if self.match_token(&TokenType::Less) {
+                    self.parse_generic_type_args()?
+                } else {
+                    Vec::new()
+                };
+                
                 let path = Path {
                     segments: vec![PathSegment {
                         name: seen_common::Spanned::new(type_name.leak(), span),
-                        generic_args: Vec::new(),
+                        generic_args: generic_args.clone(),
                     }],
                     span,
                 };
-                TypeKind::Named { path, generic_args: Vec::new() }
+                TypeKind::Named { path, generic_args }
             }
         } else {
             self.error("Expected type");
@@ -658,6 +797,30 @@ impl Parser {
         }
         
         Ok(ty)
+    }
+
+    fn parse_generic_type_args(&mut self) -> SeenResult<Vec<Type<'static>>> {
+        let mut args = Vec::new();
+        
+        // Parse first type argument
+        args.push(self.parse_type()?);
+        
+        // Parse additional type arguments separated by commas
+        while self.match_token(&TokenType::Comma) {
+            args.push(self.parse_type()?);
+        }
+        
+        // Expect closing '>' - handle >> as two > tokens
+        if matches!(self.current_token(), Some(Token { value: TokenType::RightShift, .. })) {
+            // Convert >> to two > tokens by advancing and inserting a Greater token
+            self.advance(); // consume >>
+            // Insert a Greater token for the next parse
+            self.insert_token_at_current(TokenType::Greater);
+        } else {
+            self.expect_token(TokenType::Greater)?;
+        }
+        
+        Ok(args)
     }
     
     fn parse_block(&mut self) -> SeenResult<Block<'static>> {
@@ -695,8 +858,9 @@ impl Parser {
         let span = self.current_span();
         
         let kind = match self.current_token() {
-            Some(Token { value: TokenType::KeywordLet, .. }) => {
-                self.advance(); // consume 'let'
+            Some(Token { value: TokenType::KeywordLet, .. }) | 
+            Some(Token { value: TokenType::KeywordVal, .. }) => {
+                self.advance(); // consume 'let' or 'val'
                     
                     let pattern_name = self.expect_identifier_value()?;
                 let pattern_span = self.previous_span();
@@ -1151,6 +1315,18 @@ impl Parser {
                     // Parse match expression
                     return self.parse_match_expression();
                 }
+                TokenType::KeywordAwait => {
+                    // Parse await expression: await expr
+                    return self.parse_await_expression();
+                }
+                TokenType::KeywordLaunch => {
+                    // Parse launch expression: launch { block }
+                    return self.parse_launch_expression();
+                }
+                TokenType::KeywordFlow => {
+                    // Parse flow expression: flow { block }
+                    return self.parse_flow_expression();
+                }
                 _ => {
                     self.error("Expected expression");
                     return Err(seen_common::SeenError::parse_error("Expected expression"));
@@ -1184,7 +1360,7 @@ impl Parser {
         let condition = Box::new(self.parse_expression()?);
         let then_branch = self.parse_block()?;
         
-        let else_branch = if self.match_token(&TokenType::Identifier("else".to_string())) {
+        let else_branch = if self.match_token(&TokenType::KeywordElse) {
             // Check if it's a block or an if expression
             if matches!(self.current_token(), Some(Token { value: TokenType::LeftBrace, .. })) {
                 // else { block }
@@ -1213,6 +1389,54 @@ impl Parser {
         })
     }
     
+    fn parse_await_expression(&mut self) -> SeenResult<Expr<'static>> {
+        let span = self.current_span();
+        
+        // Consume 'await'
+        self.expect_keyword(TokenType::KeywordAwait)?;
+        
+        // Parse the expression to await
+        let expr = Box::new(self.parse_expression()?);
+        
+        Ok(Expr {
+            kind: Box::new(ExprKind::Await { expr }),
+            span,
+            id: self.next_node_id(),
+        })
+    }
+
+    fn parse_launch_expression(&mut self) -> SeenResult<Expr<'static>> {
+        let span = self.current_span();
+        
+        // Consume 'launch'
+        self.expect_keyword(TokenType::KeywordLaunch)?;
+        
+        // Parse the block expression
+        let block = self.parse_block()?;
+        
+        Ok(Expr {
+            kind: Box::new(ExprKind::Launch { block }),
+            span,
+            id: self.next_node_id(),
+        })
+    }
+
+    fn parse_flow_expression(&mut self) -> SeenResult<Expr<'static>> {
+        let span = self.current_span();
+        
+        // Consume 'flow'
+        self.expect_keyword(TokenType::KeywordFlow)?;
+        
+        // Parse the block expression
+        let block = self.parse_block()?;
+        
+        Ok(Expr {
+            kind: Box::new(ExprKind::FlowBuilder { block }),
+            span,
+            id: self.next_node_id(),
+        })
+    }
+
     fn parse_closure_expression(&mut self) -> SeenResult<Expr<'static>> {
         let span = self.current_span();
         
@@ -1302,7 +1526,7 @@ impl Parser {
             let pattern = self.parse_pattern()?;
             
             // Check for guard clause (if condition)
-            let guard = if self.match_token(&TokenType::Identifier("if".to_string())) {
+            let guard = if self.match_token(&TokenType::KeywordIf) {
                 Some(self.parse_expression()?)
             } else {
                 None
@@ -1404,7 +1628,7 @@ impl Parser {
             TokenType::LogicalOr => (1, false),
             TokenType::LogicalAnd => (2, false),
             TokenType::Equal | TokenType::NotEqual => (3, false),
-            TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual => (4, false),
+            TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual | TokenType::KeywordIs => (4, false),
             TokenType::Plus | TokenType::Minus => (5, false),
             TokenType::Multiply | TokenType::Divide | TokenType::Modulo => (6, false),
             _ => (0, false), // No precedence
@@ -1426,6 +1650,7 @@ impl Parser {
             TokenType::GreaterEqual => Some(BinaryOp::Ge),
             TokenType::LogicalAnd => Some(BinaryOp::And),
             TokenType::LogicalOr => Some(BinaryOp::Or),
+            TokenType::KeywordIs => Some(BinaryOp::Is),
             _ => None,
         }
     }
@@ -1522,6 +1747,7 @@ impl Parser {
         
         let function = Function {
             name: seen_common::Spanned::new(func_name.leak(), name_span),
+            type_params: Vec::new(), // Extension functions don't have generics yet
             params,
             return_type,
             body,

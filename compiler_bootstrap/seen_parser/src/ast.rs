@@ -52,6 +52,7 @@ pub enum ItemKind<'a> {
 #[serde(bound(deserialize = "'de: 'a"))]
 pub struct Function<'a> {
     pub name: Spanned<&'a str>,
+    pub type_params: Vec<TypeParam<'a>>,
     pub params: Vec<Parameter<'a>>,
     pub return_type: Option<Type<'a>>,
     pub body: Block<'a>,
@@ -68,6 +69,17 @@ pub struct Parameter<'a> {
     pub ty: Type<'a>,
     pub is_mutable: bool,
     pub default_value: Option<Expr<'a>>, // Kotlin-style default parameters
+    pub span: Span,
+}
+
+/// Generic type parameter
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct TypeParam<'a> {
+    pub name: Spanned<&'a str>,
+    pub bounds: Vec<Type<'a>>,
+    pub default_type: Option<Type<'a>>,
     pub span: Span,
 }
 
@@ -544,6 +556,13 @@ pub enum ExprKind<'a> {
     SafeCall { receiver: Box<Expr<'a>>, method: Spanned<&'a str>, args: Vec<Expr<'a>> },
     /// Elvis operator (?:)
     Elvis { expr: Box<Expr<'a>>, fallback: Box<Expr<'a>> },
+    // Coroutine expressions
+    /// Await expression (await expr)
+    Await { expr: Box<Expr<'a>> },
+    /// Launch block expression (launch { ... })
+    Launch { block: Block<'a> },
+    /// Flow builder expression (flow { ... })
+    FlowBuilder { block: Block<'a> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -591,6 +610,8 @@ pub enum BinaryOp {
     Add, Sub, Mul, Div, Mod,
     // Comparison
     Eq, Ne, Lt, Le, Gt, Ge,
+    // Type checking
+    Is, NotIs,
     // Logical
     And, Or,
     // Bitwise
@@ -758,6 +779,8 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Le => "<=",
             BinaryOp::Gt => ">",
             BinaryOp::Ge => ">=",
+            BinaryOp::Is => "is",
+            BinaryOp::NotIs => "!is",
             BinaryOp::And => "&&",
             BinaryOp::Or => "||",
             BinaryOp::BitAnd => "&",

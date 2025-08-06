@@ -69,6 +69,7 @@ fn test_binary_serialization() {
 fn test_function_serialization() {
     let func = Function {
         name: Spanned::new("test", test_span(0, 4)),
+        type_params: vec![],
         params: vec![],
         return_type: None,
         body: Block {

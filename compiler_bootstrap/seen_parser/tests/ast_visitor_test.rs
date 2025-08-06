@@ -58,6 +58,7 @@ fn test_visitor_traversal() {
             Item {
                 kind: ItemKind::Function(Function {
                     name: Spanned::new("main", test_span(0, 4)),
+                    type_params: vec![],
                     params: vec![],
                     return_type: None,
                     body: Block {
@@ -283,6 +284,7 @@ fn test_visitor_depth_tracking() {
             Item {
                 kind: ItemKind::Function(Function {
                     name: Spanned::new("nested", test_span(0, 6)),
+                    type_params: vec![],
                     params: vec![],
                     return_type: None,
                     body: Block {

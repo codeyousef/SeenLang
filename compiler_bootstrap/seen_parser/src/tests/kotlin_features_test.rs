@@ -370,4 +370,182 @@ mod kotlin_features_tests {
             _ => panic!("Expected main function"),
         }
     }
+
+    #[test]
+    fn test_smart_cast_parsing() {
+        let code = r#"
+            func processValue(value: Any?): String {
+                return value is String
+            }
+        "#;
+
+        let config = LanguageConfig::new_english();
+        let mut lexer = Lexer::new(code, 0, &config);
+        let tokens = lexer.tokenize().expect("Tokenization should succeed");
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().expect("Parsing should succeed");
+
+        assert_eq!(program.items.len(), 1);
+
+        // Check function with 'is' type check expression
+        match &program.items[0].kind {
+            crate::ast::ItemKind::Function(func) => {
+                assert_eq!(func.name.value, "processValue");
+                assert_eq!(func.params.len(), 1);
+                
+                // Parameter should be nullable Any type
+                match &*func.params[0].ty.kind {
+                    crate::ast::TypeKind::Nullable(inner) => {
+                        match &*inner.kind {
+                            crate::ast::TypeKind::Named { path, .. } => {
+                                assert_eq!(path.segments[0].name.value, "Any");
+                            }
+                            _ => panic!("Expected Any type"),
+                        }
+                    }
+                    _ => panic!("Expected nullable type"),
+                }
+
+                // Function body should contain return statement with 'is' expression
+                let statements = &func.body.statements;
+                assert!(statements.len() > 0);
+                
+                // Should contain expression statement with return expression containing 'value is String'
+                if let crate::ast::StmtKind::Expr(outer_expr) = &statements[0].kind {
+                    if let crate::ast::ExprKind::Return(Some(expr)) = &*outer_expr.kind {
+                        match &*expr.kind {
+                            crate::ast::ExprKind::Binary { op: crate::ast::BinaryOp::Is, left, right } => {
+                                // Left should be identifier 'value'
+                                match &*left.kind {
+                                    crate::ast::ExprKind::Identifier(name) => {
+                                        assert_eq!(name.value, "value");
+                                    }
+                                    _ => panic!("Expected identifier 'value'"),
+                                }
+                                // Right should be identifier 'String' (will be a Path in final implementation)
+                                match &*right.kind {
+                                    crate::ast::ExprKind::Identifier(name) => {
+                                        assert_eq!(name.value, "String");
+                                    }
+                                    _ => panic!("Expected String identifier"),
+                                }
+                            }
+                            _ => panic!("Expected 'is' type check binary expression"),
+                        }
+                    } else {
+                        panic!("Expected return expression");
+                    }
+                } else {
+                    panic!("Expected expression statement");
+                }
+            }
+            _ => panic!("Expected function"),
+        }
+    }
+
+    #[test]
+    fn test_coroutine_parsing() {
+        let code = r#"
+            suspend func fetchData(url: String): String {
+                let response = await httpGet(url)
+                return response
+            }
+
+            func main() {
+                launch {
+                    let data = await fetchData("https://api.example.com/data")
+                    println(data)
+                }
+            }
+        "#;
+
+        let config = LanguageConfig::new_english();
+        let mut lexer = Lexer::new(code, 0, &config);
+        let tokens = lexer.tokenize().expect("Tokenization should succeed");
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().expect("Parsing should succeed");
+
+        assert_eq!(program.items.len(), 2);
+
+        // Check suspend function
+        match &program.items[0].kind {
+            crate::ast::ItemKind::Function(func) => {
+                assert_eq!(func.name.value, "fetchData");
+                
+                // Function should have suspend modifier
+                assert!(func.attributes.iter().any(|attr| attr.name.value == "suspend"));
+                
+                // Function body should contain await expression
+                let statements = &func.body.statements;
+                assert!(statements.len() > 0);
+                
+                if let crate::ast::StmtKind::Let(let_stmt) = &statements[0].kind {
+                    if let Some(ref initializer) = let_stmt.initializer {
+                        match &*initializer.kind {
+                            crate::ast::ExprKind::Await { expr } => {
+                                // Should be await expression
+                                match &*expr.kind {
+                                    crate::ast::ExprKind::Call { function, .. } => {
+                                        match &*function.kind {
+                                            crate::ast::ExprKind::Identifier(name) => {
+                                                assert_eq!(name.value, "httpGet");
+                                            }
+                                            _ => panic!("Expected httpGet function call"),
+                                        }
+                                    }
+                                    _ => panic!("Expected function call in await"),
+                                }
+                            }
+                            _ => panic!("Expected await expression"),
+                        }
+                    }
+                }
+            }
+            _ => panic!("Expected function"),
+        }
+
+        // Check main function with launch block
+        match &program.items[1].kind {
+            crate::ast::ItemKind::Function(func) => {
+                assert_eq!(func.name.value, "main");
+                
+                // Function body should contain launch expression
+                let statements = &func.body.statements;
+                assert!(statements.len() > 0);
+                
+                if let crate::ast::StmtKind::Expr(expr) = &statements[0].kind {
+                    match &*expr.kind {
+                        crate::ast::ExprKind::Launch { block } => {
+                            // Launch block should contain await expression
+                            assert!(block.statements.len() > 0);
+                            
+                            if let crate::ast::StmtKind::Let(let_stmt) = &block.statements[0].kind {
+                                if let Some(ref initializer) = let_stmt.initializer {
+                                    match &*initializer.kind {
+                                        crate::ast::ExprKind::Await { expr } => {
+                                            // Should be await fetchData call
+                                            match &*expr.kind {
+                                                crate::ast::ExprKind::Call { function, .. } => {
+                                                    match &*function.kind {
+                                                        crate::ast::ExprKind::Identifier(name) => {
+                                                            assert_eq!(name.value, "fetchData");
+                                                        }
+                                                        _ => panic!("Expected fetchData function call"),
+                                                    }
+                                                }
+                                                _ => panic!("Expected function call in await"),
+                                            }
+                                        }
+                                        _ => panic!("Expected await expression"),
+                                    }
+                                }
+                            }
+                        }
+                        _ => panic!("Expected launch expression"),
+                    }
+                }
+            }
+            _ => panic!("Expected function"),
+        }
+    }
 }

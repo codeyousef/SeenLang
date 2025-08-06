@@ -27,6 +27,7 @@ pub mod graph;
 pub mod testing;
 pub mod formatting;
 pub mod reactive;
+pub mod translation;
 
 // Re-export commonly used types
 pub use core::primitives::*;

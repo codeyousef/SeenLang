@@ -27,6 +27,7 @@ pub enum TokenType {
     KeywordReturn,
     KeywordLet,
     KeywordMut,
+    KeywordVal,
     KeywordTrue,
     KeywordFalse,
     KeywordStruct,
@@ -43,6 +44,12 @@ pub enum TokenType {
     KeywordMatch,
     KeywordBreak,
     KeywordContinue,
+    KeywordIs,
+    KeywordAs,
+    KeywordSuspend,
+    KeywordAwait,
+    KeywordLaunch,
+    KeywordFlow,
     
     // Operators
     Plus,              // +
@@ -122,6 +129,7 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordReturn => "return",
                     TokenType::KeywordLet => "let",
                     TokenType::KeywordMut => "mut",
+                    TokenType::KeywordVal => "val",
                     TokenType::KeywordTrue => "true",
                     TokenType::KeywordFalse => "false",
                     TokenType::KeywordStruct => "struct",
@@ -215,6 +223,7 @@ impl TokenUtils for Token {
             TokenType::KeywordFunc | TokenType::KeywordIf | TokenType::KeywordElse |
             TokenType::KeywordWhile | TokenType::KeywordFor | TokenType::KeywordIn |
             TokenType::KeywordReturn | TokenType::KeywordLet | TokenType::KeywordMut |
+            TokenType::KeywordVal |
             TokenType::KeywordTrue | TokenType::KeywordFalse | TokenType::KeywordStruct |
             TokenType::KeywordEnum | TokenType::KeywordImpl | TokenType::KeywordTrait |
             TokenType::KeywordImport | TokenType::KeywordModule | TokenType::KeywordPub |

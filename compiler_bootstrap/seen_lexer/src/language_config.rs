@@ -23,10 +23,26 @@ impl LanguageConfig {
         keywords.insert("return".to_string(), "TokenReturn".to_string());
         keywords.insert("i32".to_string(), "TokenI32".to_string());
         keywords.insert("let".to_string(), "TokenLet".to_string());
+        keywords.insert("val".to_string(), "TokenVal".to_string());
+        keywords.insert("is".to_string(), "TokenIs".to_string());
+        keywords.insert("as".to_string(), "TokenAs".to_string());
+        keywords.insert("if".to_string(), "TokenIf".to_string());
+        keywords.insert("else".to_string(), "TokenElse".to_string());
+        keywords.insert("String".to_string(), "TokenString".to_string());
+        keywords.insert("Int".to_string(), "TokenInt".to_string());
+        keywords.insert("Any".to_string(), "TokenAny".to_string());
+        keywords.insert("match".to_string(), "TokenMatch".to_string());
+        keywords.insert("null".to_string(), "TokenNull".to_string());
+        keywords.insert("suspend".to_string(), "TokenSuspend".to_string());
+        keywords.insert("await".to_string(), "TokenAwait".to_string());
+        keywords.insert("launch".to_string(), "TokenLaunch".to_string());
+        keywords.insert("flow".to_string(), "TokenFlow".to_string());
         
         let mut operators = HashMap::new();
         operators.insert("+".to_string(), "TokenPlus".to_string());
         operators.insert("=".to_string(), "TokenAssign".to_string());
+        operators.insert("*".to_string(), "TokenMultiply".to_string());
+        operators.insert("!=".to_string(), "TokenNotEqual".to_string());
         
         Self {
             keywords,
@@ -59,6 +75,7 @@ impl LanguageConfig {
                 "TokenIn" => Some(TokenType::KeywordIn),
                 "TokenReturn" => Some(TokenType::KeywordReturn),
                 "TokenLet" => Some(TokenType::KeywordLet),
+                "TokenVal" => Some(TokenType::KeywordVal),
                 "TokenMut" => Some(TokenType::KeywordMut),
                 "TokenTrue" => Some(TokenType::KeywordTrue),
                 "TokenFalse" => Some(TokenType::KeywordFalse),
@@ -76,6 +93,16 @@ impl LanguageConfig {
                 "TokenMatch" => Some(TokenType::KeywordMatch),
                 "TokenBreak" => Some(TokenType::KeywordBreak),
                 "TokenContinue" => Some(TokenType::KeywordContinue),
+                "TokenIs" => Some(TokenType::KeywordIs),
+                "TokenAs" => Some(TokenType::KeywordAs),
+                "TokenSuspend" => Some(TokenType::KeywordSuspend),
+                "TokenAwait" => Some(TokenType::KeywordAwait),
+                "TokenLaunch" => Some(TokenType::KeywordLaunch),
+                "TokenFlow" => Some(TokenType::KeywordFlow),
+                "TokenString" => Some(TokenType::Identifier("String".to_string())),
+                "TokenInt" => Some(TokenType::Identifier("Int".to_string())),
+                "TokenAny" => Some(TokenType::Identifier("Any".to_string())),
+                "TokenNull" => Some(TokenType::Identifier("null".to_string())),
                 _ => None,
             }
         })

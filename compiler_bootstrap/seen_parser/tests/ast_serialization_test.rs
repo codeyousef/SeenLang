@@ -25,6 +25,7 @@ fn test_json_serialization_roundtrip() {
             Item {
                 kind: ItemKind::Function(Function {
                     name: Spanned::new("calculate", test_span(0, 9)),
+                    type_params: vec![],
                     params: vec![
                         Parameter {
                             name: Spanned::new("x", test_span(10, 11)),
@@ -308,6 +309,7 @@ fn create_simple_ast() -> Program<'static> {
             Item {
                 kind: ItemKind::Function(Function {
                     name: Spanned::new("main", test_span(0, 4)),
+                    type_params: vec![],
                     params: vec![],
                     return_type: None,
                     body: Block {
@@ -331,6 +333,7 @@ fn create_large_ast() -> Program<'static> {
         items.push(Item {
             kind: ItemKind::Function(Function {
                 name: Spanned::new("test_func", test_span(i * 10, i * 10 + 6)),
+                type_params: vec![],
                 params: vec![],
                 return_type: None,
                 body: Block {
@@ -358,6 +361,7 @@ fn create_complex_ast() -> Program<'static> {
             Item {
                 kind: ItemKind::Function(Function {
                     name: Spanned::new("func1", test_span(0, 5)),
+                    type_params: vec![],
                     params: vec![],
                     return_type: None,
                     body: Block {

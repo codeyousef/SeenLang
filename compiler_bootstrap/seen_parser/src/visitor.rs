@@ -338,6 +338,15 @@ pub fn walk_expr<'a, V: Visitor<'a>>(visitor: &mut V, expr: &Expr<'a>) {
             visitor.visit_expr(expr);
             visitor.visit_expr(fallback);
         }
+        ExprKind::Await { expr } => {
+            visitor.visit_expr(expr);
+        }
+        ExprKind::Launch { block } => {
+            visitor.visit_block(block);
+        }
+        ExprKind::FlowBuilder { block } => {
+            visitor.visit_block(block);
+        }
     }
 }
 
@@ -641,6 +650,15 @@ pub fn walk_expr_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, expr: &mut Expr<'a>
         ExprKind::Elvis { expr, fallback } => {
             visitor.visit_expr(expr);
             visitor.visit_expr(fallback);
+        }
+        ExprKind::Await { expr } => {
+            visitor.visit_expr(expr);
+        }
+        ExprKind::Launch { block } => {
+            visitor.visit_block(block);
+        }
+        ExprKind::FlowBuilder { block } => {
+            visitor.visit_block(block);
         }
     }
 }
