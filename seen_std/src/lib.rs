@@ -22,6 +22,8 @@ pub mod ffi;
 pub mod regex;
 pub mod toml;
 pub mod json;
+pub mod pretty_simple;
+pub mod graph;
 
 // Re-export commonly used types
 pub use core::primitives::*;

@@ -597,6 +597,57 @@ impl<K: PartialEq + Eq + Hash, V: PartialEq> PartialEq for HashMap<K, V> {
     }
 }
 
+impl<K, V, S> FromIterator<(K, V)> for HashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher + Default,
+{
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let (lower, _) = iter.size_hint();
+        let mut map = HashMap::with_capacity_and_hasher(lower, S::default());
+        for (key, value) in iter {
+            map.insert(key, value);
+        }
+        map
+    }
+}
+
+impl<K, V, S> std::ops::Index<&K> for HashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    type Output = V;
+
+    fn index(&self, key: &K) -> &V {
+        self.get(key).expect("no entry found for key")
+    }
+}
+
+impl<K, V, S> std::ops::IndexMut<&K> for HashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    fn index_mut(&mut self, key: &K) -> &mut V {
+        self.get_mut(key).expect("no entry found for key")
+    }
+}
+
+impl<'a, K, V, S> IntoIterator for &'a HashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V>;
+
+    fn into_iter(self) -> Iter<'a, K, V> {
+        self.iter()
+    }
+}
+
 // Send and Sync implementations
 unsafe impl<K: Send, V: Send, S: Send> Send for HashMap<K, V, S> {}
 unsafe impl<K: Sync, V: Sync, S: Sync> Sync for HashMap<K, V, S> {}

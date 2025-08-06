@@ -464,6 +464,18 @@ impl PartialEq for String {
     }
 }
 
+impl PartialEq<str> for String {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for String {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
 impl Eq for String {}
 
 impl PartialOrd for String {

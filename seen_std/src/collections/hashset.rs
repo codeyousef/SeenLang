@@ -8,6 +8,7 @@ use std::collections::hash_map::RandomState;
 use std::hash::{Hash, BuildHasher};
 
 /// A high-performance hash set
+#[derive(Debug)]
 pub struct HashSet<T, S = RandomState> {
     map: HashMap<T, (), S>,
 }
@@ -192,6 +193,31 @@ where
 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<T, S> Clone for HashSet<T, S>
+where
+    T: Clone + Eq + Hash,
+    S: Clone + BuildHasher,
+{
+    fn clone(&self) -> Self {
+        HashSet {
+            map: self.map.clone(),
+        }
+    }
+}
+
+impl<'a, T, S> IntoIterator for &'a HashSet<T, S>
+where
+    T: Eq + Hash,
+    S: BuildHasher,
+{
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+
+    fn into_iter(self) -> Iter<'a, T> {
+        self.iter()
     }
 }
 

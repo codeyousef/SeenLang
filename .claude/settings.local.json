@@ -267,7 +267,20 @@
       "Bash(CARGO_TARGET_DIR=target-wsl cargo bench -p seen_std --bench io_benchmark file_operations/seen_file_exists)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib text)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib ffi)",
-      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib --quiet)"
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib --quiet)",
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-target cargo test -p seen_std --test regex_tests -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-target cargo test -p seen_std regex -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-target cargo test -p seen_std toml -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-target cargo test -p seen_std json -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --test '*' json -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib json -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl rustc --edition 2021 debug_json_unicode.rs --extern seen_std=target-wsl/debug/libseen_std.rlib -L target-wsl/debug/deps -o debug_json_unicode)",
+      "Bash(./debug_json_unicode)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib pretty -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib pretty_simple -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib graph -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib graph test_topological_sort_simple -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib graph -- test_topological_sort_simple --nocapture)"
     ],
     "deny": []
   }
