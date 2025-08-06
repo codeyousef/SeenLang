@@ -1,0 +1,48 @@
+[package]
+name = "seen_std"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seen Language Team"]
+description = "Standard library for the Seen language - high-performance core types and collections"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/seenlang/seenlang"
+
+[dependencies]
+# Core dependencies for zero-cost abstractions
+memchr = { workspace = true }          # Fast string searching
+ahash = "0.8"                          # Fast hashing for collections
+parking_lot = "0.12"                   # Fast synchronization primitives
+libc = "0.2"                           # C library bindings for FFI
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+rand = "0.8"                           # For benchmark data generation
+tempfile = "3.8"                       # For temporary files in tests
+
+[lib]
+name = "seen_std"
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+std = []                               # Standard library features
+no_std = []                            # Core library only
+unstable = []                          # Unstable/experimental features
+
+[[bench]]
+name = "collections_benchmark"
+harness = false
+
+[[bench]]
+name = "string_benchmark"
+harness = false
+
+[[bench]]
+name = "primitives_benchmark"
+harness = false
+
+[[bench]]
+name = "io_benchmark"
+harness = false

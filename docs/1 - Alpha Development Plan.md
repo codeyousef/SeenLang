@@ -2,93 +2,130 @@
 
 ## Overview: Advanced Features & Developer Experience
 
-**Duration**: Months 3-6 **Prerequisites**: Completed MVP with self-hosting compiler **Goal**: Production-ready language with advanced tooling and optimization **Development Language**: **SEEN** (All development from this point forward in Seen, not Rust)
+**Duration**: Months 3-6  
+**Prerequisites**: Completed MVP with self-hosting compiler and multi-paradigm support  
+**Goal**: Production-ready language with advanced tooling and optimization  
+**Development Language**: **SEEN** (All development from this point forward in Seen, not Rust)
 
 **Core Alpha Requirements:**
 
-- Advanced optimization pipeline (E-graph, MLIR)
-- Complete standard library with networking
-- LSP server for IDE integration
-- Package manager and registry
-- Advanced C++ interoperability
-- WebAssembly first-class support
-- Production debugging and profiling tools
+- Advanced optimization pipeline (E-graph, MLIR) leveraging paradigm features
+- Complete standard library with advanced functional/OO patterns
+- LSP server with paradigm-aware completions
+- Package manager with trait/typeclass resolution
+- Advanced C++ interoperability including templates
+- WebAssembly with functional programming optimizations
+- Production debugging for all paradigms
 
-**CRITICAL**: All Alpha phase development must be conducted in Seen language itself, using the self-hosted compiler from MVP. The Rust bootstrap implementation is archived and only used for emergency recovery.
+**CRITICAL**: All Alpha phase development must be conducted in Seen language itself, using the self-hosted compiler from MVP. The language now supports functional, object-oriented, and concurrent paradigms, which should be leveraged throughout Alpha development.
 
 ## Phase Structure
 
 ### Milestone 4: Advanced Tooling (Months 3-4)
 
-#### Step 10: LSP Server Implementation
+#### Step 11: LSP Server Implementation (Paradigm-Aware)
 
 **Tests Written First:**
 
 - [ ] Test: LSP responses <50ms for all operations
-- [ ] Test: Autocomplete suggestions accurate and fast
-- [ ] Test: Go-to-definition works across modules
-- [ ] Test: Real-time error highlighting functional
-- [ ] Test: Refactoring operations preserve semantics
-- [ ] Test: Memory usage <100MB for large projects
+- [ ] Test: Autocomplete suggests appropriate paradigm patterns
+- [ ] Test: Go-to-definition works across traits and closures
+- [ ] Test: Real-time error highlighting for pattern exhaustiveness
+- [ ] Test: Refactoring preserves functional purity
+- [ ] Test: Memory usage <100MB for large mixed-paradigm projects
+- [ ] Test: Type inference hints for complex HOFs
+- [ ] Test: Trait implementation suggestions work
 
 **Implementation:**
 
 - [ ] **Enhanced Development Commands:**
     - [ ] `seen lsp` - Start language server
-    - [ ] `seen fmt` - Format source code
+    - [ ] `seen fmt` - Format source code (paradigm-aware)
     - [ ] `seen fix` - Auto-fix common issues
     - [ ] `seen doc` - Generate documentation
     - [ ] `seen check --watch` - Continuous checking
+    - [ ] `seen refactor` - Paradigm-specific refactorings
 - [ ] Language Server Protocol implementation
 - [ ] Real-time syntax and semantic analysis
 - [ ] Incremental compilation for fast feedback
-- [ ] Code completion with type information
-- [ ] Go-to-definition and find-references
-- [ ] Refactoring operations (rename, extract, etc.)
-- [ ] Diagnostic reporting with quick fixes
-- [ ] Workspace symbol search
+- [ ] **Paradigm-Aware Features:**
+    - [ ] Functional code completions (HOFs, monadic chains)
+    - [ ] OO completions (method chains, trait implementations)
+    - [ ] Pattern match case generation
+    - [ ] Automatic trait implementation stubs
+    - [ ] Closure capture analysis and suggestions
+    - [ ] Async/await transformation suggestions
+    - [ ] Pure function detection and marking
+    - [ ] Effect system visualization
+- [ ] **Kotlin Feature Support:**
+    - [ ] Extension function discovery and completion
+    - [ ] Data class method generation
+    - [ ] Smart cast tracking and visualization
+    - [ ] Null safety analysis and quick fixes
+    - [ ] Delegation pattern suggestions
+    - [ ] DSL scope awareness
+    - [ ] Coroutine scope tracking
+    - [ ] Contract verification
+    - [ ] Named parameter hints
+- [ ] Go-to-definition for all paradigm constructs
+- [ ] Find-references including trait implementations
+- [ ] Refactoring operations:
+    - [ ] Extract function/method
+    - [ ] Convert between paradigms (loops ↔ HOFs)
+    - [ ] Introduce trait abstraction
+    - [ ] Lambda lifting/lowering
+    - [ ] Async function conversion
 
 **Performance Benchmarks:**
 
 ```rust
 #[bench]
 fn bench_lsp_completion_speed(b: &mut Bencher) {
-    let project = load_large_project(10_000_files);
+    let project = load_large_mixed_paradigm_project(10_000_files);
     let lsp = start_lsp_server(&project);
-    let cursor_position = random_completion_position();
     
     b.iter(|| {
-        let completions = lsp.get_completions(cursor_position);
-        assert!(completions.response_time < Duration::from_millis(50));
-        assert!(completions.len() > 0);
-        assert!(completions.all_valid());
+        // Test functional completions
+        let hof_completions = lsp.get_completions_after("list.");
+        assert!(hof_completions.suggests_map_filter_fold());
+        assert!(hof_completions.response_time < Duration::from_millis(50));
+        
+        // Test OO completions
+        let trait_completions = lsp.get_trait_implementations();
+        assert!(trait_completions.suggests_all_required_methods());
+        assert!(trait_completions.response_time < Duration::from_millis(50));
+        
+        // Test pattern completions
+        let pattern_completions = lsp.get_pattern_cases();
+        assert!(pattern_completions.covers_all_variants());
+        assert!(pattern_completions.response_time < Duration::from_millis(50));
     });
 }
 
 #[bench]
-fn bench_incremental_analysis(b: &mut Bencher) {
-    let mut analyzer = IncrementalAnalyzer::new();
-    let project = load_project_state();
-    analyzer.initial_analysis(&project);
+fn bench_paradigm_refactoring(b: &mut Bencher) {
+    let code = load_imperative_loop_code();
+    let lsp = start_lsp_server();
     
     b.iter(|| {
-        let edit = make_small_edit();
-        let reanalysis_time = analyzer.update_analysis(&edit);
-        assert!(reanalysis_time < Duration::from_millis(10));
-        assert!(analyzer.affected_files() < 5);
+        let refactored = lsp.refactor_to_functional(&code);
+        assert!(refactored.uses_map_filter());
+        assert!(refactored.maintains_semantics());
+        assert!(refactored.time < Duration::from_millis(100));
     });
 }
 ```
 
-#### Step 11: Package Manager & Registry
+#### Step 12: Package Manager & Registry (Multi-Paradigm)
 
 **Tests Written First:**
 
-- [ ] Test: `seen add` resolves dependencies correctly
-- [ ] Test: Version resolution handles conflicts
-- [ ] Test: Package downloads are verified and cached
-- [ ] Test: Private registry support works
-- [ ] Test: Dependency updates preserve compatibility
+- [ ] Test: `seen add` resolves trait dependencies correctly
+- [ ] Test: Version resolution handles typeclass conflicts
+- [ ] Test: Package features enable paradigm-specific code
+- [ ] Test: Functional package dependencies tracked
+- [ ] Test: Private registry supports enterprise packages
+- [ ] Test: Cross-paradigm compatibility verified
 
 **Implementation:**
 
@@ -99,162 +136,183 @@ fn bench_incremental_analysis(b: &mut Bencher) {
     - [ ] `seen publish` - Publish to registry
     - [ ] `seen search <query>` - Search packages
     - [ ] `seen info <package>` - Show package details
-- [ ] Dependency resolution with version constraints
-- [ ] Package registry client (compatible with cargo/npm)
-- [ ] Secure package verification and signing
-- [ ] Local and private registry support
-- [ ] Lockfile generation (Seen.lock)
-- [ ] Workspace-aware dependency management
-- [ ] Binary caching and distribution
+    - [ ] `seen features` - List available features
+- [ ] Dependency resolution with trait coherence
+- [ ] Package registry with paradigm tags
+- [ ] **Multi-Paradigm Package Features:**
+    - [ ] Feature flags for paradigm variants
+    - [ ] Trait orphan rule checking
+    - [ ] Typeclass instance resolution
+    - [ ] Effect system compatibility
+    - [ ] Async runtime selection
+    - [ ] Pure/impure function tracking
+- [ ] Secure package verification
+- [ ] Lockfile with exact resolutions
+- [ ] Workspace-aware dependencies
+- [ ] Binary caching per feature set
 
-#### Step 12: Advanced C++ Interoperability
+#### Step 13: Advanced C Interoperability & FFI
 
 **Tests Written First:**
 
-- [ ] Test: C++ classes map to Seen structs seamlessly
-- [ ] Test: Template instantiation works correctly
-- [ ] Test: C++ exceptions convert to Seen Results
-- [ ] Test: STL containers interoperate efficiently
-- [ ] Test: Virtual function calls have zero overhead
+- [ ] Test: C library bindings generated automatically
+- [ ] Test: C callbacks work with Seen closures
+- [ ] Test: C variadic functions supported safely
+- [ ] Test: Inline C code blocks work
+- [ ] Test: C macros expanded correctly
+- [ ] Test: Bitfields handled properly
+- [ ] Test: Platform-specific C types mapped correctly
+- [ ] Test: Large C libraries (like SQLite) fully usable
 
 **Implementation:**
 
-- [ ] C++ header parsing with template support
-- [ ] Automatic binding generation for C++ APIs
-- [ ] C++ class wrapping with RAII semantics
-- [ ] Template instantiation on demand
-- [ ] Exception safety bridge (C++ exceptions → Result<T,E>)
-- [ ] STL container bridging
-- [ ] Virtual function table optimization
-- [ ] C++ namespace mapping to Seen modules
+- [ ] **Advanced C Integration:**
+    - [ ] Automatic header parsing with clang
+    - [ ] C macro expansion and translation
+    - [ ] Variadic function safe wrappers
+    - [ ] Inline C code blocks
+    - [ ] Platform-specific type handling
+    - [ ] Bitfield support
+    - [ ] Packed struct support
+- [ ] **C Library Ecosystem:**
+    - [ ] Automatic binding generation for common libraries
+    - [ ] Package registry for C library bindings
+    - [ ] Cross-platform library detection
+    - [ ] Static and dynamic linking options
+    - [ ] Build script integration for C dependencies
+- [ ] **Safety Features:**
+    - [ ] Automatic null check injection
+    - [ ] Buffer overflow protection
+    - [ ] Safe wrappers for unsafe C patterns
+    - [ ] Memory ownership tracking across FFI
+    - [ ] Error code to Result conversion
+- [ ] **Performance:**
+    - [ ] Zero-cost C function calls
+    - [ ] Inline C functions when possible
+    - [ ] Link-time optimization across languages
+    - [ ] Minimal wrapper overhead
 
 ### Milestone 5: Optimization & Performance (Months 4-5)
 
-#### Step 13: Advanced Optimization Pipeline
+#### Step 14: Advanced Optimization Pipeline (Paradigm-Optimized)
 
 **Tests Written First:**
 
-- [ ] Test: E-graph optimization improves performance >20%
-- [ ] Test: MLIR pipeline generates optimal code
-- [ ] Test: ML-guided optimizations beat static analysis
-- [ ] Test: Superoptimizer finds better instruction sequences
-- [ ] Test: Profile-guided optimization shows measurable gains
+- [ ] Test: E-graph discovers functional fusion opportunities
+- [ ] Test: Monadic operations optimize to loops
+- [ ] Test: Virtual calls devirtualized when possible
+- [ ] Test: Closure allocations eliminated
+- [ ] Test: Tail recursion always optimized
+- [ ] Test: Pattern matching compiles to jump tables
+- [ ] Test: Async state machines minimized
+- [ ] Test: Effect tracking enables optimizations
 
 **Implementation:**
 
 - [ ] **Performance Analysis Commands:**
-    - [ ] `seen profile` - Profile application performance
-    - [ ] `seen bench --compare` - Compare optimizations
-    - [ ] `seen optimize --profile` - Profile-guided optimization
-    - [ ] `seen analyze --hotspots` - Find performance bottlenecks
-- [ ] **Breakthrough Memory Model (Vale-inspired):**
-    - [ ] Linear-aliasing with generational references achieving zero runtime overhead
-    - [ ] Shared mutability with compile-time safety guarantees
-    - [ ] Region-based memory management with O(1) deallocation
-    - [ ] Cache-oblivious data structure flattening (2.4× speedup, 50% space savings)
-- [ ] **Next-Generation Optimization Pipeline:**
-    - [ ] E-graph equality saturation discovering emergent optimizations
-    - [ ] MLIR Transform Dialect with fine-grained optimization control
-    - [ ] Neural Architecture Search for compiler optimizations (1.9× improvements)
-    - [ ] LENS superoptimization for critical paths (82% faster than gcc -O3)
-- [ ] **Hardware-Aware Code Generation:**
-    - [ ] Intel APX support (32 general-purpose registers, 10% fewer loads/stores)
-    - [ ] CXL memory expansion integration (128× speedup for memory-bound apps)
-    - [ ] ARM Scalable Vector Extensions with variable 128-2048 bit vectors
-    - [ ] NUMA-aware concurrency primitives (30× performance improvement)
-- [ ] **Advanced Type System Optimizations:**
-    - [ ] Effect-guided optimization using precise computational effect tracking
-    - [ ] Dependent types for compile-time verification eliminating runtime checks
-    - [ ] Fractional permissions with grading for ownership without borrowing complexity
+    - [ ] `seen profile --paradigm` - Paradigm-specific profiling
+    - [ ] `seen optimize --functional` - Functional optimizations
+    - [ ] `seen optimize --devirtualize` - OO optimizations
+    - [ ] `seen analyze --purity` - Effect analysis
+- [ ] **Functional Optimizations:**
+    - [ ] Stream fusion for collection pipelines
+    - [ ] Deforestation for intermediate structures
+    - [ ] Closure conversion and lambda lifting
+    - [ ] Tail-call optimization guarantee
+    - [ ] Memoization detection and caching
+    - [ ] Lazy evaluation optimization
+    - [ ] Monadic operation inlining
+- [ ] **Object-Oriented Optimizations:**
+    - [ ] Devirtualization through whole-program analysis
+    - [ ] Inline caching for method dispatch
+    - [ ] Trait object fat pointer optimization
+    - [ ] Small object optimization
+    - [ ] Method specialization
+- [ ] **Cross-Paradigm Optimizations:**
+    - [ ] Convert functional chains to loops
+    - [ ] Eliminate temporary closures
+    - [ ] Fuse pattern matching branches
+    - [ ] Async operation batching
+    - [ ] Effect-guided optimization
+- [ ] **Next-Generation Techniques (from research):**
+    - [ ] E-graph equality saturation with paradigm rules
+    - [ ] MLIR dialect for functional patterns
+    - [ ] ML-guided paradigm selection
+    - [ ] Superoptimization for critical paths
 
-**Performance Benchmarks (Based on 2025 Research):**
+**Performance Benchmarks:**
 
 ```rust
 #[bench]
-fn bench_e_graph_optimization_effectiveness(b: &mut Bencher) {
-    let program = load_compute_intensive_program();
-    let basic_optimized = compile_with_llvm_o3(&program);
-    let egraph_optimized = compile_with_egraph_saturation(&program);
-    
-    let basic_time = measure_execution_time(&basic_optimized);
-    let egraph_time = measure_execution_time(&egraph_optimized);
-    
-    // E-graphs should discover emergent optimizations LLVM misses
-    let improvement = (basic_time - egraph_time) / basic_time;
-    assert!(improvement > 0.20); // >20% improvement required
-    
-    // Compilation should be 10x faster than LLVM
-    let compile_speedup = measure_compile_time(&basic_optimized) / measure_compile_time(&egraph_optimized);
-    assert!(compile_speedup > 10.0);
+fn bench_functional_fusion(b: &mut Bencher) {
+    let pipeline = generate_complex_pipeline();
+    b.iter(|| {
+        let naive = compile_without_fusion(&pipeline);
+        let fused = compile_with_stream_fusion(&pipeline);
+        
+        let speedup = measure_performance(&naive) / measure_performance(&fused);
+        assert!(speedup > 3.0); // 3x speedup from fusion
+        
+        let allocations_naive = count_allocations(&naive);
+        let allocations_fused = count_allocations(&fused);
+        assert!(allocations_fused < allocations_naive * 0.1); // 90% fewer allocations
+    });
 }
 
 #[bench]
-fn bench_superoptimization_performance(b: &mut Bencher) {
-    let critical_loops = extract_hottest_loops(&program);
-    
-    for loop in critical_loops {
-        let gcc_o3_code = compile_with_gcc_o3(&loop);
-        let lens_optimized = compile_with_lens_superoptimizer(&loop);
+fn bench_devirtualization(b: &mut Bencher) {
+    let trait_heavy = generate_trait_object_code();
+    b.iter(|| {
+        let virtual_calls = compile_without_devirtualization(&trait_heavy);
+        let devirtualized = compile_with_whole_program_devirtualization(&trait_heavy);
         
-        let gcc_performance = measure_execution_speed(&gcc_o3_code);
-        let lens_performance = measure_execution_speed(&lens_optimized);
-        
-        // LENS algorithm should achieve 82% better performance than gcc -O3
-        assert!(lens_performance > gcc_performance * 1.82);
-    }
+        let virtual_overhead = measure_call_overhead(&virtual_calls);
+        let static_overhead = measure_call_overhead(&devirtualized);
+        assert!(static_overhead < virtual_overhead * 0.05); // 95% overhead eliminated
+    });
 }
 
 #[bench]
-fn bench_hardware_aware_optimizations(b: &mut Bencher) {
-    let program = load_vectorizable_program();
-    
-    // Intel APX optimization (32 registers)
-    if has_intel_apx() {
-        let optimized = compile_with_apx_awareness(&program);
-        let baseline = compile_without_apx(&program);
+fn bench_pattern_optimization(b: &mut Bencher) {
+    let patterns = generate_complex_pattern_matches();
+    b.iter(|| {
+        let decision_tree = compile_patterns_to_decision_tree(&patterns);
+        let jump_table = compile_patterns_to_jump_table(&patterns);
         
-        let load_reduction = count_loads(&baseline) - count_loads(&optimized);
-        let store_reduction = count_stores(&baseline) - count_stores(&optimized);
-        
-        assert!(load_reduction > count_loads(&baseline) * 0.10); // 10% fewer loads
-        assert!(store_reduction > count_stores(&baseline) * 0.20); // 20% fewer stores
-    }
-    
-    // Cache-oblivious data structures
-    let flattened = compile_with_structure_flattening(&program);
-    let traditional = compile_with_traditional_layout(&program);
-    
-    let speedup = measure_execution_time(&traditional) / measure_execution_time(&flattened);
-    let space_savings = (memory_usage(&traditional) - memory_usage(&flattened)) / memory_usage(&traditional);
-    
-    assert!(speedup > 2.4); // 2.4× speedup from research
-    assert!(space_savings > 0.50); // 50% space savings
+        let tree_perf = measure_pattern_performance(&decision_tree);
+        let table_perf = measure_pattern_performance(&jump_table);
+        assert!(table_perf > tree_perf * 2.0); // Jump tables 2x faster
+    });
 }
 
 #[bench]
-fn bench_ml_guided_optimization(b: &mut Bencher) {
-    let program = load_large_program();
-    
-    let traditional_opts = compile_with_traditional_heuristics(&program);
-    let ml_guided_opts = compile_with_mlgo_framework(&program);
-    
-    let size_reduction = (binary_size(&traditional_opts) - binary_size(&ml_guided_opts)) / binary_size(&traditional_opts);
-    let perf_improvement = measure_execution_time(&traditional_opts) / measure_execution_time(&ml_guided_opts);
-    
-    assert!(size_reduction > 0.03); // 3-7% size reduction from research
-    assert!(perf_improvement > 1.015); // 1.5% performance improvement
+fn bench_async_optimization(b: &mut Bencher) {
+    let async_code = generate_async_heavy_code();
+    b.iter(|| {
+        let naive_state_machine = compile_async_naive(&async_code);
+        let optimized_state_machine = compile_async_optimized(&async_code);
+        
+        let naive_size = measure_state_machine_size(&naive_state_machine);
+        let optimized_size = measure_state_machine_size(&optimized_state_machine);
+        assert!(optimized_size < naive_size * 0.5); // 50% smaller state machines
+        
+        let naive_perf = measure_async_performance(&naive_state_machine);
+        let optimized_perf = measure_async_performance(&optimized_state_machine);
+        assert!(optimized_perf > naive_perf * 1.5); // 50% faster
+    });
 }
 ```
 
-#### Step 14: WebAssembly First-Class Support
+#### Step 15: WebAssembly First-Class Support (Functional-Optimized)
 
 **Tests Written First:**
 
-- [ ] Test: WASM output <50% performance overhead vs native
-- [ ] Test: WASM binary size smaller than Rust equivalent
-- [ ] Test: Browser integration seamless
-- [ ] Test: Node.js compatibility complete
-- [ ] Test: WASI support functional
+- [ ] Test: WASM functional code optimally compiled
+- [ ] Test: Tail calls use WASM tail-call proposal
+- [ ] Test: Closure conversion efficient in WASM
+- [ ] Test: Pattern matching optimized for WASM
+- [ ] Test: Async compiles to WASM promises
+- [ ] Test: GC proposal integration works
 
 **Implementation:**
 
@@ -262,130 +320,231 @@ fn bench_ml_guided_optimization(b: &mut Bencher) {
     - [ ] `seen build --target wasm32-unknown-unknown` - Browser WASM
     - [ ] `seen build --target wasm32-wasi` - WASI applications
     - [ ] `seen wasm-pack` - Package for npm distribution
-    - [ ] `seen wasm-optimize` - Optimize WASM binaries
-- [ ] Native WASM code generation (bypass LLVM for size)
-- [ ] Browser API bindings generation
-- [ ] WASI system interface implementation
-- [ ] npm package generation and publishing
-- [ ] WASM-specific optimizations
+    - [ ] `seen wasm-optimize --paradigm` - Paradigm-specific optimization
+- [ ] **WASM Paradigm Features:**
+    - [ ] Tail-call proposal usage for functional code
+    - [ ] GC proposal for managed objects
+    - [ ] Function references for HOFs
+    - [ ] Exception handling for Result types
+    - [ ] SIMD for collection operations
+- [ ] **JavaScript Interop:**
+    - [ ] Promise ↔ async/await bridging
+    - [ ] Closure marshalling
+    - [ ] Object protocol mapping
+    - [ ] TypeScript definition generation
 - [ ] Streaming compilation support
-- [ ] WebAssembly GC integration (future standard)
+- [ ] Worker thread integration
 
 ### Milestone 6: Standard Library Expansion (Months 5-6)
 
-#### Step 15: Comprehensive Standard Library
+#### Step 16: Comprehensive Standard Library (All Paradigms)
 
 **Tests Written First:**
 
-- [ ] Test: HTTP/2-3 performance matches nginx
-- [ ] Test: gRPC faster than grpc-go
-- [ ] Test: Async I/O achieves line-rate (10Gbps+)
-- [ ] Test: Cryptographic operations secure and fast
-- [ ] Test: GUI framework responsive and memory efficient
+- [ ] Test: Functional collections match Haskell performance
+- [ ] Test: Actor system scales to 1M actors
+- [ ] Test: STM transactions scale linearly
+- [ ] Test: Dataflow programming efficient
+- [ ] Test: Reactive streams backpressure works
+- [ ] Test: Parser combinators parse >100MB/s
+- [ ] Test: Lens operations compose efficiently
+- [ ] Test: Effect system has zero overhead
 
 **Implementation:**
 
+- [ ] **Advanced Functional Programming:**
+    - [ ] Persistent collections with structural sharing
+    - [ ] Lazy sequences with memoization
+    - [ ] Transducers for composable transformations
+    - [ ] Free monads for effect abstraction
+    - [ ] Lens library for nested updates
+    - [ ] Parser combinators
+    - [ ] Property-based testing generators
+    - [ ] Category theory abstractions (Functor, Applicative, Monad)
+- [ ] **Advanced OO Patterns:**
+    - [ ] Builder pattern macros
+    - [ ] Visitor pattern traits
+    - [ ] Observer pattern with weak refs
+    - [ ] Factory pattern with registration
+    - [ ] Dependency injection framework
+    - [ ] Aspect-oriented programming support
+- [ ] **Concurrent Programming Models:**
+    - [ ] Actor system with supervision trees
+    - [ ] CSP channels with select
+    - [ ] Software Transactional Memory (STM)
+    - [ ] Dataflow programming primitives
+    - [ ] Reactive streams with backpressure
+    - [ ] Work-stealing schedulers
+    - [ ] Structured concurrency
 - [ ] **Networking & Protocols:**
-    - [ ] HTTP/1.1, HTTP/2, HTTP/3 client and server
-    - [ ] gRPC with automatic code generation
-    - [ ] WebSocket support with compression
-    - [ ] TCP/UDP with async I/O
-    - [ ] TLS 1.3 with certificate management
-    - [ ] DNS resolution with caching
-- [ ] **System Programming:**
-    - [ ] Process management and IPC
-    - [ ] Thread pools and async runtime
-    - [ ] File system operations with notifications
-    - [ ] Terminal/TTY control with colors
-    - [ ] Signal handling (Unix/Windows)
-    - [ ] Memory-mapped files
-- [ ] **Cryptography:**
-    - [ ] AES, ChaCha20, RSA, ECDSA implementations
-    - [ ] Secure random number generation
-    - [ ] Password hashing (Argon2, bcrypt)
-    - [ ] Certificate parsing and validation
-- [ ] **Data Formats:**
-    - [ ] JSON with schema validation
-    - [ ] XML parsing and generation
-    - [ ] YAML, TOML, CSV support
-    - [ ] Protocol Buffers integration
-    - [ ] MessagePack binary format
-- [ ] **GUI Framework Integration:**
-    - [ ] Native bindings (Win32, Cocoa, GTK)
-    - [ ] Web-based UI (Tauri-style)
-    - [ ] Immediate mode GUI (Dear ImGui style)
-    - [ ] Reactive UI framework
+    - [ ] HTTP/1.1, HTTP/2, HTTP/3 with paradigm-specific APIs
+    - [ ] gRPC with code generation
+    - [ ] WebSocket with reactive streams
+    - [ ] Async I/O with futures/promises
+    - [ ] Protocol combinators for custom protocols
+- [ ] **Data Processing:**
+    - [ ] Stream processing with fusion
+    - [ ] Parallel collection operations
+    - [ ] DataFrame-like API for analytics
+    - [ ] SQL query builder with type safety
+    - [ ] GraphQL client/server with code generation
 
-#### Step 16: Advanced Debugging & Profiling
+**Performance Benchmarks:**
+
+```rust
+#[bench]
+fn bench_functional_collections(b: &mut Bencher) {
+    let operations = generate_collection_operations();
+    b.iter(|| {
+        let seen_perf = measure_persistent_collections("seen", &operations);
+        let haskell_perf = measure_persistent_collections("haskell", &operations);
+        let clojure_perf = measure_persistent_collections("clojure", &operations);
+        assert!(seen_perf > haskell_perf * 1.1); // 10% faster than Haskell
+        assert!(seen_perf > clojure_perf * 1.3); // 30% faster than Clojure
+    });
+}
+
+#[bench]
+fn bench_actor_system(b: &mut Bencher) {
+    b.iter(|| {
+        let system = create_actor_system();
+        spawn_actors(&system, 1_000_000);
+        let message_throughput = measure_message_passing(&system);
+        assert!(message_throughput > 10_000_000); // >10M messages/second
+        let memory_per_actor = measure_memory(&system) / 1_000_000;
+        assert!(memory_per_actor < 1024); // <1KB per actor
+    });
+}
+
+#[bench]
+fn bench_parser_combinators(b: &mut Bencher) {
+    let json_parser = create_json_parser_with_combinators();
+    let large_json = generate_json_file(100_000_000); // 100MB
+    b.iter(|| {
+        let parse_time = measure_parse_time(&json_parser, &large_json);
+        let throughput = 100_000_000.0 / parse_time.as_secs_f64();
+        assert!(throughput > 100_000_000); // >100MB/s parsing
+    });
+}
+```
+
+#### Step 17: Advanced Debugging & Profiling (Paradigm-Aware)
 
 **Tests Written First:**
 
-- [ ] Test: Debugger supports all language features
-- [ ] Test: Memory profiler detects all leak types
-- [ ] Test: Performance profiler identifies bottlenecks
-- [ ] Test: Static analysis catches security issues
-- [ ] Test: Fuzzing finds edge case bugs
+- [ ] Test: Debugger shows closure captures correctly
+- [ ] Test: Async stack traces remain readable
+- [ ] Test: Pattern match debugger shows decision path
+- [ ] Test: Memory profiler tracks functional allocations
+- [ ] Test: Trait method dispatch profiling works
+- [ ] Test: Effect tracking visible in debugger
+- [ ] Test: Time-travel debugging for pure functions
 
 **Implementation:**
 
 - [ ] **Debugging & Analysis Commands:**
-    - [ ] `seen debug` - Interactive debugger
-    - [ ] `seen profile --memory` - Memory usage analysis
-    - [ ] `seen profile --cpu` - CPU profiling
-    - [ ] `seen analyze --security` - Security analysis
-    - [ ] `seen fuzz` - Automated fuzzing
-    - [ ] `seen trace` - Execution tracing
-- [ ] GDB/LLDB integration with pretty-printers
-- [ ] Memory profiler with leak detection
-- [ ] CPU profiler with flame graphs
-- [ ] Static analysis for security vulnerabilities
-- [ ] Automated fuzzing framework
-- [ ] Execution tracing and replay
-- [ ] Performance regression testing
+    - [ ] `seen debug --paradigm <functional|oo|concurrent>` - Paradigm-specific debugging
+    - [ ] `seen profile --allocations` - Allocation profiling
+    - [ ] `seen profile --effects` - Effect analysis
+    - [ ] `seen analyze --purity` - Purity analysis
+    - [ ] `seen trace --async` - Async execution tracing
+    - [ ] `seen replay` - Time-travel debugging
+- [ ] **Paradigm-Specific Debugging:**
+    - [ ] Functional debugging:
+        - [ ] Pure function memoization inspection
+        - [ ] Lazy evaluation visualization
+        - [ ] Closure capture analysis
+        - [ ] Thunk evaluation tracing
+    - [ ] OO debugging:
+        - [ ] Virtual method dispatch tracing
+        - [ ] Object lifetime visualization
+        - [ ] Trait implementation listing
+    - [ ] Concurrent debugging:
+        - [ ] Actor message flow visualization
+        - [ ] Deadlock detection
+        - [ ] Race condition detection
+        - [ ] Channel communication tracing
+- [ ] **Advanced Profiling:**
+    - [ ] Allocation profiling with stack traces
+    - [ ] Cache miss analysis
+    - [ ] Branch prediction profiling
+    - [ ] NUMA awareness profiling
+- [ ] **Static Analysis:**
+    - [ ] Effect inference and checking
+    - [ ] Purity analysis
+    - [ ] Ownership verification
+    - [ ] Typestate checking
+- [ ] Time-travel debugging for pure code
+- [ ] Replay debugging with deterministic execution
+
+**Performance Benchmarks:**
+
+```rust
+#[bench]
+fn bench_debugging_overhead(b: &mut Bencher) {
+    let complex_program = load_multi_paradigm_program();
+    b.iter(|| {
+        let normal_execution = run_without_debugging(&complex_program);
+        let debug_execution = run_with_full_debugging(&complex_program);
+        let overhead = debug_execution / normal_execution;
+        assert!(overhead < 2.0); // <2x overhead with full debugging
+    });
+}
+
+#[bench]
+fn bench_profiling_accuracy(b: &mut Bencher) {
+    let benchmark_suite = load_profiling_benchmarks();
+    b.iter(|| {
+        let actual_hotspots = identify_real_hotspots(&benchmark_suite);
+        let profiled_hotspots = run_profiler(&benchmark_suite);
+        let accuracy = calculate_overlap(&actual_hotspots, &profiled_hotspots);
+        assert!(accuracy > 0.95); // >95% accurate hotspot detection
+    });
+}
+```
 
 ## Alpha Command Interface Expansion
 
-### Enhanced Commands
+### Enhanced Commands with Paradigm Support
 
 ```bash
 # Advanced build options
-seen build --profile <name>     # Use build profile
-seen build --features <list>    # Conditional compilation
-seen build --cross <target>     # Cross-compilation
+seen build --paradigm <functional|oo|mixed>
+seen build --features <list>
+seen build --effect-check        # Verify effect annotations
 
 # Development tools
-seen fmt                        # Format code
-seen fix                        # Auto-fix issues
-seen doc                        # Generate documentation
-seen lsp                        # Start language server
-seen check --watch              # Continuous checking
+seen fmt --style <functional|imperative>
+seen fix --suggest-paradigm     # Suggest paradigm improvements
+seen doc --examples             # Extract and verify examples
+seen lsp --completions <smart|all>
 
 # Package management
-seen add <pkg>[@ver]            # Add dependency
-seen remove <pkg>               # Remove dependency
-seen update [pkg]               # Update dependencies
-seen search <query>             # Search packages
-seen publish                    # Publish package
+seen add <pkg> --features <list>
+seen search --paradigm <functional|oo>
+seen features --list           # Show all available features
 
 # Performance analysis
-seen profile                    # Profile performance
-seen bench --compare            # Benchmark comparison
-seen optimize --profile         # Profile-guided optimization
-seen analyze --hotspots         # Find bottlenecks
-
-# WebAssembly
-seen wasm-pack                  # Package for web
-seen wasm-optimize              # Optimize WASM
+seen profile --paradigm         # Paradigm-specific profiling
+seen optimize --fusion          # Stream fusion optimization
+seen optimize --devirtualize    # Remove virtual calls
+seen benchmark --vs <lang>      # Compare with other languages
 
 # Debugging
-seen debug                      # Start debugger
-seen trace                      # Execution tracing
-seen fuzz                       # Automated testing
+seen debug --functional         # Functional debugging mode
+seen debug --async             # Async debugging with traces
+seen trace --effects           # Trace computational effects
+seen replay <recording>        # Time-travel debugging
+
+# Analysis
+seen analyze --purity          # Check function purity
+seen analyze --effects         # Analyze computational effects
+seen analyze --ownership       # Ownership and borrowing analysis
 ```
 
 ### Enhanced Configuration
 
-**Seen.toml** (Extended):
+**Seen.toml** (Extended for Paradigms):
 
 ```toml
 [project]
@@ -393,91 +552,82 @@ name = "advanced-app"
 version = "0.2.0"
 language = "en"
 edition = "2024"
+paradigm = "mixed"  # functional, oo, concurrent, mixed
 
 [dependencies]
-http = "1.0"
-crypto = "0.5"
-gui = "2.1"
+http = { version = "1.0", features = ["async", "client", "server"] }
+actors = { version = "0.5", optional = true }
+stm = { version = "0.3", optional = true }
+lens = { version = "1.0", optional = true }
+
+[features]
+default = ["std"]
+functional = ["lens", "persistent-collections"]
+concurrent = ["actors", "stm", "channels"]
+no-std = []
 
 [build]
-targets = ["native", "wasm", "android", "ios"]
-optimize = "speed"
-features = ["tls", "compression"]
+tail-calls = true
+effect-checking = true
+purity-inference = true
 
 [profile.release]
 opt-level = 3
-debug = false
-lto = true
-codegen-units = 1
+fusion = true
+devirtualization = true
+inline-threshold = 1000
 
 [profile.dev]
-opt-level = 0
-debug = true
-incremental = true
+debug-paradigm = "all"
+effect-tracking = true
+purity-warnings = true
 
 [lsp]
-hover = true
-completion = true
-diagnostics = true
-formatting = true
-
-[package]
-description = "High-performance application"
-license = "MIT"
-repository = "https://github.com/user/repo"
-keywords = ["performance", "systems"]
+paradigm-hints = true
+effect-annotations = true
+purity-indicators = true
+async-visualization = true
 ```
 
 ## Success Criteria
 
 ### Performance Targets
 
-- [ ] LSP response time: <50ms for all operations
-- [ ] Package resolution: <5s for complex dependency trees
-- [ ] WASM performance: Within 50% of native code
-- [ ] Optimization improvement: >20% over basic compilation
-- [ ] Memory usage: <100MB for LSP server with large projects
+- [ ] LSP response time: <50ms for all paradigm features
+- [ ] Package resolution: <5s with trait coherence checking
+- [ ] Stream fusion: >3x speedup on pipelines
+- [ ] Actor system: 1M actors with <1KB each
+- [ ] Parser combinators: >100MB/s throughput
+- [ ] Debugging overhead: <2x with full features
 
 ### Functional Requirements
 
-- [ ] Complete IDE integration with VS Code/IntelliJ
-- [ ] Seamless C++ interoperability without manual work
-- [ ] WebAssembly targets work in all major browsers
-- [ ] Package manager compatible with existing ecosystems
-- [ ] Debugging experience matches native debuggers
-- [ ] Standard library covers 90% of common use cases
+- [ ] All functional patterns from Haskell/Scala supported
+- [ ] Actor model comparable to Erlang/Elixir
+- [ ] STM performance matching Clojure
+- [ ] Debugging experience exceeds all competitors
+- [ ] Package manager handles multi-paradigm dependencies
 
 ### Quality Standards
 
-- [ ] All advanced features have comprehensive tests
-- [ ] Performance benchmarks pass in CI/CD
-- [ ] Documentation coverage >95%
-- [ ] Security analysis integrated into build process
-- [ ] Memory safety guaranteed in all standard library code
-- [ ] Fuzzing finds no crashes in parser/compiler
+- [ ] 100% test coverage for paradigm features
+- [ ] Performance benchmarks for each paradigm
+- [ ] Documentation includes paradigm best practices
+- [ ] Static analysis catches paradigm-specific issues
 
 ## Risk Mitigation
 
 ### Technical Risks
 
-- **LLVM/MLIR Integration**: Gradual migration with fallback options
-- **WebAssembly Standards Evolution**: Track proposals, implement conservatively
-- **C++ Parsing Complexity**: Focus on most common patterns first
-- **Performance Regression**: Continuous benchmarking with alerts
-
-### Integration Risks
-
-- **IDE Compatibility**: Test with multiple editors continuously
-- **Package Registry**: Start with existing registries, build custom later
-- **Cross-platform Issues**: Automated testing on all target platforms
+- **Paradigm Integration Complexity**: Clear semantics and interaction rules
+- **Performance Overhead**: Continuous benchmarking per paradigm
+- **Type System Complexity**: Incremental implementation with extensive testing
+- **Debugging Complexity**: Paradigm-specific debugging modes
 
 ## Next Phase Preview
 
 **Beta Phase** will focus on:
-
-- Production deployment tools
-- Advanced showcase applications
-- Performance optimization campaigns
-- Community tooling and ecosystem
-- Security hardening and auditing
-- Documentation and learning resources
+- Production applications showcasing paradigm strengths
+- Real-world performance optimization
+- Enterprise features for large-scale development
+- Advanced paradigm integration patterns

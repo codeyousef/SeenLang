@@ -13,8 +13,12 @@ pub mod ast;
 pub mod parser;
 pub mod precedence;
 pub mod error_recovery;
+pub mod visitor;
+pub mod serialization;
 
 pub use ast::*;
 pub use parser::*;
 pub use precedence::*;
 pub use error_recovery::*;
+pub use visitor::*;
+pub use serialization::*;

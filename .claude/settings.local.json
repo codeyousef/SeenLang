@@ -250,7 +250,24 @@
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test char_stream --test '*' -- --nocapture)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_lexer char_stream -- --nocapture)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo check --benches -p seen_cli -p seen_lexer -p seen_parser -p seen_typechecker -p seen_memory -p seen_ir)",
-      "Bash(CARGO_TARGET_DIR=target-wsl cargo check --benches -p seen_ir)"
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo check --benches -p seen_ir)",
+      "Bash(./target-wsl/debug/deps/ast_visitor_test-*)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo build -p seen_std)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std string_test)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --test string_test)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --quiet)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo bench -p seen_std --bench collections_benchmark -- vec_push/seen/100 --sample-size 10)",
+      "Bash(CARGO_TARGET_DIR=target-wsl timeout 30 cargo bench -p seen_std --bench collections_benchmark vec_push)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo build --release -p seen_std)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib io)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo bench -p seen_std --bench collections_benchmark)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo bench -p seen_std --bench collections_benchmark vec_push/seen/100)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo bench -p seen_std --bench io_benchmark file_operations/seen_file_exists)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib text)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib ffi)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_std --lib --quiet)"
     ],
     "deny": []
   }
