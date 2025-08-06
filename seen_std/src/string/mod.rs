@@ -400,6 +400,14 @@ impl String {
         self.as_str().parse()
     }
 
+    /// Clears the string, keeping allocated memory for reuse
+    pub fn clear(&mut self) {
+        match &mut self.data {
+            StringData::Small(_, len) => *len = 0,
+            StringData::Heap(_, len, _) => *len = 0,
+        }
+    }
+
     /// Checks if the string is heap allocated
     #[inline]
     pub fn heap_allocated(&self) -> bool {

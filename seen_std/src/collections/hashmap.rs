@@ -23,6 +23,7 @@ struct Entry<K, V> {
 }
 
 /// A high-performance hash map using Robin Hood hashing
+#[derive(Debug)]
 pub struct HashMap<K, V, S = RandomState> {
     buckets: *mut Option<Entry<K, V>>,
     capacity: usize,
@@ -564,6 +565,35 @@ impl<K, V> Drop for IntoIter<K, V> {
                 dealloc(self.buckets as *mut u8, layout);
             }
         }
+    }
+}
+
+impl<K: Clone + Eq + Hash, V: Clone, S: Clone + BuildHasher> Clone for HashMap<K, V, S> {
+    fn clone(&self) -> Self {
+        let mut new_map = HashMap::with_capacity_and_hasher(self.capacity, self.hasher.clone());
+        for (key, value) in self.iter() {
+            new_map.insert(key.clone(), value.clone());
+        }
+        new_map
+    }
+}
+
+impl<K: PartialEq + Eq + Hash, V: PartialEq> PartialEq for HashMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        for (key, value) in self.iter() {
+            match other.get(key) {
+                Some(other_value) => {
+                    if value != other_value {
+                        return false;
+                    }
+                }
+                None => return false,
+            }
+        }
+        true
     }
 }
 

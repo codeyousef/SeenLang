@@ -9,6 +9,7 @@ use std::ptr;
 use std::slice;
 
 /// A growable array with cache-efficient memory layout
+#[derive(Debug)]
 pub struct Vec<T> {
     ptr: *mut T,
     len: usize,
@@ -184,13 +185,36 @@ impl<T> Vec<T> {
     /// Returns a slice of the entire vector
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.ptr, self.len) }
+        if self.len == 0 {
+            &[]
+        } else {
+            unsafe { slice::from_raw_parts(self.ptr, self.len) }
+        }
     }
 
     /// Returns a mutable slice of the entire vector
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
+        if self.len == 0 {
+            &mut []
+        } else {
+            unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
+        }
+    }
+
+    /// Returns an iterator over the vector
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.as_slice().iter()
+    }
+
+    /// Returns true if the vector contains an element equal to the given value
+    #[inline]
+    pub fn contains(&self, x: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        self.as_slice().contains(x)
     }
 
     // Growth strategy: double capacity or at least 4 elements
@@ -278,6 +302,20 @@ impl<T: Clone> Clone for Vec<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq for Vec<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        for i in 0..self.len {
+            if self[i] != other[i] {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 impl<T> Default for Vec<T> {
     #[inline]
     fn default() -> Self {
@@ -304,6 +342,15 @@ impl<T> IntoIterator for Vec<T> {
             cap,
             pos: 0,
         }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Vec<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> std::slice::Iter<'a, T> {
+        self.as_slice().iter()
     }
 }
 
@@ -348,6 +395,16 @@ impl<T> Drop for IntoIter<T> {
                 dealloc(self.ptr as *mut u8, layout);
             }
         }
+    }
+}
+
+impl<T> std::iter::FromIterator<T> for Vec<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut vec = Vec::new();
+        for item in iter {
+            vec.push(item);
+        }
+        vec
     }
 }
 

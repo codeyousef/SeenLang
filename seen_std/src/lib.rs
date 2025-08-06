@@ -19,6 +19,9 @@ pub mod io;
 pub mod error;
 pub mod text;
 pub mod ffi;
+pub mod regex;
+pub mod toml;
+pub mod json;
 
 // Re-export commonly used types
 pub use core::primitives::*;
