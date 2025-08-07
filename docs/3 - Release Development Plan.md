@@ -8,7 +8,6 @@
 **Development Language**: **SEEN** (Exclusive Seen development, supporting 20+ human languages)
 
 **Core Release Requirements:**
-
 - Performance leadership across all paradigms including reactive
 - Enterprise-grade support for global reactive development teams
 - Complete documentation in 20+ languages covering reactive patterns
@@ -16,16 +15,15 @@
 - Long-term stability across language and paradigm additions
 - International standards for multilingual multi-paradigm languages
 
-**CRITICAL**: The Release phase demonstrates Seen as the first truly multilingual, multi-paradigm systems programming language with reactive programming as a first-class paradigm, enabling global teams to build high-performance reactive systems.
+**CRITICAL**: The Release phase demonstrates Seen as the first truly multilingual, multi-paradigm systems programming language with reactive programming as a first-class paradigm, enabling global teams to build high-performance reactive systems. Full LSP support from MVP ensures productive development experience.
 
 ## Phase Structure
 
 ### Milestone 10: Paradigm Performance Leadership Including Reactive (Months 12-14)
 
-#### Step 28: Comprehensive Benchmark Suite (All Paradigms & Languages)
+#### Step 31: Comprehensive Benchmark Suite (All Paradigms & Languages)
 
 **Tests Written First:**
-
 - [ ] Test: Performance identical across all language versions
 - [ ] Test: Translation overhead <1% during development
 - [ ] Test: Keyword lookup <10ns for all languages
@@ -41,7 +39,6 @@
 - [ ] Test: Actor code beats Erlang/Elixir
 
 **Implementation:**
-
 - [ ] **Benchmark Commands:**
     - [ ] `seen benchmark --languages` - Compare language performance
     - [ ] `seen benchmark --paradigms` - Compare paradigm performance
@@ -66,33 +63,31 @@
     - [ ] All paradigms tested across languages
     - [ ] Cross-language team collaboration scenarios
     - [ ] Documentation generation performance
-    - [ ] IDE responsiveness with different languages
 - [ ] Public performance dashboard
 
 **Performance Verification:**
-
 ```rust
 #[bench]
 fn bench_comprehensive_paradigm_performance(b: &mut Bencher) {
     let languages = vec!["en", "ar", "zh", "es", "hi", "fr", "de", "ja", "ru", "pt"];
     let paradigms = vec!["functional", "oo", "actor", "reactive"];
     let benchmark_suite = load_comprehensive_benchmarks();
-    
+
     for benchmark in benchmark_suite {
         for paradigm in &paradigms {
             let mut results = Vec::new();
-            
+
             for lang in &languages {
                 // Test each paradigm in each language
                 let translated = translate_benchmark(&benchmark, lang, paradigm);
                 let perf = compile_and_run(&translated);
                 results.push(perf);
             }
-            
+
             // All language/paradigm combinations should have identical performance
             let variance = calculate_variance(&results);
             assert!(variance < 0.001); // <0.1% variance
-            
+
             // Compare against best-in-class for each paradigm
             match paradigm.as_str() {
                 "functional" => {
@@ -120,18 +115,18 @@ fn bench_comprehensive_paradigm_performance(b: &mut Bencher) {
 #[bench]
 fn bench_reactive_operator_performance(b: &mut Bencher) {
     let operators = load_reactive_operator_suite();
-    
+
     b.iter(|| {
         for operator in &operators {
             let seen_perf = measure_operator("seen", operator);
             let rxjs_perf = measure_operator("rxjs", operator);
             let rxjava_perf = measure_operator("rxjava", operator);
             let rxswift_perf = measure_operator("rxswift", operator);
-            
+
             assert!(seen_perf < rxjs_perf * 0.7); // 30% faster than RxJS
             assert!(seen_perf < rxjava_perf * 0.8); // 20% faster than RxJava
             assert!(seen_perf < rxswift_perf * 0.75); // 25% faster than RxSwift
-            
+
             // Test zero-allocation for core operators
             let allocations = count_allocations(operator);
             if is_core_operator(operator) {
@@ -142,10 +137,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 }
 ```
 
-#### Step 29: Memory Model Perfection Across Paradigms
+#### Step 32: Memory Model Perfection Across Paradigms
 
 **Tests Written First:**
-
 - [ ] Test: Functional persistence optimal sharing
 - [ ] Test: OO allocation patterns efficient
 - [ ] Test: Actor isolation zero-copy where safe
@@ -156,7 +150,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: Backpressure prevents memory growth
 
 **Implementation:**
-
 - [ ] **Memory Analysis Commands:**
     - [ ] `seen memory --paradigm-analysis` - Per-paradigm memory use
     - [ ] `seen memory --sharing-report` - Structure sharing efficiency
@@ -183,10 +176,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
     - [ ] Stream fusion for reactive chains
 - [ ] Real-time memory guarantees
 
-#### Step 30: Compilation Speed Leadership
+#### Step 33: Compilation Speed Leadership
 
 **Tests Written First:**
-
 - [ ] Test: Incremental compilation <100ms
 - [ ] Test: Full rebuild beats all competitors
 - [ ] Test: Paradigm-specific optimizations fast
@@ -197,7 +189,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: Stream optimization passes efficient
 
 **Implementation:**
-
 - [ ] **Compilation Optimization:**
     - [ ] Paradigm-aware incremental compilation
     - [ ] Parallel paradigm analysis
@@ -219,10 +210,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 
 ### Milestone 11: Enterprise Multi-Paradigm Support (Months 14-16)
 
-#### Step 31: Enterprise Migration Framework
+#### Step 34: Enterprise Migration Framework
 
 **Tests Written First:**
-
 - [ ] Test: Java → Seen OO preserves semantics
 - [ ] Test: Haskell → Seen FP maintains purity
 - [ ] Test: Erlang → Seen actors compatible
@@ -233,7 +223,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: Teams choose target language and paradigm
 
 **Implementation:**
-
 - [ ] **Enterprise Commands:**
     - [ ] `seen migrate --analyze <source>` - Migration analysis
     - [ ] `seen migrate --paradigm <preserve|optimize>` - Migration strategy
@@ -261,10 +250,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
     - [ ] Automated test generation
 - [ ] Enterprise support contracts
 
-#### Step 32: Paradigm Stability Guarantees
+#### Step 35: Paradigm Stability Guarantees
 
 **Tests Written First:**
-
 - [ ] Test: Paradigm semantics stable across versions
 - [ ] Test: Cross-paradigm APIs maintained
 - [ ] Test: Performance characteristics preserved
@@ -274,7 +262,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: Stream semantics preserved
 
 **Implementation:**
-
 - [ ] **Stability Commands:**
     - [ ] `seen stability --check` - Verify stability
     - [ ] `seen compatibility --paradigm` - Check paradigm compatibility
@@ -298,10 +285,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
     - [ ] Reactive pattern stability
 - [ ] Academic collaboration on paradigm evolution
 
-#### Step 33: Security & Formal Verification
+#### Step 36: Security & Formal Verification
 
 **Tests Written First:**
-
 - [ ] Test: Pure functions formally verified
 - [ ] Test: Effect system prevents all leaks
 - [ ] Test: Actor isolation proven correct
@@ -312,7 +298,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: Backpressure prevents DoS
 
 **Implementation:**
-
 - [ ] **Security Commands:**
     - [ ] `seen prove --paradigm` - Paradigm-specific proofs
     - [ ] `seen verify --effects` - Effect system verification
@@ -341,10 +326,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 
 ### Milestone 12: Academic & Community Excellence (Months 16-18)
 
-#### Step 34: Paradigm Documentation & Education
+#### Step 37: Paradigm Documentation & Education
 
 **Tests Written First:**
-
 - [ ] Test: Documentation covers all paradigm combinations
 - [ ] Test: Examples compile and perform well
 - [ ] Test: Tutorials teach paradigm selection
@@ -354,7 +338,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: Marble diagrams in documentation
 
 **Implementation:**
-
 - [ ] **Documentation Commands:**
     - [ ] `seen doc --paradigm-guide` - Paradigm selection guide
     - [ ] `seen doc --reactive-patterns` - Reactive pattern catalog
@@ -385,10 +368,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
     - [ ] Reactive programming courses
 - [ ] Community pattern library
 
-#### Step 35: Paradigm Research & Innovation
+#### Step 38: Paradigm Research & Innovation
 
 **Tests Written First:**
-
 - [ ] Test: New paradigm integration framework works
 - [ ] Test: Research extensions maintainable
 - [ ] Test: Academic contributions integrated
@@ -398,7 +380,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: New operators integrate seamlessly
 
 **Implementation:**
-
 - [ ] **Research Commands:**
     - [ ] `seen research --paradigm <new>` - Experimental paradigms
     - [ ] `seen research --reactive` - Reactive research features
@@ -426,10 +407,9 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
     - [ ] Blockchain reactive patterns
 - [ ] Research publication pipeline
 
-#### Step 36: Community & Ecosystem Perfection
+#### Step 39: Community & Ecosystem Perfection
 
 **Tests Written First:**
-
 - [ ] Test: Package registry has paradigm categories
 - [ ] Test: Community patterns validated
 - [ ] Test: Paradigm expertise recognized
@@ -439,7 +419,6 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 - [ ] Test: Operator libraries composable
 
 **Implementation:**
-
 - [ ] **Community Commands:**
     - [ ] `seen community --paradigm` - Paradigm communities
     - [ ] `seen community --reactive` - Reactive community
@@ -474,29 +453,29 @@ fn bench_reactive_operator_performance(b: &mut Bencher) {
 ### Complete Multi-Paradigm Command Set (1.0 Release)
 
 ```bash
-# Core Development
+# Core Development (LSP complete from MVP)
 seen new <project> --language <lang> --paradigm <paradigm>
 seen build --language <lang> --paradigm <paradigm>
 seen run
 seen check
 seen test
-seen test --marble                          # Reactive marble testing
+seen test --marble
 seen format
 
 # Paradigm Management
-seen paradigm --list                        # List supported paradigms
-seen paradigm --stats                       # Paradigm usage stats
-seen paradigm --convert <from> <to>         # Convert between paradigms
-seen paradigm --analyze                     # Analyze paradigm usage
+seen paradigm --list
+seen paradigm --stats
+seen paradigm --convert <from> <to>
+seen paradigm --analyze
 
 # Reactive Programming
-seen reactive --new                         # New reactive project
-seen reactive --visualize                   # Visualize streams
-seen reactive --debug                       # Debug with marbles
-seen reactive --profile                     # Profile streams
-seen reactive --operators                   # Browse operators
-seen reactive --benchmark                   # Benchmark operators
-seen reactive --monitor                     # Monitor production
+seen reactive --new
+seen reactive --visualize
+seen reactive --debug
+seen reactive --profile
+seen reactive --operators
+seen reactive --benchmark
+seen reactive --monitor
 
 # Language Management
 seen translate --from <lang> --to <lang>
@@ -509,62 +488,61 @@ seen languages --usage
 # Package Management
 seen add <package> --paradigm <paradigm>
 seen search --paradigm <paradigm>
-seen search --reactive                      # Search reactive packages
+seen search --reactive
 seen publish --paradigms <list>
 seen registry --stats
 
 # Development Tools
 seen doc --paradigms <list>
-seen lsp --paradigm-hints
 seen debug --paradigm <paradigm>
-seen debug --reactive                       # Reactive debugging
+seen debug --reactive
 seen profile --paradigm
-seen profile --reactive                     # Profile streams
+seen profile --reactive
 
 # Cross-Platform
 seen build --target <platform> --paradigm <paradigm>
-seen wasm-pack --reactive                   # Reactive web app
+seen wasm-pack --reactive
 seen containerize --multi-paradigm
 seen flash <device>
 
 # Production & Deployment
 seen deploy --paradigm <paradigm>
 seen monitor --paradigms
-seen monitor --reactive                     # Monitor streams
+seen monitor --reactive
 seen scale --by-paradigm-usage
 seen backup/restore
 
 # Security & Compliance
 seen audit --paradigms
 seen verify --paradigm-safety
-seen verify --reactive                      # Verify stream safety
+seen verify --reactive
 seen compliance --international
 seen sign
 
 # Performance & Optimization
 seen benchmark --paradigms
 seen optimize --paradigm-specific
-seen optimize --reactive                    # Optimize streams
+seen optimize --reactive
 seen compare --paradigms
 seen regression --multi-paradigm
 
 # Enterprise & Support
 seen enterprise --paradigms
 seen migrate --from <lang> --to-paradigm <paradigm>
-seen migrate --to-reactive                  # Migrate to reactive
+seen migrate --to-reactive
 seen support --paradigm <paradigm>
 seen training --paradigm <paradigm>
 
 # Learning & Community
 seen learn --paradigm <paradigm>
-seen learn --reactive                       # Learn reactive
+seen learn --reactive
 seen mentor --paradigm <paradigm>
 seen community --paradigm <paradigm>
 seen contribute --paradigm
 
 # Research & Innovation
 seen research --paradigm <experimental>
-seen research --reactive                    # Reactive research
+seen research --reactive
 seen lab --paradigm <new>
 seen analyze --paradigm-impact
 ```
@@ -578,18 +556,18 @@ seen analyze --paradigm-impact
 name = "enterprise-app"
 version = "1.0.0"
 edition = "2024"
-language = "en"  # Project language
+language = "en"
 paradigms = ["functional", "oo", "concurrent", "reactive"]
 
 [languages]
 primary = "en"
-supported = ["en", "ar", "zh", "es", "hi", "fr", "de", "ja", "ru", "pt", 
-             "ko", "it", "nl", "sv", "pl", "tr", "he", "id", "vi", "th"]
+supported = ["en", "ar", "zh", "es", "hi", "fr", "de", "ja", "ru", "pt",
+    "ko", "it", "nl", "sv", "pl", "tr", "he", "id", "vi", "th"]
 auto-translate-docs = true
 auto-translate-errors = true
 
 [paradigms]
-primary = "reactive"  # Primary paradigm
+primary = "reactive"
 allowed = ["functional", "oo", "concurrent", "reactive"]
 cross-paradigm-optimization = true
 paradigm-boundaries = "strict"
@@ -629,7 +607,7 @@ paradigm-specific-opts = true
 platform = "kubernetes"
 strategy = "blue-green"
 replicas = { min = 3, max = 100 }
-auto-scaling = "reactive"  # Scale based on stream metrics
+auto-scaling = "reactive"
 
 [monitoring]
 metrics = ["latency", "throughput", "errors", "memory", "streams"]
@@ -660,7 +638,6 @@ migration-support = "lifetime"
 ## Success Criteria for 1.0 Release
 
 ### Multi-Paradigm Performance Leadership
-
 - [ ] **Paradigm Parity**: All paradigms perform optimally
 - [ ] **Language Parity**: All languages compile to identical binaries
 - [ ] **Reactive Excellence**: Beats RxJS/RxJava by >20%
@@ -670,7 +647,6 @@ migration-support = "lifetime"
 - [ ] **Systems**: Within 3% of C performance
 
 ### Performance Targets
-
 - [ ] Beat C/C++ on 95% of benchmarks
 - [ ] Beat Rust on 90% of benchmarks
 - [ ] Beat Go on 100% of benchmarks
@@ -681,7 +657,6 @@ migration-support = "lifetime"
 - [ ] Identical performance across all human languages
 
 ### Enterprise Readiness
-
 - [ ] **Global Teams**: Full paradigm support in all languages
 - [ ] **Migration Tools**: From all major languages/frameworks
 - [ ] **Support**: 24/7 multilingual multi-paradigm support
@@ -690,7 +665,6 @@ migration-support = "lifetime"
 - [ ] **Reactive Production**: Proven in high-scale systems
 
 ### Academic Validation
-
 - [ ] **Research**: Papers on multi-paradigm benefits
 - [ ] **Education**: Curriculum covering all paradigms
 - [ ] **Studies**: Productivity with paradigm choice
@@ -698,7 +672,6 @@ migration-support = "lifetime"
 - [ ] **Reactive Research**: Novel stream processing techniques
 
 ### Community Excellence
-
 - [ ] **Global Reach**: Communities for each paradigm
 - [ ] **Packages**: 10000+ packages across paradigms
 - [ ] **Reactive Ecosystem**: 500+ operator packages
@@ -708,7 +681,6 @@ migration-support = "lifetime"
 ## Long-term Roadmap (Post-1.0)
 
 ### Version 2.0 Vision (Years 2-3)
-
 - Support for 50+ human languages
 - AI-assisted paradigm selection
 - Real-time paradigm translation
@@ -716,7 +688,6 @@ migration-support = "lifetime"
 - Neural network stream processing
 
 ### Version 3.0 Vision (Years 4-5)
-
 - Universal programming paradigm translator
 - Legacy code migration from 100+ languages
 - Natural language programming interface
@@ -726,7 +697,6 @@ migration-support = "lifetime"
 ## Risk Management
 
 ### Paradigm Risks
-
 - **Complexity**: Clear paradigm boundaries and rules
 - **Performance**: Continuous benchmarking per paradigm
 - **Learning**: Gradual paradigm introduction
@@ -734,7 +704,6 @@ migration-support = "lifetime"
 - **Reactive Complexity**: Extensive documentation and tooling
 
 ### Technical Risks
-
 - **Cross-paradigm optimization**: Extensive testing
 - **Formal verification**: Incremental proof development
 - **Performance regression**: Automated detection
@@ -742,7 +711,6 @@ migration-support = "lifetime"
 - **Backpressure failures**: Multiple strategies
 
 ### Business Risks
-
 - **Market education**: Clear paradigm benefits
 - **Competition**: Performance leadership maintained
 - **Enterprise adoption**: Migration tools and support
@@ -751,7 +719,6 @@ migration-support = "lifetime"
 ## Success Metrics & KPIs
 
 ### Paradigm Metrics
-
 - Performance vs competitors (per paradigm)
 - Paradigm adoption distribution
 - Cross-paradigm usage patterns
@@ -761,7 +728,6 @@ migration-support = "lifetime"
 - Stream performance metrics
 
 ### Quality Metrics
-
 - Formal verification coverage
 - Effect system violation rate
 - Paradigm boundary safety
@@ -771,7 +737,6 @@ migration-support = "lifetime"
 - Backpressure effectiveness
 
 ### Community Metrics
-
 - Paradigm community size
 - Package growth per paradigm
 - Pattern library contributions

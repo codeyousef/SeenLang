@@ -8,9 +8,9 @@
 - **Milestone 1 & 2**: Foundation and Core Language **100% COMPLETE**
 - **Step 8**: Critical Compiler Libraries **100% COMPLETE** (Auto-translation system working)
 - **Step 8b**: Reactive Programming Foundation **100% COMPLETE** 🎉
-- **Step 11**: Multi-Paradigm & Kotlin Features **100% COMPLETE** 🎉
+- **Step 11**: Multi-Paradigm & Kotlin Features **98% COMPLETE** (5 parser tests failing)
 - **Lexer**: 24M tokens/sec (2.4x target) with multilingual framework ready
-- **Parser**: 1.03M lines/sec (target achieved) + All Kotlin features parsing
+- **Parser**: 1.03M lines/sec (target achieved) + Most Kotlin features parsing
 - **Type System**: 4-5μs per function (25x better than target)
 - **Memory Model**: <1% overhead (5x better than target)
 - **Standard Library**: 186+ tests + **Complete Reactive Module**, performance beats Rust/C++
@@ -27,10 +27,16 @@
 9. **✅ Auto-Translation System** - Working bidirectional translation system
 
 **⏳ REMAINING COMPONENTS:**
-1. **Step 12**: **Complete LSP Server Implementation** ❌ **CRITICAL - REQUIRED FOR SELF-HOSTING**
-2. **Step 13**: Self-Hosting Compiler ❌ **BLOCKED BY LSP**
+1. **Fix Parser Tests**: 5 failing tests in seen_parser (if/else and pattern matching issues) ⚠️
+   - test_nullable_types_parsing
+   - test_pattern_matching_with_guards  
+   - test_coroutine_observable_bridging
+   - test_flow_coroutine_integration
+   - test_reactive_dsl_builders
+2. **Step 12**: **Complete LSP Server Implementation** ❌ **CRITICAL - REQUIRED FOR SELF-HOSTING**
+3. **Step 13**: Self-Hosting Compiler ❌ **BLOCKED BY LSP**
 
-**🎯 CRITICAL PATH:** Complete LSP implementation (Step 12) before attempting self-hosting to ensure productive development in Seen.
+**🎯 CRITICAL PATH:** Fix remaining parser tests, then complete LSP implementation (Step 12) before attempting self-hosting to ensure productive development in Seen.
 
 ## Overview: Foundation & Core Functionality
 
@@ -377,12 +383,12 @@
 - [x] Configurable formatting rules via Seen.toml ✅
 - [x] Integration with version control hooks ✅
 
-#### Step 11: Multi-Paradigm & Kotlin Features (Including Reactive) ✅ **COMPLETED - 100% FUNCTIONALITY** 🎉
+#### Step 11: Multi-Paradigm & Kotlin Features (Including Reactive) ⚠️ **98% COMPLETE - PARSER ISSUES**
 
-**Status:** ✅ All 8 Kotlin features implemented and working
+**Status:** ⚠️ All 8 Kotlin features implemented but 5 parser tests failing
 
 **Tests Completed:**
-- [x] Test: Extension functions have zero overhead ✅ **8/8 Kotlin tests passing**
+- [x] Test: Extension functions have zero overhead ✅ **3/8 Kotlin tests passing**
 - [x] Test: Data classes generate correct methods ✅ **COMPLETED - parser working**
 - [x] Test: Pattern matching exhaustive and optimal ✅ **Full pattern matching**
 - [x] Test: Smart casts eliminate redundant checks ✅ **'is' operator working**
@@ -439,9 +445,37 @@
     - [x] Lazy evaluation with streams ✅
     - [x] Stream fusion optimizations ✅
 
+### 🔴 **CRITICAL BLOCKER: Parser Issues with If/Else Statements**
+
+**Problem:** Parser fails to handle if statements inside function bodies, causing 0 items to be parsed when if/else is present.
+
+**Root Cause Identified:**
+- Pattern matching in parse_statement() at line 936 appears correct but fails
+- When parsing `func test() { if true { return null; } }`, parser returns 0 items
+- Issue is similar to earlier pattern matching problems with references vs owned values
+- Error recovery mechanism (recover_to_item_boundary) may be skipping valid code
+
+**Failing Tests (5):**
+1. `test_nullable_types_parsing` - Uses if statements with nullable returns
+2. `test_pattern_matching_with_guards` - Pattern matching with if guards
+3. `test_coroutine_observable_bridging` - Has if statements in coroutine code
+4. `test_flow_coroutine_integration` - Flow builders with conditional logic
+5. `test_reactive_dsl_builders` - DSL with if conditions
+
+**Debug Progress:**
+- ✅ Simple functions parse correctly
+- ✅ Nullable types parse correctly when no if statements
+- ❌ Any if statement causes complete parse failure (0 items)
+- Token stream is correct (KeywordIf tokenized properly)
+
+**Next Steps:**
+1. Fix pattern matching in parse_statement() for KeywordIf
+2. Ensure parse_if_expression() properly handles return statements
+3. Check error recovery doesn't skip valid code after parse failures
+
 #### Step 12: Complete LSP Server Implementation ❌ **CRITICAL FOR SELF-HOSTING**
 
-**Status:** ❌ Not started - **BLOCKING SELF-HOSTING**
+**Status:** ❌ Not started - **BLOCKED BY PARSER ISSUES**
 
 **Tests Written First:**
 - [ ] Test: LSP responses <50ms for all operations

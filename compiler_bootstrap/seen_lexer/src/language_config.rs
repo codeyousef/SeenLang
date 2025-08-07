@@ -36,7 +36,6 @@ impl LanguageConfig {
         keywords.insert("suspend".to_string(), "TokenSuspend".to_string());
         keywords.insert("await".to_string(), "TokenAwait".to_string());
         keywords.insert("launch".to_string(), "TokenLaunch".to_string());
-        keywords.insert("flow".to_string(), "TokenFlow".to_string());
         
         let mut operators = HashMap::new();
         operators.insert("+".to_string(), "TokenPlus".to_string());
@@ -98,7 +97,6 @@ impl LanguageConfig {
                 "TokenSuspend" => Some(TokenType::KeywordSuspend),
                 "TokenAwait" => Some(TokenType::KeywordAwait),
                 "TokenLaunch" => Some(TokenType::KeywordLaunch),
-                "TokenFlow" => Some(TokenType::KeywordFlow),
                 "TokenString" => Some(TokenType::Identifier("String".to_string())),
                 "TokenInt" => Some(TokenType::Identifier("Int".to_string())),
                 "TokenAny" => Some(TokenType::Identifier("Any".to_string())),

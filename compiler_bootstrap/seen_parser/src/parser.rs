@@ -82,12 +82,13 @@ impl Parser {
             eprintln!("parse_item: Current token = {:?}", token);
         }
         
-        match self.current_token() {
-            Some(Token { value: TokenType::KeywordFunc, .. }) => self.parse_function(),
-            Some(Token { value: TokenType::KeywordSuspend, .. }) => self.parse_suspend_function(),
-            Some(Token { value: TokenType::KeywordStruct, .. }) => self.parse_struct(),
-            Some(Token { value: TokenType::KeywordEnum, .. }) => self.parse_enum(),
-            Some(Token { value: TokenType::Identifier(name), .. }) => {
+        if let Some(token) = self.current_token() {
+            match &token.value {
+                TokenType::KeywordFunc => self.parse_function(),
+                TokenType::KeywordSuspend => self.parse_suspend_function(),
+                TokenType::KeywordStruct => self.parse_struct(),
+                TokenType::KeywordEnum => self.parse_enum(),
+                TokenType::Identifier(name) => {
                 // Check for Kotlin-style features and backwards compatibility
                 match name.as_str() {
                     "extension" => self.parse_extension_function(),
@@ -105,11 +106,15 @@ impl Parser {
                         Err(seen_common::SeenError::parse_error("Unexpected token"))
                     }
                 }
+                }
+                _ => {
+                    self.error("Expected item declaration");
+                    Err(seen_common::SeenError::parse_error("Expected item"))
+                }
             }
-            _ => {
-                self.error("Expected item declaration");
-                Err(seen_common::SeenError::parse_error("Expected item"))
-            }
+        } else {
+            self.error("Expected item declaration");
+            Err(seen_common::SeenError::parse_error("Expected item"))
         }
     }
     
@@ -117,14 +122,26 @@ impl Parser {
         let start_span = self.current_span();
         
         // Consume 'func'
+        #[cfg(test)]
+        eprintln!("parse_function: About to consume 'func', current token = {:?}", self.current_token());
         self.expect_keyword(TokenType::KeywordFunc)?;
+        
+        #[cfg(test)]
+        eprintln!("parse_function: After consuming 'func', current token = {:?}", self.current_token());
         
         // Parse optional generic type parameters
         let type_params = if self.check(&TokenType::Less) {
+            #[cfg(test)]
+            eprintln!("parse_function: Found '<', parsing generic type params");
             self.parse_generic_type_params()?
         } else {
+            #[cfg(test)]
+            eprintln!("parse_function: No '<' found, continuing to function name");
             Vec::new()
         };
+        
+        #[cfg(test)]
+        eprintln!("parse_function: About to parse function name, current token = {:?}", self.current_token());
         
         // Parse function name
         let name = self.expect_identifier_value()?;
@@ -417,10 +434,12 @@ impl Parser {
     }
     
     fn expect_identifier(&mut self, expected: &str) -> SeenResult<()> {
-        if let Some(Token { value: TokenType::Identifier(name), .. }) = self.current_token() {
-            if name == expected {
-                self.advance();
-                return Ok(());
+        if let Some(token) = self.current_token() {
+            if let TokenType::Identifier(name) = &token.value {
+                if name == expected {
+                    self.advance();
+                    return Ok(());
+                }
             }
         }
         
@@ -429,20 +448,32 @@ impl Parser {
     }
     
     fn expect_identifier_value(&mut self) -> SeenResult<String> {
-        if let Some(Token { value: TokenType::Identifier(name), .. }) = self.current_token() {
-            let result = name.clone();
-            self.advance();
-            return Ok(result);
+        #[cfg(test)]
+        eprintln!("expect_identifier_value: current token = {:?}", self.current_token());
+        
+        if let Some(token) = self.current_token() {
+            if let TokenType::Identifier(name) = &token.value {
+                let result = name.clone();
+                #[cfg(test)]
+                eprintln!("expect_identifier_value: found identifier '{}', advancing", result);
+                self.advance();
+                return Ok(result);
+            }
         }
+        
+        #[cfg(test)]
+        eprintln!("expect_identifier_value: no identifier found, current token = {:?}", self.current_token());
         self.error("Expected identifier");
         Err(seen_common::SeenError::parse_error("Expected identifier"))
     }
     
     fn match_identifier(&mut self, expected: &str) -> bool {
-        if let Some(Token { value: TokenType::Identifier(name), .. }) = self.current_token() {
-            if name == expected {
-                self.advance();
-                return true;
+        if let Some(token) = self.current_token() {
+            if let TokenType::Identifier(name) = &token.value {
+                if name == expected {
+                    self.advance();
+                    return true;
+                }
             }
         }
         false
@@ -832,7 +863,10 @@ impl Parser {
         
         let mut statements = Vec::new();
         
-        while !matches!(self.current_token(), Some(Token { value: TokenType::RightBrace, .. })) {
+        while let Some(token) = self.current_token() {
+            if matches!(token.value, TokenType::RightBrace) {
+                break;
+            }
             if self.is_at_end() {
                 self.error("Unexpected end of file in block");
                 break;
@@ -856,9 +890,9 @@ impl Parser {
     fn parse_statement(&mut self) -> SeenResult<Stmt<'static>> {
         let span = self.current_span();
         
-        let kind = match self.current_token() {
-            Some(Token { value: TokenType::KeywordLet, .. }) | 
-            Some(Token { value: TokenType::KeywordVal, .. }) => {
+        let kind = if let Some(token) = self.current_token() {
+            match &token.value {
+                TokenType::KeywordLet | TokenType::KeywordVal => {
                 self.advance(); // consume 'let' or 'val'
                     
                     let pattern_name = self.expect_identifier_value()?;
@@ -888,33 +922,37 @@ impl Parser {
                     initializer,
                     is_mutable: false,
                 })
-            }
-            Some(Token { value: TokenType::KeywordReturn, .. }) => {
-                self.advance(); // consume 'return'
-                
-                #[cfg(test)]
-                eprintln!("parse_statement: Parsing return, current token = {:?}", self.current_token());
-                
-                let value = if matches!(self.current_token(), Some(Token { value: TokenType::Semicolon, .. })) {
-                    None
-                } else {
-                    Some(Box::new(self.parse_expression()?))
-                };
-                
-                let expr = Expr {
-                    kind: Box::new(ExprKind::Return(value)),
-                    span,
-                    id: self.next_node_id(),
-                };
-                
-                StmtKind::Expr(expr)
-            }
-            Some(Token { value: TokenType::KeywordIf, .. }) => {
-                let if_expr = self.parse_if_expression()?;
-                StmtKind::Expr(if_expr)
-            }
-            Some(Token { value: TokenType::Identifier(name), .. }) => {
-                match name.as_str() {
+                }
+                TokenType::KeywordReturn => {
+                    self.advance(); // consume 'return'
+                    
+                    #[cfg(test)]
+                    eprintln!("parse_statement: Parsing return, current token = {:?}", self.current_token());
+                    
+                    let value = if let Some(token) = self.current_token() {
+                        if matches!(token.value, TokenType::Semicolon) {
+                            None
+                        } else {
+                            Some(Box::new(self.parse_expression()?))
+                        }
+                    } else {
+                        Some(Box::new(self.parse_expression()?))
+                    };
+                    
+                    let expr = Expr {
+                        kind: Box::new(ExprKind::Return(value)),
+                        span,
+                        id: self.next_node_id(),
+                    };
+                    
+                    StmtKind::Expr(expr)
+                }
+                TokenType::KeywordIf => {
+                    let if_expr = self.parse_if_expression()?;
+                    StmtKind::Expr(if_expr)
+                }
+                TokenType::Identifier(name) => {
+                    match name.as_str() {
                     "let" => {
                         self.advance(); // consume 'let' (backward compatibility)
                         
@@ -972,13 +1010,18 @@ impl Parser {
                         let expr = self.parse_expression()?;
                         StmtKind::Expr(expr)
                     }
+                    }
+                }
+                _ => {
+                    // Parse as expression statement
+                    let expr = self.parse_expression()?;
+                    StmtKind::Expr(expr)
                 }
             }
-            _ => {
-                // Parse as expression statement
-                let expr = self.parse_expression()?;
-                StmtKind::Expr(expr)
-            }
+        } else {
+            // No token available, parse as expression statement
+            let expr = self.parse_expression()?;
+            StmtKind::Expr(expr)
         };
         
         // Optional semicolon
@@ -992,7 +1035,17 @@ impl Parser {
     }
     
     fn parse_expression(&mut self) -> SeenResult<Expr<'static>> {
-        self.parse_binary_expression(0)
+        #[cfg(test)]
+        eprintln!("parse_expression: Starting with current token = {:?}", self.current_token());
+        
+        let result = self.parse_binary_expression(0);
+        
+        #[cfg(test)]
+        if let Err(ref e) = result {
+            eprintln!("parse_expression: Failed with error = {:?}", e);
+        }
+        
+        result
     }
     
     fn parse_binary_expression(&mut self, min_precedence: u8) -> SeenResult<Expr<'static>> {
@@ -1104,15 +1157,17 @@ impl Parser {
         let mut expr = self.parse_primary_expression()?;
         
         loop {
-            match self.current_token() {
-                Some(Token { value: TokenType::Dot, .. }) => {
-                    self.advance(); // consume '.'
-                    
-                    let name = self.expect_identifier_value()?;
-                    let name_span = self.previous_span();
-                    
-                    // Check if it's a method call or field access
-                    if matches!(self.current_token(), Some(Token { value: TokenType::LeftParen, .. })) {
+            if let Some(token) = self.current_token() {
+                match &token.value {
+                    TokenType::Dot => {
+                        self.advance(); // consume '.'
+                        
+                        let name = self.expect_identifier_value()?;
+                        let name_span = self.previous_span();
+                        
+                        // Check if it's a method call or field access
+                        if let Some(next_token) = self.current_token() {
+                            if matches!(next_token.value, TokenType::LeftParen) {
                         // Method call
                         self.advance(); // consume '('
                         let args = self.parse_call_arguments()?;
@@ -1127,19 +1182,30 @@ impl Parser {
                             span: self.current_span(),
                             id: self.next_node_id(),
                         };
-                    } else {
-                        // Field access
-                        expr = Expr {
-                            kind: Box::new(ExprKind::FieldAccess {
-                                object: Box::new(expr),
-                                field: seen_common::Spanned::new(name.leak(), name_span),
-                            }),
-                            span: self.current_span(),
-                            id: self.next_node_id(),
-                        };
-                    }
-                }
-                Some(Token { value: TokenType::LeftParen, .. }) => {
+                            } else {
+                                // Field access
+                                expr = Expr {
+                                    kind: Box::new(ExprKind::FieldAccess {
+                                        object: Box::new(expr),
+                                        field: seen_common::Spanned::new(name.leak(), name_span),
+                                    }),
+                                    span: self.current_span(),
+                                    id: self.next_node_id(),
+                                };
+                            }
+                        } else {
+                            // Field access (no next token)
+                            expr = Expr {
+                                kind: Box::new(ExprKind::FieldAccess {
+                                    object: Box::new(expr),
+                                    field: seen_common::Spanned::new(name.leak(), name_span),
+                                }),
+                                span: self.current_span(),
+                                id: self.next_node_id(),
+                            };
+                        }
+                        }
+                    TokenType::LeftParen => {
                     // Function call
                     self.advance(); // consume '('
                     let args = self.parse_call_arguments()?;
@@ -1153,22 +1219,115 @@ impl Parser {
                         span: self.current_span(),
                         id: self.next_node_id(),
                     };
+                    }
+                    TokenType::LeftBracket => {
+                        self.advance(); // consume '['
+                        let index = self.parse_expression()?;
+                        self.expect_token(TokenType::RightBracket)?;
+                        
+                        expr = Expr {
+                            kind: Box::new(ExprKind::Index {
+                                array: Box::new(expr),
+                                index: Box::new(index),
+                            }),
+                            span: self.current_span(),
+                            id: self.next_node_id(),
+                        };
+                    }
+                    TokenType::LeftBrace => {
+                    // Check if this is a DSL builder pattern (flow { ... }, reactive { ... }, etc.)
+                    if let ExprKind::Identifier(name) = &*expr.kind {
+                        match name.value {
+                            "flow" => {
+                                // Parse as FlowBuilder
+                                let block = self.parse_block()?;
+                                expr = Expr {
+                                    kind: Box::new(ExprKind::FlowBuilder { block }),
+                                    span: self.current_span(),
+                                    id: self.next_node_id(),
+                                };
+                            }
+                            "launch" => {
+                                // Parse as Launch block
+                                let block = self.parse_block()?;
+                                expr = Expr {
+                                    kind: Box::new(ExprKind::Launch { block }),
+                                    span: self.current_span(),
+                                    id: self.next_node_id(),
+                                };
+                            }
+                            "reactive" => {
+                                // Parse as generic block call (reactive { ... })
+                                let block = self.parse_block()?;
+                                let closure = crate::ast::Closure {
+                                    params: Vec::new(),
+                                    body: crate::ast::ClosureBody::Block(block),
+                                    return_type: None,
+                                };
+                                let closure_expr = Expr {
+                                    kind: Box::new(ExprKind::Closure(closure)),
+                                    span: self.current_span(),
+                                    id: self.next_node_id(),
+                                };
+                                expr = Expr {
+                                    kind: Box::new(ExprKind::Call {
+                                        function: Box::new(expr),
+                                        args: vec![closure_expr],
+                                    }),
+                                    span: self.current_span(),
+                                    id: self.next_node_id(),
+                                };
+                            }
+                            _ => {
+                                // Generic function call with block argument
+                                let block = self.parse_block()?;
+                                let closure = crate::ast::Closure {
+                                    params: Vec::new(),
+                                    body: crate::ast::ClosureBody::Block(block),
+                                    return_type: None,
+                                };
+                                let closure_expr = Expr {
+                                    kind: Box::new(ExprKind::Closure(closure)),
+                                    span: self.current_span(),
+                                    id: self.next_node_id(),
+                                };
+                                expr = Expr {
+                                    kind: Box::new(ExprKind::Call {
+                                        function: Box::new(expr),
+                                        args: vec![closure_expr],
+                                    }),
+                                    span: self.current_span(),
+                                    id: self.next_node_id(),
+                                };
+                            }
+                        }
+                    } else {
+                        // Not an identifier, treat as generic block call
+                        let block = self.parse_block()?;
+                        let closure = crate::ast::Closure {
+                            params: Vec::new(),
+                            body: crate::ast::ClosureBody::Block(block),
+                            return_type: None,
+                        };
+                        let closure_expr = Expr {
+                            kind: Box::new(ExprKind::Closure(closure)),
+                            span: self.current_span(),
+                            id: self.next_node_id(),
+                        };
+                        expr = Expr {
+                            kind: Box::new(ExprKind::Call {
+                                function: Box::new(expr),
+                                args: vec![closure_expr],
+                            }),
+                            span: self.current_span(),
+                            id: self.next_node_id(),
+                        };
+                    }
+                    }
+                    _ => break,
                 }
-                Some(Token { value: TokenType::LeftBracket, .. }) => {
-                    self.advance(); // consume '['
-                    let index = self.parse_expression()?;
-                    self.expect_token(TokenType::RightBracket)?;
-                    
-                    expr = Expr {
-                        kind: Box::new(ExprKind::Index {
-                            array: Box::new(expr),
-                            index: Box::new(index),
-                        }),
-                        span: self.current_span(),
-                        id: self.next_node_id(),
-                    };
-                }
-                _ => break,
+            } else {
+                break;
             }
         }
         
@@ -1177,6 +1336,9 @@ impl Parser {
     
     fn parse_primary_expression(&mut self) -> SeenResult<Expr<'static>> {
         let span = self.current_span();
+        
+        #[cfg(test)]
+        eprintln!("parse_primary_expression: Starting with current token = {:?}", self.current_token());
         
         if let Some(token) = self.current_token() {
             let kind = match &token.value {
@@ -1215,6 +1377,9 @@ impl Parser {
                 TokenType::Identifier(name) => {
                     // Check for special identifiers
                     if name == "null" {
+                        #[cfg(test)]
+                        eprintln!("parse_primary_expression: Found 'null' identifier, returning Null expression");
+                        
                         self.advance();
                         return Ok(Expr {
                             kind: Box::new(ExprKind::Null),
@@ -1231,7 +1396,8 @@ impl Parser {
                         
                         // Check for struct literal (identifier followed by '{')
                         // But not if the next token after '{' could be part of a different construct
-                        if matches!(self.current_token(), Some(Token { value: TokenType::LeftBrace, .. })) {
+                        if let Some(token) = self.current_token() {
+                            if matches!(token.value, TokenType::LeftBrace) {
                             // Look ahead to see if this looks like a struct literal
                             // Struct literals have field_name: value patterns
                             // We need to peek at the next few tokens to determine this
@@ -1287,8 +1453,12 @@ impl Parser {
                                 // Not a struct literal, just an identifier
                                 ExprKind::Identifier(seen_common::Spanned::new(name_val.leak(), span))
                             }
+                            } else {
+                                // No '{' following, just an identifier
+                                ExprKind::Identifier(seen_common::Spanned::new(name_val.leak(), span))
+                            }
                         } else {
-                            // No '{' following, just an identifier
+                            // No current token, just an identifier
                             ExprKind::Identifier(seen_common::Spanned::new(name_val.leak(), span))
                         }
                     }
@@ -1347,10 +1517,19 @@ impl Parser {
         let span = self.current_span();
         
         // Consume 'if' - can be either keyword or identifier
-        if matches!(self.current_token(), Some(Token { value: TokenType::KeywordIf, .. })) {
-            self.advance();
-        } else if matches!(self.current_token(), Some(Token { value: TokenType::Identifier(name), .. }) if name == "if") {
-            self.advance();
+        if let Some(token) = self.current_token() {
+            match &token.value {
+                TokenType::KeywordIf => {
+                    self.advance();
+                }
+                TokenType::Identifier(name) if name == "if" => {
+                    self.advance();
+                }
+                _ => {
+                    self.error("Expected 'if'");
+                    return Err(seen_common::SeenError::parse_error("Expected 'if'"));
+                }
+            }
         } else {
             self.error("Expected 'if'");
             return Err(seen_common::SeenError::parse_error("Expected 'if'"));
@@ -1361,14 +1540,19 @@ impl Parser {
         
         let else_branch = if self.match_token(&TokenType::KeywordElse) {
             // Check if it's a block or an if expression
-            if matches!(self.current_token(), Some(Token { value: TokenType::LeftBrace, .. })) {
-                // else { block }
-                let block = self.parse_block()?;
-                Some(Box::new(Expr {
-                    kind: Box::new(ExprKind::Block(block)),
-                    span: self.current_span(),
-                    id: self.next_node_id(),
-                }))
+            if let Some(token) = self.current_token() {
+                if matches!(token.value, TokenType::LeftBrace) {
+                    // else { block }
+                    let block = self.parse_block()?;
+                    Some(Box::new(Expr {
+                        kind: Box::new(ExprKind::Block(block)),
+                        span: self.current_span(),
+                        id: self.next_node_id(),
+                    }))
+                } else {
+                    // else if ... or other expression
+                    Some(Box::new(self.parse_expression()?))
+                }
             } else {
                 // else if ... or other expression
                 Some(Box::new(self.parse_expression()?))
