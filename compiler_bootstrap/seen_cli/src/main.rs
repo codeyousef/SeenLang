@@ -222,6 +222,28 @@ enum Commands {
         /// Arguments for the command
         args: Vec<String>,
     },
+    
+    /// Run performance benchmarks
+    Benchmark {
+        /// Filter benchmarks by name pattern
+        filter: Option<String>,
+        
+        /// Compare against a baseline
+        #[arg(long)]
+        compare_baseline: Option<String>,
+        
+        /// Save results with a name
+        #[arg(long)]
+        save_name: Option<String>,
+        
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+        
+        /// Path to the project directory
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -298,6 +320,9 @@ fn main() -> Result<()> {
         }
         Commands::Capture { stream, command, args } => {
             capture::execute(stream, command, args)
+        }
+        Commands::Benchmark { filter, compare_baseline, save_name, json, manifest_path } => {
+            benchmark::execute(filter, compare_baseline, save_name, json, manifest_path)
         }
     }
 }

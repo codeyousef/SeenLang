@@ -26,6 +26,9 @@ pub enum SeenError {
     
     #[error("Runtime error: {message}")]
     RuntimeError { message: String },
+    
+    #[error("FFI error: {message}")]
+    FfiError { message: String },
 }
 
 /// Result type alias for Seen compiler operations
@@ -58,5 +61,9 @@ impl SeenError {
     
     pub fn runtime_error(message: impl Into<String>) -> Self {
         Self::RuntimeError { message: message.into() }
+    }
+    
+    pub fn ffi_error(message: impl Into<String>) -> Self {
+        Self::FfiError { message: message.into() }
     }
 }

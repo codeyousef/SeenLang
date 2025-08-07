@@ -25,11 +25,15 @@ pub fn c_to_seen_type(c_type: &CType) -> Type {
         CType::LongDouble => Type::Primitive(PrimitiveType::F64), // Map to f64
         CType::Bool => Type::Primitive(PrimitiveType::Bool),
         CType::Pointer(inner) => {
-            Type::Pointer(Box::new(c_to_seen_type(inner)))
+            // Pointers map to references in Seen
+            Type::Reference {
+                inner: Box::new(c_to_seen_type(inner)),
+                mutable: false,
+            }
         }
         CType::Array(inner, size) => {
             Type::Array {
-                element: Box::new(c_to_seen_type(inner)),
+                element_type: Box::new(c_to_seen_type(inner)),
                 size: *size,
             }
         }
@@ -47,10 +51,10 @@ pub fn c_to_seen_type(c_type: &CType) -> Type {
             }
         }
         CType::Enum(name) => {
-            // Enums map to i32 by default in C
-            Type::Alias {
+            // Enums map to named types in Seen
+            Type::Named {
                 name: name.clone(),
-                target: Box::new(Type::Primitive(PrimitiveType::I32)),
+                args: vec![],
             }
         }
         CType::Function(func_type) => {
@@ -89,11 +93,11 @@ pub fn seen_to_c_type(seen_type: &Type) -> Option<CType> {
             }
             _ => None,
         },
-        Type::Pointer(inner) => {
+        Type::Reference { inner, .. } => {
             seen_to_c_type(inner).map(|t| CType::Pointer(Box::new(t)))
         }
-        Type::Array { element, size } => {
-            seen_to_c_type(element).map(|t| CType::Array(Box::new(t), *size))
+        Type::Array { element_type, size } => {
+            seen_to_c_type(element_type).map(|t| CType::Array(Box::new(t), *size))
         }
         Type::Function { params, return_type } => {
             let param_types: Option<Vec<_>> = params.iter()
@@ -180,7 +184,7 @@ mod tests {
         let char_ptr = CType::Pointer(Box::new(CType::Char));
         let seen_type = c_to_seen_type(&char_ptr);
         
-        assert!(matches!(seen_type, Type::Pointer(_)));
+        assert!(matches!(seen_type, Type::Reference { .. }));
     }
     
     #[test]

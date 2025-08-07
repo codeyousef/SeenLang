@@ -155,35 +155,35 @@ fn compile_project(project: &Project, config: &BuildConfig) -> Result<()> {
         }
     }
     
-    // 6. Generate code for each parsed file
-    let mut llvm_modules = Vec::new();
+    // 6. Generate code from the combined AST to preserve generic type information
+    info!("Generating code from unified AST...");
     
-    for (source_file, source_code, ast) in &parsed_files {
-        info!("Generating code for {}", source_file.display());
-        
-        // Memory analysis (Phase 2)
-        let mut memory_analyzer = MemoryAnalyzer::new();
-        let regions = memory_analyzer.infer_regions(source_code, &type_checker)
-            .context("Memory analysis failed")?;
-        
-        info!("  Memory analysis: {} regions inferred", regions.len());
-        
-        // Code generation (Phase 2)
-        let mut code_generator = CodeGenerator::new(source_file.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("main")
-            .to_string());
-        
-        // Convert AST to IR (simplified for Phase 2)
-        let ir_module = convert_ast_to_ir(ast);
-        let llvm_ir = code_generator.generate_llvm_ir(&ir_module)
-            .context("Code generation failed")?;
-        
-        info!("  Code generation: {} bytes of LLVM IR generated", llvm_ir.len());
-        
-        // Store the LLVM IR for later compilation
-        llvm_modules.push((source_file.clone(), llvm_ir));
-    }
+    // Memory analysis (Phase 2) - analyze the combined AST
+    let mut memory_analyzer = MemoryAnalyzer::new();
+    let all_source_code = parsed_files.iter()
+        .map(|(_, code, _)| code.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let regions = memory_analyzer.infer_regions(&all_source_code, &type_checker)
+        .context("Memory analysis failed")?;
+    
+    info!("  Memory analysis: {} regions inferred", regions.len());
+    
+    // Code generation (Phase 2) - use the combined AST
+    let mut code_generator = CodeGenerator::new(project.name().to_string());
+    
+    // Convert combined AST to IR to preserve generic type information
+    let ir_module = convert_ast_to_ir(&combined_ast);
+    let llvm_ir = code_generator.generate_llvm_ir(&ir_module)
+        .context("Code generation failed")?;
+    
+    info!("  Code generation: {} bytes of LLVM IR generated", llvm_ir.len());
+    
+    // Create a single module for the combined program
+    let mut llvm_modules = Vec::new();
+    let main_source_file = source_files.first().cloned()
+        .unwrap_or_else(|| PathBuf::from("main.seen"));
+    llvm_modules.push((main_source_file, llvm_ir));
     
     // 7. Link and generate final executable/library
     generate_output_with_llvm(project, config, &llvm_modules)?;

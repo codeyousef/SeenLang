@@ -109,6 +109,7 @@ pub enum TokenType {
     DoubleDot,         // ..
     TripleDot,         // ...
     DoubleColon,       // ::
+    At,                // @
     
     // Delimiters
     LeftParen,         // (
@@ -233,6 +234,7 @@ impl fmt::Display for TokenType {
                     TokenType::DoubleDot => "..",
                     TokenType::TripleDot => "...",
                     TokenType::DoubleColon => "::",
+                    TokenType::At => "@",
                     TokenType::LeftParen => "(",
                     TokenType::RightParen => ")",
                     TokenType::LeftBrace => "{",

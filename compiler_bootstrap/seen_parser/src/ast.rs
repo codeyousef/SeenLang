@@ -213,6 +213,7 @@ pub struct TraitFunction<'a> {
     pub params: Vec<Parameter<'a>>,
     pub return_type: Option<Type<'a>>,
     pub default_body: Option<Block<'a>>,
+    pub generic_params: Vec<TypeParam<'a>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

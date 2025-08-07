@@ -2,7 +2,7 @@
 
 use crate::ast::*;
 use seen_lexer::{Token, TokenType};
-use seen_common::{SeenResult, Diagnostics};
+use seen_common::{SeenResult, Diagnostics, Span, Spanned};
 
 /// Parser for the Seen language
 pub struct Parser {
@@ -76,6 +76,9 @@ impl Parser {
     fn parse_item(&mut self) -> SeenResult<Item<'static>> {
         let _start_pos = self.current_position();
         
+        // Parse attributes first
+        let attributes = self.parse_attributes()?;
+        
         // Debug: Print current token
         #[cfg(test)]
         if let Some(token) = self.current_token() {
@@ -84,11 +87,13 @@ impl Parser {
         
         if let Some(token) = self.current_token() {
             match &token.value {
-                TokenType::KeywordFun => self.parse_function(),
+                TokenType::KeywordFun => self.parse_function_with_attributes(attributes),
                 TokenType::KeywordSuspend => self.parse_suspend_function(),
                 TokenType::KeywordInline => self.parse_inline_function(),
                 TokenType::KeywordStruct => self.parse_struct(),
                 TokenType::KeywordEnum => self.parse_enum(),
+                TokenType::KeywordTrait => self.parse_trait(),
+                TokenType::KeywordImpl => self.parse_impl(),
                 TokenType::KeywordData => self.parse_data_class(),
                 TokenType::KeywordSealed => self.parse_sealed_class(),
                 TokenType::KeywordObject => self.parse_object_declaration(),
@@ -125,6 +130,8 @@ impl Parser {
                     "fun" => self.parse_function(),
                     "struct" => self.parse_struct(),
                     "enum" => self.parse_enum(),
+                    "trait" => self.parse_trait(),
+                    "impl" => self.parse_impl(),
                     _ => {
                         eprintln!("parse_item: Unexpected identifier '{}'", name);
                         self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', 'inline', 'tailrec', 'operator', 'infix', or 'typealias'");
@@ -144,6 +151,10 @@ impl Parser {
     }
     
     fn parse_function(&mut self) -> SeenResult<Item<'static>> {
+        self.parse_function_with_attributes(Vec::new())
+    }
+    
+    fn parse_function_with_attributes(&mut self, attributes: Vec<Attribute<'static>>) -> SeenResult<Item<'static>> {
         let start_span = self.current_span();
         
         // Consume 'fun'
@@ -195,7 +206,7 @@ impl Parser {
             return_type,
             body,
             visibility: Visibility::Private,
-            attributes: Vec::with_capacity(0), // Empty but avoids allocation
+            attributes,
             is_inline: false,
             is_suspend: false,
             is_operator: false,
@@ -1315,6 +1326,74 @@ impl Parser {
         }
         
         Ok(args)
+    }
+    
+    fn parse_attributes(&mut self) -> SeenResult<Vec<Attribute<'static>>> {
+        let mut attributes = Vec::new();
+        
+        while self.check(&TokenType::At) {
+            let start_span = self.current_span();
+            self.advance(); // consume '@'
+            
+            let name = self.expect_identifier_value()?;
+            let name_span = self.previous_span();
+            let name_static: &'static str = Box::leak(name.into_boxed_str());
+            
+            // Parse optional arguments
+            let args = if self.check(&TokenType::LeftParen) {
+                self.advance(); // consume '('
+                let mut attr_args = Vec::new();
+                
+                if !self.check(&TokenType::RightParen) {
+                    loop {
+                        // For now, just support literal arguments
+                        if let Some(token) = self.current_token() {
+                            match &token.value {
+                                TokenType::StringLiteral(s) => {
+                                    let s_static: &'static str = Box::leak(s.clone().into_boxed_str());
+                                    attr_args.push(AttrArg::Literal(
+                                        Literal {
+                                            kind: LiteralKind::String(s_static),
+                                            span: self.current_span(),
+                                        }
+                                    ));
+                                    self.advance();
+                                }
+                                TokenType::IntegerLiteral(n) => {
+                                    attr_args.push(AttrArg::Literal(
+                                        Literal {
+                                            kind: LiteralKind::Integer(*n),
+                                            span: self.current_span(),
+                                        }
+                                    ));
+                                    self.advance();
+                                }
+                                _ => {
+                                    return Err(seen_common::SeenError::parse_error("Expected literal in attribute argument"));
+                                }
+                            }
+                        }
+                        
+                        if !self.match_token(&TokenType::Comma) {
+                            break;
+                        }
+                    }
+                }
+                
+                self.expect_token(TokenType::RightParen)?;
+                attr_args
+            } else {
+                Vec::new()
+            };
+            
+            attributes.push(Attribute {
+                name: seen_common::Spanned::new(name_static, name_span),
+                args,
+                span: start_span,
+            });
+        }
+        
+        Ok(attributes)
     }
     
     fn parse_block(&mut self) -> SeenResult<Block<'static>> {
@@ -2903,6 +2982,168 @@ impl Parser {
         })
     }
     
+    fn parse_trait(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        self.advance(); // consume 'trait'
+        
+        // Parse trait name
+        let name_value = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        let name_static: &'static str = Box::leak(name_value.into_boxed_str());
+        let name = Spanned::new(name_static, name_span);
+        
+        // Parse optional generic parameters
+        let generic_params = if self.check(&TokenType::Less) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parse optional supertraits (: Trait1 + Trait2)
+        let mut supertraits = Vec::new();
+        if self.match_token(&TokenType::Colon) {
+            loop {
+                supertraits.push(self.parse_type()?);
+                if !self.match_token(&TokenType::Plus) {
+                    break;
+                }
+            }
+        }
+        
+        // Parse trait body
+        self.expect_token(TokenType::LeftBrace)?;
+        let mut items = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            items.push(self.parse_trait_item()?);
+        }
+        
+        self.expect_token(TokenType::RightBrace)?;
+        
+        let trait_def = TraitDef {
+            name,
+            items,
+            generic_params,
+            supertraits,
+            visibility: Visibility::Public,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Trait(trait_def),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_trait_item(&mut self) -> SeenResult<TraitItem<'static>> {
+        let start_span = self.current_span();
+        
+        // For now, only support function declarations in traits
+        if self.check(&TokenType::KeywordFun) {
+            self.advance(); // consume 'fun'
+            
+            let name_value = self.expect_identifier_value()?;
+            let name_span = self.previous_span();
+            let name_static: &'static str = Box::leak(name_value.into_boxed_str());
+            let name = Spanned::new(name_static, name_span);
+            
+            // Parse function signature (no body in trait)
+            self.expect_token(TokenType::LeftParen)?;
+            let params = self.parse_parameter_list()?;
+            self.expect_token(TokenType::RightParen)?;
+            
+            // Parse optional return type
+            let return_type = if self.match_token(&TokenType::Arrow) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            
+            // Expect semicolon (no body)
+            self.expect_token(TokenType::Semicolon)?;
+            
+            let trait_func = TraitFunction {
+                name,
+                params,
+                return_type,
+                default_body: None,
+                generic_params: Vec::new(),
+            };
+            
+            Ok(TraitItem {
+                kind: TraitItemKind::Function(trait_func),
+                span: start_span,
+                id: self.next_node_id(),
+            })
+        } else {
+            self.error("Expected 'fun' in trait");
+            Err(seen_common::SeenError::parse_error("Expected trait item"))
+        }
+    }
+    
+    fn parse_impl(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        self.advance(); // consume 'impl'
+        
+        // Parse trait name (what we're implementing)
+        let trait_ref = self.parse_type()?;
+        
+        // Expect 'for'
+        self.expect_token(TokenType::KeywordFor)?;
+        
+        // Parse target type (what we're implementing for)
+        let target_type = self.parse_type()?;
+        
+        // Parse impl body
+        self.expect_token(TokenType::LeftBrace)?;
+        let mut items = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Parse function implementations
+            items.push(self.parse_impl_item()?);
+        }
+        
+        self.expect_token(TokenType::RightBrace)?;
+        
+        let impl_block = Impl {
+            trait_ref: Some(trait_ref),
+            self_type: target_type,
+            generic_params: Vec::new(),
+            items,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Impl(impl_block),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_impl_item(&mut self) -> SeenResult<ImplItem<'static>> {
+        let start_span = self.current_span();
+        
+        // Parse a regular function but within an impl block
+        if !self.check(&TokenType::KeywordFun) {
+            self.error("Expected 'fun' in impl block");
+            return Err(seen_common::SeenError::parse_error("Expected function in impl"));
+        }
+        
+        // Use existing function parsing logic
+        if let Ok(item) = self.parse_function() {
+            if let ItemKind::Function(func) = item.kind {
+                Ok(ImplItem {
+                    kind: ImplItemKind::Function(func),
+                    span: start_span,
+                    id: self.next_node_id(),
+                })
+            } else {
+                Err(seen_common::SeenError::parse_error("Expected function"))
+            }
+        } else {
+            Err(seen_common::SeenError::parse_error("Failed to parse impl function"))
+        }
+    }
+
     fn parse_interface(&mut self) -> SeenResult<Item<'static>> {
         let start_span = self.current_span();
         
@@ -2968,6 +3209,7 @@ impl Parser {
                     params,
                     return_type,
                     default_body,
+                    generic_params: Vec::new(),
                 };
                 
                 items.push(TraitItem {

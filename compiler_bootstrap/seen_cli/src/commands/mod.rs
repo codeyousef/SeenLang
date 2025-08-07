@@ -17,3 +17,4 @@ pub mod env;
 pub mod pwd;
 pub mod cd;
 pub mod capture;
+pub mod benchmark;

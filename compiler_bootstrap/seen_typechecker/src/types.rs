@@ -134,6 +134,15 @@ impl TypeEnvironment {
     pub fn contains_function(&self, name: &str) -> bool {
         self.bindings.contains_key(&format!("func:{}", name))
     }
+    
+    pub fn get(&self, key: &str) -> Option<&Type> {
+        self.bindings.get(key)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get(key)))
+    }
+    
+    pub fn remove(&mut self, key: &str) -> Option<Type> {
+        self.bindings.remove(key)
+    }
 }
 
 /// Type substitution for inference

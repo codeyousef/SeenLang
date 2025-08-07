@@ -100,6 +100,7 @@ impl<'a> Lexer<'a> {
                 b'?' => { self.advance_byte(); TokenType::Question }
                 b'~' => { self.advance_byte(); TokenType::BitwiseNot }
                 b'^' => { self.advance_byte(); TokenType::BitwiseXor }
+                b'@' => { self.advance_byte(); TokenType::At }
                 
                 // Multi-character operators - fast dispatch
                 b'+' => self.handle_multi_char_operator(MultiCharHandler::Plus),

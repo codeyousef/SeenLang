@@ -32,9 +32,18 @@ fn generate_function_binding(func: &CFunction) -> String {
     // Parameters
     let params: Vec<String> = func.parameters.iter().enumerate().map(|(i, param)| {
         let name = param.name.as_ref()
-            .unwrap_or(&format!("arg{}", i));
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| {
+                // This will be handled below where we use the name
+                ""
+            });
+        let actual_name = if name.is_empty() {
+            format!("arg{}", i)
+        } else {
+            name.to_string()
+        };
         let type_str = c_type_to_seen_string(&param.c_type);
-        format!("{}: {}", name, type_str)
+        format!("{}: {}", actual_name, type_str)
     }).collect();
     
     binding.push_str(&params.join(", "));
@@ -72,9 +81,15 @@ fn generate_safe_wrapper(func: &CFunction) -> String {
     // Parameters with null checks for pointers
     let params: Vec<String> = func.parameters.iter().enumerate().map(|(i, param)| {
         let name = param.name.as_ref()
-            .unwrap_or(&format!("arg{}", i));
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| "");
+        let actual_name = if name.is_empty() {
+            format!("arg{}", i)
+        } else {
+            name.to_string()
+        };
         let type_str = c_type_to_seen_string_safe(&param.c_type);
-        format!("{}: {}", name, type_str)
+        format!("{}: {}", actual_name, type_str)
     }).collect();
     
     wrapper.push_str(&params.join(", "));
@@ -102,9 +117,15 @@ fn generate_safe_wrapper(func: &CFunction) -> String {
     for (i, param) in func.parameters.iter().enumerate() {
         if matches!(param.c_type, CType::Pointer(_)) {
             let name = param.name.as_ref()
-                .unwrap_or(&format!("arg{}", i));
-            wrapper.push_str(&format!("    if {} == null {{\n", name));
-            wrapper.push_str(&format!("        return Err(FFIError::NullPointer(\"{}\"))\n", name));
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| "");
+            let actual_name = if name.is_empty() {
+                format!("arg{}", i)
+            } else {
+                name.to_string()
+            };
+            wrapper.push_str(&format!("    if {} == null {{\n", actual_name));
+            wrapper.push_str(&format!("        return Err(FFIError::NullPointer(\"{}\"))\n", actual_name));
             wrapper.push_str("    }\n");
         }
     }
@@ -122,9 +143,11 @@ fn generate_safe_wrapper(func: &CFunction) -> String {
     wrapper.push_str(&format!("{}(", func.name));
     
     let args: Vec<String> = func.parameters.iter().enumerate().map(|(i, param)| {
-        param.name.as_ref()
-            .unwrap_or(&format!("arg{}", i))
-            .clone()
+        if let Some(name) = &param.name {
+            name.clone()
+        } else {
+            format!("arg{}", i)
+        }
     }).collect();
     
     wrapper.push_str(&args.join(", "));

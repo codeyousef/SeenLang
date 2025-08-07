@@ -151,6 +151,11 @@ impl Project {
         self.root_dir.join("src")
     }
     
+    /// Get the benchmark results directory
+    pub fn benchmark_dir(&self) -> PathBuf {
+        self.build_dir().join("benchmarks")
+    }
+    
     /// Get the output path for a specific target and mode
     pub fn output_path(&self, target: &str, release: bool) -> PathBuf {
         let mode = if release { "release" } else { "debug" };

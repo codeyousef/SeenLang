@@ -2,7 +2,7 @@
 
 use crate::types::*;
 use crate::inference::InferenceEngine;
-use seen_common::{SeenResult, Diagnostics};
+use seen_common::{SeenResult, SeenError, Diagnostics};
 use seen_parser::{Program, Stmt, StmtKind, Expr, ExprKind, Literal, LiteralKind, BinaryOp, PatternKind};
 
 /// Type checker
@@ -80,23 +80,46 @@ impl TypeChecker {
                         continue;
                     }
                     
-                    // Store function type in environment
-                    let param_types: Vec<Type> = func.params.iter()
-                        .map(|param| self.resolve_type_annotation(&param.ty))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    
-                    let return_type = if let Some(ret_ty) = &func.return_type {
-                        Box::new(self.resolve_type_annotation(ret_ty)?)
+                    // Handle generic functions
+                    if !func.type_params.is_empty() {
+                        // For generic functions, create a polymorphic function type
+                        // We'll defer actual type parameter resolution to Pass 2
+                        
+                        // Create generic function type without resolving type parameters yet
+                        let func_type = Type::Generic {
+                            name: format!("{}::<{}>", 
+                                func.name.value,
+                                func.type_params.iter()
+                                    .map(|tp| tp.name.value)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                            bounds: Vec::new(), // TODO: Handle type bounds
+                        };
+                        
+                        // Store the generic function type
+                        self.env.insert_function(func.name.value.to_string(), func_type);
+                        
+                        // We'll resolve the actual signature later in Pass 2
                     } else {
-                        Box::new(Type::Primitive(PrimitiveType::Unit))
-                    };
-                    
-                    let func_type = Type::Function {
-                        params: param_types,
-                        return_type,
-                    };
-                    
-                    self.env.insert_function(func.name.value.to_string(), func_type);
+                        // Non-generic function
+                        let param_types: Vec<Type> = func.params.iter()
+                            .map(|param| self.resolve_type_annotation(&param.ty))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        
+                        let return_type = if let Some(ret_ty) = &func.return_type {
+                            Box::new(self.resolve_type_annotation(ret_ty)?)
+                        } else {
+                            Box::new(Type::Primitive(PrimitiveType::Unit))
+                        };
+                        
+                        let func_type = Type::Function {
+                            params: param_types,
+                            return_type,
+                        };
+                        
+                        self.env.insert_function(func.name.value.to_string(), func_type);
+                    }
                 }
                 seen_parser::ItemKind::Struct(struct_def) => {
                     // Handle struct type definitions
@@ -199,8 +222,9 @@ impl TypeChecker {
                 seen_parser::ItemKind::ExtensionFunction(_) => {
                     // Extension functions - implement in Step 11
                 }
-                seen_parser::ItemKind::DataClass(_) => {
-                    // Data classes - implement in Step 11
+                seen_parser::ItemKind::DataClass(data_class) => {
+                    // Add data class constructor to the type environment
+                    self.check_data_class(data_class)?;
                 }
                 seen_parser::ItemKind::SealedClass(_) => {
                     // Sealed classes - implement in Step 11
@@ -222,8 +246,46 @@ impl TypeChecker {
         for item in &program.items {
             match &item.kind {
                 seen_parser::ItemKind::Function(func) => {
-                    // Type check the function body
-                    self.check_block(&func.body)?;
+                    // Set up type parameter context for generic functions
+                    if !func.type_params.is_empty() {
+                        // Add type parameters to the environment for body checking
+                        for type_param in &func.type_params {
+                            let type_var = Type::Variable(self.inference.fresh_type_var());
+                            self.env.bind(format!("type:{}", type_param.name.value), type_var);
+                        }
+                        
+                        // Now resolve the concrete signature with type parameters available
+                        let param_types: Vec<Type> = func.params.iter()
+                            .map(|param| self.resolve_type_annotation(&param.ty))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        
+                        let return_type = if let Some(ret_ty) = &func.return_type {
+                            Box::new(self.resolve_type_annotation(ret_ty)?)
+                        } else {
+                            Box::new(Type::Primitive(PrimitiveType::Unit))
+                        };
+                        
+                        // Store the concrete function signature for monomorphization
+                        let concrete_func_type = Type::Function {
+                            params: param_types,
+                            return_type,
+                        };
+                        self.env.insert_function(
+                            format!("{}::__generic_sig", func.name.value),
+                            concrete_func_type
+                        );
+                        
+                        // Type check the function body with type parameters available
+                        self.check_block(&func.body)?;
+                        
+                        // Clean up type parameter bindings
+                        for type_param in &func.type_params {
+                            self.env.remove(&format!("type:{}", type_param.name.value));
+                        }
+                    } else {
+                        // Non-generic function
+                        self.check_block(&func.body)?;
+                    }
                 }
                 _ => {
                     // Other items already handled in Pass 1
@@ -313,8 +375,12 @@ impl TypeChecker {
                         "str" => Ok(Type::Primitive(PrimitiveType::Str)),
                         "char" => Ok(Type::Primitive(PrimitiveType::Char)),
                         name => {
-                            // Look up in type environment
-                            if let Some(ty) = self.env.get_type(name) {
+                            // First check if this is a type parameter
+                            if let Some(type_var) = self.env.get(&format!("type:{}", name)) {
+                                Ok(type_var.clone())
+                            }
+                            // Then look up in type environment
+                            else if let Some(ty) = self.env.get_type(name) {
                                 Ok(ty.clone())
                             } else {
                                 Err(seen_common::SeenError::type_error(&format!("Unknown type: {}", name)))
@@ -324,6 +390,14 @@ impl TypeChecker {
                 } else {
                     Err(seen_common::SeenError::type_error("Empty type path"))
                 }
+            }
+            seen_parser::TypeKind::Nullable(inner_ty) => {
+                let inner_type = self.resolve_type_annotation(inner_ty)?;
+                // For now, represent nullable types as Named types with Option
+                Ok(Type::Named {
+                    name: "Option".to_string(),
+                    args: vec![inner_type],
+                })
             }
             _ => Err(seen_common::SeenError::type_error("Unsupported type annotation")),
         }
@@ -514,6 +588,47 @@ impl TypeChecker {
                                 
                                 Ok(*return_type)
                             }
+                            Type::Generic { .. } => {
+                                // Generic function call - perform type inference
+                                // For now, try to get the concrete signature and perform monomorphization
+                                if let Some(concrete_func_type) = self.env.get_function_type(&format!("{}::__generic_sig", func_name.value)).cloned() {
+                                    if let Type::Function { params, return_type } = concrete_func_type {
+                                        // Infer type arguments from the provided arguments
+                                        let arg_types: Vec<Type> = args.iter()
+                                            .map(|arg| self.infer_expression_type(arg))
+                                            .collect::<Result<Vec<_>, _>>()?;
+                                        
+                                        // For simple cases, just use the first argument's type as the generic type
+                                        // In a full implementation, we'd do proper type inference here
+                                        if args.len() == params.len() {
+                                            // Create a substitution mapping for generic parameters
+                                            let mut substituted_return_type = return_type.as_ref().clone();
+                                            
+                                            // Simple substitution: replace type variables with concrete types
+                                            // This is a simplified approach - a full implementation would use unification
+                                            if let (Some(first_arg_type), Some(first_param_type)) = (arg_types.first(), params.first()) {
+                                                if let Type::Variable(_) = first_param_type {
+                                                    substituted_return_type = self.substitute_type_vars(&substituted_return_type, first_param_type, first_arg_type);
+                                                }
+                                            }
+                                            
+                                            Ok(substituted_return_type)
+                                        } else {
+                                            self.diagnostics.error(
+                                                &format!("Generic function '{}' expects {} arguments, got {}", 
+                                                        func_name.value, params.len(), args.len()),
+                                                function.span
+                                            );
+                                            Ok(Type::Error)
+                                        }
+                                    } else {
+                                        Ok(Type::Error)
+                                    }
+                                } else {
+                                    // Fallback: return a fresh type variable
+                                    Ok(Type::Variable(self.inference.fresh_type_var()))
+                                }
+                            }
                             _ => {
                                 self.diagnostics.error(
                                     &format!("'{}' is not a function", func_name.value),
@@ -576,6 +691,84 @@ impl TypeChecker {
             LiteralKind::Boolean(_) => Ok(Type::Primitive(PrimitiveType::Bool)),
             LiteralKind::Unit => Ok(Type::Primitive(PrimitiveType::Unit)),
         }
+    }
+    
+    /// Simple type variable substitution for generic functions
+    fn substitute_type_vars(&self, target: &Type, type_var: &Type, replacement: &Type) -> Type {
+        match target {
+            Type::Variable(var_id) => {
+                if let Type::Variable(target_var_id) = type_var {
+                    if var_id == target_var_id {
+                        replacement.clone()
+                    } else {
+                        target.clone()
+                    }
+                } else {
+                    target.clone()
+                }
+            }
+            Type::Function { params, return_type } => {
+                let substituted_params = params.iter()
+                    .map(|param| self.substitute_type_vars(param, type_var, replacement))
+                    .collect();
+                let substituted_return = Box::new(self.substitute_type_vars(return_type, type_var, replacement));
+                Type::Function {
+                    params: substituted_params,
+                    return_type: substituted_return,
+                }
+            }
+            Type::Array { element_type, size } => {
+                let substituted_element = Box::new(self.substitute_type_vars(element_type, type_var, replacement));
+                Type::Array {
+                    element_type: substituted_element,
+                    size: *size,
+                }
+            }
+            Type::Named { name, args } => {
+                let substituted_args = args.iter()
+                    .map(|arg| self.substitute_type_vars(arg, type_var, replacement))
+                    .collect();
+                Type::Named {
+                    name: name.clone(),
+                    args: substituted_args,
+                }
+            }
+            _ => target.clone(),
+        }
+    }
+
+    /// Check data class and add constructor to type environment
+    fn check_data_class(&mut self, data_class: &seen_parser::DataClass) -> SeenResult<()> {
+        // Create field types
+        let mut field_types = Vec::new();
+        for field in &data_class.fields {
+            let field_type = self.resolve_type_annotation(&field.ty)?;
+            field_types.push((field.name.value.to_string(), field_type));
+        }
+
+        // Create the data class struct type
+        let struct_type = Type::Struct {
+            name: data_class.name.value.to_string(),
+            fields: field_types.clone(),
+        };
+
+        // Register the struct type
+        self.env.insert_type(data_class.name.value.to_string(), struct_type.clone());
+
+        // Create constructor function type: (field1_type, field2_type, ...) -> DataClassName
+        let param_types = field_types.into_iter().map(|(_, ty)| ty).collect();
+        let constructor_type = Type::Function {
+            params: param_types,
+            return_type: Box::new(Type::Named {
+                name: data_class.name.value.to_string(),
+                args: vec![],
+            }),
+        };
+
+        // Register constructor function
+        self.env.insert_function(data_class.name.value.to_string(), constructor_type);
+
+        Ok(())
     }
 }
 
