@@ -18,7 +18,7 @@ mod generic_function_tests {
     #[test]
     fn test_simple_generic_function() {
         let code = r#"
-            func<T> identity(value: T): T {
+            fun identity<T>(value: T): T {
                 return value
             }
         "#;
@@ -41,7 +41,7 @@ mod generic_function_tests {
     #[test]
     fn test_generic_function_with_multiple_params() {
         let code = r#"
-            func<T, U> combine(first: T, second: U): String {
+            fun combine<T, U>(first: T, second: U): String {
                 return first.toString() + second.toString()
             }
         "#;
@@ -65,7 +65,7 @@ mod generic_function_tests {
     #[test]
     fn test_generic_function_with_constraints() {
         let code = r#"
-            func<T: Serializable> serialize(value: T): String {
+            fun serialize<T: Serializable>(value: T): String {
                 return value.serialize()
             }
         "#;

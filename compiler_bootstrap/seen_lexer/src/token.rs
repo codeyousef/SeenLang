@@ -18,7 +18,7 @@ pub enum TokenType {
     Identifier(String),
     
     // Keywords (language-agnostic representation)
-    KeywordFunc,
+    KeywordFun,
     KeywordIf,
     KeywordElse,
     KeywordWhile,
@@ -50,6 +50,11 @@ pub enum TokenType {
     KeywordAwait,
     KeywordLaunch,
     KeywordFlow,
+    KeywordTry,
+    KeywordCatch,
+    KeywordFinally,
+    KeywordThrow,
+    KeywordClass,
     
     // Operators
     Plus,              // +
@@ -120,7 +125,7 @@ impl fmt::Display for TokenType {
             TokenType::Error(msg) => write!(f, "ERROR: {}", msg),
             _ => {
                 let token_str = match self {
-                    TokenType::KeywordFunc => "func",
+                    TokenType::KeywordFun => "fun",
                     TokenType::KeywordIf => "if",
                     TokenType::KeywordElse => "else",
                     TokenType::KeywordWhile => "while",
@@ -146,6 +151,17 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordMatch => "match",
                     TokenType::KeywordBreak => "break",
                     TokenType::KeywordContinue => "continue",
+                    TokenType::KeywordIs => "is",
+                    TokenType::KeywordAs => "as",
+                    TokenType::KeywordSuspend => "suspend",
+                    TokenType::KeywordAwait => "await",
+                    TokenType::KeywordLaunch => "launch",
+                    TokenType::KeywordFlow => "flow",
+                    TokenType::KeywordTry => "try",
+                    TokenType::KeywordCatch => "catch",
+                    TokenType::KeywordFinally => "finally",
+                    TokenType::KeywordThrow => "throw",
+                    TokenType::KeywordClass => "class",
                     TokenType::Plus => "+",
                     TokenType::Minus => "-",
                     TokenType::Multiply => "*",
@@ -220,7 +236,7 @@ impl TokenUtils for Token {
     
     fn is_keyword(&self) -> bool {
         matches!(self.value, 
-            TokenType::KeywordFunc | TokenType::KeywordIf | TokenType::KeywordElse |
+            TokenType::KeywordFun | TokenType::KeywordIf | TokenType::KeywordElse |
             TokenType::KeywordWhile | TokenType::KeywordFor | TokenType::KeywordIn |
             TokenType::KeywordReturn | TokenType::KeywordLet | TokenType::KeywordMut |
             TokenType::KeywordVal |
@@ -229,7 +245,10 @@ impl TokenUtils for Token {
             TokenType::KeywordImport | TokenType::KeywordModule | TokenType::KeywordPub |
             TokenType::KeywordPriv | TokenType::KeywordStatic | TokenType::KeywordConst |
             TokenType::KeywordType | TokenType::KeywordMatch | TokenType::KeywordBreak |
-            TokenType::KeywordContinue
+            TokenType::KeywordContinue | TokenType::KeywordIs | TokenType::KeywordAs |
+            TokenType::KeywordSuspend | TokenType::KeywordAwait | TokenType::KeywordLaunch |
+            TokenType::KeywordFlow | TokenType::KeywordTry | TokenType::KeywordCatch |
+            TokenType::KeywordFinally | TokenType::KeywordThrow | TokenType::KeywordClass
         )
     }
     

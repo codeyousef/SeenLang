@@ -545,6 +545,8 @@ pub enum ExprKind<'a> {
     Range { start: Option<Box<Expr<'a>>>, end: Option<Box<Expr<'a>>>, inclusive: bool },
     /// Type cast
     Cast { expr: Box<Expr<'a>>, ty: Box<Type<'a>> },
+    /// Generic type instantiation (e.g., MutableStateFlow<User?>)
+    GenericInstantiation { base: Box<Expr<'a>>, args: Vec<Type<'a>> },
     // Kotlin-inspired expressions
     /// Closure expression (|param| body)
     Closure(Closure<'a>),
@@ -561,6 +563,12 @@ pub enum ExprKind<'a> {
     Await { expr: Box<Expr<'a>> },
     /// Launch block expression (launch { ... })
     Launch { block: Block<'a> },
+    /// Try-catch-finally expression
+    TryCatch {
+        try_block: Box<Block<'a>>,
+        catch_blocks: Vec<(&'a str, Option<Type<'a>>, Block<'a>)>,
+        finally_block: Option<Box<Block<'a>>>,
+    },
     /// Flow builder expression (flow { ... })
     FlowBuilder { block: Block<'a> },
 }

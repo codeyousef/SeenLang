@@ -9,7 +9,7 @@ fn debug_parser_detailed() {
     let config = create_english_config();
     
     let program = r#"
-        func fibonacci(n: i32) -> i32 {
+        fun fibonacci(n: i32) -> i32 {
             if n <= 1 {
                 return n;
             }
@@ -28,7 +28,7 @@ fn debug_parser_detailed() {
             RGB(u8, u8, u8),
         }
         
-        func main() {
+        fun main() {
             let x = 42;
             let result = fibonacci(10);
             return 0;
@@ -47,14 +47,14 @@ fn debug_parser_detailed() {
     
     for (i, token) in tokens.iter().enumerate() {
         match &token.value {
-            TokenType::KeywordFunc => func_positions.push(i),
+            TokenType::KeywordFun => func_positions.push(i),
             TokenType::KeywordStruct => struct_positions.push(i),
             TokenType::KeywordEnum => enum_positions.push(i),
             _ => {}
         }
     }
     
-    println!("Found {} func keywords at positions: {:?}", func_positions.len(), func_positions);
+    println!("Found {} fun keywords at positions: {:?}", func_positions.len(), func_positions);
     println!("Found {} struct keywords at positions: {:?}", struct_positions.len(), struct_positions);
     println!("Found {} enum keywords at positions: {:?}", enum_positions.len(), enum_positions);
     
@@ -97,7 +97,7 @@ fn debug_parser_detailed() {
 
 fn create_english_config() -> LanguageConfig {
     let mut keywords = HashMap::new();
-    keywords.insert("func".to_string(), "TokenFunc".to_string());
+    keywords.insert("fun".to_string(), "TokenFun".to_string());
     keywords.insert("let".to_string(), "TokenLet".to_string());
     keywords.insert("if".to_string(), "TokenIf".to_string());
     keywords.insert("else".to_string(), "TokenElse".to_string());

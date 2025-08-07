@@ -6,6 +6,7 @@ members = [
     "compiler_bootstrap/seen_typechecker", # Type system & inference (<100μs/func)
     "compiler_bootstrap/seen_memory",     # Vale-style memory model (<5% overhead)
     "compiler_bootstrap/seen_ir",         # Intermediate representation & codegen
+    "compiler_bootstrap/seen_ffi",        # Foreign Function Interface for C interop
     "compiler_bootstrap/seen_process",    # Process management & self-hosting infrastructure
     "compiler_bootstrap/seen_cli",        # Command-line interface (build/run/check/clean/test/format)
     "seen_std",                           # Standard library

@@ -9,13 +9,13 @@ fn debug_error_recovery() {
     let config = create_english_config();
     
     let program_with_errors = r#"
-        func valid_function() {
+        fun valid_function() {
             let x = 42;
         }
         
-        func invalid_syntax   // Missing parentheses and body
+        fun invalid_syntax   // Missing parentheses and body
         
-        func another_valid_function() {
+        fun another_valid_function() {
             return 100;
         }
         
@@ -35,13 +35,13 @@ fn debug_error_recovery() {
     
     for (i, token) in tokens.iter().enumerate() {
         match &token.value {
-            TokenType::KeywordFunc => func_positions.push(i),
+            TokenType::KeywordFun => func_positions.push(i),
             TokenType::KeywordStruct => struct_positions.push(i),
             _ => {}
         }
     }
     
-    println!("Found {} func keywords at positions: {:?}", func_positions.len(), func_positions);
+    println!("Found {} fun keywords at positions: {:?}", func_positions.len(), func_positions);
     println!("Found {} struct keywords at positions: {:?}", struct_positions.len(), struct_positions);
     
     let mut parser = Parser::new(tokens);
@@ -86,7 +86,7 @@ fn debug_error_recovery() {
 
 fn create_english_config() -> LanguageConfig {
     let mut keywords = HashMap::new();
-    keywords.insert("func".to_string(), "TokenFunc".to_string());
+    keywords.insert("fun".to_string(), "TokenFun".to_string());
     keywords.insert("let".to_string(), "TokenLet".to_string());
     keywords.insert("if".to_string(), "TokenIf".to_string());
     keywords.insert("else".to_string(), "TokenElse".to_string());

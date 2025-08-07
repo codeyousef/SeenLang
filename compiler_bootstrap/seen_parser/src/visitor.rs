@@ -309,6 +309,12 @@ pub fn walk_expr<'a, V: Visitor<'a>>(visitor: &mut V, expr: &Expr<'a>) {
             visitor.visit_expr(expr);
             visitor.visit_type(ty);
         }
+        ExprKind::GenericInstantiation { base, args } => {
+            visitor.visit_expr(base);
+            for ty in args {
+                visitor.visit_type(ty);
+            }
+        }
         // Kotlin-inspired expressions
         ExprKind::Closure(closure) => {
             for param in &closure.params {
@@ -343,6 +349,18 @@ pub fn walk_expr<'a, V: Visitor<'a>>(visitor: &mut V, expr: &Expr<'a>) {
         }
         ExprKind::Launch { block } => {
             visitor.visit_block(block);
+        }
+        ExprKind::TryCatch { try_block, catch_blocks, finally_block } => {
+            visitor.visit_block(try_block);
+            for (_, exception_type, catch_block) in catch_blocks {
+                if let Some(exception_type) = exception_type {
+                    visitor.visit_type(exception_type);
+                }
+                visitor.visit_block(catch_block);
+            }
+            if let Some(finally_block) = finally_block {
+                visitor.visit_block(finally_block);
+            }
         }
         ExprKind::FlowBuilder { block } => {
             visitor.visit_block(block);
@@ -622,6 +640,12 @@ pub fn walk_expr_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, expr: &mut Expr<'a>
             visitor.visit_expr(expr);
             visitor.visit_type(ty);
         }
+        ExprKind::GenericInstantiation { base, args } => {
+            visitor.visit_expr(base);
+            for ty in args {
+                visitor.visit_type(ty);
+            }
+        }
         // Kotlin-inspired expressions  
         ExprKind::Closure(closure) => {
             for param in &mut closure.params {
@@ -656,6 +680,18 @@ pub fn walk_expr_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, expr: &mut Expr<'a>
         }
         ExprKind::Launch { block } => {
             visitor.visit_block(block);
+        }
+        ExprKind::TryCatch { try_block, catch_blocks, finally_block } => {
+            visitor.visit_block(try_block);
+            for (_, exception_type, catch_block) in catch_blocks {
+                if let Some(exception_type) = exception_type {
+                    visitor.visit_type(exception_type);
+                }
+                visitor.visit_block(catch_block);
+            }
+            if let Some(finally_block) = finally_block {
+                visitor.visit_block(finally_block);
+            }
         }
         ExprKind::FlowBuilder { block } => {
             visitor.visit_block(block);

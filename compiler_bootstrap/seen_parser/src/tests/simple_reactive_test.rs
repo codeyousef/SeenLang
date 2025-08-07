@@ -18,11 +18,11 @@ mod simple_reactive_tests {
     #[test]
     fn test_basic_generic_types() {
         let code = r#"
-            func createObservable(): Observable<String> {
+            fun createObservable(): Observable<String> {
                 return Observable.empty()
             }
             
-            func processFlow(flow: Flow<User>): Flow<ProcessedUser> {
+            fun processFlow(flow: Flow<User>): Flow<ProcessedUser> {
                 return flow
             }
         "#;
@@ -64,7 +64,7 @@ mod simple_reactive_tests {
     #[test]
     fn test_suspend_function_with_generic_return() {
         let code = r#"
-            suspend func fetchUsers(): Observable<List<User>> {
+            suspend fun fetchUsers(): Observable<List<User>> {
                 return Observable.empty()
             }
         "#;
@@ -117,7 +117,7 @@ mod simple_reactive_tests {
     #[test] 
     fn test_nullable_generic_types() {
         let code = r#"
-            func maybeObservable(): Observable<String>? {
+            fun maybeObservable(): Observable<String>? {
                 return null
             }
         "#;

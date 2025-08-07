@@ -206,18 +206,25 @@ impl Project {
     /// Find all source files in the project
     pub fn find_source_files(&self) -> Result<Vec<PathBuf>> {
         let mut source_files = Vec::new();
-        let src_dir = self.src_dir();
         
-        if !src_dir.exists() {
-            return Ok(source_files);
-        }
-        
-        for entry in walkdir::WalkDir::new(&src_dir) {
+        // Recursively search for .seen files in the entire project
+        for entry in walkdir::WalkDir::new(&self.root_dir)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| {
+                // Skip target directories and other build artifacts
+                let name = e.file_name().to_string_lossy();
+                !name.starts_with("target") && !name.starts_with(".")
+            }) {
             let entry = entry.context("Failed to read directory entry")?;
             let path = entry.path();
             
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "seen") {
-                source_files.push(path.to_path_buf());
+            if path.is_file() {
+                if let Some(extension) = path.extension() {
+                    if extension == "seen" {
+                        source_files.push(path.to_path_buf());
+                    }
+                }
             }
         }
         

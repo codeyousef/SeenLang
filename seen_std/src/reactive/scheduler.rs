@@ -152,8 +152,9 @@ impl Scheduler for ThreadPoolScheduler {
         let handle = thread::spawn(work);
         
         Subscription::new(move || {
-            // In a real implementation, we'd cancel the work if possible
-            let _ = handle.join();
+            // Don't block on join - just detach the thread
+            // This prevents hanging when the subscription is dropped
+            drop(handle);
         })
     }
 
@@ -161,13 +162,22 @@ impl Scheduler for ThreadPoolScheduler {
     where
         F: FnOnce() + Send + 'static,
     {
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancelled_clone = Arc::clone(&cancelled);
+        
         let handle = thread::spawn(move || {
-            thread::sleep(delay);
-            work();
+            // Check for cancellation before sleeping
+            if !cancelled_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                thread::sleep(delay);
+                if !cancelled_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                    work();
+                }
+            }
         });
         
         Subscription::new(move || {
-            let _ = handle.join();
+            cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+            drop(handle); // Don't block on join
         })
     }
 
@@ -188,7 +198,7 @@ impl Scheduler for ThreadPoolScheduler {
         
         Subscription::new(move || {
             running.store(false, std::sync::atomic::Ordering::SeqCst);
-            let _ = handle.join();
+            drop(handle); // Don't block on join - prevents hanging
         })
     }
 }

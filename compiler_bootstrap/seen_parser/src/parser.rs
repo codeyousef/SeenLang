@@ -84,7 +84,7 @@ impl Parser {
         
         if let Some(token) = self.current_token() {
             match &token.value {
-                TokenType::KeywordFunc => self.parse_function(),
+                TokenType::KeywordFun => self.parse_function(),
                 TokenType::KeywordSuspend => self.parse_suspend_function(),
                 TokenType::KeywordStruct => self.parse_struct(),
                 TokenType::KeywordEnum => self.parse_enum(),
@@ -97,12 +97,12 @@ impl Parser {
                         self.parse_data_class()
                     },
                     "sealed" => self.parse_sealed_class(),
-                    "func" => self.parse_function(),
+                    "fun" => self.parse_function(),
                     "struct" => self.parse_struct(),
                     "enum" => self.parse_enum(),
                     _ => {
                         eprintln!("parse_item: Unexpected identifier '{}'", name);
-                        self.error("Expected 'func', 'struct', 'enum', 'extension', 'data', or 'sealed'");
+                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', or 'sealed'");
                         Err(seen_common::SeenError::parse_error("Unexpected token"))
                     }
                 }
@@ -121,31 +121,31 @@ impl Parser {
     fn parse_function(&mut self) -> SeenResult<Item<'static>> {
         let start_span = self.current_span();
         
-        // Consume 'func'
+        // Consume 'fun'
         #[cfg(test)]
-        eprintln!("parse_function: About to consume 'func', current token = {:?}", self.current_token());
-        self.expect_keyword(TokenType::KeywordFunc)?;
+        eprintln!("parse_function: About to consume 'fun', current token = {:?}", self.current_token());
+        self.expect_keyword(TokenType::KeywordFun)?;
         
         #[cfg(test)]
-        eprintln!("parse_function: After consuming 'func', current token = {:?}", self.current_token());
+        eprintln!("parse_function: After consuming 'fun', current token = {:?}", self.current_token());
         
-        // Parse optional generic type parameters
+        // Parse function name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        #[cfg(test)]
+        eprintln!("parse_function: Parsed function name '{}', checking for generic params", name);
+        
+        // Parse optional generic type parameters (after function name)
         let type_params = if self.check(&TokenType::Less) {
             #[cfg(test)]
             eprintln!("parse_function: Found '<', parsing generic type params");
             self.parse_generic_type_params()?
         } else {
             #[cfg(test)]
-            eprintln!("parse_function: No '<' found, continuing to function name");
+            eprintln!("parse_function: No '<' found, continuing to parameters");
             Vec::new()
         };
-        
-        #[cfg(test)]
-        eprintln!("parse_function: About to parse function name, current token = {:?}", self.current_token());
-        
-        // Parse function name
-        let name = self.expect_identifier_value()?;
-        let name_span = self.previous_span();
         
         // Parse parameters
         self.expect_token(TokenType::LeftParen)?;
@@ -180,6 +180,49 @@ impl Parser {
         })
     }
 
+    fn try_parse_generic_args(&mut self) -> SeenResult<Option<Vec<Type<'static>>>> {
+        // Try to parse generic type arguments like <T>, <T, U>, <User?>
+        if !self.check(&TokenType::Less) {
+            return Ok(None);
+        }
+        
+        let saved_pos = self.current;
+        self.advance(); // consume '<'
+        
+        let mut args = Vec::new();
+        
+        // Parse first type argument
+        match self.parse_type() {
+            Ok(ty) => args.push(ty),
+            Err(_) => {
+                // Failed to parse type, restore position
+                self.current = saved_pos;
+                return Ok(None);
+            }
+        }
+        
+        // Parse additional type arguments
+        while self.match_token(&TokenType::Comma) {
+            match self.parse_type() {
+                Ok(ty) => args.push(ty),
+                Err(_) => {
+                    // Failed to parse type, restore position
+                    self.current = saved_pos;
+                    return Ok(None);
+                }
+            }
+        }
+        
+        // Expect closing '>'
+        if !self.match_token(&TokenType::Greater) {
+            // No closing '>', restore position
+            self.current = saved_pos;
+            return Ok(None);
+        }
+        
+        Ok(Some(args))
+    }
+    
     fn parse_generic_type_params(&mut self) -> SeenResult<Vec<TypeParam<'static>>> {
         let mut type_params = Vec::new();
         
@@ -243,19 +286,19 @@ impl Parser {
         // Consume 'suspend'
         self.expect_keyword(TokenType::KeywordSuspend)?;
         
-        // Consume 'func'
-        self.expect_keyword(TokenType::KeywordFunc)?;
+        // Consume 'fun'
+        self.expect_keyword(TokenType::KeywordFun)?;
         
-        // Parse optional generic type parameters
+        // Parse function name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse optional generic type parameters (after function name)
         let type_params = if self.check(&TokenType::Less) {
             self.parse_generic_type_params()?
         } else {
             Vec::new()
         };
-        
-        // Parse function name
-        let name = self.expect_identifier_value()?;
-        let name_span = self.previous_span();
         
         // Parse parameters
         self.expect_token(TokenType::LeftParen)?;
@@ -628,14 +671,14 @@ impl Parser {
         // Skip tokens until we find a likely item start
         while !self.is_at_end() {
             match self.current_token() {
-                Some(Token { value: TokenType::KeywordFunc, .. }) |
+                Some(Token { value: TokenType::KeywordFun, .. }) |
                 Some(Token { value: TokenType::KeywordStruct, .. }) |
                 Some(Token { value: TokenType::KeywordEnum, .. }) => {
                     break;
                 }
                 Some(Token { value: TokenType::Identifier(name), .. }) => {
                     // Also check for keyword identifiers (backward compatibility)
-                    if matches!(name.as_str(), "func" | "struct" | "enum" | "extension" | "data" | "sealed") {
+                    if matches!(name.as_str(), "fun" | "struct" | "enum" | "extension" | "data" | "sealed") {
                         break;
                     }
                 }
@@ -765,6 +808,14 @@ impl Parser {
     fn parse_type(&mut self) -> SeenResult<Type<'static>> {
         let span = self.current_span();
         
+        // Handle suspend modifier for function types
+        let is_suspend = self.match_token(&TokenType::KeywordSuspend);
+        
+        // Check for function type syntax: () -> Type or (Type, Type) -> Type
+        if self.check(&TokenType::LeftParen) {
+            return self.parse_function_type(is_suspend);
+        }
+        
         let kind = if let Some(Token { value: TokenType::Identifier(name), .. }) = self.current_token() {
             let type_name = name.clone();
             self.advance();
@@ -829,6 +880,50 @@ impl Parser {
         Ok(ty)
     }
 
+    fn parse_function_type(&mut self, is_suspend: bool) -> SeenResult<Type<'static>> {
+        let span = self.current_span();
+        
+        // Parse parameter types
+        self.expect_token(TokenType::LeftParen)?;
+        let mut param_types = Vec::new();
+        
+        if !self.check(&TokenType::RightParen) {
+            loop {
+                param_types.push(self.parse_type()?);
+                if !self.match_token(&TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        
+        self.expect_token(TokenType::RightParen)?;
+        self.expect_token(TokenType::Arrow)?;
+        
+        let return_type = Box::new(self.parse_type()?);
+        
+        // For now, represent function types as named types with special names
+        // This is a simplification - proper function types would need their own TypeKind variant
+        let func_type_name = if is_suspend {
+            format!("SuspendFunc<{}>", return_type.span.file_id).leak()
+        } else {
+            format!("Func<{}>", return_type.span.file_id).leak()
+        };
+        
+        Ok(Type {
+            kind: Box::new(TypeKind::Named {
+                path: Path {
+                    segments: vec![PathSegment {
+                        name: seen_common::Spanned::new(func_type_name, span),
+                        generic_args: vec![],
+                    }],
+                    span,
+                },
+                generic_args: vec![],
+            }),
+            span,
+        })
+    }
+    
     fn parse_generic_type_args(&mut self) -> SeenResult<Vec<Type<'static>>> {
         let mut args = Vec::new();
         
@@ -856,15 +951,20 @@ impl Parser {
     fn parse_block(&mut self) -> SeenResult<Block<'static>> {
         let start_span = self.current_span();
         
+        #[cfg(test)]
+        eprintln!("parse_block: ENTER - expecting LeftBrace, current token = {:?}", self.current_token());
+        
         self.expect_token(TokenType::LeftBrace)?;
         
         #[cfg(test)]
-        eprintln!("parse_block: Starting, current token = {:?}", self.current_token());
+        eprintln!("parse_block: After consuming LeftBrace, current token = {:?}", self.current_token());
         
         let mut statements = Vec::new();
         
         while let Some(token) = self.current_token() {
             if matches!(token.value, TokenType::RightBrace) {
+                #[cfg(test)]
+                eprintln!("parse_block: Found RightBrace, breaking loop");
                 break;
             }
             if self.is_at_end() {
@@ -873,13 +973,22 @@ impl Parser {
             }
             
             #[cfg(test)]
-            eprintln!("parse_block: About to parse statement, current token = {:?}", self.current_token());
+            eprintln!("parse_block: About to parse statement #{}, current token = {:?}", statements.len() + 1, self.current_token());
             
             // Parse statement
             statements.push(self.parse_statement()?);
+            
+            #[cfg(test)]
+            eprintln!("parse_block: After parsing statement #{}, current token = {:?}", statements.len(), self.current_token());
         }
         
+        #[cfg(test)]
+        eprintln!("parse_block: Loop ended, expecting RightBrace, current token = {:?}", self.current_token());
+        
         self.expect_token(TokenType::RightBrace)?;
+        
+        #[cfg(test)]
+        eprintln!("parse_block: EXIT - consumed RightBrace, current token = {:?}", self.current_token());
         
         Ok(Block {
             statements,
@@ -951,8 +1060,17 @@ impl Parser {
                     let if_expr = self.parse_if_expression()?;
                     StmtKind::Expr(if_expr)
                 }
+                TokenType::KeywordFor => {
+                    let for_expr = self.parse_for_expression()?;
+                    StmtKind::Expr(for_expr)
+                }
                 TokenType::Identifier(name) => {
                     match name.as_str() {
+                    "for" => {
+                        // Backward compatibility for 'for' as identifier
+                        let for_expr = self.parse_for_expression()?;
+                        StmtKind::Expr(for_expr)
+                    }
                     "let" => {
                         self.advance(); // consume 'let' (backward compatibility)
                         
@@ -1054,8 +1172,25 @@ impl Parser {
         while let Some(token) = self.current_token() {
             let (precedence, is_right_associative) = self.get_precedence(&token.value);
             
-            if precedence < min_precedence {
+            if precedence >= 255 || precedence < min_precedence {
                 break;
+            }
+            
+            // Handle assignment specially
+            if matches!(token.value, TokenType::Assign) {
+                self.advance(); // consume '='
+                
+                let right = self.parse_binary_expression(precedence)?; // Right-associative
+                
+                left = Expr {
+                    kind: Box::new(ExprKind::Assign {
+                        target: Box::new(left),
+                        value: Box::new(right),
+                    }),
+                    span: self.current_span(),
+                    id: self.next_node_id(),
+                };
+                continue;
             }
             
             let op = self.token_to_binary_op(&token.value);
@@ -1159,6 +1294,36 @@ impl Parser {
         loop {
             if let Some(token) = self.current_token() {
                 match &token.value {
+                    TokenType::Less => {
+                        // Check if this is a generic type argument or a comparison
+                        // If the expression is an identifier and we can parse type arguments, it's a generic instantiation
+                        if let ExprKind::Identifier(_) = &*expr.kind {
+                            // Try to parse as generic type arguments
+                            let saved_pos = self.current;
+                            match self.try_parse_generic_args() {
+                                Ok(Some(generic_args)) => {
+                                    // Successfully parsed generic args, update the expression
+                                    expr = Expr {
+                                        kind: Box::new(ExprKind::GenericInstantiation {
+                                            base: Box::new(expr),
+                                            args: generic_args,
+                                        }),
+                                        span: self.current_span(),
+                                        id: self.next_node_id(),
+                                    };
+                                    continue;
+                                }
+                                _ => {
+                                    // Not generic args, restore position and break to handle as binary op
+                                    self.current = saved_pos;
+                                    break;
+                                }
+                            }
+                        } else {
+                            // Not an identifier, must be a comparison operator
+                            break;
+                        }
+                    }
                     TokenType::Dot => {
                         self.advance(); // consume '.'
                         
@@ -1235,7 +1400,8 @@ impl Parser {
                         };
                     }
                     TokenType::LeftBrace => {
-                    // Check if this is a DSL builder pattern (flow { ... }, reactive { ... }, etc.)
+                    // Only parse block for known DSL patterns
+                    // Don't treat arbitrary expressions followed by { as function calls
                     if let ExprKind::Identifier(name) = &*expr.kind {
                         match name.value {
                             "flow" => {
@@ -1278,50 +1444,17 @@ impl Parser {
                                     id: self.next_node_id(),
                                 };
                             }
+                            // Only parse block for known DSL patterns
+                            // Regular identifiers followed by { are not automatically treated as function calls
                             _ => {
-                                // Generic function call with block argument
-                                let block = self.parse_block()?;
-                                let closure = crate::ast::Closure {
-                                    params: Vec::new(),
-                                    body: crate::ast::ClosureBody::Block(block),
-                                    return_type: None,
-                                };
-                                let closure_expr = Expr {
-                                    kind: Box::new(ExprKind::Closure(closure)),
-                                    span: self.current_span(),
-                                    id: self.next_node_id(),
-                                };
-                                expr = Expr {
-                                    kind: Box::new(ExprKind::Call {
-                                        function: Box::new(expr),
-                                        args: vec![closure_expr],
-                                    }),
-                                    span: self.current_span(),
-                                    id: self.next_node_id(),
-                                };
+                                // Don't consume the {, let the parent parser handle it
+                                break;
                             }
                         }
                     } else {
-                        // Not an identifier, treat as generic block call
-                        let block = self.parse_block()?;
-                        let closure = crate::ast::Closure {
-                            params: Vec::new(),
-                            body: crate::ast::ClosureBody::Block(block),
-                            return_type: None,
-                        };
-                        let closure_expr = Expr {
-                            kind: Box::new(ExprKind::Closure(closure)),
-                            span: self.current_span(),
-                            id: self.next_node_id(),
-                        };
-                        expr = Expr {
-                            kind: Box::new(ExprKind::Call {
-                                function: Box::new(expr),
-                                args: vec![closure_expr],
-                            }),
-                            span: self.current_span(),
-                            id: self.next_node_id(),
-                        };
+                        // Not an identifier, don't treat { as a postfix operator
+                        // This fixes the issue where "null {" was being parsed as a function call
+                        break;
                     }
                     }
                     _ => break,
@@ -1473,6 +1606,21 @@ impl Parser {
                     // Parse closure: |param| expr or |param| { block }
                     return self.parse_closure_expression();
                 }
+                TokenType::LeftBrace => {
+                    // Could be a Kotlin-style lambda { param -> expr } or a block expression
+                    // Look ahead to detect the pattern
+                    if self.is_kotlin_lambda() {
+                        return self.parse_kotlin_lambda();
+                    } else {
+                        // Parse as block expression
+                        let block = self.parse_block()?;
+                        return Ok(Expr {
+                            kind: Box::new(ExprKind::Block(block)),
+                            span,
+                            id: self.next_node_id(),
+                        });
+                    }
+                }
                 TokenType::LeftBracket => {
                     // Parse array literal: [1, 2, 3]
                     self.advance(); // consume '['
@@ -1496,6 +1644,10 @@ impl Parser {
                     // Parse flow expression: flow { block }
                     return self.parse_flow_expression();
                 }
+                TokenType::KeywordTry => {
+                    // Parse try-catch-finally expression
+                    return self.parse_try_catch_expression();
+                }
                 _ => {
                     self.error("Expected expression");
                     return Err(seen_common::SeenError::parse_error("Expected expression"));
@@ -1513,8 +1665,72 @@ impl Parser {
         }
     }
     
+    fn parse_for_expression(&mut self) -> SeenResult<Expr<'static>> {
+        let span = self.current_span();
+        
+        // Consume 'for' - can be either keyword or identifier
+        if let Some(token) = self.current_token() {
+            match &token.value {
+                TokenType::KeywordFor => {
+                    self.advance();
+                }
+                TokenType::Identifier(name) if name == "for" => {
+                    self.advance();
+                }
+                _ => {
+                    self.error("Expected 'for'");
+                    return Err(seen_common::SeenError::parse_error("Expected 'for'"));
+                }
+            }
+        } else {
+            self.error("Expected 'for'");
+            return Err(seen_common::SeenError::parse_error("Expected 'for'"));
+        }
+        
+        // Parse pattern (usually just an identifier)
+        let pattern = self.parse_pattern()?;
+        
+        // Expect 'in'
+        if let Some(token) = self.current_token() {
+            match &token.value {
+                TokenType::KeywordIn => {
+                    self.advance();
+                }
+                TokenType::Identifier(name) if name == "in" => {
+                    self.advance();
+                }
+                _ => {
+                    self.error("Expected 'in' after for pattern");
+                    return Err(seen_common::SeenError::parse_error("Expected 'in'"));
+                }
+            }
+        } else {
+            self.error("Expected 'in'");
+            return Err(seen_common::SeenError::parse_error("Expected 'in'"));
+        }
+        
+        // Parse iterator expression
+        let iterator = Box::new(self.parse_expression()?);
+        
+        // Parse body block
+        let body = self.parse_block()?;
+        
+        Ok(Expr {
+            kind: Box::new(ExprKind::For {
+                pattern,
+                iterator,
+                body,
+            }),
+            span,
+            id: self.next_node_id(),
+        })
+    }
+    
     fn parse_if_expression(&mut self) -> SeenResult<Expr<'static>> {
         let span = self.current_span();
+        
+        #[cfg(test)]
+        eprintln!("parse_if_expression: ENTER, current token = {:?}", self.current_token());
         
         // Consume 'if' - can be either keyword or identifier
         if let Some(token) = self.current_token() {
@@ -1535,13 +1751,29 @@ impl Parser {
             return Err(seen_common::SeenError::parse_error("Expected 'if'"));
         }
         
+        #[cfg(test)]
+        eprintln!("parse_if_expression: After consuming 'if', parsing condition, current = {:?}", self.current_token());
+        
         let condition = Box::new(self.parse_expression()?);
+        
+        #[cfg(test)]
+        eprintln!("parse_if_expression: After parsing condition, about to parse then block, current = {:?}", self.current_token());
+        
         let then_branch = self.parse_block()?;
         
+        #[cfg(test)]
+        eprintln!("parse_if_expression: After then block, checking for else, current = {:?}", self.current_token());
+        
         let else_branch = if self.match_token(&TokenType::KeywordElse) {
+            #[cfg(test)]
+            eprintln!("parse_if_expression: Found else, current after consuming = {:?}", self.current_token());
+            
             // Check if it's a block or an if expression
             if let Some(token) = self.current_token() {
                 if matches!(token.value, TokenType::LeftBrace) {
+                    #[cfg(test)]
+                    eprintln!("parse_if_expression: Else has block, parsing it");
+                    
                     // else { block }
                     let block = self.parse_block()?;
                     Some(Box::new(Expr {
@@ -1550,16 +1782,28 @@ impl Parser {
                         id: self.next_node_id(),
                     }))
                 } else {
+                    #[cfg(test)]
+                    eprintln!("parse_if_expression: Else has expression, parsing it");
+                    
                     // else if ... or other expression
                     Some(Box::new(self.parse_expression()?))
                 }
             } else {
+                #[cfg(test)]
+                eprintln!("parse_if_expression: Else has expression (no token), parsing it");
+                
                 // else if ... or other expression
                 Some(Box::new(self.parse_expression()?))
             }
         } else {
+            #[cfg(test)]
+            eprintln!("parse_if_expression: No else branch found");
+            
             None
         };
+        
+        #[cfg(test)]
+        eprintln!("parse_if_expression: EXIT, current = {:?}", self.current_token());
         
         Ok(Expr {
             kind: Box::new(ExprKind::If {
@@ -1604,6 +1848,45 @@ impl Parser {
         })
     }
 
+    fn parse_try_catch_expression(&mut self) -> SeenResult<Expr<'static>> {
+        let span = self.current_span();
+        self.advance(); // consume 'try'
+        
+        let try_block = self.parse_block()?;
+        
+        let mut catch_blocks = Vec::new();
+        while self.match_token(&TokenType::KeywordCatch) {
+            // Parse catch pattern (e: Exception)
+            self.expect_token(TokenType::LeftParen)?;
+            let exception_name = self.expect_identifier_value()?;
+            let exception_type = if self.match_token(&TokenType::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            self.expect_token(TokenType::RightParen)?;
+            
+            let catch_block = self.parse_block()?;
+            catch_blocks.push((exception_name.leak() as &str, exception_type, catch_block));
+        }
+        
+        let finally_block = if self.match_token(&TokenType::KeywordFinally) {
+            Some(Box::new(self.parse_block()?))
+        } else {
+            None
+        };
+        
+        Ok(Expr {
+            kind: Box::new(ExprKind::TryCatch {
+                try_block: Box::new(try_block),
+                catch_blocks,
+                finally_block,
+            }),
+            span,
+            id: self.next_node_id(),
+        })
+    }
+    
     fn parse_flow_expression(&mut self) -> SeenResult<Expr<'static>> {
         let span = self.current_span();
         
@@ -1620,6 +1903,147 @@ impl Parser {
         })
     }
 
+    fn is_whitespace_or_comment(&self, token: &Token) -> bool {
+        // Check if token is whitespace or comment (which should have been filtered out already)
+        // Since tokens are already filtered, we shouldn't have whitespace tokens
+        // This is just a safety check
+        false
+    }
+    
+    fn is_kotlin_lambda(&self) -> bool {
+        // Check if this is a Kotlin-style lambda: { param -> ... } or { param, param2 -> ... }
+        // Look for pattern: { identifier [, identifier]* ->
+        if self.current >= self.tokens.len() {
+            return false;
+        }
+        
+        // Must start with {
+        if !matches!(self.tokens[self.current].value, TokenType::LeftBrace) {
+            return false;
+        }
+        
+        let mut pos = self.current + 1;
+        
+        // Skip whitespace
+        while pos < self.tokens.len() && self.is_whitespace_or_comment(&self.tokens[pos]) {
+            pos += 1;
+        }
+        
+        // Must have identifier
+        if pos >= self.tokens.len() || !matches!(self.tokens[pos].value, TokenType::Identifier(_)) {
+            return false;
+        }
+        
+        pos += 1;
+        
+        // Skip whitespace
+        while pos < self.tokens.len() && self.is_whitespace_or_comment(&self.tokens[pos]) {
+            pos += 1;
+        }
+        
+        // Check for arrow (->) or comma for multiple params
+        while pos < self.tokens.len() {
+            match &self.tokens[pos].value {
+                TokenType::Arrow => return true,  // Found the arrow, it's a lambda
+                TokenType::Comma => {
+                    // Multiple params, continue checking
+                    pos += 1;
+                    // Skip whitespace
+                    while pos < self.tokens.len() && self.is_whitespace_or_comment(&self.tokens[pos]) {
+                        pos += 1;
+                    }
+                    // Must have another identifier
+                    if pos >= self.tokens.len() || !matches!(self.tokens[pos].value, TokenType::Identifier(_)) {
+                        return false;
+                    }
+                    pos += 1;
+                }
+                _ => return false,
+            }
+            
+            // Skip whitespace after identifier
+            while pos < self.tokens.len() && self.is_whitespace_or_comment(&self.tokens[pos]) {
+                pos += 1;
+            }
+        }
+        
+        false
+    }
+    
+    fn parse_kotlin_lambda(&mut self) -> SeenResult<Expr<'static>> {
+        let span = self.current_span();
+        
+        // Consume {
+        self.expect_token(TokenType::LeftBrace)?;
+        
+        // Parse parameters
+        let mut params = Vec::new();
+        
+        // Parse first parameter
+        loop {
+            let param_name = self.expect_identifier_value()?;
+            let param_span = self.previous_span();
+            
+            params.push(ClosureParam {
+                name: seen_common::Spanned::new(param_name.leak(), param_span),
+                ty: None,  // Kotlin lambdas typically infer types
+            });
+            
+            // Check for comma (more params) or arrow (end of params)
+            if self.match_token(&TokenType::Comma) {
+                continue;
+            } else if self.match_token(&TokenType::Arrow) {
+                break;
+            } else {
+                self.error("Expected ',' or '->' in lambda parameter list");
+                return Err(seen_common::SeenError::parse_error("Expected ',' or '->' in lambda"));
+            }
+        }
+        
+        // Parse body - statements until }
+        let mut statements = Vec::new();
+        
+        while !matches!(self.current_token(), Some(Token { value: TokenType::RightBrace, .. })) {
+            if self.is_at_end() {
+                self.error("Unexpected end of file in lambda body");
+                return Err(seen_common::SeenError::parse_error("Unexpected EOF in lambda"));
+            }
+            
+            statements.push(self.parse_statement()?);
+        }
+        
+        // Consume }
+        self.expect_token(TokenType::RightBrace)?;
+        
+        // Create closure body
+        let body = if statements.len() == 1 {
+            // Single expression lambda
+            match &statements[0].kind {
+                StmtKind::Expr(expr) => ClosureBody::Expression(Box::new(expr.clone())),
+                _ => ClosureBody::Block(Block {
+                    statements,
+                    span: self.current_span(),
+                }),
+            }
+        } else {
+            // Multi-statement lambda
+            ClosureBody::Block(Block {
+                statements,
+                span: self.current_span(),
+            })
+        };
+        
+        Ok(Expr {
+            kind: Box::new(ExprKind::Closure(Closure {
+                params,
+                body,
+                return_type: None,
+            })),
+            span,
+            id: self.next_node_id(),
+        })
+    }
+    
     fn parse_closure_expression(&mut self) -> SeenResult<Expr<'static>> {
         let span = self.current_span();
         
@@ -1808,13 +2232,14 @@ impl Parser {
         // Precedence levels (higher number = higher precedence)
         // Based on Kotlin operator precedence
         match token_type {
+            TokenType::Assign => (0, true), // Assignment has lowest precedence and is right-associative
             TokenType::LogicalOr => (1, false),
             TokenType::LogicalAnd => (2, false),
             TokenType::Equal | TokenType::NotEqual => (3, false),
             TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual | TokenType::KeywordIs => (4, false),
             TokenType::Plus | TokenType::Minus => (5, false),
             TokenType::Multiply | TokenType::Divide | TokenType::Modulo => (6, false),
-            _ => (0, false), // No precedence
+            _ => (255, false), // No precedence - don't treat as binary operator
         }
     }
     
@@ -1852,11 +2277,11 @@ impl Parser {
         #[cfg(test)]
         eprintln!("parse_extension_function: Consumed 'extension', current token = {:?}", self.current_token());
         
-        // Expect 'func'
-        self.expect_keyword(TokenType::KeywordFunc)?;
+        // Expect 'fun'
+        self.expect_keyword(TokenType::KeywordFun)?;
         
         #[cfg(test)]
-        eprintln!("parse_extension_function: Consumed 'func', current token = {:?}", self.current_token());
+        eprintln!("parse_extension_function: Consumed 'fun', current token = {:?}", self.current_token());
         
         // Parse receiver type (e.g., "String" in "String.isEmpty")
         let receiver_type_name = self.expect_identifier_value()?;
@@ -1956,7 +2381,8 @@ impl Parser {
         // 'data' has already been consumed by the caller
         
         // Expect 'class' (or 'struct' for compatibility)
-        if !self.match_identifier("class") && !self.match_identifier("struct") {
+        if !self.match_token(&TokenType::KeywordClass) && !self.match_token(&TokenType::KeywordStruct) && 
+           !self.match_identifier("class") && !self.match_identifier("struct") {
             return Err(seen_common::SeenError::parse_error("Expected 'class' or 'struct' after 'data'"));
         }
         

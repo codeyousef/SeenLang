@@ -87,15 +87,36 @@ impl<T: 'static + Send + Sync> Observable<T> {
         T: From<u64>,
     {
         Observable::new(move |mut observer| {
-            // TODO: Implement actual timer-based emission
-            // For now, this is a placeholder that emits a few values
-            for i in 0..5 {
-                observer.on_next(i);
-                // In real implementation, this would use a timer
-                std::thread::sleep(period);
-            }
-            observer.on_completed();
-            Subscription::empty()
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicBool, Ordering};
+            use std::thread;
+            
+            let running = Arc::new(AtomicBool::new(true));
+            let running_clone = Arc::clone(&running);
+            
+            // Spawn a thread to emit values non-blockingly
+            let handle = thread::spawn(move || {
+                let mut count = 0u64;
+                while running_clone.load(Ordering::SeqCst) && count < 5 {
+                    observer.on_next(count);
+                    count += 1;
+                    
+                    // Non-blocking wait using yield
+                    let start = std::time::Instant::now();
+                    while running_clone.load(Ordering::SeqCst) && start.elapsed() < period {
+                        thread::yield_now();
+                    }
+                }
+                if running_clone.load(Ordering::SeqCst) {
+                    observer.on_completed();
+                }
+            });
+            
+            // Return subscription that stops the thread
+            Subscription::new(move || {
+                running.store(false, Ordering::SeqCst);
+                drop(handle); // Don't join, just drop the handle
+            })
         })
     }
 

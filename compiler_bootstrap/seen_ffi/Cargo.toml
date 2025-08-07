@@ -1,0 +1,16 @@
+[package]
+name = "seen_ffi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+seen_common = { path = "../seen_common" }
+seen_parser = { path = "../seen_parser" }
+seen_typechecker = { path = "../seen_typechecker" }
+libc = "0.2"
+libloading = "0.8"
+cc = "1.0"
+regex = "1.11"
+
+[dev-dependencies]
+tempfile = "3.8"

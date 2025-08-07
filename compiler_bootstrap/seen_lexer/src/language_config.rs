@@ -19,7 +19,7 @@ impl LanguageConfig {
     /// Create a basic English configuration for testing
     pub fn new_english() -> Self {
         let mut keywords = HashMap::new();
-        keywords.insert("func".to_string(), "TokenFunc".to_string());
+        keywords.insert("fun".to_string(), "TokenFun".to_string());
         keywords.insert("return".to_string(), "TokenReturn".to_string());
         keywords.insert("i32".to_string(), "TokenI32".to_string());
         keywords.insert("let".to_string(), "TokenLet".to_string());
@@ -28,6 +28,18 @@ impl LanguageConfig {
         keywords.insert("as".to_string(), "TokenAs".to_string());
         keywords.insert("if".to_string(), "TokenIf".to_string());
         keywords.insert("else".to_string(), "TokenElse".to_string());
+        keywords.insert("for".to_string(), "TokenFor".to_string());
+        keywords.insert("in".to_string(), "TokenIn".to_string());
+        keywords.insert("while".to_string(), "TokenWhile".to_string());
+        keywords.insert("break".to_string(), "TokenBreak".to_string());
+        keywords.insert("continue".to_string(), "TokenContinue".to_string());
+        keywords.insert("try".to_string(), "TokenTry".to_string());
+        keywords.insert("catch".to_string(), "TokenCatch".to_string());
+        keywords.insert("finally".to_string(), "TokenFinally".to_string());
+        keywords.insert("throw".to_string(), "TokenThrow".to_string());
+        keywords.insert("class".to_string(), "TokenClass".to_string());
+        keywords.insert("private".to_string(), "TokenPriv".to_string());
+        keywords.insert("public".to_string(), "TokenPub".to_string());
         keywords.insert("String".to_string(), "TokenString".to_string());
         keywords.insert("Int".to_string(), "TokenInt".to_string());
         keywords.insert("Any".to_string(), "TokenAny".to_string());
@@ -66,37 +78,42 @@ impl LanguageConfig {
     pub fn keyword_to_token(&self, keyword: &str) -> Option<TokenType> {
         self.keywords.get(keyword).and_then(|token_name| {
             match token_name.as_str() {
-                "TokenFunc" => Some(TokenType::KeywordFunc),
-                "TokenIf" => Some(TokenType::KeywordIf),
-                "TokenElse" => Some(TokenType::KeywordElse),
-                "TokenWhile" => Some(TokenType::KeywordWhile),
-                "TokenFor" => Some(TokenType::KeywordFor),
-                "TokenIn" => Some(TokenType::KeywordIn),
-                "TokenReturn" => Some(TokenType::KeywordReturn),
-                "TokenLet" => Some(TokenType::KeywordLet),
-                "TokenVal" => Some(TokenType::KeywordVal),
-                "TokenMut" => Some(TokenType::KeywordMut),
-                "TokenTrue" => Some(TokenType::KeywordTrue),
-                "TokenFalse" => Some(TokenType::KeywordFalse),
-                "TokenStruct" => Some(TokenType::KeywordStruct),
-                "TokenEnum" => Some(TokenType::KeywordEnum),
-                "TokenImpl" => Some(TokenType::KeywordImpl),
-                "TokenTrait" => Some(TokenType::KeywordTrait),
-                "TokenImport" => Some(TokenType::KeywordImport),
-                "TokenModule" => Some(TokenType::KeywordModule),
-                "TokenPub" => Some(TokenType::KeywordPub),
-                "TokenPriv" => Some(TokenType::KeywordPriv),
-                "TokenStatic" => Some(TokenType::KeywordStatic),
-                "TokenConst" => Some(TokenType::KeywordConst),
-                "TokenType" => Some(TokenType::KeywordType),
-                "TokenMatch" => Some(TokenType::KeywordMatch),
-                "TokenBreak" => Some(TokenType::KeywordBreak),
-                "TokenContinue" => Some(TokenType::KeywordContinue),
-                "TokenIs" => Some(TokenType::KeywordIs),
-                "TokenAs" => Some(TokenType::KeywordAs),
-                "TokenSuspend" => Some(TokenType::KeywordSuspend),
-                "TokenAwait" => Some(TokenType::KeywordAwait),
-                "TokenLaunch" => Some(TokenType::KeywordLaunch),
+                "KeywordFun" | "TokenFun" => Some(TokenType::KeywordFun),
+                "KeywordIf" | "TokenIf" => Some(TokenType::KeywordIf),
+                "KeywordElse" | "TokenElse" => Some(TokenType::KeywordElse),
+                "KeywordWhile" | "TokenWhile" => Some(TokenType::KeywordWhile),
+                "KeywordFor" | "TokenFor" => Some(TokenType::KeywordFor),
+                "KeywordIn" | "TokenIn" => Some(TokenType::KeywordIn),
+                "KeywordReturn" | "TokenReturn" => Some(TokenType::KeywordReturn),
+                "KeywordLet" | "TokenLet" => Some(TokenType::KeywordLet),
+                "KeywordVal" | "TokenVal" => Some(TokenType::KeywordVal),
+                "KeywordMut" | "TokenMut" => Some(TokenType::KeywordMut),
+                "KeywordTrue" | "TokenTrue" => Some(TokenType::KeywordTrue),
+                "KeywordFalse" | "TokenFalse" => Some(TokenType::KeywordFalse),
+                "KeywordStruct" | "TokenStruct" => Some(TokenType::KeywordStruct),
+                "KeywordEnum" | "TokenEnum" => Some(TokenType::KeywordEnum),
+                "KeywordImpl" | "TokenImpl" => Some(TokenType::KeywordImpl),
+                "KeywordTrait" | "TokenTrait" => Some(TokenType::KeywordTrait),
+                "KeywordImport" | "TokenImport" => Some(TokenType::KeywordImport),
+                "KeywordModule" | "TokenModule" => Some(TokenType::KeywordModule),
+                "KeywordPub" | "TokenPub" => Some(TokenType::KeywordPub),
+                "KeywordPriv" | "TokenPriv" => Some(TokenType::KeywordPriv),
+                "KeywordStatic" | "TokenStatic" => Some(TokenType::KeywordStatic),
+                "KeywordConst" | "TokenConst" => Some(TokenType::KeywordConst),
+                "KeywordType" | "TokenType" => Some(TokenType::KeywordType),
+                "KeywordMatch" | "TokenMatch" => Some(TokenType::KeywordMatch),
+                "KeywordBreak" | "TokenBreak" => Some(TokenType::KeywordBreak),
+                "KeywordContinue" | "TokenContinue" => Some(TokenType::KeywordContinue),
+                "KeywordIs" | "TokenIs" => Some(TokenType::KeywordIs),
+                "KeywordAs" | "TokenAs" => Some(TokenType::KeywordAs),
+                "KeywordSuspend" | "TokenSuspend" => Some(TokenType::KeywordSuspend),
+                "KeywordAwait" | "TokenAwait" => Some(TokenType::KeywordAwait),
+                "KeywordLaunch" | "TokenLaunch" => Some(TokenType::KeywordLaunch),
+                "KeywordTry" | "TokenTry" => Some(TokenType::KeywordTry),
+                "KeywordCatch" | "TokenCatch" => Some(TokenType::KeywordCatch),
+                "KeywordFinally" | "TokenFinally" => Some(TokenType::KeywordFinally),
+                "KeywordThrow" | "TokenThrow" => Some(TokenType::KeywordThrow),
+                "KeywordClass" | "TokenClass" => Some(TokenType::KeywordClass),
                 "TokenString" => Some(TokenType::Identifier("String".to_string())),
                 "TokenInt" => Some(TokenType::Identifier("Int".to_string())),
                 "TokenAny" => Some(TokenType::Identifier("Any".to_string())),
@@ -110,39 +127,39 @@ impl LanguageConfig {
     pub fn operator_to_token(&self, operator: &str) -> Option<TokenType> {
         self.operators.get(operator).and_then(|token_name| {
             match token_name.as_str() {
-                "TokenPlus" => Some(TokenType::Plus),
-                "TokenMinus" => Some(TokenType::Minus),
-                "TokenMultiply" => Some(TokenType::Multiply),
-                "TokenDivide" => Some(TokenType::Divide),
-                "TokenModulo" => Some(TokenType::Modulo),
-                "TokenAssign" => Some(TokenType::Assign),
-                "TokenEqual" => Some(TokenType::Equal),
-                "TokenNotEqual" => Some(TokenType::NotEqual),
-                "TokenLess" => Some(TokenType::Less),
-                "TokenLessEqual" => Some(TokenType::LessEqual),
-                "TokenGreater" => Some(TokenType::Greater),
-                "TokenGreaterEqual" => Some(TokenType::GreaterEqual),
-                "TokenLogicalAnd" => Some(TokenType::LogicalAnd),
-                "TokenLogicalOr" => Some(TokenType::LogicalOr),
-                "TokenLogicalNot" => Some(TokenType::LogicalNot),
-                "TokenBitwiseAnd" => Some(TokenType::BitwiseAnd),
-                "TokenBitwiseOr" => Some(TokenType::BitwiseOr),
-                "TokenBitwiseXor" => Some(TokenType::BitwiseXor),
-                "TokenBitwiseNot" => Some(TokenType::BitwiseNot),
-                "TokenLeftShift" => Some(TokenType::LeftShift),
-                "TokenRightShift" => Some(TokenType::RightShift),
-                "TokenPlusAssign" => Some(TokenType::PlusAssign),
-                "TokenMinusAssign" => Some(TokenType::MinusAssign),
-                "TokenMultiplyAssign" => Some(TokenType::MultiplyAssign),
-                "TokenDivideAssign" => Some(TokenType::DivideAssign),
-                "TokenModuloAssign" => Some(TokenType::ModuloAssign),
-                "TokenArrow" => Some(TokenType::Arrow),
-                "TokenFatArrow" => Some(TokenType::FatArrow),
-                "TokenQuestion" => Some(TokenType::Question),
-                "TokenDot" => Some(TokenType::Dot),
-                "TokenDoubleDot" => Some(TokenType::DoubleDot),
-                "TokenTripleDot" => Some(TokenType::TripleDot),
-                "TokenDoubleColon" => Some(TokenType::DoubleColon),
+                "Plus" | "TokenPlus" => Some(TokenType::Plus),
+                "Minus" | "TokenMinus" => Some(TokenType::Minus),
+                "Multiply" | "TokenMultiply" => Some(TokenType::Multiply),
+                "Divide" | "TokenDivide" => Some(TokenType::Divide),
+                "Modulo" | "TokenModulo" => Some(TokenType::Modulo),
+                "Assign" | "TokenAssign" => Some(TokenType::Assign),
+                "Equal" | "TokenEqual" => Some(TokenType::Equal),
+                "NotEqual" | "TokenNotEqual" => Some(TokenType::NotEqual),
+                "Less" | "TokenLess" => Some(TokenType::Less),
+                "LessEqual" | "TokenLessEqual" => Some(TokenType::LessEqual),
+                "Greater" | "TokenGreater" => Some(TokenType::Greater),
+                "GreaterEqual" | "TokenGreaterEqual" => Some(TokenType::GreaterEqual),
+                "LogicalAnd" | "TokenLogicalAnd" => Some(TokenType::LogicalAnd),
+                "LogicalOr" | "TokenLogicalOr" => Some(TokenType::LogicalOr),
+                "LogicalNot" | "TokenLogicalNot" => Some(TokenType::LogicalNot),
+                "BitwiseAnd" | "TokenBitwiseAnd" => Some(TokenType::BitwiseAnd),
+                "BitwiseOr" | "TokenBitwiseOr" => Some(TokenType::BitwiseOr),
+                "BitwiseXor" | "TokenBitwiseXor" => Some(TokenType::BitwiseXor),
+                "BitwiseNot" | "TokenBitwiseNot" => Some(TokenType::BitwiseNot),
+                "LeftShift" | "TokenLeftShift" => Some(TokenType::LeftShift),
+                "RightShift" | "TokenRightShift" => Some(TokenType::RightShift),
+                "PlusAssign" | "TokenPlusAssign" => Some(TokenType::PlusAssign),
+                "MinusAssign" | "TokenMinusAssign" => Some(TokenType::MinusAssign),
+                "MultiplyAssign" | "TokenMultiplyAssign" => Some(TokenType::MultiplyAssign),
+                "DivideAssign" | "TokenDivideAssign" => Some(TokenType::DivideAssign),
+                "ModuloAssign" | "TokenModuloAssign" => Some(TokenType::ModuloAssign),
+                "Arrow" | "TokenArrow" => Some(TokenType::Arrow),
+                "FatArrow" | "TokenFatArrow" => Some(TokenType::FatArrow),
+                "Question" | "TokenQuestion" => Some(TokenType::Question),
+                "Dot" | "TokenDot" => Some(TokenType::Dot),
+                "DoubleDot" | "TokenDoubleDot" => Some(TokenType::DoubleDot),
+                "TripleDot" | "TokenTripleDot" => Some(TokenType::TripleDot),
+                "DoubleColon" | "TokenDoubleColon" => Some(TokenType::DoubleColon),
                 _ => None,
             }
         })

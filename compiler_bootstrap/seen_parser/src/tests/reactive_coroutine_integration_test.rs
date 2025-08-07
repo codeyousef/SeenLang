@@ -19,7 +19,7 @@ mod reactive_coroutine_tests {
     fn test_flow_coroutine_integration() {
         let code = r#"
             // Flow type with coroutines - Kotlin style reactive streams
-            suspend func fetchUserFlow(): Flow<User> {
+            suspend fun fetchUserFlow(): Flow<User> {
                 return flow {
                     let users = await fetchUsers()
                     for user in users {
@@ -30,7 +30,7 @@ mod reactive_coroutine_tests {
             }
             
             // Observable-to-Flow bridging
-            func observableToFlow<T>(obs: Observable<T>): Flow<T> {
+            fun observableToFlow<T>(obs: Observable<T>): Flow<T> {
                 return flow {
                     obs.subscribe { value ->
                         emit(value)
@@ -39,7 +39,7 @@ mod reactive_coroutine_tests {
             }
             
             // StateFlow for reactive state management
-            func createUserStateFlow(): StateFlow<User?> {
+            fun createUserStateFlow(): StateFlow<User?> {
                 let stateFlow = MutableStateFlow<User?>(null)
                 
                 launch {
@@ -56,6 +56,17 @@ mod reactive_coroutine_tests {
         let mut parser = setup_parser(code);
         let program = parser.parse_program().expect("Failed to parse reactive-coroutine integration");
 
+        eprintln!("DEBUG test_flow_coroutine_integration: Parsed {} items", program.items.len());
+        for (i, item) in program.items.iter().enumerate() {
+            match &item.kind {
+                ItemKind::Function(func) => {
+                    eprintln!("  Item {}: Function '{}'", i, func.name.value);
+                }
+                _ => {
+                    eprintln!("  Item {}: Other", i);
+                }
+            }
+        }
         assert_eq!(program.items.len(), 3);
         
         // Test suspend function with Flow return type
@@ -109,7 +120,7 @@ mod reactive_coroutine_tests {
     fn test_reactive_dsl_builders() {
         let code = r#"
             // Reactive DSL for UI programming
-            func createReactiveUI(): ReactiveComponent {
+            fun createReactiveUI(): ReactiveComponent {
                 return reactive {
                     let clicks = button.clicks()
                     let textChanges = editText.textChanges()
@@ -123,7 +134,7 @@ mod reactive_coroutine_tests {
             }
             
             // Flow operators chaining
-            suspend func processDataFlow(input: Flow<String>): Flow<ProcessedData> {
+            suspend fun processDataFlow(input: Flow<String>): Flow<ProcessedData> {
                 return input
                     .filter { it.isNotEmpty() }
                     .map { await processString(it) }
@@ -166,12 +177,12 @@ mod reactive_coroutine_tests {
                 private let _users = MutableLiveData<List<User>>()
                 val users: LiveData<List<User>> = _users
                 
-                suspend func loadUsers() {
+                suspend fun loadUsers() {
                     let userData = await fetchUsers()
                     _users.postValue(userData)
                 }
                 
-                func observeUserCount(): Observable<Int> {
+                fun observeUserCount(): Observable<Int> {
                     return users.map { it.size }
                 }
             }
@@ -186,7 +197,7 @@ mod reactive_coroutine_tests {
                 private let _events = MutableSharedFlow<CounterEvent>()
                 val events: SharedFlow<CounterEvent> = _events
                 
-                func increment() {
+                fun increment() {
                     _counter.value += 1
                     _events.tryEmit(CounterEvent.Incremented)
                 }
@@ -201,11 +212,11 @@ mod reactive_coroutine_tests {
         assert!(program.items.len() >= 2);
     }
 
-    #[test] 
+    #[test]
     fn test_coroutine_observable_bridging() {
         let code = r#"
             // Convert suspend function to Observable
-            func suspendToObservable<T>(suspendFunc: suspend () -> T): Observable<T> {
+            fun suspendToObservable<T>(suspendFunc: suspend () -> T): Observable<T> {
                 return Observable.create { observer ->
                     launch {
                         try {
@@ -220,7 +231,7 @@ mod reactive_coroutine_tests {
             }
             
             // Convert Observable to suspend function
-            suspend func observableToSuspend<T>(obs: Observable<T>): T {
+            suspend fun observableToSuspend<T>(obs: Observable<T>): T {
                 return suspendCoroutine { continuation ->
                     obs.subscribe(
                         onNext: { value -> continuation.resume(value) },
@@ -230,7 +241,7 @@ mod reactive_coroutine_tests {
             }
             
             // Usage example
-            suspend func example() {
+            suspend fun example() {
                 // Observable to suspend function
                 let networkCall = httpGet("https://api.example.com/users")
                 let users = await observableToSuspend(networkCall)
@@ -247,8 +258,26 @@ mod reactive_coroutine_tests {
         "#;
 
         let mut parser = setup_parser(code);
-        let program = parser.parse_program().expect("Failed to parse coroutine-observable bridging");
-
+        let result = parser.parse_program();
+        
+        eprintln!("DEBUG test_coroutine_observable_bridging: Parse result = {:?}", result.is_ok());
+        if let Ok(ref program) = result {
+            eprintln!("  Parsed {} items", program.items.len());
+            for (i, item) in program.items.iter().enumerate() {
+                match &item.kind {
+                    ItemKind::Function(func) => {
+                        eprintln!("  Item {}: Function '{}'", i, func.name.value);
+                    }
+                    _ => {
+                        eprintln!("  Item {}: Other", i);
+                    }
+                }
+            }
+        } else if let Err(ref e) = result {
+            eprintln!("  Parse error: {:?}", e);
+        }
+        
+        let program = result.expect("Failed to parse coroutine-observable bridging");
         assert_eq!(program.items.len(), 3);
         
         // Test generic functions with proper suspend/Observable integration

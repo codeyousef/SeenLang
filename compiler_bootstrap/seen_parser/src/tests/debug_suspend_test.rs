@@ -18,7 +18,7 @@ mod debug_suspend_tests {
     #[test]
     fn test_simple_suspend_function() {
         let code = r#"
-            suspend func simple(): String {
+            suspend fun simple(): String {
                 return "test"
             }
         "#;
@@ -42,7 +42,7 @@ mod debug_suspend_tests {
     #[test]
     fn test_suspend_function_simple_generic() {
         let code = r#"
-            suspend func simple(): Observable<String> {
+            suspend fun simple(): Observable<String> {
                 return Observable.empty()
             }
         "#;
@@ -56,7 +56,7 @@ mod debug_suspend_tests {
     #[test]
     fn test_nested_generic_types() {
         let code = r#"
-            func nested(): Observable<List<String>> {
+            fun nested(): Observable<List<String>> {
                 return Observable.empty()
             }
         "#;
@@ -70,7 +70,7 @@ mod debug_suspend_tests {
     #[test]
     fn test_suspend_with_nested_generics() {
         let code = r#"
-            suspend func fetchUsers(): Observable<List<User>> {
+            suspend fun fetchUsers(): Observable<List<User>> {
                 return Observable.empty()
             }
         "#;

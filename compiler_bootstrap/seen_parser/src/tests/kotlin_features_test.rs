@@ -23,11 +23,11 @@ mod kotlin_features_tests {
     #[test]
     fn test_extension_function_parsing() {
         let code = r#"
-            extension func String.isEmpty(): Bool {
+            extension fun String.isEmpty(): Bool {
                 return self.length() == 0;
             }
             
-            extension func Int.isEven(): Bool {
+            extension fun Int.isEven(): Bool {
                 return self % 2 == 0;
             }
         "#;
@@ -107,7 +107,7 @@ mod kotlin_features_tests {
     #[test]
     fn test_nullable_types_parsing() {
         let code = r#"
-            func maybeNull(input: String?): Int? {
+            fun maybeNull(input: String?): Int? {
                 if input == null {
                     return null;
                 } else {
@@ -115,7 +115,7 @@ mod kotlin_features_tests {
                 }
             }
             
-            func nonNullExample(name: String): String {
+            fun nonNullExample(name: String): String {
                 return "Hello, " + name;
             }
         "#;
@@ -163,7 +163,7 @@ mod kotlin_features_tests {
     #[test]
     fn test_default_and_named_parameters() {
         let code = r#"
-            func createUser(
+            fun createUser(
                 name: String,
                 age: Int = 25,
                 email: String = "noemail@example.com",
@@ -172,7 +172,7 @@ mod kotlin_features_tests {
                 return User { name: name, age: age, email: email, isActive: isActive };
             }
             
-            func main() {
+            fun main() {
                 let user1 = createUser("John");
                 let user2 = createUser("Jane", age: 30);
                 let user3 = createUser("Bob", email: "bob@test.com", age: 35);
@@ -241,7 +241,7 @@ mod kotlin_features_tests {
     #[test]
     fn test_pattern_matching_with_guards() {
         let code = r#"
-            func classify(value: Int): String {
+            fun classify(value: Int): String {
                 return match value {
                     n if n < 0 => "negative",
                     0 => "zero", 
@@ -303,7 +303,7 @@ mod kotlin_features_tests {
     #[test]
     fn test_closure_expressions() {
         let code = r#"
-            func main() {
+            fun main() {
                 let numbers = [1, 2, 3, 4, 5];
                 
                 let doubled = numbers.map(|x| x * 2);
@@ -374,7 +374,7 @@ mod kotlin_features_tests {
     #[test]
     fn test_smart_cast_parsing() {
         let code = r#"
-            func processValue(value: Any?): String {
+            fun processValue(value: Any?): String {
                 return value is String
             }
         "#;
@@ -446,12 +446,12 @@ mod kotlin_features_tests {
     #[test]
     fn test_coroutine_parsing() {
         let code = r#"
-            suspend func fetchData(url: String): String {
+            suspend fun fetchData(url: String): String {
                 let response = await httpGet(url)
                 return response
             }
 
-            func main() {
+            fun main() {
                 launch {
                     let data = await fetchData("https://api.example.com/data")
                     println(data)

@@ -1,7 +1,7 @@
 // Hello World program in Seen (English syntax)
 // This demonstrates the basic structure of a Seen program
 
-func main() {
+fun main() {
     println("Hello, World!");
     println("Welcome to the Seen programming language!");
     
@@ -20,7 +20,7 @@ func main() {
     greet("Developer");
 }
 
-func greet(name: str) {
+fun greet(name: str) {
     println("Hello, {}!", name);
     println("Happy coding with Seen!");
 }

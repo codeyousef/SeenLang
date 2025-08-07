@@ -18,7 +18,7 @@ mod flow_dsl_tests {
     #[test]
     fn test_simple_flow_dsl() {
         let code = r#"
-            func createFlow() {
+            fun createFlow() {
                 val myFlow = flow {
                     emit("hello")
                     emit("world")
@@ -44,7 +44,7 @@ mod flow_dsl_tests {
     #[test]
     fn test_suspend_function_with_flow() {
         let code = r#"
-            suspend func fetchData(): Flow<String> {
+            suspend fun fetchData(): Flow<String> {
                 return flow {
                     emit("data1")
                     emit("data2")
@@ -70,7 +70,7 @@ mod flow_dsl_tests {
     #[test] 
     fn test_flow_with_await() {
         let code = r#"
-            func createCombinedFlow() {
+            fun createCombinedFlow() {
                 val combined = flow {
                     val result = await someAsyncCall()
                     emit(result)

@@ -14,11 +14,53 @@ pub struct TypeChecker {
 
 impl TypeChecker {
     pub fn new() -> Self {
+        let mut env = TypeEnvironment::new();
+        
+        // Add built-in functions to the type environment
+        Self::populate_builtin_functions(&mut env);
+        
         Self {
-            env: TypeEnvironment::new(),
+            env,
             diagnostics: Diagnostics::new(),
             inference: InferenceEngine::new(),
         }
+    }
+    
+    fn populate_builtin_functions(env: &mut TypeEnvironment) {
+        // println: (str) -> ()
+        let println_type = Type::Function {
+            params: vec![Type::Primitive(PrimitiveType::Str)],
+            return_type: Box::new(Type::Primitive(PrimitiveType::Unit)),
+        };
+        env.insert_function("println".to_string(), println_type);
+        
+        // print: (str) -> ()
+        let print_type = Type::Function {
+            params: vec![Type::Primitive(PrimitiveType::Str)],
+            return_type: Box::new(Type::Primitive(PrimitiveType::Unit)),
+        };
+        env.insert_function("print".to_string(), print_type);
+        
+        // debug: (T) -> ()
+        let debug_type = Type::Function {
+            params: vec![Type::Variable(0)], // Generic type T
+            return_type: Box::new(Type::Primitive(PrimitiveType::Unit)),
+        };
+        env.insert_function("debug".to_string(), debug_type);
+        
+        // assert: (bool) -> ()
+        let assert_type = Type::Function {
+            params: vec![Type::Primitive(PrimitiveType::Bool)],
+            return_type: Box::new(Type::Primitive(PrimitiveType::Unit)),
+        };
+        env.insert_function("assert".to_string(), assert_type);
+        
+        // panic: (str) -> !
+        let panic_type = Type::Function {
+            params: vec![Type::Primitive(PrimitiveType::Str)],
+            return_type: Box::new(Type::Primitive(PrimitiveType::Never)),
+        };
+        env.insert_function("panic".to_string(), panic_type);
     }
     
     pub fn diagnostics(&self) -> &Diagnostics {

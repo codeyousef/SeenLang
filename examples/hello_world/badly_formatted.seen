@@ -1,4 +1,4 @@
-func main(){
+fun main(){
     println("Hello");
     if true{
         println("World");
