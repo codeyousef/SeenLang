@@ -8,3 +8,5 @@ pub mod simple_reactive_test;
 pub mod debug_suspend_test;
 pub mod flow_dsl_test;
 pub mod generic_functions_test;
+pub mod inline_functions_test;
+pub mod sealed_classes_test;

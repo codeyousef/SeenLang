@@ -80,6 +80,8 @@ fn test_visitor_traversal() {
                     },
                     visibility: Visibility::Public,
                     attributes: vec![],
+                    is_inline: false,
+                    is_suspend: false,
                 }),
                 span: test_span(0, 15),
                 id: 0,
@@ -285,6 +287,8 @@ fn test_visitor_depth_tracking() {
                 kind: ItemKind::Function(Function {
                     name: Spanned::new("nested", test_span(0, 6)),
                     type_params: vec![],
+                    is_inline: false,
+                    is_suspend: false,
                     params: vec![],
                     return_type: None,
                     body: Block {

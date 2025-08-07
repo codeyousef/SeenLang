@@ -58,6 +58,8 @@ pub struct Function<'a> {
     pub body: Block<'a>,
     pub visibility: Visibility,
     pub attributes: Vec<Attribute<'a>>,
+    pub is_inline: bool,
+    pub is_suspend: bool,
 }
 
 /// Function parameter

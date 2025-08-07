@@ -474,7 +474,13 @@
       "Bash(CARGO_TARGET_DIR=target-wsl cargo build -p seen_lexer --quiet)",
       "Bash(CARGO_TARGET_DIR=target-wsl rustc --edition 2021 test_parser_debug.rs --extern seen_lexer=target-wsl/debug/libseen_lexer.rlib -L target-wsl/debug/deps -o test_parser_debug)",
       "Bash(./test_parser_debug)",
-      "Bash(CARGO_TARGET_DIR=/tmp/seen-test-target timeout 30s cargo test -p seen_lexer test_error_recovery_requirement --lib --quiet)"
+      "Bash(CARGO_TARGET_DIR=/tmp/seen-test-target timeout 30s cargo test -p seen_lexer test_error_recovery_requirement --lib --quiet)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_inline_function_basic -- --nocapture)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_inline_function_basic --lib -- --nocapture)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_inline_function_basic --lib -- --nocapture)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser inline_function --lib)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_inline_function_basic -- --nocapture)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_parser test_inline_function_basic)"
     ],
     "deny": []
   }

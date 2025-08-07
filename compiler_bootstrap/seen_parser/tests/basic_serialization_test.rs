@@ -78,6 +78,8 @@ fn test_function_serialization() {
         },
         visibility: Visibility::Public,
         attributes: vec![],
+        is_inline: false,
+        is_suspend: false,
     };
 
     let serializer = AstSerializer::new(SerializationFormat::Json);

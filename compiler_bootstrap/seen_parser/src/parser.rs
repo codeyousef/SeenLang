@@ -86,8 +86,13 @@ impl Parser {
             match &token.value {
                 TokenType::KeywordFun => self.parse_function(),
                 TokenType::KeywordSuspend => self.parse_suspend_function(),
+                TokenType::KeywordInline => self.parse_inline_function(),
                 TokenType::KeywordStruct => self.parse_struct(),
                 TokenType::KeywordEnum => self.parse_enum(),
+                TokenType::KeywordData => self.parse_data_class(),
+                TokenType::KeywordSealed => self.parse_sealed_class(),
+                TokenType::KeywordObject => self.parse_object_declaration(),
+                TokenType::KeywordInterface => self.parse_interface(),
                 TokenType::Identifier(name) => {
                 // Check for Kotlin-style features and backwards compatibility
                 match name.as_str() {
@@ -97,12 +102,16 @@ impl Parser {
                         self.parse_data_class()
                     },
                     "sealed" => self.parse_sealed_class(),
+                    "inline" => {
+                        self.advance(); // Consume the 'inline' token
+                        self.parse_inline_function()
+                    },
                     "fun" => self.parse_function(),
                     "struct" => self.parse_struct(),
                     "enum" => self.parse_enum(),
                     _ => {
                         eprintln!("parse_item: Unexpected identifier '{}'", name);
-                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', or 'sealed'");
+                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', or 'inline'");
                         Err(seen_common::SeenError::parse_error("Unexpected token"))
                     }
                 }
@@ -171,6 +180,8 @@ impl Parser {
             body,
             visibility: Visibility::Private,
             attributes: Vec::with_capacity(0), // Empty but avoids allocation
+            is_inline: false,
+            is_suspend: false,
         };
         
         Ok(Item {
@@ -221,6 +232,61 @@ impl Parser {
         }
         
         Ok(Some(args))
+    }
+    
+    fn parse_generic_params_with_reified(&mut self) -> SeenResult<Vec<TypeParam<'static>>> {
+        // Same as parse_generic_type_params but supports 'reified' modifier
+        self.expect_token(TokenType::Less)?;
+        let mut params = Vec::new();
+        
+        loop {
+            let span = self.current_span();
+            
+            // Check for 'reified' modifier
+            let _is_reified = self.match_token(&TokenType::KeywordReified);
+            
+            let name = self.expect_identifier_value()?;
+            let name_span = self.previous_span();
+            
+            // Parse optional bounds
+            let bounds = if self.match_token(&TokenType::Colon) {
+                let mut bounds = Vec::new();
+                loop {
+                    bounds.push(self.parse_type()?);
+                    if !self.match_token(&TokenType::Plus) {
+                        break;
+                    }
+                }
+                bounds
+            } else {
+                Vec::new()
+            };
+            
+            // Parse optional default type
+            let default_type = if self.match_token(&TokenType::Assign) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            
+            let param = TypeParam {
+                name: seen_common::Spanned::new(name.leak(), name_span),
+                bounds,
+                default_type,
+                span,
+            };
+            
+            // TODO: Add is_reified field to TypeParam to track reified status
+            
+            params.push(param);
+            
+            if !self.match_token(&TokenType::Comma) {
+                break;
+            }
+        }
+        
+        self.expect_token(TokenType::Greater)?;
+        Ok(params)
     }
     
     fn parse_generic_type_params(&mut self) -> SeenResult<Vec<TypeParam<'static>>> {
@@ -280,6 +346,66 @@ impl Parser {
         Ok(type_params)
     }
 
+    fn parse_inline_function(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.previous_span(); // 'inline' already consumed
+        
+        // 'inline' has already been consumed by parse_item
+        
+        // Consume 'fun'
+        self.expect_keyword(TokenType::KeywordFun)?;
+        
+        // Parse function name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse optional generic type parameters (after function name, with possible reified)
+        let type_params = if self.check(&TokenType::Less) {
+            self.parse_generic_params_with_reified()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parse parameters
+        self.expect_token(TokenType::LeftParen)?;
+        let params = self.parse_parameter_list()?;
+        self.expect_token(TokenType::RightParen)?;
+        
+        // Parse optional return type
+        let return_type = if self.match_token(&TokenType::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        // Parse body
+        let body = self.parse_block()?;
+        
+        // Create inline attribute
+        let inline_attr = Attribute {
+            name: seen_common::Spanned::new("inline", start_span),
+            args: Vec::new(),
+            span: start_span,
+        };
+        
+        let func = Function {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            type_params,
+            params,
+            return_type,
+            body,
+            visibility: Visibility::Private,
+            attributes: vec![inline_attr],
+            is_inline: true,
+            is_suspend: false,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Function(func),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
     fn parse_suspend_function(&mut self) -> SeenResult<Item<'static>> {
         let start_span = self.current_span();
         
@@ -332,6 +458,8 @@ impl Parser {
             body,
             visibility: Visibility::Private,
             attributes: vec![suspend_attr], // Mark as suspend function
+            is_inline: false,
+            is_suspend: true,
         };
         
         Ok(Item {
@@ -2265,6 +2393,364 @@ impl Parser {
     
     // Kotlin-inspired feature parsing methods
     
+    fn parse_data_class(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        
+        // Consume 'data'
+        self.expect_keyword(TokenType::KeywordData)?;
+        
+        // Consume 'class'
+        self.expect_keyword(TokenType::KeywordClass)?;
+        
+        // Parse class name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse constructor parameters (which become properties)
+        self.expect_token(TokenType::LeftParen)?;
+        let mut fields = Vec::new();
+        
+        if !self.check(&TokenType::RightParen) {
+            loop {
+                // Parse val/var
+                let is_mutable = if self.match_token(&TokenType::KeywordVar) {
+                    true
+                } else if self.match_token(&TokenType::KeywordVal) {
+                    true // val is also parsed, but immutable
+                } else {
+                    return Err(seen_common::SeenError::parse_error("Expected 'val' or 'var' in data class constructor"));
+                };
+                
+                let field_name = self.expect_identifier_value()?;
+                let field_span = self.previous_span();
+                
+                self.expect_token(TokenType::Colon)?;
+                let field_type = self.parse_type()?;
+                
+                // Optional default value
+                let default_value = if self.match_token(&TokenType::Assign) {
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                };
+                
+                fields.push(DataClassField {
+                    name: seen_common::Spanned::new(field_name.leak(), field_span),
+                    ty: field_type,
+                    is_mutable,
+                    default_value,
+                    visibility: Visibility::Public,
+                    span: field_span,
+                });
+                
+                if !self.match_token(&TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        
+        self.expect_token(TokenType::RightParen)?;
+        
+        // Optional class body
+        let _body = if self.check(&TokenType::LeftBrace) {
+            self.parse_block()?
+        } else {
+            Block {
+                statements: Vec::new(),
+                span: self.current_span(),
+            }
+        };
+        
+        let data_class = DataClass {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            fields,
+            visibility: Visibility::Public,
+            generic_params: Vec::new(),
+            attributes: Vec::new(),
+        };
+        
+        Ok(Item {
+            kind: ItemKind::DataClass(data_class),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_sealed_class(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        
+        // Consume 'sealed'
+        self.expect_keyword(TokenType::KeywordSealed)?;
+        
+        // Consume 'class' or 'interface'
+        let is_interface = if self.match_token(&TokenType::KeywordInterface) {
+            true
+        } else {
+            self.expect_keyword(TokenType::KeywordClass)?;
+            false
+        };
+        
+        // Parse class name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse class body with variants
+        self.expect_token(TokenType::LeftBrace)?;
+        let mut variants = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            // Parse variant (could be data class, object, or regular class)
+            if self.match_token(&TokenType::KeywordData) {
+                // Data class variant
+                self.expect_keyword(TokenType::KeywordClass)?;
+                let variant_name = self.expect_identifier_value()?;
+                let variant_span = self.previous_span();
+                
+                // Parse constructor
+                self.expect_token(TokenType::LeftParen)?;
+                let mut fields = Vec::new();
+                
+                if !self.check(&TokenType::RightParen) {
+                    loop {
+                        let is_mutable = self.match_token(&TokenType::KeywordVar) || !self.match_token(&TokenType::KeywordVal);
+                        let field_name = self.expect_identifier_value()?;
+                        self.expect_token(TokenType::Colon)?;
+                        let field_type = self.parse_type()?;
+                        
+                        fields.push(DataClassField {
+                            name: seen_common::Spanned::new(field_name.leak(), variant_span),
+                            ty: field_type,
+                            is_mutable,
+                            default_value: None,
+                            visibility: Visibility::Public,
+                            span: variant_span,
+                        });
+                        
+                        if !self.match_token(&TokenType::Comma) {
+                            break;
+                        }
+                    }
+                }
+                
+                self.expect_token(TokenType::RightParen)?;
+                
+                // Skip inheritance part for now
+                if self.match_token(&TokenType::Colon) {
+                    // Skip the parent class reference
+                    self.parse_type()?;
+                    self.expect_token(TokenType::LeftParen)?;
+                    self.expect_token(TokenType::RightParen)?;
+                }
+                
+                variants.push(SealedClassVariant {
+                    name: seen_common::Spanned::new(variant_name.leak(), variant_span),
+                    fields,
+                    span: variant_span,
+                });
+            } else if self.match_token(&TokenType::KeywordObject) {
+                // Object variant
+                let variant_name = self.expect_identifier_value()?;
+                let variant_span = self.previous_span();
+                
+                // Skip inheritance
+                if self.match_token(&TokenType::Colon) {
+                    self.parse_type()?;
+                    self.expect_token(TokenType::LeftParen)?;
+                    self.expect_token(TokenType::RightParen)?;
+                }
+                
+                variants.push(SealedClassVariant {
+                    name: seen_common::Spanned::new(variant_name.leak(), variant_span),
+                    fields: Vec::new(),
+                    span: variant_span,
+                });
+            } else {
+                // Skip unknown items
+                self.advance();
+            }
+        }
+        
+        self.expect_token(TokenType::RightBrace)?;
+        
+        let sealed_class = SealedClass {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            variants,
+            visibility: Visibility::Public,
+            generic_params: Vec::new(),
+            attributes: Vec::new(),
+        };
+        
+        Ok(Item {
+            kind: ItemKind::SealedClass(sealed_class),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_object_declaration(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        
+        // Consume 'object'
+        self.expect_keyword(TokenType::KeywordObject)?;
+        
+        // Parse object name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Optional inheritance
+        let parent_type = if self.match_token(&TokenType::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        // Parse object body
+        let body = if self.check(&TokenType::LeftBrace) {
+            self.parse_block()?
+        } else {
+            // Empty object
+            Block {
+                statements: Vec::new(),
+                span: self.current_span(),
+            }
+        };
+        
+        // Objects are singleton structs with no fields
+        let object_struct = Struct {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            fields: Vec::new(),
+            visibility: Visibility::Public,
+            generic_params: Vec::new(),
+            attributes: vec![
+                Attribute {
+                    name: seen_common::Spanned::new("singleton", start_span),
+                    args: Vec::new(),
+                    span: start_span,
+                }
+            ],
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Struct(object_struct),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_interface(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        
+        // Consume 'interface'
+        self.expect_keyword(TokenType::KeywordInterface)?;
+        
+        // Parse interface name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse optional generic parameters
+        let generic_params = if self.check(&TokenType::Less) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parse optional superinterfaces
+        let supertraits = if self.match_token(&TokenType::Colon) {
+            let mut supers = Vec::new();
+            loop {
+                supers.push(self.parse_type()?);
+                if !self.match_token(&TokenType::Comma) {
+                    break;
+                }
+            }
+            supers
+        } else {
+            Vec::new()
+        };
+        
+        // Parse interface body
+        self.expect_token(TokenType::LeftBrace)?;
+        let mut items = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            if self.match_token(&TokenType::KeywordFun) {
+                // Parse method signature
+                let method_name = self.expect_identifier_value()?;
+                let method_span = self.previous_span();
+                
+                // Parse parameters
+                self.expect_token(TokenType::LeftParen)?;
+                let params = self.parse_parameter_list()?;
+                self.expect_token(TokenType::RightParen)?;
+                
+                // Parse return type
+                let return_type = if self.match_token(&TokenType::Colon) {
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                
+                // Optional default implementation
+                let default_body = if self.check(&TokenType::LeftBrace) {
+                    Some(self.parse_block()?)
+                } else {
+                    None
+                };
+                
+                let trait_func = TraitFunction {
+                    name: seen_common::Spanned::new(method_name.leak(), method_span),
+                    params,
+                    return_type,
+                    default_body,
+                };
+                
+                items.push(TraitItem {
+                    kind: TraitItemKind::Function(trait_func),
+                    span: method_span,
+                    id: self.next_node_id(),
+                });
+            } else if self.match_token(&TokenType::KeywordVal) || self.match_token(&TokenType::KeywordVar) {
+                // Parse property
+                let prop_name = self.expect_identifier_value()?;
+                let prop_span = self.previous_span();
+                
+                self.expect_token(TokenType::Colon)?;
+                let prop_type = self.parse_type()?;
+                
+                let trait_const = TraitConst {
+                    name: seen_common::Spanned::new(prop_name.leak(), prop_span),
+                    ty: prop_type,
+                    default_value: None,
+                };
+                
+                items.push(TraitItem {
+                    kind: TraitItemKind::Const(trait_const),
+                    span: prop_span,
+                    id: self.next_node_id(),
+                });
+            } else {
+                // Skip unexpected tokens
+                self.advance();
+            }
+        }
+        
+        self.expect_token(TokenType::RightBrace)?;
+        
+        let interface = TraitDef {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            items,
+            generic_params,
+            supertraits,
+            visibility: Visibility::Public,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Trait(interface),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
     fn parse_extension_function(&mut self) -> SeenResult<Item<'static>> {
         let start_span = self.current_span();
         
@@ -2361,6 +2847,8 @@ impl Parser {
             body,
             visibility: Visibility::Public,
             attributes: vec![],
+            is_inline: false,
+            is_suspend: false,
         };
         
         let ext_func = ExtensionFunction {
@@ -2370,120 +2858,6 @@ impl Parser {
         
         Ok(Item {
             kind: ItemKind::ExtensionFunction(ext_func),
-            span: start_span.combine(self.previous_span()),
-            id: self.next_node_id(),
-        })
-    }
-    
-    fn parse_data_class(&mut self) -> SeenResult<Item<'static>> {
-        let start_span = self.current_span();
-        
-        // 'data' has already been consumed by the caller
-        
-        // Expect 'class' (or 'struct' for compatibility)
-        if !self.match_token(&TokenType::KeywordClass) && !self.match_token(&TokenType::KeywordStruct) && 
-           !self.match_identifier("class") && !self.match_identifier("struct") {
-            return Err(seen_common::SeenError::parse_error("Expected 'class' or 'struct' after 'data'"));
-        }
-        
-        // Parse class name
-        let name = self.expect_identifier_value()?;
-        let name_span = self.previous_span();
-        
-        // Parse generic parameters if present
-        let generic_params = if self.match_token(&TokenType::Less) {
-            self.parse_generic_params()?
-        } else {
-            vec![]
-        };
-        
-        // Parse fields (data classes use parentheses for constructor parameters)
-        self.expect_token(TokenType::LeftParen)?;
-        let fields = self.parse_data_class_fields()?;
-        self.expect_token(TokenType::RightParen)?;
-        
-        // Expect semicolon to end the data class declaration
-        self.expect_token(TokenType::Semicolon)?;
-        
-        // Create the data class
-        let data_class = DataClass {
-            name: seen_common::Spanned::new(name.leak(), name_span),
-            fields,
-            visibility: Visibility::Public,
-            generic_params,
-            attributes: vec![],
-        };
-        
-        Ok(Item {
-            kind: ItemKind::DataClass(data_class),
-            span: start_span.combine(self.previous_span()),
-            id: self.next_node_id(),
-        })
-    }
-    
-    fn parse_sealed_class(&mut self) -> SeenResult<Item<'static>> {
-        let start_span = self.current_span();
-        
-        // Consume 'sealed'
-        self.expect_identifier("sealed")?;
-        
-        // Expect 'class' (or 'enum' for compatibility)
-        if !self.match_identifier("class") && !self.match_identifier("enum") {
-            return Err(seen_common::SeenError::parse_error("Expected 'class' or 'enum' after 'sealed'"));
-        }
-        
-        // Parse class name
-        let name = self.expect_identifier_value()?;
-        let name_span = self.previous_span();
-        
-        // Parse generic parameters if present
-        let generic_params = if self.match_token(&TokenType::Less) {
-            self.parse_generic_params()?
-        } else {
-            vec![]
-        };
-        
-        // Parse variants
-        self.expect_token(TokenType::LeftBrace)?;
-        let mut variants = vec![];
-        
-        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-            let variant = self.parse_sealed_variant()?;
-            variants.push(variant);
-            
-            // Optional comma
-            self.match_token(&TokenType::Comma);
-        }
-        
-        self.expect_token(TokenType::RightBrace)?;
-        
-        // Create the sealed class  
-        let sealed_class = SealedClass {
-            name: seen_common::Spanned::new(name.leak(), name_span),
-            variants: variants.into_iter().map(|v| SealedClassVariant {
-                name: v.name,
-                fields: match v.data {
-                    VariantData::Struct(fields) => {
-                        fields.into_iter().map(|f| DataClassField {
-                            name: f.name,
-                            ty: f.ty,
-                            is_mutable: false,
-                            default_value: None,
-                            visibility: f.visibility,
-                            span: f.span,
-                        }).collect()
-                    },
-                    _ => vec![], // For now, only struct variants are supported
-                },
-                span: v.span,
-            }).collect(),
-            visibility: Visibility::Public,
-            generic_params,
-            attributes: vec![],
-        };
-        
-        Ok(Item {
-            kind: ItemKind::SealedClass(sealed_class),
             span: start_span.combine(self.previous_span()),
             id: self.next_node_id(),
         })
