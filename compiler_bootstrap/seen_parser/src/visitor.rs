@@ -160,6 +160,23 @@ pub fn walk_item<'a, V: Visitor<'a>>(visitor: &mut V, item: &Item<'a>) {
                 }
             }
         }
+        ItemKind::Property(prop) => {
+            if let Some(ref ty) = prop.ty {
+                visitor.visit_type(ty);
+            }
+            if let Some(ref initializer) = prop.initializer {
+                visitor.visit_expr(initializer);
+            }
+            if let Some(ref delegate) = prop.delegate {
+                visitor.visit_expr(delegate);
+            }
+            if let Some(ref getter) = prop.getter {
+                visitor.visit_block(getter);
+            }
+            if let Some(ref setter) = prop.setter {
+                visitor.visit_block(setter);
+            }
+        }
     }
 }
 
@@ -502,6 +519,23 @@ pub fn walk_item_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, item: &mut Item<'a>
                         visitor.visit_expr(default_value);
                     }
                 }
+            }
+        }
+        ItemKind::Property(prop) => {
+            if let Some(ref mut ty) = prop.ty {
+                visitor.visit_type(ty);
+            }
+            if let Some(ref mut initializer) = prop.initializer {
+                visitor.visit_expr(initializer);
+            }
+            if let Some(ref mut delegate) = prop.delegate {
+                visitor.visit_expr(delegate);
+            }
+            if let Some(ref mut getter) = prop.getter {
+                visitor.visit_block(getter);
+            }
+            if let Some(ref mut setter) = prop.setter {
+                visitor.visit_block(setter);
             }
         }
     }

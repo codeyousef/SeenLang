@@ -69,6 +69,14 @@ impl ConstraintSolver {
                 
                 self.unify(r1, r2, substitution)
             }
+            (Type::Trait { name: n1, .. }, Type::Trait { name: n2, .. }) if n1 == n2 => Ok(substitution),
+            (Type::TraitImpl { base_type: b1, trait_name: t1 }, Type::TraitImpl { base_type: b2, trait_name: t2 }) => {
+                if t1 == t2 {
+                    self.unify(b1, b2, substitution)
+                } else {
+                    Err(seen_common::SeenError::type_error(format!("Cannot unify trait impls for {} and {}", t1, t2)))
+                }
+            }
             _ if t1 == t2 => Ok(substitution),
             _ => Err(seen_common::SeenError::type_error(format!("Cannot unify {:?} with {:?}", t1, t2))),
         }

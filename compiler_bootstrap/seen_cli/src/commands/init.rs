@@ -149,7 +149,7 @@ fn create_english_main_content() -> &'static str {
     r#"// Welcome to Seen!
 // This is your main function - the entry point of your program.
 
-func main() {
+fun main() {
     println("Hello, World!");
     println("Welcome to the Seen programming language!");
     

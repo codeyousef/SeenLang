@@ -210,13 +210,15 @@ fn test_polymorphic_type_inference() {
 
 fn create_english_config() -> LanguageConfig {
     let mut keywords = HashMap::new();
-    keywords.insert("func".to_string(), "TokenFunc".to_string());
-    keywords.insert("let".to_string(), "TokenLet".to_string());
-    keywords.insert("if".to_string(), "TokenIf".to_string());
-    keywords.insert("else".to_string(), "TokenElse".to_string());
-    keywords.insert("return".to_string(), "TokenReturn".to_string());
-    keywords.insert("true".to_string(), "TokenTrue".to_string());
-    keywords.insert("false".to_string(), "TokenFalse".to_string());
+    keywords.insert("fun".to_string(), "KeywordFun".to_string());
+    keywords.insert("let".to_string(), "KeywordLet".to_string());
+    keywords.insert("if".to_string(), "KeywordIf".to_string());
+    keywords.insert("else".to_string(), "KeywordElse".to_string());
+    keywords.insert("return".to_string(), "KeywordReturn".to_string());
+    keywords.insert("true".to_string(), "KeywordTrue".to_string());
+    keywords.insert("false".to_string(), "KeywordFalse".to_string());
+    keywords.insert("val".to_string(), "KeywordVal".to_string());
+    keywords.insert("var".to_string(), "KeywordVar".to_string());
     
     let mut operators = HashMap::new();
     operators.insert("+".to_string(), "TokenPlus".to_string());

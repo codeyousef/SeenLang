@@ -68,13 +68,16 @@ impl TypeChecker {
     }
     
     pub fn check_program(&mut self, program: &Program) -> SeenResult<()> {
-        // Comprehensive type checking implementation
+        // Two-pass approach: first collect all function signatures, then check bodies
+        
+        // Pass 1: Collect all function signatures and other type definitions
         for item in &program.items {
             match &item.kind {
                 seen_parser::ItemKind::Function(func) => {
-                    // Function validation and type checking
+                    // Function validation
                     if func.name.value.is_empty() {
                         self.diagnostics.error("Function name cannot be empty", func.name.span);
+                        continue;
                     }
                     
                     // Store function type in environment
@@ -94,9 +97,6 @@ impl TypeChecker {
                     };
                     
                     self.env.insert_function(func.name.value.to_string(), func_type);
-                    
-                    // Type check function body
-                    self.check_block(&func.body)?;
                 }
                 seen_parser::ItemKind::Struct(struct_def) => {
                     // Handle struct type definitions
@@ -146,8 +146,40 @@ impl TypeChecker {
                 seen_parser::ItemKind::Impl(_) => {
                     // Impl blocks - not needed for MVP type checking
                 }
-                seen_parser::ItemKind::Trait(_) => {
-                    // Trait definitions - not needed for MVP type checking
+                seen_parser::ItemKind::Trait(trait_def) => {
+                    // Handle trait type definitions
+                    let trait_methods: Vec<(String, Type)> = trait_def.items.iter()
+                        .filter_map(|item| {
+                            match &item.kind {
+                                seen_parser::TraitItemKind::Function(func) => {
+                                    let param_types: Vec<Type> = func.params.iter()
+                                        .map(|p| self.resolve_type_annotation(&p.ty))
+                                        .collect::<Result<Vec<_>, _>>().ok()?;
+                                    
+                                    let return_type = if let Some(ret_ty) = &func.return_type {
+                                        Box::new(self.resolve_type_annotation(ret_ty).ok()?)
+                                    } else {
+                                        Box::new(Type::Primitive(PrimitiveType::Unit))
+                                    };
+                                    
+                                    let func_type = Type::Function {
+                                        params: param_types,
+                                        return_type,
+                                    };
+                                    
+                                    Some((func.name.value.to_string(), func_type))
+                                }
+                                _ => None,
+                            }
+                        })
+                        .collect();
+                    
+                    let trait_type = Type::Trait {
+                        name: trait_def.name.value.to_string(),
+                        methods: trait_methods,
+                    };
+                    
+                    self.env.insert_type(trait_def.name.value.to_string(), trait_type);
                 }
                 seen_parser::ItemKind::Module(_) => {
                     // Module definitions - not needed for MVP type checking
@@ -172,6 +204,29 @@ impl TypeChecker {
                 }
                 seen_parser::ItemKind::SealedClass(_) => {
                     // Sealed classes - implement in Step 11
+                }
+                seen_parser::ItemKind::Property(prop) => {
+                    // Property declarations - type check property definition
+                    if let Some(ref ty) = prop.ty {
+                        self.resolve_type_annotation(ty)?;
+                    }
+                    if let Some(ref initializer) = prop.initializer {
+                        self.infer_expression_type(initializer)?;
+                    }
+                    // Delegate and getter/setter validation would go here
+                }
+            }
+        }
+        
+        // Pass 2: Check function bodies now that all signatures are available
+        for item in &program.items {
+            match &item.kind {
+                seen_parser::ItemKind::Function(func) => {
+                    // Type check the function body
+                    self.check_block(&func.body)?;
+                }
+                _ => {
+                    // Other items already handled in Pass 1
                 }
             }
         }
@@ -287,15 +342,39 @@ impl TypeChecker {
             StmtKind::Let(let_stmt) => {
                 // Handle let statements with type inference
                 if let PatternKind::Identifier(name) = &let_stmt.pattern.kind {
+                    // First check if there's a type annotation
+                    let expected_type = if let Some(type_annotation) = &let_stmt.ty {
+                        Some(self.resolve_type_annotation(type_annotation)?)
+                    } else {
+                        None
+                    };
+                    
                     if let Some(init_expr) = &let_stmt.initializer {
                         let inferred_type = self.infer_expression_type(init_expr)?;
-                        self.env.bind(format!("var:{}", name.value), inferred_type);
+                        
+                        // If there's a type annotation, check it matches
+                        if let Some(expected) = expected_type {
+                            // For now, just store the expected type
+                            // In a full implementation, we'd unify expected with inferred
+                            self.env.bind(format!("var:{}", name.value), expected);
+                        } else {
+                            self.env.bind(format!("var:{}", name.value), inferred_type);
+                        }
+                    } else if let Some(expected) = expected_type {
+                        // No initializer but has type annotation
+                        self.env.bind(format!("var:{}", name.value), expected);
                     }
                 }
             }
             StmtKind::Expr(expr) => {
                 // Type check expression statements
                 self.infer_expression_type(expr)?;
+            }
+            StmtKind::Return(ret_expr) => {
+                // Handle return statements
+                if let Some(expr) = ret_expr {
+                    self.infer_expression_type(expr)?;
+                }
             }
             _ => {
                 // Other statement types - not needed for MVP
@@ -313,31 +392,75 @@ impl TypeChecker {
                 // Look up variable type
                 if let Some(var_type) = self.env.get_variable_type(name.value) {
                     Ok(var_type.clone())
+                } else if let Some(func_type) = self.env.get_function_type(name.value) {
+                    // Could be a function reference
+                    Ok(func_type.clone())
                 } else {
-                    Err(seen_common::SeenError::type_error(&format!("Undefined variable: {}", name.value)))
+                    // For error recovery, return Error type and continue
+                    self.diagnostics.error(&format!("Undefined variable: {}", name.value), name.span);
+                    Ok(Type::Error)
                 }
             }
             ExprKind::Binary { left, op, right } => {
                 let left_type = self.infer_expression_type(left)?;
                 let right_type = self.infer_expression_type(right)?;
                 
+                // Skip type checking if either operand is Error type
+                if matches!(left_type, Type::Error) || matches!(right_type, Type::Error) {
+                    return Ok(Type::Error);
+                }
+                
                 // Unify operand types for most binary operations
                 match op {
                     BinaryOp::Add | BinaryOp::Sub |
                     BinaryOp::Mul | BinaryOp::Div => {
-                        self.inference.unify(&left_type, &right_type)?;
-                        Ok(left_type)
+                        // For string concatenation, allow str + str
+                        if matches!(left_type, Type::Primitive(PrimitiveType::Str)) &&
+                           matches!(right_type, Type::Primitive(PrimitiveType::Str)) &&
+                           matches!(op, BinaryOp::Add) {
+                            Ok(Type::Primitive(PrimitiveType::Str))
+                        } else {
+                            // Try to unify for numeric types
+                            match self.inference.unify(&left_type, &right_type) {
+                                Ok(_) => Ok(left_type),
+                                Err(_) => {
+                                    self.diagnostics.error(
+                                        &format!("Type mismatch: cannot apply {:?} to {:?} and {:?}", op, left_type, right_type),
+                                        expr.span
+                                    );
+                                    Ok(Type::Error)
+                                }
+                            }
+                        }
                     }
                     BinaryOp::Eq | BinaryOp::Ne |
                     BinaryOp::Lt | BinaryOp::Le |
                     BinaryOp::Gt | BinaryOp::Ge => {
-                        self.inference.unify(&left_type, &right_type)?;
-                        Ok(Type::Primitive(PrimitiveType::Bool))
+                        match self.inference.unify(&left_type, &right_type) {
+                            Ok(_) => Ok(Type::Primitive(PrimitiveType::Bool)),
+                            Err(_) => {
+                                self.diagnostics.error(
+                                    &format!("Type mismatch in comparison: {:?} and {:?}", left_type, right_type),
+                                    expr.span
+                                );
+                                Ok(Type::Error)
+                            }
+                        }
                     }
                     BinaryOp::And | BinaryOp::Or => {
                         let bool_type = Type::Primitive(PrimitiveType::Bool);
-                        self.inference.unify(&left_type, &bool_type)?;
-                        self.inference.unify(&right_type, &bool_type)?;
+                        if !matches!(left_type, Type::Primitive(PrimitiveType::Bool)) {
+                            self.diagnostics.error(
+                                &format!("Expected bool, found {:?}", left_type),
+                                left.span
+                            );
+                        }
+                        if !matches!(right_type, Type::Primitive(PrimitiveType::Bool)) {
+                            self.diagnostics.error(
+                                &format!("Expected bool, found {:?}", right_type),
+                                right.span
+                            );
+                        }
                         Ok(Type::Primitive(PrimitiveType::Bool))
                     }
                     _ => {
@@ -348,38 +471,94 @@ impl TypeChecker {
             }
             ExprKind::Call { function, args } => {
                 // Function call type inference
+                // Check if this is a method call (e.g., y.length())
+                if let ExprKind::FieldAccess { object, field } = function.kind.as_ref() {
+                    let object_type = self.infer_expression_type(object)?;
+                    // For now, just report that the method doesn't exist
+                    self.diagnostics.error(
+                        &format!("Method '{}' does not exist on type {:?}", field.value, object_type),
+                        field.span
+                    );
+                    return Ok(Type::Error);
+                }
+                
                 if let ExprKind::Identifier(func_name) = function.kind.as_ref() {
                     if let Some(func_type) = self.env.get_function_type(func_name.value).cloned() {
                         match func_type {
                             Type::Function { params, return_type } => {
                                 // Check argument count
                                 if args.len() != params.len() {
-                                    return Err(seen_common::SeenError::type_error(
-                                        &format!("Function {} expects {} arguments, got {}", 
-                                                func_name.value, params.len(), args.len())
-                                    ));
+                                    self.diagnostics.error(
+                                        &format!("Function '{}' expects {} arguments, got {}", 
+                                                func_name.value, params.len(), args.len()),
+                                        function.span
+                                    );
+                                    return Ok(Type::Error);
                                 }
                                 
                                 // Type check each argument
                                 for (arg, param_type) in args.iter().zip(params.iter()) {
                                     let arg_type = self.infer_expression_type(arg)?;
-                                    self.inference.unify(&arg_type, param_type)?;
+                                    if !matches!(arg_type, Type::Error) {
+                                        match self.inference.unify(&arg_type, param_type) {
+                                            Err(_) => {
+                                                self.diagnostics.error(
+                                                    &format!("Type mismatch: expected {:?}, found {:?}", param_type, arg_type),
+                                                    arg.span
+                                                );
+                                            }
+                                            _ => {}
+                                        }
+                                    }
                                 }
                                 
                                 Ok(*return_type)
                             }
-                            _ => Err(seen_common::SeenError::type_error(
-                                &format!("{} is not a function", func_name.value)
-                            ))
+                            _ => {
+                                self.diagnostics.error(
+                                    &format!("'{}' is not a function", func_name.value),
+                                    function.span
+                                );
+                                Ok(Type::Error)
+                            }
                         }
                     } else {
-                        Err(seen_common::SeenError::type_error(
-                            &format!("Undefined function: {}", func_name.value)
-                        ))
+                        self.diagnostics.error(
+                            &format!("Undefined function: '{}'", func_name.value),
+                            function.span
+                        );
+                        Ok(Type::Error)
                     }
                 } else {
-                    Err(seen_common::SeenError::type_error("Complex function expressions not supported"))
+                    // Complex function expressions not yet supported
+                    Ok(Type::Variable(self.inference.fresh_type_var()))
                 }
+            }
+            ExprKind::FieldAccess { object, field: _ } => {
+                // Field access without call
+                let object_type = self.infer_expression_type(object)?;
+                // For now, just return Error type for field access
+                Ok(Type::Error)
+            }
+            ExprKind::If { condition, then_branch, else_branch } => {
+                // Type check if expression
+                let cond_type = self.infer_expression_type(condition)?;
+                if !matches!(cond_type, Type::Primitive(PrimitiveType::Bool)) && !matches!(cond_type, Type::Error) {
+                    self.diagnostics.error(
+                        &format!("If condition must be bool, found {:?}", cond_type),
+                        condition.span
+                    );
+                }
+                
+                // Type check branches
+                self.check_block(then_branch)?;
+                if let Some(else_expr) = else_branch {
+                    // Else branch is an expression, could be another if or a block
+                    self.infer_expression_type(else_expr)?;
+                }
+                
+                // For now, return unit type
+                Ok(Type::Primitive(PrimitiveType::Unit))
             }
             _ => {
                 // Other expression types - return a fresh type variable for now

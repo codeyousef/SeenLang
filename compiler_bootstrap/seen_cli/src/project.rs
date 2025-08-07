@@ -177,14 +177,44 @@ impl Project {
     /// Load the language configuration for this project
     pub fn load_language_config(&self) -> Result<LanguageConfig> {
         let lang = &self.config.project.language;
+        
+        // For English, use the built-in configuration
+        if lang == "en" {
+            return Ok(LanguageConfig::new_english());
+        }
+        
+        // For Arabic, use the built-in configuration
+        if lang == "ar" {
+            return Ok(LanguageConfig::new_arabic());
+        }
+        
+        // Try project-local language file first
         let lang_file = self.root_dir
             .join("languages")
             .join(format!("{}.toml", lang));
         
-        // Try project-local language file first
         if lang_file.exists() {
             return LanguageConfig::load_from_file(&lang_file)
                 .map_err(|e| anyhow::anyhow!("Failed to load language config: {}", e));
+        }
+        
+        // Try to find language files relative to the executable location
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                // Try various possible locations relative to the executable
+                let possible_paths = vec![
+                    exe_dir.join("languages").join(format!("{}.toml", lang)),
+                    exe_dir.parent().and_then(|p| Some(p.join("languages").join(format!("{}.toml", lang)))).unwrap_or_default(),
+                    PathBuf::from("/mnt/d/Projects/Rust/seenlang/languages").join(format!("{}.toml", lang)),
+                ];
+                
+                for path in possible_paths {
+                    if path.exists() {
+                        return LanguageConfig::load_from_file(&path)
+                            .map_err(|e| anyhow::anyhow!("Failed to load language config: {}", e));
+                    }
+                }
+            }
         }
         
         // Fall back to global language files

@@ -145,16 +145,65 @@ impl CodeGenerator {
                 
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 { ir.push_str(", "); }
-                    let _ = write!(&mut ir, "i32 %{}", arg);
+                    ir.push_str(&self.format_value(arg));
                 }
                 ir.push(')');
             }
             Instruction::Return { value } => {
                 if let Some(val) = value {
-                    let _ = write!(&mut ir, "ret i32 %{}", val);
+                    let _ = write!(&mut ir, "ret i32 {}", self.format_value(val));
                 } else {
                     ir.push_str("ret void");
                 }
+            }
+            Instruction::Binary { dest, op, left, right } => {
+                let op_str = match op {
+                    crate::BinaryOp::Add => "add",
+                    crate::BinaryOp::Sub => "sub",
+                    crate::BinaryOp::Mul => "mul",
+                    crate::BinaryOp::Div => "sdiv",
+                    crate::BinaryOp::Mod => "srem",
+                    crate::BinaryOp::And => "and",
+                    crate::BinaryOp::Or => "or",
+                    crate::BinaryOp::Xor => "xor",
+                };
+                let _ = write!(&mut ir, "%{} = {} i32 {}, {}", 
+                    dest, op_str, self.format_value(left), self.format_value(right));
+            }
+            Instruction::Compare { dest, op, left, right } => {
+                let cond = match op {
+                    crate::CompareOp::Eq => "eq",
+                    crate::CompareOp::Ne => "ne",
+                    crate::CompareOp::Lt => "slt",
+                    crate::CompareOp::Le => "sle",
+                    crate::CompareOp::Gt => "sgt",
+                    crate::CompareOp::Ge => "sge",
+                };
+                let _ = write!(&mut ir, "%{} = icmp {} i32 {}, {}", 
+                    dest, cond, self.format_value(left), self.format_value(right));
+            }
+            Instruction::Branch { condition, true_label, false_label } => {
+                if let Some(cond) = condition {
+                    if let Some(false_l) = false_label {
+                        let _ = write!(&mut ir, "br i1 %{}, label %{}, label %{}", 
+                            cond, true_label, false_l);
+                    } else {
+                        let _ = write!(&mut ir, "br label %{}", true_label);
+                    }
+                } else {
+                    let _ = write!(&mut ir, "br label %{}", true_label);
+                }
+            }
+            Instruction::Phi { dest, values } => {
+                let _ = write!(&mut ir, "%{} = phi i32 ", dest);
+                for (i, (val, label)) in values.iter().enumerate() {
+                    if i > 0 { ir.push_str(", "); }
+                    let _ = write!(&mut ir, "[{}, %{}]", self.format_value(val), label);
+                }
+            }
+            Instruction::Alloca { dest, ty } => {
+                let type_str = self.format_type(ty);
+                let _ = write!(&mut ir, "%{} = alloca {}, align 4", dest, type_str);
             }
             Instruction::Nop => {
                 ir.push_str("; nop");
@@ -162,6 +211,33 @@ impl CodeGenerator {
         }
         
         Ok(ir)
+    }
+    
+    /// Format a value for LLVM IR
+    fn format_value(&self, value: &crate::Value) -> String {
+        match value {
+            crate::Value::Register(reg) => format!("%{}", reg),
+            crate::Value::Integer(val) => val.to_string(),
+            crate::Value::Float(val) => format!("{:.6}", val),
+            crate::Value::Boolean(val) => if *val { "1" } else { "0" }.to_string(),
+            crate::Value::String(_) => {
+                // Strings need special handling, for now just use a placeholder
+                "@.str".to_string()
+            }
+        }
+    }
+    
+    /// Format a type for LLVM IR
+    fn format_type(&self, ty: &crate::Type) -> String {
+        match ty {
+            crate::Type::I32 => "i32".to_string(),
+            crate::Type::I64 => "i64".to_string(),
+            crate::Type::F32 => "float".to_string(),
+            crate::Type::F64 => "double".to_string(),
+            crate::Type::Bool => "i1".to_string(),
+            crate::Type::Ptr(inner) => format!("{}*", self.format_type(inner)),
+            crate::Type::Void => "void".to_string(),
+        }
     }
     
     /// Generate debug metadata
@@ -203,7 +279,7 @@ impl CodeGenerator {
                 blocks: vec![BasicBlock {
                     label: "entry".to_string(),
                     instructions: vec![
-                        Instruction::Return { value: None },
+                        Instruction::Return { value: Some(crate::Value::Integer(0)) },
                     ],
                 }],
             }],

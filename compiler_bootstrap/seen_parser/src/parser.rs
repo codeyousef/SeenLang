@@ -853,12 +853,22 @@ impl Parser {
         eprintln!("expect_identifier_value: current token = {:?}", self.current_token());
         
         if let Some(token) = self.current_token() {
-            if let TokenType::Identifier(name) = &token.value {
-                let result = name.clone();
-                #[cfg(test)]
-                eprintln!("expect_identifier_value: found identifier '{}', advancing", result);
-                self.advance();
-                return Ok(result);
+            match &token.value {
+                TokenType::Identifier(name) => {
+                    let result = name.clone();
+                    #[cfg(test)]
+                    eprintln!("expect_identifier_value: found identifier '{}', advancing", result);
+                    self.advance();
+                    return Ok(result);
+                }
+                // Allow certain keywords to be used as identifiers in contexts where they don't conflict
+                TokenType::KeywordData => {
+                    #[cfg(test)]
+                    eprintln!("expect_identifier_value: found keyword 'data' as identifier, advancing");
+                    self.advance();
+                    return Ok("data".to_string());
+                }
+                _ => {}
             }
         }
         
@@ -996,6 +1006,7 @@ impl Parser {
                 ty,
                 is_mutable,
                 default_value,
+                delegate: None, // For now, we don't support delegation in data class fields
                 visibility,
                 span: field_span,
             });
@@ -1012,7 +1023,7 @@ impl Parser {
     fn skip_non_significant_tokens(&mut self) {
         while let Some(token) = self.current_token() {
             match token.value {
-                TokenType::Whitespace => {
+                TokenType::Whitespace | TokenType::Semicolon => {
                     self.advance();
                 }
                 _ => break,
@@ -2006,6 +2017,12 @@ impl Parser {
                     // Parse try-catch-finally expression
                     return self.parse_try_catch_expression();
                 }
+                TokenType::KeywordData => {
+                    // Allow 'data' to be used as an identifier in expressions
+                    let name_val = "data".to_string();
+                    self.advance();
+                    ExprKind::Identifier(seen_common::Spanned::new(name_val.leak(), span))
+                }
                 _ => {
                     self.error("Expected expression");
                     return Err(seen_common::SeenError::parse_error("Expected expression"));
@@ -2662,7 +2679,7 @@ impl Parser {
                 let is_mutable = if self.match_token(&TokenType::KeywordVar) {
                     true
                 } else if self.match_token(&TokenType::KeywordVal) {
-                    true // val is also parsed, but immutable
+                    false // val is immutable
                 } else {
                     return Err(seen_common::SeenError::parse_error("Expected 'val' or 'var' in data class constructor"));
                 };
@@ -2685,6 +2702,7 @@ impl Parser {
                     ty: field_type,
                     is_mutable,
                     default_value,
+                    delegate: None, // For now, we don't support delegation
                     visibility: Visibility::Public,
                     span: field_span,
                 });
@@ -2768,6 +2786,7 @@ impl Parser {
                             ty: field_type,
                             is_mutable,
                             default_value: None,
+                            delegate: None, // For now, we don't support delegation
                             visibility: Visibility::Public,
                             span: variant_span,
                         });

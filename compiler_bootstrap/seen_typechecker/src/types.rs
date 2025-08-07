@@ -54,6 +54,16 @@ pub enum Type {
         name: String,
         variants: Vec<(String, Vec<Type>)>,
     },
+    /// Trait types
+    Trait {
+        name: String,
+        methods: Vec<(String, Type)>,
+    },
+    /// Type implementing a trait
+    TraitImpl {
+        base_type: Box<Type>,
+        trait_name: String,
+    },
     /// Error type for error recovery
     Error,
 }
@@ -183,6 +193,12 @@ impl Substitution {
                     mutable: *mutable,
                 }
             }
+            Type::TraitImpl { base_type, trait_name } => {
+                Type::TraitImpl {
+                    base_type: Box::new(self.apply(base_type)),
+                    trait_name: trait_name.clone(),
+                }
+            }
             _ => ty.clone(),
         }
     }
@@ -287,6 +303,17 @@ impl fmt::Display for Type {
                     }
                 }
                 write!(f, "}}")
+            }
+            Type::Trait { name, methods } => {
+                write!(f, "trait {} {{", name)?;
+                for (i, (method_name, method_type)) in methods.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}: {}", method_name, method_type)?;
+                }
+                write!(f, "}}")
+            }
+            Type::TraitImpl { base_type, trait_name } => {
+                write!(f, "{}: {}", base_type, trait_name)
             }
             Type::Error => write!(f, "<!error!>"),
         }
