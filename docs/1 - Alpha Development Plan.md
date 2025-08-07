@@ -8,10 +8,11 @@
 **Development Language**: **SEEN** (All development from this point forward in Seen, not Rust)
 
 **Core Alpha Requirements:**
+
 - Advanced optimization pipeline (E-graph, MLIR) leveraging all paradigms including reactive
 - Complete standard library with functional/OO/reactive patterns
 - Package manager with trait/typeclass/reactive operator resolution
-- Advanced C++ interoperability including reactive bindings
+- Advanced C interoperability including reactive bindings
 - WebAssembly with reactive and functional programming optimizations
 - Production debugging for all paradigms including reactive flows
 
@@ -26,6 +27,7 @@
 **Status:** First priority in Alpha - Critical for developer experience
 
 **Tests Written First:**
+
 - [ ] Test: Error messages as helpful as Rust's
 - [ ] Test: Gradle-style error linking works
 - [ ] Test: Suggestions fix >80% of common errors
@@ -42,15 +44,17 @@
 **Implementation Required:**
 
 **Core Error System:**
+
 - [ ] **Error Collection & Management:**
+
   - [ ] Hierarchical error structure (error/warning/info/hint)
   - [ ] Error deduplication across compilation units
   - [ ] Error prioritization (show most relevant first)
   - [ ] Error suppression and filtering
   - [ ] Error history tracking
   - [ ] Error statistics and patterns
-
 - [ ] **Rust-Style Helpful Messages:**
+
   - [ ] ASCII art error highlighting in terminal
   - [ ] Multi-line span highlighting
   - [ ] Primary and secondary error labels
@@ -62,8 +66,8 @@
   - [ ] Example code showing correct usage
   - [ ] Links to documentation
   - [ ] Related error suggestions
-
 - [ ] **Gradle-Style Error Linking:**
+
   - [ ] Clickable file:line:column links
   - [ ] IDE protocol for error navigation
   - [ ] Web-based error report generation
@@ -76,36 +80,37 @@
 **Advanced Error Features:**
 
 - [ ] **Smart Error Recovery:**
+
   - [ ] Continue parsing after errors
   - [ ] Speculative error fixes
   - [ ] Error recovery heuristics
   - [ ] Partial compilation despite errors
   - [ ] Incremental error checking
-
 - [ ] **Multilingual Error Support:**
+
   - [ ] Error messages in 20+ languages
   - [ ] Culturally appropriate explanations
   - [ ] RTL language support in terminal
   - [ ] Localized code examples
   - [ ] Translation quality verification
-
 - [ ] **Type Error Excellence:**
+
   - [ ] Type mismatch visualization
   - [ ] Generic type error simplification
   - [ ] Trait implementation hints
   - [ ] Lifetime error explanations
   - [ ] Borrowing error diagrams
   - [ ] Null safety violation explanations
-
 - [ ] **Reactive & Async Error Handling:**
+
   - [ ] Stream error propagation visualization
   - [ ] Backpressure error diagnosis
   - [ ] Subscription leak detection
   - [ ] Scheduler conflict warnings
   - [ ] Marble diagram error visualization
   - [ ] Async stack trace reconstruction
-
 - [ ] **Learning & Improvement:**
+
   - [ ] ML-based error pattern recognition
   - [ ] Common error fix database
   - [ ] Team-specific error patterns
@@ -115,22 +120,23 @@
 **Error Visualization & Reporting:**
 
 - [ ] **Terminal Output:**
+
   - [ ] Colored error output
   - [ ] Box-drawing characters for spans
   - [ ] Syntax highlighting in error snippets
   - [ ] Progress bars for compilation
   - [ ] Error summary statistics
   - [ ] Terminal width adaptation
-
 - [ ] **IDE Integration:**
+
   - [ ] Rich error overlays
   - [ ] Inline error widgets
   - [ ] Error lens annotations
   - [ ] Quick fix suggestions
   - [ ] Error history navigation
   - [ ] Real-time error updates
-
 - [ ] **Web-Based Error Reports:**
+
   - [ ] HTML error report generation
   - [ ] Interactive error exploration
   - [ ] Code snippet sharing
@@ -141,13 +147,14 @@
 **Performance & Architecture:**
 
 - [ ] **Error Performance:**
+
   - [ ] <10ms error message generation
   - [ ] Lazy error message formatting
   - [ ] Error message caching
   - [ ] Incremental error checking
   - [ ] Parallel error analysis
-
 - [ ] **Error Database:**
+
   - [ ] SQLite-based error history
   - [ ] Error pattern indexing
   - [ ] Fast similarity search
@@ -155,6 +162,7 @@
   - [ ] Cloud error sync (optional)
 
 **Commands & Configuration:**
+
 - [ ] `seen explain <error-code>` - Detailed error explanation
 - [ ] `seen errors --history` - Show error history
 - [ ] `seen errors --stats` - Error statistics
@@ -163,6 +171,7 @@
 - [ ] `seen errors --learn` - Train ML model on team's errors
 
 **Example Error Output:**
+
 ```
 error[E0308]: mismatched types
   --> src/main.seen:14:28
@@ -189,36 +198,38 @@ error: aborting due to previous error
 For more information about this error, try `seen explain E0308`.
 ```
 
-**Performance Benchmarks:**
-```rust
-#[bench]
-fn bench_error_system_performance(b: &mut Bencher) {
-  let complex_errors = generate_complex_error_scenarios();
+**Performance Benchmarks (in Seen):**
 
-  b.iter(|| {
-    for error_case in &complex_errors {
-      // Test error generation speed
-      let start = Instant::now();
-      let error_msg = generate_error_message(&error_case);
-      let elapsed = start.elapsed();
-      assert!(elapsed < Duration::from_millis(10));
-
-      // Test suggestion accuracy
-      let suggestions = generate_fix_suggestions(&error_case);
-      let accuracy = measure_suggestion_accuracy(&suggestions);
-      assert!(accuracy > 0.8); // >80% accurate
-
-      // Test memory usage
-      let memory = measure_error_memory(&error_case);
-      assert!(memory < 1024 * 1024); // <1MB per error
+```seen
+@benchmark
+fun benchErrorSystemPerformance(b: Bencher) {
+    val complexErrors = generateComplexErrorScenarios()
+    
+    b.iter {
+        for (errorCase in complexErrors) {
+            // Test error generation speed
+            val start = Instant.now()
+            val errorMsg = generateErrorMessage(errorCase)
+            val elapsed = start.elapsed()
+            assert(elapsed < Duration.fromMillis(10))
+            
+            // Test suggestion accuracy
+            val suggestions = generateFixSuggestions(errorCase)
+            val accuracy = measureSuggestionAccuracy(suggestions)
+            assert(accuracy > 0.8) // >80% accurate
+            
+            // Test memory usage
+            val memory = measureErrorMemory(errorCase)
+            assert(memory < 1024 * 1024) // <1MB per error
+        }
     }
-  });
 }
 ```
 
 #### Step 15: Package Manager & Registry (Multilingual & Reactive)
 
 **Tests Written First:**
+
 - [ ] Test: Packages work regardless of source language
 - [ ] Test: Package metadata includes supported languages
 - [ ] Test: Auto-translation of package APIs works
@@ -231,6 +242,7 @@ fn bench_error_system_performance(b: &mut Bencher) {
 - [ ] Test: Binary caching reduces install time >80%
 
 **Implementation:**
+
 - [ ] **Package Management Commands:**
   - [ ] `seen add <package>[@version]` - Add dependency
   - [ ] `seen remove <package>` - Remove dependency
@@ -262,6 +274,7 @@ fn bench_error_system_performance(b: &mut Bencher) {
 #### Step 16: Advanced C Interoperability & Reactive FFI
 
 **Tests Written First:**
+
 - [ ] Test: C library bindings generated automatically
 - [ ] Test: C callbacks work with Seen closures
 - [ ] Test: C variadic functions supported safely
@@ -274,6 +287,7 @@ fn bench_error_system_performance(b: &mut Bencher) {
 - [ ] Test: Zero-overhead C calls
 
 **Implementation:**
+
 - [ ] **Advanced C Integration:**
   - [ ] Automatic header parsing with clang
   - [ ] C macro expansion and translation
@@ -318,6 +332,7 @@ fn bench_error_system_performance(b: &mut Bencher) {
 #### Step 17: Advanced Optimization Pipeline (Reactive-Aware)
 
 **Tests Written First:**
+
 - [ ] Test: E-graph optimization improves performance >20%
 - [ ] Test: MLIR pipeline handles all paradigms
 - [ ] Test: Reactive operator fusion eliminates overhead
@@ -328,6 +343,7 @@ fn bench_error_system_performance(b: &mut Bencher) {
 - [ ] Test: Compilation time remains reasonable
 
 **Implementation:**
+
 - [ ] **Performance Analysis Commands:**
   - [ ] `seen profile --paradigm` - Paradigm-specific profiling
   - [ ] `seen optimize --e-graph` - E-graph optimization
@@ -353,33 +369,35 @@ fn bench_error_system_performance(b: &mut Bencher) {
   - [ ] Actor message batching
   - [ ] Coroutine ↔ reactive fusion
 
-**Performance Benchmarks:**
-```rust
-#[bench]
-fn bench_optimization_pipeline(b: &mut Bencher) {
-  let test_programs = load_benchmark_suite();
+**Performance Benchmarks (in Seen):**
 
-  b.iter(|| {
-    for program in &test_programs {
-      let baseline = compile_without_optimization(&program);
-      let optimized = compile_with_full_pipeline(&program);
-
-      let speedup = measure_speedup(&baseline, &optimized);
-      assert!(speedup > 1.2); // >20% improvement
-
-      // Test reactive optimization
-      if has_reactive_code(&program) {
-        let stream_overhead = measure_stream_overhead(&optimized);
-        assert!(stream_overhead < 0.01); // <1% overhead
-      }
+```seen
+@benchmark
+fun benchOptimizationPipeline(b: Bencher) {
+    val testPrograms = loadBenchmarkSuite()
+    
+    b.iter {
+        for (program in testPrograms) {
+            val baseline = compileWithoutOptimization(program)
+            val optimized = compileWithFullPipeline(program)
+            
+            val speedup = measureSpeedup(baseline, optimized)
+            assert(speedup > 1.2) // >20% improvement
+            
+            // Test reactive optimization
+            if (hasReactiveCode(program)) {
+                val streamOverhead = measureStreamOverhead(optimized)
+                assert(streamOverhead < 0.01) // <1% overhead
+            }
+        }
     }
-  });
 }
 ```
 
 #### Step 18: WebAssembly First-Class Support (Reactive & Functional Optimized)
 
 **Tests Written First:**
+
 - [ ] Test: WASM size <5MB for typical applications
 - [ ] Test: WASM performance within 50% of native
 - [ ] Test: Reactive streams work in browser
@@ -390,6 +408,7 @@ fn bench_optimization_pipeline(b: &mut Bencher) {
 - [ ] Test: Memory usage predictable
 
 **Implementation:**
+
 - [ ] **WebAssembly Commands:**
   - [ ] `seen build --target wasm32-unknown-unknown`
   - [ ] `seen build --target wasm32-wasi`
@@ -423,6 +442,7 @@ fn bench_optimization_pipeline(b: &mut Bencher) {
 #### Step 19: Comprehensive Standard Library (All Paradigms Including Reactive)
 
 **Tests Written First:**
+
 - [ ] Test: Collections match best-in-class performance
 - [ ] Test: Networking handles 1M connections
 - [ ] Test: Reactive operators match RxJS/RxJava
@@ -433,6 +453,7 @@ fn bench_optimization_pipeline(b: &mut Bencher) {
 - [ ] Test: Stream fusion eliminates allocations
 
 **Implementation:**
+
 - [ ] **Core Libraries:**
   - [ ] Advanced collections (B-trees, tries, etc.)
   - [ ] Persistent data structures
@@ -473,6 +494,7 @@ fn bench_optimization_pipeline(b: &mut Bencher) {
 #### Step 20: Advanced Debugging & Profiling (Paradigm & Reactive-Aware)
 
 **Tests Written First:**
+
 - [ ] Test: Debugger handles all paradigms correctly
 - [ ] Test: Time-travel debugging for pure functions
 - [ ] Test: Reactive stream visualization accurate
@@ -483,6 +505,7 @@ fn bench_optimization_pipeline(b: &mut Bencher) {
 - [ ] Test: Virtual time stepping precise
 
 **Implementation:**
+
 - [ ] **Debugging Commands:**
   - [ ] `seen debug --paradigm <type>`
   - [ ] `seen debug --reactive-marble`
@@ -545,14 +568,15 @@ seen wasm-pack
 seen wasm-optimize
 seen wasm-reactive
 
-# C++ Interop
+# C Interop
 seen bindgen <header>
-seen link-cpp <library>
+seen link-c <library>
 ```
 
 ## Success Criteria
 
 ### Performance Targets
+
 - [ ] E-graph optimization: >20% improvement
 - [ ] WASM performance: Within 50% of native
 - [ ] Reactive operators: Match or beat RxJS/RxJava
@@ -560,7 +584,8 @@ seen link-cpp <library>
 - [ ] Package resolution: <5s for large projects
 
 ### Functional Requirements
-- [ ] Seamless C++ interoperability
+
+- [ ] Seamless C interoperability
 - [ ] WebAssembly production-ready
 - [ ] Package ecosystem growing
 - [ ] Debugging experience excellent
@@ -569,12 +594,14 @@ seen link-cpp <library>
 ## Risk Mitigation
 
 ### Technical Risks
+
 - **Optimization complexity**: Incremental implementation
-- **C++ interop challenges**: Focus on common patterns
+- **C interop challenges**: Focus on common patterns
 - **WASM limitations**: Provide polyfills
 - **Package ecosystem growth**: Corporate partnerships
 
 ### Schedule Risks
+
 - **Feature creep**: Strict prioritization
 - **Performance regressions**: Continuous benchmarking
 - **Complexity growth**: Regular refactoring
@@ -582,6 +609,7 @@ seen link-cpp <library>
 ## Next Phase Preview
 
 **Beta Phase** will focus on:
+
 - Production deployment with reactive applications
 - Enterprise adoption programs
 - Performance leadership validation

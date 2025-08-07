@@ -2,12 +2,14 @@
 
 ## 🚨 **EXECUTIVE SUMMARY - CURRENT STATE**
 
-**Status:** **95% Complete** - Core compiler infrastructure, critical libraries, reactive programming, AND all Kotlin features complete! **LSP REQUIRED BEFORE SELF-HOSTING** 🎯
+**Status:** **95% Complete** - Core compiler infrastructure, critical libraries, reactive programming, AND all Kotlin features complete! **BENCHMARKING FRAMEWORK & LSP REQUIRED BEFORE SELF-HOSTING** 🎯
 
 **✅ MAJOR ACHIEVEMENTS:**
 - **Milestone 1 & 2**: Foundation and Core Language **100% COMPLETE**
 - **Step 8**: Critical Compiler Libraries **100% COMPLETE** (Auto-translation system working)
 - **Step 8b**: Reactive Programming Foundation **100% COMPLETE** 🎉
+- **Step 9**: Testing Framework **100% COMPLETE**
+- **Step 10**: Document Formatting **100% COMPLETE**
 - **Step 11**: Multi-Paradigm & Kotlin Features **98% COMPLETE** (5 parser tests failing)
 - **Lexer**: 24M tokens/sec (2.4x target) with multilingual framework ready
 - **Parser**: 1.03M lines/sec (target achieved) + Most Kotlin features parsing
@@ -28,19 +30,15 @@
 
 **⏳ REMAINING COMPONENTS:**
 1. **Fix Parser Tests**: 5 failing tests in seen_parser (if/else and pattern matching issues) ⚠️
-   - test_nullable_types_parsing
-   - test_pattern_matching_with_guards  
-   - test_coroutine_observable_bridging
-   - test_flow_coroutine_integration
-   - test_reactive_dsl_builders
-2. **Step 12**: **Complete LSP Server Implementation** ❌ **CRITICAL - REQUIRED FOR SELF-HOSTING**
-3. **Step 13**: Self-Hosting Compiler ❌ **BLOCKED BY LSP**
+2. **Step 11b**: **Complete Benchmarking Framework** ❌ **CRITICAL FOR ALPHA/BETA/RELEASE**
+3. **Step 12**: **Complete LSP Server Implementation** ❌ **CRITICAL - REQUIRED FOR SELF-HOSTING**
+4. **Step 13**: Self-Hosting Compiler ❌ **BLOCKED BY LSP**
 
-**🎯 CRITICAL PATH:** Fix remaining parser tests, then complete LSP implementation (Step 12) before attempting self-hosting to ensure productive development in Seen.
+**🎯 CRITICAL PATH:** Fix remaining parser tests, implement benchmarking framework (Step 11b), then complete LSP implementation (Step 12) before attempting self-hosting to ensure productive development in Seen with full performance measurement capabilities.
 
 ## Overview: Foundation & Core Functionality
 
-**Goal**: Self-hosting compiler with TOML-based multilingual support, complete LSP, and cargo-like toolchain that beats Rust/C++/Zig performance
+**Goal**: Self-hosting compiler with TOML-based multilingual support, complete LSP, benchmarking framework, and cargo-like toolchain that beats Rust/C++/Zig performance
 
 **Core MVP Requirements:**
 - Complete lexer, parser, and type system ✅ **DONE**
@@ -53,6 +51,7 @@
 - **Auto-translation between languages** ✅ **DONE** 🎉
 - Testing framework and tooling ✅ **DONE**
 - **Multi-paradigm features (including reactive)** ✅ **DONE** 🎉
+- **Complete benchmarking framework** ❌ **STEP 11b - CRITICAL**
 - **Complete LSP server** ❌ **STEP 12 - CRITICAL**
 - Self-hosting capability ❌ **STEP 13 - BLOCKED BY LSP**
 
@@ -473,9 +472,143 @@
 2. Ensure parse_if_expression() properly handles return statements
 3. Check error recovery doesn't skip valid code after parse failures
 
+#### Step 11b: Complete Benchmarking Framework ❌ **NEW - CRITICAL FOR ALPHA/BETA/RELEASE**
+
+**Status:** ❌ Not started - Required for all future phases to write benchmarks in Seen
+
+**Tests Written First:**
+- [ ] Test: `@benchmark` annotation recognized by parser
+- [ ] Test: Bencher type available in standard library
+- [ ] Test: Benchmark runner collects all benchmarks
+- [ ] Test: Statistical analysis (mean, median, std dev)
+- [ ] Test: Warmup iterations work correctly
+- [ ] Test: Memory allocation tracking per benchmark
+- [ ] Test: CPU cycle counting accurate
+- [ ] Test: Comparison against baseline works
+- [ ] Test: Benchmark results JSON exportable
+- [ ] Test: HTML report generation works
+- [ ] Test: CI integration detects regressions
+- [ ] Test: Micro-benchmarks <1μs measurable
+- [ ] Test: Multi-threaded benchmarks supported
+- [ ] Test: Benchmark groups and categories work
+
+**Implementation Required:**
+
+**Core Benchmarking Infrastructure (Rust - for MVP):**
+- [ ] **Benchmark Annotation & Discovery:**
+  - [ ] `@benchmark` annotation support in parser
+  - [ ] Benchmark function signature validation
+  - [ ] Automatic benchmark discovery
+  - [ ] Benchmark categorization and grouping
+  - [ ] Benchmark filtering by name/category
+
+- [ ] **Bencher Type & API:**
+  - [ ] `Bencher` type with iteration control
+  - [ ] `b.iter { ... }` closure support
+  - [ ] `b.iter_batched` for setup/teardown
+  - [ ] `b.bytes(n)` for throughput measurement
+  - [ ] `b.pauseTimer()` / `b.resumeTimer()`
+  - [ ] Custom metrics API
+
+- [ ] **Measurement Infrastructure:**
+  - [ ] High-precision timing (nanosecond resolution)
+  - [ ] CPU cycle counting via RDTSC
+  - [ ] Memory allocation tracking
+  - [ ] Cache miss counting (if available)
+  - [ ] Branch misprediction counting
+  - [ ] Context switch counting
+
+- [ ] **Statistical Analysis:**
+  - [ ] Warmup detection and elimination
+  - [ ] Outlier detection and removal
+  - [ ] Mean, median, percentiles (p50, p90, p99)
+  - [ ] Standard deviation and variance
+  - [ ] Confidence intervals
+  - [ ] Regression detection
+
+- [ ] **Benchmark Execution:**
+  - [ ] `seen benchmark` command
+  - [ ] `seen benchmark --filter <pattern>`
+  - [ ] `seen benchmark --compare <baseline>`
+  - [ ] `seen benchmark --save <name>`
+  - [ ] `seen benchmark --json` for CI
+  - [ ] Parallel benchmark execution
+
+- [ ] **Reporting:**
+  - [ ] Terminal output with color coding
+  - [ ] Performance change indicators (+/- %)
+  - [ ] JSON output for tooling
+  - [ ] HTML report generation
+  - [ ] CSV export for analysis
+  - [ ] Flame graphs for profiling
+
+**Seen Language Support (for Alpha onwards):**
+```seen
+// Example of what benchmarks will look like in Seen
+@benchmark
+fun benchHashMapInsert(b: Bencher) {
+    val map = HashMap<String, Int>()
+    val keys = generateKeys(1000)
+    
+    b.iter {
+        for (key in keys) {
+            map.insert(key, 42)
+        }
+    }
+}
+
+@benchmark
+fun benchReactiveOperatorFusion(b: Bencher) {
+    val source = Observable.range(1, 10000)
+    
+    b.iter {
+        source
+            .map { it * 2 }
+            .filter { it % 3 == 0 }
+            .take(100)
+            .collect()
+    }
+}
+```
+
+**Performance Benchmarks (in Rust for MVP):**
+```rust
+#[bench]
+fn bench_benchmark_overhead(b: &mut Bencher) {
+    // Ensure benchmark framework itself has minimal overhead
+    let empty_benchmark = || {};
+    
+    b.iter(|| {
+        let start = Instant::now();
+        empty_benchmark();
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_nanos(100)); // <100ns overhead
+    });
+}
+
+#[bench]
+fn bench_statistical_accuracy(b: &mut Bencher) {
+    // Verify statistical analysis is accurate
+    let samples = generate_normal_distribution(10000);
+    
+    b.iter(|| {
+        let stats = calculate_statistics(&samples);
+        assert!((stats.mean - 0.0).abs() < 0.01);
+        assert!((stats.std_dev - 1.0).abs() < 0.01);
+    });
+}
+```
+
+**Integration with CI/CD:**
+- [ ] GitHub Actions integration
+- [ ] Performance regression detection
+- [ ] Automatic benchmark comparisons in PRs
+- [ ] Performance tracking over time
+- [ ] Dashboard for performance trends
+
 #### Step 12: Complete LSP Server Implementation ❌ **CRITICAL FOR SELF-HOSTING**
 
-**Status:** ❌ Not started - **BLOCKED BY PARSER ISSUES**
+**Status:** ❌ Not started - **WAITING FOR BENCHMARKING FRAMEWORK**
 
 **Tests Written First:**
 - [ ] Test: LSP responses <50ms for all operations
@@ -687,35 +820,35 @@
 - [ ] Debug hover evaluation
 
 **Performance Benchmarks:**
-```rust
-#[bench]
-fn bench_lsp_responsiveness(b: &mut Bencher) {
+```rust  
+#[bench]  
+fn bench_lsp_responsiveness(b: &mut Bencher) {  
     let lsp = start_lsp_server();
     let large_project = load_large_project(); // 100K+ lines
     
-    b.iter(|| {
+    b.iter(|| {  
         // Test completion performance
         let completion_time = measure_completion(&lsp, &large_project);
-        assert!(completion_time < Duration::from_millis(50));
+        assert!(completion_time < Duration::from_millis(50));  
         
-        // Test go-to-definition
+        // Test go-to-definition  
         let goto_def_time = measure_goto_definition(&lsp, &large_project);
-        assert!(goto_def_time < Duration::from_millis(30));
+        assert!(goto_def_time < Duration::from_millis(30));  
         
-        // Test find-all-references
+        // Test find-all-references  
         let find_refs_time = measure_find_references(&lsp, &large_project);
-        assert!(find_refs_time < Duration::from_millis(100));
+        assert!(find_refs_time < Duration::from_millis(100));  
         
-        // Test incremental parsing
+        // Test incremental parsing  
         let incremental_time = measure_incremental_change(&lsp);
-        assert!(incremental_time < Duration::from_millis(10));
+        assert!(incremental_time < Duration::from_millis(10));  
         
-        // Test memory usage
+        // Test memory usage  
         let memory = measure_memory_usage(&lsp);
-        assert!(memory < 100 * 1024 * 1024); // <100MB
+        assert!(memory < 100 * 1024 * 1024); // <100MB  
     });
-}
-```
+}  
+```  
 
 #### Step 13: Self-Hosting Compiler ❌ **BLOCKED BY LSP**
 
@@ -729,6 +862,7 @@ fn bench_lsp_responsiveness(b: &mut Bencher) {
 - [ ] Test: All optimization passes work correctly
 - [ ] Test: LSP works with self-hosted compiler
 - [ ] Test: Reactive code compilation efficient
+- [ ] Test: Benchmarking framework works in self-hosted compiler
 
 **Implementation Required:**
 - [ ] Port lexer from Rust to Seen
@@ -737,6 +871,7 @@ fn bench_lsp_responsiveness(b: &mut Bencher) {
 - [ ] Port code generation from Rust to Seen
 - [ ] Port LSP server from Rust to Seen
 - [ ] Port reactive runtime from Rust to Seen
+- [ ] Port benchmarking framework from Rust to Seen
 - [ ] Bootstrap process automation
 - [ ] Verification of compiler correctness
 - [ ] **Development Language Transition:**
@@ -751,74 +886,91 @@ fn bench_lsp_responsiveness(b: &mut Bencher) {
   - [ ] Error recovery and reporting
   - [ ] Optimization pass framework
   - [ ] Reactive stream optimization passes
+  - [ ] Benchmarking infrastructure in Seen
 
 ## MVP Command Interface
 
 ### Currently Implemented Commands ✅
-```bash
-seen build                    # Build current project
-seen build --release         # Build optimized version
+```bash  
+seen build                  # Build current project
+seen build --release        # Build optimized version
 seen build --debug          # Build with debug symbols
 seen clean                  # Remove build artifacts
 seen check                  # Fast syntax and type checking
 seen test                   # Run all tests
-seen test --bench          # Run benchmarks
-seen test --reactive       # Test reactive code with marble diagrams
-seen format                # Format documents
-```
+seen test --bench           # Run benchmarks
+seen test --reactive        # Test reactive code with marble diagrams
+seen format                 # Format documents
+```  
 
 ### Commands To Be Implemented ❌
-```bash
+```bash  
+seen benchmark              # Run performance benchmarks (Step 11b)
+seen benchmark --compare    # Compare against baseline (Step 11b)
+seen benchmark --save       # Save benchmark results (Step 11b)
 seen lsp                    # Start LSP server (Step 12)
-seen init <name>           # Create new project
-seen add <dependency>      # Add dependency
-seen update               # Update dependencies
-seen run                  # JIT compile and run
-```
+seen init <name>            # Create new project
+seen add <dependency>       # Add dependency
+seen update                 # Update dependencies
+seen run                    # JIT compile and run
+```  
 
 ## Success Criteria
 
 ### Performance Targets Status
 
-| Target | Required | Current | Status |
-|--------|----------|---------|---------|
-| Lexer throughput | >10M tokens/sec | ~24M tokens/sec | ✅ 2.4x |
-| Parser throughput | >1M lines/sec | 1.03M lines/sec | ✅ Met |
-| Type checking | <100μs/function | 4-5μs | ✅ 25x |
-| Memory overhead | <5% | <1% | ✅ 5x |
-| Code generation | <1ms/function | 3-4μs | ✅ 250x |
-| Standard library | Beat Rust/C++ | Achieved | ✅ |
-| **Reactive operators** | <100ns overhead | Framework ready | ✅ Ready |
-| **Stream fusion** | >90% eliminated | Architecture supports | ✅ Ready |
-| **Backpressure** | No memory growth | Implemented + tested | ✅ |
-| **Observable creation** | <50ns | Architecture ready | ✅ Ready |
-| **Subscription cleanup** | Automatic | Implemented | ✅ |
-| **LSP response time** | <50ms | Not implemented | ❌ |
-| **LSP memory usage** | <100MB | Not implemented | ❌ |
-| Self-compilation | <30s | Blocked by LSP | ❌ |
+| Target | Required | Current | Status |  
+|--------|----------|---------|---------|  
+| Lexer throughput | >10M tokens/sec | ~24M tokens/sec | ✅ 2.4x |  
+| Parser throughput | >1M lines/sec | 1.03M lines/sec | ✅ Met |  
+| Type checking | <100μs/function | 4-5μs | ✅ 25x |  
+| Memory overhead | <5% | <1% | ✅ 5x |  
+| Code generation | <1ms/function | 3-4μs | ✅ 250x |  
+| Standard library | Beat Rust/C++ | Achieved | ✅ |  
+| **Reactive operators** | <100ns overhead | Framework ready | ✅ Ready |  
+| **Stream fusion** | >90% eliminated | Architecture supports | ✅ Ready |  
+| **Backpressure** | No memory growth | Implemented + tested | ✅ |  
+| **Observable creation** | <50ns | Architecture ready | ✅ Ready |  
+| **Subscription cleanup** | Automatic | Implemented | ✅ |  
+| **Benchmark overhead** | <100ns | Not implemented | ❌ |
+| **Benchmark accuracy** | ±1% | Not implemented | ❌ |
+| **LSP response time** | <50ms | Not implemented | ❌ |  
+| **LSP memory usage** | <100MB | Not implemented | ❌ |  
+| Self-compilation | <30s | Blocked by LSP | ❌ |  
 
 ### Functional Requirements Status
 
-| Requirement | Status | Notes |
-|------------|---------|-------|
-| Lexer complete | ✅ | 24M tokens/sec |
-| Parser complete | ✅ | 1.03M lines/sec + all Kotlin features |
-| Type system | ✅ | Full inference |
-| Memory model | ✅ | <1% overhead |
-| Code generation | ✅ | LLVM backend |
-| Standard library | ✅ | Including complete reactive module |
-| **Reactive programming** | ✅ | Step 8b COMPLETED |
-| **TOML-based languages** | ✅ | Parser done, auto-translation working |
-| **Auto-translation** | ✅ | Fully implemented |
-| Testing framework | ✅ | Including reactive testing |
-| Document formatting | ✅ | Complete |
-| Multi-paradigm support | ✅ | All Kotlin features complete |
-| **LSP server** | ❌ | Step 12 - Not started |
-| Self-hosting | ❌ | Step 13 - Blocked by LSP |
+| Requirement | Status | Notes |  
+|------------|---------|-------|  
+| Lexer complete | ✅ | 24M tokens/sec |  
+| Parser complete | ✅ | 1.03M lines/sec + all Kotlin features |  
+| Type system | ✅ | Full inference |  
+| Memory model | ✅ | <1% overhead |  
+| Code generation | ✅ | LLVM backend |  
+| Standard library | ✅ | Including complete reactive module |  
+| **Reactive programming** | ✅ | Step 8b COMPLETED |  
+| **TOML-based languages** | ✅ | Parser done, auto-translation working |  
+| **Auto-translation** | ✅ | Fully implemented |  
+| Testing framework | ✅ | Including reactive testing |  
+| Document formatting | ✅ | Complete |  
+| Multi-paradigm support | ✅ | All Kotlin features complete |  
+| **Benchmarking framework** | ❌ | Step 11b - Not started |
+| **LSP server** | ❌ | Step 12 - Not started |  
+| Self-hosting | ❌ | Step 13 - Blocked by LSP |  
 
 ## Critical Path to Self-Hosting
 
-### Phase 1: Complete LSP Implementation (Step 12) **IMMEDIATE PRIORITY**
+### Phase 1: Complete Benchmarking Framework (Step 11b) **IMMEDIATE PRIORITY**
+**Duration:** 1 week
+1. Implement `@benchmark` annotation support
+2. Create Bencher type and API
+3. Build measurement infrastructure
+4. Add statistical analysis
+5. Create benchmark runner
+6. Generate reports
+7. Test with existing code
+
+### Phase 2: Complete LSP Implementation (Step 12) **CRITICAL**
 **Duration:** 2-3 weeks
 1. Implement core LSP protocol
 2. Add all navigation features
@@ -830,7 +982,7 @@ seen run                  # JIT compile and run
 8. Performance optimization
 9. Testing with major IDEs (VSCode, IntelliJ, Neovim)
 
-### Phase 2: Self-Hosting (Step 13) **FINAL**
+### Phase 3: Self-Hosting (Step 13) **FINAL**
 **Duration:** 2-3 weeks
 1. Port lexer to Seen (using LSP for development)
 2. Port parser to Seen
@@ -838,29 +990,35 @@ seen run                  # JIT compile and run
 4. Port code generator to Seen
 5. Port LSP server to Seen
 6. Port reactive runtime to Seen
-7. Bootstrap verification
-8. Performance validation
+7. Port benchmarking framework to Seen
+8. Bootstrap verification
+9. Performance validation
 
-**CRITICAL UPDATE:** LSP implementation is now the highest priority blocker for self-hosting. Without a complete LSP, developing the compiler in Seen would be extremely difficult and unproductive.
+**CRITICAL UPDATE:** Benchmarking framework must be implemented before self-hosting so that all Alpha, Beta, and Release phases can write their performance tests in Seen rather than Rust.
 
 ## Risk Mitigation
 
 ### Technical Risks
 
-| Risk | Impact | Mitigation |
-|------|---------|------------|
-| **LSP complexity** | **HIGH** - Blocks self-hosting | Start with core features, iterate |
-| **LSP performance** | **HIGH** - Poor dev experience | Incremental parsing, caching |
-| LSP memory usage | MEDIUM - IDE integration issues | LRU caches, pooling |
-| Bootstrap complexity | MEDIUM - May take longer | LSP enables easier development |
+| Risk | Impact | Mitigation |  
+|------|---------|------------|  
+| **Benchmarking complexity** | **HIGH** - Blocks performance validation | Start with basic timing, iterate |
+| **LSP complexity** | **HIGH** - Blocks self-hosting | Start with core features, iterate |  
+| **LSP performance** | **HIGH** - Poor dev experience | Incremental parsing, caching |  
+| LSP memory usage | MEDIUM - IDE integration issues | LRU caches, pooling |  
+| Bootstrap complexity | MEDIUM - May take longer | LSP enables easier development |  
 
 ## Next Actions (Priority Order)
 
-1. **IMMEDIATE:** Begin LSP implementation (Step 12)
-  - Week 1: Core protocol and navigation
-  - Week 2: Diagnostics and refactoring
-  - Week 3: Performance and IDE testing
-2. **WEEK 4-6:** Self-hosting attempt (Step 13)
-3. **WEEK 7:** Bootstrap verification and optimization
+1. **IMMEDIATE:** Fix parser issues (5 failing tests)
+2. **WEEK 1:** Implement benchmarking framework (Step 11b)
+  - Essential for all future phases to measure performance
+  - Enables writing benchmarks in Seen for Alpha/Beta/Release
+3. **WEEK 2-4:** Complete LSP implementation (Step 12)
+  - Week 2: Core protocol and navigation
+  - Week 3: Diagnostics and refactoring
+  - Week 4: Performance and IDE testing
+4. **WEEK 5-7:** Self-hosting attempt (Step 13)
+5. **WEEK 8:** Bootstrap verification and optimization
 
-**MAJOR MILESTONE:** With LSP implementation, self-hosting becomes practical and productive, enabling all future development in Seen itself.
+**MAJOR MILESTONE:** With benchmarking framework and LSP implementation complete, self-hosting becomes practical and productive, enabling all future development in Seen itself with full performance measurement capabilities.
