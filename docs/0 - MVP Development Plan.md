@@ -2,11 +2,11 @@
 
 ## 🚨 **EXECUTIVE SUMMARY - CURRENT STATE**
 
-**Status:** **~47% Complete** - Lexer, parser, and memory model implemented. Type system basic, code generation needs LLVM integration. **REQUIRES COMPLETION FOR SELF-HOSTING**
+**Status:** **~50% Complete** - Lexer, parser, and memory model implemented. Type system basic, code generation needs LLVM integration. **REQUIRES COMPLETION FOR SELF-HOSTING**
 
 **✅ ACTUAL WORKING COMPONENTS:**
 - **Step 2**: Lexical Analysis **70% WORKING** (basic tokenization, keyword mapping fixed)
-- **Step 3**: Parsing & AST **65% WORKING** (11 Kotlin features tested: suspend, generics, flow, nullable types, smart casts, inline functions, data classes, sealed classes, extension functions, coroutines, pattern matching)
+- **Step 3**: Parsing & AST **70% WORKING** (14 Kotlin features implemented: suspend, generics, flow, nullable types, smart casts, inline functions, data classes, sealed classes, extension functions, coroutines, pattern matching, object expressions, companion objects, operator overloading)
 - **Step 5**: Memory Model **80% WORKING** (Vale-style regions implemented)
 - **Step 1**: Build System **50% PARTIAL** (CLI exists, source discovery issues)
 
@@ -17,7 +17,7 @@
 - **FFI**: **20% SKELETON** (just created, untested)
 
 **⚠️ MAJOR ISSUES IDENTIFIED:**
-1. **Parser**: Only 11 of 25 claimed Kotlin features implemented
+1. **Parser**: Only 14 of 25 claimed Kotlin features implemented
 2. **Build System**: Source file discovery issues after project init
 3. **Type System**: No generics, only basic literal inference
 4. **Code Generation**: No real LLVM integration, just string generation
@@ -26,7 +26,7 @@
 7. **LSP Server**: Not implemented at all
 
 **🎯 CRITICAL PATH TO SELF-HOSTING:**
-1. **Implement remaining 14 Kotlin features** in parser (object expressions, companion objects, delegated properties, lateinit, reified generics, operator overloading, infix functions, tailrec, destructuring declarations, type aliases, contracts, inline classes, value classes, context receivers)
+1. **Implement remaining 11 Kotlin features** in parser (delegated properties, lateinit, reified generics (partial), infix functions, tailrec, destructuring declarations, type aliases, contracts, inline classes, value classes, context receivers)
 2. **Integrate real LLVM backend** (replace string generation)
 3. **Add generics to type system** for full inference
 4. **Fix build system** source file discovery
