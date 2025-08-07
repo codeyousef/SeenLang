@@ -106,12 +106,24 @@ impl Parser {
                         self.advance(); // Consume the 'inline' token
                         self.parse_inline_function()
                     },
+                    "tailrec" => {
+                        self.advance(); // Consume the 'tailrec' token
+                        self.parse_tailrec_function()
+                    },
+                    "operator" => {
+                        self.advance(); // Consume the 'operator' token
+                        self.parse_operator_function()
+                    },
+                    "infix" => {
+                        self.advance(); // Consume the 'infix' token
+                        self.parse_infix_function()
+                    },
                     "fun" => self.parse_function(),
                     "struct" => self.parse_struct(),
                     "enum" => self.parse_enum(),
                     _ => {
                         eprintln!("parse_item: Unexpected identifier '{}'", name);
-                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', or 'inline'");
+                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', 'inline', 'tailrec', 'operator', or 'infix'");
                         Err(seen_common::SeenError::parse_error("Unexpected token"))
                     }
                 }
@@ -349,6 +361,176 @@ impl Parser {
         Ok(type_params)
     }
 
+    fn parse_tailrec_function(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.previous_span(); // 'tailrec' already consumed
+        
+        // 'tailrec' has already been consumed by parse_item
+        
+        // Consume 'fun'
+        self.expect_keyword(TokenType::KeywordFun)?;
+        
+        // Parse function name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse optional generic type parameters
+        let type_params = if self.check(&TokenType::Less) {
+            self.parse_generic_type_params()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parse parameters
+        self.expect_token(TokenType::LeftParen)?;
+        let params = self.parse_parameter_list()?;
+        self.expect_token(TokenType::RightParen)?;
+        
+        // Parse optional return type
+        let return_type = if self.match_token(&TokenType::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        // Parse body
+        let body = self.parse_block()?;
+        
+        let func = Function {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            type_params,
+            params,
+            return_type,
+            body,
+            visibility: Visibility::Private,
+            attributes: Vec::new(),
+            is_inline: false,
+            is_suspend: false,
+            is_operator: false,
+            is_infix: false,
+            is_tailrec: true,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Function(func),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_operator_function(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.previous_span(); // 'operator' already consumed
+        
+        // Consume 'fun'
+        self.expect_keyword(TokenType::KeywordFun)?;
+        
+        // Parse function name (can be an operator like 'plus', 'minus', etc.)
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse optional generic type parameters
+        let type_params = if self.check(&TokenType::Less) {
+            self.parse_generic_type_params()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parse parameters
+        self.expect_token(TokenType::LeftParen)?;
+        let params = self.parse_parameter_list()?;
+        self.expect_token(TokenType::RightParen)?;
+        
+        // Parse optional return type
+        let return_type = if self.match_token(&TokenType::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        // Parse body
+        let body = self.parse_block()?;
+        
+        let func = Function {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            type_params,
+            params,
+            return_type,
+            body,
+            visibility: Visibility::Private,
+            attributes: Vec::new(),
+            is_inline: false,
+            is_suspend: false,
+            is_operator: true,
+            is_infix: false,
+            is_tailrec: false,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Function(func),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_infix_function(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.previous_span(); // 'infix' already consumed
+        
+        // Consume 'fun'
+        self.expect_keyword(TokenType::KeywordFun)?;
+        
+        // Parse function name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse optional generic type parameters
+        let type_params = if self.check(&TokenType::Less) {
+            self.parse_generic_type_params()?
+        } else {
+            Vec::new()
+        };
+        
+        // Parse parameters (infix functions must have exactly one parameter)
+        self.expect_token(TokenType::LeftParen)?;
+        let params = self.parse_parameter_list()?;
+        self.expect_token(TokenType::RightParen)?;
+        
+        // Validate infix functions have exactly one parameter
+        if params.len() != 1 {
+            self.error("Infix functions must have exactly one parameter");
+            return Err(seen_common::SeenError::parse_error("Invalid infix function"));
+        }
+        
+        // Parse optional return type
+        let return_type = if self.match_token(&TokenType::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        // Parse body
+        let body = self.parse_block()?;
+        
+        let func = Function {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            type_params,
+            params,
+            return_type,
+            body,
+            visibility: Visibility::Private,
+            attributes: Vec::new(),
+            is_inline: false,
+            is_suspend: false,
+            is_operator: false,
+            is_infix: true,
+            is_tailrec: false,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Function(func),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
     fn parse_inline_function(&mut self) -> SeenResult<Item<'static>> {
         let start_span = self.previous_span(); // 'inline' already consumed
         
