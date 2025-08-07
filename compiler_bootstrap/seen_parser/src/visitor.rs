@@ -365,6 +365,14 @@ pub fn walk_expr<'a, V: Visitor<'a>>(visitor: &mut V, expr: &Expr<'a>) {
         ExprKind::FlowBuilder { block } => {
             visitor.visit_block(block);
         }
+        ExprKind::ObjectExpression { supertype, members } => {
+            if let Some(ty) = supertype {
+                visitor.visit_type(ty);
+            }
+            for item in members {
+                visitor.visit_item(item);
+            }
+        }
     }
 }
 
@@ -695,6 +703,14 @@ pub fn walk_expr_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, expr: &mut Expr<'a>
         }
         ExprKind::FlowBuilder { block } => {
             visitor.visit_block(block);
+        }
+        ExprKind::ObjectExpression { supertype, members } => {
+            if let Some(ty) = supertype {
+                visitor.visit_type(ty);
+            }
+            for item in members {
+                visitor.visit_item(item);
+            }
         }
     }
 }

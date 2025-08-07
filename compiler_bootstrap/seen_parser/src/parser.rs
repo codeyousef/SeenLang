@@ -182,6 +182,9 @@ impl Parser {
             attributes: Vec::with_capacity(0), // Empty but avoids allocation
             is_inline: false,
             is_suspend: false,
+            is_operator: false,
+            is_infix: false,
+            is_tailrec: false,
         };
         
         Ok(Item {
@@ -397,6 +400,9 @@ impl Parser {
             attributes: vec![inline_attr],
             is_inline: true,
             is_suspend: false,
+            is_operator: false,
+            is_infix: false,
+            is_tailrec: false,
         };
         
         Ok(Item {
@@ -460,6 +466,9 @@ impl Parser {
             attributes: vec![suspend_attr], // Mark as suspend function
             is_inline: false,
             is_suspend: true,
+            is_operator: false,
+            is_infix: false,
+            is_tailrec: false,
         };
         
         Ok(Item {
@@ -490,6 +499,7 @@ impl Parser {
             visibility: Visibility::Private,
             generic_params: Vec::new(),
             attributes: Vec::new(),
+            companion_object: None,
         };
         
         Ok(Item {
@@ -2628,6 +2638,7 @@ impl Parser {
                     span: start_span,
                 }
             ],
+            companion_object: None,
         };
         
         Ok(Item {
@@ -2849,6 +2860,9 @@ impl Parser {
             attributes: vec![],
             is_inline: false,
             is_suspend: false,
+            is_operator: false,
+            is_infix: false,
+            is_tailrec: false,
         };
         
         let ext_func = ExtensionFunction {

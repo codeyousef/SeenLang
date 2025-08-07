@@ -80,6 +80,9 @@ fn test_function_serialization() {
         attributes: vec![],
         is_inline: false,
         is_suspend: false,
+        is_operator: false,
+        is_infix: false,
+        is_tailrec: false,
     };
 
     let serializer = AstSerializer::new(SerializationFormat::Json);

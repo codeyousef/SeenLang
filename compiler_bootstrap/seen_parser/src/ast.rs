@@ -60,6 +60,9 @@ pub struct Function<'a> {
     pub attributes: Vec<Attribute<'a>>,
     pub is_inline: bool,
     pub is_suspend: bool,
+    pub is_operator: bool,
+    pub is_infix: bool,
+    pub is_tailrec: bool,
 }
 
 /// Function parameter
@@ -95,6 +98,7 @@ pub struct Struct<'a> {
     pub visibility: Visibility,
     pub generic_params: Vec<GenericParam<'a>>,
     pub attributes: Vec<Attribute<'a>>,
+    pub companion_object: Option<CompanionObject<'a>>,
 }
 
 /// Struct field
@@ -573,6 +577,11 @@ pub enum ExprKind<'a> {
     },
     /// Flow builder expression (flow { ... })
     FlowBuilder { block: Block<'a> },
+    /// Object expression (object : Interface { ... })
+    ObjectExpression {
+        supertype: Option<Box<Type<'a>>>,
+        members: Vec<Item<'a>>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -637,6 +646,16 @@ pub enum UnaryOp {
     Deref,    // *
     Ref,      // &
     RefMut,   // &mut
+}
+
+/// Companion object definition
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct CompanionObject<'a> {
+    pub name: Option<Spanned<&'a str>>, // Optional name for companion object
+    pub members: Vec<Item<'a>>, // Functions, properties, etc.
+    pub span: Span,
 }
 
 // ========================= Kotlin-Inspired Features =========================

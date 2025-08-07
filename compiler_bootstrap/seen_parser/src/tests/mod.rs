@@ -10,3 +10,5 @@ pub mod flow_dsl_test;
 pub mod generic_functions_test;
 pub mod inline_functions_test;
 pub mod sealed_classes_test;
+pub mod object_expressions_test;
+pub mod operator_overloading_test;
