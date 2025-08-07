@@ -44,6 +44,7 @@ pub enum ItemKind<'a> {
     ExtensionFunction(ExtensionFunction<'a>),
     DataClass(DataClass<'a>),
     SealedClass(SealedClass<'a>),
+    Property(Property<'a>),
 }
 
 /// Function definition
@@ -479,6 +480,8 @@ pub enum PatternKind<'a> {
     Struct { path: Path<'a>, fields: Vec<FieldPattern<'a>>, rest: bool },
     /// Enum pattern
     Enum { path: Path<'a>, pattern: Option<Box<Pattern<'a>>> },
+    /// Destructuring pattern for data classes/tuples
+    Destructuring(Vec<Pattern<'a>>),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -669,6 +672,22 @@ pub struct ExtensionFunction<'a> {
     pub function: Function<'a>,
 }
 
+/// Property declaration (Kotlin-style with optional delegation)
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct Property<'a> {
+    pub name: Spanned<&'a str>,
+    pub ty: Option<Type<'a>>, // Optional type (can be inferred)
+    pub is_mutable: bool, // val (false) vs var (true)
+    pub initializer: Option<Expr<'a>>, // Initial value
+    pub delegate: Option<Expr<'a>>, // Delegated to (by delegate)
+    pub getter: Option<Block<'a>>, // Custom getter
+    pub setter: Option<Block<'a>>, // Custom setter (only for var)
+    pub visibility: Visibility,
+    pub attributes: Vec<Attribute<'a>>,
+}
+
 /// Data class definition (Kotlin-style)
 #[derive(Debug, Clone, Serialize)]
 #[derive(Deserialize)]
@@ -690,6 +709,7 @@ pub struct DataClassField<'a> {
     pub ty: Type<'a>,
     pub is_mutable: bool, // val (false) vs var (true)
     pub default_value: Option<Expr<'a>>,
+    pub delegate: Option<Expr<'a>>, // For delegated properties (by delegate)
     pub visibility: Visibility,
     pub span: Span,
 }

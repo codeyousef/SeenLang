@@ -120,6 +120,7 @@ impl LanguageConfig {
                 "KeywordReified" | "TokenReified" => Some(TokenType::KeywordReified),
                 "KeywordCrossinline" | "TokenCrossinline" => Some(TokenType::KeywordCrossinline),
                 "KeywordNoinline" | "TokenNoinline" => Some(TokenType::KeywordNoinline),
+                "KeywordBy" | "TokenBy" => Some(TokenType::KeywordBy),
                 "KeywordData" | "TokenData" => Some(TokenType::KeywordData),
                 "KeywordSealed" | "TokenSealed" => Some(TokenType::KeywordSealed),
                 "KeywordObject" | "TokenObject" => Some(TokenType::KeywordObject),

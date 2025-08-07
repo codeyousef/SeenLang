@@ -424,6 +424,11 @@ pub fn walk_pattern<'a, V: Visitor<'a>>(visitor: &mut V, pat: &Pattern<'a>) {
                 visitor.visit_pattern(pat);
             }
         }
+        PatternKind::Destructuring(patterns) => {
+            for pat in patterns {
+                visitor.visit_pattern(pat);
+            }
+        }
     }
 }
 
@@ -760,6 +765,11 @@ pub fn walk_pattern_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, pat: &mut Patter
         }
         PatternKind::Enum { pattern, .. } => {
             if let Some(ref mut pat) = pattern {
+                visitor.visit_pattern(pat);
+            }
+        }
+        PatternKind::Destructuring(patterns) => {
+            for pat in patterns {
                 visitor.visit_pattern(pat);
             }
         }

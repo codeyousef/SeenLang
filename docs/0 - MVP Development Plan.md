@@ -6,7 +6,7 @@
 
 **✅ ACTUAL WORKING COMPONENTS:**
 - **Step 2**: Lexical Analysis **70% WORKING** (basic tokenization, keyword mapping fixed)
-- **Step 3**: Parsing & AST **76% WORKING** (18 Kotlin features implemented: suspend, generics, flow, nullable types, smart casts, inline functions, data classes, sealed classes, extension functions, coroutines, pattern matching, object expressions, companion objects, operator overloading, tailrec, infix functions, interfaces)
+- **Step 3**: Parsing & AST **80% WORKING** (19 Kotlin features implemented: suspend, generics, flow, nullable types, smart casts, inline functions, data classes, sealed classes, extension functions, coroutines, pattern matching, object expressions, companion objects, operator overloading, tailrec, infix functions, interfaces, type aliases, destructuring declarations)
 - **Step 5**: Memory Model **80% WORKING** (Vale-style regions implemented)
 - **Step 1**: Build System **50% PARTIAL** (CLI exists, source discovery issues)
 
@@ -17,7 +17,7 @@
 - **FFI**: **20% SKELETON** (just created, untested)
 
 **⚠️ MAJOR ISSUES IDENTIFIED:**
-1. **Parser**: 18 of 25 Kotlin features implemented (72% complete)
+1. **Parser**: 19 of 25 Kotlin features implemented (76% complete)
 2. **Build System**: Source file discovery issues after project init
 3. **Type System**: No generics, only basic literal inference
 4. **Code Generation**: No real LLVM integration, just string generation

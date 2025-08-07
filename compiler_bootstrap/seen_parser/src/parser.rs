@@ -2569,6 +2569,22 @@ impl Parser {
                         span,
                     })
                 }
+                TokenType::LeftParen => {
+                    // Parse destructuring pattern (a, b, c)
+                    self.advance(); // consume '('
+                    let mut patterns = Vec::new();
+                    
+                    while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+                        patterns.push(self.parse_pattern()?);
+                        
+                        if !self.match_token(&TokenType::Comma) {
+                            break;
+                        }
+                    }
+                    
+                    self.expect_token(TokenType::RightParen)?;
+                    PatternKind::Destructuring(patterns)
+                }
                 _ => {
                     self.error("Expected pattern");
                     return Err(seen_common::SeenError::parse_error("Expected pattern"));
