@@ -118,12 +118,16 @@ impl Parser {
                         self.advance(); // Consume the 'infix' token
                         self.parse_infix_function()
                     },
+                    "typealias" | "type" => {
+                        self.advance(); // Consume the 'typealias' or 'type' token
+                        self.parse_type_alias()
+                    },
                     "fun" => self.parse_function(),
                     "struct" => self.parse_struct(),
                     "enum" => self.parse_enum(),
                     _ => {
                         eprintln!("parse_item: Unexpected identifier '{}'", name);
-                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', 'inline', 'tailrec', 'operator', or 'infix'");
+                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', 'inline', 'tailrec', 'operator', 'infix', or 'typealias'");
                         Err(seen_common::SeenError::parse_error("Unexpected token"))
                     }
                 }
@@ -655,6 +659,40 @@ impl Parser {
         
         Ok(Item {
             kind: ItemKind::Function(func),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_type_alias(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.previous_span(); // 'typealias' or 'type' already consumed
+        
+        // Parse type alias name
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        // Parse optional generic parameters
+        let generic_params = if self.check(&TokenType::Less) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
+        
+        // Expect '='
+        self.expect_token(TokenType::Assign)?;
+        
+        // Parse the actual type
+        let ty = self.parse_type()?;
+        
+        let type_alias = TypeAlias {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            ty,
+            generic_params,
+            visibility: Visibility::Public,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::TypeAlias(type_alias),
             span: start_span,
             id: self.next_node_id(),
         })

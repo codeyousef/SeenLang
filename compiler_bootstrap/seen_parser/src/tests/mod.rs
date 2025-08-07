@@ -12,3 +12,4 @@ pub mod inline_functions_test;
 pub mod sealed_classes_test;
 pub mod object_expressions_test;
 pub mod operator_overloading_test;
+pub mod type_aliases_test;
