@@ -1,0 +1,578 @@
+#!/usr/bin/env python3
+"""
+Rigorous statistical analysis framework for Seen Language performance validation.
+
+This module provides scientifically sound statistical analysis of benchmark results
+with proper significance testing, effect sizes, and confidence intervals.
+"""
+
+import numpy as np
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import json
+import argparse
+import sys
+from typing import List, Dict, Tuple, Optional, Any
+from dataclasses import dataclass
+from pathlib import Path
+import warnings
+
+# Suppress unnecessary warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+
+@dataclass
+class BenchmarkResult:
+    """Represents a single benchmark result with metadata."""
+    name: str
+    language: str
+    times: List[float]  # Execution times in seconds
+    memory_usage: Optional[List[float]] = None  # Memory usage in bytes
+    metadata: Optional[Dict[str, Any]] = None
+
+@dataclass
+class StatisticalSummary:
+    """Statistical summary of benchmark results."""
+    mean: float
+    median: float
+    std_dev: float
+    min_val: float
+    max_val: float
+    percentiles: Dict[str, float]
+    confidence_interval_95: Tuple[float, float]
+    coefficient_variation: float
+    sample_size: int
+    outliers_removed: int
+
+@dataclass
+class ComparisonResult:
+    """Statistical comparison between two languages."""
+    language_a: str
+    language_b: str
+    p_value: float
+    test_statistic: float
+    effect_size: float  # Cohen's d
+    is_significant: bool
+    mean_difference: float
+    speedup_ratio: float
+    confidence_interval_difference: Tuple[float, float]
+    
+class BenchmarkAnalyzer:
+    """Comprehensive statistical analyzer for benchmark data."""
+    
+    def __init__(self, min_samples: int = 30, significance_level: float = 0.05):
+        """
+        Initialize analyzer with statistical parameters.
+        
+        Args:
+            min_samples: Minimum required samples for valid analysis
+            significance_level: P-value threshold for significance (default 0.05)
+        """
+        self.min_samples = min_samples
+        self.significance_level = significance_level
+        self.bonferroni_correction_factor = 1  # Will be set based on comparisons
+    
+    def load_benchmark_data(self, data_path: Path) -> Dict[str, List[BenchmarkResult]]:
+        """Load benchmark data from JSON files."""
+        data = {}
+        
+        if data_path.is_file():
+            # Single JSON file
+            with open(data_path, 'r') as f:
+                raw_data = json.load(f)
+                data = self._parse_json_data(raw_data)
+        elif data_path.is_dir():
+            # Directory of JSON files
+            for json_file in data_path.glob('*.json'):
+                with open(json_file, 'r') as f:
+                    raw_data = json.load(f)
+                    file_data = self._parse_json_data(raw_data)
+                    data.update(file_data)
+        
+        return data
+    
+    def _parse_json_data(self, raw_data: Dict) -> Dict[str, List[BenchmarkResult]]:
+        """Parse raw JSON data into BenchmarkResult objects."""
+        parsed_data = {}
+        
+        for benchmark_name, benchmark_data in raw_data.items():
+            parsed_data[benchmark_name] = []
+            
+            for language, results in benchmark_data.items():
+                if isinstance(results.get('times'), list) and len(results['times']) > 0:
+                    benchmark_result = BenchmarkResult(
+                        name=benchmark_name,
+                        language=language,
+                        times=results['times'],
+                        memory_usage=results.get('memory_usage'),
+                        metadata=results.get('metadata', {})
+                    )
+                    parsed_data[benchmark_name].append(benchmark_result)
+        
+        return parsed_data
+    
+    def remove_outliers(self, data: List[float], method: str = 'iqr') -> Tuple[List[float], int]:
+        """
+        Remove outliers using specified method.
+        
+        Args:
+            data: List of measurements
+            method: 'iqr' (Interquartile Range) or 'zscore'
+            
+        Returns:
+            Tuple of (cleaned_data, outliers_removed_count)
+        """
+        if len(data) < 4:  # Too few data points for outlier detection
+            return data, 0
+        
+        data_array = np.array(data)
+        
+        if method == 'iqr':
+            q1, q3 = np.percentile(data_array, [25, 75])
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+            mask = (data_array >= lower_bound) & (data_array <= upper_bound)
+        elif method == 'zscore':
+            z_scores = np.abs(stats.zscore(data_array))
+            mask = z_scores < 3  # 3 standard deviations
+        else:
+            raise ValueError(f"Unknown outlier removal method: {method}")
+        
+        cleaned_data = data_array[mask].tolist()
+        outliers_removed = len(data) - len(cleaned_data)
+        
+        return cleaned_data, outliers_removed
+    
+    def calculate_summary_statistics(self, data: List[float]) -> StatisticalSummary:
+        """Calculate comprehensive summary statistics."""
+        if len(data) < 2:
+            raise ValueError("Need at least 2 data points for statistical analysis")
+        
+        # Remove outliers
+        cleaned_data, outliers_removed = self.remove_outliers(data)
+        
+        if len(cleaned_data) < 2:
+            print(f"Warning: Too few data points after outlier removal, using original data")
+            cleaned_data = data
+            outliers_removed = 0
+        
+        data_array = np.array(cleaned_data)
+        
+        # Basic statistics
+        mean = np.mean(data_array)
+        median = np.median(data_array)
+        std_dev = np.std(data_array, ddof=1)  # Sample standard deviation
+        min_val = np.min(data_array)
+        max_val = np.max(data_array)
+        
+        # Percentiles
+        percentiles = {
+            'p25': np.percentile(data_array, 25),
+            'p50': np.percentile(data_array, 50),
+            'p75': np.percentile(data_array, 75),
+            'p90': np.percentile(data_array, 90),
+            'p95': np.percentile(data_array, 95),
+            'p99': np.percentile(data_array, 99),
+        }
+        
+        # 95% Confidence interval for the mean
+        confidence_interval_95 = self._confidence_interval(data_array, 0.95)
+        
+        # Coefficient of variation
+        coefficient_variation = std_dev / mean if mean != 0 else 0
+        
+        return StatisticalSummary(
+            mean=mean,
+            median=median,
+            std_dev=std_dev,
+            min_val=min_val,
+            max_val=max_val,
+            percentiles=percentiles,
+            confidence_interval_95=confidence_interval_95,
+            coefficient_variation=coefficient_variation,
+            sample_size=len(cleaned_data),
+            outliers_removed=outliers_removed
+        )
+    
+    def _confidence_interval(self, data: np.ndarray, confidence: float) -> Tuple[float, float]:
+        """Calculate confidence interval for the mean."""
+        n = len(data)
+        mean = np.mean(data)
+        sem = stats.sem(data)  # Standard error of the mean
+        
+        # Use t-distribution for small samples
+        t_value = stats.t.ppf((1 + confidence) / 2, df=n-1)
+        margin_error = t_value * sem
+        
+        return (mean - margin_error, mean + margin_error)
+    
+    def compare_languages(self, results_a: BenchmarkResult, results_b: BenchmarkResult) -> ComparisonResult:
+        """Statistical comparison between two language results."""
+        
+        # Clean data for both languages
+        data_a, _ = self.remove_outliers(results_a.times)
+        data_b, _ = self.remove_outliers(results_b.times)
+        
+        if len(data_a) < 2 or len(data_b) < 2:
+            raise ValueError("Insufficient data for statistical comparison")
+        
+        # Independent t-test
+        t_stat, p_value = stats.ttest_ind(data_a, data_b, equal_var=False)  # Welch's t-test
+        
+        # Effect size (Cohen's d)
+        effect_size = self._cohens_d(data_a, data_b)
+        
+        # Apply Bonferroni correction if needed
+        adjusted_p_value = min(p_value * self.bonferroni_correction_factor, 1.0)
+        is_significant = adjusted_p_value < self.significance_level
+        
+        # Mean difference and speedup
+        mean_a = np.mean(data_a)
+        mean_b = np.mean(data_b)
+        mean_difference = mean_a - mean_b
+        speedup_ratio = mean_b / mean_a  # How much faster A is than B
+        
+        # Confidence interval for the difference
+        pooled_se = np.sqrt(np.var(data_a, ddof=1)/len(data_a) + np.var(data_b, ddof=1)/len(data_b))
+        df = len(data_a) + len(data_b) - 2
+        t_critical = stats.t.ppf(0.975, df)  # 95% CI
+        margin = t_critical * pooled_se
+        ci_difference = (mean_difference - margin, mean_difference + margin)
+        
+        return ComparisonResult(
+            language_a=results_a.language,
+            language_b=results_b.language,
+            p_value=adjusted_p_value,
+            test_statistic=t_stat,
+            effect_size=effect_size,
+            is_significant=is_significant,
+            mean_difference=mean_difference,
+            speedup_ratio=speedup_ratio,
+            confidence_interval_difference=ci_difference
+        )
+    
+    def _cohens_d(self, data_a: List[float], data_b: List[float]) -> float:
+        """Calculate Cohen's d effect size."""
+        n_a, n_b = len(data_a), len(data_b)
+        mean_a, mean_b = np.mean(data_a), np.mean(data_b)
+        var_a, var_b = np.var(data_a, ddof=1), np.var(data_b, ddof=1)
+        
+        # Pooled standard deviation
+        pooled_std = np.sqrt(((n_a - 1) * var_a + (n_b - 1) * var_b) / (n_a + n_b - 2))
+        
+        if pooled_std == 0:
+            return 0.0
+        
+        return (mean_a - mean_b) / pooled_std
+    
+    def generate_comprehensive_analysis(self, benchmark_data: Dict[str, List[BenchmarkResult]]) -> Dict:
+        """Generate comprehensive statistical analysis for all benchmarks."""
+        
+        analysis_results = {
+            'summary': {
+                'total_benchmarks': len(benchmark_data),
+                'analysis_timestamp': pd.Timestamp.now().isoformat(),
+                'statistical_parameters': {
+                    'min_samples': self.min_samples,
+                    'significance_level': self.significance_level,
+                    'outlier_removal': 'IQR method'
+                }
+            },
+            'benchmarks': {},
+            'language_rankings': {},
+            'statistical_significance': {},
+            'executive_summary': {}
+        }
+        
+        # Calculate comparisons and set Bonferroni correction
+        total_comparisons = 0
+        for benchmark_name, results_list in benchmark_data.items():
+            n_languages = len(results_list)
+            comparisons_per_benchmark = (n_languages * (n_languages - 1)) // 2
+            total_comparisons += comparisons_per_benchmark
+        
+        self.bonferroni_correction_factor = total_comparisons
+        
+        # Analyze each benchmark
+        for benchmark_name, results_list in benchmark_data.items():
+            print(f"Analyzing benchmark: {benchmark_name}")
+            
+            benchmark_analysis = {
+                'languages': {},
+                'comparisons': {},
+                'rankings': [],
+                'statistical_summary': {}
+            }
+            
+            # Calculate statistics for each language
+            for result in results_list:
+                if len(result.times) < self.min_samples:
+                    print(f"Warning: {result.language} in {benchmark_name} has only {len(result.times)} samples (minimum {self.min_samples})")
+                
+                try:
+                    summary = self.calculate_summary_statistics(result.times)
+                    benchmark_analysis['languages'][result.language] = {
+                        'summary': summary,
+                        'raw_data': result.times,
+                        'memory_usage': result.memory_usage,
+                        'metadata': result.metadata or {}
+                    }
+                except Exception as e:
+                    print(f"Error analyzing {result.language}: {e}")
+                    continue
+            
+            # Pairwise comparisons between languages
+            languages = list(benchmark_analysis['languages'].keys())
+            for i, lang_a in enumerate(languages):
+                for lang_b in languages[i+1:]:
+                    result_a = next(r for r in results_list if r.language == lang_a)
+                    result_b = next(r for r in results_list if r.language == lang_b)
+                    
+                    try:
+                        comparison = self.compare_languages(result_a, result_b)
+                        comparison_key = f"{lang_a}_vs_{lang_b}"
+                        benchmark_analysis['comparisons'][comparison_key] = comparison
+                    except Exception as e:
+                        print(f"Error comparing {lang_a} vs {lang_b}: {e}")
+                        continue
+            
+            # Create performance ranking
+            language_means = [(lang, data['summary'].mean) for lang, data in benchmark_analysis['languages'].items()]
+            language_means.sort(key=lambda x: x[1])  # Sort by mean time (lower is better)
+            benchmark_analysis['rankings'] = [{'language': lang, 'mean_time': mean} for lang, mean in language_means]
+            
+            analysis_results['benchmarks'][benchmark_name] = benchmark_analysis
+        
+        # Generate executive summary
+        analysis_results['executive_summary'] = self._generate_executive_summary(analysis_results)
+        
+        return analysis_results
+    
+    def _generate_executive_summary(self, analysis_results: Dict) -> Dict:
+        """Generate executive summary of all benchmark results."""
+        
+        summary = {
+            'seen_performance': {'wins': 0, 'losses': 0, 'ties': 0, 'total_benchmarks': 0},
+            'key_findings': [],
+            'statistical_reliability': {},
+            'recommendations': []
+        }
+        
+        seen_comparisons = []
+        
+        for benchmark_name, benchmark_data in analysis_results['benchmarks'].items():
+            summary['seen_performance']['total_benchmarks'] += 1
+            
+            # Find Seen's ranking
+            rankings = benchmark_data['rankings']
+            seen_rank = None
+            for i, ranking in enumerate(rankings):
+                if ranking['language'].lower() == 'seen':
+                    seen_rank = i + 1  # 1-based ranking
+                    break
+            
+            if seen_rank == 1:
+                summary['seen_performance']['wins'] += 1
+            elif seen_rank == len(rankings):
+                summary['seen_performance']['losses'] += 1
+            else:
+                summary['seen_performance']['ties'] += 1
+            
+            # Collect significant comparisons involving Seen
+            for comp_name, comparison in benchmark_data['comparisons'].items():
+                if 'seen' in comp_name.lower() and comparison.is_significant:
+                    seen_comparisons.append({
+                        'benchmark': benchmark_name,
+                        'comparison': comp_name,
+                        'seen_faster': comparison.speedup_ratio > 1.0 if 'seen' in comparison.language_a.lower() else comparison.speedup_ratio < 1.0,
+                        'effect_size': abs(comparison.effect_size),
+                        'speedup': comparison.speedup_ratio
+                    })
+        
+        # Generate key findings
+        if seen_comparisons:
+            significant_wins = sum(1 for c in seen_comparisons if c['seen_faster'])
+            significant_losses = len(seen_comparisons) - significant_wins
+            
+            summary['key_findings'].append(f"Seen shows statistically significant performance differences in {len(seen_comparisons)} comparisons")
+            summary['key_findings'].append(f"Significant wins: {significant_wins}, Significant losses: {significant_losses}")
+            
+            # Find largest effect sizes
+            large_effects = [c for c in seen_comparisons if c['effect_size'] > 0.8]  # Large effect size
+            if large_effects:
+                summary['key_findings'].append(f"Large effect sizes (>0.8) found in {len(large_effects)} comparisons")
+        
+        # Statistical reliability assessment
+        total_samples = 0
+        min_samples = float('inf')
+        max_samples = 0
+        
+        for benchmark_data in analysis_results['benchmarks'].values():
+            for lang_data in benchmark_data['languages'].values():
+                samples = lang_data['summary'].sample_size
+                total_samples += samples
+                min_samples = min(min_samples, samples)
+                max_samples = max(max_samples, samples)
+        
+        summary['statistical_reliability'] = {
+            'total_samples_collected': total_samples,
+            'min_samples_per_test': min_samples,
+            'max_samples_per_test': max_samples,
+            'meets_minimum_requirements': min_samples >= self.min_samples,
+            'bonferroni_correction_applied': self.bonferroni_correction_factor > 1
+        }
+        
+        # Recommendations
+        if min_samples < self.min_samples:
+            summary['recommendations'].append(f"Increase sample size to at least {self.min_samples} for more reliable results")
+        
+        if summary['seen_performance']['losses'] > summary['seen_performance']['wins']:
+            summary['recommendations'].append("Focus optimization efforts on benchmarks where Seen underperforms")
+        
+        return summary
+    
+    def plot_benchmark_comparison(self, benchmark_data: Dict[str, List[BenchmarkResult]], 
+                                benchmark_name: str, output_path: Path = None):
+        """Generate visualization comparing languages for a specific benchmark."""
+        
+        if benchmark_name not in benchmark_data:
+            raise ValueError(f"Benchmark '{benchmark_name}' not found in data")
+        
+        results = benchmark_data[benchmark_name]
+        
+        # Prepare data for plotting
+        plot_data = []
+        for result in results:
+            cleaned_times, _ = self.remove_outliers(result.times)
+            for time in cleaned_times:
+                plot_data.append({'Language': result.language, 'Time (seconds)': time})
+        
+        df = pd.DataFrame(plot_data)
+        
+        # Create box plot with swarm plot overlay
+        plt.figure(figsize=(12, 8))
+        
+        # Box plot
+        sns.boxplot(data=df, x='Language', y='Time (seconds)', palette='Set2')
+        
+        # Overlay individual points
+        sns.swarmplot(data=df, x='Language', y='Time (seconds)', color='black', alpha=0.6, size=3)
+        
+        plt.title(f'Performance Comparison: {benchmark_name}', fontsize=16, fontweight='bold')
+        plt.ylabel('Execution Time (seconds)', fontsize=12)
+        plt.xlabel('Programming Language', fontsize=12)
+        plt.xticks(rotation=45)
+        plt.grid(True, alpha=0.3)
+        
+        # Add statistical annotations
+        languages = df['Language'].unique()
+        if 'seen' in [lang.lower() for lang in languages]:
+            # Highlight Seen's performance
+            seen_lang = next(lang for lang in languages if lang.lower() == 'seen')
+            seen_data = df[df['Language'] == seen_lang]['Time (seconds)']
+            seen_mean = seen_data.mean()
+            
+            plt.axhline(y=seen_mean, color='red', linestyle='--', alpha=0.7, 
+                       label=f'Seen Mean: {seen_mean:.4f}s')
+            plt.legend()
+        
+        plt.tight_layout()
+        
+        if output_path:
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            print(f"Plot saved to {output_path}")
+        else:
+            plt.show()
+
+def main():
+    """Main function for command-line usage."""
+    parser = argparse.ArgumentParser(description='Statistical analysis of Seen Language benchmarks')
+    parser.add_argument('data_path', type=Path, help='Path to benchmark data (JSON file or directory)')
+    parser.add_argument('--output', '-o', type=Path, help='Output directory for results', 
+                       default=Path('analysis_results'))
+    parser.add_argument('--min-samples', type=int, default=30, 
+                       help='Minimum required samples for analysis')
+    parser.add_argument('--significance-level', type=float, default=0.05,
+                       help='P-value threshold for significance')
+    parser.add_argument('--plot', action='store_true', help='Generate comparison plots')
+    parser.add_argument('--benchmark', help='Specific benchmark to analyze')
+    
+    args = parser.parse_args()
+    
+    # Create output directory
+    args.output.mkdir(parents=True, exist_ok=True)
+    
+    # Initialize analyzer
+    analyzer = BenchmarkAnalyzer(
+        min_samples=args.min_samples,
+        significance_level=args.significance_level
+    )
+    
+    print(f"Loading benchmark data from {args.data_path}")
+    try:
+        benchmark_data = analyzer.load_benchmark_data(args.data_path)
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return 1
+    
+    if not benchmark_data:
+        print("No valid benchmark data found")
+        return 1
+    
+    print(f"Found {len(benchmark_data)} benchmarks")
+    
+    # Perform comprehensive analysis
+    print("Performing statistical analysis...")
+    analysis_results = analyzer.generate_comprehensive_analysis(benchmark_data)
+    
+    # Save results
+    results_file = args.output / 'statistical_analysis.json'
+    with open(results_file, 'w') as f:
+        json.dump(analysis_results, f, indent=2, default=str)
+    print(f"Analysis results saved to {results_file}")
+    
+    # Generate plots if requested
+    if args.plot:
+        plots_dir = args.output / 'plots'
+        plots_dir.mkdir(exist_ok=True)
+        
+        benchmarks_to_plot = [args.benchmark] if args.benchmark else benchmark_data.keys()
+        
+        for benchmark_name in benchmarks_to_plot:
+            if benchmark_name in benchmark_data:
+                plot_file = plots_dir / f'{benchmark_name}_comparison.png'
+                analyzer.plot_benchmark_comparison(
+                    benchmark_data, benchmark_name, plot_file
+                )
+    
+    # Print executive summary
+    print("\n" + "="*60)
+    print("EXECUTIVE SUMMARY")
+    print("="*60)
+    
+    exec_summary = analysis_results['executive_summary']
+    perf = exec_summary['seen_performance']
+    
+    print(f"Total benchmarks analyzed: {perf['total_benchmarks']}")
+    print(f"Seen performance: {perf['wins']} wins, {perf['losses']} losses, {perf['ties']} competitive")
+    
+    print("\nKey findings:")
+    for finding in exec_summary['key_findings']:
+        print(f"  • {finding}")
+    
+    print("\nRecommendations:")
+    for rec in exec_summary['recommendations']:
+        print(f"  • {rec}")
+    
+    reliability = exec_summary['statistical_reliability']
+    print(f"\nStatistical reliability:")
+    print(f"  • Total samples: {reliability['total_samples_collected']}")
+    print(f"  • Minimum samples per test: {reliability['min_samples_per_test']}")
+    print(f"  • Meets requirements: {reliability['meets_minimum_requirements']}")
+    
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
