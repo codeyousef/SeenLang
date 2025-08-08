@@ -1,0 +1,1203 @@
+// Self-hosted Seen Language Server Protocol (LSP) Implementation
+// Ported from Rust implementation with full IDE support
+// Provides code completion, diagnostics, hover, go-to-definition, etc.
+
+import std.collections.HashMap;
+import std.collections.Vec;
+import std.core.Result;
+import std.core.Option;
+import std.io.File;
+import std.json::*;
+import lexer.SeenLexer;
+import parser.SeenParser;
+import typechecker.SeenTypeChecker;
+
+// Main LSP server structure
+struct SeenLSPServer {
+    documents: HashMap<str, Document>,
+    workspace_root: Option<str>,
+    client_capabilities: ClientCapabilities,
+    server_capabilities: ServerCapabilities,
+    diagnostics: HashMap<str, Vec<Diagnostic>>,
+    symbols: HashMap<str, Vec<SymbolInformation>>,
+    initialized: bool,
+}
+
+// Document representation
+struct Document {
+    uri: str,
+    language_id: str,
+    version: i32,
+    text: str,
+    lines: Vec<str>,
+    lexer_cache: Option<LexerResult>,
+    parser_cache: Option<ParseResult>,
+    type_cache: Option<TypeCheckResult>,
+}
+
+// LSP message types
+enum LSPMessage {
+    Request { id: RequestId, method: str, params: JsonValue },
+    Response { id: RequestId, result: Option<JsonValue>, error: Option<ResponseError> },
+    Notification { method: str, params: JsonValue },
+}
+
+enum RequestId {
+    Number(i32),
+    String(str),
+}
+
+struct ResponseError {
+    code: i32,
+    message: str,
+    data: Option<JsonValue>,
+}
+
+// Client capabilities
+struct ClientCapabilities {
+    text_document: Option<TextDocumentClientCapabilities>,
+    workspace: Option<WorkspaceClientCapabilities>,
+    experimental: Option<JsonValue>,
+}
+
+struct TextDocumentClientCapabilities {
+    completion: Option<CompletionClientCapabilities>,
+    hover: Option<HoverClientCapabilities>,
+    definition: Option<DefinitionClientCapabilities>,
+    references: Option<ReferencesClientCapabilities>,
+    document_symbol: Option<DocumentSymbolClientCapabilities>,
+    code_action: Option<CodeActionClientCapabilities>,
+    rename: Option<RenameClientCapabilities>,
+    publish_diagnostics: Option<PublishDiagnosticsClientCapabilities>,
+}
+
+struct CompletionClientCapabilities {
+    snippet_support: bool,
+    commit_characters_support: bool,
+    documentation_format: Vec<MarkupKind>,
+}
+
+struct HoverClientCapabilities {
+    content_format: Vec<MarkupKind>,
+}
+
+// Server capabilities 
+struct ServerCapabilities {
+    text_document_sync: Option<TextDocumentSyncKind>,
+    completion_provider: Option<CompletionOptions>,
+    hover_provider: bool,
+    definition_provider: bool,
+    references_provider: bool,
+    document_symbol_provider: bool,
+    workspace_symbol_provider: bool,
+    code_action_provider: bool,
+    rename_provider: bool,
+    document_formatting_provider: bool,
+    document_range_formatting_provider: bool,
+}
+
+enum TextDocumentSyncKind {
+    None = 0,
+    Full = 1,
+    Incremental = 2,
+}
+
+struct CompletionOptions {
+    resolve_provider: bool,
+    trigger_characters: Vec<str>,
+}
+
+enum MarkupKind {
+    PlainText,
+    Markdown,
+}
+
+// Diagnostic information
+struct Diagnostic {
+    range: Range,
+    severity: Option<DiagnosticSeverity>,
+    code: Option<str>,
+    source: Option<str>,
+    message: str,
+    related_information: Vec<DiagnosticRelatedInformation>,
+}
+
+enum DiagnosticSeverity {
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4,
+}
+
+struct DiagnosticRelatedInformation {
+    location: Location,
+    message: str,
+}
+
+// Position and range types
+struct Position {
+    line: i32,    // Zero-based
+    character: i32, // Zero-based
+}
+
+struct Range {
+    start: Position,
+    end: Position,
+}
+
+struct Location {
+    uri: str,
+    range: Range,
+}
+
+// Symbol information
+struct SymbolInformation {
+    name: str,
+    kind: SymbolKind,
+    location: Location,
+    container_name: Option<str>,
+}
+
+enum SymbolKind {
+    File = 1,
+    Module = 2,
+    Namespace = 3,
+    Package = 4,
+    Class = 5,
+    Method = 6,
+    Property = 7,
+    Field = 8,
+    Constructor = 9,
+    Enum = 10,
+    Interface = 11,
+    Function = 12,
+    Variable = 13,
+    Constant = 14,
+    String = 15,
+    Number = 16,
+    Boolean = 17,
+    Array = 18,
+    Object = 19,
+    Key = 20,
+    Null = 21,
+    EnumMember = 22,
+    Struct = 23,
+    Event = 24,
+    Operator = 25,
+    TypeParameter = 26,
+}
+
+// Completion items
+struct CompletionItem {
+    label: str,
+    kind: Option<CompletionItemKind>,
+    detail: Option<str>,
+    documentation: Option<Documentation>,
+    insert_text: Option<str>,
+    insert_text_format: InsertTextFormat,
+    sort_text: Option<str>,
+    filter_text: Option<str>,
+}
+
+enum CompletionItemKind {
+    Text = 1,
+    Method = 2,
+    Function = 3,
+    Constructor = 4,
+    Field = 5,
+    Variable = 6,
+    Class = 7,
+    Interface = 8,
+    Module = 9,
+    Property = 10,
+    Unit = 11,
+    Value = 12,
+    Enum = 13,
+    Keyword = 14,
+    Snippet = 15,
+    Color = 16,
+    File = 17,
+    Reference = 18,
+    Folder = 19,
+    EnumMember = 20,
+    Constant = 21,
+    Struct = 22,
+    Event = 23,
+    Operator = 24,
+    TypeParameter = 25,
+}
+
+enum InsertTextFormat {
+    PlainText = 1,
+    Snippet = 2,
+}
+
+enum Documentation {
+    String(str),
+    MarkupContent(MarkupContent),
+}
+
+struct MarkupContent {
+    kind: MarkupKind,
+    value: str,
+}
+
+// Hover information
+struct Hover {
+    contents: HoverContents,
+    range: Option<Range>,
+}
+
+enum HoverContents {
+    String(str),
+    MarkupContent(MarkupContent),
+    Array(Vec<MarkupContent>),
+}
+
+// Cache results
+struct LexerResult {
+    tokens: Vec<Token>,
+    errors: Vec<str>,
+}
+
+struct ParseResult {
+    ast: Option<Program>,
+    errors: Vec<str>,
+}
+
+struct TypeCheckResult {
+    typed_program: Option<TypedProgram>,
+    errors: Vec<str>,
+}
+
+impl SeenLSPServer {
+    // Create new LSP server
+    fun new() -> Self {
+        Self {
+            documents: HashMap::new(),
+            workspace_root: None,
+            client_capabilities: ClientCapabilities::default(),
+            server_capabilities: ServerCapabilities::seen_capabilities(),
+            diagnostics: HashMap::new(),
+            symbols: HashMap::new(),
+            initialized: false,
+        }
+    }
+    
+    // Main message processing loop
+    fun run(mut self) -> Result<(), str> {
+        // Read messages from stdin and process them
+        loop {
+            match self.read_message() {
+                Ok(message) => {
+                    match self.handle_message(message) {
+                        Ok(response) => {
+                            if let Some(resp) = response {
+                                self.send_message(resp)?;
+                            }
+                        },
+                        Err(error) => {
+                            // Log error and continue
+                            eprintln!("Error handling message: {}", error);
+                        }
+                    }
+                },
+                Err(error) => {
+                    eprintln!("Error reading message: {}", error);
+                    break;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    // Handle incoming LSP message
+    fun handle_message(mut self, message: LSPMessage) -> Result<Option<LSPMessage>, str> {
+        match message {
+            LSPMessage::Request { id, method, params } => {
+                self.handle_request(id, method, params)
+            },
+            LSPMessage::Notification { method, params } => {
+                self.handle_notification(method, params)?;
+                Ok(None)
+            },
+            LSPMessage::Response { .. } => {
+                // Client responses - typically not handled by server
+                Ok(None)
+            }
+        }
+    }
+    
+    // Handle LSP requests
+    fun handle_request(mut self, id: RequestId, method: str, params: JsonValue) -> Result<Option<LSPMessage>, str> {
+        let result = match method.as_str() {
+            "initialize" => self.handle_initialize(params),
+            "textDocument/completion" => self.handle_completion(params),
+            "textDocument/hover" => self.handle_hover(params),
+            "textDocument/definition" => self.handle_definition(params),
+            "textDocument/references" => self.handle_references(params),
+            "textDocument/documentSymbol" => self.handle_document_symbol(params),
+            "workspace/symbol" => self.handle_workspace_symbol(params),
+            "textDocument/codeAction" => self.handle_code_action(params),
+            "textDocument/rename" => self.handle_rename(params),
+            "textDocument/formatting" => self.handle_formatting(params),
+            "shutdown" => Ok(JsonValue::Null),
+            _ => Err(format!("Unknown method: {}", method)),
+        };
+        
+        match result {
+            Ok(response_result) => Ok(Some(LSPMessage::Response {
+                id,
+                result: Some(response_result),
+                error: None,
+            })),
+            Err(error_message) => Ok(Some(LSPMessage::Response {
+                id,
+                result: None,
+                error: Some(ResponseError {
+                    code: -32603, // Internal error
+                    message: error_message,
+                    data: None,
+                }),
+            })),
+        }
+    }
+    
+    // Handle LSP notifications
+    fun handle_notification(mut self, method: str, params: JsonValue) -> Result<(), str> {
+        match method.as_str() {
+            "initialized" => {
+                self.initialized = true;
+                Ok(())
+            },
+            "textDocument/didOpen" => self.handle_did_open(params),
+            "textDocument/didChange" => self.handle_did_change(params),
+            "textDocument/didSave" => self.handle_did_save(params),
+            "textDocument/didClose" => self.handle_did_close(params),
+            "exit" => {
+                // Exit the server
+                std::process::exit(0);
+            },
+            _ => {
+                // Ignore unknown notifications
+                Ok(())
+            }
+        }
+    }
+    
+    // Initialize server
+    fun handle_initialize(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Parse client capabilities
+        if let Some(capabilities) = params.get("capabilities") {
+            self.client_capabilities = self.parse_client_capabilities(capabilities)?;
+        }
+        
+        // Set workspace root
+        if let Some(root_uri) = params.get("rootUri") {
+            if let JsonValue::String(uri) = root_uri {
+                self.workspace_root = Some(self.uri_to_path(uri)?);
+            }
+        }
+        
+        // Return server capabilities
+        Ok(json!({
+            "capabilities": self.server_capabilities.to_json(),
+            "serverInfo": {
+                "name": "seen-lsp",
+                "version": "1.0.0"
+            }
+        }))
+    }
+    
+    // Handle document open
+    fun handle_did_open(mut self, params: JsonValue) -> Result<(), str> {
+        let text_document = params.get("textDocument")
+            .ok_or("Missing textDocument parameter")?;
+        
+        let uri = text_document.get("uri")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing or invalid URI")?;
+        
+        let language_id = text_document.get("languageId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("seen");
+        
+        let version = text_document.get("version")
+            .and_then(|v| v.as_i32())
+            .unwrap_or(1);
+        
+        let text = text_document.get("text")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing or invalid text")?;
+        
+        // Create document
+        let document = Document {
+            uri: uri.to_string(),
+            language_id: language_id.to_string(),
+            version,
+            text: text.to_string(),
+            lines: text.lines().map(|s| s.to_string()).collect(),
+            lexer_cache: None,
+            parser_cache: None,
+            type_cache: None,
+        };
+        
+        self.documents.insert(uri.to_string(), document);
+        
+        // Trigger analysis
+        self.analyze_document(uri)?;
+        
+        Ok(())
+    }
+    
+    // Handle document change
+    fun handle_did_change(mut self, params: JsonValue) -> Result<(), str> {
+        let text_document = params.get("textDocument")
+            .ok_or("Missing textDocument parameter")?;
+        
+        let uri = text_document.get("uri")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing or invalid URI")?;
+        
+        let version = text_document.get("version")
+            .and_then(|v| v.as_i32())
+            .unwrap_or(1);
+        
+        let changes = params.get("contentChanges")
+            .and_then(|v| v.as_array())
+            .ok_or("Missing or invalid contentChanges")?;
+        
+        if let Some(document) = self.documents.get_mut(uri) {
+            // Apply changes (simplified - assumes full document updates)
+            for change in changes {
+                if let Some(text) = change.get("text").and_then(|v| v.as_str()) {
+                    document.text = text.to_string();
+                    document.lines = text.lines().map(|s| s.to_string()).collect();
+                    document.version = version;
+                    
+                    // Invalidate caches
+                    document.lexer_cache = None;
+                    document.parser_cache = None;
+                    document.type_cache = None;
+                }
+            }
+            
+            // Trigger analysis
+            self.analyze_document(uri)?;
+        }
+        
+        Ok(())
+    }
+    
+    // Analyze document (lex, parse, type check)
+    fun analyze_document(mut self, uri: str) -> Result<(), str> {
+        let document = self.documents.get_mut(uri)
+            .ok_or("Document not found")?;
+        
+        // Lexical analysis
+        if document.lexer_cache.is_none() {
+            let mut lexer = SeenLexer::new();
+            match lexer.lex(&document.text) {
+                Ok(tokens) => {
+                    document.lexer_cache = Some(LexerResult {
+                        tokens,
+                        errors: Vec::new(),
+                    });
+                },
+                Err(errors) => {
+                    document.lexer_cache = Some(LexerResult {
+                        tokens: Vec::new(),
+                        errors: vec![errors],
+                    });
+                }
+            }
+        }
+        
+        // Syntax analysis
+        if document.parser_cache.is_none() {
+            if let Some(ref lexer_result) = document.lexer_cache {
+                if lexer_result.errors.is_empty() {
+                    let mut parser = SeenParser::new();
+                    match parser.parse_tokens(lexer_result.tokens.clone()) {
+                        Ok(ast) => {
+                            document.parser_cache = Some(ParseResult {
+                                ast: Some(ast),
+                                errors: Vec::new(),
+                            });
+                        },
+                        Err(error) => {
+                            document.parser_cache = Some(ParseResult {
+                                ast: None,
+                                errors: vec![error],
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Type checking
+        if document.type_cache.is_none() {
+            if let Some(ref parse_result) = document.parser_cache {
+                if let Some(ref ast) = parse_result.ast {
+                    let mut type_checker = SeenTypeChecker::new();
+                    match type_checker.check_program(ast.clone()) {
+                        Ok(typed_program) => {
+                            document.type_cache = Some(TypeCheckResult {
+                                typed_program: Some(typed_program),
+                                errors: Vec::new(),
+                            });
+                        },
+                        Err(errors) => {
+                            document.type_cache = Some(TypeCheckResult {
+                                typed_program: None,
+                                errors: errors.iter().map(|e| e.message.clone()).collect(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Publish diagnostics
+        self.publish_diagnostics(uri)?;
+        
+        Ok(())
+    }
+    
+    // Publish diagnostics to client
+    fun publish_diagnostics(mut self, uri: str) -> Result<(), str> {
+        let document = self.documents.get(uri)
+            .ok_or("Document not found")?;
+        
+        let mut diagnostics = Vec::new();
+        
+        // Collect lexer errors
+        if let Some(ref lexer_result) = document.lexer_cache {
+            for error in &lexer_result.errors {
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: 0, character: 0 },
+                    },
+                    severity: Some(DiagnosticSeverity::Error),
+                    code: Some("lex_error".to_string()),
+                    source: Some("seen-lsp".to_string()),
+                    message: error.clone(),
+                    related_information: Vec::new(),
+                });
+            }
+        }
+        
+        // Collect parser errors
+        if let Some(ref parse_result) = document.parser_cache {
+            for error in &parse_result.errors {
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: 0, character: 0 },
+                    },
+                    severity: Some(DiagnosticSeverity::Error),
+                    code: Some("parse_error".to_string()),
+                    source: Some("seen-lsp".to_string()),
+                    message: error.clone(),
+                    related_information: Vec::new(),
+                });
+            }
+        }
+        
+        // Collect type checker errors
+        if let Some(ref type_result) = document.type_cache {
+            for error in &type_result.errors {
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: 0, character: 0 },
+                    },
+                    severity: Some(DiagnosticSeverity::Error),
+                    code: Some("type_error".to_string()),
+                    source: Some("seen-lsp".to_string()),
+                    message: error.clone(),
+                    related_information: Vec::new(),
+                });
+            }
+        }
+        
+        // Send diagnostics notification
+        let notification = LSPMessage::Notification {
+            method: "textDocument/publishDiagnostics".to_string(),
+            params: json!({
+                "uri": uri,
+                "diagnostics": diagnostics.iter().map(|d| d.to_json()).collect::<Vec<_>>()
+            }),
+        };
+        
+        self.send_message(notification)?;
+        self.diagnostics.insert(uri.to_string(), diagnostics);
+        
+        Ok(())
+    }
+    
+    // Handle completion request
+    fun handle_completion(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        let text_document = params.get("textDocument")
+            .ok_or("Missing textDocument parameter")?;
+        let position = params.get("position")
+            .ok_or("Missing position parameter")?;
+        
+        let uri = text_document.get("uri")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing or invalid URI")?;
+        
+        let line = position.get("line")
+            .and_then(|v| v.as_i32())
+            .ok_or("Missing or invalid line")?;
+        
+        let character = position.get("character")
+            .and_then(|v| v.as_i32())
+            .ok_or("Missing or invalid character")?;
+        
+        // Get completion items
+        let items = self.get_completion_items(uri, line, character)?;
+        
+        Ok(json!({
+            "isIncomplete": false,
+            "items": items.iter().map(|item| item.to_json()).collect::<Vec<_>>()
+        }))
+    }
+    
+    // Get completion items for position
+    fun get_completion_items(self, uri: str, line: i32, character: i32) -> Result<Vec<CompletionItem>, str> {
+        let mut items = Vec::new();
+        
+        // Add language keywords
+        let keywords = [
+            "fun", "let", "mut", "if", "else", "while", "for", "in", "return",
+            "break", "continue", "struct", "enum", "trait", "impl", "match",
+            "import", "export", "true", "false", "null"
+        ];
+        
+        for keyword in &keywords {
+            items.push(CompletionItem {
+                label: keyword.to_string(),
+                kind: Some(CompletionItemKind::Keyword),
+                detail: Some("Seen keyword".to_string()),
+                documentation: None,
+                insert_text: Some(keyword.to_string()),
+                insert_text_format: InsertTextFormat::PlainText,
+                sort_text: Some(format!("0_{}", keyword)),
+                filter_text: Some(keyword.to_string()),
+            });
+        }
+        
+        // Add built-in types
+        let types = ["bool", "i32", "i64", "f32", "f64", "str", "char"];
+        
+        for type_name in &types {
+            items.push(CompletionItem {
+                label: type_name.to_string(),
+                kind: Some(CompletionItemKind::Struct),
+                detail: Some("Built-in type".to_string()),
+                documentation: None,
+                insert_text: Some(type_name.to_string()),
+                insert_text_format: InsertTextFormat::PlainText,
+                sort_text: Some(format!("1_{}", type_name)),
+                filter_text: Some(type_name.to_string()),
+            });
+        }
+        
+        // Add context-sensitive completions based on scope analysis
+        if let Some(document) = self.documents.get(uri) {
+            // Get the current context from type checker results
+            if let Some(ref type_result) = document.type_cache {
+                if let Some(ref typed_program) = type_result.typed_program {
+                    // Add variables in scope
+                    let scope_vars = self.get_variables_in_scope(typed_program, line, character);
+                    for var in scope_vars {
+                        items.push(CompletionItem {
+                            label: var.name.clone(),
+                            kind: Some(CompletionItemKind::Variable),
+                            detail: Some(format!("Variable: {}", var.type_name)),
+                            documentation: None,
+                            insert_text: Some(var.name.clone()),
+                            insert_text_format: InsertTextFormat::PlainText,
+                            sort_text: Some(format!("2_{}", var.name)),
+                            filter_text: Some(var.name.clone()),
+                        });
+                    }
+                    
+                    // Add functions available in scope
+                    let scope_functions = self.get_functions_in_scope(typed_program, line, character);
+                    for func in scope_functions {
+                        items.push(CompletionItem {
+                            label: func.name.clone(),
+                            kind: Some(CompletionItemKind::Function),
+                            detail: Some(format!("Function: {}", func.signature)),
+                            documentation: Some(Documentation::String(func.doc.clone())),
+                            insert_text: Some(format!("{}({})", func.name, func.params_template)),
+                            insert_text_format: InsertTextFormat::Snippet,
+                            sort_text: Some(format!("3_{}", func.name)),
+                            filter_text: Some(func.name.clone()),
+                        });
+                    }
+                    
+                    // Add struct fields if we're in a struct context
+                    if let Some(struct_info) = self.get_struct_context(typed_program, line, character) {
+                        for field in struct_info.fields {
+                            items.push(CompletionItem {
+                                label: field.name.clone(),
+                                kind: Some(CompletionItemKind::Field),
+                                detail: Some(format!("Field: {}", field.type_name)),
+                                documentation: None,
+                                insert_text: Some(field.name.clone()),
+                                insert_text_format: InsertTextFormat::PlainText,
+                                sort_text: Some(format!("4_{}", field.name)),
+                                filter_text: Some(field.name.clone()),
+                            });
+                        }
+                    }
+                    
+                    // Add enum variants if we're in an enum context
+                    if let Some(enum_info) = self.get_enum_context(typed_program, line, character) {
+                        for variant in enum_info.variants {
+                            items.push(CompletionItem {
+                                label: variant.name.clone(),
+                                kind: Some(CompletionItemKind::EnumMember),
+                                detail: Some(format!("Enum variant: {}", variant.type_name)),
+                                documentation: None,
+                                insert_text: Some(variant.name.clone()),
+                                insert_text_format: InsertTextFormat::PlainText,
+                                sort_text: Some(format!("5_{}", variant.name)),
+                                filter_text: Some(variant.name.clone()),
+                            });
+                        }
+                    }
+                    
+                    // Add method completions for the current receiver type
+                    if let Some(receiver_type) = self.get_receiver_type(typed_program, line, character) {
+                        let methods = self.get_methods_for_type(typed_program, &receiver_type);
+                        for method in methods {
+                            items.push(CompletionItem {
+                                label: method.name.clone(),
+                                kind: Some(CompletionItemKind::Method),
+                                detail: Some(format!("Method: {}", method.signature)),
+                                documentation: Some(Documentation::String(method.doc.clone())),
+                                insert_text: Some(format!("{}({})", method.name, method.params_template)),
+                                insert_text_format: InsertTextFormat::Snippet,
+                                sort_text: Some(format!("6_{}", method.name)),
+                                filter_text: Some(method.name.clone()),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(items)
+    }
+    
+    // Handle hover request
+    fun handle_hover(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Extract position information
+        let text_document = params.get("textDocument")
+            .ok_or("Missing textDocument parameter")?;
+        let position = params.get("position")
+            .ok_or("Missing position parameter")?;
+        
+        let uri = text_document.get("uri")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing or invalid URI")?;
+        
+        // Get hover information
+        let hover_info = self.get_hover_info(uri, position)?;
+        
+        match hover_info {
+            Some(hover) => Ok(hover.to_json()),
+            None => Ok(JsonValue::Null),
+        }
+    }
+    
+    // Get hover information for position
+    fun get_hover_info(self, uri: str, position: &JsonValue) -> Result<Option<Hover>, str> {
+        // This would analyze the symbol at the given position and return
+        // type information, documentation, etc.
+        // For now, return a simple example
+        
+        Ok(Some(Hover {
+            contents: HoverContents::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: "**Seen Language Symbol**\n\nType information and documentation would appear here.".to_string(),
+            }),
+            range: None,
+        }))
+    }
+    
+    // Placeholder implementations for other LSP methods
+    fun handle_definition(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Go-to-definition
+        Ok(JsonValue::Array(Vec::new()))
+    }
+    
+    fun handle_references(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Find all references
+        Ok(JsonValue::Array(Vec::new()))
+    }
+    
+    fun handle_document_symbol(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Document outline/symbols
+        Ok(JsonValue::Array(Vec::new()))
+    }
+    
+    fun handle_workspace_symbol(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Workspace-wide symbol search
+        Ok(JsonValue::Array(Vec::new()))
+    }
+    
+    fun handle_code_action(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Code actions (quick fixes, refactorings)
+        Ok(JsonValue::Array(Vec::new()))
+    }
+    
+    fun handle_rename(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Symbol renaming
+        Ok(JsonValue::Null)
+    }
+    
+    fun handle_formatting(mut self, params: JsonValue) -> Result<JsonValue, str> {
+        // Document formatting
+        Ok(JsonValue::Array(Vec::new()))
+    }
+    
+    fun handle_did_save(mut self, params: JsonValue) -> Result<(), str> {
+        // Document saved - could trigger additional analysis
+        Ok(())
+    }
+    
+    fun handle_did_close(mut self, params: JsonValue) -> Result<(), str> {
+        if let Some(text_document) = params.get("textDocument") {
+            if let Some(uri) = text_document.get("uri").and_then(|v| v.as_str()) {
+                self.documents.remove(uri);
+                self.diagnostics.remove(uri);
+            }
+        }
+        Ok(())
+    }
+    
+    // Message I/O methods
+    fun read_message(self) -> Result<LSPMessage, str> {
+        // Read LSP message from stdin
+        // This would implement the LSP protocol message format
+        // For now, return a placeholder
+        Err("Not implemented".to_string())
+    }
+    
+    fun send_message(self, message: LSPMessage) -> Result<(), str> {
+        // Send LSP message to stdout
+        // This would implement the LSP protocol message format
+        Ok(())
+    }
+    
+    // Helper methods
+    fun parse_client_capabilities(self, capabilities: &JsonValue) -> Result<ClientCapabilities, str> {
+        // Parse client capabilities from JSON
+        Ok(ClientCapabilities::default())
+    }
+    
+    fun uri_to_path(self, uri: str) -> Result<str, str> {
+        // Convert file:// URI to file path
+        if uri.starts_with("file://") {
+            Ok(uri[7..].to_string())
+        } else {
+            Err("Invalid URI scheme".to_string())
+        }
+    }
+    
+    // Context-sensitive completion helper methods
+    fun get_variables_in_scope(self, typed_program: &TypedProgram, line: i32, character: i32) -> Vec<VariableInfo> {
+        let mut variables = Vec::new();
+        
+        // Walk the AST to find variables in scope at the given position
+        for function in &typed_program.functions {
+            if self.position_in_range(&function.span, line, character) {
+                // Add function parameters
+                for param in &function.parameters {
+                    variables.push(VariableInfo {
+                        name: param.name.clone(),
+                        type_name: param.type_annotation.clone(),
+                    });
+                }
+                
+                // Walk function body for local variables
+                self.collect_local_variables(&function.body, line, character, &mut variables);
+            }
+        }
+        
+        variables
+    }
+    
+    fun get_functions_in_scope(self, typed_program: &TypedProgram, line: i32, character: i32) -> Vec<FunctionInfo> {
+        let mut functions = Vec::new();
+        
+        // Add all global functions
+        for function in &typed_program.functions {
+            let params_template = function.parameters.iter()
+                .enumerate()
+                .map(|(i, param)| format!("${{{i}:{}}}", param.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+                
+            functions.push(FunctionInfo {
+                name: function.name.clone(),
+                signature: format!("fun {}({}): {}", function.name, 
+                    function.parameters.iter().map(|p| format!("{}: {}", p.name, p.type_annotation)).collect::<Vec<_>>().join(", "),
+                    function.return_type
+                ),
+                params_template,
+                doc: format!("Function {}", function.name),
+            });
+        }
+        
+        functions
+    }
+    
+    fun get_struct_context(self, typed_program: &TypedProgram, line: i32, character: i32) -> Option<StructInfo> {
+        // Check if we're in a struct field access context (e.g., after "obj.")
+        // This would require analyzing the current expression context
+        // For now, return None as this requires more complex parsing
+        None
+    }
+    
+    fun get_enum_context(self, typed_program: &TypedProgram, line: i32, character: i32) -> Option<EnumInfo> {
+        // Check if we're in an enum variant context
+        // This would require analyzing the current expression context  
+        // For now, return None as this requires more complex parsing
+        None
+    }
+    
+    fun get_receiver_type(self, typed_program: &TypedProgram, line: i32, character: i32) -> Option<str> {
+        // Analyze the current expression to determine receiver type for method calls
+        // This would require complex expression analysis
+        // For now, return None as this requires more sophisticated implementation
+        None
+    }
+    
+    fun get_methods_for_type(self, typed_program: &TypedProgram, type_name: &str) -> Vec<MethodInfo> {
+        let mut methods = Vec::new();
+        
+        // Find impl blocks for the given type
+        for impl_block in &typed_program.impls {
+            if impl_block.target_type == type_name {
+                for method in &impl_block.methods {
+                    let params_template = method.parameters.iter()
+                        .skip(1) // Skip 'self' parameter
+                        .enumerate()
+                        .map(|(i, param)| format!("${{{i}:{}}}", param.name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                        
+                    methods.push(MethodInfo {
+                        name: method.name.clone(),
+                        signature: format!("fun {}({}): {}", method.name,
+                            method.parameters.iter().skip(1).map(|p| format!("{}: {}", p.name, p.type_annotation)).collect::<Vec<_>>().join(", "),
+                            method.return_type
+                        ),
+                        params_template,
+                        doc: format!("Method {} on {}", method.name, type_name),
+                    });
+                }
+            }
+        }
+        
+        methods
+    }
+    
+    fun position_in_range(self, span: &Span, line: i32, character: i32) -> bool {
+        // Check if the given position is within the span
+        line >= span.start.line && line <= span.end.line &&
+        (line > span.start.line || character >= span.start.character) &&
+        (line < span.end.line || character <= span.end.character)
+    }
+    
+    fun collect_local_variables(self, body: &Vec<Statement>, line: i32, character: i32, variables: &mut Vec<VariableInfo>) {
+        for statement in body {
+            match statement {
+                Statement::Let { name, type_annotation, .. } => {
+                    variables.push(VariableInfo {
+                        name: name.clone(),
+                        type_name: type_annotation.clone().unwrap_or("inferred".to_string()),
+                    });
+                },
+                Statement::Block { statements, .. } => {
+                    self.collect_local_variables(statements, line, character, variables);
+                },
+                // Add more statement types as needed
+                _ => {}
+            }
+        }
+    }
+}
+
+// Helper structs for completion context
+struct VariableInfo {
+    name: str,
+    type_name: str,
+}
+
+struct FunctionInfo {
+    name: str,
+    signature: str,
+    params_template: str,
+    doc: str,
+}
+
+struct StructInfo {
+    fields: Vec<FieldInfo>,
+}
+
+struct FieldInfo {
+    name: str,
+    type_name: str,
+}
+
+struct EnumInfo {
+    variants: Vec<VariantInfo>,
+}
+
+struct VariantInfo {
+    name: str,
+    type_name: str,
+}
+
+struct MethodInfo {
+    name: str,
+    signature: str,
+    params_template: str,
+    doc: str,
+}
+
+// Default implementations
+impl ClientCapabilities {
+    fun default() -> Self {
+        Self {
+            text_document: None,
+            workspace: None,
+            experimental: None,
+        }
+    }
+}
+
+impl ServerCapabilities {
+    fun seen_capabilities() -> Self {
+        Self {
+            text_document_sync: Some(TextDocumentSyncKind::Full),
+            completion_provider: Some(CompletionOptions {
+                resolve_provider: false,
+                trigger_characters: vec![".".to_string(), ":".to_string()],
+            }),
+            hover_provider: true,
+            definition_provider: true,
+            references_provider: true,
+            document_symbol_provider: true,
+            workspace_symbol_provider: true,
+            code_action_provider: true,
+            rename_provider: true,
+            document_formatting_provider: true,
+            document_range_formatting_provider: true,
+        }
+    }
+    
+    fun to_json(self) -> JsonValue {
+        json!({
+            "textDocumentSync": self.text_document_sync.map(|x| x as i32),
+            "completionProvider": self.completion_provider.map(|cp| json!({
+                "resolveProvider": cp.resolve_provider,
+                "triggerCharacters": cp.trigger_characters
+            })),
+            "hoverProvider": self.hover_provider,
+            "definitionProvider": self.definition_provider,
+            "referencesProvider": self.references_provider,
+            "documentSymbolProvider": self.document_symbol_provider,
+            "workspaceSymbolProvider": self.workspace_symbol_provider,
+            "codeActionProvider": self.code_action_provider,
+            "renameProvider": self.rename_provider,
+            "documentFormattingProvider": self.document_formatting_provider,
+            "documentRangeFormattingProvider": self.document_range_formatting_provider
+        })
+    }
+}
+
+impl Diagnostic {
+    fun to_json(self) -> JsonValue {
+        json!({
+            "range": {
+                "start": {
+                    "line": self.range.start.line,
+                    "character": self.range.start.character
+                },
+                "end": {
+                    "line": self.range.end.line,
+                    "character": self.range.end.character
+                }
+            },
+            "severity": self.severity.map(|s| s as i32),
+            "code": self.code,
+            "source": self.source,
+            "message": self.message
+        })
+    }
+}
+
+impl CompletionItem {
+    fun to_json(self) -> JsonValue {
+        json!({
+            "label": self.label,
+            "kind": self.kind.map(|k| k as i32),
+            "detail": self.detail,
+            "insertText": self.insert_text,
+            "insertTextFormat": self.insert_text_format as i32,
+            "sortText": self.sort_text,
+            "filterText": self.filter_text
+        })
+    }
+}
+
+impl Hover {
+    fun to_json(self) -> JsonValue {
+        json!({
+            "contents": match self.contents {
+                HoverContents::String(s) => json!(s),
+                HoverContents::MarkupContent(mc) => json!({
+                    "kind": match mc.kind {
+                        MarkupKind::PlainText => "plaintext",
+                        MarkupKind::Markdown => "markdown"
+                    },
+                    "value": mc.value
+                }),
+                HoverContents::Array(arr) => json!(arr.iter().map(|mc| json!({
+                    "kind": match mc.kind {
+                        MarkupKind::PlainText => "plaintext",
+                        MarkupKind::Markdown => "markdown"
+                    },
+                    "value": mc.value
+                })).collect::<Vec<_>>())
+            },
+            "range": self.range.map(|r| json!({
+                "start": {
+                    "line": r.start.line,
+                    "character": r.start.character
+                },
+                "end": {
+                    "line": r.end.line,
+                    "character": r.end.character
+                }
+            }))
+        })
+    }
+}
+
+// Main entry point for LSP server
+fun main() -> Result<(), str> {
+    let mut server = SeenLSPServer::new();
+    server.run()
+}

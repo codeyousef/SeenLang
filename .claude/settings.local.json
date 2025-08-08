@@ -736,7 +736,10 @@
       "Bash(env CARGO_TARGET_DIR=target-wsl grep -n \"struct BasicBlock\" /mnt/d/Projects/Rust/seenlang/compiler_bootstrap/seen_ir/src/ir.rs)",
       "Bash(env CARGO_TARGET_DIR=target-wsl cargo build -p seen_ir --bench riscv_performance --quiet)",
       "Bash(env CARGO_TARGET_DIR=target-wsl grep -n \"Module {\" /mnt/d/Projects/Rust/seenlang/compiler_bootstrap/seen_ir/benches/codegen_performance.rs)",
-      "Bash(env CARGO_TARGET_DIR=target-wsl cargo build --workspace --quiet)"
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo build --workspace --quiet)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_cli --lib -- test_cross_compile_config_creation)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test -p seen_ir --test riscv_target_test)",
+      "Bash(./verify_self_hosted.sh:*)"
     ],
     "deny": []
   }

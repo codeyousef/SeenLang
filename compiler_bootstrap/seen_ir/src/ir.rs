@@ -590,7 +590,11 @@ impl Target {
     
     /// Generate LLVM target triple string
     pub fn to_llvm_triple(&self) -> String {
-        format!("{}-{}-{}-{}", self.arch, self.vendor, self.os, self.env)
+        if matches!(self.env, Environment::None) {
+            format!("{}-{}-{}", self.arch, self.vendor, self.os)
+        } else {
+            format!("{}-{}-{}-{}", self.arch, self.vendor, self.os, self.env)
+        }
     }
     
     /// Parse from LLVM target triple string

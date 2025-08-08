@@ -37,7 +37,7 @@ fn test_riscv64_bare_metal_target() {
     assert_eq!(target.vendor, "unknown");
     assert_eq!(target.os, OperatingSystem::None);
     assert_eq!(target.env, Environment::None);
-    assert_eq!(target.to_llvm_triple(), "riscv64-unknown-none-");
+    assert_eq!(target.to_llvm_triple(), "riscv64-unknown-none");
     assert!(target.is_riscv());
     assert!(target.supports_rvv());
     assert_eq!(target.register_size(), 64);
@@ -50,7 +50,7 @@ fn test_riscv32_bare_metal_target() {
     assert_eq!(target.vendor, "unknown");
     assert_eq!(target.os, OperatingSystem::None);
     assert_eq!(target.env, Environment::None);
-    assert_eq!(target.to_llvm_triple(), "riscv32-unknown-none-");
+    assert_eq!(target.to_llvm_triple(), "riscv32-unknown-none");
     assert!(target.is_riscv());
     assert!(target.supports_rvv());
     assert_eq!(target.register_size(), 32);
