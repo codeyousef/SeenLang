@@ -1,0 +1,397 @@
+// Function Call Overhead Microbenchmarks
+// Tests various function call types to measure overhead differences
+// Compares direct calls, virtual calls, closures, and generic functions
+
+use std.benchmark
+use std.time
+use std.random
+
+// Interface for virtual function testing
+interface Calculable {
+    fun calculate(x: Int): Int
+}
+
+// Concrete implementation for virtual calls
+class Calculator : Calculable {
+    override fun calculate(x: Int): Int {
+        return x * 2 + 1
+    }
+}
+
+// Generic function for generic call testing
+fun genericCalculate<T>(x: T, multiplier: T): T where T: Add<T>, Mul<T> {
+    return x * multiplier
+}
+
+@benchmark
+fun measureFunctionCallOverhead(b: Bencher) {
+    println("=== Function Call Overhead Microbenchmarks ===")
+    println("Testing various function call types with 10M iterations each\n")
+    
+    val iterations = 10_000_000
+    val testValue = 42
+    
+    // Direct function call baseline
+    b.measure("direct_function_call") {
+        var total = 0
+        for (i in 0..iterations) {
+            total += simpleFunction(testValue + i)
+        }
+        // Use total to prevent optimization
+        assert(total > 0)
+    }
+    
+    // Static method call
+    b.measure("static_method_call") {
+        var total = 0
+        for (i in 0..iterations) {
+            total += MathUtils.multiply(testValue, 2)
+        }
+        assert(total > 0)
+    }
+    
+    // Virtual function call (interface dispatch)
+    b.measure("virtual_function_call") {
+        val calculator: Calculable = Calculator()
+        var total = 0
+        for (i in 0..iterations) {
+            total += calculator.calculate(testValue + i)
+        }
+        assert(total > 0)
+    }
+    
+    // Closure call
+    b.measure("closure_call") {
+        val closure = { x: Int -> x * 2 + 1 }
+        var total = 0
+        for (i in 0..iterations) {
+            total += closure(testValue + i)
+        }
+        assert(total > 0)
+    }
+    
+    // Lambda expression call
+    b.measure("lambda_call") {
+        var total = 0
+        val lambda: (Int) -> Int = { x -> x * 2 + 1 }
+        for (i in 0..iterations) {
+            total += lambda(testValue + i)
+        }
+        assert(total > 0)
+    }
+    
+    // Generic function call
+    b.measure("generic_function_call") {
+        var total = 0
+        for (i in 0..iterations) {
+            total += genericCalculate(testValue + i, 2)
+        }
+        assert(total > 0)
+    }
+    
+    // Function pointer call
+    b.measure("function_pointer_call") {
+        val funcPtr = ::simpleFunction
+        var total = 0
+        for (i in 0..iterations) {
+            total += funcPtr(testValue + i)
+        }
+        assert(total > 0)
+    }
+    
+    // Method reference call
+    b.measure("method_reference_call") {
+        val calc = Calculator()
+        val methodRef = calc::calculate
+        var total = 0
+        for (i in 0..iterations) {
+            total += methodRef(testValue + i)
+        }
+        assert(total > 0)
+    }
+    
+    analyzeCallOverhead(b)
+}
+
+@benchmark
+fun measureRecursiveCallOverhead(b: Bencher) {
+    println("\n=== Recursive Call Overhead ===")
+    
+    val depths = listOf(10, 20, 30, 50, 100)
+    
+    for (depth in depths) {
+        b.measure("recursive_call_depth_$depth") {
+            val result = recursiveCalculation(depth, 1)
+            assert(result > 0)
+        }
+        
+        b.measure("tail_recursive_call_depth_$depth") {
+            val result = tailRecursiveCalculation(depth, 1, 0)
+            assert(result > 0)
+        }
+        
+        b.measure("iterative_equivalent_depth_$depth") {
+            val result = iterativeCalculation(depth, 1)
+            assert(result > 0)
+        }
+    }
+    
+    analyzeRecursionOverhead(b, depths)
+}
+
+@benchmark
+fun measureCallstackDepthOverhead(b: Bencher) {
+    println("\n=== Callstack Depth Overhead ===")
+    
+    // Test performance degradation with deep call stacks
+    val stackDepths = listOf(100, 500, 1000, 2000, 5000)
+    
+    for (depth in stackDepths) {
+        b.measure("callstack_depth_$depth") {
+            val result = deepCallStack(depth)
+            assert(result == depth)
+        }
+    }
+    
+    analyzeCallstackOverhead(b, stackDepths)
+}
+
+@benchmark
+fun measureInliningEffects(b: Bencher) {
+    println("\n=== Function Inlining Effects ===")
+    
+    val iterations = 10_000_000
+    val testValue = 42
+    
+    // Small function that should be inlined
+    b.measure("inlinable_small_function") {
+        var total = 0
+        for (i in 0..iterations) {
+            total += smallInlinableFunction(testValue)
+        }
+        assert(total > 0)
+    }
+    
+    // Large function that shouldn't be inlined
+    b.measure("non_inlinable_large_function") {
+        var total = 0
+        for (i in 0..iterations) {
+            total += largeNonInlinableFunction(testValue)
+        }
+        assert(total > 0)
+    }
+    
+    // Explicitly inlined function
+    b.measure("explicitly_inlined_function") {
+        var total = 0
+        for (i in 0..iterations) {
+            total += explicitlyInlinedFunction(testValue)
+        }
+        assert(total > 0)
+    }
+    
+    analyzeInliningEffects(b)
+}
+
+// Helper functions for benchmarking
+
+fun simpleFunction(x: Int): Int {
+    return x * 2 + 1
+}
+
+class MathUtils {
+    companion object {
+        fun multiply(a: Int, b: Int): Int {
+            return a * b
+        }
+    }
+}
+
+fun recursiveCalculation(n: Int, acc: Int): Int {
+    return if (n <= 0) acc else recursiveCalculation(n - 1, acc + n)
+}
+
+tailrec fun tailRecursiveCalculation(n: Int, mult: Int, acc: Int): Int {
+    return if (n <= 0) acc else tailRecursiveCalculation(n - 1, mult, acc + n * mult)
+}
+
+fun iterativeCalculation(n: Int, mult: Int): Int {
+    var result = 0
+    for (i in 1..n) {
+        result += i * mult
+    }
+    return result
+}
+
+fun deepCallStack(depth: Int): Int {
+    return if (depth <= 0) 0 else 1 + deepCallStack(depth - 1)
+}
+
+@inline
+fun smallInlinableFunction(x: Int): Int {
+    return x + 1
+}
+
+fun largeNonInlinableFunction(x: Int): Int {
+    var result = x
+    // Make function large enough to discourage inlining
+    for (i in 0..10) {
+        result = result * 2 + 1
+        result = result / 2
+        result = result + i
+        result = result - i / 2
+    }
+    return result
+}
+
+@inline
+fun explicitlyInlinedFunction(x: Int): Int {
+    return x * 3 + 2
+}
+
+// Analysis functions
+
+fun analyzeCallOverhead(b: Bencher) {
+    val directTime = b.getMetric("direct_function_call").mean()
+    val virtualTime = b.getMetric("virtual_function_call").mean()
+    val closureTime = b.getMetric("closure_call").mean()
+    val genericTime = b.getMetric("generic_function_call").mean()
+    val funcPtrTime = b.getMetric("function_pointer_call").mean()
+    
+    println("\n=== Call Overhead Analysis ===")
+    println("Direct function call: ${directTime * 1000:.3f}ms (baseline)")
+    
+    val virtualOverhead = (virtualTime - directTime) / directTime * 100
+    val closureOverhead = (closureTime - directTime) / directTime * 100
+    val genericOverhead = (genericTime - directTime) / directTime * 100
+    val funcPtrOverhead = (funcPtrTime - directTime) / directTime * 100
+    
+    println("Virtual call overhead: ${virtualOverhead:.1f}%")
+    println("Closure call overhead: ${closureOverhead:.1f}%")
+    println("Generic call overhead: ${genericOverhead:.1f}%")
+    println("Function pointer overhead: ${funcPtrOverhead:.1f}%")
+    
+    // Record overhead metrics
+    b.recordMetric("virtual_call_overhead_percent", virtualOverhead)
+    b.recordMetric("closure_call_overhead_percent", closureOverhead)
+    b.recordMetric("generic_call_overhead_percent", genericOverhead)
+    b.recordMetric("function_pointer_overhead_percent", funcPtrOverhead)
+    
+    // Assess call efficiency
+    if (virtualOverhead < 20.0) {
+        println("✅ Virtual dispatch is efficient")
+    } else {
+        println("⚠️  Virtual dispatch has significant overhead")
+    }
+    
+    if (closureOverhead < 10.0) {
+        println("✅ Closures are efficient")
+    } else {
+        println("⚠️  Closures have noticeable overhead")
+    }
+}
+
+fun analyzeRecursionOverhead(b: Bencher, depths: List<Int>) {
+    println("\n=== Recursion Analysis ===")
+    
+    for (depth in depths) {
+        val recursiveTime = b.getMetric("recursive_call_depth_$depth")?.mean() ?: 0.0
+        val tailRecursiveTime = b.getMetric("tail_recursive_call_depth_$depth")?.mean() ?: 0.0
+        val iterativeTime = b.getMetric("iterative_equivalent_depth_$depth")?.mean() ?: 0.0
+        
+        if (iterativeTime > 0) {
+            val recursiveOverhead = (recursiveTime - iterativeTime) / iterativeTime * 100
+            val tailRecursiveOverhead = (tailRecursiveTime - iterativeTime) / iterativeTime * 100
+            
+            println("Depth $depth:")
+            println("  Recursive overhead: ${recursiveOverhead:.1f}%")
+            println("  Tail-recursive overhead: ${tailRecursiveOverhead:.1f}%")
+            
+            b.recordMetric("recursive_overhead_depth_${depth}_percent", recursiveOverhead)
+            b.recordMetric("tail_recursive_overhead_depth_${depth}_percent", tailRecursiveOverhead)
+        }
+    }
+}
+
+fun analyzeCallstackOverhead(b: Bencher, depths: List<Int>) {
+    println("\n=== Callstack Depth Analysis ===")
+    
+    val baselineTime = b.getMetric("callstack_depth_${depths[0]}")?.mean() ?: 0.0
+    
+    for (depth in depths) {
+        val stackTime = b.getMetric("callstack_depth_$depth")?.mean() ?: 0.0
+        if (baselineTime > 0) {
+            val overhead = (stackTime - baselineTime) / baselineTime * 100
+            println("Stack depth $depth: ${overhead:.1f}% overhead vs baseline")
+            
+            b.recordMetric("callstack_overhead_depth_${depth}_percent", overhead)
+        }
+    }
+}
+
+fun analyzeInliningEffects(b: Bencher) {
+    println("\n=== Inlining Analysis ===")
+    
+    val smallFuncTime = b.getMetric("inlinable_small_function").mean()
+    val largeFuncTime = b.getMetric("non_inlinable_large_function").mean()
+    val inlinedFuncTime = b.getMetric("explicitly_inlined_function").mean()
+    
+    val inliningBenefit = (largeFuncTime - smallFuncTime) / largeFuncTime * 100
+    val explicitInliningBenefit = (largeFuncTime - inlinedFuncTime) / largeFuncTime * 100
+    
+    println("Small function (likely inlined): ${smallFuncTime * 1000:.3f}ms")
+    println("Large function (not inlined): ${largeFuncTime * 1000:.3f}ms")
+    println("Explicitly inlined function: ${inlinedFuncTime * 1000:.3f}ms")
+    println("Inlining benefit: ${inliningBenefit:.1f}%")
+    println("Explicit inlining benefit: ${explicitInliningBenefit:.1f}%")
+    
+    b.recordMetric("inlining_benefit_percent", inliningBenefit)
+    b.recordMetric("explicit_inlining_benefit_percent", explicitInliningBenefit)
+}
+
+// Main execution
+fun main() {
+    val bencher = Bencher(iterations = 10, warmupIterations = 3)
+    
+    println("=== Seen Function Call Overhead Microbenchmarks ===")
+    println("Measuring various types of function calls for overhead analysis\n")
+    
+    measureFunctionCallOverhead(bencher)
+    measureRecursiveCallOverhead(bencher)
+    measureCallstackDepthOverhead(bencher)
+    measureInliningEffects(bencher)
+    
+    // Generate summary report
+    val results = bencher.getAllResults()
+    generateCallOverheadSummary(results)
+    
+    // Save results for analysis
+    val report = bencher.generateReport()
+    fs.writeString("../../results/function_call_overhead_results.json", report.toJson())
+    println("\nResults saved to: results/function_call_overhead_results.json")
+}
+
+fun generateCallOverheadSummary(results: Map<String, BenchmarkResult>) {
+    println("\n=== FUNCTION CALL OVERHEAD SUMMARY ===")
+    
+    val directCallTime = results["direct_function_call"]?.mean() ?: 0.0
+    val virtualCallTime = results["virtual_function_call"]?.mean() ?: 0.0
+    val closureCallTime = results["closure_call"]?.mean() ?: 0.0
+    
+    println("Performance per 10M calls:")
+    println("  Direct calls: ${directCallTime * 1000:.2f}ms")
+    println("  Virtual calls: ${virtualCallTime * 1000:.2f}ms")
+    println("  Closure calls: ${closureCallTime * 1000:.2f}ms")
+    
+    val avgOverhead = results.filter { it.key.contains("overhead_percent") }
+        .values.map { it.mean() }.average()
+    
+    if (avgOverhead < 15.0) {
+        println("✅ Function call overhead is reasonable (${avgOverhead:.1f}% average)")
+    } else {
+        println("⚠️  Function call overhead is significant (${avgOverhead:.1f}% average)")
+    }
+    
+    println("\nThis microbenchmark measures the fundamental cost of different call types")
+    println("Results help understand performance implications of language features")
+}

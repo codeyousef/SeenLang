@@ -1,0 +1,420 @@
+// Seen Language Reactive Performance Validation
+// Tests the claim of "Zero-cost reactive abstractions"
+// Compares reactive operators against manual loops and iterator chains
+
+use std.reactive
+use std.benchmark
+use std.collections
+use std.random
+use std.time
+
+@benchmark
+fun validateZeroCostReactive(b: Bencher) {
+    // Test data: 1M integers for comprehensive testing
+    val data = List(1_000_000) { Random.nextInt(0, 1000) }
+    
+    println("=== Testing Zero-Cost Reactive Abstractions ===")
+    println("Data size: ${data.size} elements")
+    println("Testing filter + map + reduce operations\n")
+    
+    var reactiveResult = 0
+    var manualResult = 0
+    var iteratorResult = 0
+    
+    // Version 1: Reactive operators
+    b.measure("reactive") {
+        reactiveResult = Observable.from(data)
+            .filter { it % 2 == 0 }
+            .map { it * 2 }
+            .reduce { a, b -> a + b }
+            .block()
+    }
+    
+    // Version 2: Manual loop (baseline - should be fastest)
+    b.measure("manual") {
+        var sum = 0
+        for (item in data) {
+            if (item % 2 == 0) {
+                sum += item * 2
+            }
+        }
+        manualResult = sum
+    }
+    
+    // Version 3: Iterator chains (comparison point)
+    b.measure("iterator") {
+        iteratorResult = data.asSequence()
+            .filter { it % 2 == 0 }
+            .map { it * 2 }
+            .reduce { a, b -> a + b }
+    }
+    
+    // Verify all approaches give same result
+    assert(reactiveResult == manualResult)
+    assert(iteratorResult == manualResult)
+    
+    // Calculate actual overhead
+    val reactiveTime = b.getMetric("reactive").mean()
+    val manualTime = b.getMetric("manual").mean()
+    val iteratorTime = b.getMetric("iterator").mean()
+    
+    val reactiveOverhead = (reactiveTime - manualTime) / manualTime * 100
+    val iteratorOverhead = (iteratorTime - manualTime) / manualTime * 100
+    
+    println("Performance Results:")
+    println("  Manual loop:     ${manualTime * 1000:.2f}ms (baseline)")
+    println("  Iterator chain:  ${iteratorTime * 1000:.2f}ms (${iteratorOverhead:.1f}% overhead)")
+    println("  Reactive:        ${reactiveTime * 1000:.2f}ms (${reactiveOverhead:.1f}% overhead)")
+    
+    // Record detailed metrics
+    b.recordMetric("reactive_overhead_percent", reactiveOverhead)
+    b.recordMetric("iterator_overhead_percent", iteratorOverhead)
+    
+    // Validate "zero-cost" claim (should be less than 5% overhead)
+    if (reactiveOverhead < 5.0) {
+        println("✅ ZERO-COST CLAIM VALIDATED: ${reactiveOverhead:.1f}% overhead")
+    } else if (reactiveOverhead < 15.0) {
+        println("⚠️  LOW-COST: ${reactiveOverhead:.1f}% overhead (not zero-cost)")
+    } else {
+        println("❌ HIGH OVERHEAD: ${reactiveOverhead:.1f}% overhead - claim not met")
+    }
+}
+
+@benchmark
+fun benchmarkReactiveComplexOperations(b: Bencher) {
+    // Test more complex reactive chains
+    val data = List(500_000) { Random.nextInt(0, 1000) }
+    
+    println("\n=== Complex Reactive Operations ===")
+    
+    // Complex reactive chain
+    b.measure("complex_reactive") {
+        Observable.from(data)
+            .filter { it > 100 }
+            .map { it * 3 }
+            .filter { it % 7 == 0 }
+            .map { it / 2 }
+            .take(10_000)
+            .reduce { a, b -> a + b }
+            .block()
+    }
+    
+    // Equivalent manual implementation
+    b.measure("complex_manual") {
+        var sum = 0
+        var count = 0
+        for (item in data) {
+            if (item > 100) {
+                val mapped1 = item * 3
+                if (mapped1 % 7 == 0) {
+                    val mapped2 = mapped1 / 2
+                    sum += mapped2
+                    count++
+                    if (count >= 10_000) break
+                }
+            }
+        }
+        sum
+    }
+    
+    val complexReactiveTime = b.getMetric("complex_reactive").mean()
+    val complexManualTime = b.getMetric("complex_manual").mean()
+    val complexOverhead = (complexReactiveTime - complexManualTime) / complexManualTime * 100
+    
+    println("Complex operations overhead: ${complexOverhead:.1f}%")
+    b.recordMetric("complex_reactive_overhead_percent", complexOverhead)
+}
+
+@benchmark
+fun benchmarkReactiveAsyncOperations(b: Bencher) {
+    // Test asynchronous reactive operations
+    println("\n=== Asynchronous Reactive Operations ===")
+    
+    val asyncData = List(100_000) { Random.nextInt(0, 1000) }
+    
+    // Async reactive processing
+    b.measure("async_reactive") {
+        Observable.from(asyncData)
+            .observeOn(Schedulers.computation())
+            .filter { it % 3 == 0 }
+            .map { simulateAsyncWork(it) }
+            .subscribeOn(Schedulers.io())
+            .reduce { a, b -> a + b }
+            .block()
+    }
+    
+    // Manual async equivalent
+    b.measure("async_manual") {
+        val futures = mutableListOf<Future<Int>>()
+        
+        for (item in asyncData) {
+            if (item % 3 == 0) {
+                futures.add(async { simulateAsyncWork(item) })
+            }
+        }
+        
+        futures.map { it.await() }.reduce { a, b -> a + b }
+    }
+    
+    val asyncReactiveTime = b.getMetric("async_reactive").mean()
+    val asyncManualTime = b.getMetric("async_manual").mean()
+    val asyncOverhead = (asyncReactiveTime - asyncManualTime) / asyncManualTime * 100
+    
+    println("Async operations overhead: ${asyncOverhead:.1f}%")
+    b.recordMetric("async_reactive_overhead_percent", asyncOverhead)
+}
+
+@benchmark
+fun benchmarkReactiveMemoryUsage(b: Bencher) {
+    // Test memory usage of reactive vs manual approaches
+    println("\n=== Memory Usage Comparison ===")
+    
+    val largeData = List(2_000_000) { Random.nextInt(0, 10000) }
+    
+    // Measure memory usage for reactive approach
+    b.measure("reactive_memory_usage") {
+        val beforeMemory = memory.getUsedMemory()
+        
+        val result = Observable.from(largeData)
+            .filter { it % 2 == 0 }
+            .map { it * 2 }
+            .take(100_000)
+            .toList()
+            .block()
+        
+        val afterMemory = memory.getUsedMemory()
+        val memoryUsed = afterMemory - beforeMemory
+        
+        b.recordMetric("reactive_memory_bytes", memoryUsed.toDouble())
+        result.size // Use result to prevent optimization
+    }
+    
+    // Measure memory usage for manual approach
+    b.measure("manual_memory_usage") {
+        val beforeMemory = memory.getUsedMemory()
+        
+        val result = mutableListOf<Int>()
+        var count = 0
+        for (item in largeData) {
+            if (item % 2 == 0) {
+                result.add(item * 2)
+                count++
+                if (count >= 100_000) break
+            }
+        }
+        
+        val afterMemory = memory.getUsedMemory()
+        val memoryUsed = afterMemory - beforeMemory
+        
+        b.recordMetric("manual_memory_bytes", memoryUsed.toDouble())
+        result.size
+    }
+    
+    val reactiveMemory = b.getMetric("reactive_memory_bytes").mean()
+    val manualMemory = b.getMetric("manual_memory_bytes").mean()
+    val memoryOverhead = (reactiveMemory - manualMemory) / manualMemory * 100
+    
+    println("Memory overhead: ${memoryOverhead:.1f}%")
+    println("  Reactive: ${reactiveMemory / 1024 / 1024:.1f}MB")
+    println("  Manual:   ${manualMemory / 1024 / 1024:.1f}MB")
+    
+    b.recordMetric("reactive_memory_overhead_percent", memoryOverhead)
+}
+
+@benchmark
+fun benchmarkReactiveErrorHandling(b: Bencher) {
+    // Test performance with error handling
+    println("\n=== Error Handling Performance ===")
+    
+    val dataWithErrors = List(100_000) { 
+        if (Random.nextDouble() < 0.01) -1 else Random.nextInt(1, 1000)
+    }
+    
+    // Reactive with error handling
+    b.measure("reactive_with_errors") {
+        Observable.from(dataWithErrors)
+            .filter { it > 0 }
+            .map { 
+                if (it == -1) throw IllegalArgumentException("Invalid value")
+                it * 2
+            }
+            .onErrorReturn { 0 }
+            .reduce { a, b -> a + b }
+            .block()
+    }
+    
+    // Manual with error handling
+    b.measure("manual_with_errors") {
+        var sum = 0
+        for (item in dataWithErrors) {
+            try {
+                if (item > 0) {
+                    if (item == -1) throw IllegalArgumentException("Invalid value")
+                    sum += item * 2
+                }
+            } catch (e: IllegalArgumentException) {
+                // Handle error
+            }
+        }
+        sum
+    }
+    
+    val reactiveErrorTime = b.getMetric("reactive_with_errors").mean()
+    val manualErrorTime = b.getMetric("manual_with_errors").mean()
+    val errorOverhead = (reactiveErrorTime - manualErrorTime) / manualErrorTime * 100
+    
+    println("Error handling overhead: ${errorOverhead:.1f}%")
+    b.recordMetric("reactive_error_overhead_percent", errorOverhead)
+}
+
+@benchmark
+fun benchmarkReactiveBackpressure(b: Bencher) {
+    // Test backpressure handling performance
+    println("\n=== Backpressure Handling ===")
+    
+    // Fast producer, slow consumer scenario
+    b.measure("reactive_backpressure") {
+        Observable.range(0, 1_000_000)
+            .onBackpressureBuffer(10_000)
+            .observeOn(Schedulers.computation())
+            .map { slowOperation(it) }
+            .reduce { a, b -> a + b }
+            .block()
+    }
+    
+    // Manual equivalent with bounded queue
+    b.measure("manual_backpressure") {
+        val queue = BoundedQueue<Int>(10_000)
+        val producer = async {
+            for (i in 0..999_999) {
+                queue.put(i)
+            }
+            queue.close()
+        }
+        
+        val consumer = async {
+            var sum = 0
+            while (true) {
+                val item = queue.take() ?: break
+                sum += slowOperation(item)
+            }
+            sum
+        }
+        
+        consumer.await()
+    }
+    
+    val reactiveBackpressureTime = b.getMetric("reactive_backpressure").mean()
+    val manualBackpressureTime = b.getMetric("manual_backpressure").mean()
+    val backpressureOverhead = (reactiveBackpressureTime - manualBackpressureTime) / manualBackpressureTime * 100
+    
+    println("Backpressure handling overhead: ${backpressureOverhead:.1f}%")
+    b.recordMetric("reactive_backpressure_overhead_percent", backpressureOverhead)
+}
+
+// Helper functions
+fun simulateAsyncWork(value: Int): Int {
+    // Simulate some async work
+    Thread.sleep(1) // 1ms delay
+    return value * 2
+}
+
+fun slowOperation(value: Int): Int {
+    // Simulate a slow operation
+    var result = value
+    for (i in 0..100) {
+        result = (result * 1.01).toInt()
+    }
+    return result
+}
+
+// Comprehensive analysis function
+fun analyzeReactiveResults(b: Bencher) {
+    println("\n=== COMPREHENSIVE REACTIVE ANALYSIS ===")
+    
+    val results = b.getAllResults()
+    
+    // Collect all overhead measurements
+    val overheads = mutableMapOf<String, Double>()
+    for ((key, result) in results) {
+        if (key.contains("overhead_percent")) {
+            overheads[key] = result.mean()
+        }
+    }
+    
+    // Calculate overall assessment
+    val avgOverhead = overheads.values.average()
+    val maxOverhead = overheads.values.maxOrNull() ?: 0.0
+    val minOverhead = overheads.values.minOrNull() ?: 0.0
+    
+    println("Overhead Summary:")
+    for ((test, overhead) in overheads) {
+        val testName = test.replace("_overhead_percent", "").replace("_", " ")
+        println("  ${testName}: ${overhead:.1f}%")
+    }
+    
+    println("\nOverall Statistics:")
+    println("  Average overhead: ${avgOverhead:.1f}%")
+    println("  Min overhead: ${minOverhead:.1f}%")
+    println("  Max overhead: ${maxOverhead:.1f}%")
+    
+    // Final assessment
+    when {
+        avgOverhead < 5.0 -> {
+            println("\n✅ ZERO-COST CLAIM VALIDATED")
+            println("   Reactive abstractions have minimal overhead (${avgOverhead:.1f}%)")
+        }
+        avgOverhead < 15.0 -> {
+            println("\n⚠️  LOW-COST ABSTRACTIONS") 
+            println("   Not quite zero-cost but reasonable overhead (${avgOverhead:.1f}%)")
+        }
+        avgOverhead < 30.0 -> {
+            println("\n❌ MODERATE OVERHEAD")
+            println("   Significant overhead detected (${avgOverhead:.1f}%)")
+        }
+        else -> {
+            println("\n❌ HIGH OVERHEAD") 
+            println("   Reactive abstractions have substantial cost (${avgOverhead:.1f}%)")
+        }
+    }
+    
+    // Provide honest recommendation
+    if (maxOverhead > 20.0) {
+        println("\nRecommendation: Consider optimizing reactive implementation")
+        println("Some operations show significant overhead: ${maxOverhead:.1f}%")
+    }
+    
+    println("\nSuggested honest claim based on results:")
+    if (avgOverhead < 5.0) {
+        println("'Seen's reactive abstractions provide near-zero overhead (${avgOverhead:.1f}%)'")
+    } else {
+        println("'Seen's reactive abstractions provide low overhead (${avgOverhead:.1f}% average)'")
+    }
+}
+
+// Main execution
+fun main() {
+    val bencher = Bencher(iterations = 30, warmupIterations = 10)
+    
+    println("=== Seen Reactive Performance Validation ===")
+    println("Testing the claim: 'Zero-cost reactive abstractions'")
+    println("Comparing against manual implementations and iterators\n")
+    
+    // Run all benchmark tests
+    validateZeroCostReactive(bencher)
+    benchmarkReactiveComplexOperations(bencher)
+    benchmarkReactiveAsyncOperations(bencher)
+    benchmarkReactiveMemoryUsage(bencher)
+    benchmarkReactiveErrorHandling(bencher)
+    benchmarkReactiveBackpressure(bencher)
+    
+    // Generate comprehensive analysis
+    analyzeReactiveResults(bencher)
+    
+    // Save results for statistical analysis
+    val report = bencher.generateReport()
+    fs.writeString("../../results/reactive_validation_results.json", report.toJson())
+    
+    println("\nResults saved to: results/reactive_validation_results.json")
+    println("Run statistical analysis for detailed comparison with other languages")
+}

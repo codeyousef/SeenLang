@@ -1,0 +1,589 @@
+// Pattern Matching Performance Microbenchmarks
+// Tests the efficiency of pattern matching vs traditional control structures
+// Compares when expressions, sealed classes, and exhaustive matching
+
+use std.benchmark
+use std.random
+
+// Sealed class hierarchy for pattern matching tests
+sealed class Shape {
+    data class Circle(val radius: Double) : Shape()
+    data class Rectangle(val width: Double, val height: Double) : Shape()
+    data class Triangle(val a: Double, val b: Double, val c: Double) : Shape()
+    data class Square(val side: Double) : Shape()
+    data class Polygon(val sides: Int, val sideLength: Double) : Shape()
+}
+
+// Enum for simple pattern matching
+enum class Operation {
+    ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULO, POWER
+}
+
+// Union type for advanced pattern matching
+sealed class Result<T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Error<T>(val message: String, val code: Int) : Result<T>()
+    class Loading<T> : Result<T>()
+}
+
+@benchmark
+fun measureBasicPatternMatching(b: Bencher) {
+    println("=== Basic Pattern Matching Performance ===")
+    println("Comparing when expressions vs if-else chains\n")
+    
+    val iterations = 1_000_000
+    val operations = (0..iterations).map { 
+        Operation.values()[Random.nextInt(Operation.values().size)]
+    }
+    val values = (0..iterations).map { Random.nextInt(1, 100) }
+    
+    // Pattern matching with when expression
+    b.measure("when_expression_pattern_matching") {
+        var total = 0.0
+        for (i in 0 until iterations) {
+            val result = calculateWithPatternMatching(operations[i], values[i], values[(i + 1) % iterations])
+            total += result
+        }
+        assert(total > 0)
+    }
+    
+    // Equivalent if-else chain
+    b.measure("if_else_chain_equivalent") {
+        var total = 0.0
+        for (i in 0 until iterations) {
+            val result = calculateWithIfElse(operations[i], values[i], values[(i + 1) % iterations])
+            total += result
+        }
+        assert(total > 0)
+    }
+    
+    // Switch-like implementation
+    b.measure("switch_like_implementation") {
+        var total = 0.0
+        for (i in 0 until iterations) {
+            val result = calculateWithSwitch(operations[i], values[i], values[(i + 1) % iterations])
+            total += result
+        }
+        assert(total > 0)
+    }
+    
+    analyzeBasicPatternMatching(b)
+}
+
+@benchmark
+fun measureSealedClassPatternMatching(b: Bencher) {
+    println("\n=== Sealed Class Pattern Matching ===")
+    println("Testing pattern matching on complex sealed class hierarchies\n")
+    
+    val iterations = 500_000
+    val shapes = generateTestShapes(iterations)
+    
+    // Pattern matching on sealed classes
+    b.measure("sealed_class_pattern_matching") {
+        var totalArea = 0.0
+        for (shape in shapes) {
+            totalArea += calculateAreaWithPatternMatching(shape)
+        }
+        assert(totalArea > 0)
+    }
+    
+    // Type checking with instanceof
+    b.measure("instanceof_type_checking") {
+        var totalArea = 0.0
+        for (shape in shapes) {
+            totalArea += calculateAreaWithInstanceof(shape)
+        }
+        assert(totalArea > 0)
+    }
+    
+    // Virtual method dispatch
+    b.measure("virtual_method_dispatch") {
+        var totalArea = 0.0
+        for (shape in shapes) {
+            totalArea += shape.calculateArea()
+        }
+        assert(totalArea > 0)
+    }
+    
+    analyzeSealedClassPatternMatching(b)
+}
+
+@benchmark
+fun measureNestedPatternMatching(b: Bencher) {
+    println("\n=== Nested Pattern Matching ===")
+    println("Testing performance of deeply nested pattern matches\n")
+    
+    val iterations = 200_000
+    val results = generateTestResults<Int>(iterations)
+    
+    // Nested pattern matching
+    b.measure("nested_pattern_matching") {
+        var processedCount = 0
+        for (result in results) {
+            processedCount += processResultWithPatternMatching(result)
+        }
+        assert(processedCount >= 0)
+    }
+    
+    // Nested if-else equivalent
+    b.measure("nested_if_else_equivalent") {
+        var processedCount = 0
+        for (result in results) {
+            processedCount += processResultWithIfElse(result)
+        }
+        assert(processedCount >= 0)
+    }
+    
+    // Early return pattern
+    b.measure("early_return_pattern") {
+        var processedCount = 0
+        for (result in results) {
+            processedCount += processResultWithEarlyReturn(result)
+        }
+        assert(processedCount >= 0)
+    }
+    
+    analyzeNestedPatternMatching(b)
+}
+
+@benchmark
+fun measureGuardedPatternMatching(b: Bencher) {
+    println("\n=== Guarded Pattern Matching ===")
+    println("Testing pattern matching with guards vs complex conditions\n")
+    
+    val iterations = 300_000
+    val numbers = (0..iterations).map { Random.nextInt(-1000, 1000) }
+    
+    // Pattern matching with guards
+    b.measure("guarded_pattern_matching") {
+        var count = 0
+        for (number in numbers) {
+            count += classifyNumberWithGuards(number)
+        }
+        assert(count >= 0)
+    }
+    
+    // Nested if conditions
+    b.measure("nested_if_conditions") {
+        var count = 0
+        for (number in numbers) {
+            count += classifyNumberWithIfs(number)
+        }
+        assert(count >= 0)
+    }
+    
+    analyzeGuardedPatternMatching(b)
+}
+
+@benchmark
+fun measureExhaustivePatternMatching(b: Bencher) {
+    println("\n=== Exhaustive Pattern Matching ===")
+    println("Testing compiler optimizations for exhaustive matches\n")
+    
+    val iterations = 1_000_000
+    val booleans = (0..iterations).map { Random.nextBoolean() }
+    val optionals = (0..iterations).map { if (Random.nextBoolean()) Random.nextInt(100) else null }
+    
+    // Exhaustive boolean matching
+    b.measure("exhaustive_boolean_matching") {
+        var trueCount = 0
+        for (bool in booleans) {
+            trueCount += when (bool) {
+                true -> 1
+                false -> 0
+            }
+        }
+        assert(trueCount >= 0)
+    }
+    
+    // Boolean if-else
+    b.measure("boolean_if_else") {
+        var trueCount = 0
+        for (bool in booleans) {
+            trueCount += if (bool) 1 else 0
+        }
+        assert(trueCount >= 0)
+    }
+    
+    // Exhaustive optional matching
+    b.measure("exhaustive_optional_matching") {
+        var nonNullCount = 0
+        for (optional in optionals) {
+            nonNullCount += when (optional) {
+                null -> 0
+                else -> 1
+            }
+        }
+        assert(nonNullCount >= 0)
+    }
+    
+    // Optional null checking
+    b.measure("optional_null_checking") {
+        var nonNullCount = 0
+        for (optional in optionals) {
+            nonNullCount += if (optional != null) 1 else 0
+        }
+        assert(nonNullCount >= 0)
+    }
+    
+    analyzeExhaustivePatternMatching(b)
+}
+
+// Helper functions for pattern matching tests
+
+fun calculateWithPatternMatching(op: Operation, a: Int, b: Int): Double {
+    return when (op) {
+        Operation.ADD -> (a + b).toDouble()
+        Operation.SUBTRACT -> (a - b).toDouble()
+        Operation.MULTIPLY -> (a * b).toDouble()
+        Operation.DIVIDE -> if (b != 0) a.toDouble() / b else 0.0
+        Operation.MODULO -> if (b != 0) (a % b).toDouble() else 0.0
+        Operation.POWER -> Math.pow(a.toDouble(), b.toDouble())
+    }
+}
+
+fun calculateWithIfElse(op: Operation, a: Int, b: Int): Double {
+    if (op == Operation.ADD) {
+        return (a + b).toDouble()
+    } else if (op == Operation.SUBTRACT) {
+        return (a - b).toDouble()
+    } else if (op == Operation.MULTIPLY) {
+        return (a * b).toDouble()
+    } else if (op == Operation.DIVIDE) {
+        return if (b != 0) a.toDouble() / b else 0.0
+    } else if (op == Operation.MODULO) {
+        return if (b != 0) (a % b).toDouble() else 0.0
+    } else if (op == Operation.POWER) {
+        return Math.pow(a.toDouble(), b.toDouble())
+    } else {
+        return 0.0
+    }
+}
+
+fun calculateWithSwitch(op: Operation, a: Int, b: Int): Double {
+    return when (op.ordinal()) {
+        0 -> (a + b).toDouble()  // ADD
+        1 -> (a - b).toDouble()  // SUBTRACT
+        2 -> (a * b).toDouble()  // MULTIPLY
+        3 -> if (b != 0) a.toDouble() / b else 0.0  // DIVIDE
+        4 -> if (b != 0) (a % b).toDouble() else 0.0  // MODULO
+        5 -> Math.pow(a.toDouble(), b.toDouble())  // POWER
+        else -> 0.0
+    }
+}
+
+fun generateTestShapes(count: Int): List<Shape> {
+    return (0..count).map {
+        when (Random.nextInt(5)) {
+            0 -> Shape.Circle(Random.nextDouble() * 10 + 1)
+            1 -> Shape.Rectangle(Random.nextDouble() * 10 + 1, Random.nextDouble() * 10 + 1)
+            2 -> Shape.Triangle(
+                Random.nextDouble() * 10 + 1,
+                Random.nextDouble() * 10 + 1,
+                Random.nextDouble() * 10 + 1
+            )
+            3 -> Shape.Square(Random.nextDouble() * 10 + 1)
+            else -> Shape.Polygon(Random.nextInt(3, 12), Random.nextDouble() * 5 + 1)
+        }
+    }
+}
+
+fun calculateAreaWithPatternMatching(shape: Shape): Double {
+    return when (shape) {
+        is Shape.Circle -> Math.PI * shape.radius * shape.radius
+        is Shape.Rectangle -> shape.width * shape.height
+        is Shape.Square -> shape.side * shape.side
+        is Shape.Triangle -> {
+            val s = (shape.a + shape.b + shape.c) / 2
+            Math.sqrt(s * (s - shape.a) * (s - shape.b) * (s - shape.c))
+        }
+        is Shape.Polygon -> {
+            // Approximation for regular polygon
+            val apothem = shape.sideLength / (2 * Math.tan(Math.PI / shape.sides))
+            0.5 * shape.sides * shape.sideLength * apothem
+        }
+    }
+}
+
+fun calculateAreaWithInstanceof(shape: Shape): Double {
+    if (shape is Shape.Circle) {
+        return Math.PI * shape.radius * shape.radius
+    } else if (shape is Shape.Rectangle) {
+        return shape.width * shape.height
+    } else if (shape is Shape.Square) {
+        return shape.side * shape.side
+    } else if (shape is Shape.Triangle) {
+        val s = (shape.a + shape.b + shape.c) / 2
+        return Math.sqrt(s * (s - shape.a) * (s - shape.b) * (s - shape.c))
+    } else if (shape is Shape.Polygon) {
+        val apothem = shape.sideLength / (2 * Math.tan(Math.PI / shape.sides))
+        return 0.5 * shape.sides * shape.sideLength * apothem
+    }
+    return 0.0
+}
+
+// Add calculateArea method to Shape
+fun Shape.calculateArea(): Double {
+    return calculateAreaWithPatternMatching(this)
+}
+
+fun generateTestResults<T>(count: Int): List<Result<Int>> {
+    return (0..count).map {
+        when (Random.nextInt(3)) {
+            0 -> Result.Success(Random.nextInt(100))
+            1 -> Result.Error("Error ${Random.nextInt(10)}", Random.nextInt(500))
+            else -> Result.Loading()
+        }
+    }
+}
+
+fun processResultWithPatternMatching(result: Result<Int>): Int {
+    return when (result) {
+        is Result.Success -> when {
+            result.value > 50 -> 2
+            result.value > 25 -> 1
+            else -> 0
+        }
+        is Result.Error -> when {
+            result.code < 100 -> -1
+            result.code < 400 -> -2
+            else -> -3
+        }
+        is Result.Loading -> 0
+    }
+}
+
+fun processResultWithIfElse(result: Result<Int>): Int {
+    if (result is Result.Success) {
+        if (result.value > 50) {
+            return 2
+        } else if (result.value > 25) {
+            return 1
+        } else {
+            return 0
+        }
+    } else if (result is Result.Error) {
+        if (result.code < 100) {
+            return -1
+        } else if (result.code < 400) {
+            return -2
+        } else {
+            return -3
+        }
+    } else {
+        return 0
+    }
+}
+
+fun processResultWithEarlyReturn(result: Result<Int>): Int {
+    if (result is Result.Loading) return 0
+    
+    if (result is Result.Success) {
+        if (result.value > 50) return 2
+        if (result.value > 25) return 1
+        return 0
+    }
+    
+    if (result is Result.Error) {
+        if (result.code < 100) return -1
+        if (result.code < 400) return -2
+        return -3
+    }
+    
+    return 0
+}
+
+fun classifyNumberWithGuards(n: Int): Int {
+    return when {
+        n > 0 && n % 2 == 0 && n < 100 -> 1  // Small positive even
+        n > 0 && n % 2 == 1 && n < 100 -> 2  // Small positive odd
+        n > 0 && n >= 100 -> 3               // Large positive
+        n < 0 && n % 2 == 0 -> 4             // Negative even
+        n < 0 && n % 2 == 1 -> 5             // Negative odd
+        else -> 0                            // Zero
+    }
+}
+
+fun classifyNumberWithIfs(n: Int): Int {
+    if (n > 0) {
+        if (n < 100) {
+            if (n % 2 == 0) {
+                return 1  // Small positive even
+            } else {
+                return 2  // Small positive odd
+            }
+        } else {
+            return 3  // Large positive
+        }
+    } else if (n < 0) {
+        if (n % 2 == 0) {
+            return 4  // Negative even
+        } else {
+            return 5  // Negative odd
+        }
+    } else {
+        return 0  // Zero
+    }
+}
+
+// Analysis functions
+
+fun analyzeBasicPatternMatching(b: Bencher) {
+    val whenTime = b.getMetric("when_expression_pattern_matching").mean()
+    val ifElseTime = b.getMetric("if_else_chain_equivalent").mean()
+    val switchTime = b.getMetric("switch_like_implementation").mean()
+    
+    println("\n=== Basic Pattern Matching Analysis ===")
+    println("When expression: ${whenTime * 1000:.2f}ms")
+    println("If-else chain: ${ifElseTime * 1000:.2f}ms")
+    println("Switch-like: ${switchTime * 1000:.2f}ms")
+    
+    val whenOverhead = (whenTime - ifElseTime) / ifElseTime * 100
+    val switchOverhead = (switchTime - ifElseTime) / ifElseTime * 100
+    
+    println("When vs if-else overhead: ${whenOverhead:.1f}%")
+    println("Switch vs if-else overhead: ${switchOverhead:.1f}%")
+    
+    b.recordMetric("when_pattern_matching_overhead_percent", whenOverhead)
+    b.recordMetric("switch_pattern_matching_overhead_percent", switchOverhead)
+    
+    if (Math.abs(whenOverhead) < 10.0) {
+        println("✅ Pattern matching is competitive with if-else")
+    } else if (whenOverhead < 0) {
+        println("✅ Pattern matching is faster than if-else")
+    } else {
+        println("⚠️  Pattern matching has noticeable overhead")
+    }
+}
+
+fun analyzeSealedClassPatternMatching(b: Bencher) {
+    val patternTime = b.getMetric("sealed_class_pattern_matching").mean()
+    val instanceofTime = b.getMetric("instanceof_type_checking").mean()
+    val virtualTime = b.getMetric("virtual_method_dispatch").mean()
+    
+    println("\n=== Sealed Class Pattern Matching Analysis ===")
+    println("Pattern matching: ${patternTime * 1000:.2f}ms")
+    println("Instanceof checking: ${instanceofTime * 1000:.2f}ms")
+    println("Virtual dispatch: ${virtualTime * 1000:.2f}ms")
+    
+    val patternOverhead = (patternTime - virtualTime) / virtualTime * 100
+    val instanceofOverhead = (instanceofTime - virtualTime) / virtualTime * 100
+    
+    println("Pattern vs virtual overhead: ${patternOverhead:.1f}%")
+    println("Instanceof vs virtual overhead: ${instanceofOverhead:.1f}%")
+    
+    b.recordMetric("sealed_pattern_matching_overhead_percent", patternOverhead)
+    b.recordMetric("instanceof_overhead_percent", instanceofOverhead)
+}
+
+fun analyzeNestedPatternMatching(b: Bencher) {
+    val nestedPatternTime = b.getMetric("nested_pattern_matching").mean()
+    val nestedIfTime = b.getMetric("nested_if_else_equivalent").mean()
+    val earlyReturnTime = b.getMetric("early_return_pattern").mean()
+    
+    println("\n=== Nested Pattern Matching Analysis ===")
+    println("Nested pattern: ${nestedPatternTime * 1000:.2f}ms")
+    println("Nested if-else: ${nestedIfTime * 1000:.2f}ms")
+    println("Early return: ${earlyReturnTime * 1000:.2f}ms")
+    
+    val nestedOverhead = (nestedPatternTime - nestedIfTime) / nestedIfTime * 100
+    val earlyReturnBenefit = (nestedIfTime - earlyReturnTime) / nestedIfTime * 100
+    
+    println("Nested pattern overhead: ${nestedOverhead:.1f}%")
+    println("Early return benefit: ${earlyReturnBenefit:.1f}%")
+    
+    b.recordMetric("nested_pattern_matching_overhead_percent", nestedOverhead)
+    b.recordMetric("early_return_benefit_percent", earlyReturnBenefit)
+}
+
+fun analyzeGuardedPatternMatching(b: Bencher) {
+    val guardedTime = b.getMetric("guarded_pattern_matching").mean()
+    val nestedIfTime = b.getMetric("nested_if_conditions").mean()
+    
+    println("\n=== Guarded Pattern Matching Analysis ===")
+    println("Guarded patterns: ${guardedTime * 1000:.2f}ms")
+    println("Nested if conditions: ${nestedIfTime * 1000:.2f}ms")
+    
+    val guardedOverhead = (guardedTime - nestedIfTime) / nestedIfTime * 100
+    println("Guarded pattern overhead: ${guardedOverhead:.1f}%")
+    
+    b.recordMetric("guarded_pattern_matching_overhead_percent", guardedOverhead)
+}
+
+fun analyzeExhaustivePatternMatching(b: Bencher) {
+    val booleanMatchTime = b.getMetric("exhaustive_boolean_matching").mean()
+    val booleanIfTime = b.getMetric("boolean_if_else").mean()
+    val optionalMatchTime = b.getMetric("exhaustive_optional_matching").mean()
+    val optionalCheckTime = b.getMetric("optional_null_checking").mean()
+    
+    println("\n=== Exhaustive Pattern Matching Analysis ===")
+    println("Boolean pattern matching: ${booleanMatchTime * 1000:.2f}ms")
+    println("Boolean if-else: ${booleanIfTime * 1000:.2f}ms")
+    println("Optional pattern matching: ${optionalMatchTime * 1000:.2f}ms")
+    println("Optional null checking: ${optionalCheckTime * 1000:.2f}ms")
+    
+    val booleanOverhead = (booleanMatchTime - booleanIfTime) / booleanIfTime * 100
+    val optionalOverhead = (optionalMatchTime - optionalCheckTime) / optionalCheckTime * 100
+    
+    println("Boolean pattern overhead: ${booleanOverhead:.1f}%")
+    println("Optional pattern overhead: ${optionalOverhead:.1f}%")
+    
+    b.recordMetric("boolean_pattern_overhead_percent", booleanOverhead)
+    b.recordMetric("optional_pattern_overhead_percent", optionalOverhead)
+}
+
+// Main execution
+fun main() {
+    val bencher = Bencher(iterations = 10, warmupIterations = 3)
+    
+    println("=== Seen Pattern Matching Performance Microbenchmarks ===")
+    println("Measuring pattern matching efficiency vs traditional control structures\n")
+    
+    measureBasicPatternMatching(bencher)
+    measureSealedClassPatternMatching(bencher)
+    measureNestedPatternMatching(bencher)
+    measureGuardedPatternMatching(bencher)
+    measureExhaustivePatternMatching(bencher)
+    
+    // Generate summary report
+    val results = bencher.getAllResults()
+    generatePatternMatchingSummary(results)
+    
+    // Save results for analysis
+    val report = bencher.generateReport()
+    fs.writeString("../../results/pattern_matching_performance_results.json", report.toJson())
+    println("\nResults saved to: results/pattern_matching_performance_results.json")
+}
+
+fun generatePatternMatchingSummary(results: Map<String, BenchmarkResult>) {
+    println("\n=== PATTERN MATCHING PERFORMANCE SUMMARY ===")
+    
+    val overheadMetrics = results.filter { it.key.contains("overhead_percent") }
+    val avgOverhead = if (overheadMetrics.isNotEmpty()) {
+        overheadMetrics.values.map { it.mean() }.average()
+    } else 0.0
+    
+    println("Average pattern matching overhead: ${avgOverhead:.1f}%")
+    
+    if (avgOverhead < 10.0) {
+        println("✅ Pattern matching is highly efficient")
+    } else if (avgOverhead < 25.0) {
+        println("✅ Pattern matching has acceptable overhead")
+    } else {
+        println("⚠️  Pattern matching may need optimization")
+    }
+    
+    // Check specific optimizations
+    val exhaustiveOptimized = results.filter { 
+        it.key.contains("boolean_pattern_overhead") || it.key.contains("optional_pattern_overhead")
+    }.all { it.value.mean() < 15.0 }
+    
+    if (exhaustiveOptimized) {
+        println("✅ Exhaustive matches are well-optimized")
+    } else {
+        println("⚠️  Exhaustive matches could benefit from optimization")
+    }
+    
+    println("\nPattern matching provides code clarity benefits that often justify minor overhead")
+    println("Results show where compiler optimizations are most effective")
+}

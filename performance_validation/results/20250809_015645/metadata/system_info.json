@@ -1,0 +1,17 @@
+﻿{
+    "version":  "10.0.26100",
+    "timestamp":  "2025-08-08T22:56:46Z",
+    "cpu_info":  "AMD Ryzen 9 7950X3D 16-Core Processor          ",
+    "architecture":  "x64-based PC",
+    "memory_total":  67772514304,
+    "os":  "Microsoft Windows 11 Home",
+    "benchmark_config":  {
+                             "competitors":  "cpp,rust,zig",
+                             "warmup_iterations":  null,
+                             "iterations":  30,
+                             "test_size":  null,
+                             "timeout_seconds":  null,
+                             "categories":  "all"
+                         },
+    "hostname":  "MAIN"
+}

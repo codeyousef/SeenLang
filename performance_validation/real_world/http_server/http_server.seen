@@ -1,0 +1,545 @@
+// Seen HTTP Server Benchmark - Real-world HTTP server performance test
+// Tests request handling, concurrent connections, and throughput
+
+use std.io
+use std.time
+use std.benchmark
+use std.net
+use std.thread
+use std.collections
+use std.sync
+use std.string
+
+// HTTP Request representation
+struct HttpRequest {
+    method: String,
+    path: String,
+    version: String,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+impl HttpRequest {
+    fun new() -> HttpRequest {
+        HttpRequest {
+            method: String::new(),
+            path: String::new(),
+            version: String::new(),
+            headers: HashMap::new(),
+            body: String::new(),
+        }
+    }
+    
+    fun parseFromBuffer(buffer: &str) -> Result<HttpRequest, String> {
+        let lines = buffer.split('\n').collect::<Vec<&str>>();
+        if lines.isEmpty() {
+            return Err("Empty request".to_string());
+        }
+        
+        let mut request = HttpRequest::new();
+        
+        // Parse request line (GET /path HTTP/1.1)
+        let requestLineParts = lines[0].split(' ').collect::<Vec<&str>>();
+        if requestLineParts.len() != 3 {
+            return Err("Invalid request line".to_string());
+        }
+        
+        request.method = requestLineParts[0].to_string();
+        request.path = requestLineParts[1].to_string();
+        request.version = requestLineParts[2].trim().to_string();
+        
+        // Parse headers
+        let mut i = 1;
+        while i < lines.len() && !lines[i].trim().isEmpty() {
+            if let Some(colonPos) = lines[i].find(':') {
+                let key = lines[i][0..colonPos].trim().to_lowercase();
+                let value = lines[i][colonPos + 1..].trim().to_string();
+                request.headers.insert(key, value);
+            }
+            i += 1;
+        }
+        
+        // Parse body (if present)
+        i += 1; // Skip empty line
+        if i < lines.len() {
+            let bodyLines = &lines[i..];
+            request.body = bodyLines.join("\n");
+        }
+        
+        Ok(request)
+    }
+    
+    fun getHeader(self, name: &str) -> Option<&String> {
+        self.headers.get(&name.to_lowercase())
+    }
+}
+
+// HTTP Response representation
+struct HttpResponse {
+    version: String,
+    statusCode: u16,
+    statusText: String,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+impl HttpResponse {
+    fun new(statusCode: u16, statusText: String) -> HttpResponse {
+        HttpResponse {
+            version: "HTTP/1.1".to_string(),
+            statusCode,
+            statusText,
+            headers: HashMap::new(),
+            body: String::new(),
+        }
+    }
+    
+    fun ok(body: String) -> HttpResponse {
+        let mut response = HttpResponse::new(200, "OK".to_string());
+        response.setBody(body);
+        response
+    }
+    
+    fun notFound() -> HttpResponse {
+        let mut response = HttpResponse::new(404, "Not Found".to_string());
+        response.setBody("<html><body><h1>404 Not Found</h1></body></html>".to_string());
+        response.setHeader("Content-Type".to_string(), "text/html".to_string());
+        response
+    }
+    
+    fun internalServerError() -> HttpResponse {
+        let mut response = HttpResponse::new(500, "Internal Server Error".to_string());
+        response.setBody("<html><body><h1>500 Internal Server Error</h1></body></html>".to_string());
+        response.setHeader("Content-Type".to_string(), "text/html".to_string());
+        response
+    }
+    
+    fun setHeader(mut self, key: String, value: String) {
+        self.headers.insert(key, value);
+    }
+    
+    fun setBody(mut self, body: String) {
+        self.body = body;
+        self.setHeader("Content-Length".to_string(), body.len().to_string());
+    }
+    
+    fun toBytes(self) -> Vec<u8> {
+        let mut response = format!("{} {} {}\r\n", self.version, self.statusCode, self.statusText);
+        
+        for (key, value) in self.headers.iter() {
+            response.push_str(&format!("{}: {}\r\n", key, value));
+        }
+        
+        response.push_str("\r\n");
+        response.push_str(&self.body);
+        
+        response.into_bytes()
+    }
+}
+
+// Simple HTTP Server implementation
+struct HttpServer {
+    listener: TcpListener,
+    running: Arc<AtomicBool>,
+    requestCount: Arc<AtomicU64>,
+    responseTimeSum: Arc<AtomicU64>, // in microseconds
+    
+    // Route handlers
+    routes: HashMap<String, fn(&HttpRequest) -> HttpResponse>,
+}
+
+impl HttpServer {
+    fun new(port: u16) -> Result<HttpServer, String> {
+        let address = format!("127.0.0.1:{}", port);
+        let listener = TcpListener::bind(&address)
+            .mapErr(|e| format!("Failed to bind to {}: {}", address, e))?;
+        
+        listener.setNonblocking(false)
+            .mapErr(|e| format!("Failed to set blocking mode: {}", e))?;
+        
+        Ok(HttpServer {
+            listener,
+            running: Arc::new(AtomicBool::new(false)),
+            requestCount: Arc::new(AtomicU64::new(0)),
+            responseTimeSum: Arc::new(AtomicU64::new(0)),
+            routes: HashMap::new(),
+        })
+    }
+    
+    fun addRoute(mut self, path: String, handler: fn(&HttpRequest) -> HttpResponse) {
+        self.routes.insert(path, handler);
+    }
+    
+    fun handleRequest(self, request: &HttpRequest) -> HttpResponse {
+        let startTime = time.nanoTime();
+        
+        let response = match self.routes.get(&request.path) {
+            Some(handler) => handler(request),
+            None => match request.path.as_str() {
+                "/" => HttpResponse::ok("Hello, World!".to_string()),
+                "/health" => {
+                    let mut response = HttpResponse::ok("OK".to_string());
+                    response.setHeader("Content-Type".to_string(), "text/plain".to_string());
+                    response
+                }
+                "/stats" => {
+                    let requestCount = self.requestCount.load(Ordering::Relaxed);
+                    let avgResponseTime = if requestCount > 0 {
+                        self.responseTimeSum.load(Ordering::Relaxed) / requestCount
+                    } else {
+                        0
+                    };
+                    
+                    let stats = format!(
+                        "{{\"requests\": {}, \"avgResponseTimeUs\": {}}}",
+                        requestCount, avgResponseTime
+                    );
+                    
+                    let mut response = HttpResponse::ok(stats);
+                    response.setHeader("Content-Type".to_string(), "application/json".to_string());
+                    response
+                }
+                "/echo" => {
+                    let mut response = HttpResponse::ok(request.body.clone());
+                    response.setHeader("Content-Type".to_string(), "text/plain".to_string());
+                    response
+                }
+                path if path.startsWith("/static/") => {
+                    // Simple static file serving
+                    let fileName = &path[8..]; // Remove "/static/" prefix
+                    self.serveStaticFile(fileName)
+                }
+                _ => HttpResponse::notFound(),
+            }
+        };
+        
+        let endTime = time.nanoTime();
+        let responseTime = (endTime - startTime) / 1000; // Convert to microseconds
+        
+        self.requestCount.fetchAdd(1, Ordering::Relaxed);
+        self.responseTimeSum.fetchAdd(responseTime, Ordering::Relaxed);
+        
+        response
+    }
+    
+    fun serveStaticFile(self, fileName: &str) -> HttpResponse {
+        // Security: basic path traversal protection
+        if fileName.contains("..") || fileName.contains("/") {
+            return HttpResponse::notFound();
+        }
+        
+        let filePath = format!("static/{}", fileName);
+        
+        match std::fs::readToString(&filePath) {
+            Ok(content) => {
+                let mut response = HttpResponse::ok(content);
+                
+                // Set content type based on file extension
+                let contentType = match fileName.split('.').last() {
+                    Some("html") => "text/html",
+                    Some("css") => "text/css",
+                    Some("js") => "application/javascript",
+                    Some("json") => "application/json",
+                    Some("txt") => "text/plain",
+                    _ => "application/octet-stream",
+                };
+                
+                response.setHeader("Content-Type".to_string(), contentType.to_string());
+                response
+            }
+            Err(_) => HttpResponse::notFound(),
+        }
+    }
+    
+    fun handleConnection(self, mut stream: TcpStream) -> Result<(), String> {
+        let mut buffer = [0u8; 4096];
+        
+        match stream.read(&mut buffer) {
+            Ok(bytesRead) => {
+                if bytesRead == 0 {
+                    return Ok(()); // Connection closed by client
+                }
+                
+                let requestData = String::fromUtf8Lossy(&buffer[..bytesRead]);
+                
+                match HttpRequest::parseFromBuffer(&requestData) {
+                    Ok(request) => {
+                        let response = self.handleRequest(&request);
+                        let responseBytes = response.toBytes();
+                        
+                        if let Err(e) = stream.writeAll(&responseBytes) {
+                            return Err(format!("Failed to write response: {}", e));
+                        }
+                        
+                        if let Err(e) = stream.flush() {
+                            return Err(format!("Failed to flush stream: {}", e));
+                        }
+                    }
+                    Err(e) => {
+                        // Send 400 Bad Request for malformed requests
+                        let response = HttpResponse::new(400, "Bad Request".to_string());
+                        let responseBytes = response.toBytes();
+                        let _ = stream.writeAll(&responseBytes);
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(format!("Failed to read from stream: {}", e));
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fun start(mut self) -> Result<(), String> {
+        self.running.store(true, Ordering::Relaxed);
+        
+        println!("HTTP Server started on {}", self.listener.localAddr().unwrap());
+        
+        let threadPool = ThreadPool::new(4); // 4 worker threads
+        
+        for stream in self.listener.incoming() {
+            if !self.running.load(Ordering::Relaxed) {
+                break;
+            }
+            
+            match stream {
+                Ok(stream) => {
+                    let serverClone = self.clone();
+                    threadPool.execute(move || {
+                        if let Err(e) = serverClone.handleConnection(stream) {
+                            eprintln!("Error handling connection: {}", e);
+                        }
+                    });
+                }
+                Err(e) => {
+                    eprintln!("Error accepting connection: {}", e);
+                    continue;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fun stop(self) {
+        self.running.store(false, Ordering::Relaxed);
+    }
+    
+    fun getStats(self) -> (u64, f64) {
+        let requestCount = self.requestCount.load(Ordering::Relaxed);
+        let avgResponseTime = if requestCount > 0 {
+            self.responseTimeSum.load(Ordering::Relaxed) as f64 / requestCount as f64
+        } else {
+            0.0
+        };
+        
+        (requestCount, avgResponseTime)
+    }
+}
+
+// Thread pool for handling concurrent connections
+struct ThreadPool {
+    workers: Vec<Worker>,
+    sender: mpsc::Sender<Job>,
+}
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+impl ThreadPool {
+    fun new(size: usize) -> ThreadPool {
+        assert!(size > 0);
+        
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+        
+        let mut workers = Vec::withCapacity(size);
+        
+        for id in 0..size {
+            workers.push(Worker::new(id, Arc::clone(&receiver)));
+        }
+        
+        ThreadPool { workers, sender }
+    }
+    
+    fun execute<F>(self, f: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let job = Box::new(f);
+        self.sender.send(job).unwrap();
+    }
+}
+
+struct Worker {
+    id: usize,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Worker {
+    fun new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+        let thread = thread::spawn(move || loop {
+            let job = receiver.lock().unwrap().recv().unwrap();
+            job();
+        });
+        
+        Worker {
+            id,
+            thread: Some(thread),
+        }
+    }
+}
+
+// Benchmark functions
+@benchmark
+fun benchmarkHttpServerThroughput(b: Bencher) {
+    // Start server in background thread
+    let server = HttpServer::new(8080).expect("Failed to create server");
+    let serverRunning = server.running.clone();
+    let serverStats = (server.requestCount.clone(), server.responseTimeSum.clone());
+    
+    let serverThread = thread::spawn(move || {
+        server.start().expect("Failed to start server");
+    });
+    
+    // Wait for server to start
+    thread::sleep(Duration::fromMillis(100));
+    
+    b.iter {
+        let startTime = time.now();
+        
+        // Run concurrent load test
+        let numberOfClients = 50;
+        let requestsPerClient = 100;
+        let handles = Vec::new();
+        
+        for clientId in 0..numberOfClients {
+            let handle = thread::spawn(move || {
+                for requestId in 0..requestsPerClient {
+                    match TcpStream::connect("127.0.0.1:8080") {
+                        Ok(mut stream) => {
+                            let request = format!(
+                                "GET /?client={}&request={} HTTP/1.1\r\n\
+                                 Host: localhost\r\n\
+                                 Connection: close\r\n\
+                                 \r\n",
+                                clientId, requestId
+                            );
+                            
+                            if stream.writeAll(request.asBytes()).isErr() {
+                                break;
+                            }
+                            
+                            let mut buffer = [0u8; 1024];
+                            let _ = stream.read(&mut buffer);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+        
+        // Wait for all clients to complete
+        for handle in handles {
+            let _ = handle.join();
+        }
+        
+        let endTime = time.now();
+        let elapsedSeconds = (endTime - startTime).toSeconds();
+        let totalRequests = numberOfClients * requestsPerClient;
+        let requestsPerSecond = totalRequests as f64 / elapsedSeconds;
+        
+        b.recordMetric("requests_per_second", requestsPerSecond);
+        b.recordMetric("total_requests", totalRequests as f64);
+        b.recordMetric("elapsed_seconds", elapsedSeconds);
+    }
+    
+    // Stop server
+    serverRunning.store(false, Ordering::Relaxed);
+    let _ = TcpStream::connect("127.0.0.1:8080"); // Wake up server to check running flag
+    let _ = serverThread.join();
+    
+    let (finalRequestCount, avgResponseTime) = {
+        let count = serverStats.0.load(Ordering::Relaxed);
+        let avgTime = if count > 0 {
+            serverStats.1.load(Ordering::Relaxed) as f64 / count as f64
+        } else {
+            0.0
+        };
+        (count, avgTime)
+    };
+    
+    b.reportMetric("final_request_count", finalRequestCount as f64);
+    b.reportMetric("average_response_time_us", avgResponseTime);
+    
+    println!("HTTP Server Performance:");
+    println!("  Total requests handled: {}", finalRequestCount);
+    println!("  Average response time: {:.2}μs", avgResponseTime);
+    println!("  Peak requests/sec: {:.0}", b.getMetric("requests_per_second").max());
+}
+
+@benchmark
+fun benchmarkHttpServerLatency(b: Bencher) {
+    // Test individual request latency
+    let server = HttpServer::new(8081).expect("Failed to create server");
+    let serverRunning = server.running.clone();
+    
+    let serverThread = thread::spawn(move || {
+        server.start().expect("Failed to start server");
+    });
+    
+    thread::sleep(Duration::fromMillis(100));
+    
+    b.iter {
+        match TcpStream::connect("127.0.0.1:8081") {
+            Ok(mut stream) => {
+                let startTime = time.nanoTime();
+                
+                let request = "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+                
+                if stream.writeAll(request.asBytes()).isOk() {
+                    let mut buffer = [0u8; 1024];
+                    if stream.read(&mut buffer).isOk() {
+                        let endTime = time.nanoTime();
+                        let latencyUs = (endTime - startTime) / 1000;
+                        b.recordMetric("latency_microseconds", latencyUs as f64);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Failed to connect: {}", e);
+            }
+        }
+    }
+    
+    serverRunning.store(false, Ordering::Relaxed);
+    let _ = TcpStream::connect("127.0.0.1:8081");
+    let _ = serverThread.join();
+    
+    let avgLatency = b.getMetric("latency_microseconds").mean();
+    let p95Latency = b.getMetric("latency_microseconds").percentile(95.0);
+    let p99Latency = b.getMetric("latency_microseconds").percentile(99.0);
+    
+    b.reportMetric("average_latency_us", avgLatency);
+    b.reportMetric("p95_latency_us", p95Latency);
+    b.reportMetric("p99_latency_us", p99Latency);
+    
+    println!("HTTP Server Latency:");
+    println!("  Average latency: {:.2}μs", avgLatency);
+    println!("  95th percentile: {:.2}μs", p95Latency);
+    println!("  99th percentile: {:.2}μs", p99Latency);
+}
+
+fun main() {
+    println!("Running Seen HTTP Server Benchmarks...");
+    
+    // Run throughput benchmark
+    let mut bencher = Bencher::new();
+    benchmarkHttpServerThroughput(&mut bencher);
+    
+    // Run latency benchmark
+    benchmarkHttpServerLatency(&mut bencher);
+    
+    println!("HTTP Server benchmarks completed successfully!");
+}

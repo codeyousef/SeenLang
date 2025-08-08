@@ -1,0 +1,374 @@
+// Binary Trees Benchmark - Computer Language Benchmarks Game Implementation
+// Stress test: allocation, deallocation, recursion
+// This is where GC languages typically lose - manual memory management should shine
+
+use std.benchmark
+use std.memory
+
+// Binary tree node structure
+class TreeNode {
+    val item: Int
+    var left: TreeNode?
+    var right: TreeNode?
+    
+    constructor(item: Int, left: TreeNode?, right: TreeNode?) {
+        this.item = item
+        this.left = left
+        this.right = right
+    }
+}
+
+// Create a tree of specified depth
+fun makeTree(item: Int, depth: Int): TreeNode? {
+    return if (depth > 0) {
+        TreeNode(
+            item, 
+            makeTree(2 * item - 1, depth - 1),
+            makeTree(2 * item, depth - 1)
+        )
+    } else {
+        TreeNode(item, null, null)
+    }
+}
+
+// Check tree structure and calculate checksum
+fun checkTree(node: TreeNode?): Int {
+    return if (node?.left == null) {
+        node?.item ?: 0
+    } else {
+        node.item + checkTree(node.left) - checkTree(node.right)
+    }
+}
+
+@benchmark
+fun binaryTrees(b: Bencher, maxDepth: Int) {
+    val minDepth = 4
+    
+    println("=== Binary Trees Benchmark ===")
+    println("Max depth: $maxDepth")
+    
+    b.measure("binary_trees_main") {
+        val baselineMemory = memory.getUsedMemory()
+        
+        // Long lived tree
+        val longLivedTree = makeTree(0, maxDepth)
+        
+        var depth = minDepth
+        while (depth <= maxDepth) {
+            val iterations = 1 shl (maxDepth - depth + minDepth)
+            var check = 0
+            
+            val iterationStartTime = System.nanoTime()
+            
+            for (i in 1..iterations) {
+                val tree1 = makeTree(i, depth)
+                val tree2 = makeTree(-i, depth)
+                check += checkTree(tree1) + checkTree(tree2)
+            }
+            
+            val iterationEndTime = System.nanoTime()
+            val iterationTime = (iterationEndTime - iterationStartTime) / 1_000_000.0 // ms
+            
+            println("${2 * iterations}\t trees of depth $depth\t check: $check\t time: ${iterationTime:.1f}ms")
+            
+            b.recordMetric("depth_${depth}_iterations", iterations.toDouble())
+            b.recordMetric("depth_${depth}_check", check.toDouble())
+            b.recordMetric("depth_${depth}_time_ms", iterationTime)
+            
+            depth += 2
+        }
+        
+        // Final long-lived tree check
+        val longLivedCheck = checkTree(longLivedTree)
+        println("long lived tree of depth $maxDepth\t check: $longLivedCheck")
+        
+        val peakMemory = memory.getPeakMemoryUsage()
+        val totalMemoryUsed = peakMemory - baselineMemory
+        
+        b.recordMetric("total_memory_used_mb", (totalMemoryUsed / 1024 / 1024).toDouble())
+        b.recordMetric("long_lived_tree_check", longLivedCheck.toDouble())
+        
+        println("Peak memory usage: ${totalMemoryUsed / 1024 / 1024}MB")
+    }
+}
+
+@benchmark
+fun binaryTreesMemoryStress(b: Bencher) {
+    // Additional memory stress test - rapid allocation/deallocation
+    println("\n=== Memory Stress Test ===")
+    
+    val depths = listOf(10, 12, 14, 16, 18)
+    
+    for (depth in depths) {
+        b.measure("memory_stress_depth_$depth") {
+            val startMemory = memory.getUsedMemory()
+            val trees = mutableListOf<TreeNode?>()
+            
+            // Allocate many trees
+            for (i in 0..999) {
+                trees.add(makeTree(i, depth))
+            }
+            
+            val peakMemory = memory.getUsedMemory()
+            
+            // Deallocate (test GC efficiency)
+            trees.clear()
+            memory.forceGC()
+            
+            val finalMemory = memory.getUsedMemory()
+            
+            val allocatedMemory = peakMemory - startMemory
+            val remainingMemory = finalMemory - startMemory
+            val gcEfficiency = (allocatedMemory - remainingMemory).toDouble() / allocatedMemory * 100
+            
+            b.recordMetric("allocated_memory_depth_${depth}_mb", (allocatedMemory / 1024 / 1024).toDouble())
+            b.recordMetric("gc_efficiency_depth_${depth}_percent", gcEfficiency)
+            
+            println("Depth $depth: Allocated=${allocatedMemory / 1024 / 1024}MB, GC efficiency=${gcEfficiency:.1f}%")
+        }
+    }
+}
+
+@benchmark
+fun binaryTreesRecursionDepth(b: Bencher) {
+    // Test recursion performance at different depths
+    println("\n=== Recursion Depth Performance ===")
+    
+    val testDepths = listOf(8, 10, 12, 14, 16, 18, 20)
+    
+    for (depth in testDepths) {
+        b.measure("recursion_depth_$depth") {
+            val startTime = System.nanoTime()
+            
+            // Create and check multiple trees at this depth
+            var totalCheck = 0
+            for (i in 1..100) {
+                val tree = makeTree(i, depth)
+                totalCheck += checkTree(tree)
+            }
+            
+            val endTime = System.nanoTime()
+            val timeMs = (endTime - startTime) / 1_000_000.0
+            
+            b.recordMetric("recursion_time_depth_${depth}_ms", timeMs)
+            b.recordMetric("recursion_check_depth_$depth", totalCheck.toDouble())
+            
+            println("Depth $depth: ${timeMs:.2f}ms, check sum: $totalCheck")
+        }
+    }
+    
+    // Analyze recursion scaling
+    analyzeRecursionScaling(b)
+}
+
+fun analyzeRecursionScaling(b: Bencher) {
+    // Analyze if recursion time scales as expected
+    val depths = listOf(8, 10, 12, 14, 16, 18, 20)
+    val times = mutableListOf<Double>()
+    
+    for (depth in depths) {
+        val time = b.getMetric("recursion_time_depth_${depth}_ms")?.mean() ?: 0.0
+        times.add(time)
+    }
+    
+    // Calculate scaling factor
+    for (i in 1 until depths.size) {
+        val prevDepth = depths[i-1]
+        val currDepth = depths[i]
+        val prevTime = times[i-1]
+        val currTime = times[i]
+        
+        if (prevTime > 0) {
+            val scalingFactor = currTime / prevTime
+            val depthIncrease = currDepth - prevDepth
+            val expectedScaling = Math.pow(2.0, depthIncrease.toDouble()) // Should scale exponentially
+            val efficiency = expectedScaling / scalingFactor
+            
+            println("Depth ${prevDepth}→${currDepth}: ${scalingFactor:.2f}x scaling (expected: ${expectedScaling:.2f}x, efficiency: ${efficiency:.2f})")
+        }
+    }
+}
+
+@benchmark
+fun compareWithIterativeVersion(b: Bencher) {
+    // Compare recursive vs iterative tree creation (if possible)
+    println("\n=== Recursive vs Iterative Comparison ===")
+    
+    val testDepth = 14
+    val iterations = 1000
+    
+    // Recursive version (original)
+    b.measure("recursive_tree_creation") {
+        for (i in 1..iterations) {
+            val tree = makeTree(i, testDepth)
+            val check = checkTree(tree)
+        }
+    }
+    
+    // Iterative version using explicit stack
+    b.measure("iterative_tree_creation") {
+        for (i in 1..iterations) {
+            val tree = makeTreeIterative(i, testDepth)
+            val check = checkTreeIterative(tree)
+        }
+    }
+    
+    val recursiveTime = b.getMetric("recursive_tree_creation").mean()
+    val iterativeTime = b.getMetric("iterative_tree_creation").mean()
+    val improvement = (recursiveTime - iterativeTime) / recursiveTime * 100
+    
+    println("Recursive: ${recursiveTime * 1000:.2f}ms")
+    println("Iterative: ${iterativeTime * 1000:.2f}ms")
+    println("Improvement: ${improvement:.1f}% ${if (improvement > 0) "faster iterative" else "faster recursive"}")
+    
+    b.recordMetric("recursion_vs_iteration_improvement_percent", improvement)
+}
+
+// Iterative tree creation using explicit stack
+fun makeTreeIterative(item: Int, maxDepth: Int): TreeNode? {
+    if (maxDepth <= 0) return TreeNode(item, null, null)
+    
+    data class StackItem(val node: TreeNode, val item: Int, val depth: Int, val isLeft: Boolean)
+    
+    val root = TreeNode(item, null, null)
+    val stack = mutableListOf<StackItem>()
+    
+    // Initialize with root's children
+    if (maxDepth > 0) {
+        stack.add(StackItem(root, 2 * item - 1, maxDepth - 1, true))
+        stack.add(StackItem(root, 2 * item, maxDepth - 1, false))
+    }
+    
+    while (stack.isNotEmpty()) {
+        val stackItem = stack.removeAt(stack.size - 1)
+        val newNode = TreeNode(stackItem.item, null, null)
+        
+        if (stackItem.isLeft) {
+            stackItem.node.left = newNode
+        } else {
+            stackItem.node.right = newNode
+        }
+        
+        if (stackItem.depth > 0) {
+            stack.add(StackItem(newNode, 2 * stackItem.item - 1, stackItem.depth - 1, true))
+            stack.add(StackItem(newNode, 2 * stackItem.item, stackItem.depth - 1, false))
+        }
+    }
+    
+    return root
+}
+
+// Iterative tree checking using explicit stack
+fun checkTreeIterative(root: TreeNode?): Int {
+    if (root == null) return 0
+    if (root.left == null) return root.item
+    
+    data class StackFrame(val node: TreeNode, val state: Int) // state: 0=initial, 1=left done, 2=right done
+    
+    val stack = mutableListOf<StackFrame>()
+    val values = mutableMapOf<TreeNode, Int>()
+    
+    stack.add(StackFrame(root, 0))
+    
+    while (stack.isNotEmpty()) {
+        val frame = stack[stack.size - 1]
+        
+        when (frame.state) {
+            0 -> {
+                // Initial state - process left child
+                frame.state = 1
+                if (frame.node.left != null) {
+                    stack.add(StackFrame(frame.node.left!!, 0))
+                } else {
+                    values[frame.node.left ?: TreeNode(0, null, null)] = 0
+                }
+            }
+            1 -> {
+                // Left child done - process right child  
+                frame.state = 2
+                if (frame.node.right != null) {
+                    stack.add(StackFrame(frame.node.right!!, 0))
+                } else {
+                    values[frame.node.right ?: TreeNode(0, null, null)] = 0
+                }
+            }
+            2 -> {
+                // Both children done - calculate result
+                val leftVal = if (frame.node.left == null) 0 else values[frame.node.left] ?: 0
+                val rightVal = if (frame.node.right == null) 0 else values[frame.node.right] ?: 0
+                
+                if (frame.node.left == null) {
+                    values[frame.node] = frame.node.item
+                } else {
+                    values[frame.node] = frame.node.item + leftVal - rightVal
+                }
+                
+                stack.removeAt(stack.size - 1)
+            }
+        }
+    }
+    
+    return values[root] ?: 0
+}
+
+// Main execution
+fun main(args: Array<String>) {
+    val maxDepth = if (args.isNotEmpty()) args[0].toInt() else 20
+    val bencher = Bencher(iterations = 3, warmupIterations = 1) // Lower iterations due to intensity
+    
+    println("=== Seen Binary Trees Performance Test ===")
+    println("Testing against Computer Language Benchmarks Game specification")
+    println("This benchmark stresses allocation, deallocation, and recursion\n")
+    
+    binaryTrees(bencher, maxDepth)
+    binaryTreesMemoryStress(bencher)
+    binaryTreesRecursionDepth(bencher)
+    compareWithIterativeVersion(bencher)
+    
+    // Generate summary
+    val results = bencher.getAllResults()
+    generateBinaryTreesSummary(results)
+    
+    // Save results
+    val report = bencher.generateReport()
+    fs.writeString("../../results/binary_trees_results.json", report.toJson())
+    println("\nResults saved to: results/binary_trees_results.json")
+}
+
+fun generateBinaryTreesSummary(results: Map<String, BenchmarkResult>) {
+    println("\n=== BINARY TREES PERFORMANCE SUMMARY ===")
+    
+    val mainTime = results["binary_trees_main"]?.mean() ?: 0.0
+    val memoryUsed = results["total_memory_used_mb"]?.mean() ?: 0.0
+    
+    println("Main benchmark time: ${mainTime * 1000:.0f}ms")
+    println("Peak memory usage: ${memoryUsed:.1f}MB")
+    
+    // GC efficiency analysis
+    val gcEfficiencies = results.filter { it.key.contains("gc_efficiency") }
+    if (gcEfficiencies.isNotEmpty()) {
+        val avgGcEfficiency = gcEfficiencies.values.map { it.mean() }.average()
+        println("Average GC efficiency: ${avgGcEfficiency:.1f}%")
+        
+        if (avgGcEfficiency > 95.0) {
+            println("✅ Excellent memory management")
+        } else if (avgGcEfficiency > 80.0) {
+            println("✅ Good memory management")
+        } else {
+            println("⚠️  Memory management could be improved")
+        }
+    }
+    
+    // Recursion scaling analysis
+    val recursionImprovement = results["recursion_vs_iteration_improvement_percent"]?.mean()
+    if (recursionImprovement != null) {
+        if (recursionImprovement > 0) {
+            println("Iterative version is ${recursionImprovement:.1f}% faster")
+        } else {
+            println("Recursive version is ${-recursionImprovement:.1f}% faster")
+        }
+    }
+    
+    println("\nThis benchmark tests where manual memory management typically outperforms GC")
+    println("Results will be compared against C++, Rust, and Zig implementations")
+}

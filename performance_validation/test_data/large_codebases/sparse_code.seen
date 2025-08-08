@@ -1,0 +1,480 @@
+/*
+ * ====================================================================
+ * Sparse Code Test File for Lexer Performance Benchmarking
+ * ====================================================================
+ * 
+ * This file is intentionally written with extensive whitespace,
+ * detailed comments, and documentation to test the lexer's performance
+ * when dealing with low token density code (lots of non-token content).
+ * 
+ * Purpose: Stress test lexer performance on files with high
+ *          whitespace-to-token ratio, extensive documentation,
+ *          and verbose formatting.
+ * 
+ * Author: Performance Validation Suite
+ * Date: Generated for comprehensive lexer testing
+ * 
+ * ====================================================================
+ */
+
+// Standard library imports with detailed explanations
+use std::collections::HashMap;    // For key-value mappings
+use std::sync::Arc;              // For reference counting
+use std::time::Instant;          // For time measurements
+
+/*
+ * Primary data structure for storing application state
+ * 
+ * This structure represents the core data model used throughout
+ * the application. Each field serves a specific purpose:
+ * 
+ * - id: Unique identifier for the data record
+ * - name: Human-readable name or label  
+ * - values: Numeric data points for analysis
+ * - metadata: Additional key-value configuration
+ */
+struct ApplicationData {
+    // Unique identifier - must be positive
+    id: i32,
+    
+    // Display name - should be non-empty
+    name: String,
+    
+    // Measurement values - can be empty initially
+    values: Vec<f64>,
+    
+    // Additional configuration parameters
+    metadata: HashMap<String, String>,
+}
+
+
+
+
+/*
+ * Status enumeration for tracking application state
+ * 
+ * This enum represents all possible states that an application
+ * component can be in during its lifecycle. Each variant has
+ * specific semantics:
+ * 
+ * - Active: Component is running normally
+ * - Inactive: Component is stopped but can be restarted
+ * - Pending: Component is waiting for some condition
+ * - Error: Component has encountered a failure
+ */
+enum ApplicationStatus {
+    
+    // Component is actively processing
+    Active,
+    
+    
+    // Component is temporarily stopped
+    Inactive,
+    
+    
+    // Component is waiting (includes reason)
+    Pending(String),
+    
+    
+    // Component has failed (includes error details)
+    Error {
+        code: i32,
+        message: String,
+    },
+    
+}
+
+
+/*
+ * ====================================================================
+ * Core Processing Trait
+ * ====================================================================
+ * 
+ * This trait defines the interface that all data processors must
+ * implement. It provides a standardized way to process data and
+ * validate inputs across different implementations.
+ * 
+ * Required Methods:
+ * - process: Transform input data into output format
+ * - validate: Check if input data meets requirements
+ * 
+ * ====================================================================
+ */
+trait DataProcessor {
+    
+    /*
+     * Process the given data and return a result
+     * 
+     * Args:
+     *   data: Reference to the input data structure
+     * 
+     * Returns:
+     *   Ok(String): Processed result as a string
+     *   Err(String): Error message if processing fails
+     * 
+     * Notes:
+     *   - Input data is borrowed immutably
+     *   - Processing should be idempotent when possible
+     *   - Errors should include helpful diagnostic information
+     */
+    fn process(&self, data: &ApplicationData) -> Result<String, String>;
+    
+    
+    /*
+     * Validate input data before processing
+     * 
+     * Args:
+     *   input: String data to validate
+     * 
+     * Returns:
+     *   true: Input is valid and can be processed
+     *   false: Input is invalid and should be rejected
+     * 
+     * Notes:
+     *   - Validation should be comprehensive but efficient
+     *   - This method should not modify any state
+     *   - Consider caching validation results for repeated calls
+     */
+    fn validate(&self, input: &str) -> bool;
+    
+}
+
+
+
+
+/*
+ * ====================================================================
+ * Default Implementation of DataProcessor
+ * ====================================================================
+ * 
+ * This implementation provides standard data processing functionality
+ * for the ApplicationData structure. It includes:
+ * 
+ * - Basic data formatting and output generation
+ * - Input validation with reasonable defaults
+ * - Error handling with descriptive messages
+ * 
+ * ====================================================================
+ */
+impl DataProcessor for ApplicationData {
+    
+    /*
+     * Default processing implementation
+     * 
+     * This method formats the application data into a readable string
+     * representation. It processes the numeric values and generates
+     * a formatted output that includes:
+     * 
+     * - Index and value for each data point
+     * - Proper formatting for floating-point numbers
+     * - Error handling for empty data sets
+     */
+    fn process(&self, data: &ApplicationData) -> Result<String, String> {
+        
+        // Initialize result string builder
+        let mut result = String::new();
+        
+        
+        // Check if we have any values to process
+        if data.values.is_empty() {
+            return Err("No data values available for processing".to_string());
+        }
+        
+        
+        // Process each value with its index
+        for (index, value) in data.values.iter().enumerate() {
+            
+            // Format: "index: value" with 2 decimal places
+            let formatted_entry = format!("{}:{:.2}", index, value);
+            
+            // Add to result string
+            result.push_str(&formatted_entry);
+            
+            // Add separator if not the last item
+            if index < data.values.len() - 1 {
+                result.push_str(", ");
+            }
+            
+        }
+        
+        
+        // Return successful result
+        Ok(result)
+        
+    }
+    
+    
+    /*
+     * Default validation implementation
+     * 
+     * This method performs basic validation checks on input strings:
+     * 
+     * - Ensures input is not empty
+     * - Checks that length is within reasonable bounds
+     * - Validates character content (basic ASCII check)
+     */
+    fn validate(&self, input: &str) -> bool {
+        
+        // Check for empty input
+        if input.is_empty() {
+            return false;
+        }
+        
+        
+        // Check length bounds (reasonable limits)
+        if input.len() > 10000 {
+            return false;    // Too long
+        }
+        
+        
+        // Additional validation could be added here
+        // For example: character set validation, format checking, etc.
+        
+        
+        // Input passed all checks
+        true
+        
+    }
+    
+}
+
+
+
+
+/*
+ * ====================================================================
+ * Quick Sort Algorithm Implementation
+ * ====================================================================
+ * 
+ * This is a classic implementation of the quicksort algorithm with
+ * detailed comments explaining each step of the process.
+ * 
+ * Time Complexity: O(n log n) average case, O(n²) worst case
+ * Space Complexity: O(log n) due to recursion
+ * 
+ * The algorithm uses the divide-and-conquer approach:
+ * 1. Choose a pivot element
+ * 2. Partition array around pivot
+ * 3. Recursively sort sub-arrays
+ * 
+ * ====================================================================
+ */
+fn quick_sort<T: Ord + Clone>(array: &mut [T]) {
+    
+    // Base case: arrays with 0 or 1 element are already sorted
+    if array.len() <= 1 {
+        return;
+    }
+    
+    
+    // Partition the array and get the pivot position
+    let pivot_index = partition(array);
+    
+    
+    // Recursively sort the left sub-array (elements < pivot)
+    quick_sort(&mut array[0..pivot_index]);
+    
+    
+    // Recursively sort the right sub-array (elements > pivot)
+    quick_sort(&mut array[pivot_index + 1..]);
+    
+}
+
+
+/*
+ * Partition function for quicksort
+ * 
+ * This function rearranges the array so that:
+ * - All elements <= pivot are to the left
+ * - All elements > pivot are to the right
+ * - Returns the final position of the pivot
+ * 
+ * Uses the last element as pivot (Lomuto partition scheme)
+ */
+fn partition<T: Ord + Clone>(array: &mut [T]) -> usize {
+    
+    // Choose the last element as pivot
+    let pivot_index = array.len() - 1;
+    
+    // Index of the smaller element (indicates right position of pivot)
+    let mut smaller_element_index = 0;
+    
+    
+    // Traverse through all elements except the pivot
+    for current_index in 0..pivot_index {
+        
+        // If current element is smaller than or equal to pivot
+        if array[current_index] <= array[pivot_index] {
+            
+            // Swap current element with element at smaller_element_index
+            array.swap(smaller_element_index, current_index);
+            
+            // Increment index of smaller element
+            smaller_element_index += 1;
+            
+        }
+        
+    }
+    
+    
+    // Finally, swap the pivot with the element at smaller_element_index
+    array.swap(smaller_element_index, pivot_index);
+    
+    
+    // Return the position where pivot is now located
+    smaller_element_index
+    
+}
+
+
+
+
+/*
+ * ====================================================================
+ * Fibonacci Number Calculation
+ * ====================================================================
+ * 
+ * Classic recursive implementation of Fibonacci sequence calculation.
+ * 
+ * The Fibonacci sequence is defined as:
+ * F(0) = 0
+ * F(1) = 1
+ * F(n) = F(n-1) + F(n-2) for n > 1
+ * 
+ * Note: This is an inefficient O(2^n) implementation used for
+ *       demonstration purposes. A production implementation would
+ *       use dynamic programming or iteration for better performance.
+ * 
+ * ====================================================================
+ */
+fn fibonacci(n: u32) -> u64 {
+    
+    // Handle the base cases explicitly
+    match n {
+        
+        // First Fibonacci number is 0
+        0 => 0,
+        
+        // Second Fibonacci number is 1  
+        1 => 1,
+        
+        // For all other cases, use recursion
+        _ => {
+            // F(n) = F(n-1) + F(n-2)
+            fibonacci(n - 1) + fibonacci(n - 2)
+        }
+        
+    }
+    
+}
+
+
+
+
+/*
+ * ====================================================================
+ * Application Entry Point
+ * ====================================================================
+ * 
+ * Main function that demonstrates the usage of all the components
+ * defined above. This includes:
+ * 
+ * - Creating and initializing data structures
+ * - Using the processor trait implementation
+ * - Running sorting algorithms
+ * - Calculating mathematical sequences
+ * 
+ * ====================================================================
+ */
+fn main() {
+    
+    // Initialize application data with sample values
+    let sample_data = ApplicationData {
+        id: 42,                                    // Sample ID
+        name: "Test Dataset".to_string(),         // Descriptive name
+        values: vec![3.14, 2.71, 1.41, 1.73],   // Some mathematical constants
+        metadata: HashMap::new(),                 // Empty metadata initially
+    };
+    
+    
+    // Create a processor reference for testing
+    let processor = &sample_data;
+    
+    
+    // Process the data and handle the result
+    match processor.process(&sample_data) {
+        
+        Ok(result) => {
+            println!("Processing successful!");
+            println!("Result: {}", result);
+        }
+        
+        Err(error_message) => {
+            println!("Processing failed: {}", error_message);
+        }
+        
+    }
+    
+    
+    // Test the sorting algorithm
+    let mut test_numbers = vec![64, 34, 25, 12, 22, 11, 90, 88, 76, 50, 42];
+    
+    println!("Original array: {:?}", test_numbers);
+    
+    // Sort the array using our quicksort implementation
+    quick_sort(&mut test_numbers);
+    
+    println!("Sorted array: {:?}", test_numbers);
+    
+    
+    // Test Fibonacci calculation
+    let fibonacci_input = 12;
+    let fibonacci_result = fibonacci(fibonacci_input);
+    
+    println!("Fibonacci({}) = {}", fibonacci_input, fibonacci_result);
+    
+    
+    // Validation testing
+    let test_inputs = vec![
+        "",                    // Empty string
+        "valid input",         // Normal input
+        "x".repeat(15000),    // Too long input
+    ];
+    
+    
+    for (index, test_input) in test_inputs.iter().enumerate() {
+        let is_valid = processor.validate(test_input);
+        println!("Test input {}: {} (length: {})", 
+                index + 1, 
+                if is_valid { "VALID" } else { "INVALID" }, 
+                test_input.len());
+    }
+    
+    
+    println!("All tests completed successfully!");
+    
+}
+
+
+/*
+ * ====================================================================
+ * End of Sparse Code Test File
+ * ====================================================================
+ * 
+ * This file has been designed to test lexer performance on code with:
+ * - High comment-to-code ratio
+ * - Extensive whitespace and formatting
+ * - Detailed documentation blocks
+ * - Low token density per line
+ * 
+ * Total approximate metrics:
+ * - Lines of code: ~400+
+ * - Comment lines: ~200+
+ * - Whitespace ratio: High
+ * - Token density: Low
+ * 
+ * This represents realistic scenarios where codebases have extensive
+ * documentation, detailed comments, and verbose formatting styles.
+ * 
+ * ====================================================================
+ */

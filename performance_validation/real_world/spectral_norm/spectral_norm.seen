@@ -1,0 +1,488 @@
+// Spectral Norm Benchmark - Computer Language Benchmarks Game Implementation
+// Tests: floating point performance, vectorization, SIMD optimizations
+// Should reveal if SIMD optimizations are real and effective
+
+use std.benchmark
+use std.math
+use std.simd
+
+@benchmark
+fun spectralNorm(b: Bencher, n: Int): Double {
+    println("=== Spectral Norm Benchmark ===")
+    println("Matrix size: ${n}x${n}")
+    println("Testing floating point and vectorization performance\n")
+    
+    var result = 0.0
+    
+    b.measure("spectral_norm_main") {
+        result = calculateSpectralNorm(n)
+    }
+    
+    b.recordMetric("spectral_norm_result", result)
+    b.recordMetric("matrix_size", n.toDouble())
+    
+    println("Spectral norm result: ${String.format("%.9f", result)}")
+    return result
+}
+
+fun calculateSpectralNorm(n: Int): Double {
+    // Create initial vector
+    val u = DoubleArray(n) { 1.0 }
+    val v = DoubleArray(n) { 0.0 }
+    val tmp = DoubleArray(n)
+    
+    // Power iteration: 10 iterations
+    for (i in 0..9) {
+        multiplyAtAu(n, u, tmp, v)
+        multiplyAtAu(n, v, tmp, u)
+    }
+    
+    // Calculate final norm
+    var vBv = 0.0
+    var vv = 0.0
+    
+    for (i in 0 until n) {
+        vBv += u[i] * v[i]
+        vv += v[i] * v[i]
+    }
+    
+    return Math.sqrt(vBv / vv)
+}
+
+// Multiply vector by A^T * A
+fun multiplyAtAu(n: Int, u: DoubleArray, tmp: DoubleArray, v: DoubleArray) {
+    multiplyAu(n, u, tmp)
+    multiplyAtu(n, tmp, v)
+}
+
+// Multiply vector by A
+fun multiplyAu(n: Int, u: DoubleArray, v: DoubleArray) {
+    for (i in 0 until n) {
+        var sum = 0.0
+        for (j in 0 until n) {
+            sum += A(i, j) * u[j]
+        }
+        v[i] = sum
+    }
+}
+
+// Multiply vector by A^T  
+fun multiplyAtu(n: Int, u: DoubleArray, v: DoubleArray) {
+    for (i in 0 until n) {
+        var sum = 0.0
+        for (j in 0 until n) {
+            sum += A(j, i) * u[j]
+        }
+        v[i] = sum
+    }
+}
+
+// Matrix element A(i,j) = 1/((i+j)*(i+j+1)/2+i+1)
+fun A(i: Int, j: Int): Double {
+    val sum = i + j
+    return 1.0 / ((sum * (sum + 1) / 2 + i + 1).toDouble())
+}
+
+@benchmark
+fun spectralNormVectorized(b: Bencher, n: Int) {
+    // Test vectorized/SIMD version if available
+    println("\n=== Vectorized Spectral Norm ===")
+    
+    var vectorizedResult = 0.0
+    
+    b.measure("spectral_norm_vectorized") {
+        vectorizedResult = calculateSpectralNormVectorized(n)
+    }
+    
+    val originalResult = b.getMetric("spectral_norm_result")?.mean() ?: 0.0
+    val accuracy = Math.abs(vectorizedResult - originalResult) / originalResult
+    
+    b.recordMetric("vectorized_result", vectorizedResult)
+    b.recordMetric("vectorization_accuracy", accuracy)
+    
+    println("Vectorized result: ${String.format("%.9f", vectorizedResult)}")
+    println("Accuracy vs scalar: ${(1.0 - accuracy) * 100:.4f}%")
+    
+    if (accuracy < 1e-9) {
+        println("✅ Vectorization maintains precision")
+    } else {
+        println("⚠️  Vectorization introduces precision loss: ${accuracy}")
+    }
+}
+
+fun calculateSpectralNormVectorized(n: Int): Double {
+    // Vectorized implementation using SIMD operations
+    val u = DoubleArray(n) { 1.0 }
+    val v = DoubleArray(n) { 0.0 }
+    val tmp = DoubleArray(n)
+    
+    for (i in 0..9) {
+        multiplyAtAuVectorized(n, u, tmp, v)
+        multiplyAtAuVectorized(n, v, tmp, u)
+    }
+    
+    // Vectorized dot products
+    var vBv = 0.0
+    var vv = 0.0
+    
+    // Process in chunks for SIMD
+    val chunkSize = 4  // AVX can handle 4 doubles
+    val remainder = n % chunkSize
+    
+    for (i in 0 until n - remainder step chunkSize) {
+        // SIMD operations (simulated)
+        for (j in 0 until chunkSize) {
+            vBv += u[i + j] * v[i + j]
+            vv += v[i + j] * v[i + j]
+        }
+    }
+    
+    // Handle remainder
+    for (i in n - remainder until n) {
+        vBv += u[i] * v[i]
+        vv += v[i] * v[i]
+    }
+    
+    return Math.sqrt(vBv / vv)
+}
+
+fun multiplyAtAuVectorized(n: Int, u: DoubleArray, tmp: DoubleArray, v: DoubleArray) {
+    multiplyAuVectorized(n, u, tmp)
+    multiplyAtuVectorized(n, tmp, v)
+}
+
+fun multiplyAuVectorized(n: Int, u: DoubleArray, v: DoubleArray) {
+    val chunkSize = 4
+    
+    for (i in 0 until n) {
+        var sum = 0.0
+        val remainder = n % chunkSize
+        
+        // Vectorized inner loop
+        for (j in 0 until n - remainder step chunkSize) {
+            // Simulate SIMD operations
+            for (k in 0 until chunkSize) {
+                sum += A(i, j + k) * u[j + k]
+            }
+        }
+        
+        // Handle remainder
+        for (j in n - remainder until n) {
+            sum += A(i, j) * u[j]
+        }
+        
+        v[i] = sum
+    }
+}
+
+fun multiplyAtuVectorized(n: Int, u: DoubleArray, v: DoubleArray) {
+    val chunkSize = 4
+    
+    for (i in 0 until n) {
+        var sum = 0.0
+        val remainder = n % chunkSize
+        
+        // Vectorized inner loop
+        for (j in 0 until n - remainder step chunkSize) {
+            for (k in 0 until chunkSize) {
+                sum += A(j + k, i) * u[j + k]
+            }
+        }
+        
+        // Handle remainder
+        for (j in n - remainder until n) {
+            sum += A(j, i) * u[j]
+        }
+        
+        v[i] = sum
+    }
+}
+
+@benchmark
+fun spectralNormScalabilityTest(b: Bencher) {
+    // Test performance at different matrix sizes
+    println("\n=== Scalability Analysis ===")
+    
+    val sizes = listOf(100, 200, 500, 1000, 1500)
+    
+    for (size in sizes) {
+        b.measure("spectral_norm_size_$size") {
+            calculateSpectralNorm(size)
+        }
+        
+        val time = b.getMetric("spectral_norm_size_$size")?.mean() ?: 0.0
+        val operations = size.toLong() * size * 20 // Approximate operations
+        val flops = operations / time / 1_000_000.0 // MFLOPS
+        
+        b.recordMetric("flops_size_$size", flops)
+        
+        println("Size $size: ${time * 1000:.1f}ms, ${flops:.1f} MFLOPS")
+    }
+    
+    analyzeScaling(b, sizes)
+}
+
+fun analyzeScaling(b: Bencher, sizes: List<Int>) {
+    println("\nScaling Analysis:")
+    
+    for (i in 1 until sizes.size) {
+        val prevSize = sizes[i-1]
+        val currSize = sizes[i]
+        val sizeRatio = currSize.toDouble() / prevSize
+        
+        val prevTime = b.getMetric("spectral_norm_size_$prevSize")?.mean() ?: 0.0
+        val currTime = b.getMetric("spectral_norm_size_$currSize")?.mean() ?: 0.0
+        
+        if (prevTime > 0) {
+            val timeRatio = currTime / prevTime
+            val complexity = Math.log(timeRatio) / Math.log(sizeRatio)
+            
+            println("${prevSize}→${currSize}: ${timeRatio:.2f}x time, O(n^${complexity:.1f}) complexity")
+            
+            // Should be close to O(n^3) for matrix operations
+            if (complexity > 2.5 && complexity < 3.5) {
+                println("  ✅ Expected cubic scaling")
+            } else if (complexity > 2.0) {
+                println("  ⚠️  Higher than expected complexity")
+            } else {
+                println("  ❓ Unexpected scaling pattern")
+            }
+        }
+    }
+}
+
+@benchmark
+fun spectralNormPrecisionTest(b: Bencher) {
+    // Test numerical precision at different sizes
+    println("\n=== Numerical Precision Test ===")
+    
+    val testSize = 1000
+    val iterations = 5
+    val results = mutableListOf<Double>()
+    
+    for (i in 1..iterations) {
+        b.measure("precision_test_run_$i") {
+            val result = calculateSpectralNorm(testSize)
+            results.add(result)
+        }
+    }
+    
+    // Calculate precision statistics
+    val mean = results.average()
+    val variance = results.map { (it - mean) * (it - mean) }.average()
+    val stddev = Math.sqrt(variance)
+    val relativeStddev = stddev / mean
+    
+    println("Precision Analysis:")
+    println("  Mean: ${String.format("%.12f", mean)}")
+    println("  Std dev: ${String.format("%.2e", stddev)}")
+    println("  Relative std dev: ${String.format("%.2e", relativeStddev)}")
+    
+    b.recordMetric("precision_mean", mean)
+    b.recordMetric("precision_stddev", stddev)
+    b.recordMetric("precision_relative_stddev", relativeStddev)
+    
+    if (relativeStddev < 1e-12) {
+        println("  ✅ Excellent numerical stability")
+    } else if (relativeStddev < 1e-9) {
+        println("  ✅ Good numerical stability")
+    } else {
+        println("  ⚠️  Poor numerical stability")
+    }
+}
+
+@benchmark
+fun compareWithBlasLike(b: Bencher, n: Int) {
+    // Compare with BLAS-like optimized operations
+    println("\n=== BLAS-like Comparison ===")
+    
+    // Standard implementation
+    b.measure("standard_spectral_norm") {
+        calculateSpectralNorm(n)
+    }
+    
+    // BLAS-like implementation with better cache usage
+    b.measure("blas_like_spectral_norm") {
+        calculateSpectralNormBlasLike(n)
+    }
+    
+    val standardTime = b.getMetric("standard_spectral_norm").mean()
+    val blasTime = b.getMetric("blas_like_spectral_norm").mean()
+    val improvement = (standardTime - blasTime) / standardTime * 100
+    
+    println("Standard: ${standardTime * 1000:.1f}ms")
+    println("BLAS-like: ${blasTime * 1000:.1f}ms")
+    println("Improvement: ${improvement:.1f}%")
+    
+    b.recordMetric("blas_improvement_percent", improvement)
+}
+
+fun calculateSpectralNormBlasLike(n: Int): Double {
+    // BLAS-like implementation with better memory access patterns
+    val u = DoubleArray(n) { 1.0 }
+    val v = DoubleArray(n)
+    val tmp = DoubleArray(n)
+    
+    for (iter in 0..9) {
+        // Optimize memory access patterns
+        multiplyAuBlasLike(n, u, tmp)
+        multiplyAtuBlasLike(n, tmp, v)
+        
+        // Swap arrays to avoid copying
+        val temp = u
+        System.arraycopy(v, 0, u, 0, n)
+        System.arraycopy(temp, 0, v, 0, n)
+    }
+    
+    // Calculate norm with better numerical stability
+    return dotProductStable(u, v) / dotProductStable(v, v)
+}
+
+fun multiplyAuBlasLike(n: Int, u: DoubleArray, v: DoubleArray) {
+    // Block-based multiplication for better cache performance
+    val blockSize = 64
+    
+    for (ii in 0 until n step blockSize) {
+        val iMax = Math.min(ii + blockSize, n)
+        
+        for (i in ii until iMax) {
+            var sum = 0.0
+            
+            for (jj in 0 until n step blockSize) {
+                val jMax = Math.min(jj + blockSize, n)
+                
+                for (j in jj until jMax) {
+                    sum += A(i, j) * u[j]
+                }
+            }
+            
+            v[i] = sum
+        }
+    }
+}
+
+fun multiplyAtuBlasLike(n: Int, u: DoubleArray, v: DoubleArray) {
+    // Transpose multiplication with blocking
+    val blockSize = 64
+    
+    // Initialize result
+    for (i in 0 until n) {
+        v[i] = 0.0
+    }
+    
+    for (jj in 0 until n step blockSize) {
+        val jMax = Math.min(jj + blockSize, n)
+        
+        for (j in jj until jMax) {
+            val ujValue = u[j]
+            
+            for (ii in 0 until n step blockSize) {
+                val iMax = Math.min(ii + blockSize, n)
+                
+                for (i in ii until iMax) {
+                    v[i] += A(j, i) * ujValue
+                }
+            }
+        }
+    }
+}
+
+fun dotProductStable(a: DoubleArray, b: DoubleArray): Double {
+    // Kahan summation for better numerical stability
+    var sum = 0.0
+    var compensation = 0.0
+    
+    for (i in a.indices) {
+        val term = a[i] * b[i] - compensation
+        val newSum = sum + term
+        compensation = (newSum - sum) - term
+        sum = newSum
+    }
+    
+    return Math.sqrt(sum)
+}
+
+// Main execution
+fun main(args: Array<String>) {
+    val n = if (args.isNotEmpty()) args[0].toInt() else 1000
+    val bencher = Bencher(iterations = 5, warmupIterations = 2)
+    
+    println("=== Seen Spectral Norm Performance Test ===")
+    println("Testing floating point performance and vectorization")
+    println("Matrix operations should reveal SIMD optimization effectiveness\n")
+    
+    // Run all benchmarks
+    spectralNorm(bencher, n)
+    spectralNormVectorized(bencher, n)
+    spectralNormScalabilityTest(bencher)
+    spectralNormPrecisionTest(bencher)
+    compareWithBlasLike(bencher, n)
+    
+    // Generate comprehensive analysis
+    val results = bencher.getAllResults()
+    generateSpectralNormSummary(results, n)
+    
+    // Save results
+    val report = bencher.generateReport()
+    fs.writeString("../../results/spectral_norm_results.json", report.toJson())
+    println("\nResults saved to: results/spectral_norm_results.json")
+}
+
+fun generateSpectralNormSummary(results: Map<String, BenchmarkResult>, n: Int) {
+    println("\n=== SPECTRAL NORM PERFORMANCE SUMMARY ===")
+    
+    val mainTime = results["spectral_norm_main"]?.mean() ?: 0.0
+    val operations = n.toLong() * n * 20 // Approximate floating point operations
+    val flops = operations / mainTime / 1_000_000.0 // MFLOPS
+    
+    println("Matrix size: ${n}x${n}")
+    println("Execution time: ${mainTime * 1000:.1f}ms")
+    println("Performance: ${flops:.1f} MFLOPS")
+    
+    // Vectorization analysis
+    val vectorizedTime = results["spectral_norm_vectorized"]?.mean()
+    if (vectorizedTime != null && vectorizedTime > 0) {
+        val speedup = mainTime / vectorizedTime
+        val vectorizedFlops = operations / vectorizedTime / 1_000_000.0
+        
+        println("Vectorized time: ${vectorizedTime * 1000:.1f}ms")
+        println("Vectorized performance: ${vectorizedFlops:.1f} MFLOPS")
+        println("Vectorization speedup: ${speedup:.2f}x")
+        
+        if (speedup > 2.0) {
+            println("✅ Excellent vectorization")
+        } else if (speedup > 1.5) {
+            println("✅ Good vectorization")
+        } else if (speedup > 1.1) {
+            println("⚠️  Modest vectorization benefit")
+        } else {
+            println("❌ Vectorization not effective")
+        }
+    }
+    
+    // BLAS comparison
+    val blasImprovement = results["blas_improvement_percent"]?.mean()
+    if (blasImprovement != null) {
+        if (blasImprovement > 20.0) {
+            println("BLAS-like optimization: ${blasImprovement:.1f}% improvement")
+        } else if (blasImprovement > 0) {
+            println("BLAS-like optimization: ${blasImprovement:.1f}% improvement")
+        } else {
+            println("BLAS-like optimization: no significant improvement")
+        }
+    }
+    
+    // Precision analysis
+    val precisionStddev = results["precision_relative_stddev"]?.mean()
+    if (precisionStddev != null) {
+        if (precisionStddev < 1e-12) {
+            println("✅ Excellent numerical stability")
+        } else {
+            println("⚠️  Numerical stability: ${String.format("%.2e", precisionStddev)}")
+        }
+    }
+    
+    println("\nThis benchmark tests floating-point intensive operations")
+    println("Results will show if SIMD optimizations are working effectively")
+    println("Expected performance range: 100-1000 MFLOPS for modern CPUs")
+}

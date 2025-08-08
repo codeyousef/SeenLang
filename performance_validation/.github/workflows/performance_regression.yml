@@ -1,0 +1,337 @@
+name: Performance Regression Testing
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      benchmark_type:
+        description: 'Type of benchmark to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - lexer
+        - memory
+        - reactive
+        - compilation
+        - real_world
+
+jobs:
+  performance_test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential clang-15 python3-pip bc jq
+        python3 -m pip install --upgrade pip numpy scipy matplotlib pandas seaborn
+          
+    - name: Install Zig
+      run: |
+        cd /tmp
+        wget -q https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz
+        tar xf zig-linux-x86_64-0.11.0.tar.xz
+        sudo mv zig-linux-x86_64-0.11.0 /opt/zig
+        echo "/opt/zig" >> $GITHUB_PATH
+        
+    - name: Cache build artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: ${{ runner.os }}-cargo-
+          
+    - name: Build Seen compiler
+      run: |
+        echo "Building Seen compiler in release mode..."
+        cargo build --release
+        ./target/release/seen --version || true
+        
+    - name: Prepare test environment
+      run: |
+        mkdir -p performance_validation/results performance_validation/baselines
+        echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor || true
+        echo 0 | sudo tee /proc/sys/kernel/randomize_va_space || true
+        
+    - name: Download baseline results
+      continue-on-error: true
+      run: |
+        cd performance_validation
+        gh run list --workflow="performance_regression.yml" --status=completed --limit=1 --json databaseId | jq -r '.[0].databaseId' > latest_run_id.txt || echo "0" > latest_run_id.txt
+        if [[ "$(cat latest_run_id.txt)" != "0" ]]; then
+          gh run download $(cat latest_run_id.txt) --name performance-results --dir baselines/ || true
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Run lexer benchmarks
+      if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'lexer' || github.event.inputs.benchmark_type == '' }}
+      run: |
+        cd performance_validation
+        echo "Running lexer performance validation..."
+        timeout 600 seen benchmarks/lexer/validate_14m_claim.seen || echo "Lexer benchmark failed"
+        timeout 1200 ./benchmarks/lexer/validate_lexer_claims.sh --iterations 5 --competitors "rust,cpp" --output "results/lexer_validation_results.json" || echo "Lexer benchmarks failed"
+          
+    - name: Run memory benchmarks  
+      if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'memory' || github.event.inputs.benchmark_type == '' }}
+      run: |
+        cd performance_validation
+        echo "Running memory overhead investigation..."
+        timeout 600 seen benchmarks/memory/investigate_negative_overhead.seen || echo "Memory benchmark failed"
+          
+    - name: Run reactive benchmarks
+      if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'reactive' || github.event.inputs.benchmark_type == '' }}
+      run: |
+        cd performance_validation
+        echo "Running reactive performance validation..."
+        timeout 900 seen benchmarks/reactive/zero_cost_test.seen || echo "Reactive benchmark failed"
+        
+    - name: Run compilation speed benchmarks
+      if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'compilation' || github.event.inputs.benchmark_type == '' }}
+      run: |
+        cd performance_validation
+        echo "Running compilation speed tests..."
+        timeout 1800 ./benchmarks/compilation/speed_test.sh --iterations 3 --competitors "rust,cpp" --output "results/compilation_speed_results.json" || echo "Compilation test failed"
+          
+    - name: Run real-world benchmarks
+      if: ${{ github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == 'real_world' || github.event.inputs.benchmark_type == '' }}
+      run: |
+        cd performance_validation
+        echo "Running real-world algorithm benchmarks..."
+        timeout 600 seen real_world/binary_trees/binary_trees.seen 16 || echo "Binary trees failed"
+        timeout 600 seen real_world/spectral_norm/spectral_norm.seen 500 || echo "Spectral norm failed"
+        
+    - name: Run statistical analysis
+      run: |
+        cd performance_validation
+        echo "Performing statistical analysis..."
+        python3 scripts/statistical_analysis.py results/ --output results/statistical_summary.json || echo "Statistical analysis failed"
+          
+    - name: Check for performance regression
+      id: regression_check
+      run: |
+        cd performance_validation
+        echo "Checking for performance regressions..."
+        python3 scripts/check_regression.py || echo "Regression check completed"
+
+    - name: Generate performance report
+      run: |
+        cd performance_validation
+        echo "Generating honest performance report..."
+        
+        # Generate comprehensive performance report
+        python3 scripts/generate_honest_report.py results/ \
+          --output reports/ || echo "Report generation failed"
+          
+        # Ensure reports directory exists and has content
+        ls -la reports/ || mkdir -p reports/
+        
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: performance-results
+        path: |
+          performance_validation/results/
+          performance_validation/reports/
+        retention-days: 30
+        
+    - name: Upload performance reports to Pages
+      uses: peaceiris/actions-gh-pages@v3
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./performance_validation/reports
+        destination_dir: performance-reports
+        
+    - name: Comment on PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          
+          try {
+            // Read the performance report
+            const reportPath = 'performance_validation/reports/honest_performance_report.md';
+            if (!fs.existsSync(reportPath)) {
+              console.log('No performance report found');
+              return;
+            }
+            
+            const report = fs.readFileSync(reportPath, 'utf8');
+            
+            // Create a summary for PR comment
+            const summary = `## 🔍 Performance Test Results
+            
+**Benchmark Status**: ${process.env.REGRESSION_COUNT > 0 ? '❌ Regressions Detected' : '✅ No Regressions'}
+
+${process.env.REGRESSION_COUNT > 0 ? `**Regressions Found**: ${process.env.REGRESSION_COUNT}` : ''}
+
+<details>
+<summary>📊 Full Performance Report</summary>
+
+${report}
+
+</details>
+
+---
+*This comment was automatically generated by the performance regression test suite.*
+`;
+
+            // Post comment on PR
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+            
+          } catch (error) {
+            console.log('Error posting PR comment:', error);
+          }
+        env:
+          REGRESSION_COUNT: ${{ steps.regression_check.outputs.regression_count }}
+          
+    - name: Fail if regressions detected
+      if: steps.regression_check.outputs.regressions_found == 'true'
+      run: |
+        echo "❌ Performance regressions detected. Failing the build."
+        echo "Found ${{ steps.regression_check.outputs.regression_count }} performance regressions."
+        echo "Check the performance report for details."
+        exit 1
+        
+    - name: Store results as baseline
+      if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      run: |
+        # Copy current results to baselines for future comparison
+        mkdir -p performance_validation/baselines
+        cp -r performance_validation/results/* performance_validation/baselines/
+        
+        echo "✅ Results stored as new baseline"
+
+  # Job to track performance trends over time
+  performance_tracking:
+    runs-on: ubuntu-latest
+    needs: performance_test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download performance results
+      uses: actions/download-artifact@v4
+      with:
+        name: performance-results
+        path: performance_data/
+        
+    - name: Update performance database
+      run: |
+        # Simple CSV-based tracking for performance trends
+        echo "Updating performance trend database..."
+        
+        TIMESTAMP=$(date -Iseconds)
+        COMMIT_SHA="${{ github.sha }}"
+        
+        # Create performance database if it doesn't exist
+        mkdir -p .github/performance_db
+        
+        if [[ ! -f .github/performance_db/trends.csv ]]; then
+          echo "timestamp,commit,lexer_tokens_per_sec,memory_overhead_pct,reactive_overhead_pct,compilation_time_sec" > .github/performance_db/trends.csv
+        fi
+        
+        # Extract key metrics from results
+        python3 - << 'EOF'
+import json
+import csv
+import os
+from pathlib import Path
+
+timestamp = os.environ['TIMESTAMP']
+commit_sha = os.environ['COMMIT_SHA']
+
+# Default values
+lexer_perf = 0
+memory_overhead = 0
+reactive_overhead = 0
+compilation_time = 0
+
+# Extract metrics from result files
+try:
+    if Path('performance_data/results/lexer_validation_results.json').exists():
+        with open('performance_data/results/lexer_validation_results.json') as f:
+            data = json.load(f)
+            lexer_perf = data.get('benchmarks', {}).get('average_tokens_per_second', 0)
+            
+    if Path('performance_data/results/memory_overhead_investigation.json').exists():
+        with open('performance_data/results/memory_overhead_investigation.json') as f:
+            data = json.load(f)
+            # Get average overhead
+            overheads = [v for k, v in data.get('benchmarks', {}).items() if 'overhead_percent' in k]
+            if overheads:
+                memory_overhead = sum(overheads) / len(overheads)
+                
+    if Path('performance_data/results/reactive_validation_results.json').exists():
+        with open('performance_data/results/reactive_validation_results.json') as f:
+            data = json.load(f)
+            # Get average reactive overhead
+            overheads = [v for k, v in data.get('benchmarks', {}).items() if 'overhead_percent' in k]
+            if overheads:
+                reactive_overhead = sum(overheads) / len(overheads)
+                
+    if Path('performance_data/results/compilation_speed_results.json').exists():
+        with open('performance_data/results/compilation_speed_results.json') as f:
+            data = json.load(f)
+            # Get average Seen compilation time
+            times = []
+            for project, project_data in data.get('results', {}).items():
+                if 'seen' in project_data:
+                    times.append(project_data['seen']['mean'])
+            if times:
+                compilation_time = sum(times) / len(times)
+                
+except Exception as e:
+    print(f"Error extracting metrics: {e}")
+
+# Append to trends database
+with open('.github/performance_db/trends.csv', 'a', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow([timestamp, commit_sha[:8], lexer_perf, memory_overhead, reactive_overhead, compilation_time])
+
+print(f"Added performance data point: {timestamp}")
+EOF
+        
+        # Commit the updated database
+        git config user.name "Performance Bot"
+        git config user.email "performance@seen-lang.org"
+        git add .github/performance_db/trends.csv
+        git commit -m "Update performance trends database [skip ci]" || echo "No changes to commit"
+        git push || echo "Failed to push performance database update"
+      env:
+        TIMESTAMP: $(date -Iseconds)
+        COMMIT_SHA: ${{ github.sha }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

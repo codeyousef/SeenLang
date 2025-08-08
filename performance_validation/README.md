@@ -122,6 +122,8 @@ Based on typical language development patterns:
 ## Usage
 
 ### Quick Start
+
+**Unix/Linux/macOS:**
 ```bash
 # Run all benchmarks with default settings
 ./scripts/run_all.sh
@@ -133,16 +135,42 @@ python scripts/report_generator.py results/latest/
 python scripts/validate_claims.py --claim lexer_speed
 ```
 
+**Windows PowerShell:**
+```powershell
+# Run all benchmarks with default settings
+.\scripts\run_all.ps1
+
+# Generate comprehensive report
+python .\scripts\report_generator.py results\latest\
+
+# Validate specific claims
+python .\scripts\validate_claims.py --claim lexer_speed
+```
+
 ### Custom Benchmarks
+
+**Unix/Linux/macOS:**
 ```bash
 # Run only lexer benchmarks
-./scripts/run_all.sh --category lexer --iterations 50
+./scripts/run_all.sh --categories lexer --iterations 50
 
-# Compare against specific competitor
-./scripts/run_all.sh --compare rust --verbose
+# Compare against specific competitors
+./scripts/run_all.sh --competitors rust,zig --verbose
 
 # Test with real-world data
-./scripts/run_all.sh --real-world --test-data large
+./scripts/run_all.sh --real-world-only --test-size large
+```
+
+**Windows PowerShell:**
+```powershell
+# Run only lexer benchmarks
+.\scripts\run_all.ps1 -Categories "lexer" -Iterations 50
+
+# Compare against specific competitors
+.\scripts\run_all.ps1 -Competitors "rust,zig" -Verbose
+
+# Test with real-world data
+.\scripts\run_all.ps1 -RealWorldOnly -TestSize "large"
 ```
 
 ### Third-Party Validation
@@ -158,10 +186,11 @@ docker run seen-validation
 ## Requirements
 
 ### System Requirements
-- Linux/macOS/Windows with WSL2
-- 8GB+ RAM for large benchmarks
+- **Linux/macOS**: Native support with bash scripts
+- **Windows**: Native PowerShell support (Windows 10+) or WSL2
+- 8GB+ RAM for large benchmarks (16GB recommended)
 - GCC/Clang, Rust, Zig toolchains
-- Python 3.8+ with scipy, numpy, matplotlib
+- Python 3.8+ with scipy, numpy, matplotlib, pandas, seaborn
 
 ### Language Versions
 - **Seen**: Latest from this repository

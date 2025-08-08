@@ -1,0 +1,711 @@
+// Basic Operations Performance Microbenchmarks
+// Tests fundamental language operations to establish performance baselines
+// Measures arithmetic, comparisons, array access, collections, and string operations
+
+use std.benchmark
+use std.random
+use std.collections
+
+@benchmark
+fun measureArithmeticOperations(b: Bencher) {
+    println("=== Arithmetic Operations Performance ===")
+    println("Testing basic arithmetic operations with different data types\n")
+    
+    val iterations = 10_000_000
+    val intValues = (0..iterations).map { Random.nextInt(-1000, 1000) }
+    val doubleValues = (0..iterations).map { Random.nextDouble() * 1000 }
+    
+    // Integer arithmetic
+    b.measure("integer_addition") {
+        var sum = 0
+        for (i in 0 until iterations) {
+            sum += intValues[i] + intValues[(i + 1) % iterations]
+        }
+        assert(sum != 0 || sum == 0) // Prevent optimization
+    }
+    
+    b.measure("integer_multiplication") {
+        var product = 1L
+        for (i in 0 until iterations) {
+            product = (product * (intValues[i] % 100 + 1)) % 1000000
+        }
+        assert(product != 0 || product == 0)
+    }
+    
+    b.measure("integer_division") {
+        var result = 0
+        for (i in 0 until iterations) {
+            val divisor = intValues[i] % 100 + 1
+            result += intValues[(i + 1) % iterations] / divisor
+        }
+        assert(result != 0 || result == 0)
+    }
+    
+    b.measure("integer_modulo") {
+        var result = 0
+        for (i in 0 until iterations) {
+            val divisor = intValues[i] % 100 + 1
+            result += intValues[(i + 1) % iterations] % divisor
+        }
+        assert(result != 0 || result == 0)
+    }
+    
+    // Floating-point arithmetic
+    b.measure("double_addition") {
+        var sum = 0.0
+        for (i in 0 until iterations) {
+            sum += doubleValues[i] + doubleValues[(i + 1) % iterations]
+        }
+        assert(sum.isFinite())
+    }
+    
+    b.measure("double_multiplication") {
+        var product = 1.0
+        for (i in 0 until iterations) {
+            product = (product * (doubleValues[i] % 100 + 1)) % 1000000
+        }
+        assert(product.isFinite())
+    }
+    
+    b.measure("double_division") {
+        var result = 0.0
+        for (i in 0 until iterations) {
+            val divisor = doubleValues[i] % 100 + 1
+            result += doubleValues[(i + 1) % iterations] / divisor
+        }
+        assert(result.isFinite())
+    }
+    
+    analyzeArithmeticOperations(b)
+}
+
+@benchmark
+fun measureComparisonOperations(b: Bencher) {
+    println("\n=== Comparison Operations Performance ===")
+    println("Testing comparison operators with different data types\n")
+    
+    val iterations = 10_000_000
+    val intValues = (0..iterations).map { Random.nextInt(-1000, 1000) }
+    val doubleValues = (0..iterations).map { Random.nextDouble() * 1000 }
+    val stringValues = (0..iterations).map { "String${Random.nextInt(100)}" }
+    
+    // Integer comparisons
+    b.measure("integer_equality") {
+        var equalCount = 0
+        for (i in 0 until iterations) {
+            if (intValues[i] == intValues[(i + 1) % iterations]) {
+                equalCount++
+            }
+        }
+        assert(equalCount >= 0)
+    }
+    
+    b.measure("integer_less_than") {
+        var lessCount = 0
+        for (i in 0 until iterations) {
+            if (intValues[i] < intValues[(i + 1) % iterations]) {
+                lessCount++
+            }
+        }
+        assert(lessCount >= 0)
+    }
+    
+    b.measure("integer_greater_equal") {
+        var geCount = 0
+        for (i in 0 until iterations) {
+            if (intValues[i] >= intValues[(i + 1) % iterations]) {
+                geCount++
+            }
+        }
+        assert(geCount >= 0)
+    }
+    
+    // Double comparisons
+    b.measure("double_equality") {
+        var equalCount = 0
+        for (i in 0 until iterations) {
+            if (Math.abs(doubleValues[i] - doubleValues[(i + 1) % iterations]) < 0.001) {
+                equalCount++
+            }
+        }
+        assert(equalCount >= 0)
+    }
+    
+    b.measure("double_less_than") {
+        var lessCount = 0
+        for (i in 0 until iterations) {
+            if (doubleValues[i] < doubleValues[(i + 1) % iterations]) {
+                lessCount++
+            }
+        }
+        assert(lessCount >= 0)
+    }
+    
+    // String comparisons
+    b.measure("string_equality") {
+        var equalCount = 0
+        for (i in 0 until iterations) {
+            if (stringValues[i] == stringValues[(i + 1) % iterations]) {
+                equalCount++
+            }
+        }
+        assert(equalCount >= 0)
+    }
+    
+    b.measure("string_comparison") {
+        var lessCount = 0
+        for (i in 0 until iterations) {
+            if (stringValues[i] < stringValues[(i + 1) % iterations]) {
+                lessCount++
+            }
+        }
+        assert(lessCount >= 0)
+    }
+    
+    analyzeComparisonOperations(b)
+}
+
+@benchmark
+fun measureArrayOperations(b: Bencher) {
+    println("\n=== Array Operations Performance ===")
+    println("Testing array access, iteration, and manipulation\n")
+    
+    val arraySize = 10000
+    val iterations = 1000
+    val intArray = IntArray(arraySize) { Random.nextInt(1000) }
+    val doubleArray = DoubleArray(arraySize) { Random.nextDouble() * 1000 }
+    
+    // Array access patterns
+    b.measure("sequential_array_access") {
+        var sum = 0
+        for (iter in 0 until iterations) {
+            for (i in 0 until arraySize) {
+                sum += intArray[i]
+            }
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    b.measure("random_array_access") {
+        var sum = 0
+        for (iter in 0 until iterations) {
+            for (i in 0 until arraySize) {
+                val index = Random.nextInt(arraySize)
+                sum += intArray[index]
+            }
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    b.measure("array_bounds_checking") {
+        var sum = 0
+        for (iter in 0 until iterations) {
+            for (i in 0 until arraySize) {
+                if (i < intArray.size) {  // Explicit bounds check
+                    sum += intArray[i]
+                }
+            }
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    // Array modifications
+    b.measure("array_element_assignment") {
+        val workArray = intArray.copyOf()
+        for (iter in 0 until iterations) {
+            for (i in 0 until arraySize) {
+                workArray[i] = Random.nextInt(1000)
+            }
+        }
+        assert(workArray.isNotEmpty())
+    }
+    
+    // Array iteration methods
+    b.measure("for_each_iteration") {
+        var sum = 0
+        for (iter in 0 until iterations) {
+            intArray.forEach { sum += it }
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    b.measure("indexed_for_loop") {
+        var sum = 0
+        for (iter in 0 until iterations) {
+            for (i in intArray.indices) {
+                sum += intArray[i]
+            }
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    analyzeArrayOperations(b)
+}
+
+@benchmark
+fun measureCollectionOperations(b: Bencher) {
+    println("\n=== Collection Operations Performance ===")
+    println("Testing List, Map, and Set operations\n")
+    
+    val iterations = 100_000
+    val testData = (0..iterations).map { Random.nextInt(10000) }
+    
+    // List operations
+    b.measure("list_creation_and_addition") {
+        val list = mutableListOf<Int>()
+        for (value in testData) {
+            list.add(value)
+        }
+        assert(list.size == testData.size)
+    }
+    
+    b.measure("list_random_access") {
+        val list = testData.toList()
+        var sum = 0
+        for (i in 0 until iterations) {
+            val index = Random.nextInt(list.size)
+            sum += list[index]
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    b.measure("list_linear_search") {
+        val list = testData.toList()
+        var foundCount = 0
+        for (i in 0 until 1000) {
+            val target = Random.nextInt(10000)
+            if (list.contains(target)) {
+                foundCount++
+            }
+        }
+        assert(foundCount >= 0)
+    }
+    
+    // Map operations
+    b.measure("map_creation_and_insertion") {
+        val map = mutableMapOf<Int, String>()
+        for (i in 0 until iterations) {
+            map[testData[i]] = "Value$i"
+        }
+        assert(map.isNotEmpty())
+    }
+    
+    b.measure("map_lookup") {
+        val map = testData.mapIndexed { index, value -> value to "Value$index" }.toMap()
+        var foundCount = 0
+        for (i in 0 until iterations) {
+            val key = testData[Random.nextInt(testData.size)]
+            if (map.containsKey(key)) {
+                foundCount++
+            }
+        }
+        assert(foundCount >= 0)
+    }
+    
+    // Set operations
+    b.measure("set_creation_and_insertion") {
+        val set = mutableSetOf<Int>()
+        for (value in testData) {
+            set.add(value)
+        }
+        assert(set.isNotEmpty())
+    }
+    
+    b.measure("set_membership_test") {
+        val set = testData.toSet()
+        var foundCount = 0
+        for (i in 0 until iterations) {
+            val target = Random.nextInt(10000)
+            if (set.contains(target)) {
+                foundCount++
+            }
+        }
+        assert(foundCount >= 0)
+    }
+    
+    analyzeCollectionOperations(b)
+}
+
+@benchmark
+fun measureStringOperations(b: Bencher) {
+    println("\n=== String Operations Performance ===")
+    println("Testing string creation, manipulation, and comparison\n")
+    
+    val iterations = 100_000
+    val testStrings = (0..iterations).map { "TestString${Random.nextInt(1000)}" }
+    val shortStrings = (0..iterations).map { "Str${Random.nextInt(100)}" }
+    
+    // String creation
+    b.measure("string_concatenation") {
+        val results = mutableListOf<String>()
+        for (i in 0 until iterations) {
+            val result = testStrings[i] + shortStrings[i % shortStrings.size]
+            results.add(result)
+        }
+        assert(results.isNotEmpty())
+    }
+    
+    b.measure("string_interpolation") {
+        val results = mutableListOf<String>()
+        for (i in 0 until iterations) {
+            val result = "${testStrings[i]}_${i}_${shortStrings[i % shortStrings.size]}"
+            results.add(result)
+        }
+        assert(results.isNotEmpty())
+    }
+    
+    b.measure("string_builder_approach") {
+        val results = mutableListOf<String>()
+        for (i in 0 until iterations) {
+            val sb = StringBuilder()
+            sb.append(testStrings[i])
+            sb.append("_")
+            sb.append(i)
+            sb.append("_")
+            sb.append(shortStrings[i % shortStrings.size])
+            results.add(sb.toString())
+        }
+        assert(results.isNotEmpty())
+    }
+    
+    // String operations
+    b.measure("string_length_calculation") {
+        var totalLength = 0
+        for (str in testStrings) {
+            totalLength += str.length
+        }
+        assert(totalLength > 0)
+    }
+    
+    b.measure("string_substring_operation") {
+        val results = mutableListOf<String>()
+        for (str in testStrings) {
+            if (str.length > 5) {
+                results.add(str.substring(2, Math.min(str.length - 2, 10)))
+            }
+        }
+        assert(results.isNotEmpty())
+    }
+    
+    b.measure("string_splitting") {
+        val results = mutableListOf<List<String>>()
+        for (i in 0 until Math.min(iterations, 10000)) {
+            val str = "${testStrings[i]},${shortStrings[i]},data"
+            results.add(str.split(","))
+        }
+        assert(results.isNotEmpty())
+    }
+    
+    analyzeStringOperations(b)
+}
+
+@benchmark
+fun measureControlFlowOperations(b: Bencher) {
+    println("\n=== Control Flow Operations Performance ===")
+    println("Testing loops, conditionals, and exception handling\n")
+    
+    val iterations = 1_000_000
+    val testData = (0..iterations).map { Random.nextInt(100) }
+    
+    // Loop performance
+    b.measure("for_loop_performance") {
+        var sum = 0
+        for (i in 0 until iterations) {
+            sum += testData[i]
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    b.measure("while_loop_performance") {
+        var sum = 0
+        var i = 0
+        while (i < iterations) {
+            sum += testData[i]
+            i++
+        }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    b.measure("for_each_loop_performance") {
+        var sum = 0
+        testData.forEach { sum += it }
+        assert(sum != 0 || sum == 0)
+    }
+    
+    // Conditional performance
+    b.measure("simple_if_conditions") {
+        var positiveCount = 0
+        for (value in testData) {
+            if (value > 50) {
+                positiveCount++
+            }
+        }
+        assert(positiveCount >= 0)
+    }
+    
+    b.measure("complex_if_conditions") {
+        var complexCount = 0
+        for (value in testData) {
+            if (value > 25 && value < 75 && value % 2 == 0) {
+                complexCount++
+            }
+        }
+        assert(complexCount >= 0)
+    }
+    
+    // Exception handling overhead
+    b.measure("exception_handling_overhead") {
+        var catchCount = 0
+        for (i in 0 until 10000) {
+            try {
+                val value = testData[i]
+                if (value == 0) {
+                    throw IllegalArgumentException("Zero value")
+                }
+            } catch (e: IllegalArgumentException) {
+                catchCount++
+            }
+        }
+        assert(catchCount >= 0)
+    }
+    
+    analyzeControlFlowOperations(b)
+}
+
+// Analysis functions
+
+fun analyzeArithmeticOperations(b: Bencher) {
+    println("\n=== Arithmetic Operations Analysis ===")
+    
+    val intAdd = b.getMetric("integer_addition").mean()
+    val intMul = b.getMetric("integer_multiplication").mean()
+    val intDiv = b.getMetric("integer_division").mean()
+    val doubleAdd = b.getMetric("double_addition").mean()
+    val doubleMul = b.getMetric("double_multiplication").mean()
+    val doubleDiv = b.getMetric("double_division").mean()
+    
+    println("Integer operations (per 10M ops):")
+    println("  Addition: ${intAdd * 1000:.2f}ms")
+    println("  Multiplication: ${intMul * 1000:.2f}ms")
+    println("  Division: ${intDiv * 1000:.2f}ms")
+    
+    println("Double operations (per 10M ops):")
+    println("  Addition: ${doubleAdd * 1000:.2f}ms")
+    println("  Multiplication: ${doubleMul * 1000:.2f}ms")
+    println("  Division: ${doubleDiv * 1000:.2f}ms")
+    
+    val divisionOverhead = (intDiv - intAdd) / intAdd * 100
+    val floatingPointOverhead = (doubleAdd - intAdd) / intAdd * 100
+    
+    println("Division overhead vs addition: ${divisionOverhead:.1f}%")
+    println("Floating-point overhead: ${floatingPointOverhead:.1f}%")
+    
+    b.recordMetric("division_overhead_percent", divisionOverhead)
+    b.recordMetric("floating_point_overhead_percent", floatingPointOverhead)
+}
+
+fun analyzeComparisonOperations(b: Bencher) {
+    println("\n=== Comparison Operations Analysis ===")
+    
+    val intEq = b.getMetric("integer_equality").mean()
+    val intLt = b.getMetric("integer_less_than").mean()
+    val doubleEq = b.getMetric("double_equality").mean()
+    val stringEq = b.getMetric("string_equality").mean()
+    val stringCmp = b.getMetric("string_comparison").mean()
+    
+    println("Comparison performance (per 10M ops):")
+    println("  Integer equality: ${intEq * 1000:.2f}ms")
+    println("  Integer less-than: ${intLt * 1000:.2f}ms")
+    println("  Double equality: ${doubleEq * 1000:.2f}ms")
+    println("  String equality: ${stringEq * 1000:.2f}ms")
+    println("  String comparison: ${stringCmp * 1000:.2f}ms")
+    
+    val stringOverhead = (stringEq - intEq) / intEq * 100
+    val doubleOverhead = (doubleEq - intEq) / intEq * 100
+    
+    println("String comparison overhead: ${stringOverhead:.1f}%")
+    println("Double comparison overhead: ${doubleOverhead:.1f}%")
+    
+    b.recordMetric("string_comparison_overhead_percent", stringOverhead)
+    b.recordMetric("double_comparison_overhead_percent", doubleOverhead)
+}
+
+fun analyzeArrayOperations(b: Bencher) {
+    println("\n=== Array Operations Analysis ===")
+    
+    val sequential = b.getMetric("sequential_array_access").mean()
+    val random = b.getMetric("random_array_access").mean()
+    val boundsCheck = b.getMetric("array_bounds_checking").mean()
+    val forEach = b.getMetric("for_each_iteration").mean()
+    val indexed = b.getMetric("indexed_for_loop").mean()
+    
+    println("Array access patterns:")
+    println("  Sequential: ${sequential * 1000:.2f}ms")
+    println("  Random: ${random * 1000:.2f}ms")
+    println("  With bounds check: ${boundsCheck * 1000:.2f}ms")
+    println("  ForEach iteration: ${forEach * 1000:.2f}ms")
+    println("  Indexed loop: ${indexed * 1000:.2f}ms")
+    
+    val randomAccessOverhead = (random - sequential) / sequential * 100
+    val boundsCheckOverhead = (boundsCheck - sequential) / sequential * 100
+    
+    println("Random access overhead: ${randomAccessOverhead:.1f}%")
+    println("Bounds check overhead: ${boundsCheckOverhead:.1f}%")
+    
+    b.recordMetric("random_access_overhead_percent", randomAccessOverhead)
+    b.recordMetric("bounds_check_overhead_percent", boundsCheckOverhead)
+}
+
+fun analyzeCollectionOperations(b: Bencher) {
+    println("\n=== Collection Operations Analysis ===")
+    
+    val listAdd = b.getMetric("list_creation_and_addition").mean()
+    val listAccess = b.getMetric("list_random_access").mean()
+    val listSearch = b.getMetric("list_linear_search").mean()
+    val mapInsert = b.getMetric("map_creation_and_insertion").mean()
+    val mapLookup = b.getMetric("map_lookup").mean()
+    val setInsert = b.getMetric("set_creation_and_insertion").mean()
+    val setMember = b.getMetric("set_membership_test").mean()
+    
+    println("Collection performance:")
+    println("  List addition: ${listAdd * 1000:.2f}ms")
+    println("  List access: ${listAccess * 1000:.2f}ms")
+    println("  List search: ${listSearch * 1000:.2f}ms")
+    println("  Map insertion: ${mapInsert * 1000:.2f}ms")
+    println("  Map lookup: ${mapLookup * 1000:.2f}ms")
+    println("  Set insertion: ${setInsert * 1000:.2f}ms")
+    println("  Set membership: ${setMember * 1000:.2f}ms")
+    
+    // Compare efficiency
+    val mapVsListLookup = (listSearch - mapLookup) / listSearch * 100
+    val setVsListMembership = (listSearch - setMember) / listSearch * 100
+    
+    println("Map vs List lookup efficiency: ${mapVsListLookup:.1f}% improvement")
+    println("Set vs List membership efficiency: ${setVsListMembership:.1f}% improvement")
+    
+    b.recordMetric("map_lookup_efficiency_percent", mapVsListLookup)
+    b.recordMetric("set_membership_efficiency_percent", setVsListMembership)
+}
+
+fun analyzeStringOperations(b: Bencher) {
+    println("\n=== String Operations Analysis ===")
+    
+    val concat = b.getMetric("string_concatenation").mean()
+    val interpolation = b.getMetric("string_interpolation").mean()
+    val stringBuilder = b.getMetric("string_builder_approach").mean()
+    val substring = b.getMetric("string_substring_operation").mean()
+    val splitting = b.getMetric("string_splitting").mean()
+    
+    println("String operations performance:")
+    println("  Concatenation: ${concat * 1000:.2f}ms")
+    println("  Interpolation: ${interpolation * 1000:.2f}ms")
+    println("  StringBuilder: ${stringBuilder * 1000:.2f}ms")
+    println("  Substring: ${substring * 1000:.2f}ms")
+    println("  Splitting: ${splitting * 1000:.2f}ms")
+    
+    val interpolationEfficiency = (concat - interpolation) / concat * 100
+    val stringBuilderEfficiency = (concat - stringBuilder) / concat * 100
+    
+    println("String interpolation efficiency: ${interpolationEfficiency:.1f}%")
+    println("StringBuilder efficiency: ${stringBuilderEfficiency:.1f}%")
+    
+    b.recordMetric("string_interpolation_efficiency_percent", interpolationEfficiency)
+    b.recordMetric("string_builder_efficiency_percent", stringBuilderEfficiency)
+}
+
+fun analyzeControlFlowOperations(b: Bencher) {
+    println("\n=== Control Flow Operations Analysis ===")
+    
+    val forLoop = b.getMetric("for_loop_performance").mean()
+    val whileLoop = b.getMetric("while_loop_performance").mean()
+    val forEach = b.getMetric("for_each_loop_performance").mean()
+    val simpleIf = b.getMetric("simple_if_conditions").mean()
+    val complexIf = b.getMetric("complex_if_conditions").mean()
+    val exception = b.getMetric("exception_handling_overhead").mean()
+    
+    println("Control flow performance:")
+    println("  For loop: ${forLoop * 1000:.2f}ms")
+    println("  While loop: ${whileLoop * 1000:.2f}ms")
+    println("  ForEach loop: ${forEach * 1000:.2f}ms")
+    println("  Simple if: ${simpleIf * 1000:.2f}ms")
+    println("  Complex if: ${complexIf * 1000:.2f}ms")
+    println("  Exception handling: ${exception * 1000:.2f}ms")
+    
+    val forEachOverhead = (forEach - forLoop) / forLoop * 100
+    val complexIfOverhead = (complexIf - simpleIf) / simpleIf * 100
+    val exceptionOverhead = (exception - simpleIf) / simpleIf * 100
+    
+    println("ForEach overhead: ${forEachOverhead:.1f}%")
+    println("Complex condition overhead: ${complexIfOverhead:.1f}%")
+    println("Exception handling overhead: ${exceptionOverhead:.1f}%")
+    
+    b.recordMetric("for_each_overhead_percent", forEachOverhead)
+    b.recordMetric("complex_condition_overhead_percent", complexIfOverhead)
+    b.recordMetric("exception_handling_overhead_percent", exceptionOverhead)
+}
+
+// Main execution
+fun main() {
+    val bencher = Bencher(iterations = 10, warmupIterations = 3)
+    
+    println("=== Seen Basic Operations Performance Microbenchmarks ===")
+    println("Establishing performance baselines for fundamental operations\n")
+    
+    measureArithmeticOperations(bencher)
+    measureComparisonOperations(bencher)
+    measureArrayOperations(bencher)
+    measureCollectionOperations(bencher)
+    measureStringOperations(bencher)
+    measureControlFlowOperations(bencher)
+    
+    // Generate comprehensive summary
+    val results = bencher.getAllResults()
+    generateBasicOperationsSummary(results)
+    
+    // Save results for analysis
+    val report = bencher.generateReport()
+    fs.writeString("../../results/basic_operations_performance_results.json", report.toJson())
+    println("\nResults saved to: results/basic_operations_performance_results.json")
+}
+
+fun generateBasicOperationsSummary(results: Map<String, BenchmarkResult>) {
+    println("\n=== BASIC OPERATIONS PERFORMANCE SUMMARY ===")
+    
+    // Calculate overall efficiency metrics
+    val overheadMetrics = results.filter { it.key.contains("overhead_percent") }
+    val efficiencyMetrics = results.filter { it.key.contains("efficiency_percent") }
+    
+    if (overheadMetrics.isNotEmpty()) {
+        val avgOverhead = overheadMetrics.values.map { it.mean() }.average()
+        println("Average operation overhead: ${avgOverhead:.1f}%")
+        
+        if (avgOverhead < 25.0) {
+            println("✅ Operations are efficiently implemented")
+        } else {
+            println("⚠️  Some operations have significant overhead")
+        }
+    }
+    
+    if (efficiencyMetrics.isNotEmpty()) {
+        val avgEfficiency = efficiencyMetrics.values.map { it.mean() }.average()
+        println("Average efficiency improvement: ${avgEfficiency:.1f}%")
+        
+        if (avgEfficiency > 20.0) {
+            println("✅ Good optimization in collection operations")
+        }
+    }
+    
+    // Identify fastest operations
+    val fastestOps = results.entries
+        .filter { !it.key.contains("overhead") && !it.key.contains("efficiency") }
+        .sortedBy { it.value.mean() }
+        .take(3)
+    
+    println("\nFastest operations:")
+    fastestOps.forEach { (name, result) ->
+        println("  ${name.replace('_', ' ')}: ${result.mean() * 1000:.2f}ms")
+    }
+    
+    println("\nThese baseline measurements help understand fundamental language performance")
+    println("Results guide optimization priorities and realistic performance expectations")
+}

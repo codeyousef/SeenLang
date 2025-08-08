@@ -1,0 +1,553 @@
+// Seen JSON Parser Benchmark - Real-world parsing performance test
+// Tests parsing performance on various JSON files with different characteristics
+
+use std.io
+use std.time
+use std.benchmark
+use std.fs
+use std.collections
+use std.memory
+
+// JSON Value representation
+enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<JsonValue>),
+    Object(HashMap<String, JsonValue>),
+}
+
+impl JsonValue {
+    fun isValid(self) -> bool {
+        match self {
+            JsonValue.Null => true,
+            JsonValue.Bool(_) => true,
+            JsonValue.Number(n) => !n.isNan() && !n.isInfinite(),
+            JsonValue.String(s) => !s.isEmpty(),
+            JsonValue.Array(arr) => arr.all(|v| v.isValid()),
+            JsonValue.Object(obj) => obj.values().all(|v| v.isValid()),
+        }
+    }
+    
+    fun size(self) -> usize {
+        match self {
+            JsonValue.Null => 1,
+            JsonValue.Bool(_) => 1,
+            JsonValue.Number(_) => 1,
+            JsonValue.String(s) => s.len(),
+            JsonValue.Array(arr) => arr.iter().map(|v| v.size()).sum(),
+            JsonValue.Object(obj) => obj.values().map(|v| v.size()).sum() + obj.len(),
+        }
+    }
+}
+
+// JSON Parser implementation
+struct JsonParser {
+    input: String,
+    position: usize,
+    line: usize,
+    column: usize,
+}
+
+impl JsonParser {
+    fun new(input: String) -> JsonParser {
+        JsonParser {
+            input,
+            position: 0,
+            line: 1,
+            column: 1,
+        }
+    }
+    
+    fun isAtEnd(self) -> bool {
+        self.position >= self.input.len()
+    }
+    
+    fun currentChar(self) -> Option<char> {
+        if self.isAtEnd() {
+            None
+        } else {
+            Some(self.input.chars().nth(self.position)?)
+        }
+    }
+    
+    fun advance(mut self) -> Option<char> {
+        if self.isAtEnd() {
+            None
+        } else {
+            let ch = self.input.chars().nth(self.position)?;
+            self.position += 1;
+            
+            if ch == '\n' {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
+            
+            Some(ch)
+        }
+    }
+    
+    fun skipWhitespace(mut self) {
+        while let Some(ch) = self.currentChar() {
+            if ch.isWhitespace() {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+    
+    fun parseValue(mut self) -> Result<JsonValue, String> {
+        self.skipWhitespace();
+        
+        match self.currentChar() {
+            Some('"') => self.parseString(),
+            Some('[') => self.parseArray(),
+            Some('{') => self.parseObject(),
+            Some('t') | Some('f') => self.parseBoolean(),
+            Some('n') => self.parseNull(),
+            Some(ch) if ch.isDigit() || ch == '-' => self.parseNumber(),
+            Some(ch) => Err(format!("Unexpected character '{}' at line {}, column {}", ch, self.line, self.column)),
+            None => Err("Unexpected end of input".to_string()),
+        }
+    }
+    
+    fun parseString(mut self) -> Result<JsonValue, String> {
+        self.advance(); // consume opening quote
+        
+        let mut value = String::new();
+        
+        while let Some(ch) = self.currentChar() {
+            if ch == '"' {
+                self.advance(); // consume closing quote
+                return Ok(JsonValue.String(value));
+            } else if ch == '\\' {
+                self.advance(); // consume backslash
+                
+                match self.currentChar() {
+                    Some('"') => { value.push('"'); self.advance(); }
+                    Some('\\') => { value.push('\\'); self.advance(); }
+                    Some('/') => { value.push('/'); self.advance(); }
+                    Some('b') => { value.push('\u{0008}'); self.advance(); }
+                    Some('f') => { value.push('\u{000C}'); self.advance(); }
+                    Some('n') => { value.push('\n'); self.advance(); }
+                    Some('r') => { value.push('\r'); self.advance(); }
+                    Some('t') => { value.push('\t'); self.advance(); }
+                    Some('u') => {
+                        self.advance();
+                        let hex = self.parseUnicodeEscape()?;
+                        value.push(hex);
+                    }
+                    Some(ch) => return Err(format!("Invalid escape sequence '\\{}' at line {}, column {}", ch, self.line, self.column)),
+                    None => return Err("Unexpected end of input in string".to_string()),
+                }
+            } else {
+                value.push(ch);
+                self.advance();
+            }
+        }
+        
+        Err("Unterminated string".to_string())
+    }
+    
+    fun parseUnicodeEscape(mut self) -> Result<char, String> {
+        let mut hex = String::new();
+        
+        for _ in 0..4 {
+            match self.currentChar() {
+                Some(ch) if ch.isAsciiHexdigit() => {
+                    hex.push(ch);
+                    self.advance();
+                }
+                Some(ch) => return Err(format!("Invalid hex digit '{}' in unicode escape at line {}, column {}", ch, self.line, self.column)),
+                None => return Err("Unexpected end of input in unicode escape".to_string()),
+            }
+        }
+        
+        let code_point = u32::fromStrRadix(hex, 16)
+            .mapErr(|_| "Invalid unicode escape sequence".to_string())?;
+        
+        char::fromU32(code_point)
+            .okOr("Invalid unicode code point".to_string())
+    }
+    
+    fun parseNumber(mut self) -> Result<JsonValue, String> {
+        let mut number = String::new();
+        
+        // Handle negative sign
+        if self.currentChar() == Some('-') {
+            number.push('-');
+            self.advance();
+        }
+        
+        // Parse integer part
+        if self.currentChar() == Some('0') {
+            number.push('0');
+            self.advance();
+        } else {
+            while let Some(ch) = self.currentChar() {
+                if ch.isDigit() {
+                    number.push(ch);
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        
+        // Parse decimal part
+        if self.currentChar() == Some('.') {
+            number.push('.');
+            self.advance();
+            
+            let mut hasDigits = false;
+            while let Some(ch) = self.currentChar() {
+                if ch.isDigit() {
+                    number.push(ch);
+                    self.advance();
+                    hasDigits = true;
+                } else {
+                    break;
+                }
+            }
+            
+            if !hasDigits {
+                return Err("Invalid number: missing digits after decimal point".to_string());
+            }
+        }
+        
+        // Parse exponent part
+        if self.currentChar() == Some('e') || self.currentChar() == Some('E') {
+            number.push('e');
+            self.advance();
+            
+            if self.currentChar() == Some('+') || self.currentChar() == Some('-') {
+                number.push(self.currentChar().unwrap());
+                self.advance();
+            }
+            
+            let mut hasDigits = false;
+            while let Some(ch) = self.currentChar() {
+                if ch.isDigit() {
+                    number.push(ch);
+                    self.advance();
+                    hasDigits = true;
+                } else {
+                    break;
+                }
+            }
+            
+            if !hasDigits {
+                return Err("Invalid number: missing digits in exponent".to_string());
+            }
+        }
+        
+        let value = f64::fromStr(number)
+            .mapErr(|_| format!("Invalid number format: '{}'", number))?;
+        
+        Ok(JsonValue.Number(value))
+    }
+    
+    fun parseBoolean(mut self) -> Result<JsonValue, String> {
+        if self.matchKeyword("true") {
+            Ok(JsonValue.Bool(true))
+        } else if self.matchKeyword("false") {
+            Ok(JsonValue.Bool(false))
+        } else {
+            Err(format!("Invalid boolean at line {}, column {}", self.line, self.column))
+        }
+    }
+    
+    fun parseNull(mut self) -> Result<JsonValue, String> {
+        if self.matchKeyword("null") {
+            Ok(JsonValue.Null)
+        } else {
+            Err(format!("Invalid null at line {}, column {}", self.line, self.column))
+        }
+    }
+    
+    fun matchKeyword(mut self, keyword: &str) -> bool {
+        let remaining = &self.input[self.position..];
+        
+        if remaining.startsWith(keyword) {
+            // Check that the keyword is not part of a larger identifier
+            let nextPos = self.position + keyword.len();
+            if nextPos >= self.input.len() || !self.input.chars().nth(nextPos).unwrap().isAlphanumeric() {
+                for _ in 0..keyword.len() {
+                    self.advance();
+                }
+                return true;
+            }
+        }
+        
+        false
+    }
+    
+    fun parseArray(mut self) -> Result<JsonValue, String> {
+        self.advance(); // consume '['
+        self.skipWhitespace();
+        
+        let mut elements = Vec::new();
+        
+        // Handle empty array
+        if self.currentChar() == Some(']') {
+            self.advance();
+            return Ok(JsonValue.Array(elements));
+        }
+        
+        loop {
+            let value = self.parseValue()?;
+            elements.push(value);
+            
+            self.skipWhitespace();
+            
+            match self.currentChar() {
+                Some(',') => {
+                    self.advance();
+                    self.skipWhitespace();
+                }
+                Some(']') => {
+                    self.advance();
+                    break;
+                }
+                Some(ch) => return Err(format!("Expected ',' or ']' but found '{}' at line {}, column {}", ch, self.line, self.column)),
+                None => return Err("Unexpected end of input in array".to_string()),
+            }
+        }
+        
+        Ok(JsonValue.Array(elements))
+    }
+    
+    fun parseObject(mut self) -> Result<JsonValue, String> {
+        self.advance(); // consume '{'
+        self.skipWhitespace();
+        
+        let mut object = HashMap::new();
+        
+        // Handle empty object
+        if self.currentChar() == Some('}') {
+            self.advance();
+            return Ok(JsonValue.Object(object));
+        }
+        
+        loop {
+            // Parse key (must be string)
+            let key = match self.parseString()? {
+                JsonValue.String(s) => s,
+                _ => return Err("Object key must be a string".to_string()),
+            };
+            
+            self.skipWhitespace();
+            
+            // Expect colon
+            if self.currentChar() != Some(':') {
+                return Err(format!("Expected ':' after object key at line {}, column {}", self.line, self.column));
+            }
+            self.advance();
+            
+            self.skipWhitespace();
+            
+            // Parse value
+            let value = self.parseValue()?;
+            object.insert(key, value);
+            
+            self.skipWhitespace();
+            
+            match self.currentChar() {
+                Some(',') => {
+                    self.advance();
+                    self.skipWhitespace();
+                }
+                Some('}') => {
+                    self.advance();
+                    break;
+                }
+                Some(ch) => return Err(format!("Expected ',' or '}}' but found '{}' at line {}, column {}", ch, self.line, self.column)),
+                None => return Err("Unexpected end of input in object".to_string()),
+            }
+        }
+        
+        Ok(JsonValue.Object(object))
+    }
+    
+    fun parse(mut self) -> Result<JsonValue, String> {
+        let value = self.parseValue()?;
+        self.skipWhitespace();
+        
+        if !self.isAtEnd() {
+            return Err(format!("Unexpected content after JSON value at line {}, column {}", self.line, self.column));
+        }
+        
+        Ok(value)
+    }
+}
+
+// Benchmark functions
+@benchmark
+fun benchmarkJsonParserRealWorld(b: Bencher) {
+    let testFiles = listOf(
+        "twitter.json",        // 631KB - typical social media API response
+        "canada.json",         // 2.2MB - geographic coordinate data
+        "citm_catalog.json",   // 1.7MB - e-commerce product catalog
+        "large.json",          // 25MB - stress test file
+    );
+    
+    let testDataPath = "../../test_data/json_files/";
+    
+    for (file in testFiles) {
+        let filePath = testDataPath + file;
+        
+        if (!fs.exists(filePath)) {
+            println("Warning: Test file $filePath not found, skipping...");
+            continue;
+        }
+        
+        let content = readFile(filePath);
+        let fileSize = content.len();
+        println("Testing JSON parser performance on $file (${fileSize / 1024}KB)");
+        
+        b.iter {
+            let startTime = time.now();
+            let startMemory = memory.currentUsage();
+            
+            // Parse JSON
+            let mut parser = JsonParser.new(content.clone());
+            let result = parser.parse();
+            
+            let endTime = time.now();
+            let endMemory = memory.currentUsage();
+            
+            // Verify parsing succeeded
+            match result {
+                Ok(json) => {
+                    assert(json.isValid());
+                    let jsonSize = json.size();
+                    
+                    let elapsedSeconds = (endTime - startTime).toSeconds();
+                    let memoryUsed = endMemory - startMemory;
+                    let bytesPerSecond = fileSize as f64 / elapsedSeconds;
+                    
+                    b.recordMetric("bytes_per_second", bytesPerSecond);
+                    b.recordMetric("json_elements", jsonSize as f64);
+                    b.recordMetric("memory_used_bytes", memoryUsed as f64);
+                    b.recordMetric("parse_time_seconds", elapsedSeconds);
+                }
+                Err(error) => {
+                    println("❌ JSON parsing failed: $error");
+                    assert(false);
+                }
+            }
+        }
+    }
+    
+    // Report aggregate performance
+    let avgBytesPerSec = b.getMetric("bytes_per_second").mean();
+    let avgMemoryUsage = b.getMetric("memory_used_bytes").mean();
+    
+    b.reportMetric("average_bytes_per_second", avgBytesPerSec);
+    b.reportMetric("average_memory_usage_mb", avgMemoryUsage / (1024.0 * 1024.0));
+    
+    println("Seen JSON Parser Performance:");
+    println("  Average parsing speed: ${avgBytesPerSec / (1024.0 * 1024.0):.2f} MB/sec");
+    println("  Average memory usage: ${avgMemoryUsage / (1024.0 * 1024.0):.2f} MB");
+}
+
+@benchmark 
+fun benchmarkJsonParserStressTest(b: Bencher) {
+    // Test with deeply nested structures
+    let deeplyNested = generateDeeplyNestedJson(1000);
+    
+    b.measure("deeply_nested_parsing") {
+        let mut parser = JsonParser.new(deeplyNested.clone());
+        let result = parser.parse().expect("Should parse deeply nested JSON");
+        assert(result.isValid());
+    };
+    
+    // Test with wide structures (many siblings)
+    let wideStructure = generateWideJson(10000);
+    
+    b.measure("wide_structure_parsing") {
+        let mut parser = JsonParser.new(wideStructure.clone());
+        let result = parser.parse().expect("Should parse wide JSON structure");
+        assert(result.isValid());
+    };
+    
+    // Test with mixed content types
+    let mixedContent = generateMixedJson(1000);
+    
+    b.measure("mixed_content_parsing") {
+        let mut parser = JsonParser.new(mixedContent.clone());
+        let result = parser.parse().expect("Should parse mixed content JSON");
+        assert(result.isValid());
+    };
+}
+
+// Helper functions for generating test JSON
+fun generateDeeplyNestedJson(depth: usize) -> String {
+    let mut json = String::new();
+    
+    for _ in 0..depth {
+        json.push_str("{\"nested\":");
+    }
+    
+    json.push_str("\"value\"");
+    
+    for _ in 0..depth {
+        json.push('}');
+    }
+    
+    json
+}
+
+fun generateWideJson(count: usize) -> String {
+    let mut json = String::from("{");
+    
+    for i in 0..count {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push_str(&format!("\"key{}\": {}", i, i));
+    }
+    
+    json.push('}');
+    json
+}
+
+fun generateMixedJson(count: usize) -> String {
+    let mut json = String::from("[");
+    
+    for i in 0..count {
+        if i > 0 {
+            json.push(',');
+        }
+        
+        match i % 6 {
+            0 => json.push_str("null"),
+            1 => json.push_str("true"),
+            2 => json.push_str("false"),
+            3 => json.push_str(&format!("{}", i)),
+            4 => json.push_str(&format!("\"string{}\"", i)),
+            5 => json.push_str(&format!("{{\"obj\": {}}}", i)),
+            _ => unreachable!(),
+        }
+    }
+    
+    json.push(']');
+    json
+}
+
+fun main() {
+    println("Running Seen JSON Parser Benchmarks...");
+    
+    // Run real-world benchmarks
+    let mut bencher = Bencher::new();
+    benchmarkJsonParserRealWorld(&mut bencher);
+    
+    // Run stress tests
+    benchmarkJsonParserStressTest(&mut bencher);
+    
+    println("JSON Parser benchmarks completed successfully!");
+}
