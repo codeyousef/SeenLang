@@ -3,7 +3,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use std::time::Duration;
-use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction};
+use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction, Value, Target};
 use seen_typechecker::TypeChecker;
 use seen_parser::{Parser, Program};
 use seen_lexer::{Lexer, LanguageConfig};
@@ -24,9 +24,9 @@ fn ast_to_module(_ast: &Program) -> Module {
                 Instruction::Call { 
                     dest: Some(0), 
                     func: "fibonacci".to_string(), 
-                    args: vec![1] 
+                    args: vec![Value::Integer(1)] 
                 },
-                Instruction::Return { value: Some(0) },
+                Instruction::Return { value: Some(Value::Integer(0)) },
             ],
         }],
     };
@@ -40,7 +40,7 @@ fn ast_to_module(_ast: &Program) -> Module {
             label: "entry".to_string(),
             instructions: vec![
                 Instruction::Load { dest: 0, src: 0 },
-                Instruction::Return { value: Some(0) },
+                Instruction::Return { value: Some(Value::Integer(0)) },
             ],
         }],
     };
@@ -48,6 +48,7 @@ fn ast_to_module(_ast: &Program) -> Module {
     
     Module {
         name: "benchmark".to_string(),
+        target: Target::x86_64_linux(),
         functions,
     }
 }
@@ -56,6 +57,7 @@ fn ast_to_module(_ast: &Program) -> Module {
 fn simple_ast_to_module(_ast: &Program) -> Module {
     Module {
         name: "simple".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![Function {
             name: "test".to_string(),
             params: vec![],

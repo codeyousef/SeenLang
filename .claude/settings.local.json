@@ -729,7 +729,14 @@
       "Bash(env CARGO_TARGET_DIR=target-wsl cargo build -p seen_ir --quiet)",
       "Bash(env CARGO_TARGET_DIR=target-wsl cargo build -p seen_cli --quiet)",
       "Bash(env CARGO_TARGET_DIR=target-wsl /mnt/d/Projects/Rust/seenlang/target-wsl/debug/seen riscv info)",
-      "Bash(env CARGO_TARGET_DIR=target-wsl cargo bench -p seen_ir --bench riscv_performance -- --sample-size 2 --warm-up-time 0.5 --measurement-time 1)"
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo bench -p seen_ir --bench riscv_performance -- --sample-size 2 --warm-up-time 0.5 --measurement-time 1)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo build -p seen_ir --benches --quiet)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl grep -n \"Module\" /mnt/d/Projects/Rust/seenlang/compiler_bootstrap/seen_ir/src/ir.rs)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl grep -n \"struct Function\" /mnt/d/Projects/Rust/seenlang/compiler_bootstrap/seen_ir/src/ir.rs)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl grep -n \"struct BasicBlock\" /mnt/d/Projects/Rust/seenlang/compiler_bootstrap/seen_ir/src/ir.rs)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo build -p seen_ir --bench riscv_performance --quiet)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl grep -n \"Module {\" /mnt/d/Projects/Rust/seenlang/compiler_bootstrap/seen_ir/benches/codegen_performance.rs)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo build --workspace --quiet)"
     ],
     "deny": []
   }

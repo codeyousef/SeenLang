@@ -3,7 +3,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use std::time::Duration;
-use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction};
+use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction, Value, Target};
 use seen_typechecker::TypeChecker;
 use seen_parser::{Parser, Program};
 use seen_lexer::{Lexer, LanguageConfig};
@@ -22,7 +22,7 @@ fn optimize_ast_to_module(_ast: &Program, test_name: &str) -> Module {
                     label: "entry".to_string(),
                     instructions: vec![
                         // In optimized version, this would be a single return 150
-                        Instruction::Return { value: Some(150) },
+                        Instruction::Return { value: Some(Value::Integer(150)) },
                     ],
                 }],
             });
@@ -35,7 +35,7 @@ fn optimize_ast_to_module(_ast: &Program, test_name: &str) -> Module {
                 blocks: vec![BasicBlock {
                     label: "entry".to_string(),
                     instructions: vec![
-                        Instruction::Return { value: Some(10) },
+                        Instruction::Return { value: Some(Value::Integer(10)) },
                     ],
                 }],
             });
@@ -50,7 +50,7 @@ fn optimize_ast_to_module(_ast: &Program, test_name: &str) -> Module {
                     instructions: vec![
                         // Hoisted computation
                         Instruction::Load { dest: 0, src: 20 }, // constant * 2
-                        Instruction::Return { value: Some(0) },
+                        Instruction::Return { value: Some(Value::Integer(0)) },
                     ],
                 }],
             });
@@ -72,6 +72,7 @@ fn optimize_ast_to_module(_ast: &Program, test_name: &str) -> Module {
     
     Module {
         name: format!("{}_optimized", test_name),
+        target: Target::x86_64_linux(),
         functions,
     }
 }
@@ -80,6 +81,7 @@ fn optimize_ast_to_module(_ast: &Program, test_name: &str) -> Module {
 fn simple_ast_to_module(_ast: &Program) -> Module {
     Module {
         name: "simple".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![Function {
             name: "compute".to_string(),
             params: vec!["a".to_string(), "b".to_string()],
@@ -88,7 +90,7 @@ fn simple_ast_to_module(_ast: &Program) -> Module {
                 instructions: vec![
                     Instruction::Load { dest: 0, src: 0 },
                     Instruction::Load { dest: 1, src: 1 },
-                    Instruction::Return { value: Some(0) },
+                    Instruction::Return { value: Some(Value::Integer(0)) },
                 ],
             }],
         }],

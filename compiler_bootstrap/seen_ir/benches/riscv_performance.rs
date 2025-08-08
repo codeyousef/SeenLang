@@ -4,7 +4,7 @@
 //! and reactive programming optimizations
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use seen_ir::ir::{Module, Function, BasicBlock, Instruction, Value, Target, RiscVExtensions};
+use seen_ir::ir::{Module, Function, BasicBlock, Instruction, RiscVInstruction, Value, Target, RiscVExtensions};
 use seen_ir::llvm_backend::LLVMBackend;
 use seen_ir::CodeGenerator;
 
@@ -27,7 +27,11 @@ fn bench_riscv_instruction_generation(c: &mut Criterion) {
             |b, target| {
                 b.iter(|| {
                     let module = create_basic_module("bench_module", target.clone());
-                    let mut codegen = CodeGenerator::new_with_target("bench".to_string(), target.clone());
+                    let mut codegen = CodeGenerator::new("bench".to_string());
+                    codegen.set_target_triple(&format!("{}-{}-{}", 
+                        target.arch.to_string().to_lowercase(),
+                        target.vendor,
+                        target.os.to_string()));
                     let ir = codegen.generate_llvm_ir(&module).unwrap();
                     black_box(ir);
                 });
@@ -119,7 +123,11 @@ fn bench_riscv_vs_x86(c: &mut Criterion) {
     
     group.bench_function("riscv64_codegen", |b| {
         b.iter(|| {
-            let mut codegen = CodeGenerator::new_with_target("riscv".to_string(), riscv_target.clone());
+            let mut codegen = CodeGenerator::new("riscv".to_string());
+            codegen.set_target_triple(&format!("{}-{}-{}", 
+                riscv_target.arch.to_string().to_lowercase(),
+                "unknown",
+                riscv_target.os.to_string().to_lowercase()));
             let ir = codegen.generate_llvm_ir(&module_riscv).unwrap();
             black_box(ir);
         });
@@ -127,7 +135,11 @@ fn bench_riscv_vs_x86(c: &mut Criterion) {
     
     group.bench_function("x86_64_codegen", |b| {
         b.iter(|| {
-            let mut codegen = CodeGenerator::new_with_target("x86".to_string(), x86_target.clone());
+            let mut codegen = CodeGenerator::new("x86".to_string());
+            codegen.set_target_triple(&format!("{}-{}-{}", 
+                x86_target.arch.to_string().to_lowercase(),
+                "unknown",
+                x86_target.os.to_string().to_lowercase()));
             let ir = codegen.generate_llvm_ir(&module_x86).unwrap();
             black_box(ir);
         });
@@ -160,7 +172,11 @@ fn bench_riscv_extensions(c: &mut Criterion) {
                 b.iter(|| {
                     // Generate code that uses various extensions
                     let module = create_extension_test_module(&name, target.clone(), &extensions);
-                    let mut codegen = CodeGenerator::new_with_target(name.to_string(), target.clone());
+                    let mut codegen = CodeGenerator::new(name.to_string());
+                    codegen.set_target_triple(&format!("{}-{}-{}", 
+                        target.arch.to_string().to_lowercase(),
+                        target.vendor,
+                        target.os.to_string()));
                     let ir = codegen.generate_llvm_ir(&module).unwrap();
                     black_box(ir);
                 });
@@ -178,7 +194,7 @@ fn bench_memory_patterns(c: &mut Criterion) {
     let target = Target::riscv64_linux();
     
     // Different memory access patterns
-    let patterns = vec![
+    let patterns: Vec<(&str, fn(&str, Target) -> Module)> = vec![
         ("sequential", create_sequential_access_module),
         ("strided", create_strided_access_module),
         ("random", create_random_access_module),
@@ -192,7 +208,11 @@ fn bench_memory_patterns(c: &mut Criterion) {
                 let module = create_fn("bench", target.clone());
                 
                 b.iter(|| {
-                    let mut codegen = CodeGenerator::new_with_target(pattern_name.to_string(), target.clone());
+                    let mut codegen = CodeGenerator::new(pattern_name.to_string());
+                    codegen.set_target_triple(&format!("{}-{}-{}", 
+                        target.arch.to_string().to_lowercase(),
+                        target.vendor,
+                        target.os.to_string()));
                     let ir = codegen.generate_llvm_ir(&module).unwrap();
                     black_box(ir);
                 });
@@ -271,9 +291,9 @@ fn create_complex_module(name: &str, target: Target) -> Module {
                                 right: Value::Integer(100),
                             },
                             Instruction::Branch {
-                                condition: Value::Register(6),
+                                condition: Some(6),
                                 true_label: "then".to_string(),
-                                false_label: "else".to_string(),
+                                false_label: Some("else".to_string()),
                             },
                         ],
                     },
@@ -286,7 +306,7 @@ fn create_complex_module(name: &str, target: Target) -> Module {
                                 left: Value::Register(5),
                                 right: Value::Integer(2),
                             },
-                            Instruction::Jump { label: "exit".to_string() },
+                            Instruction::Branch { condition: None, true_label: "exit".to_string(), false_label: None },
                         ],
                     },
                     BasicBlock {
@@ -298,7 +318,7 @@ fn create_complex_module(name: &str, target: Target) -> Module {
                                 left: Value::Register(5),
                                 right: Value::Integer(2),
                             },
-                            Instruction::Jump { label: "exit".to_string() },
+                            Instruction::Branch { condition: None, true_label: "exit".to_string(), false_label: None },
                         ],
                     },
                     BasicBlock {
@@ -306,7 +326,7 @@ fn create_complex_module(name: &str, target: Target) -> Module {
                         instructions: vec![
                             Instruction::Phi {
                                 dest: 8,
-                                incoming: vec![
+                                values: vec![
                                     (Value::Register(7), "then".to_string()),
                                     (Value::Register(7), "else".to_string()),
                                 ],
@@ -349,17 +369,15 @@ fn create_extension_test_module(name: &str, target: Target, extensions: &RiscVEx
     }
     
     // Atomic operations (A extension)
+    // Note: Atomic operations would be represented as RISC-V specific instructions
     if extensions.a {
-        instructions.push(Instruction::AtomicLoad {
+        instructions.push(Instruction::RiscV(RiscVInstruction::AmoswapW {
             dest: 3,
-            ptr: 100,
-            ordering: seen_ir::ir::MemoryOrdering::SeqCst,
-        });
-        instructions.push(Instruction::AtomicStore {
-            ptr: 100,
-            value: Value::Register(3),
-            ordering: seen_ir::ir::MemoryOrdering::SeqCst,
-        });
+            addr: Value::Integer(100),
+            src: Value::Register(0),
+            aq: true,
+            rl: true,
+        }));
     }
     
     // Floating point operations (F/D extensions)
@@ -417,7 +435,7 @@ fn create_sequential_access_module(name: &str, target: Target) -> Module {
                                 left: Value::Integer(0),
                                 right: Value::Integer(0),
                             },
-                            Instruction::Jump { label: "loop".to_string() },
+                            Instruction::Branch { condition: None, true_label: "loop".to_string(), false_label: None },
                         ],
                     },
                     BasicBlock {
@@ -450,9 +468,9 @@ fn create_sequential_access_module(name: &str, target: Target) -> Module {
                                 right: Value::Register(1), // size
                             },
                             Instruction::Branch {
-                                condition: Value::Register(5),
+                                condition: Some(5),
                                 true_label: "loop".to_string(),
-                                false_label: "exit".to_string(),
+                                false_label: Some("exit".to_string()),
                             },
                         ],
                     },
@@ -494,7 +512,7 @@ fn create_strided_access_module(name: &str, target: Target) -> Module {
                                 left: Value::Integer(0),
                                 right: Value::Integer(0),
                             },
-                            Instruction::Jump { label: "loop".to_string() },
+                            Instruction::Branch { condition: None, true_label: "loop".to_string(), false_label: None },
                         ],
                     },
                     BasicBlock {
@@ -534,9 +552,9 @@ fn create_strided_access_module(name: &str, target: Target) -> Module {
                                 right: Value::Register(1), // size
                             },
                             Instruction::Branch {
-                                condition: Value::Register(7),
+                                condition: Some(7),
                                 true_label: "loop".to_string(),
-                                false_label: "exit".to_string(),
+                                false_label: Some("exit".to_string()),
                             },
                         ],
                     },
@@ -577,7 +595,7 @@ fn create_random_access_module(name: &str, target: Target) -> Module {
                                 left: Value::Integer(0),
                                 right: Value::Integer(0),
                             },
-                            Instruction::Jump { label: "loop".to_string() },
+                            Instruction::Branch { condition: None, true_label: "loop".to_string(), false_label: None },
                         ],
                     },
                     BasicBlock {
@@ -615,9 +633,9 @@ fn create_random_access_module(name: &str, target: Target) -> Module {
                                 right: Value::Register(2), // count
                             },
                             Instruction::Branch {
-                                condition: Value::Register(7),
+                                condition: Some(7),
                                 true_label: "loop".to_string(),
-                                false_label: "exit".to_string(),
+                                false_label: Some("exit".to_string()),
                             },
                         ],
                     },
@@ -652,7 +670,7 @@ fn create_gather_scatter_module(name: &str, target: Target) -> Module {
                                 left: Value::Integer(0),
                                 right: Value::Integer(0),
                             },
-                            Instruction::Jump { label: "loop".to_string() },
+                            Instruction::Branch { condition: None, true_label: "loop".to_string(), false_label: None },
                         ],
                     },
                     BasicBlock {
@@ -695,9 +713,9 @@ fn create_gather_scatter_module(name: &str, target: Target) -> Module {
                                 right: Value::Register(3), // count
                             },
                             Instruction::Branch {
-                                condition: Value::Register(8),
+                                condition: Some(8),
                                 true_label: "loop".to_string(),
-                                false_label: "exit".to_string(),
+                                false_label: Some("exit".to_string()),
                             },
                         ],
                     },
