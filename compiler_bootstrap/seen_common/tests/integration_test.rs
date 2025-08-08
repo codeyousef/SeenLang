@@ -136,7 +136,7 @@ fn convert_ast_to_ir(ast: &seen_parser::Program) -> seen_ir::Module {
                     blocks: vec![BasicBlock {
                         label: "entry".to_string(),
                         instructions: vec![
-                            Instruction::Return { value: Some(42) },
+                            Instruction::Return { value: Some(seen_ir::Value::Integer(42)) },
                         ],
                     }],
                 };
@@ -156,7 +156,7 @@ fn convert_ast_to_ir(ast: &seen_parser::Program) -> seen_ir::Module {
             blocks: vec![BasicBlock {
                 label: "entry".to_string(),
                 instructions: vec![
-                    Instruction::Return { value: Some(0) },
+                    Instruction::Return { value: Some(seen_ir::Value::Integer(0)) },
                 ],
             }],
         });

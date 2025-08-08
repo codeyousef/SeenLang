@@ -6,6 +6,134 @@ use crate::string::String;
 use crate::collections::Vec;
 use std::time::{Duration, Instant};
 
+/// Bencher type for micro-benchmarking with iteration control
+/// Provides the familiar `b.iter { ... }` API from Rust benchmarking
+#[derive(Debug)]
+pub struct Bencher {
+    measurement_time: Duration,
+    warmup_iterations: usize,
+    sample_size: usize,
+    bytes_processed: Option<u64>,
+    timer_paused: bool,
+    elapsed_time: Duration,
+}
+
+impl Bencher {
+    /// Create a new Bencher with default configuration
+    pub fn new() -> Self {
+        Self {
+            measurement_time: Duration::from_secs(5),
+            warmup_iterations: 10,
+            sample_size: 100,
+            bytes_processed: None,
+            timer_paused: false,
+            elapsed_time: Duration::from_nanos(0),
+        }
+    }
+    
+    /// Set the number of bytes processed per iteration (for throughput measurement)
+    pub fn bytes(&mut self, n: u64) {
+        self.bytes_processed = Some(n);
+    }
+    
+    /// Pause the timer (useful for setup/teardown that shouldn't be measured)
+    pub fn pause_timer(&mut self) {
+        self.timer_paused = true;
+    }
+    
+    /// Resume the timer
+    pub fn resume_timer(&mut self) {
+        self.timer_paused = false;
+    }
+    
+    /// Benchmark a closure with automatic iteration control
+    pub fn iter<F, T>(&mut self, mut routine: F) -> BenchMeasurement
+    where
+        F: FnMut() -> T,
+    {
+        // Warmup phase
+        for _ in 0..self.warmup_iterations {
+            let _ = routine();
+        }
+        
+        let mut samples = Vec::new();
+        let bench_start = Instant::now();
+        
+        while samples.len() < self.sample_size && bench_start.elapsed() < self.measurement_time {
+            let start = Instant::now();
+            let _ = routine();
+            let elapsed = start.elapsed();
+            samples.push(elapsed);
+        }
+        
+        let mut measurement = BenchMeasurement::new(String::from("benchmark"), samples);
+        
+        // Add throughput information if bytes were specified
+        if let Some(bytes) = self.bytes_processed {
+            measurement = measurement.with_throughput(bytes);
+        }
+        
+        measurement
+    }
+    
+    /// Benchmark with custom setup and teardown for each iteration
+    pub fn iter_batched<S, F, T>(&mut self, mut setup: S, mut routine: F) -> BenchMeasurement
+    where
+        S: FnMut() -> T,
+        F: FnMut(T),
+    {
+        // Warmup phase
+        for _ in 0..self.warmup_iterations {
+            let input = setup();
+            routine(input);
+        }
+        
+        let mut samples = Vec::new();
+        let bench_start = Instant::now();
+        
+        while samples.len() < self.sample_size && bench_start.elapsed() < self.measurement_time {
+            let input = setup();
+            
+            let start = Instant::now();
+            routine(input);
+            let elapsed = start.elapsed();
+            samples.push(elapsed);
+        }
+        
+        let mut measurement = BenchMeasurement::new(String::from("benchmark"), samples);
+        
+        if let Some(bytes) = self.bytes_processed {
+            measurement = measurement.with_throughput(bytes);
+        }
+        
+        measurement
+    }
+    
+    /// Configure measurement time
+    pub fn with_measurement_time(mut self, duration: Duration) -> Self {
+        self.measurement_time = duration;
+        self
+    }
+    
+    /// Configure warmup iterations
+    pub fn with_warmup_iterations(mut self, iterations: usize) -> Self {
+        self.warmup_iterations = iterations;
+        self
+    }
+    
+    /// Configure sample size
+    pub fn with_sample_size(mut self, size: usize) -> Self {
+        self.sample_size = size;
+        self
+    }
+}
+
+impl Default for Bencher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Benchmark configuration
 #[derive(Debug, Clone)]
 pub struct BenchConfig {
@@ -288,5 +416,56 @@ mod tests {
         assert_eq!(measurement.min, Duration::from_nanos(100));
         assert_eq!(measurement.max, Duration::from_nanos(500));
         assert_eq!(measurement.percentiles.p50, Duration::from_nanos(300));
+    }
+    
+    #[test]
+    fn test_bencher_iter() {
+        let mut bencher = Bencher::new()
+            .with_sample_size(10)
+            .with_measurement_time(Duration::from_millis(100));
+        
+        let measurement = bencher.iter(|| {
+            // Simple benchmark: sleep for 1ms
+            thread::sleep(Duration::from_millis(1));
+        });
+        
+        assert_eq!(measurement.name, "benchmark");
+        assert!(measurement.samples.len() > 0);
+        assert!(measurement.mean >= Duration::from_millis(1));
+        assert!(measurement.min <= measurement.mean);
+        assert!(measurement.max >= measurement.mean);
+    }
+    
+    #[test]
+    fn test_bencher_iter_batched() {
+        let mut bencher = Bencher::new()
+            .with_sample_size(5)
+            .with_measurement_time(Duration::from_millis(50));
+        
+        let measurement = bencher.iter_batched(
+            || vec![1, 2, 3, 4, 5], // Setup: create input data
+            |mut data| {             // Benchmark: sort the data
+                data.sort();
+            }
+        );
+        
+        assert!(measurement.samples.len() > 0);
+        assert!(measurement.mean > Duration::from_nanos(0));
+    }
+    
+    #[test]
+    fn test_bencher_throughput() {
+        let mut bencher = Bencher::new()
+            .with_sample_size(5)
+            .with_measurement_time(Duration::from_millis(50));
+        
+        bencher.bytes(1024); // Process 1KB per iteration
+        
+        let measurement = bencher.iter(|| {
+            thread::sleep(Duration::from_micros(100)); // Simulate 1KB processing
+        });
+        
+        assert!(measurement.throughput.is_some());
+        assert!(measurement.throughput.unwrap() > 0.0);
     }
 }

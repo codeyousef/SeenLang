@@ -3,7 +3,7 @@
 //! These tests MUST fail initially to drive implementation (TDD).
 //! Performance targets are hard requirements for Phase 2 completion.
 
-use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction};
+use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction, Value};
 use seen_common::SeenResult;
 use std::time::{Duration, Instant};
 
@@ -40,7 +40,7 @@ fn test_codegen_performance_under_1ms() {
                 2 => Instruction::Call { 
                     dest: Some(instr_idx + 3000), 
                     func: "helper_func".to_string(), 
-                    args: vec![instr_idx, instr_idx + 1] 
+                    args: vec![Value::Register(instr_idx), Value::Register(instr_idx + 1)] 
                 },
                 _ => Instruction::Nop,
             };
@@ -49,7 +49,7 @@ fn test_codegen_performance_under_1ms() {
         
         // Add return statement for valid LLVM IR (except for last block which will fall through)
         if block_idx < 9 {
-            block.instructions.push(Instruction::Return { value: Some(42) });
+            block.instructions.push(Instruction::Return { value: Some(Value::Integer(42)) });
         } else {
             // Last block returns with no value
             block.instructions.push(Instruction::Return { value: None });
@@ -138,9 +138,9 @@ fn test_c_abi_compatibility() {
                     Instruction::Call { 
                         dest: Some(3), 
                         func: "add_i32".to_string(), 
-                        args: vec![1, 2] 
+                        args: vec![Value::Register(1), Value::Register(2)] 
                     },
-                    Instruction::Return { value: Some(3) },
+                    Instruction::Return { value: Some(Value::Register(3)) },
                 ],
             }],
         }],
@@ -218,7 +218,7 @@ fn test_memory_optimization() {
                 label: "entry".to_string(),
                 instructions: vec![
                     Instruction::Load { dest: 1, src: 0 },
-                    Instruction::Return { value: Some(1) },
+                    Instruction::Return { value: Some(Value::Register(1)) },
                 ],
             }],
         };

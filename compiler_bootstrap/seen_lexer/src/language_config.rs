@@ -16,108 +16,65 @@ pub struct LanguageConfig {
 }
 
 impl LanguageConfig {
-    /// Create a basic English configuration for testing
+    /// Load English configuration from the en.toml file
     pub fn new_english() -> Self {
+        Self::load_from_file("languages/en.toml")
+            .unwrap_or_else(|_| Self::minimal_english())
+    }
+    
+    /// Minimal English configuration for when TOML is not available
+    fn minimal_english() -> Self {
         let mut keywords = HashMap::new();
         keywords.insert("fun".to_string(), "KeywordFun".to_string());
         keywords.insert("return".to_string(), "KeywordReturn".to_string());
-        keywords.insert("i32".to_string(), "TokenI32".to_string());
         keywords.insert("let".to_string(), "KeywordLet".to_string());
         keywords.insert("val".to_string(), "KeywordVal".to_string());
-        keywords.insert("is".to_string(), "TokenIs".to_string());
-        keywords.insert("as".to_string(), "TokenAs".to_string());
+        keywords.insert("var".to_string(), "KeywordVar".to_string());
         keywords.insert("if".to_string(), "KeywordIf".to_string());
-        keywords.insert("else".to_string(), "KeywordElse".to_string());
-        keywords.insert("for".to_string(), "TokenFor".to_string());
-        keywords.insert("in".to_string(), "TokenIn".to_string());
-        keywords.insert("while".to_string(), "TokenWhile".to_string());
-        keywords.insert("break".to_string(), "TokenBreak".to_string());
-        keywords.insert("continue".to_string(), "TokenContinue".to_string());
-        keywords.insert("try".to_string(), "TokenTry".to_string());
-        keywords.insert("catch".to_string(), "TokenCatch".to_string());
-        keywords.insert("finally".to_string(), "TokenFinally".to_string());
-        keywords.insert("throw".to_string(), "TokenThrow".to_string());
-        keywords.insert("class".to_string(), "KeywordClass".to_string());
-        keywords.insert("private".to_string(), "TokenPriv".to_string());
-        keywords.insert("public".to_string(), "TokenPub".to_string());
-        keywords.insert("String".to_string(), "TokenString".to_string());
-        keywords.insert("Int".to_string(), "TokenInt".to_string());
-        keywords.insert("Any".to_string(), "TokenAny".to_string());
-        keywords.insert("match".to_string(), "TokenMatch".to_string());
-        keywords.insert("null".to_string(), "KeywordNull".to_string());
         keywords.insert("suspend".to_string(), "KeywordSuspend".to_string());
         keywords.insert("await".to_string(), "KeywordAwait".to_string());
         keywords.insert("launch".to_string(), "KeywordLaunch".to_string());
         keywords.insert("data".to_string(), "KeywordData".to_string());
-        keywords.insert("var".to_string(), "KeywordVar".to_string());
+        keywords.insert("class".to_string(), "KeywordClass".to_string());
+        keywords.insert("match".to_string(), "KeywordMatch".to_string());
+        keywords.insert("when".to_string(), "KeywordWhen".to_string());
+        keywords.insert("is".to_string(), "KeywordIs".to_string());
+        keywords.insert("null".to_string(), "KeywordNull".to_string());
+        keywords.insert("else".to_string(), "KeywordElse".to_string());
         
         let mut operators = HashMap::new();
-        operators.insert("+".to_string(), "TokenPlus".to_string());
-        operators.insert("=".to_string(), "TokenAssign".to_string());
-        operators.insert("*".to_string(), "TokenMultiply".to_string());
-        operators.insert("!=".to_string(), "TokenNotEqual".to_string());
+        operators.insert("+".to_string(), "Plus".to_string());
+        operators.insert("=".to_string(), "Assign".to_string());
         
         Self {
             keywords,
             operators,
             name: "English".to_string(),
-            description: Some("English language configuration for testing".to_string()),
+            description: Some("Minimal English configuration".to_string()),
         }
     }
     
-    /// Create a basic Arabic configuration for testing
+    /// Load Arabic configuration from the ar.toml file
     pub fn new_arabic() -> Self {
+        Self::load_from_file("languages/ar.toml")
+            .unwrap_or_else(|_| Self::minimal_arabic())
+    }
+    
+    /// Minimal Arabic configuration for when TOML is not available
+    fn minimal_arabic() -> Self {
         let mut keywords = HashMap::new();
         keywords.insert("دالة".to_string(), "KeywordFun".to_string());
         keywords.insert("رجع".to_string(), "KeywordReturn".to_string());
-        keywords.insert("صحيح32".to_string(), "TokenI32".to_string());
-        keywords.insert("اجعل".to_string(), "KeywordLet".to_string());
-        keywords.insert("ثابت".to_string(), "KeywordVal".to_string());
-        keywords.insert("هو".to_string(), "TokenIs".to_string());
-        keywords.insert("ك".to_string(), "TokenAs".to_string());
-        keywords.insert("إذا".to_string(), "KeywordIf".to_string());
-        keywords.insert("وإلا".to_string(), "KeywordElse".to_string());
-        keywords.insert("لكل".to_string(), "TokenFor".to_string());
-        keywords.insert("في".to_string(), "TokenIn".to_string());
-        keywords.insert("بينما".to_string(), "TokenWhile".to_string());
-        keywords.insert("اكسر".to_string(), "TokenBreak".to_string());
-        keywords.insert("استمر".to_string(), "TokenContinue".to_string());
-        keywords.insert("جرب".to_string(), "TokenTry".to_string());
-        keywords.insert("امسك".to_string(), "TokenCatch".to_string());
-        keywords.insert("أخيرا".to_string(), "TokenFinally".to_string());
-        keywords.insert("ارم".to_string(), "TokenThrow".to_string());
-        keywords.insert("فئة".to_string(), "KeywordClass".to_string());
-        keywords.insert("خاص".to_string(), "TokenPriv".to_string());
-        keywords.insert("عام".to_string(), "TokenPub".to_string());
-        keywords.insert("نص".to_string(), "TokenString".to_string());
-        keywords.insert("عدد".to_string(), "TokenInt".to_string());
-        keywords.insert("أي".to_string(), "TokenAny".to_string());
-        keywords.insert("طابق".to_string(), "TokenMatch".to_string());
-        keywords.insert("عدم".to_string(), "KeywordNull".to_string());
-        keywords.insert("علق".to_string(), "KeywordSuspend".to_string());
-        keywords.insert("انتظر".to_string(), "KeywordAwait".to_string());
-        keywords.insert("شغل".to_string(), "KeywordLaunch".to_string());
-        keywords.insert("بيانات".to_string(), "KeywordData".to_string());
-        keywords.insert("متغير".to_string(), "KeywordVar".to_string());
         
         let mut operators = HashMap::new();
-        operators.insert("+".to_string(), "TokenPlus".to_string());
-        operators.insert("-".to_string(), "TokenMinus".to_string());
-        operators.insert("*".to_string(), "TokenMultiply".to_string());
-        operators.insert("/".to_string(), "TokenDivide".to_string());
-        operators.insert("=".to_string(), "TokenAssign".to_string());
-        operators.insert("==".to_string(), "TokenEqual".to_string());
-        operators.insert("!=".to_string(), "TokenNotEqual".to_string());
-        operators.insert("<".to_string(), "TokenLess".to_string());
-        operators.insert(">".to_string(), "TokenGreater".to_string());
-        operators.insert("<=".to_string(), "TokenLessOrEqual".to_string());
-        operators.insert(">=".to_string(), "TokenGreaterOrEqual".to_string());
+        operators.insert("+".to_string(), "Plus".to_string());
+        operators.insert("=".to_string(), "Assign".to_string());
         
         Self {
             keywords,
             operators,
             name: "Arabic".to_string(),
-            description: Some("Arabic language configuration for testing".to_string()),
+            description: Some("Minimal Arabic configuration".to_string()),
         }
     }
 
@@ -195,7 +152,8 @@ impl LanguageConfig {
                 "TokenString" => Some(TokenType::Identifier("String".to_string())),
                 "TokenInt" => Some(TokenType::Identifier("Int".to_string())),
                 "TokenAny" => Some(TokenType::Identifier("Any".to_string())),
-                "TokenNull" => Some(TokenType::Identifier("null".to_string())),
+                "KeywordNull" | "TokenNull" => Some(TokenType::Identifier("null".to_string())),
+                "KeywordWhen" | "TokenWhen" => Some(TokenType::KeywordWhen),
                 _ => None,
             }
         })
@@ -238,6 +196,15 @@ impl LanguageConfig {
                 "DoubleDot" | "TokenDoubleDot" => Some(TokenType::DoubleDot),
                 "TripleDot" | "TokenTripleDot" => Some(TokenType::TripleDot),
                 "DoubleColon" | "TokenDoubleColon" => Some(TokenType::DoubleColon),
+                "QuestionDot" | "TokenQuestionDot" => Some(TokenType::QuestionDot),
+                "Elvis" | "TokenElvis" => Some(TokenType::Elvis),
+                "BangBang" | "TokenBangBang" => Some(TokenType::BangBang),
+                "DotDot" | "TokenDotDot" => Some(TokenType::DotDot),
+                "DotDotLess" | "TokenDotDotLess" => Some(TokenType::DotDotLess),
+                "Underscore" | "TokenUnderscore" => Some(TokenType::Underscore),
+                "LeftAngle" | "TokenLeftAngle" => Some(TokenType::LeftAngle),
+                "RightAngle" | "TokenRightAngle" => Some(TokenType::RightAngle),
+                "At" | "TokenAt" => Some(TokenType::At),
                 _ => None,
             }
         })

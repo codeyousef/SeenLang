@@ -2,7 +2,7 @@
 
 use crate::ast::*;
 use seen_lexer::{Token, TokenType};
-use seen_common::{SeenResult, Diagnostics, Span, Spanned};
+use seen_common::{SeenResult, Diagnostics, Span, Spanned, SeenError};
 
 /// Parser for the Seen language
 pub struct Parser {
@@ -30,6 +30,11 @@ impl Parser {
     
     pub fn diagnostics(&self) -> &Diagnostics {
         &self.diagnostics
+    }
+    
+    #[cfg(test)]
+    pub fn get_tokens(&self) -> &Vec<Token> {
+        &self.tokens
     }
     
     pub fn parse_program(&mut self) -> SeenResult<Program<'static>> {
@@ -173,7 +178,7 @@ impl Parser {
         eprintln!("parse_function: Parsed function name '{}', checking for generic params", name);
         
         // Parse optional generic type parameters (after function name)
-        let type_params = if self.check(&TokenType::Less) {
+        let type_params = if self.check(&TokenType::Less) || self.check(&TokenType::LeftAngle) {
             #[cfg(test)]
             eprintln!("parse_function: Found '<', parsing generic type params");
             self.parse_generic_type_params()?
@@ -223,7 +228,7 @@ impl Parser {
 
     fn try_parse_generic_args(&mut self) -> SeenResult<Option<Vec<Type<'static>>>> {
         // Try to parse generic type arguments like <T>, <T, U>, <User?>
-        if !self.check(&TokenType::Less) {
+        if !self.check(&TokenType::LeftAngle) && !self.check(&TokenType::Less) {
             return Ok(None);
         }
         
@@ -255,7 +260,7 @@ impl Parser {
         }
         
         // Expect closing '>'
-        if !self.match_token(&TokenType::Greater) {
+        if !self.match_token(&TokenType::Greater) && !self.match_token(&TokenType::RightAngle) {
             // No closing '>', restore position
             self.current = saved_pos;
             return Ok(None);
@@ -266,7 +271,9 @@ impl Parser {
     
     fn parse_generic_params_with_reified(&mut self) -> SeenResult<Vec<TypeParam<'static>>> {
         // Same as parse_generic_type_params but supports 'reified' modifier
-        self.expect_token(TokenType::Less)?;
+        if !self.match_token(&TokenType::Less) && !self.match_token(&TokenType::LeftAngle) {
+            return Err(SeenError::parse_error("Expected '<' for generic parameters"));
+        }
         let mut params = Vec::new();
         
         loop {
@@ -315,7 +322,9 @@ impl Parser {
             }
         }
         
-        self.expect_token(TokenType::Greater)?;
+        if !self.match_token(&TokenType::Greater) && !self.match_token(&TokenType::RightAngle) {
+            return Err(SeenError::parse_error("Expected '>' to close generic parameters"));
+        }
         Ok(params)
     }
     
@@ -323,9 +332,11 @@ impl Parser {
         let mut type_params = Vec::new();
         
         // Consume '<'
-        self.expect_token(TokenType::Less)?;
+        if !self.match_token(&TokenType::Less) && !self.match_token(&TokenType::LeftAngle) {
+            return Err(SeenError::parse_error("Expected '<' for generic parameters"));
+        }
         
-        if !self.check(&TokenType::Greater) {
+        if !self.check(&TokenType::Greater) && !self.check(&TokenType::RightAngle) {
             loop {
                 let param_start_span = self.current_span();
                 let param_name = self.expect_identifier_value()?;
@@ -370,7 +381,9 @@ impl Parser {
             self.advance();
             self.insert_token_at_current(TokenType::Greater);
         } else {
-            self.expect_token(TokenType::Greater)?;
+            if !self.match_token(&TokenType::Greater) && !self.match_token(&TokenType::RightAngle) {
+            return Err(SeenError::parse_error("Expected '>' to close generic parameters"));
+        }
         }
         
         Ok(type_params)
@@ -389,7 +402,7 @@ impl Parser {
         let name_span = self.previous_span();
         
         // Parse optional generic type parameters
-        let type_params = if self.check(&TokenType::Less) {
+        let type_params = if self.check(&TokenType::LeftAngle) {
             self.parse_generic_type_params()?
         } else {
             Vec::new()
@@ -443,7 +456,7 @@ impl Parser {
         let name_span = self.previous_span();
         
         // Parse optional generic type parameters
-        let type_params = if self.check(&TokenType::Less) {
+        let type_params = if self.check(&TokenType::LeftAngle) {
             self.parse_generic_type_params()?
         } else {
             Vec::new()
@@ -497,7 +510,7 @@ impl Parser {
         let name_span = self.previous_span();
         
         // Parse optional generic type parameters
-        let type_params = if self.check(&TokenType::Less) {
+        let type_params = if self.check(&TokenType::LeftAngle) {
             self.parse_generic_type_params()?
         } else {
             Vec::new()
@@ -559,7 +572,7 @@ impl Parser {
         let name_span = self.previous_span();
         
         // Parse optional generic type parameters (after function name, with possible reified)
-        let type_params = if self.check(&TokenType::Less) {
+        let type_params = if self.check(&TokenType::LeftAngle) {
             self.parse_generic_params_with_reified()?
         } else {
             Vec::new()
@@ -623,7 +636,7 @@ impl Parser {
         let name_span = self.previous_span();
         
         // Parse optional generic type parameters (after function name)
-        let type_params = if self.check(&TokenType::Less) {
+        let type_params = if self.check(&TokenType::LeftAngle) || self.check(&TokenType::Less) {
             self.parse_generic_type_params()?
         } else {
             Vec::new()
@@ -683,7 +696,7 @@ impl Parser {
         let name_span = self.previous_span();
         
         // Parse optional generic parameters
-        let generic_params = if self.check(&TokenType::Less) {
+        let generic_params = if self.check(&TokenType::Less) || self.check(&TokenType::LeftAngle) {
             self.parse_generic_params()?
         } else {
             Vec::new()
@@ -914,7 +927,7 @@ impl Parser {
         // Full implementation would parse <T, U: Trait, ...>
         let mut params = vec![];
         
-        if !self.check(&TokenType::Greater) {
+        if !self.check(&TokenType::Greater) && !self.check(&TokenType::RightAngle) {
             loop {
                 let name = self.expect_identifier_value()?;
                 let span = self.previous_span();
@@ -932,7 +945,9 @@ impl Parser {
             }
         }
         
-        self.expect_token(TokenType::Greater)?;
+        if !self.match_token(&TokenType::Greater) && !self.match_token(&TokenType::RightAngle) {
+            return Err(SeenError::parse_error("Expected '>' to close generic parameters"));
+        }
         Ok(params)
     }
     
@@ -1040,6 +1055,32 @@ impl Parser {
                 _ => break,
             }
         }
+    }
+    
+    fn skip_nested_block(&mut self) -> SeenResult<()> {
+        // Skip tokens until we find a matching block structure
+        let mut brace_depth = 0;
+        
+        // Skip until we find the opening brace
+        while !self.is_at_end() && !self.check(&TokenType::LeftBrace) {
+            self.advance();
+        }
+        
+        if self.check(&TokenType::LeftBrace) {
+            self.advance(); // consume the opening brace
+            brace_depth = 1;
+            
+            while !self.is_at_end() && brace_depth > 0 {
+                if self.check(&TokenType::LeftBrace) {
+                    brace_depth += 1;
+                } else if self.check(&TokenType::RightBrace) {
+                    brace_depth -= 1;
+                }
+                self.advance();
+            }
+        }
+        
+        Ok(())
     }
     
     fn error(&mut self, message: &str) {
@@ -1224,7 +1265,8 @@ impl Parser {
                 TypeKind::Primitive(prim)
             } else {
                 // Named type - check for generic arguments
-                let generic_args = if self.match_token(&TokenType::Less) {
+                let generic_args = if self.check(&TokenType::Less) || self.check(&TokenType::LeftAngle) {
+                    self.advance(); // consume either Less or LeftAngle
                     self.parse_generic_type_args()?
                 } else {
                     Vec::new()
@@ -1322,7 +1364,9 @@ impl Parser {
             // Insert a Greater token for the next parse
             self.insert_token_at_current(TokenType::Greater);
         } else {
-            self.expect_token(TokenType::Greater)?;
+            if !self.match_token(&TokenType::Greater) && !self.match_token(&TokenType::RightAngle) {
+            return Err(SeenError::parse_error("Expected '>' to close generic parameters"));
+        }
         }
         
         Ok(args)
@@ -1742,7 +1786,7 @@ impl Parser {
         loop {
             if let Some(token) = self.current_token() {
                 match &token.value {
-                    TokenType::Less => {
+                    TokenType::Less | TokenType::LeftAngle => {
                         // Check if this is a generic type argument or a comparison
                         // If the expression is an identifier and we can parse type arguments, it's a generic instantiation
                         if let ExprKind::Identifier(_) = &*expr.kind {
@@ -2641,6 +2685,10 @@ impl Parser {
                         PatternKind::Identifier(seen_common::Spanned::new(name_val.leak(), span))
                     }
                 }
+                TokenType::Underscore => {
+                    self.advance();
+                    PatternKind::Wildcard
+                }
                 TokenType::IntegerLiteral(val) => {
                     let value = *val;
                     self.advance();
@@ -2841,7 +2889,7 @@ impl Parser {
         self.expect_token(TokenType::LeftBrace)?;
         let mut variants = Vec::new();
         
-        while !self.check(&TokenType::RightBrace) {
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
             // Parse variant (could be data class, object, or regular class)
             if self.match_token(&TokenType::KeywordData) {
                 // Data class variant
@@ -2908,9 +2956,17 @@ impl Parser {
                     fields: Vec::new(),
                     span: variant_span,
                 });
+            } else if self.match_token(&TokenType::KeywordSealed) {
+                // Nested sealed class - skip it for now
+                self.skip_nested_block()?;
             } else {
-                // Skip unknown items
+                // Skip unknown items - try to skip to next line or semicolon
+                let prev_pos = self.current;
                 self.advance();
+                // If we're stuck at the same position, force break to avoid infinite loop
+                if self.current == prev_pos {
+                    break;
+                }
             }
         }
         
@@ -2993,7 +3049,7 @@ impl Parser {
         let name = Spanned::new(name_static, name_span);
         
         // Parse optional generic parameters
-        let generic_params = if self.check(&TokenType::Less) {
+        let generic_params = if self.check(&TokenType::Less) || self.check(&TokenType::LeftAngle) {
             self.parse_generic_params()?
         } else {
             Vec::new()
@@ -3155,7 +3211,7 @@ impl Parser {
         let name_span = self.previous_span();
         
         // Parse optional generic parameters
-        let generic_params = if self.check(&TokenType::Less) {
+        let generic_params = if self.check(&TokenType::Less) || self.check(&TokenType::LeftAngle) {
             self.parse_generic_params()?
         } else {
             Vec::new()

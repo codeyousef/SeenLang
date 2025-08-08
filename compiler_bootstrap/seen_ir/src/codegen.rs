@@ -86,16 +86,38 @@ impl CodeGenerator {
         
         use std::fmt::Write;
         
-        // Function signature
-        let calling_conv = if self.calling_convention == "C" { "ccc" } else { &self.calling_convention };
-        let _ = write!(&mut ir, "define i32 @{}(", function.name);
+        // Function signature with proper linkage and calling convention
+        let return_type = if function.name == "main" { "i32" } else { "i32" };
+        
+        // Determine linkage - C ABI functions should be external
+        let linkage = if function.name == "main" { 
+            "" 
+        } else if self.calling_convention == "C" { 
+            "" // External linkage for C ABI functions
+        } else { 
+            "internal" 
+        };
+        
+        // Build function signature with proper spacing
+        if linkage.is_empty() {
+            let _ = write!(&mut ir, "define {} @{}(", return_type, function.name);
+        } else {
+            let _ = write!(&mut ir, "define {} {} @{}(", linkage, return_type, function.name);
+        }
         
         // Parameters
         for (i, param) in function.params.iter().enumerate() {
             if i > 0 { ir.push_str(", "); }
             let _ = write!(&mut ir, "i32 %{}", param);
         }
-        let _ = write!(&mut ir, ") {} {{\n", calling_conv);
+        
+        // Add attributes for main function
+        if function.name == "main" {
+            ir.push_str(") nounwind {\n");
+        } else {
+            let calling_conv = if self.calling_convention == "C" { "" } else { "fastcc" };
+            let _ = write!(&mut ir, ") {} {{\n", calling_conv);
+        }
         
         // Generate basic blocks
         for block in &function.blocks {

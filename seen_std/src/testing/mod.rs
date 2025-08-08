@@ -7,6 +7,7 @@ use crate::string::String;
 use crate::collections::Vec;
 
 pub mod bench;
+pub mod measurement;
 
 /// Test result tracking
 #[derive(Debug, Clone, PartialEq)]

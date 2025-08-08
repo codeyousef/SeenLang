@@ -74,6 +74,7 @@ pub enum TokenType {
     KeywordOperator,
     KeywordInfix,
     KeywordTailrec,
+    KeywordWhen,       // when (for pattern matching)
     
     // Operators
     Plus,              // +
@@ -105,11 +106,19 @@ pub enum TokenType {
     Arrow,             // ->
     FatArrow,          // =>
     Question,          // ?
+    QuestionDot,       // ?. (safe call operator)
+    Elvis,             // ?: (Elvis operator)
+    BangBang,          // !! (not-null assertion)
     Dot,               // .
-    DoubleDot,         // ..
+    DotDot,            // .. (range operator)
+    DotDotLess,        // ..< (exclusive range)
+    DoubleDot,         // .. (alias for compatibility)
     TripleDot,         // ...
     DoubleColon,       // ::
     At,                // @
+    Underscore,        // _ (wildcard)
+    LeftAngle,         // < (for generics)
+    RightAngle,        // > (for generics)
     
     // Delimiters
     LeftParen,         // (
@@ -201,6 +210,7 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordOperator => "operator",
                     TokenType::KeywordInfix => "infix",
                     TokenType::KeywordTailrec => "tailrec",
+                    TokenType::KeywordWhen => "when",
                     TokenType::Plus => "+",
                     TokenType::Minus => "-",
                     TokenType::Multiply => "*",
@@ -230,11 +240,19 @@ impl fmt::Display for TokenType {
                     TokenType::Arrow => "->",
                     TokenType::FatArrow => "=>",
                     TokenType::Question => "?",
+                    TokenType::QuestionDot => "?.",
+                    TokenType::Elvis => "?:",
+                    TokenType::BangBang => "!!",
                     TokenType::Dot => ".",
+                    TokenType::DotDot => "..",
+                    TokenType::DotDotLess => "..<",
                     TokenType::DoubleDot => "..",
                     TokenType::TripleDot => "...",
                     TokenType::DoubleColon => "::",
                     TokenType::At => "@",
+                    TokenType::Underscore => "_",
+                    TokenType::LeftAngle => "<",
+                    TokenType::RightAngle => ">",
                     TokenType::LeftParen => "(",
                     TokenType::RightParen => ")",
                     TokenType::LeftBrace => "{",
@@ -288,7 +306,14 @@ impl TokenUtils for Token {
             TokenType::KeywordContinue | TokenType::KeywordIs | TokenType::KeywordAs |
             TokenType::KeywordSuspend | TokenType::KeywordAwait | TokenType::KeywordLaunch |
             TokenType::KeywordFlow | TokenType::KeywordTry | TokenType::KeywordCatch |
-            TokenType::KeywordFinally | TokenType::KeywordThrow | TokenType::KeywordClass
+            TokenType::KeywordFinally | TokenType::KeywordThrow | TokenType::KeywordClass |
+            TokenType::KeywordInline | TokenType::KeywordReified | TokenType::KeywordCrossinline |
+            TokenType::KeywordNoinline | TokenType::KeywordBy | TokenType::KeywordData |
+            TokenType::KeywordSealed | TokenType::KeywordObject | TokenType::KeywordInterface |
+            TokenType::KeywordOpen | TokenType::KeywordFinal | TokenType::KeywordAbstract |
+            TokenType::KeywordOverride | TokenType::KeywordLateinit | TokenType::KeywordCompanion |
+            TokenType::KeywordOperator | TokenType::KeywordInfix | TokenType::KeywordTailrec |
+            TokenType::KeywordWhen | TokenType::KeywordVar
         )
     }
     
@@ -302,8 +327,11 @@ impl TokenUtils for Token {
             TokenType::BitwiseNot | TokenType::LeftShift | TokenType::RightShift |
             TokenType::PlusAssign | TokenType::MinusAssign | TokenType::MultiplyAssign |
             TokenType::DivideAssign | TokenType::ModuloAssign | TokenType::Arrow |
-            TokenType::FatArrow | TokenType::Question | TokenType::Dot | TokenType::DoubleDot |
-            TokenType::TripleDot | TokenType::DoubleColon
+            TokenType::FatArrow | TokenType::Question | TokenType::QuestionDot | 
+            TokenType::Elvis | TokenType::BangBang | TokenType::Dot | TokenType::DotDot |
+            TokenType::DotDotLess | TokenType::DoubleDot | TokenType::TripleDot | 
+            TokenType::DoubleColon | TokenType::Underscore | TokenType::LeftAngle | 
+            TokenType::RightAngle
         )
     }
     

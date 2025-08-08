@@ -10,6 +10,7 @@ pub struct TypeChecker {
     pub env: TypeEnvironment,
     diagnostics: Diagnostics,
     pub inference: InferenceEngine,
+    current_function_return_type: Option<Type>,
 }
 
 impl TypeChecker {
@@ -23,6 +24,7 @@ impl TypeChecker {
             env,
             diagnostics: Diagnostics::new(),
             inference: InferenceEngine::new(),
+            current_function_return_type: None,
         }
     }
     
@@ -265,6 +267,9 @@ impl TypeChecker {
                             Box::new(Type::Primitive(PrimitiveType::Unit))
                         };
                         
+                        // Clone return type for function body checking before moving it
+                        let return_type_for_body = return_type.as_ref().clone();
+                        
                         // Store the concrete function signature for monomorphization
                         let concrete_func_type = Type::Function {
                             params: param_types,
@@ -276,7 +281,24 @@ impl TypeChecker {
                         );
                         
                         // Type check the function body with type parameters available
-                        self.check_block(&func.body)?;
+                        let old_return_type = self.current_function_return_type.take();
+                        self.current_function_return_type = Some(return_type_for_body);
+                        
+                        // Add function parameters to type environment
+                        for param in &func.params {
+                            let param_type = self.resolve_type_annotation(&param.ty)?;
+                            self.env.bind(format!("var:{}", param.name.value), param_type);
+                        }
+                        
+                        let result = self.check_block(&func.body);
+                        
+                        // Clean up parameter bindings
+                        for param in &func.params {
+                            self.env.remove(&format!("var:{}", param.name.value));
+                        }
+                        
+                        self.current_function_return_type = old_return_type;
+                        result?;
                         
                         // Clean up type parameter bindings
                         for type_param in &func.type_params {
@@ -284,7 +306,30 @@ impl TypeChecker {
                         }
                     } else {
                         // Non-generic function
-                        self.check_block(&func.body)?;
+                        let return_type = if let Some(ret_ty) = &func.return_type {
+                            self.resolve_type_annotation(ret_ty)?
+                        } else {
+                            Type::Primitive(PrimitiveType::Unit)
+                        };
+                        
+                        let old_return_type = self.current_function_return_type.take();
+                        self.current_function_return_type = Some(return_type);
+                        
+                        // Add function parameters to type environment
+                        for param in &func.params {
+                            let param_type = self.resolve_type_annotation(&param.ty)?;
+                            self.env.bind(format!("var:{}", param.name.value), param_type);
+                        }
+                        
+                        let result = self.check_block(&func.body);
+                        
+                        // Clean up parameter bindings
+                        for param in &func.params {
+                            self.env.remove(&format!("var:{}", param.name.value));
+                        }
+                        
+                        self.current_function_return_type = old_return_type;
+                        result?;
                     }
                 }
                 _ => {
@@ -369,7 +414,17 @@ impl TypeChecker {
                 // For now, assume it's a primitive type name
                 if let Some(segment) = path.segments.first() {
                     match segment.name.value.as_ref() {
+                        "i8" => Ok(Type::Primitive(PrimitiveType::I8)),
+                        "i16" => Ok(Type::Primitive(PrimitiveType::I16)),
                         "i32" => Ok(Type::Primitive(PrimitiveType::I32)),
+                        "i64" => Ok(Type::Primitive(PrimitiveType::I64)),
+                        "i128" => Ok(Type::Primitive(PrimitiveType::I128)),
+                        "u8" => Ok(Type::Primitive(PrimitiveType::U8)),
+                        "u16" => Ok(Type::Primitive(PrimitiveType::U16)),
+                        "u32" => Ok(Type::Primitive(PrimitiveType::U32)),
+                        "u64" => Ok(Type::Primitive(PrimitiveType::U64)),
+                        "u128" => Ok(Type::Primitive(PrimitiveType::U128)),
+                        "f32" => Ok(Type::Primitive(PrimitiveType::F32)),
                         "f64" => Ok(Type::Primitive(PrimitiveType::F64)),
                         "bool" => Ok(Type::Primitive(PrimitiveType::Bool)),
                         "str" => Ok(Type::Primitive(PrimitiveType::Str)),
@@ -428,8 +483,13 @@ impl TypeChecker {
                         
                         // If there's a type annotation, check it matches
                         if let Some(expected) = expected_type {
-                            // For now, just store the expected type
-                            // In a full implementation, we'd unify expected with inferred
+                            if !self.types_compatible(&inferred_type, &expected) {
+                                self.diagnostics.error(
+                                    &format!("Type mismatch in variable assignment: expected {:?}, found {:?}", 
+                                            expected, inferred_type),
+                                    init_expr.span
+                                );
+                            }
                             self.env.bind(format!("var:{}", name.value), expected);
                         } else {
                             self.env.bind(format!("var:{}", name.value), inferred_type);
@@ -447,7 +507,34 @@ impl TypeChecker {
             StmtKind::Return(ret_expr) => {
                 // Handle return statements
                 if let Some(expr) = ret_expr {
-                    self.infer_expression_type(expr)?;
+                    let actual_type = self.infer_expression_type(expr)?;
+                    
+                    // Check if the actual return type matches the expected return type
+                    if let Some(expected_type) = &self.current_function_return_type {
+                        println!("DEBUG: Checking return type - actual: {:?}, expected: {:?}", actual_type, expected_type);
+                        if !self.types_compatible(&actual_type, expected_type) {
+                            println!("DEBUG: Types are NOT compatible, adding error");
+                            self.diagnostics.error(
+                                &format!("Return type mismatch: expected {:?}, found {:?}", 
+                                        expected_type, actual_type),
+                                expr.span
+                            );
+                        } else {
+                            println!("DEBUG: Types are compatible");
+                        }
+                    }
+                } else {
+                    // Return with no expression - should be unit type
+                    if let Some(expected_type) = &self.current_function_return_type {
+                        let unit_type = Type::Primitive(PrimitiveType::Unit);
+                        if !self.types_compatible(&unit_type, expected_type) {
+                            self.diagnostics.error(
+                                &format!("Return type mismatch: expected {:?}, found unit type", 
+                                        expected_type),
+                                statement.span
+                            );
+                        }
+                    }
                 }
             }
             _ => {
@@ -675,6 +762,67 @@ impl TypeChecker {
                 // For now, return unit type
                 Ok(Type::Primitive(PrimitiveType::Unit))
             }
+            ExprKind::Array(elements) => {
+                // Handle array literals
+                if elements.is_empty() {
+                    // Empty array - return a fresh type variable for element type
+                    let element_type_var = Type::Variable(self.inference.fresh_type_var());
+                    Ok(Type::Array {
+                        element_type: Box::new(element_type_var),
+                        size: Some(0),
+                    })
+                } else {
+                    // Infer the type of the first element
+                    let first_type = self.infer_expression_type(&elements[0])?;
+                    
+                    // Check that all other elements have the same type
+                    for (_, element) in elements.iter().enumerate().skip(1) {
+                        let element_type = self.infer_expression_type(element)?;
+                        if !self.types_compatible(&element_type, &first_type) {
+                            self.diagnostics.error(
+                                &format!("Array element type mismatch: expected {:?}, found {:?}", 
+                                        first_type, element_type),
+                                element.span
+                            );
+                        }
+                    }
+                    
+                    Ok(Type::Array {
+                        element_type: Box::new(first_type),
+                        size: Some(elements.len()),
+                    })
+                }
+            }
+            ExprKind::Return(ret_expr) => {
+                // Handle return expressions
+                if let Some(expr) = ret_expr {
+                    let actual_type = self.infer_expression_type(expr)?;
+                    
+                    // Check if the actual return type matches the expected return type
+                    if let Some(expected_type) = &self.current_function_return_type {
+                        if !self.types_compatible(&actual_type, expected_type) {
+                            self.diagnostics.error(
+                                &format!("Return type mismatch: expected {:?}, found {:?}", 
+                                        expected_type, actual_type),
+                                expr.span
+                            );
+                        }
+                    }
+                    Ok(actual_type)
+                } else {
+                    // Return with no expression - should be unit type
+                    if let Some(expected_type) = &self.current_function_return_type {
+                        let unit_type = Type::Primitive(PrimitiveType::Unit);
+                        if !self.types_compatible(&unit_type, expected_type) {
+                            self.diagnostics.error(
+                                &format!("Return type mismatch: expected {:?}, found unit", expected_type),
+                                seen_common::Span::default() // TODO: get proper span
+                            );
+                        }
+                    }
+                    Ok(Type::Primitive(PrimitiveType::Unit))
+                }
+            }
             _ => {
                 // Other expression types - return a fresh type variable for now
                 Ok(Type::Variable(self.inference.fresh_type_var()))
@@ -690,6 +838,61 @@ impl TypeChecker {
             LiteralKind::Char(_) => Ok(Type::Primitive(PrimitiveType::Char)),
             LiteralKind::Boolean(_) => Ok(Type::Primitive(PrimitiveType::Bool)),
             LiteralKind::Unit => Ok(Type::Primitive(PrimitiveType::Unit)),
+        }
+    }
+    
+    /// Check if two types are compatible (can be assigned)
+    fn types_compatible(&self, actual: &Type, expected: &Type) -> bool {
+        match (actual, expected) {
+            // Exact matches
+            (Type::Primitive(a), Type::Primitive(b)) => {
+                if a == b {
+                    true
+                } else {
+                    // Allow integer literal (i32) to be assigned to other integer types
+                    // This is a simplified approach - a full implementation would check value ranges
+                    match (a, b) {
+                        (PrimitiveType::I32, PrimitiveType::I8) |
+                        (PrimitiveType::I32, PrimitiveType::I16) |
+                        (PrimitiveType::I32, PrimitiveType::I64) |
+                        (PrimitiveType::I32, PrimitiveType::I128) |
+                        (PrimitiveType::I32, PrimitiveType::U8) |
+                        (PrimitiveType::I32, PrimitiveType::U16) |
+                        (PrimitiveType::I32, PrimitiveType::U32) |
+                        (PrimitiveType::I32, PrimitiveType::U64) |
+                        (PrimitiveType::I32, PrimitiveType::U128) => true,
+                        
+                        // Allow float literal (f64) to be assigned to f32
+                        (PrimitiveType::F64, PrimitiveType::F32) => true,
+                        
+                        _ => false,
+                    }
+                }
+            }
+            (Type::Error, _) | (_, Type::Error) => true, // Error type is compatible with everything
+            
+            // Variable types are compatible for now (would need proper unification)
+            (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
+            
+            // Function types
+            (Type::Function { params: p1, return_type: r1 }, 
+             Type::Function { params: p2, return_type: r2 }) => {
+                p1.len() == p2.len() &&
+                p1.iter().zip(p2.iter()).all(|(a, b)| self.types_compatible(a, b)) &&
+                self.types_compatible(r1, r2)
+            }
+            
+            // Arrays
+            (Type::Array { element_type: e1, size: s1 },
+             Type::Array { element_type: e2, size: s2 }) => {
+                s1 == s2 && self.types_compatible(e1, e2)
+            }
+            
+            // Named types - for now just check names match
+            (Type::Named { name: n1, .. }, Type::Named { name: n2, .. }) => n1 == n2,
+            
+            // Default: not compatible
+            _ => false,
         }
     }
     

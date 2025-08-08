@@ -12,6 +12,8 @@ pub mod types;
 pub mod inference;
 pub mod checker;
 pub mod constraints;
+#[cfg(test)]
+mod tests;
 
 pub use types::*;
 pub use inference::*;

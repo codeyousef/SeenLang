@@ -3601,3 +3601,4 @@ debug.log
 /target-wsl/
 target-wsl/
 .claude/settings.local.json
+/docs/private/

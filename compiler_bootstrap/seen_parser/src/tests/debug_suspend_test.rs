@@ -24,6 +24,7 @@ mod debug_suspend_tests {
         "#;
 
         let mut parser = setup_parser(code);
+        
         let program = parser.parse_program().expect("Failed to parse simple suspend function");
 
         assert_eq!(program.items.len(), 1);

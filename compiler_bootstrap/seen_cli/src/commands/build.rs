@@ -475,6 +475,8 @@ struct FunctionIRBuilder {
     next_label: u32,
     current_block: Vec<seen_ir::Instruction>,
     blocks: Vec<seen_ir::BasicBlock>,
+    // Track variable names to registers
+    variables: std::collections::HashMap<String, u32>,
 }
 
 impl FunctionIRBuilder {
@@ -484,6 +486,7 @@ impl FunctionIRBuilder {
             next_label: 0,
             current_block: Vec::new(),
             blocks: Vec::new(),
+            variables: std::collections::HashMap::new(),
         }
     }
     
@@ -500,6 +503,9 @@ impl FunctionIRBuilder {
     }
     
     fn convert_function_body(&mut self, body: &seen_parser::Block) -> Vec<seen_ir::BasicBlock> {
+        // Create entry block for variable allocations
+        let entry_label = "entry".to_string();
+        
         // Process statements in the body
         for stmt in &body.statements {
             self.convert_statement(stmt);
@@ -516,7 +522,7 @@ impl FunctionIRBuilder {
         // Add the current block to blocks
         if !self.current_block.is_empty() {
             let label = if self.blocks.is_empty() { 
-                "entry".to_string() 
+                entry_label 
             } else { 
                 self.alloc_label() 
             };
@@ -556,9 +562,49 @@ impl FunctionIRBuilder {
                     value: Some(value) 
                 });
             }
-            StmtKind::Let(_let_stmt) => {
-                // For now, skip variable declarations
-                // Full implementation would track variables and their registers
+            StmtKind::Let(let_stmt) => {
+                // Handle variable declarations
+                use seen_parser::PatternKind;
+                if let PatternKind::Identifier(name) = &let_stmt.pattern.kind {
+                    // Allocate space for the variable
+                    let dest = self.alloc_register();
+                    
+                    // If there's an initializer, evaluate it and store
+                    if let Some(init_expr) = &let_stmt.initializer {
+                        let value = self.convert_expression(init_expr);
+                        
+                        // For now, we'll use an alloca instruction for local variables
+                        self.current_block.push(seen_ir::Instruction::Alloca {
+                            dest,
+                            ty: seen_ir::Type::I32, // Default to i32 for now
+                        });
+                        
+                        // Store the initial value
+                        let src_reg = match value {
+                            seen_ir::Value::Register(r) => r,
+                            seen_ir::Value::Integer(i) => {
+                                // Need to put integer in a register first
+                                let temp = self.alloc_register();
+                                self.current_block.push(seen_ir::Instruction::Binary {
+                                    dest: temp,
+                                    op: seen_ir::BinaryOp::Add,
+                                    left: seen_ir::Value::Integer(i),
+                                    right: seen_ir::Value::Integer(0),
+                                });
+                                temp
+                            }
+                            _ => dest, // Fallback
+                        };
+                        
+                        self.current_block.push(seen_ir::Instruction::Store {
+                            dest,
+                            src: src_reg,
+                        });
+                        
+                        // Track the variable name to register mapping
+                        self.variables.insert(name.value.to_string(), dest);
+                    }
+                }
             }
             _ => {
                 // Other statement types not yet implemented
@@ -625,10 +671,18 @@ impl FunctionIRBuilder {
             ExprKind::Call { function, args } => {
                 // Handle function calls
                 if let ExprKind::Identifier(name) = function.kind.as_ref() {
-                    // Special handling for println
+                    // Special handling for println - generate actual printf call
                     if name.value == "println" {
-                        // For now, just ignore println calls
-                        // A full implementation would emit proper printf calls
+                        // Generate a call to printf with newline
+                        // For string literals, we'd need to emit global string constants
+                        // For now, simplify to just return 0
+                        if !args.is_empty() {
+                            // Convert the argument for potential future use
+                            let _arg = self.convert_expression(&args[0]);
+                            // In a full implementation, we'd emit:
+                            // - Global string constant for the format string
+                            // - Call to printf with the format and arguments
+                        }
                         return seen_ir::Value::Integer(0);
                     }
                     
@@ -636,14 +690,41 @@ impl FunctionIRBuilder {
                         .map(|arg| self.convert_expression(arg))
                         .collect();
                     
-                    let dest = self.alloc_register();
-                    self.current_block.push(seen_ir::Instruction::Call {
-                        dest: Some(dest),
-                        func: name.value.to_string(),
-                        args: arg_values,
-                    });
-                    seen_ir::Value::Register(dest)
+                    // Check if this is a void function or returns a value
+                    if name.value == "print" || name.value == "assert" || name.value == "debug" {
+                        // Void functions
+                        self.current_block.push(seen_ir::Instruction::Call {
+                            dest: None,
+                            func: name.value.to_string(),
+                            args: arg_values,
+                        });
+                        seen_ir::Value::Integer(0)
+                    } else {
+                        // Functions that return values
+                        let dest = self.alloc_register();
+                        self.current_block.push(seen_ir::Instruction::Call {
+                            dest: Some(dest),
+                            func: name.value.to_string(),
+                            args: arg_values,
+                        });
+                        seen_ir::Value::Register(dest)
+                    }
                 } else {
+                    seen_ir::Value::Integer(0)
+                }
+            }
+            ExprKind::Identifier(name) => {
+                // Look up variable in our simple symbol table
+                if let Some(&reg) = self.variables.get(name.value) {
+                    // Load from the allocated register
+                    let load_dest = self.alloc_register();
+                    self.current_block.push(seen_ir::Instruction::Load {
+                        dest: load_dest,
+                        src: reg,
+                    });
+                    seen_ir::Value::Register(load_dest)
+                } else {
+                    // Variable not found, return placeholder
                     seen_ir::Value::Integer(0)
                 }
             }

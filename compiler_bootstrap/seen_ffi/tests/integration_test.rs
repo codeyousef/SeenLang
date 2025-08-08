@@ -23,7 +23,7 @@ fn test_type_mapping() {
     
     // Test pointer mapping
     let ptr_type = ctx.map_type(&CType::Pointer(Box::new(CType::Char)));
-    assert!(matches!(ptr_type, Type::Pointer(_)));
+    assert!(matches!(ptr_type, Type::Reference { .. }));
     
     // Test void mapping
     let void_type = ctx.map_type(&CType::Void);

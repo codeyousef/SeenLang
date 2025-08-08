@@ -209,7 +209,7 @@ mod tests {
         
         let ptr_type = CType::Pointer(Box::new(CType::Char));
         let seen_ptr = ctx.map_type(&ptr_type);
-        assert!(matches!(seen_ptr, Type::Pointer(_)));
+        assert!(matches!(seen_ptr, Type::Reference { .. }));
     }
     
     #[test]

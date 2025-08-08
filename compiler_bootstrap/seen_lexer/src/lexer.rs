@@ -20,6 +20,7 @@ enum MultiCharHandler {
     Or,
     Colon,
     Dot,
+    Question,
 }
 
 /// High-performance lexer for the Seen language
@@ -97,7 +98,6 @@ impl<'a> Lexer<'a> {
                 b']' => { self.advance_byte(); TokenType::RightBracket }
                 b';' => { self.advance_byte(); TokenType::Semicolon }
                 b',' => { self.advance_byte(); TokenType::Comma }
-                b'?' => { self.advance_byte(); TokenType::Question }
                 b'~' => { self.advance_byte(); TokenType::BitwiseNot }
                 b'^' => { self.advance_byte(); TokenType::BitwiseXor }
                 b'@' => { self.advance_byte(); TokenType::At }
@@ -116,6 +116,7 @@ impl<'a> Lexer<'a> {
                 b'|' => self.handle_multi_char_operator(MultiCharHandler::Or),
                 b':' => self.handle_multi_char_operator(MultiCharHandler::Colon),
                 b'.' => self.handle_multi_char_operator(MultiCharHandler::Dot),
+                b'?' => self.handle_multi_char_operator(MultiCharHandler::Question),
                 
                 // Literals
                 b'"' => self.scan_string_literal()?,
@@ -124,8 +125,25 @@ impl<'a> Lexer<'a> {
                 // Digits
                 b'0'..=b'9' => self.scan_number()?,
                 
-                // ASCII identifiers (a-z, A-Z, _)
-                b'a'..=b'z' | b'A'..=b'Z' | b'_' => self.scan_identifier_or_keyword(),
+                // ASCII identifiers (a-z, A-Z)
+                b'a'..=b'z' | b'A'..=b'Z' => self.scan_identifier_or_keyword(),
+                
+                // Underscore can be a wildcard or identifier start
+                b'_' => {
+                    // Peek ahead to see if it's part of an identifier
+                    if self.position + 1 < self.input_bytes.len() {
+                        let next_byte = self.input_bytes[self.position + 1];
+                        if next_byte.is_ascii_alphanumeric() || next_byte == b'_' {
+                            self.scan_identifier_or_keyword()
+                        } else {
+                            self.advance_byte();
+                            TokenType::Underscore
+                        }
+                    } else {
+                        self.advance_byte();
+                        TokenType::Underscore
+                    }
+                }
                 
                 // Whitespace (should not reach here due to skip_whitespace_and_comments)
                 b' ' | b'\t' | b'\r' | b'\n' => {
@@ -177,6 +195,7 @@ impl<'a> Lexer<'a> {
             MultiCharHandler::Or => self.scan_or_operators_fast(),
             MultiCharHandler::Colon => self.scan_colon_operators_fast(),
             MultiCharHandler::Dot => self.scan_dot_operators_fast(),
+            MultiCharHandler::Question => self.scan_question_operators_fast(),
         }
     }
     
@@ -467,9 +486,16 @@ impl<'a> Lexer<'a> {
                 Ok(TokenType::IntegerLiteral(value))
             } else {
                 // Fallback for large numbers
-                let value = number_str.parse::<i64>()
-                    .map_err(|_| SeenError::lex_error(format!("Invalid integer literal: {}", number_str)))?;
-                Ok(TokenType::IntegerLiteral(value))
+                if let Ok(value) = number_str.parse::<i64>() {
+                    Ok(TokenType::IntegerLiteral(value))
+                } else {
+                    // Try parsing as u64, then store as i64 with wrap-around for compatibility
+                    // This allows large unsigned values to be lexed but still fit our token type
+                    let value = number_str.parse::<u64>()
+                        .map_err(|_| SeenError::lex_error(format!("Invalid integer literal: {}", number_str)))?;
+                    // Use bit-cast to store u64 as i64 for values that exceed i64::MAX
+                    Ok(TokenType::IntegerLiteral(value as i64))
+                }
             }
         }
     }
@@ -614,13 +640,27 @@ impl<'a> Lexer<'a> {
     
     fn scan_dot_operators(&mut self) -> TokenType {
         self.advance();
-        if !self.is_at_end() && self.current_char() == '.' {
-            self.advance();
-            if !self.is_at_end() && self.current_char() == '.' {
-                self.advance();
-                TokenType::TripleDot
-            } else {
-                TokenType::DoubleDot
+        if !self.is_at_end() {
+            match self.current_char() {
+                '.' => {
+                    self.advance();
+                    if !self.is_at_end() {
+                        match self.current_char() {
+                            '.' => {
+                                self.advance();
+                                TokenType::TripleDot
+                            }
+                            '<' => {
+                                self.advance();
+                                TokenType::DotDotLess
+                            }
+                            _ => TokenType::DotDot
+                        }
+                    } else {
+                        TokenType::DotDot
+                    }
+                }
+                _ => TokenType::Dot
             }
         } else {
             TokenType::Dot
@@ -838,11 +878,27 @@ impl<'a> Lexer<'a> {
     
     fn scan_not_operators_fast(&mut self) -> TokenType {
         self.position += 1;
-        if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'=' {
-            self.position += 1;
-            self.current_pos.column += 2;
-            self.current_pos.offset = self.position as u32;
-            TokenType::NotEqual
+        if self.position < self.input_bytes.len() {
+            let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+            match byte {
+                b'=' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::NotEqual
+                }
+                b'!' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::BangBang
+                }
+                _ => {
+                    self.current_pos.column += 1;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::LogicalNot
+                }
+            }
         } else {
             self.current_pos.column += 1;
             self.current_pos.offset = self.position as u32;
@@ -870,13 +926,13 @@ impl<'a> Lexer<'a> {
                 _ => {
                     self.current_pos.column += 1;
                     self.current_pos.offset = self.position as u32;
-                    TokenType::Less
+                    TokenType::Less  // Use Less instead of LeftAngle for comparison
                 }
             }
         } else {
             self.current_pos.column += 1;
             self.current_pos.offset = self.position as u32;
-            TokenType::Less
+            TokenType::Less  // Use Less instead of LeftAngle for comparison
         }
     }
     
@@ -900,13 +956,13 @@ impl<'a> Lexer<'a> {
                 _ => {
                     self.current_pos.column += 1;
                     self.current_pos.offset = self.position as u32;
-                    TokenType::Greater
+                    TokenType::Greater  // Use Greater instead of RightAngle for comparison
                 }
             }
         } else {
             self.current_pos.column += 1;
             self.current_pos.offset = self.position as u32;
-            TokenType::Greater
+            TokenType::Greater  // Use Greater instead of RightAngle for comparison
         }
     }
     
@@ -956,20 +1012,66 @@ impl<'a> Lexer<'a> {
         self.position += 1;
         if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'.' {
             self.position += 1;
-            if self.position < self.input_bytes.len() && unsafe { *self.input_bytes.get_unchecked(self.position) } == b'.' {
-                self.position += 1;
-                self.current_pos.column += 3;
-                self.current_pos.offset = self.position as u32;
-                TokenType::TripleDot
+            if self.position < self.input_bytes.len() {
+                let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+                match byte {
+                    b'.' => {
+                        self.position += 1;
+                        self.current_pos.column += 3;
+                        self.current_pos.offset = self.position as u32;
+                        TokenType::TripleDot
+                    }
+                    b'<' => {
+                        self.position += 1;
+                        self.current_pos.column += 3;
+                        self.current_pos.offset = self.position as u32;
+                        TokenType::DotDotLess
+                    }
+                    _ => {
+                        self.current_pos.column += 2;
+                        self.current_pos.offset = self.position as u32;
+                        TokenType::DotDot
+                    }
+                }
             } else {
                 self.current_pos.column += 2;
                 self.current_pos.offset = self.position as u32;
-                TokenType::DoubleDot
+                TokenType::DotDot
             }
         } else {
             self.current_pos.column += 1;
             self.current_pos.offset = self.position as u32;
             TokenType::Dot
+        }
+    }
+    
+    fn scan_question_operators_fast(&mut self) -> TokenType {
+        self.position += 1;
+        if self.position < self.input_bytes.len() {
+            let byte = unsafe { *self.input_bytes.get_unchecked(self.position) };
+            match byte {
+                b'.' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::QuestionDot
+                }
+                b':' => {
+                    self.position += 1;
+                    self.current_pos.column += 2;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Elvis
+                }
+                _ => {
+                    self.current_pos.column += 1;
+                    self.current_pos.offset = self.position as u32;
+                    TokenType::Question
+                }
+            }
+        } else {
+            self.current_pos.column += 1;
+            self.current_pos.offset = self.position as u32;
+            TokenType::Question
         }
     }
 }
