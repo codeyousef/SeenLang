@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result};
 use seen_process::ProcessBuilder;
-use std::process::Stdio;
 
 /// Execute the capture command
 pub fn execute(stream: String, command: String, args: Vec<String>) -> Result<()> {

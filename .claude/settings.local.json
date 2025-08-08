@@ -709,7 +709,12 @@
       "Bash(env CARGO_TARGET_DIR=target-wsl timeout 30s cargo test -p seen_ir --test codegen_performance_test --release -- --nocapture)",
       "Bash(env CARGO_TARGET_DIR=target-wsl timeout 30s cargo test -p seen_memory --test memory_safety_test --release -- --nocapture)",
       "Bash(env CARGO_TARGET_DIR=target-wsl timeout 30s cargo bench -p seen_lexer --bench lexer_competitor_benchmark)",
-      "Bash(env CARGO_TARGET_DIR=target-wsl timeout 30s cargo bench -p seen_std --bench collections_benchmark vec_push/seen/100)"
+      "Bash(env CARGO_TARGET_DIR=target-wsl timeout 30s cargo bench -p seen_std --bench collections_benchmark vec_push/seen/100)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl timeout 30s cargo build --quiet)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl /mnt/d/Projects/Rust/seenlang/target-wsl/debug/seen lsp --help)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl /mnt/d/Projects/Rust/seenlang/target-wsl/debug/seen benchmark --help)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl /mnt/d/Projects/Rust/seenlang/target-wsl/debug/seen --help)",
+      "Bash(env CARGO_TARGET_DIR=target-wsl cargo test --workspace --quiet)"
     ],
     "deny": []
   }

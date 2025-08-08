@@ -1,7 +1,7 @@
 //! Process spawning command implementation
 
 use anyhow::{Context, Result};
-use seen_process::{ProcessBuilder, Process};
+use seen_process::ProcessBuilder;
 use std::time::Duration;
 
 /// Execute the spawn command

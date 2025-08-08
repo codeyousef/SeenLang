@@ -4,7 +4,7 @@ use anyhow::{Result, Context};
 use std::path::PathBuf;
 use log::{info, warn, debug};
 use crate::project::Project;
-use seen_std::testing::{TestRunner, TestConfig, TestStats};
+use seen_std::testing::{TestConfig, TestStats};
 use seen_std::testing::bench::{BenchRunner, BenchConfig};
 use std::time::Instant;
 
@@ -36,7 +36,7 @@ fn run_tests(project: &Project, filter: Option<String>, coverage: bool) -> Resul
     info!("Found {} test files", test_files.len());
     
     // Configure test runner
-    let test_config = TestConfig {
+    let _test_config = TestConfig {
         parallel: true,
         fail_fast: false,
         filter: filter.clone().map(|s| seen_std::string::String::from(&s)),
