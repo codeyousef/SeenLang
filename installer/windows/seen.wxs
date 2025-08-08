@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  
+  <!-- Product definition -->
+  <Product Id="*"
+           Name="Seen Language"
+           Language="1033"
+           Version="!(wix.Version)"
+           Manufacturer="Seen Language Team"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+    
+    <!-- Package information -->
+    <Package InstallerVersion="200"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="Seen Programming Language Compiler and Toolchain"
+             Comments="High-performance systems programming language"
+             Keywords="programming,language,compiler,systems"
+             Platform="!(wix.Platform)" />
+    
+    <!-- License and UI -->
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+    <WixVariable Id="WixUIDialogBmp" Value="dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="banner.bmp" />
+    
+    <!-- Media and compression -->
+    <MediaTemplate EmbedCab="yes" />
+    
+    <!-- Features -->
+    <Feature Id="MainFeature"
+             Title="Seen Language Core"
+             Description="The main Seen language compiler and runtime."
+             Level="1"
+             AllowAdvertise="no">
+      <ComponentRef Id="SeenExecutable" />
+      <ComponentRef Id="SeenLspExecutable" />
+      <ComponentRef Id="SeenRiscvExecutable" />
+      <ComponentRef Id="PathEnvironmentVariable" />
+      <ComponentRef Id="SeenRegistryKeys" />
+    </Feature>
+    
+    <Feature Id="StandardLibrary"
+             Title="Standard Library"
+             Description="The Seen standard library with core functionality."
+             Level="1"
+             AllowAdvertise="no">
+      <ComponentRef Id="StandardLibraryFiles" />
+    </Feature>
+    
+    <Feature Id="LanguageConfigurations"
+             Title="Language Configurations"
+             Description="Multi-language support files (English, Arabic, etc.)."
+             Level="1"
+             AllowAdvertise="no">
+      <ComponentRef Id="LanguageFiles" />
+    </Feature>
+    
+    <Feature Id="Documentation"
+             Title="Documentation"
+             Description="API documentation and language reference."
+             Level="1"
+             AllowAdvertise="no">
+      <ComponentRef Id="DocumentationFiles" />
+    </Feature>
+    
+    <Feature Id="VSCodeExtension"
+             Title="VS Code Integration"
+             Description="Install VS Code extension for Seen language support."
+             Level="2"
+             AllowAdvertise="no">
+      <ComponentRef Id="VSCodeExtensionInstaller" />
+    </Feature>
+    
+    <!-- Upgrade logic -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+                  AllowSameVersionUpgrades="yes" />
+    
+    <!-- Installation directory structure -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="!(wix.ProgramFilesFolder)">
+        <Directory Id="INSTALLFOLDER" Name="Seen">
+          
+          <!-- Binaries -->
+          <Directory Id="BinFolder" Name="bin">
+            <Component Id="SeenExecutable" Guid="11111111-2222-3333-4444-555555555555">
+              <File Id="SeenExe"
+                    Source="!(wix.SeenExePath)"
+                    KeyPath="yes"
+                    Checksum="yes">
+                <util:PermissionEx User="Everyone" GenericRead="yes" GenericExecute="yes" />
+              </File>
+            </Component>
+            
+            <Component Id="SeenLspExecutable" Guid="22222222-3333-4444-5555-666666666666">
+              <File Id="SeenLspExe"
+                    Source="!(wix.SeenLspExePath)"
+                    KeyPath="yes"
+                    Checksum="yes">
+                <util:PermissionEx User="Everyone" GenericRead="yes" GenericExecute="yes" />
+              </File>
+            </Component>
+            
+            <Component Id="SeenRiscvExecutable" Guid="33333333-4444-5555-6666-777777777777">
+              <File Id="SeenRiscvExe"
+                    Source="!(wix.SeenRiscvExePath)"
+                    KeyPath="yes"
+                    Checksum="yes">
+                <util:PermissionEx User="Everyone" GenericRead="yes" GenericExecute="yes" />
+              </File>
+            </Component>
+          </Directory>
+          
+          <!-- Standard Library -->
+          <Directory Id="LibFolder" Name="lib">
+            <Directory Id="SeenLibFolder" Name="seen">
+              <Component Id="StandardLibraryFiles" Guid="44444444-5555-6666-7777-888888888888">
+                <File Id="StdlibCore"
+                      Source="!(wix.StdlibPath)\core\*"
+                      KeyPath="yes">
+                  <util:PermissionEx User="Everyone" GenericRead="yes" />
+                </File>
+                <!-- Add more stdlib files as needed -->
+              </Component>
+            </Directory>
+          </Directory>
+          
+          <!-- Shared files -->
+          <Directory Id="ShareFolder" Name="share">
+            <Directory Id="SeenShareFolder" Name="seen">
+              
+              <!-- Language configurations -->
+              <Directory Id="LanguagesFolder" Name="languages">
+                <Component Id="LanguageFiles" Guid="55555555-6666-7777-8888-999999999999">
+                  <File Id="EnglishLang"
+                        Source="!(wix.LanguagesPath)\en.toml"
+                        KeyPath="yes">
+                    <util:PermissionEx User="Everyone" GenericRead="yes" />
+                  </File>
+                  <File Id="ArabicLang"
+                        Source="!(wix.LanguagesPath)\ar.toml">
+                    <util:PermissionEx User="Everyone" GenericRead="yes" />
+                  </File>
+                </Component>
+              </Directory>
+              
+              <!-- Documentation -->
+              <Directory Id="DocsFolder" Name="docs">
+                <Component Id="DocumentationFiles" Guid="66666666-7777-8888-9999-AAAAAAAAAAAA">
+                  <File Id="ApiDocs"
+                        Source="!(wix.DocsPath)\*"
+                        KeyPath="yes">
+                    <util:PermissionEx User="Everyone" GenericRead="yes" />
+                  </File>
+                </Component>
+              </Directory>
+              
+            </Directory>
+          </Directory>
+          
+        </Directory>
+      </Directory>
+      
+      <!-- Start Menu -->
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Seen Language">
+          <Component Id="ApplicationShortcuts" Guid="77777777-8888-9999-AAAA-BBBBBBBBBBBB">
+            <Shortcut Id="ApplicationStartMenuShortcut"
+                      Name="Seen Command Prompt"
+                      Description="Open command prompt with Seen Language"
+                      Target="[System64Folder]cmd.exe"
+                      Arguments="/k &quot;cd /d %USERPROFILE% &amp;&amp; echo Seen Language Environment &amp;&amp; seen --version&quot;"
+                      WorkingDirectory="PersonalFolder"
+                      Icon="SeenIcon" />
+            
+            <Shortcut Id="UninstallShortcut"
+                      Name="Uninstall Seen Language"
+                      Description="Uninstall Seen Language"
+                      Target="[System64Folder]msiexec.exe"
+                      Arguments="/x [ProductCode]" />
+            
+            <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+            <RegistryValue Root="HKCU"
+                          Key="Software\SeenLanguage\Installed"
+                          Name="StartMenu"
+                          Type="integer"
+                          Value="1"
+                          KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    
+    <!-- Environment variables -->
+    <Component Id="PathEnvironmentVariable" Guid="88888888-9999-AAAA-BBBB-CCCCCCCCCCCC">
+      <Environment Id="PATH"
+                   Name="PATH"
+                   Value="[BinFolder]"
+                   Permanent="no"
+                   Part="last"
+                   Action="set"
+                   System="yes" />
+    </Component>
+    
+    <!-- Registry entries -->
+    <Component Id="SeenRegistryKeys" Guid="99999999-AAAA-BBBB-CCCC-DDDDDDDDDDDD">
+      <RegistryKey Root="HKLM" Key="SOFTWARE\SeenLanguage">
+        <RegistryValue Name="InstallPath" Type="string" Value="[INSTALLFOLDER]" />
+        <RegistryValue Name="Version" Type="string" Value="!(wix.Version)" />
+        <RegistryValue Name="BinPath" Type="string" Value="[BinFolder]" />
+      </RegistryKey>
+      
+      <!-- File associations -->
+      <RegistryKey Root="HKCR" Key=".seen">
+        <RegistryValue Type="string" Value="SeenFile" />
+      </RegistryKey>
+      
+      <RegistryKey Root="HKCR" Key="SeenFile">
+        <RegistryValue Type="string" Value="Seen Source File" />
+      </RegistryKey>
+      
+      <RegistryKey Root="HKCR" Key="SeenFile\shell\open\command">
+        <RegistryValue Type="string" Value="&quot;[BinFolder]seen.exe&quot; &quot;%1&quot;" />
+      </RegistryKey>
+      
+      <!-- Add to Windows "App Paths" for command-line access -->
+      <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\seen.exe">
+        <RegistryValue Type="string" Value="[BinFolder]seen.exe" />
+        <RegistryValue Name="Path" Type="string" Value="[BinFolder]" />
+      </RegistryKey>
+    </Component>
+    
+    <!-- VS Code extension installer -->
+    <Component Id="VSCodeExtensionInstaller" Guid="AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE">
+      <File Id="VSCodeExtension"
+            Source="!(wix.VSCodeExtensionPath)"
+            KeyPath="yes" />
+      
+      <CustomAction Id="InstallVSCodeExtension"
+                    ExeCommand="[BinFolder]seen.exe"
+                    Execute="deferred"
+                    Impersonate="yes"
+                    Return="ignore" />
+    </Component>
+    
+    <!-- Icon -->
+    <Icon Id="SeenIcon" SourceFile="!(wix.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="SeenIcon" />
+    
+    <!-- UI configuration -->
+    <UI>
+      <UIRef Id="WixUI_FeatureTree" />
+      
+      <!-- Custom welcome dialog -->
+      <Dialog Id="WelcomeDialog" Width="370" Height="270" Title="!(loc.WelcomeDialog_Title)">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+        </Control>
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                 TabSkip="no" Text="!(loc.WelcomeBitmap)" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeDialog_Title)" />
+        <Control Id="Description" Type="Text" X="135" Y="70" Width="220" Height="130"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeDialog_Description)" />
+      </Dialog>
+      
+      <!-- Customize feature selection -->
+      <Publish Dialog="CustomizeDlg" Control="Tree" Property="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" Order="1">1</Publish>
+    </UI>
+    
+    <!-- Localization -->
+    <WixLocalization Culture="en-us" Codepage="1252">
+      <String Id="WelcomeDialog_Title">Welcome to the Seen Language Installer</String>
+      <String Id="WelcomeDialog_Description">This installer will guide you through the installation of the Seen programming language compiler and toolchain. Click Next to continue.</String>
+    </WixLocalization>
+    
+    <!-- Custom actions for post-installation -->
+    <CustomAction Id="SetInstallComplete"
+                  Property="INSTALLCOMPLETE"
+                  Value="1" />
+    
+    <InstallExecuteSequence>
+      <Custom Action="SetInstallComplete" After="InstallFinalize">NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+    
+    <!-- Properties for installation customization -->
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="FindInstallLocation"
+                      Root="HKLM"
+                      Key="SOFTWARE\SeenLanguage"
+                      Name="InstallPath"
+                      Type="raw" />
+    </Property>
+    
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="ARPURLINFOABOUT" Value="https://seen-lang.org" />
+    <Property Id="ARPHELPTELEPHONE" Value="https://discord.gg/seen-lang" />
+    <Property Id="ARPCONTACT" Value="https://github.com/seen-lang/seen" />
+    <Property Id="ARPHELPLINK" Value="https://docs.seen-lang.org" />
+    <Property Id="ARPSIZE" Value="50000" />
+    
+  </Product>
+</Wix>

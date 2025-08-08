@@ -1,0 +1,74 @@
+{
+    "version": "1.0.0",
+    "description": "High-performance systems programming language",
+    "homepage": "https://seen-lang.org",
+    "license": "MIT",
+    "url": "https://github.com/seen-lang/seen/releases/download/v1.0.0/seen-1.0.0-windows-x64.zip",
+    "hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/seen-lang/seen/releases/download/v1.0.0/seen-1.0.0-windows-x64.zip",
+            "hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        },
+        "arm64": {
+            "url": "https://github.com/seen-lang/seen/releases/download/v1.0.0/seen-1.0.0-windows-arm64.zip",
+            "hash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+        }
+    },
+    "bin": [
+        "seen.exe",
+        "seen-lsp.exe",
+        "seen-riscv.exe"
+    ],
+    "env_add_path": "bin",
+    "env_set": {
+        "SEEN_LIB_PATH": "$dir\\lib\\seen",
+        "SEEN_DATA_PATH": "$dir\\share\\seen"
+    },
+    "persist": [
+        "config"
+    ],
+    "shortcuts": [
+        [
+            "seen.exe",
+            "Seen Language"
+        ]
+    ],
+    "checkver": {
+        "github": "https://github.com/seen-lang/seen"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/seen-lang/seen/releases/download/v$version/seen-$version-windows-x64.zip"
+            },
+            "arm64": {
+                "url": "https://github.com/seen-lang/seen/releases/download/v$version/seen-$version-windows-arm64.zip"
+            }
+        },
+        "hash": {
+            "url": "$baseurl/$basename.sha256",
+            "regex": "^([a-fA-F0-9]{64})\\s"
+        }
+    },
+    "notes": [
+        "Seen Language has been installed successfully!",
+        "",
+        "To get started:",
+        "  seen init my-project",
+        "  cd my-project",
+        "  seen build",
+        "  seen run",
+        "",
+        "VS Code Extension:",
+        "  Install the 'Seen Language' extension for syntax highlighting and IntelliSense",
+        "",
+        "Documentation: https://docs.seen-lang.org",
+        "Community: https://discord.gg/seen-lang"
+    ],
+    "suggest": {
+        "VS Code": "vscode",
+        "Git": "git",
+        "LLVM": "llvm"
+    }
+}
