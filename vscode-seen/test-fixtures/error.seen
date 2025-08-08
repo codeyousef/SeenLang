@@ -1,0 +1,15 @@
+// File with intentional errors for testing diagnostics
+fun main() {
+    val undefinedVariable = someUndefinedFunction()
+    
+    // Type error
+    val number: Int = "this should be a number"
+    
+    // Missing closing brace
+    if (true) {
+        println("Missing closing brace")
+    // <- Missing closing brace here
+    
+    // Undefined function call
+    invalidFunction()
+}

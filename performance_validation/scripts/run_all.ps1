@@ -26,16 +26,16 @@ $TIMESTAMP = Get-Date -Format "yyyyMMdd_HHmmss"
 $SESSION_DIR = "$RESULTS_DIR\$TIMESTAMP"
 
 # Default parameters override from command line
-if ($PSBoundParameters.ContainsKey('Iterations')) { $ITERATIONS = $Iterations }
-if ($PSBoundParameters.ContainsKey('WarmupIterations')) { $WARMUP_ITERATIONS = $WarmupIterations }
-if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) { $TIMEOUT_SECONDS = $TimeoutSeconds }
-if ($PSBoundParameters.ContainsKey('Categories')) { $CATEGORIES = $Categories }
-if ($PSBoundParameters.ContainsKey('Competitors')) { $COMPETITORS = $Competitors }
-if ($PSBoundParameters.ContainsKey('TestSize')) { $TEST_SIZE = $TestSize }
-if ($PSBoundParameters.ContainsKey('Verbose')) { $VERBOSE = $Verbose }
-if ($PSBoundParameters.ContainsKey('SkipSetup')) { $SKIP_SETUP = $SkipSetup }
-if ($PSBoundParameters.ContainsKey('StatisticalOnly')) { $STATISTICAL_ONLY = $StatisticalOnly }
-if ($PSBoundParameters.ContainsKey('RealWorldOnly')) { $REAL_WORLD_ONLY = $RealWorldOnly }
+$ITERATIONS = if ($PSBoundParameters.ContainsKey('Iterations')) { $Iterations } else { 30 }
+$WARMUP_ITERATIONS = if ($PSBoundParameters.ContainsKey('WarmupIterations')) { $WarmupIterations } else { 5 }
+$TIMEOUT_SECONDS = if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) { $TimeoutSeconds } else { 300 }
+$CATEGORIES = if ($PSBoundParameters.ContainsKey('Categories')) { $Categories } else { "all" }
+$COMPETITORS = if ($PSBoundParameters.ContainsKey('Competitors')) { $Competitors } else { "cpp,rust,zig" }
+$TEST_SIZE = if ($PSBoundParameters.ContainsKey('TestSize')) { $TestSize } else { "medium" }
+$VERBOSE = if ($PSBoundParameters.ContainsKey('Verbose')) { $Verbose } else { $false }
+$SKIP_SETUP = if ($PSBoundParameters.ContainsKey('SkipSetup')) { $SkipSetup } else { $false }
+$STATISTICAL_ONLY = if ($PSBoundParameters.ContainsKey('StatisticalOnly')) { $StatisticalOnly } else { $false }
+$REAL_WORLD_ONLY = if ($PSBoundParameters.ContainsKey('RealWorldOnly')) { $RealWorldOnly } else { $false }
 
 # Colors for output (Windows PowerShell compatible)
 $RED = "Red"
@@ -443,23 +443,23 @@ function Invoke-StatisticalAnalysis {
 function New-PerformanceReport {
     Log-Header "Generating Performance Report"
     
-    $report_output = "$SESSION_DIR\performance_report.html"
+    $report_output = "$SESSION_DIR\performance_report.md"
     $report_log = "$SESSION_DIR\logs\report_generation.log"
     
-    Log-Info "Generating comprehensive HTML report..."
+    Log-Info "Generating comprehensive Markdown report..."
     
     try {
-        $result = python "$SCRIPT_DIR\report_generator.py" --data-dir $SESSION_DIR --output $report_output --include-plots --honest-mode 2>&1
+        $result = python "$SCRIPT_DIR\report_generator.py" --data-dir $SESSION_DIR --output $report_output --format markdown --include-plots --honest-mode 2>&1
         $result | Out-File $report_log -Encoding UTF8
         
         if ($LASTEXITCODE -eq 0) {
             Log-Success "Performance report generated: $report_output"
             
-            # Also generate a markdown summary if script exists
-            $markdown_script = "$SCRIPT_DIR\generate_markdown_summary.py"
-            if (Test-Path $markdown_script) {
-                python $markdown_script "$SESSION_DIR\statistical_analysis.json" | Out-File "$SESSION_DIR\PERFORMANCE_SUMMARY.md" -Encoding UTF8
-                Log-Success "Markdown summary: $SESSION_DIR\PERFORMANCE_SUMMARY.md"
+            # Also generate HTML version for web viewing
+            $html_output = "$SESSION_DIR\performance_report.html"
+            $html_result = python "$SCRIPT_DIR\report_generator.py" --data-dir $SESSION_DIR --output $html_output --format html --include-plots --honest-mode 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Log-Success "HTML report also generated: $html_output"
             }
         } else {
             Log-Error "Report generation failed (see logs\report_generation.log)"
@@ -573,7 +573,7 @@ function Main {
     # Final summary
     Log-Header "Benchmark Session Complete"
     Log-Success "Results directory: $SESSION_DIR"
-    Log-Success "Performance report: $SESSION_DIR\performance_report.html"
+    Log-Success "Performance report: $SESSION_DIR\performance_report.md"
     Log-Success "Statistical analysis: $SESSION_DIR\statistical_analysis.json"
     
     # Show quick summary
@@ -583,7 +583,7 @@ function Main {
         Write-Host "Quick Performance Summary:" -ForegroundColor $CYAN
         Get-Content $summary_file | Select-Object -First 20
         Write-Host ""
-        Write-Host "See full report for detailed analysis: $SESSION_DIR\performance_report.html"
+        Write-Host "See full report for detailed analysis: $SESSION_DIR\performance_report.md"
     }
     
     Log-Info "Benchmark validation completed successfully!"

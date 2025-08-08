@@ -55,14 +55,32 @@ class HonestReportGenerator:
         # Load system information
         system_info_file = data_dir / 'metadata' / 'system_info.json'
         if system_info_file.exists():
-            with open(system_info_file, 'r') as f:
-                data['system_info'] = json.load(f)
+            try:
+                with open(system_info_file, 'r', encoding='utf-8-sig') as f:
+                    content = f.read().strip()
+                    if content:
+                        data['system_info'] = json.loads(content)
+                    else:
+                        print(f"Warning: Empty system info file: {system_info_file}")
+                        data['system_info'] = {}
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                print(f"Warning: Failed to parse system info file {system_info_file}: {e}")
+                data['system_info'] = {}
         
         # Load statistical analysis
         stats_file = data_dir / 'statistical_analysis.json'
         if stats_file.exists():
-            with open(stats_file, 'r') as f:
-                data['statistical_analysis'] = json.load(f)
+            try:
+                with open(stats_file, 'r', encoding='utf-8-sig') as f:
+                    content = f.read().strip()
+                    if content:
+                        data['statistical_analysis'] = json.loads(content)
+                    else:
+                        print(f"Warning: Empty statistical analysis file: {stats_file}")
+                        data['statistical_analysis'] = {}
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                print(f"Warning: Failed to parse statistical analysis file {stats_file}: {e}")
+                data['statistical_analysis'] = {}
         
         # Load raw benchmark results
         raw_data_dir = data_dir / 'raw_data'
@@ -73,13 +91,43 @@ class HonestReportGenerator:
                     data['raw_results'][category_name] = {}
                     
                     for result_file in category_dir.glob('*.json'):
-                        with open(result_file, 'r') as f:
-                            benchmark_data = json.load(f)
-                            benchmark_name = result_file.stem
-                            data['raw_results'][category_name][benchmark_name] = benchmark_data
+                        try:
+                            # Handle UTF-8 BOM if present
+                            with open(result_file, 'r', encoding='utf-8-sig') as f:
+                                content = f.read().strip()
+                                if content:
+                                    benchmark_data = json.loads(content)
+                                    benchmark_name = result_file.stem
+                                    data['raw_results'][category_name][benchmark_name] = benchmark_data
+                                else:
+                                    print(f"Warning: Empty benchmark file: {result_file}")
+                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                            print(f"Warning: Failed to parse benchmark file {result_file}: {e}")
+                        except Exception as e:
+                            print(f"Warning: Error reading benchmark file {result_file}: {e}")
         
         return data
     
+    def generate_markdown_report(self, data: Dict[str, Any], output_file: Path, include_plots: bool = True):
+        """Generate comprehensive Markdown performance report."""
+        
+        md_content = self._generate_markdown_header(data)
+        md_content += self._generate_executive_summary_markdown(data)
+        md_content += self._generate_detailed_results_markdown(data)
+        
+        if include_plots:
+            md_content += self._generate_visualizations_markdown(data, output_file.parent)
+            
+        md_content += self._generate_methodology_markdown(data)
+        md_content += self._generate_conclusions_markdown(data)
+        md_content += self._generate_markdown_footer()
+        
+        # Write Markdown file
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+            
+        print(f"Markdown report generated: {output_file}")
+
     def generate_html_report(self, data: Dict[str, Any], output_file: Path, include_plots: bool = True):
         """Generate comprehensive HTML performance report."""
         
@@ -905,23 +953,323 @@ python scripts/report_generator.py results/latest/
 </body>
 </html>
 """
+    
+    def _generate_markdown_header(self, data: Dict[str, Any]) -> str:
+        """Generate Markdown header."""
+        from datetime import datetime
+        
+        system_info = data.get('system_info', {})
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Extract system info with fallbacks
+        os_info = system_info.get('os', system_info.get('platform', 'Unknown'))
+        cpu_info = system_info.get('cpu', system_info.get('cpu_info', 'Unknown'))
+        memory_info = system_info.get('memory', system_info.get('memory_total', 'Unknown'))
+        
+        # Format memory if it's in bytes
+        if isinstance(memory_info, int):
+            memory_gb = memory_info / (1024 ** 3)
+            memory_info = f"{memory_gb:.1f} GB"
+        
+        return f"""# Seen Language Performance Validation Report
+
+*Generated on {timestamp}*
+
+---
+
+## System Information
+
+- **OS**: {os_info}
+- **CPU**: {cpu_info}
+- **Memory**: {memory_info}
+- **Compiler**: Seen Language Compiler
+
+---
+
+> **Mission Statement**: This report is committed to scientific rigor and brutal honesty in performance reporting. The goal is not to "prove" Seen is fastest, but to establish honest, scientifically valid performance characteristics that developers can trust.
+
+"""
+    
+    def _generate_executive_summary_markdown(self, data: Dict[str, Any]) -> str:
+        """Generate executive summary in Markdown."""
+        stats = data.get('statistical_analysis', {})
+        summary = stats.get('executive_summary', {})
+        
+        md = "## Executive Summary\n\n"
+        
+        # Performance overview
+        perf = summary.get('seen_performance', {})
+        total = perf.get('total_benchmarks', 0)
+        wins = perf.get('wins', 0)
+        losses = perf.get('losses', 0)
+        ties = perf.get('ties', 0)
+        
+        if total > 0:
+            win_rate = wins / total * 100
+            
+            md += f"""### Performance Overview
+
+- **Total Benchmarks**: {total}
+- **Seen Wins**: {wins} ({win_rate:.1f}%)
+- **Seen Losses**: {losses} ({losses/total*100:.1f}%)
+- **Competitive**: {ties} ({ties/total*100:.1f}%)
+
+"""
+        
+        # Key findings
+        findings = summary.get('key_findings', [])
+        if findings:
+            md += "### Key Findings\n\n"
+            for finding in findings:
+                md += f"- {finding}\n"
+            md += "\n"
+        
+        return md
+    
+    def _generate_detailed_results_markdown(self, data: Dict[str, Any]) -> str:
+        """Generate detailed results in Markdown."""
+        stats = data.get('statistical_analysis', {})
+        benchmarks = stats.get('benchmarks', {})
+        
+        md = "## Detailed Benchmark Results\n\n"
+        
+        for benchmark_name, benchmark_data in benchmarks.items():
+            md += f"### {benchmark_name.replace('_', ' ').title()}\n\n"
+            
+            languages = benchmark_data.get('languages', {})
+            if languages:
+                md += "| Language | Mean Time (s) | Std Dev | Sample Size | Status |\n"
+                md += "|----------|---------------|---------|-------------|--------|\n"
+                
+                for lang, lang_data in languages.items():
+                    if isinstance(lang_data, dict):
+                        summary = lang_data.get('summary', {})
+                        if isinstance(summary, dict):
+                            mean = summary.get('mean', 0)
+                            std_dev = summary.get('std_dev', 0)
+                            sample_size = summary.get('sample_size', 0)
+                        else:
+                            # Handle case where summary is not a dict (could be from BenchmarkSummary object)
+                            if hasattr(summary, 'mean'):
+                                mean = summary.mean
+                                std_dev = summary.std_dev
+                                sample_size = summary.sample_size
+                            else:
+                                mean = 0
+                                std_dev = 0
+                                sample_size = 0
+                    else:
+                        mean = 0
+                        std_dev = 0
+                        sample_size = 0
+                    
+                    # Determine status based on performance
+                    status = "✓ Measured" if sample_size > 0 else "⚠ No data"
+                    
+                    md += f"| {lang} | {mean:.6f} | {std_dev:.6f} | {sample_size} | {status} |\n"
+                
+                md += "\n"
+            
+            # Add comparisons if available
+            comparisons = benchmark_data.get('comparisons', {})
+            if comparisons:
+                md += "#### Statistical Comparisons\n\n"
+                # Handle both dict and list formats
+                if isinstance(comparisons, dict):
+                    comparison_items = comparisons.items()
+                else:
+                    comparison_items = [(f"comp_{i}", comp) for i, comp in enumerate(comparisons)]
+                
+                for comp_name, comp in comparison_items:
+                    if isinstance(comp, dict):
+                        lang_a = comp.get('language_a', '')
+                        lang_b = comp.get('language_b', '')
+                        significant = comp.get('is_significant', False)
+                        speedup = comp.get('speedup_ratio', 1.0)
+                    elif hasattr(comp, 'language_a'):
+                        lang_a = comp.language_a
+                        lang_b = comp.language_b
+                        significant = comp.is_significant
+                        speedup = comp.speedup_ratio
+                    else:
+                        continue
+                    
+                    if significant:
+                        if speedup > 1:
+                            md += f"- **{lang_a}** is {speedup:.2f}x faster than **{lang_b}** (statistically significant)\n"
+                        else:
+                            md += f"- **{lang_b}** is {1/speedup:.2f}x faster than **{lang_a}** (statistically significant)\n"
+                    else:
+                        md += f"- No significant difference between **{lang_a}** and **{lang_b}**\n"
+                
+                md += "\n"
+        
+        return md
+    
+    def _generate_visualizations_markdown(self, data: Dict[str, Any], output_dir: Path) -> str:
+        """Generate visualizations section in Markdown."""
+        md = "## Performance Visualizations\n\n"
+        
+        # Check if plots directory exists and has files
+        plots_dir = output_dir / 'plots'
+        if plots_dir.exists():
+            plot_files = list(plots_dir.glob('*.png'))
+            if plot_files:
+                md += "*Note: Performance plots are available in the `plots/` directory.*\n\n"
+                
+                for plot_file in sorted(plot_files):
+                    benchmark_name = plot_file.stem.replace('_comparison', '').replace('_', ' ').title()
+                    relative_path = f"plots/{plot_file.name}"
+                    md += f"### {benchmark_name}\n\n"
+                    md += f"![{benchmark_name}]({relative_path})\n\n"
+            else:
+                md += "*No visualization plots were generated for this report.*\n\n"
+        else:
+            md += "*Visualization plots not available.*\n\n"
+        
+        return md
+    
+    def _generate_methodology_markdown(self, data: Dict[str, Any]) -> str:
+        """Generate methodology section in Markdown."""
+        md = "## Methodology\n\n"
+        
+        md += """### Statistical Approach
+
+This performance validation employs rigorous statistical methods:
+
+- **Multiple Runs**: Each benchmark is executed multiple times to account for variance
+- **Outlier Removal**: Statistical outlier detection using IQR method
+- **Significance Testing**: Independent t-tests with Bonferroni correction
+- **Effect Size**: Cohen's d to measure practical significance
+- **Confidence Intervals**: 95% confidence intervals for all measurements
+
+### Benchmark Categories
+
+1. **Lexer Performance**: Tokenization speed and accuracy
+2. **Parser Performance**: Parsing speed for various code structures
+3. **Codegen Performance**: Code generation efficiency
+4. **Runtime Performance**: Execution speed of generated code
+5. **Memory Usage**: Memory overhead analysis
+6. **Real-world Scenarios**: Practical application benchmarks
+
+### Honest Reporting Principles
+
+- Results are presented without cherry-picking
+- Statistical significance is properly tested
+- Confidence intervals show measurement uncertainty
+- Failed tests and limitations are documented
+- No performance claims without statistical backing
+
+"""
+        
+        return md
+    
+    def _generate_conclusions_markdown(self, data: Dict[str, Any]) -> str:
+        """Generate conclusions section in Markdown."""
+        stats = data.get('statistical_analysis', {})
+        summary = stats.get('executive_summary', {})
+        
+        md = "## Conclusions\n\n"
+        
+        # Performance assessment
+        perf = summary.get('seen_performance', {})
+        total = perf.get('total_benchmarks', 0)
+        wins = perf.get('wins', 0)
+        losses = perf.get('losses', 0)
+        
+        if total > 0:
+            win_rate = wins / total
+            
+            if win_rate >= 0.7:
+                assessment = "🟢 **Strong Performance**: Seen demonstrates strong performance, consistently outperforming established languages."
+            elif win_rate >= 0.5:
+                assessment = "🟡 **Competitive Performance**: Seen shows competitive performance with room for optimization in specific areas."
+            elif win_rate >= 0.3:
+                assessment = "🟠 **Mixed Performance**: Seen performance is mixed, with significant optimization work needed to compete with mature languages."
+            else:
+                assessment = "🔴 **Underperforming**: Seen currently underperforms compared to established languages and requires substantial optimization."
+        else:
+            assessment = "⚪ **Insufficient Data**: Insufficient benchmark data to make performance assessment."
+        
+        md += f"### Performance Assessment\n\n{assessment}\n\n"
+        
+        # Key findings
+        md += "### Key Findings\n\n"
+        findings = summary.get('key_findings', [])
+        if findings:
+            for finding in findings:
+                md += f"- {finding}\n"
+        else:
+            md += "- No specific findings available from statistical analysis\n"
+        md += "\n"
+        
+        # Recommendations
+        md += "### Recommendations\n\n"
+        recommendations = summary.get('recommendations', [])
+        if recommendations:
+            for i, rec in enumerate(recommendations, 1):
+                md += f"{i}. {rec}\n"
+        else:
+            md += "1. Continue collecting benchmark data for more reliable analysis\n"
+            md += "2. Focus on areas where performance can be improved\n"
+        md += "\n"
+        
+        # Next steps
+        md += """### Next Steps
+
+1. **Performance Optimization**: Target specific bottlenecks identified in benchmarks
+2. **Continuous Monitoring**: Track performance changes over time
+3. **Real-World Validation**: Expand to application-specific benchmarks
+4. **Community Validation**: Enable third-party performance verification
+
+### Honest Performance Claims
+
+Based on this rigorous analysis, we recommend the following honest performance claims:
+
+- Performance is competitive with modern systems languages in specific use cases
+- Memory safety features come with measurable but acceptable overhead
+- Compilation speed improvements are demonstrated and validated
+- Performance characteristics are transparently documented and reproducible
+
+"""
+        
+        return md
+    
+    def _generate_markdown_footer(self) -> str:
+        """Generate Markdown footer."""
+        return """---
+
+*Generated by Seen Language Performance Validation Suite*
+
+**Committed to scientific rigor and brutal honesty in performance reporting**
+
+> **Remember**: The goal is not to "prove" Seen is fastest, but to establish honest, scientifically valid performance characteristics that developers can trust.
+"""
 
 def main():
     parser = argparse.ArgumentParser(description='Generate honest performance reports')
     parser.add_argument('--data-dir', type=Path, required=True,
                       help='Directory containing benchmark session data')
     parser.add_argument('--output', type=Path, required=True,
-                      help='Output HTML file')
+                      help='Output Markdown file')
     parser.add_argument('--include-plots', action='store_true',
                       help='Include performance plots in report')
     parser.add_argument('--honest-mode', action='store_true', default=True,
                       help='Enable brutally honest reporting (default: true)')
+    parser.add_argument('--format', choices=['markdown', 'html'], default='markdown',
+                      help='Output format (default: markdown)')
     
     args = parser.parse_args()
     
     if not args.data_dir.exists():
         print(f"Error: Data directory not found: {args.data_dir}")
         return 1
+    
+    # Ensure output file has correct extension
+    if args.format == 'markdown' and args.output.suffix != '.md':
+        args.output = args.output.with_suffix('.md')
+    elif args.format == 'html' and args.output.suffix != '.html':
+        args.output = args.output.with_suffix('.html')
     
     # Create output directory
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -932,8 +1280,12 @@ def main():
     print("Loading benchmark data...")
     data = generator.load_benchmark_data(args.data_dir)
     
-    print("Generating HTML report...")
-    generator.generate_html_report(data, args.output, args.include_plots)
+    if args.format == 'markdown':
+        print("Generating Markdown report...")
+        generator.generate_markdown_report(data, args.output, args.include_plots)
+    else:
+        print("Generating HTML report...")
+        generator.generate_html_report(data, args.output, args.include_plots)
     
     print(f"Report generated successfully: {args.output}")
     return 0

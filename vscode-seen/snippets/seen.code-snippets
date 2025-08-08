@@ -1,0 +1,254 @@
+{
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "fun main() {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Main function entry point"
+  },
+  "Function": {
+    "prefix": "fun",
+    "body": [
+      "fun ${1:functionName}(${2:params}): ${3:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function declaration"
+  },
+  "Data Class": {
+    "prefix": "data",
+    "body": [
+      "data class ${1:ClassName}(",
+      "\tval ${2:property}: ${3:Type}",
+      ")"
+    ],
+    "description": "Data class declaration"
+  },
+  "Sealed Class": {
+    "prefix": "sealed",
+    "body": [
+      "sealed class ${1:SealedClass} {",
+      "\tdata class ${2:Variant1}(val ${3:prop}: ${4:Type}) : ${1}()",
+      "\tdata class ${5:Variant2}(val ${6:prop}: ${7:Type}) : ${1}()",
+      "}"
+    ],
+    "description": "Sealed class with variants"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:Type}",
+      "}"
+    ],
+    "description": "Struct declaration"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant1},",
+      "\t${3:Variant2}(${4:Type}),",
+      "}"
+    ],
+    "description": "Enum declaration"
+  },
+  "Observable": {
+    "prefix": "observable",
+    "body": [
+      "val ${1:observable} = Observable.create<${2:Type}> { emitter ->",
+      "\t${3:// Emit values}",
+      "\temitter.emit(${4:value})",
+      "\temitter.complete()",
+      "}"
+    ],
+    "description": "Create an Observable"
+  },
+  "Flow": {
+    "prefix": "flow",
+    "body": [
+      "val ${1:flow} = flow {",
+      "\temit(${2:value})",
+      "\t$0",
+      "}"
+    ],
+    "description": "Create a Flow"
+  },
+  "Extension Function": {
+    "prefix": "ext",
+    "body": [
+      "fun ${1:Type}.${2:functionName}(${3:params}): ${4:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Extension function"
+  },
+  "Benchmark": {
+    "prefix": "bench",
+    "body": [
+      "@benchmark",
+      "fun bench${1:Name}(b: Bencher) {",
+      "\tb.iter {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Benchmark function"
+  },
+  "Test": {
+    "prefix": "test",
+    "body": [
+      "@test",
+      "fun test${1:Name}() {",
+      "\t$0",
+      "\tassert(${2:condition})",
+      "}"
+    ],
+    "description": "Test function"
+  },
+  "Pattern Match": {
+    "prefix": "when",
+    "body": [
+      "when (${1:value}) {",
+      "\tis ${2:Type} -> ${3:result}",
+      "\t${4:pattern} -> ${5:result}",
+      "\telse -> ${6:default}",
+      "}"
+    ],
+    "description": "Pattern matching with when"
+  },
+  "Coroutine": {
+    "prefix": "suspend",
+    "body": [
+      "suspend fun ${1:functionName}(${2:params}): ${3:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Suspend function for coroutines"
+  },
+  "Launch Coroutine": {
+    "prefix": "launch",
+    "body": [
+      "launch {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Launch a coroutine"
+  },
+  "If Expression": {
+    "prefix": "if",
+    "body": [
+      "if (${1:condition}) {",
+      "\t${2:trueBlock}",
+      "} else {",
+      "\t${3:falseBlock}",
+      "}"
+    ],
+    "description": "If-else expression"
+  },
+  "For Loop": {
+    "prefix": "for",
+    "body": [
+      "for (${1:item} in ${2:collection}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "For loop"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while (${1:condition}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Variable Declaration": {
+    "prefix": "val",
+    "body": [
+      "val ${1:name} = ${2:value}"
+    ],
+    "description": "Immutable variable declaration"
+  },
+  "Mutable Variable": {
+    "prefix": "var",
+    "body": [
+      "var ${1:name} = ${2:value}"
+    ],
+    "description": "Mutable variable declaration"
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Name} {",
+      "\tfun ${2:method}(${3:params}): ${4:ReturnType}",
+      "}"
+    ],
+    "description": "Interface declaration"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "\tfun ${2:method}(${3:params}): ${4:ReturnType}",
+      "}"
+    ],
+    "description": "Trait declaration"
+  },
+  "Implementation": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Trait} for ${2:Type} {",
+      "\tfun ${3:method}(${4:params}): ${5:ReturnType} {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Trait implementation"
+  },
+  "Try-Catch": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "\t${1:code}",
+      "} catch (${2:e}: ${3:Exception}) {",
+      "\t${4:handleError}",
+      "}"
+    ],
+    "description": "Try-catch block"
+  },
+  "Match Expression": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "\t${2:pattern} => ${3:result},",
+      "\t_ => ${4:default}",
+      "}"
+    ],
+    "description": "Match expression"
+  },
+  "Lambda": {
+    "prefix": "lambda",
+    "body": [
+      "{ ${1:params} -> ${2:body} }"
+    ],
+    "description": "Lambda expression"
+  },
+  "Print Line": {
+    "prefix": "println",
+    "body": [
+      "println(${1:\"${2:message}\"})"
+    ],
+    "description": "Print with newline"
+  },
+  "Debug Print": {
+    "prefix": "debug",
+    "body": [
+      "debug(${1:value})"
+    ],
+    "description": "Debug print"
+  }
+}

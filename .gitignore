@@ -3602,3 +3602,5 @@ debug.log
 target-wsl/
 .claude/settings.local.json
 /docs/private/
+/performance_validation/results/
+/performance_validation/scripts/analysis_results/

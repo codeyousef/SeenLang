@@ -160,7 +160,9 @@ foreach ($competitor in $competitorList) {
     $timeRatio = $seenAvgTime / $compAvgTime
     $throughputRatio = $seenAvgThroughput / $compAvgThroughput
     
-    Write-Host "  vs $competitor: $([math]::Round($timeRatio, 2))x time, $([math]::Round($throughputRatio, 2))x throughput" -ForegroundColor Cyan
+    $timeRatioRounded = [math]::Round($timeRatio, 2)
+    $throughputRatioRounded = [math]::Round($throughputRatio, 2)
+    Write-Host "  vs ${competitor}: ${timeRatioRounded}x time, ${throughputRatioRounded}x throughput" -ForegroundColor Cyan
 }
 
 # Write results to output file

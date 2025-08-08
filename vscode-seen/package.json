@@ -1,0 +1,317 @@
+{
+  "name": "seen-vscode",
+  "displayName": "Seen Language",
+  "description": "Official Seen language support with reactive programming features",
+  "version": "1.0.0",
+  "publisher": "seen-lang",
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Debuggers",
+    "Formatters",
+    "Linters",
+    "Snippets"
+  ],
+  "keywords": [
+    "seen",
+    "reactive",
+    "kotlin",
+    "rust",
+    "performance",
+    "riscv"
+  ],
+  "activationEvents": [
+    "onLanguage:seen",
+    "workspaceContains:**/*.seen",
+    "workspaceContains:Seen.toml"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "seen",
+        "aliases": ["Seen", "seen"],
+        "extensions": [".seen"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./images/seen-light.svg",
+          "dark": "./images/seen-dark.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "seen",
+        "scopeName": "source.seen",
+        "path": "./syntaxes/seen.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Seen",
+      "properties": {
+        "seen.compiler.path": {
+          "type": "string",
+          "default": "seen",
+          "description": "Path to the Seen compiler executable"
+        },
+        "seen.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Seen Language Server"
+        },
+        "seen.lsp.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace communication with the Seen Language Server"
+        },
+        "seen.formatting.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic code formatting"
+        },
+        "seen.reactive.marbleDiagrams": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show marble diagrams for reactive operators"
+        },
+        "seen.benchmark.showInline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show benchmark results inline in the editor"
+        },
+        "seen.target.default": {
+          "type": "string",
+          "enum": ["native", "x86_64", "aarch64", "riscv32", "riscv64", "wasm"],
+          "default": "native",
+          "description": "Default compilation target"
+        },
+        "seen.language.default": {
+          "type": "string",
+          "enum": ["en", "ar"],
+          "default": "en",
+          "description": "Default language for new projects"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "seen.build",
+        "title": "Seen: Build Project"
+      },
+      {
+        "command": "seen.run",
+        "title": "Seen: Run Project"
+      },
+      {
+        "command": "seen.test",
+        "title": "Seen: Run Tests"
+      },
+      {
+        "command": "seen.benchmark",
+        "title": "Seen: Run Benchmarks"
+      },
+      {
+        "command": "seen.format",
+        "title": "Seen: Format Document"
+      },
+      {
+        "command": "seen.check",
+        "title": "Seen: Check Project"
+      },
+      {
+        "command": "seen.clean",
+        "title": "Seen: Clean Build Artifacts"
+      },
+      {
+        "command": "seen.init",
+        "title": "Seen: Initialize New Project"
+      },
+      {
+        "command": "seen.reactive.visualize",
+        "title": "Seen: Visualize Reactive Stream"
+      },
+      {
+        "command": "seen.repl",
+        "title": "Seen: Open REPL"
+      },
+      {
+        "command": "seen.showReferences",
+        "title": "Seen: Show References"
+      },
+      {
+        "command": "seen.switchLanguage",
+        "title": "Seen: Switch Project Language"
+      },
+      {
+        "command": "seen.translateCode",
+        "title": "Seen: Translate to Another Language"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "seen.build",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b",
+        "when": "resourceExtname == .seen"
+      },
+      {
+        "command": "seen.run",
+        "key": "f5",
+        "when": "resourceExtname == .seen"
+      },
+      {
+        "command": "seen.format",
+        "key": "shift+alt+f",
+        "mac": "shift+option+f",
+        "when": "resourceExtname == .seen"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "seen.showReferences",
+          "when": "resourceExtname == .seen",
+          "group": "navigation"
+        },
+        {
+          "command": "seen.reactive.visualize",
+          "when": "resourceExtname == .seen",
+          "group": "seen"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "seen.init",
+          "when": "explorerResourceIsFolder",
+          "group": "seen"
+        }
+      ]
+    },
+    "taskDefinitions": [
+      {
+        "type": "seen",
+        "required": ["task"],
+        "properties": {
+          "task": {
+            "type": "string",
+            "enum": ["build", "test", "benchmark", "check", "clean"]
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "seen",
+        "label": "Seen Debug",
+        "program": "./out/debugAdapter.js",
+        "runtime": "node",
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the Seen program to debug"
+              },
+              "args": {
+                "type": "array",
+                "description": "Command line arguments"
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "seen",
+        "path": "./snippets/seen.code-snippets"
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "seen",
+        "owner": "seen",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "seen.benchmarks",
+          "name": "Benchmarks",
+          "when": "seenProject"
+        },
+        {
+          "id": "seen.reactiveStreams",
+          "name": "Reactive Streams",
+          "when": "seenProject"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "compile-web": "webpack",
+    "watch": "tsc -watch -p ./",
+    "watch-web": "webpack --watch",
+    "package-web": "webpack --mode production --devtool hidden-source-map",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "lint-fix": "eslint src --ext ts --fix",
+    "test": "node ./out/test/runTest.js",
+    "test-web": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js",
+    "type-check": "tsc --noEmit",
+    "package": "vsce package --no-dependencies",
+    "package-production": "npm run package-web && vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies",
+    "vscode:package": "npm run package",
+    "clean": "rimraf out dist *.vsix"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "@vscode/test-electron": "^2.3.4",
+    "@vscode/test-web": "^0.0.44",
+    "@vscode/vsce": "^2.19.0",
+    "eslint": "^8.44.0",
+    "glob": "^10.3.0",
+    "mocha": "^10.2.0",
+    "ovsx": "^0.8.2",
+    "rimraf": "^5.0.1",
+    "ts-loader": "^9.4.4",
+    "typescript": "^5.0.0",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4"
+  }
+}

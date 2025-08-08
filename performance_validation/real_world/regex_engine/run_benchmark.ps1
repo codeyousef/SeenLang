@@ -200,13 +200,17 @@ $seenAvgMps = ($seenResults.matches_per_second | Measure-Object -Average).Averag
 $seenAvgCompile = ($seenResults.pattern_compilation_times | Measure-Object -Average).Average
 
 Write-Host "[INFO] Regex Engine Results:" -ForegroundColor Blue
-Write-Host "Seen: $([math]::Round($seenAvgTime * 1000, 2))ms match, $([math]::Round($seenAvgMps / 1000, 1))K matches/s, $([math]::Round($seenAvgCompile * 1000, 2))ms compile" -ForegroundColor White
+$seenAvgTimeMs = [math]::Round($seenAvgTime * 1000, 2)
+$seenAvgMpsK = [math]::Round($seenAvgMps / 1000, 1)
+$seenAvgCompileMs = [math]::Round($seenAvgCompile * 1000, 2)
+Write-Host "Seen: ${seenAvgTimeMs}ms match, ${seenAvgMpsK}K matches/s, ${seenAvgCompileMs}ms compile" -ForegroundColor White
 
 foreach ($competitor in $competitorList) {
     $compResults = $results.benchmarks.$competitor
     $compAvgTime = ($compResults.match_times | Measure-Object -Average).Average
     $speedRatio = $compAvgTime / $seenAvgTime
-    Write-Host "$competitor: $([math]::Round($speedRatio, 2))x time vs Seen" -ForegroundColor Cyan
+    $speedRatioRounded = [math]::Round($speedRatio, 2)
+    Write-Host "${competitor}: ${speedRatioRounded}x time vs Seen" -ForegroundColor Cyan
 }
 
 # Write results

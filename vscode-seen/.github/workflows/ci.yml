@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        uses: coactions/setup-xvfb@v1
+        with:
+          run: npm test
+
+      - name: Package extension
+        run: npm run package
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seen-vscode-extension-${{ matrix.node-version }}
+          path: "*.vsix"
+
+  build-matrix:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Test (Linux/macOS)
+        if: runner.os != 'Windows'
+        uses: coactions/setup-xvfb@v1
+        with:
+          run: npm test
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: npm test
+
+  quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Security audit
+        run: npm audit --audit-level moderate
+
+      - name: Check bundle size
+        run: |
+          npm run package-production
+          ls -la dist/
+          # Check that bundle is under reasonable size (10MB)
+          size=$(wc -c < dist/extension.js)
+          if [ $size -gt 10485760 ]; then
+            echo "Bundle size too large: $size bytes"
+            exit 1
+          fi
+          echo "Bundle size OK: $size bytes"

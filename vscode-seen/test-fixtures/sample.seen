@@ -1,0 +1,41 @@
+// Sample Seen file for testing
+fun main() {
+    val greeting = "Hello, World!"
+    println(greeting)
+    
+    // Test reactive streams
+    val numbers = observable(1, 2, 3, 4, 5)
+    val doubled = numbers.map { it * 2 }
+    doubled.subscribe { value ->
+        println("Doubled: $value")
+    }
+    
+    // Test data class
+    data class Person(val name: String, val age: Int)
+    val person = Person("Alice", 30)
+    
+    // Test benchmark
+    @benchmark
+    fun performanceTest() {
+        repeat(1000) {
+            // Some computation
+            val result = fibonacci(20)
+        }
+    }
+    
+    // Test when expression
+    val result = when (person.age) {
+        in 0..17 -> "Minor"
+        in 18..64 -> "Adult"
+        else -> "Senior"
+    }
+    
+    println("Person: ${person.name} is $result")
+}
+
+fun fibonacci(n: Int): Int {
+    return when {
+        n <= 1 -> n
+        else -> fibonacci(n - 1) + fibonacci(n - 2)
+    }
+}

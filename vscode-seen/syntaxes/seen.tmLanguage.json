@@ -1,0 +1,314 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Seen",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#reactive"
+    },
+    {
+      "include": "#annotations"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.seen",
+          "match": "\\b(if|else|when|for|while|do|break|continue|return|yield)\\b"
+        },
+        {
+          "name": "keyword.declaration.seen",
+          "match": "\\b(fun|val|var|class|interface|object|trait|sealed|data|enum|type|alias|struct)\\b"
+        },
+        {
+          "name": "keyword.modifier.seen",
+          "match": "\\b(public|private|protected|internal|abstract|final|override|open|inline|suspend|reified|tailrec|operator|infix|external|const|lateinit|mut)\\b"
+        },
+        {
+          "name": "keyword.import.seen",
+          "match": "\\b(import|export|module|package|use)\\b"
+        },
+        {
+          "name": "keyword.other.seen",
+          "match": "\\b(as|is|in|out|where|by|constructor|init|companion|crossinline|noinline|vararg|dynamic|match|loop)\\b"
+        },
+        {
+          "name": "constant.language.seen",
+          "match": "\\b(true|false|null|undefined)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.seen",
+          "match": "\\b(bool|i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|f32|f64|char|string|str|unit|never|any|void)\\b"
+        },
+        {
+          "name": "support.type.collection.seen",
+          "match": "\\b(Array|List|Vec|Map|HashMap|Set|HashSet|Option|Result|Box|Rc|Arc)\\b"
+        },
+        {
+          "name": "support.type.nullable.seen",
+          "match": "\\b(\\w+)\\?",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.seen"
+            }
+          }
+        },
+        {
+          "name": "entity.name.type.seen",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "meta.function.seen",
+          "match": "\\b(fun)\\s+(\\w+)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.function.seen"
+            },
+            "2": {
+              "name": "entity.name.function.seen"
+            }
+          }
+        },
+        {
+          "name": "meta.extension.function.seen",
+          "match": "\\b(fun)\\s+(\\w+)\\.(\\w+)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.function.seen"
+            },
+            "2": {
+              "name": "entity.name.type.seen"
+            },
+            "3": {
+              "name": "entity.name.function.extension.seen"
+            }
+          }
+        },
+        {
+          "name": "support.function.builtin.seen",
+          "match": "\\b(print|println|debug|assert|panic|todo|unimplemented|require|check|error)\\b"
+        }
+      ]
+    },
+    "reactive": {
+      "patterns": [
+        {
+          "name": "support.type.reactive.seen",
+          "match": "\\b(Observable|Flow|Subject|BehaviorSubject|ReplaySubject|AsyncSubject|Scheduler|Channel|Actor)\\b"
+        },
+        {
+          "name": "support.function.reactive.seen",
+          "match": "\\b(map|filter|flatMap|merge|zip|combineLatest|debounce|throttle|take|skip|scan|reduce|buffer|window|delay|timeout|retry|catch|tap|share|publish|refCount|distinctUntilChanged|startWith|switchMap|concatMap|exhaustMap)\\b"
+        },
+        {
+          "name": "keyword.control.reactive.seen",
+          "match": "\\b(emit|collect|launch|async|await|flow|observable)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.seen",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.seen",
+              "match": "\\\\[\\\\\"nrt$]"
+            },
+            {
+              "name": "meta.template.expression.seen",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "include": "$self"
+                }
+              ]
+            },
+            {
+              "name": "variable.other.template.simple.seen",
+              "match": "\\$\\w+"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.seen",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.seen",
+              "match": "\\\\[\\\\']"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.seen",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "name": "meta.template.expression.seen",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "include": "$self"
+                }
+              ]
+            },
+            {
+              "name": "variable.other.template.simple.seen",
+              "match": "\\$\\w+"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.seen",
+          "match": "0[xX][0-9a-fA-F][0-9a-fA-F_]*[lLuU]?"
+        },
+        {
+          "name": "constant.numeric.binary.seen",
+          "match": "0[bB][01][01_]*[lLuU]?"
+        },
+        {
+          "name": "constant.numeric.octal.seen",
+          "match": "0[oO][0-7][0-7_]*[lLuU]?"
+        },
+        {
+          "name": "constant.numeric.float.seen",
+          "match": "[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?[fFdD]?"
+        },
+        {
+          "name": "constant.numeric.integer.seen",
+          "match": "[0-9][0-9_]*[lLuU]?"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.seen",
+          "begin": "//",
+          "end": "$",
+          "patterns": [
+            {
+              "name": "meta.tag.todo.seen",
+              "match": "\\b(TODO|FIXME|NOTE|HACK|WARNING)\\b"
+            }
+          ]
+        },
+        {
+          "name": "comment.block.seen",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [
+            {
+              "name": "meta.tag.todo.seen",
+              "match": "\\b(TODO|FIXME|NOTE|HACK|WARNING)\\b"
+            }
+          ]
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "name": "storage.type.annotation.seen",
+          "match": "@(benchmark|test|inline|tailrec|reactive|suspend|throws|override|deprecated|experimental|jvmstatic|jvmfield|jvmoverloads|jvmname|jvmsynthetic|volatile|transient|strictfp|synchronized|suppress)"
+        },
+        {
+          "name": "meta.annotation.seen",
+          "begin": "@(\\w+)\\s*\\(",
+          "end": "\\)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.annotation.seen"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.seen",
+          "match": "(\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|=)"
+        },
+        {
+          "name": "keyword.operator.comparison.seen",
+          "match": "(==|!=|<|<=|>|>=|===|!==)"
+        },
+        {
+          "name": "keyword.operator.logical.seen",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.bitwise.seen",
+          "match": "(&|\\||\\^|~|<<|>>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.seen",
+          "match": "(\\+|-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.range.seen",
+          "match": "(\\.\\.|\\.\\.=|\\.\\.<)"
+        },
+        {
+          "name": "keyword.operator.elvis.seen",
+          "match": "\\?:"
+        },
+        {
+          "name": "keyword.operator.safe-call.seen",
+          "match": "\\?\\."
+        },
+        {
+          "name": "keyword.operator.arrow.seen",
+          "match": "->"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.seen"
+}
