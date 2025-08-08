@@ -13,6 +13,7 @@ pub struct PrecisionTimer {
     start_cycles: Option<u64>,
     paused_duration: Duration,
     is_paused: bool,
+    pause_start: Option<Instant>,
 }
 
 impl PrecisionTimer {
@@ -23,6 +24,7 @@ impl PrecisionTimer {
             start_cycles: None,
             paused_duration: Duration::from_nanos(0),
             is_paused: false,
+            pause_start: None,
         }
     }
     
@@ -44,25 +46,35 @@ impl PrecisionTimer {
     pub fn pause(&mut self) {
         if !self.is_paused && self.start_time.is_some() {
             self.is_paused = true;
+            self.pause_start = Some(Instant::now());
         }
     }
     
     /// Resume the timer
     pub fn resume(&mut self) {
         if self.is_paused {
+            if let Some(pause_start) = self.pause_start {
+                self.paused_duration += pause_start.elapsed();
+            }
             self.is_paused = false;
+            self.pause_start = None;
         }
     }
     
     /// Get elapsed time since start (excluding paused periods)
     pub fn elapsed(&self) -> Duration {
         if let Some(start) = self.start_time {
+            let total_elapsed = start.elapsed();
+            let mut paused = self.paused_duration;
+            
+            // If currently paused, add the current pause time
             if self.is_paused {
-                // When paused, don't include current time
-                Duration::from_nanos(0)
-            } else {
-                start.elapsed() - self.paused_duration
+                if let Some(pause_start) = self.pause_start {
+                    paused += pause_start.elapsed();
+                }
             }
+            
+            total_elapsed.saturating_sub(paused)
         } else {
             Duration::from_nanos(0)
         }

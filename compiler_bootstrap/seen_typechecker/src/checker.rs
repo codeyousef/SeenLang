@@ -3,7 +3,7 @@
 use crate::types::*;
 use crate::inference::InferenceEngine;
 use seen_common::{SeenResult, SeenError, Diagnostics};
-use seen_parser::{Program, Stmt, StmtKind, Expr, ExprKind, Literal, LiteralKind, BinaryOp, PatternKind};
+use seen_parser::{Program, Stmt, StmtKind, Expr, ExprKind, Literal, LiteralKind, BinaryOp, UnaryOp, PatternKind};
 
 /// Type checker
 pub struct TypeChecker {
@@ -87,6 +87,14 @@ impl TypeChecker {
                         // For generic functions, create a polymorphic function type
                         // We'll defer actual type parameter resolution to Pass 2
                         
+                        // Collect bounds separately to avoid closure escape
+                        let mut all_bounds = Vec::new();
+                        for tp in &func.type_params {
+                            for bound in &tp.bounds {
+                                all_bounds.push(self.ast_type_to_type(bound).unwrap_or(Type::Unknown));
+                            }
+                        }
+                        
                         // Create generic function type without resolving type parameters yet
                         let func_type = Type::Generic {
                             name: format!("{}::<{}>", 
@@ -96,7 +104,7 @@ impl TypeChecker {
                                     .collect::<Vec<_>>()
                                     .join(", ")
                             ),
-                            bounds: Vec::new(), // TODO: Handle type bounds
+                            bounds: all_bounds,
                         };
                         
                         // Store the generic function type
@@ -574,7 +582,7 @@ impl TypeChecker {
                 // Unify operand types for most binary operations
                 match op {
                     BinaryOp::Add | BinaryOp::Sub |
-                    BinaryOp::Mul | BinaryOp::Div => {
+                    BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => {
                         // For string concatenation, allow str + str
                         if matches!(left_type, Type::Primitive(PrimitiveType::Str)) &&
                            matches!(right_type, Type::Primitive(PrimitiveType::Str)) &&
@@ -609,6 +617,7 @@ impl TypeChecker {
                         }
                     }
                     BinaryOp::And | BinaryOp::Or => {
+                        // Logical operators require boolean operands and return bool
                         let bool_type = Type::Primitive(PrimitiveType::Bool);
                         if !matches!(left_type, Type::Primitive(PrimitiveType::Bool)) {
                             self.diagnostics.error(
@@ -624,9 +633,27 @@ impl TypeChecker {
                         }
                         Ok(Type::Primitive(PrimitiveType::Bool))
                     }
-                    _ => {
-                        // Other binary operators - return fresh type variable for now
-                        Ok(Type::Variable(self.inference.fresh_type_var()))
+                    BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
+                        // Bitwise operators work on integers
+                        self.unify(&left_type, &right_type)?;
+                        // Check that operands are integral types
+                        match &left_type {
+                            Type::Primitive(PrimitiveType::I32) |
+                            Type::Primitive(PrimitiveType::I64) |
+                            Type::Primitive(PrimitiveType::U32) |
+                            Type::Primitive(PrimitiveType::U64) => Ok(left_type),
+                            _ => {
+                                self.diagnostics.error(
+                                    "Bitwise operators require integer operands",
+                                    expr.span
+                                );
+                                Ok(Type::Unknown)
+                            }
+                        }
+                    }
+                    BinaryOp::Is | BinaryOp::NotIs => {
+                        // Type checking operators always return bool
+                        Ok(Type::Primitive(PrimitiveType::Bool))
                     }
                 }
             }
@@ -816,16 +843,161 @@ impl TypeChecker {
                         if !self.types_compatible(&unit_type, expected_type) {
                             self.diagnostics.error(
                                 &format!("Return type mismatch: expected {:?}, found unit", expected_type),
-                                seen_common::Span::default() // TODO: get proper span
+                                expr.span
                             );
                         }
                     }
                     Ok(Type::Primitive(PrimitiveType::Unit))
                 }
             }
+            ExprKind::Unary { op, operand } => {
+                let operand_type = self.infer_expression_type(operand)?;
+                match op {
+                    UnaryOp::Not => {
+                        self.unify(&operand_type, &Type::Primitive(PrimitiveType::Bool))?;
+                        Ok(Type::Primitive(PrimitiveType::Bool))
+                    }
+                    UnaryOp::Neg => {
+                        // Negation works on numeric types
+                        match &operand_type {
+                            Type::Primitive(PrimitiveType::I32) |
+                            Type::Primitive(PrimitiveType::I64) |
+                            Type::Primitive(PrimitiveType::F32) |
+                            Type::Primitive(PrimitiveType::F64) => Ok(operand_type),
+                            _ => {
+                                self.diagnostics.error(
+                                    "Negation requires numeric operand",
+                                    expr.span
+                                );
+                                Ok(Type::Unknown)
+                            }
+                        }
+                    }
+                    UnaryOp::BitNot => {
+                        // Bitwise not works on integers
+                        match &operand_type {
+                            Type::Primitive(PrimitiveType::I32) |
+                            Type::Primitive(PrimitiveType::I64) |
+                            Type::Primitive(PrimitiveType::U32) |
+                            Type::Primitive(PrimitiveType::U64) => Ok(operand_type),
+                            _ => {
+                                self.diagnostics.error(
+                                    "Bitwise not requires integer operand",
+                                    expr.span
+                                );
+                                Ok(Type::Unknown)
+                            }
+                        }
+                    }
+                    UnaryOp::Deref => {
+                        // Dereference operator - expects a reference type
+                        match &operand_type {
+                            Type::Reference { inner, .. } => Ok((**inner).clone()),
+                            _ => {
+                                self.diagnostics.error(
+                                    "Cannot dereference non-reference type",
+                                    expr.span
+                                );
+                                Ok(Type::Unknown)
+                            }
+                        }
+                    }
+                    UnaryOp::Ref => {
+                        // Reference operator - creates an immutable reference
+                        Ok(Type::Reference {
+                            inner: Box::new(operand_type),
+                            mutable: false,
+                        })
+                    }
+                    UnaryOp::RefMut => {
+                        // Mutable reference operator
+                        Ok(Type::Reference {
+                            inner: Box::new(operand_type),
+                            mutable: true,
+                        })
+                    }
+                }
+            }
+            ExprKind::Tuple(elements) => {
+                let element_types: Vec<Type> = elements
+                    .iter()
+                    .map(|e| self.infer_expression_type(e))
+                    .collect::<Result<_, _>>()?;
+                Ok(Type::Tuple(element_types))
+            }
+            ExprKind::Cast { expr: cast_expr, ty } => {
+                // Type cast - verify the cast is valid
+                let expr_type = self.infer_expression_type(cast_expr)?;
+                let target_type = self.ast_type_to_type(ty)?;
+                // Basic cast validity check
+                match (&expr_type, &target_type) {
+                    (Type::Primitive(_), Type::Primitive(_)) => Ok(target_type),
+                    _ => {
+                        self.diagnostics.warning(
+                            &format!("Cast from {:?} to {:?} may be unsafe", expr_type, target_type),
+                            expr.span
+                        );
+                        Ok(target_type)
+                    }
+                }
+            }
+            ExprKind::Range { start, end, .. } => {
+                // Range expressions produce Range<T> types
+                let element_type = if let Some(start) = start {
+                    self.infer_expression_type(start)?
+                } else if let Some(end) = end {
+                    self.infer_expression_type(end)?
+                } else {
+                    Type::Primitive(PrimitiveType::I32) // Default to i32 for open ranges
+                };
+                Ok(Type::Named {
+                    name: "Range".to_string(),
+                    args: vec![element_type],
+                })
+            }
+            ExprKind::Assign { target, value } => {
+                let target_type = self.infer_expression_type(target)?;
+                let value_type = self.infer_expression_type(value)?;
+                self.unify(&target_type, &value_type)?;
+                Ok(Type::Primitive(PrimitiveType::Unit))
+            }
+            ExprKind::AssignOp { target, value, .. } => {
+                let target_type = self.infer_expression_type(target)?;
+                let value_type = self.infer_expression_type(value)?;
+                self.unify(&target_type, &value_type)?;
+                Ok(Type::Primitive(PrimitiveType::Unit))
+            }
+            ExprKind::Break(_) | ExprKind::Continue => {
+                Ok(Type::Primitive(PrimitiveType::Unit))
+            }
+            ExprKind::While { body, .. } | ExprKind::For { body, .. } => {
+                // Loops return unit unless they break with a value
+                self.check_block(body)?;
+                Ok(Type::Primitive(PrimitiveType::Unit))
+            }
+            ExprKind::GenericInstantiation { base, args } => {
+                // Handle generic type instantiation
+                let base_type = self.infer_expression_type(base)?;
+                let type_args: Vec<Type> = args
+                    .iter()
+                    .map(|t| self.ast_type_to_type(t))
+                    .collect::<Result<_, _>>()?;
+                
+                match base_type {
+                    Type::Named { name, .. } => Ok(Type::Named { name, args: type_args }),
+                    _ => {
+                        self.diagnostics.error(
+                            "Generic instantiation requires a named type",
+                            expr.span
+                        );
+                        Ok(Type::Unknown)
+                    }
+                }
+            }
             _ => {
-                // Other expression types - return a fresh type variable for now
-                Ok(Type::Variable(self.inference.fresh_type_var()))
+                // Remaining complex expressions (Match, etc.) 
+                // Return Unknown for completeness - these would need full implementation
+                Ok(Type::Unknown)
             }
         }
     }
@@ -871,8 +1043,15 @@ impl TypeChecker {
             }
             (Type::Error, _) | (_, Type::Error) => true, // Error type is compatible with everything
             
-            // Variable types are compatible for now (would need proper unification)
-            (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
+            // Variable types need proper unification
+            (Type::Variable(v1), Type::Variable(v2)) => {
+                // Two type variables are compatible if they can be unified
+                self.inference.can_unify_vars(*v1, *v2)
+            }
+            (Type::Variable(v), t) | (t, Type::Variable(v)) => {
+                // A type variable is compatible with a concrete type if it can be instantiated to that type
+                self.inference.can_instantiate(*v, t)
+            }
             
             // Function types
             (Type::Function { params: p1, return_type: r1 }, 
@@ -888,8 +1067,12 @@ impl TypeChecker {
                 s1 == s2 && self.types_compatible(e1, e2)
             }
             
-            // Named types - for now just check names match
-            (Type::Named { name: n1, .. }, Type::Named { name: n2, .. }) => n1 == n2,
+            // Named types - check names and type arguments match
+            (Type::Named { name: n1, args: a1 }, Type::Named { name: n2, args: a2 }) => {
+                n1 == n2 && 
+                a1.len() == a2.len() &&
+                a1.iter().zip(a2.iter()).all(|(t1, t2)| self.types_compatible(t1, t2))
+            }
             
             // Default: not compatible
             _ => false,
@@ -972,6 +1155,94 @@ impl TypeChecker {
         self.env.insert_function(data_class.name.value.to_string(), constructor_type);
 
         Ok(())
+    }
+    
+    /// Unify two types
+    pub fn unify(&mut self, t1: &Type, t2: &Type) -> SeenResult<Type> {
+        self.inference.unify(t1, t2)?;
+        Ok(t1.clone())
+    }
+    
+    /// Convert AST type to type system type
+    pub fn ast_type_to_type(&mut self, ty: &seen_parser::Type) -> SeenResult<Type> {
+        use seen_parser::TypeKind;
+        
+        match &*ty.kind {
+            TypeKind::Primitive(prim) => {
+                use seen_parser::PrimitiveType as PT;
+                let prim_type = match prim {
+                    PT::I8 => PrimitiveType::I8,
+                    PT::I16 => PrimitiveType::I16,
+                    PT::I32 => PrimitiveType::I32,
+                    PT::I64 => PrimitiveType::I64,
+                    PT::I128 => PrimitiveType::I128,
+                    PT::U8 => PrimitiveType::U8,
+                    PT::U16 => PrimitiveType::U16,
+                    PT::U32 => PrimitiveType::U32,
+                    PT::U64 => PrimitiveType::U64,
+                    PT::U128 => PrimitiveType::U128,
+                    PT::F32 => PrimitiveType::F32,
+                    PT::F64 => PrimitiveType::F64,
+                    PT::Bool => PrimitiveType::Bool,
+                    PT::Char => PrimitiveType::Char,
+                    PT::Str => PrimitiveType::Str,
+                    PT::Unit => PrimitiveType::Unit,
+                };
+                Ok(Type::Primitive(prim_type))
+            }
+            TypeKind::Named { path, generic_args } => {
+                // Simple path resolution - just use the first segment
+                if let Some(segment) = path.segments.first() {
+                    let generic_type_args = generic_args.iter()
+                        .map(|arg| self.ast_type_to_type(arg))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(Type::Named {
+                        name: segment.name.value.to_string(),
+                        args: generic_type_args,
+                    })
+                } else {
+                    Ok(Type::Unknown)
+                }
+            }
+            TypeKind::Array { element_type, size: _ } => {
+                let elem_ty = self.ast_type_to_type(element_type)?;
+                Ok(Type::Array {
+                    element_type: Box::new(elem_ty),
+                    size: None, // Ignore size for now
+                })
+            }
+            TypeKind::Tuple(types) => {
+                let tuple_types = types.iter()
+                    .map(|t| self.ast_type_to_type(t))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Type::Tuple(tuple_types))
+            }
+            TypeKind::Function { params, return_type } => {
+                let param_types = params.iter()
+                    .map(|t| self.ast_type_to_type(t))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ret_ty = self.ast_type_to_type(return_type)?;
+                Ok(Type::Function {
+                    params: param_types,
+                    return_type: Box::new(ret_ty),
+                })
+            }
+            TypeKind::Reference { inner, is_mutable } => {
+                let inner_ty = self.ast_type_to_type(inner)?;
+                Ok(Type::Reference {
+                    inner: Box::new(inner_ty),
+                    mutable: *is_mutable,
+                })
+            }
+            TypeKind::Nullable(inner) => {
+                // Treat nullable types as the inner type for now
+                self.ast_type_to_type(inner)
+            }
+            TypeKind::Infer => {
+                // Create a fresh type variable for inference
+                Ok(Type::Variable(self.inference.fresh_type_var()))
+            }
+        }
     }
 }
 

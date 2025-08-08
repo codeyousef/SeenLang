@@ -10,6 +10,7 @@ pub struct CodeGenerator {
     calling_convention: String,
     target_triple: String,
     optimization_level: u32,
+    string_constants: std::collections::HashMap<String, usize>,
 }
 
 impl CodeGenerator {
@@ -20,6 +21,7 @@ impl CodeGenerator {
             calling_convention: "fastcc".to_string(),
             target_triple: "x86_64-unknown-linux-gnu".to_string(),
             optimization_level: 2,
+            string_constants: std::collections::HashMap::new(),
         }
     }
     
@@ -77,7 +79,7 @@ impl CodeGenerator {
     }
     
     /// Generate LLVM IR for a function
-    fn generate_function_ir(&self, function: &Function) -> SeenResult<String> {
+    fn generate_function_ir(&mut self, function: &Function) -> SeenResult<String> {
         // Pre-allocate with estimated size
         let estimated_size = function.blocks.iter()
             .map(|b| b.instructions.len() * 50)
@@ -129,7 +131,7 @@ impl CodeGenerator {
     }
     
     /// Generate LLVM IR for a basic block
-    fn generate_basic_block_ir(&self, block: &BasicBlock) -> SeenResult<String> {
+    fn generate_basic_block_ir(&mut self, block: &BasicBlock) -> SeenResult<String> {
         let mut ir = String::with_capacity(block.instructions.len() * 50 + 50);
         use std::fmt::Write;
         
@@ -147,7 +149,7 @@ impl CodeGenerator {
     }
     
     /// Generate LLVM IR for an instruction
-    fn generate_instruction_ir(&self, instruction: &Instruction) -> SeenResult<String> {
+    fn generate_instruction_ir(&mut self, instruction: &Instruction) -> SeenResult<String> {
         use std::fmt::Write;
         let mut ir = String::with_capacity(80);
         
@@ -236,15 +238,18 @@ impl CodeGenerator {
     }
     
     /// Format a value for LLVM IR
-    fn format_value(&self, value: &crate::Value) -> String {
+    fn format_value(&mut self, value: &crate::Value) -> String {
         match value {
             crate::Value::Register(reg) => format!("%{}", reg),
             crate::Value::Integer(val) => val.to_string(),
             crate::Value::Float(val) => format!("{:.6}", val),
             crate::Value::Boolean(val) => if *val { "1" } else { "0" }.to_string(),
-            crate::Value::String(_) => {
-                // Strings need special handling, for now just use a placeholder
-                "@.str".to_string()
+            crate::Value::String(s) => {
+                // Generate a string constant reference
+                // Strings are stored as global constants
+                let str_id = self.string_constants.len();
+                self.string_constants.insert(s.clone(), str_id);
+                format!("@.str.{}", str_id)
             }
         }
     }

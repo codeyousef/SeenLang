@@ -322,8 +322,8 @@ fn compact_json(value: serde_json::Value) -> serde_json::Value {
 }
 
 fn compact_field_name(name: &str) -> String {
-    // Don't compact field names - it breaks deserialization
-    // CompactJson just removes null values for now
+    // Field names are preserved as-is to maintain compatibility
+    // The CompactJson format focuses on removing null values and whitespace
     name.to_string()
 }
 

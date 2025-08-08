@@ -176,6 +176,8 @@ pub mod assertions {
 pub struct TestRunner {
     config: TestConfig,
     tests: Vec<(TestInfo, fn() -> TestResult)>,
+    filtered_count: usize,
+    failure_details: Vec<(std::string::String, std::string::String)>,
 }
 
 impl TestRunner {
@@ -183,6 +185,8 @@ impl TestRunner {
         Self {
             config,
             tests: Vec::new(),
+            filtered_count: 0,
+            failure_details: Vec::new(),
         }
     }
     
@@ -192,13 +196,16 @@ impl TestRunner {
     }
     
     /// Run all registered tests
-    pub fn run_tests(&self) -> TestStats {
+    pub fn run_tests(&mut self) -> TestStats {
         let mut stats = TestStats::new();
         
         // Filter tests if needed
         let filtered_tests: Vec<_> = self.tests.iter()
             .filter(|(info, _)| self.should_run_test(info))
             .collect();
+        
+        // Track how many tests were filtered out
+        self.filtered_count = self.tests.len() - filtered_tests.len();
         
         if self.config.list_only {
             for (info, _) in &filtered_tests {
@@ -241,6 +248,8 @@ impl TestRunner {
                     TestResult::Passed => println!("test {} ... ok", info.name),
                     TestResult::Failed(msg) => {
                         println!("test {} ... FAILED", info.name);
+                        // Track failure details for later display
+                        self.failure_details.push((info.name.to_string(), msg.to_string()));
                         if self.config.show_output {
                             println!("  {}", msg);
                         }
@@ -283,13 +292,15 @@ impl TestRunner {
             stats.passed,
             stats.failed,
             stats.ignored,
-            0, // TODO: track filtered count
+            self.filtered_count,
             stats.total_duration_ns as f64 / 1_000_000_000.0
         );
         
         if stats.failed > 0 {
             println!("\nfailures:");
-            // TODO: collect and display failure details
+            for (test_name, failure_msg) in &self.failure_details {
+                println!("    {}: {}", test_name, failure_msg);
+            }
         }
     }
 }

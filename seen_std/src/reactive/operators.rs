@@ -61,13 +61,54 @@ impl<T: 'static + Send + Sync> Observable<T> {
         })
     }
 
-    /// Merge this Observable with another (TODO: implement properly)
-    pub fn merge(self, _other: Observable<T>) -> Observable<T>
+    /// Merge this Observable with another, emitting values from both
+    pub fn merge(self, other: Observable<T>) -> Observable<T>
     where
-        T: Clone,
+        T: Clone + Send + Sync + 'static,
     {
-        // Simplified implementation - just return self for now
-        self
+        use std::sync::{Arc, Mutex};
+        use crate::reactive::{Observer, ReactiveError};
+        use crate::reactive::subscription::Subscription;
+        
+        // Create a shared observer that will forward values from both sources
+        Observable::new(move |observer| {
+            let shared_observer = Arc::new(Mutex::new(observer));
+            
+            // Create wrapper observers for each source
+            struct MergeObserver<T> {
+                target: Arc<Mutex<Box<dyn Observer<T> + Send + Sync>>>,
+            }
+            
+            impl<T: Clone> Observer<T> for MergeObserver<T> {
+                fn on_next(&mut self, value: T) {
+                    if let Ok(mut target) = self.target.lock() {
+                        target.on_next(value);
+                    }
+                }
+                
+                fn on_error(&mut self, error: ReactiveError) {
+                    if let Ok(mut target) = self.target.lock() {
+                        target.on_error(error);
+                    }
+                }
+                
+                fn on_completed(&mut self) {
+                    if let Ok(mut target) = self.target.lock() {
+                        target.on_completed();
+                    }
+                }
+            }
+            
+            let observer1 = MergeObserver { target: shared_observer.clone() };
+            let observer2 = MergeObserver { target: shared_observer };
+            
+            // Subscribe to both observables - subscribe expects impl Observer
+            let sub1 = self.subscribe(observer1);
+            let sub2 = other.subscribe(observer2);
+            
+            // Create a composite subscription
+            Subscription::composite(vec![sub1, sub2])
+        })
     }
 
     /// Emit values only after a specified time has passed without another emission

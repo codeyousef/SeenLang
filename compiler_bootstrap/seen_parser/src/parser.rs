@@ -280,7 +280,7 @@ impl Parser {
             let span = self.current_span();
             
             // Check for 'reified' modifier
-            let _is_reified = self.match_token(&TokenType::KeywordReified);
+            let is_reified = self.match_token(&TokenType::KeywordReified);
             
             let name = self.expect_identifier_value()?;
             let name_span = self.previous_span();
@@ -310,10 +310,9 @@ impl Parser {
                 name: seen_common::Spanned::new(name.leak(), name_span),
                 bounds,
                 default_type,
+                is_reified,
                 span,
             };
-            
-            // TODO: Add is_reified field to TypeParam to track reified status
             
             params.push(param);
             
@@ -367,6 +366,7 @@ impl Parser {
                     name: seen_common::Spanned::new(param_name_static, param_name_span),
                     bounds,
                     default_type,
+                    is_reified: false,  // Default to non-reified for generic function type params
                     span: param_start_span.combine(self.previous_span()),
                 });
                 
@@ -2926,17 +2926,30 @@ impl Parser {
                 
                 self.expect_token(TokenType::RightParen)?;
                 
-                // Skip inheritance part for now
-                if self.match_token(&TokenType::Colon) {
-                    // Skip the parent class reference
-                    self.parse_type()?;
-                    self.expect_token(TokenType::LeftParen)?;
-                    self.expect_token(TokenType::RightParen)?;
-                }
+                // Parse inheritance
+                let parent = if self.match_token(&TokenType::Colon) {
+                    let parent_type = self.parse_type()?;
+                    // Parse parent constructor call if present
+                    if self.check(&TokenType::LeftParen) {
+                        self.expect_token(TokenType::LeftParen)?;
+                        // Parse constructor arguments if needed
+                        while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+                            self.parse_expression()?;
+                            if !self.match_token(&TokenType::Comma) {
+                                break;
+                            }
+                        }
+                        self.expect_token(TokenType::RightParen)?;
+                    }
+                    Some(parent_type)
+                } else {
+                    None
+                };
                 
                 variants.push(SealedClassVariant {
                     name: seen_common::Spanned::new(variant_name.leak(), variant_span),
                     fields,
+                    parent,
                     span: variant_span,
                 });
             } else if self.match_token(&TokenType::KeywordObject) {
@@ -2944,21 +2957,49 @@ impl Parser {
                 let variant_name = self.expect_identifier_value()?;
                 let variant_span = self.previous_span();
                 
-                // Skip inheritance
-                if self.match_token(&TokenType::Colon) {
-                    self.parse_type()?;
-                    self.expect_token(TokenType::LeftParen)?;
-                    self.expect_token(TokenType::RightParen)?;
-                }
+                // Parse inheritance
+                let parent = if self.match_token(&TokenType::Colon) {
+                    let parent_type = self.parse_type()?;
+                    if self.check(&TokenType::LeftParen) {
+                        self.expect_token(TokenType::LeftParen)?;
+                        while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+                            self.parse_expression()?;
+                            if !self.match_token(&TokenType::Comma) {
+                                break;
+                            }
+                        }
+                        self.expect_token(TokenType::RightParen)?;
+                    }
+                    Some(parent_type)
+                } else {
+                    None
+                };
                 
                 variants.push(SealedClassVariant {
                     name: seen_common::Spanned::new(variant_name.leak(), variant_span),
                     fields: Vec::new(),
+                    parent,
                     span: variant_span,
                 });
             } else if self.match_token(&TokenType::KeywordSealed) {
-                // Nested sealed class - skip it for now
-                self.skip_nested_block()?;
+                // Nested sealed class
+                if self.match_token(&TokenType::KeywordClass) {
+                    let nested_name = self.expect_identifier_value()?;
+                    let nested_span = self.previous_span();
+                    
+                    // For nested sealed classes, treat as a variant
+                    // Skip the body if present
+                    if self.check(&TokenType::LeftBrace) {
+                        self.skip_nested_block();
+                    }
+                    
+                    variants.push(SealedClassVariant {
+                        name: seen_common::Spanned::new(nested_name.leak(), nested_span),
+                        fields: Vec::new(),
+                        parent: None,
+                        span: nested_span,
+                    });
+                }
             } else {
                 // Skip unknown items - try to skip to next line or semicolon
                 let prev_pos = self.current;

@@ -88,8 +88,8 @@ fn debug_parser_detailed() {
         }
     }
     
-    // Expected: 2 func, 1 struct, 1 enum = 4 total items
-    assert_eq!(func_positions.len(), 2, "Should find 2 func keywords");
+    // Expected: 2 fun, 1 struct, 1 enum = 4 total items
+    assert_eq!(func_positions.len(), 2, "Should find 2 fun keywords");
     assert_eq!(struct_positions.len(), 1, "Should find 1 struct keyword");  
     assert_eq!(enum_positions.len(), 1, "Should find 1 enum keyword");
     assert_eq!(ast.items.len(), 4, "Should parse 4 items");

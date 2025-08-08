@@ -219,6 +219,79 @@ impl LanguageConfig {
     pub fn is_operator(&self, op: &str) -> bool {
         self.operators.contains_key(op)
     }
+    
+    /// Get the keyword string for a given token type
+    pub fn token_to_keyword(&self, token_type: &TokenType) -> Option<String> {
+        let token_name = match token_type {
+            TokenType::KeywordFun => "KeywordFun",
+            TokenType::KeywordIf => "KeywordIf",
+            TokenType::KeywordElse => "KeywordElse",
+            TokenType::KeywordWhile => "KeywordWhile",
+            TokenType::KeywordFor => "KeywordFor",
+            TokenType::KeywordIn => "KeywordIn",
+            TokenType::KeywordReturn => "KeywordReturn",
+            TokenType::KeywordLet => "KeywordLet",
+            TokenType::KeywordMut => "KeywordMut",
+            TokenType::KeywordVal => "KeywordVal",
+            TokenType::KeywordVar => "KeywordVar",
+            TokenType::KeywordTrue => "KeywordTrue",
+            TokenType::KeywordFalse => "KeywordFalse",
+            TokenType::KeywordStruct => "KeywordStruct",
+            TokenType::KeywordEnum => "KeywordEnum",
+            TokenType::KeywordImpl => "KeywordImpl",
+            TokenType::KeywordTrait => "KeywordTrait",
+            TokenType::KeywordImport => "KeywordImport",
+            TokenType::KeywordModule => "KeywordModule",
+            TokenType::KeywordPub => "KeywordPub",
+            TokenType::KeywordPriv => "KeywordPriv",
+            TokenType::KeywordStatic => "KeywordStatic",
+            TokenType::KeywordConst => "KeywordConst",
+            TokenType::KeywordType => "KeywordType",
+            TokenType::KeywordMatch => "KeywordMatch",
+            TokenType::KeywordBreak => "KeywordBreak",
+            TokenType::KeywordContinue => "KeywordContinue",
+            TokenType::KeywordIs => "KeywordIs",
+            TokenType::KeywordAs => "KeywordAs",
+            TokenType::KeywordSuspend => "KeywordSuspend",
+            TokenType::KeywordAwait => "KeywordAwait",
+            TokenType::KeywordLaunch => "KeywordLaunch",
+            TokenType::KeywordFlow => "KeywordFlow",
+            TokenType::KeywordTry => "KeywordTry",
+            TokenType::KeywordCatch => "KeywordCatch",
+            TokenType::KeywordFinally => "KeywordFinally",
+            TokenType::KeywordThrow => "KeywordThrow",
+            TokenType::KeywordClass => "KeywordClass",
+            TokenType::KeywordInline => "KeywordInline",
+            TokenType::KeywordReified => "KeywordReified",
+            TokenType::KeywordCrossinline => "KeywordCrossinline",
+            TokenType::KeywordNoinline => "KeywordNoinline",
+            TokenType::KeywordBy => "KeywordBy",
+            TokenType::KeywordData => "KeywordData",
+            TokenType::KeywordSealed => "KeywordSealed",
+            TokenType::KeywordObject => "KeywordObject",
+            TokenType::KeywordInterface => "KeywordInterface",
+            TokenType::KeywordOpen => "KeywordOpen",
+            TokenType::KeywordFinal => "KeywordFinal",
+            TokenType::KeywordAbstract => "KeywordAbstract",
+            TokenType::KeywordOverride => "KeywordOverride",
+            TokenType::KeywordLateinit => "KeywordLateinit",
+            TokenType::KeywordCompanion => "KeywordCompanion",
+            TokenType::KeywordOperator => "KeywordOperator",
+            TokenType::KeywordInfix => "KeywordInfix",
+            TokenType::KeywordTailrec => "KeywordTailrec",
+            TokenType::KeywordWhen => "KeywordWhen",
+            TokenType::KeywordNull => "KeywordNull",
+            _ => return None,
+        };
+        
+        // Find the keyword that maps to this token name
+        for (keyword, token) in &self.keywords {
+            if token == token_name {
+                return Some(keyword.clone());
+            }
+        }
+        None
+    }
 }
 
 /// Language registry that manages multiple language configurations

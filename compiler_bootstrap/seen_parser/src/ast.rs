@@ -86,6 +86,7 @@ pub struct TypeParam<'a> {
     pub name: Spanned<&'a str>,
     pub bounds: Vec<Type<'a>>,
     pub default_type: Option<Type<'a>>,
+    pub is_reified: bool,
     pub span: Span,
 }
 
@@ -734,6 +735,7 @@ pub struct SealedClass<'a> {
 pub struct SealedClassVariant<'a> {
     pub name: Spanned<&'a str>,
     pub fields: Vec<DataClassField<'a>>,
+    pub parent: Option<Type<'a>>,
     pub span: Span,
 }
 
@@ -883,9 +885,10 @@ impl<'a> fmt::Display for Type<'a> {
             },
             TypeKind::Array { element_type, size } => {
                 write!(f, "[{}]", element_type)?;
-                if let Some(_size) = size {
-                    // Size display is complex, skip for now
-                    write!(f, " /* size */")
+                if let Some(_size_expr) = size {
+                    // Size expression display would require implementing Display for Expr
+                    // For now, just indicate that there's a size expression
+                    write!(f, "; <size>")
                 } else {
                     Ok(())
                 }

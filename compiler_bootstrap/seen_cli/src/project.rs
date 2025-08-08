@@ -272,4 +272,19 @@ impl Project {
     pub fn config(&self) -> &ProjectConfig {
         &self.config
     }
+    
+    /// Get the project language
+    pub fn language(&self) -> &str {
+        &self.config.project.language
+    }
+    
+    /// Get the project dependencies
+    pub fn dependencies(&self) -> &std::collections::HashMap<String, String> {
+        &self.config.dependencies
+    }
+    
+    /// Get all source files in the project (alias for find_source_files)
+    pub fn source_files(&self) -> Vec<PathBuf> {
+        self.find_source_files().unwrap_or_default()
+    }
 }

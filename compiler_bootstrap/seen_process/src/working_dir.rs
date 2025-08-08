@@ -202,8 +202,29 @@ mod tests {
         wd.change(temp_path).expect("Failed to change directory");
         assert!(paths_equivalent(wd.get(), &temp_path.canonicalize().unwrap()));
         
-        // Reset to original
+        // On Windows, add a small delay to allow file handles to be released
+        #[cfg(windows)]
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
+        // Reset to original - on Windows, try multiple times if it fails due to file locks
+        #[cfg(windows)]
+        {
+            let mut attempts = 0;
+            loop {
+                match wd.reset() {
+                    Ok(_) => break,
+                    Err(e) if attempts < 5 && e.to_string().contains("being used by another process") => {
+                        attempts += 1;
+                        std::thread::sleep(std::time::Duration::from_millis(50 * attempts));
+                        continue;
+                    }
+                    Err(e) => panic!("Failed to reset directory after {} attempts: {}", attempts, e),
+                }
+            }
+        }
+        #[cfg(not(windows))]
         wd.reset().expect("Failed to reset directory");
+        
         assert!(paths_equivalent(wd.get(), &original));
     }
     
@@ -231,6 +252,10 @@ mod tests {
             let current = current_dir().expect("Failed to get current directory");
             assert!(paths_equivalent(&current, &temp_path.canonicalize().unwrap()));
         }
+        
+        // On Windows, add a small delay to allow file handles to be released
+        #[cfg(windows)]
+        std::thread::sleep(std::time::Duration::from_millis(100));
         
         // Should be restored after scope
         let restored = current_dir().expect("Failed to get current directory");

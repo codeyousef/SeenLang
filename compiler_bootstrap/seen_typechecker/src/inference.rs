@@ -187,6 +187,65 @@ impl InferenceEngine {
             _ => false,
         }
     }
+    
+    /// Check if two type variables can be unified
+    pub fn can_unify_vars(&self, v1: TypeVar, v2: TypeVar) -> bool {
+        // If either variable is bound, check if they can unify with their bound types
+        match (self.substitutions.get(&v1), self.substitutions.get(&v2)) {
+            (Some(t1), Some(t2)) => self.types_unifiable(t1, t2),
+            _ => true, // Unbound variables can always unify
+        }
+    }
+    
+    /// Check if a type variable can be instantiated to a given type
+    pub fn can_instantiate(&self, var: TypeVar, ty: &Type) -> bool {
+        if let Some(bound_type) = self.substitutions.get(&var) {
+            self.types_unifiable(bound_type, ty)
+        } else {
+            // Unbound variable can be instantiated to any type (modulo occurs check)
+            !self.occurs_check(var, ty)
+        }
+    }
+    
+    /// Check if two types are unifiable (without actually unifying them)
+    fn types_unifiable(&self, t1: &Type, t2: &Type) -> bool {
+        use Type::*;
+        
+        match (t1, t2) {
+            // Same types are unifiable
+            (t1, t2) if t1 == t2 => true,
+            
+            // Variables
+            (Variable(v), ty) | (ty, Variable(v)) => self.can_instantiate(*v, ty),
+            
+            // Function types
+            (Function { params: p1, return_type: r1 }, Function { params: p2, return_type: r2 }) => {
+                p1.len() == p2.len() &&
+                p1.iter().zip(p2.iter()).all(|(a, b)| self.types_unifiable(a, b)) &&
+                self.types_unifiable(r1, r2)
+            }
+            
+            // Arrays
+            (Array { element_type: e1, size: s1 }, Array { element_type: e2, size: s2 }) => {
+                s1 == s2 && self.types_unifiable(e1, e2)
+            }
+            
+            // Tuples
+            (Tuple(types1), Tuple(types2)) => {
+                types1.len() == types2.len() &&
+                types1.iter().zip(types2.iter()).all(|(t1, t2)| self.types_unifiable(t1, t2))
+            }
+            
+            // Named types
+            (Named { name: n1, args: a1 }, Named { name: n2, args: a2 }) => {
+                n1 == n2 && 
+                a1.len() == a2.len() &&
+                a1.iter().zip(a2.iter()).all(|(t1, t2)| self.types_unifiable(t1, t2))
+            }
+            
+            _ => false,
+        }
+    }
 }
 
 impl Default for InferenceEngine {

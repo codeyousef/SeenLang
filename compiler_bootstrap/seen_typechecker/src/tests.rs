@@ -193,10 +193,26 @@ mod tests {
 
     #[test]
     fn test_array_type_mismatch() {
-        // TODO: Array type checking not fully implemented yet
-        // This test is disabled until array literal type checking is complete
-        // The issue is that array literals [1, "two", 3] are not being properly
-        // type-checked for element consistency
+        // Test that arrays require consistent element types
+        let source = r#"
+            fun main() {
+                val mixed_array = [1, "two", 3]
+            }
+        "#;
+        
+        // This should fail because array elements have different types
+        let result = check_program(source);
+        assert!(result.is_err(), "Array with mixed types should fail type checking");
+        
+        // Test that homogeneous arrays work
+        let valid_source = r#"
+            fun main() {
+                val int_array = [1, 2, 3]
+                val string_array = ["one", "two", "three"]
+            }
+        "#;
+        
+        assert!(check_program(valid_source).is_ok(), "Homogeneous arrays should pass type checking");
     }
 
     #[test]

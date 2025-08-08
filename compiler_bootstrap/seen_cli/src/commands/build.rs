@@ -496,6 +496,43 @@ impl FunctionIRBuilder {
         reg
     }
     
+    fn convert_type(&self, ty: &seen_parser::Type) -> seen_ir::Type {
+        use seen_parser::TypeKind;
+        match &*ty.kind {
+            TypeKind::Primitive(prim) => {
+                match prim {
+                    seen_parser::PrimitiveType::I32 => seen_ir::Type::I32,
+                    seen_parser::PrimitiveType::I64 => seen_ir::Type::I64,
+                    seen_parser::PrimitiveType::F32 => seen_ir::Type::F32,
+                    seen_parser::PrimitiveType::F64 => seen_ir::Type::F64,
+                    seen_parser::PrimitiveType::Bool => seen_ir::Type::Bool,
+                    seen_parser::PrimitiveType::Unit => seen_ir::Type::Void,
+                    _ => seen_ir::Type::I32, // Default for other primitives
+                }
+            }
+            TypeKind::Named { path, .. } => {
+                // Convert named type to IR type
+                if let Some(segment) = path.segments.first() {
+                    match segment.name.value {
+                        "i32" | "Int" => seen_ir::Type::I32,
+                        "i64" | "Long" => seen_ir::Type::I64,
+                        "f32" | "Float" => seen_ir::Type::F32,
+                        "f64" | "Double" => seen_ir::Type::F64,
+                        "bool" | "Bool" => seen_ir::Type::Bool,
+                        "void" | "Unit" => seen_ir::Type::Void,
+                        _ => seen_ir::Type::I32, // Default for unknown types
+                    }
+                } else {
+                    seen_ir::Type::I32 // Default for complex paths
+                }
+            }
+            TypeKind::Reference { .. } => seen_ir::Type::Ptr(Box::new(seen_ir::Type::I32)),
+            TypeKind::Array { .. } => seen_ir::Type::Ptr(Box::new(seen_ir::Type::I32)), // Arrays are represented as pointers
+            TypeKind::Tuple(_) => seen_ir::Type::I32, // Simplified tuple representation
+            _ => seen_ir::Type::I32, // Default for other types
+        }
+    }
+    
     fn alloc_label(&mut self) -> String {
         let label = format!("L{}", self.next_label);
         self.next_label += 1;
@@ -573,10 +610,23 @@ impl FunctionIRBuilder {
                     if let Some(init_expr) = &let_stmt.initializer {
                         let value = self.convert_expression(init_expr);
                         
-                        // For now, we'll use an alloca instruction for local variables
+                        // Determine the type from the type annotation or infer from initializer
+                        let ty = if let Some(type_annotation) = &let_stmt.ty {
+                            self.convert_type(type_annotation)
+                        } else {
+                            // Infer type from initializer value
+                            match &value {
+                                seen_ir::Value::Integer(_) => seen_ir::Type::I32,
+                                seen_ir::Value::Float(_) => seen_ir::Type::F64,
+                                seen_ir::Value::Boolean(_) => seen_ir::Type::Bool,
+                                seen_ir::Value::String(_) => seen_ir::Type::Ptr(Box::new(seen_ir::Type::I32)),
+                                seen_ir::Value::Register(_) => seen_ir::Type::I32, // Default for registers
+                            }
+                        };
+                        
                         self.current_block.push(seen_ir::Instruction::Alloca {
                             dest,
-                            ty: seen_ir::Type::I32, // Default to i32 for now
+                            ty,
                         });
                         
                         // Store the initial value

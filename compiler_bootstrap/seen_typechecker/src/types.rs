@@ -66,6 +66,8 @@ pub enum Type {
     },
     /// Error type for error recovery
     Error,
+    /// Unknown type (for type inference before unification)
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -325,6 +327,7 @@ impl fmt::Display for Type {
                 write!(f, "{}: {}", base_type, trait_name)
             }
             Type::Error => write!(f, "<!error!>"),
+            Type::Unknown => write!(f, "<!unknown!>"),
         }
     }
 }

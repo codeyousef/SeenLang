@@ -336,14 +336,14 @@ impl<'a> Lexer<'a> {
         
         // Check if it's a keyword in the current language
         if let Some(keyword_token) = self.language_config.keyword_to_token(identifier) {
-            keyword_token
-        } else {
-            // Check for boolean literals (language-independent)
-            match identifier {
-                "true" => TokenType::BooleanLiteral(true),
-                "false" => TokenType::BooleanLiteral(false),
-                _ => TokenType::Identifier(identifier.to_string()),
+            // Check if this keyword represents a boolean literal
+            match keyword_token {
+                TokenType::KeywordTrue => TokenType::BooleanLiteral(true),
+                TokenType::KeywordFalse => TokenType::BooleanLiteral(false),
+                other => other,
             }
+        } else {
+            TokenType::Identifier(identifier.to_string())
         }
     }
     

@@ -102,24 +102,24 @@ mod tests {
         // Mock language configurations
         let english = r#"name = "English"
 [keywords]
-func = "TokenFunc"
+fun = "KeywordFun"
 return = "TokenReturn"
         "#;
         
         let arabic = r#"name = "Arabic"
 [keywords]
-"دالة" = "TokenFunc"
-"ارجع" = "TokenReturn"
+dale = "KeywordFun"
+irjaa = "TokenReturn"
         "#;
 
         cli.system.load_language_from_toml(english).unwrap();
         cli.system.load_language_from_toml(arabic).unwrap();
 
-        let code = "func main() { return 42; }";
+        let code = "fun main() { return 42; }";
         let result = cli.translate_snippet(code, "English", "Arabic").unwrap();
         
         // Note: This is a simplified test - actual implementation would need proper tokenization
-        assert!(result.contains("func")); // Would be "دالة" with proper regex
+        assert!(result.contains("fun")); // Would be "دالة" with proper regex
     }
 
     #[test]
@@ -128,11 +128,11 @@ return = "TokenReturn"
         
         cli.system.load_language_from_toml(r#"name = "English"
 [keywords]
-func = "TokenFunc"
+fun = "KeywordFun"
 "#).unwrap();
         cli.system.load_language_from_toml(r#"name = "Arabic"
 [keywords]
-"دالة" = "TokenFunc"
+dale = "KeywordFun"
 "#).unwrap();
 
         let languages = cli.list_languages();
@@ -147,11 +147,11 @@ func = "TokenFunc"
         
         cli.system.load_language_from_toml(r#"name = "English"
 [keywords]
-func = "TokenFunc"
+fun = "KeywordFun"
 "#).unwrap();
         cli.system.load_language_from_toml(r#"name = "Arabic"
 [keywords]
-"دالة" = "TokenFunc"
+dale = "KeywordFun"
 "#).unwrap();
 
         let result = cli.get_translator("English", "Arabic").unwrap();

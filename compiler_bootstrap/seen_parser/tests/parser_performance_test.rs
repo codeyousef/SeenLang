@@ -50,7 +50,7 @@ fn test_ast_nodes_properly_typed_and_structured() {
     let config = create_english_config();
     
     let program = r#"
-        func fibonacci(n: i32) -> i32 {
+        fun fibonacci(n: i32) -> i32 {
             if n <= 1 {
                 return n;
             }
@@ -69,7 +69,7 @@ fn test_ast_nodes_properly_typed_and_structured() {
             RGB(u8, u8, u8),
         }
         
-        func main() {
+        fun main() {
             let x = 42;
             let result = fibonacci(10);
             return 0;
@@ -130,13 +130,13 @@ fn test_error_recovery_maintains_parse_state() {
     let config = create_english_config();
     
     let program_with_errors = r#"
-        func valid_function() {
+        fun valid_function() {
             let x = 42;
         }
         
-        func invalid_syntax   // Missing parentheses and body
+        fun invalid_syntax   // Missing parentheses and body
         
-        func another_valid_function() {
+        fun another_valid_function() {
             return 100;
         }
         
@@ -180,7 +180,7 @@ fn test_precedence_rules_match_kotlin() {
     let config = create_english_config();
     
     let precedence_test_program = r#"
-        func test_precedence() {
+        fun test_precedence() {
             let a = 2 + 3 * 4;      // Should be 2 + (3 * 4) = 14
             let b = 10 - 6 / 2;     // Should be 10 - (6 / 2) = 7
             return 0;
@@ -257,7 +257,7 @@ fn test_memory_usage_scales_linearly() {
 
 fn create_english_config() -> LanguageConfig {
     let mut keywords = HashMap::new();
-    keywords.insert("func".to_string(), "TokenFunc".to_string());
+    keywords.insert("fun".to_string(), "TokenFun".to_string());
     keywords.insert("let".to_string(), "TokenLet".to_string());
     keywords.insert("if".to_string(), "TokenIf".to_string());
     keywords.insert("else".to_string(), "TokenElse".to_string());
@@ -297,7 +297,7 @@ fn generate_parser_performance_test_program(lines: usize) -> String {
     
     // Generate diverse syntactic patterns for realistic parsing tests
     let patterns = vec![
-        "func function_{i}(param1: i32, param2: str, param3: bool) -> i64 {{",
+        "fun function_{i}(param1: i32, param2: str, param3: bool) -> i64 {{",
         "    let local_var_{i} = 42 + {i} * 2;",
         "    if local_var_{i} > 0 && param3 {{",
         "        let result = process_value(local_var_{i});",
@@ -326,7 +326,7 @@ fn generate_parser_performance_test_program(lines: usize) -> String {
         "}}",
         "",
         "impl DataStruct_{i} {{",
-        "    func new(value: i32) -> Self {{",
+        "    fun new(value: i32) -> Self {{",
         "        return DataStruct_{i} {{",
         "            field_a: value,",
         "            field_b: \"default\",",

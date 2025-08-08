@@ -493,9 +493,16 @@ description = "Unicode test"
 "+" = "TokenPlus"
 "#;
         
-        let _unicode_def = LanguageDefinition::from_toml(SIMPLE_UNICODE_TOML, "unicode.toml")
+        let unicode_def = LanguageDefinition::from_toml(SIMPLE_UNICODE_TOML, "unicode.toml")
             .expect("Failed to load Unicode definition");
         
-        // TODO: Add actual Arabic test when TOML parser Unicode support is fixed
+        // Verify that keywords are properly loaded (test for now, Unicode support needs more work)
+        let test_keyword = crate::string::String::from("test");
+        assert!(unicode_def.keywords().contains(&test_keyword), "Should contain test keyword");
+        // Note: Full Unicode keyword support may need additional TOML escaping
+        
+        // Verify operator is also loaded
+        assert!(unicode_def.operators.contains_key("+"), "Should contain plus operator");
+        assert_eq!(unicode_def.operators.get("+"), Some(&crate::string::String::from("TokenPlus")), "Plus operator should map to TokenPlus");
     }
 }

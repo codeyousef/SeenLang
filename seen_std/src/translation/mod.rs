@@ -244,12 +244,12 @@ mod tests {
     #[test]
     fn test_language_translator_creation() {
         let mut translator = LanguageTranslator::new("English".to_string(), "Arabic".to_string());
-        translator.add_translation("func".to_string(), "دالة".to_string());
+        translator.add_translation("fun".to_string(), "دالة".to_string());
         translator.add_translation("if".to_string(), "إذا".to_string());
 
-        assert_eq!(translator.translate("func"), Some(&"دالة".to_string()));
+        assert_eq!(translator.translate("fun"), Some(&"دالة".to_string()));
         assert_eq!(translator.translate("if"), Some(&"إذا".to_string()));
-        assert_eq!(translator.reverse_translate("دالة"), Some(&"func".to_string()));
+        assert_eq!(translator.reverse_translate("دالة"), Some(&"fun".to_string()));
         assert_eq!(translator.reverse_translate("إذا"), Some(&"if".to_string()));
     }
 
@@ -261,7 +261,7 @@ mod tests {
 description = "English keywords"
 
 [keywords]
-func = "TokenFunc"
+fun = "KeywordFun"
 if = "TokenIf"
 else = "TokenElse"
         "#;
@@ -270,9 +270,9 @@ else = "TokenElse"
 description = "Arabic keywords"
 
 [keywords]
-"دالة" = "TokenFunc"
-"إذا" = "TokenIf"
-"وإلا" = "TokenElse"
+dale = "KeywordFun"
+iza = "TokenIf"
+walla = "TokenElse"
         "#;
 
         system.load_language_from_toml(english_toml).expect("Failed to load English");
@@ -280,9 +280,9 @@ description = "Arabic keywords"
 
         let translator = system.get_translator("English", "Arabic").expect("Failed to create translator");
         
-        assert_eq!(translator.translate("func"), Some(&"دالة".to_string()));
-        assert_eq!(translator.translate("if"), Some(&"إذا".to_string()));
-        assert_eq!(translator.translate("else"), Some(&"وإلا".to_string()));
+        assert_eq!(translator.translate("fun"), Some(&"dale".to_string()));
+        assert_eq!(translator.translate("if"), Some(&"iza".to_string()));
+        assert_eq!(translator.translate("else"), Some(&"walla".to_string()));
     }
 
     #[test]
@@ -293,7 +293,7 @@ description = "Arabic keywords"
 description = "English keywords"
 
 [keywords]
-func = "TokenFunc"
+fun = "KeywordFun"
 return = "TokenReturn"
         "#;
 
@@ -301,8 +301,8 @@ return = "TokenReturn"
 description = "Arabic keywords"
 
 [keywords]
-"دالة" = "TokenFunc"
-"ارجع" = "TokenReturn"
+dale = "KeywordFun"
+irjaa = "TokenReturn"
         "#;
 
         system.load_language_from_toml(english_toml).unwrap();
@@ -310,13 +310,13 @@ description = "Arabic keywords"
 
         // Test English -> Arabic
         let en_to_ar = system.get_translator("English", "Arabic").unwrap();
-        assert_eq!(en_to_ar.translate("func"), Some(&"دالة".to_string()));
-        assert_eq!(en_to_ar.translate("return"), Some(&"ارجع".to_string()));
+        assert_eq!(en_to_ar.translate("fun"), Some(&"dale".to_string()));
+        assert_eq!(en_to_ar.translate("return"), Some(&"irjaa".to_string()));
 
         // Test Arabic -> English
         let ar_to_en = system.get_translator("Arabic", "English").unwrap();
-        assert_eq!(ar_to_en.translate("دالة"), Some(&"func".to_string()));
-        assert_eq!(ar_to_en.translate("ارجع"), Some(&"return".to_string()));
+        assert_eq!(ar_to_en.translate("dale"), Some(&"fun".to_string()));
+        assert_eq!(ar_to_en.translate("irjaa"), Some(&"return".to_string()));
     }
 
     #[test]
@@ -326,13 +326,13 @@ description = "Arabic keywords"
         let english_toml = r#"name = "English"
 
 [keywords]
-func = "TokenFunc"
+fun = "KeywordFun"
         "#;
 
         let arabic_toml = r#"name = "Arabic"
 
 [keywords]
-"دالة" = "TokenFunc"
+dale = "KeywordFun"
         "#;
 
         system.load_language_from_toml(english_toml).unwrap();
@@ -341,17 +341,17 @@ func = "TokenFunc"
         // First call creates translator
         let func_translation1 = {
             let translator1 = system.get_translator("English", "Arabic").unwrap();
-            translator1.translate("func").cloned()
+            translator1.translate("fun").cloned()
         };
 
         // Second call should use cached translator
         let func_translation2 = {
             let translator2 = system.get_translator("English", "Arabic").unwrap();
-            translator2.translate("func").cloned()
+            translator2.translate("fun").cloned()
         };
 
         assert_eq!(func_translation1, func_translation2);
-        assert_eq!(func_translation1, Some("دالة".to_string()));
+        assert_eq!(func_translation1, Some("dale".to_string()));
     }
 
     #[test]
@@ -360,11 +360,11 @@ func = "TokenFunc"
         
         system.load_language_from_toml(r#"name = "English"
 [keywords]
-func = "TokenFunc"
+fun = "KeywordFun"
 "#).unwrap();
         system.load_language_from_toml(r#"name = "Arabic"
 [keywords]
-"دالة" = "TokenFunc"
+dale = "KeywordFun"
 "#).unwrap();
 
         let languages = system.available_languages();
