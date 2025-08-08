@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use log::{info, warn, error};
 use crate::project::Project;
 use crate::config::BuildConfig;
+use crate::commands::cross::{CrossCompileConfig, CrossCompiler};
 use seen_lexer::Lexer;
 use seen_parser::Parser;
 use seen_typechecker::TypeChecker;
@@ -45,7 +46,14 @@ pub fn execute(target: String, release: bool, manifest_path: Option<PathBuf>) ->
 }
 
 fn is_supported_target(target: &str) -> bool {
-    matches!(target, "native" | "wasm" | "js")
+    matches!(target, 
+        "native" | "wasm" | "js" |
+        "riscv32-linux" | "riscv64-linux" |
+        "riscv32-none" | "riscv64-none" |
+        "riscv32-unknown-linux-gnu" | "riscv64-unknown-linux-gnu" |
+        "riscv32-unknown-none" | "riscv64-unknown-none" |
+        "riscv64-vector" | "riscv64-linux-vector"
+    )
 }
 
 fn compile_project(project: &Project, config: &BuildConfig) -> Result<()> {
@@ -230,6 +238,11 @@ fn generate_output(project: &Project, config: &BuildConfig) -> Result<()> {
 
 fn generate_output_with_llvm(project: &Project, config: &BuildConfig, llvm_modules: &[(PathBuf, String)]) -> Result<()> {
     info!("Generating output for target: {}", config.target);
+    
+    // Check if this is a RISC-V cross-compilation target
+    if config.target.starts_with("riscv") {
+        return cross_compile_riscv(project, config, llvm_modules);
+    }
     
     let output_path = project.output_path(&config.target, config.release);
     
@@ -421,6 +434,105 @@ int main() {{
     Ok(())
 }
 
+/// Cross-compile for RISC-V targets
+fn cross_compile_riscv(project: &Project, config: &BuildConfig, llvm_modules: &[(PathBuf, String)]) -> Result<()> {
+    info!("Cross-compiling for RISC-V target: {}", config.target);
+    
+    // Get cross-compilation configuration
+    let cross_config = CrossCompileConfig::from_target_string(&config.target)?;
+    
+    // Add release optimization flags if needed
+    let cross_config = if config.release {
+        cross_config.add_compiler_flags(vec!["-O3".to_string(), "-flto".to_string()])
+    } else {
+        cross_config
+    };
+    
+    // Create cross-compiler
+    let output_dir = project.build_dir().join("riscv");
+    std::fs::create_dir_all(&output_dir)?;
+    
+    let cross_compiler = CrossCompiler::new(cross_config, output_dir.clone());
+    
+    // Check if the required toolchain is available
+    if let Err(e) = cross_compiler.check_toolchain() {
+        warn!("RISC-V toolchain not available: {}", e);
+        warn!("Install the RISC-V toolchain for full cross-compilation support");
+        warn!("For example: apt-get install gcc-riscv64-linux-gnu");
+        
+        // Fall back to generating LLVM IR only
+        return generate_llvm_ir_only(project, config, llvm_modules);
+    }
+    
+    // Compile each module
+    for (i, (_source_path, llvm_ir)) in llvm_modules.iter().enumerate() {
+        let module_name = format!("module_{}", i);
+        
+        // Write LLVM IR to temporary file
+        let ir_path = output_dir.join(format!("{}.ll", module_name));
+        std::fs::write(&ir_path, llvm_ir)?;
+        
+        // Cross-compile to RISC-V executable
+        let output_name = if i == 0 {
+            project.name().to_string()
+        } else {
+            module_name
+        };
+        
+        let exe_path = cross_compiler.compile(&ir_path, &output_name)?;
+        
+        if i == 0 {
+            // Move the main executable to the expected location
+            let final_path = project.output_path(&config.target, config.release);
+            if let Some(parent) = final_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::rename(&exe_path, &final_path)?;
+            info!("✓ RISC-V executable generated: {}", final_path.display());
+        }
+    }
+    
+    info!("✓ Cross-compilation for RISC-V completed successfully!");
+    Ok(())
+}
+
+/// Generate LLVM IR only when cross-compilation tools are not available
+fn generate_llvm_ir_only(project: &Project, config: &BuildConfig, llvm_modules: &[(PathBuf, String)]) -> Result<()> {
+    info!("Generating LLVM IR for RISC-V target (cross-compilation tools not available)");
+    
+    let output_dir = project.build_dir().join("riscv_ir");
+    std::fs::create_dir_all(&output_dir)?;
+    
+    for (i, (source_path, llvm_ir)) in llvm_modules.iter().enumerate() {
+        let default_name = format!("module_{}", i);
+        let stem = source_path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&default_name);
+        
+        // Write LLVM IR with RISC-V target triple
+        let ir_path = output_dir.join(format!("{}.ll", stem));
+        
+        // Add RISC-V target triple to the IR
+        let target_triple = match config.target.as_str() {
+            "riscv32-linux" | "riscv32-unknown-linux-gnu" => "riscv32-unknown-linux-gnu",
+            "riscv64-linux" | "riscv64-unknown-linux-gnu" => "riscv64-unknown-linux-gnu",
+            "riscv32-none" | "riscv32-unknown-none" => "riscv32-unknown-none",
+            "riscv64-none" | "riscv64-unknown-none" => "riscv64-unknown-none",
+            "riscv64-vector" | "riscv64-linux-vector" => "riscv64-unknown-linux-gnu",
+            _ => "riscv64-unknown-linux-gnu",
+        };
+        
+        let modified_ir = format!("target triple = \"{}\"\n\n{}", target_triple, llvm_ir);
+        std::fs::write(&ir_path, modified_ir)?;
+        
+        info!("  Generated RISC-V LLVM IR: {}", ir_path.display());
+    }
+    
+    info!("✓ LLVM IR files generated for RISC-V target");
+    info!("  To compile to RISC-V binary, install the RISC-V toolchain and run again");
+    Ok(())
+}
+
 /// Helper function to convert AST to IR for Phase 2 compilation
 fn convert_ast_to_ir(ast: &seen_parser::Program<'_>) -> seen_ir::Module {
     use seen_ir::{Module, Function, BasicBlock, Instruction, Value};
@@ -465,6 +577,7 @@ fn convert_ast_to_ir(ast: &seen_parser::Program<'_>) -> seen_ir::Module {
     
     Module {
         name: "cli_build".to_string(),
+        target: seen_ir::ir::Target::x86_64_linux(),
         functions,
     }
 }

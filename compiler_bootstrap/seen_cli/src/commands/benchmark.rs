@@ -630,6 +630,7 @@ fn convert_benchmark_ast_to_ir(ast: &seen_parser::Program<'_>, name: &str) -> se
     
     Module {
         name: format!("benchmark_{}", name),
+        target: seen_ir::ir::Target::x86_64_linux(),
         functions,
     }
 }

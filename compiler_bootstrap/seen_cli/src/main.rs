@@ -244,6 +244,59 @@ enum Commands {
         #[arg(long)]
         manifest_path: Option<PathBuf>,
     },
+    
+    /// RISC-V architecture support tools
+    #[command(subcommand)]
+    Riscv(RiscvCommands),
+}
+
+#[derive(Subcommand)]
+enum RiscvCommands {
+    /// Display RISC-V architecture support information
+    Info,
+    
+    /// Detect available RISC-V toolchains
+    Detect,
+    
+    /// Cross-compile to RISC-V target
+    Compile {
+        /// Input LLVM IR file
+        input: PathBuf,
+        
+        /// Output executable path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        
+        /// Target triple (e.g., riscv64-linux, riscv32-none)
+        #[arg(short, long, default_value = "riscv64-linux")]
+        target: String,
+        
+        /// ISA extensions (e.g., "imafdc", "imafdcv")
+        #[arg(short, long)]
+        extensions: Option<String>,
+        
+        /// Optimization level (O0, O1, O2, O3, Os)
+        #[arg(long)]
+        opt_level: Option<String>,
+    },
+    
+    /// Run RISC-V performance benchmarks
+    Benchmark {
+        /// Target architecture (riscv32, riscv64, riscv64-vector)
+        #[arg(short, long, default_value = "riscv64-linux")]
+        target: String,
+        
+        /// Number of iterations
+        #[arg(short, long)]
+        iterations: Option<usize>,
+        
+        /// Save results to file
+        #[arg(short, long)]
+        save: Option<PathBuf>,
+    },
+    
+    /// Display RISC-V ISA extensions reference
+    Extensions,
 }
 
 fn main() -> Result<()> {
@@ -323,6 +376,19 @@ fn main() -> Result<()> {
         }
         Commands::Benchmark { filter, compare_baseline, save_name, json, manifest_path } => {
             benchmark::execute(filter, compare_baseline, save_name, json, manifest_path)
+        }
+        Commands::Riscv(cmd) => {
+            match cmd {
+                RiscvCommands::Info => riscv::info(),
+                RiscvCommands::Detect => riscv::detect_toolchain(),
+                RiscvCommands::Compile { input, output, target, extensions, opt_level } => {
+                    riscv::compile(input, output, target, extensions, opt_level)
+                }
+                RiscvCommands::Benchmark { target, iterations, save } => {
+                    riscv::benchmark(target, iterations, save)
+                }
+                RiscvCommands::Extensions => riscv::extensions(),
+            }
         }
     }
 }

@@ -54,9 +54,9 @@ impl CodeGenerator {
         
         let mut llvm_ir = String::with_capacity(estimated_size);
         
-        // Module header with target information
+        // Module header with target information from the module
         use std::fmt::Write;
-        let _ = write!(&mut llvm_ir, "target triple = \"{}\"\n", self.target_triple);
+        let _ = write!(&mut llvm_ir, "target triple = \"{}\"\n", module.target.to_llvm_triple());
         let _ = write!(&mut llvm_ir, "; Module: {}\n\n", module.name);
         
         // Debug info metadata if enabled
@@ -232,6 +232,586 @@ impl CodeGenerator {
             Instruction::Nop => {
                 ir.push_str("; nop");
             }
+            Instruction::RiscV(riscv_inst) => {
+                ir.push_str(&self.generate_riscv_instruction_ir(riscv_inst)?);
+            }
+        }
+        
+        Ok(ir)
+    }
+    
+    /// Generate LLVM IR for RISC-V specific instructions
+    fn generate_riscv_instruction_ir(&mut self, instruction: &crate::RiscVInstruction) -> SeenResult<String> {
+        use std::fmt::Write;
+        let mut ir = String::with_capacity(120);
+        use crate::RiscVInstruction;
+        
+        match instruction {
+            // Arithmetic instructions
+            RiscVInstruction::Add { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = add i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Sub { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = sub i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Addi { dest, src, imm } => {
+                let _ = write!(&mut ir, "%{} = add i32 {}, {}", dest, self.format_value(src), imm);
+            }
+            
+            // Logical instructions
+            RiscVInstruction::And { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = and i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Or { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = or i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Xor { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = xor i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Andi { dest, src, imm } => {
+                let _ = write!(&mut ir, "%{} = and i32 {}, {}", dest, self.format_value(src), imm);
+            }
+            RiscVInstruction::Ori { dest, src, imm } => {
+                let _ = write!(&mut ir, "%{} = or i32 {}, {}", dest, self.format_value(src), imm);
+            }
+            RiscVInstruction::Xori { dest, src, imm } => {
+                let _ = write!(&mut ir, "%{} = xor i32 {}, {}", dest, self.format_value(src), imm);
+            }
+            
+            // Shift instructions
+            RiscVInstruction::Sll { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = shl i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Srl { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = lshr i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Sra { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = ashr i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Slli { dest, src, shamt } => {
+                let _ = write!(&mut ir, "%{} = shl i32 {}, {}", dest, self.format_value(src), shamt);
+            }
+            RiscVInstruction::Srli { dest, src, shamt } => {
+                let _ = write!(&mut ir, "%{} = lshr i32 {}, {}", dest, self.format_value(src), shamt);
+            }
+            RiscVInstruction::Srai { dest, src, shamt } => {
+                let _ = write!(&mut ir, "%{} = ashr i32 {}, {}", dest, self.format_value(src), shamt);
+            }
+            
+            // Comparison instructions
+            RiscVInstruction::Slt { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = icmp slt i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Sltu { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = icmp ult i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Slti { dest, src, imm } => {
+                let _ = write!(&mut ir, "%{} = icmp slt i32 {}, {}", dest, self.format_value(src), imm);
+            }
+            RiscVInstruction::Sltiu { dest, src, imm } => {
+                let _ = write!(&mut ir, "%{} = icmp ult i32 {}, {}", dest, self.format_value(src), imm);
+            }
+            
+            // Upper immediate instructions
+            RiscVInstruction::Lui { dest, imm } => {
+                let upper_val = (*imm as u32) << 12; // LUI loads 20 bits to upper 20 bits
+                let _ = write!(&mut ir, "%{} = add i32 0, {}", dest, upper_val as i32);
+            }
+            RiscVInstruction::Auipc { dest, imm } => {
+                // AUIPC adds upper immediate to PC - in LLVM we use a builtin
+                let upper_val = (*imm as u32) << 12;
+                let _ = write!(&mut ir, "%{} = add i32 ptrtoint (i8* blockaddress(@main, %entry) to i32), {}", dest, upper_val as i32);
+            }
+            
+            // Memory access instructions
+            RiscVInstruction::Lw { dest, base, offset } => {
+                let _ = write!(&mut ir, "%{}.addr = add i32 {}, {}", dest, self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 %{}.addr to i32*", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = load i32, i32* %{}.ptr, align 4", dest, dest);
+            }
+            RiscVInstruction::Sw { src, base, offset } => {
+                let _ = write!(&mut ir, "%sw.addr = add i32 {}, {}", self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%sw.ptr = inttoptr i32 %sw.addr to i32*");
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "store i32 {}, i32* %sw.ptr, align 4", self.format_value(src));
+            }
+            RiscVInstruction::Lb { dest, base, offset } => {
+                let _ = write!(&mut ir, "%{}.addr = add i32 {}, {}", dest, self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 %{}.addr to i8*", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.byte = load i8, i8* %{}.ptr, align 1", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i8 %{}.byte to i32", dest, dest);
+            }
+            RiscVInstruction::Sb { src, base, offset } => {
+                let _ = write!(&mut ir, "%sb.addr = add i32 {}, {}", self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%sb.ptr = inttoptr i32 %sb.addr to i8*");
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%sb.byte = trunc i32 {} to i8", self.format_value(src));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "store i8 %sb.byte, i8* %sb.ptr, align 1");
+            }
+            
+            // RV64I specific instructions
+            RiscVInstruction::Addw { dest, src1, src2 } => {
+                // 32-bit add with sign extension to 64-bit
+                let _ = write!(&mut ir, "%{}.tmp = add i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            RiscVInstruction::Subw { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.tmp = sub i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            RiscVInstruction::Addiw { dest, src, imm } => {
+                let _ = write!(&mut ir, "%{}.tmp = add i32 {}, {}", dest, self.format_value(src), imm);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            RiscVInstruction::Ld { dest, base, offset } => {
+                let _ = write!(&mut ir, "%{}.addr = add i64 {}, {}", dest, self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i64 %{}.addr to i64*", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = load i64, i64* %{}.ptr, align 8", dest, dest);
+            }
+            RiscVInstruction::Sd { src, base, offset } => {
+                let _ = write!(&mut ir, "%sd.addr = add i64 {}, {}", self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%sd.ptr = inttoptr i64 %sd.addr to i64*");
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "store i64 {}, i64* %sd.ptr, align 8", self.format_value(src));
+            }
+            
+            // Control flow instructions
+            RiscVInstruction::Beq { src1, src2, label } => {
+                let _ = write!(&mut ir, "%eq.cond = icmp eq i32 {}, {}", self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "br i1 %eq.cond, label %{}, label %next", label);
+            }
+            RiscVInstruction::Bne { src1, src2, label } => {
+                let _ = write!(&mut ir, "%ne.cond = icmp ne i32 {}, {}", self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "br i1 %ne.cond, label %{}, label %next", label);
+            }
+            RiscVInstruction::Blt { src1, src2, label } => {
+                let _ = write!(&mut ir, "%lt.cond = icmp slt i32 {}, {}", self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "br i1 %lt.cond, label %{}, label %next", label);
+            }
+            RiscVInstruction::Bge { src1, src2, label } => {
+                let _ = write!(&mut ir, "%ge.cond = icmp sge i32 {}, {}", self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "br i1 %ge.cond, label %{}, label %next", label);
+            }
+            RiscVInstruction::Bltu { src1, src2, label } => {
+                let _ = write!(&mut ir, "%ltu.cond = icmp ult i32 {}, {}", self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "br i1 %ltu.cond, label %{}, label %next", label);
+            }
+            RiscVInstruction::Bgeu { src1, src2, label } => {
+                let _ = write!(&mut ir, "%geu.cond = icmp uge i32 {}, {}", self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "br i1 %geu.cond, label %{}, label %next", label);
+            }
+            RiscVInstruction::Jal { dest, label } => {
+                if let Some(dest_reg) = dest {
+                    let _ = write!(&mut ir, "%{} = ptrtoint i8* blockaddress(@main, %return) to i32", dest_reg);
+                    ir.push('\n');
+                    ir.push_str("  ");
+                }
+                let _ = write!(&mut ir, "br label %{}", label);
+            }
+            RiscVInstruction::Jalr { dest, base, offset } => {
+                let _ = write!(&mut ir, "%{} = ptrtoint i8* blockaddress(@main, %return) to i32", dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%jalr.addr = add i32 {}, {}", self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "indirectbr i8* inttoptr (i32 %jalr.addr to i8*), []");
+            }
+            
+            // System instructions
+            RiscVInstruction::Ecall => {
+                ir.push_str("call void @__riscv_ecall()");
+            }
+            RiscVInstruction::Ebreak => {
+                ir.push_str("call void @llvm.debugtrap()");
+            }
+            
+            // Fence instructions
+            RiscVInstruction::Fence { pred: _, succ: _ } => {
+                ir.push_str("fence seq_cst, seq_cst");
+            }
+            RiscVInstruction::FenceI => {
+                ir.push_str("call void @llvm.instruction.fence()");
+            }
+            
+            // CSR instructions (simplified for basic support)
+            RiscVInstruction::Csrrw { dest, csr, src } => {
+                let _ = write!(&mut ir, "%{} = call i32 @__riscv_csrrw(i32 {}, i32 {})", dest, csr, self.format_value(src));
+            }
+            RiscVInstruction::Csrrs { dest, csr, src } => {
+                let _ = write!(&mut ir, "%{} = call i32 @__riscv_csrrs(i32 {}, i32 {})", dest, csr, self.format_value(src));
+            }
+            RiscVInstruction::Csrrc { dest, csr, src } => {
+                let _ = write!(&mut ir, "%{} = call i32 @__riscv_csrrc(i32 {}, i32 {})", dest, csr, self.format_value(src));
+            }
+            RiscVInstruction::Csrrwi { dest, csr, imm } => {
+                let _ = write!(&mut ir, "%{} = call i32 @__riscv_csrrw(i32 {}, i32 {})", dest, csr, imm);
+            }
+            RiscVInstruction::Csrrsi { dest, csr, imm } => {
+                let _ = write!(&mut ir, "%{} = call i32 @__riscv_csrrs(i32 {}, i32 {})", dest, csr, imm);
+            }
+            RiscVInstruction::Csrrci { dest, csr, imm } => {
+                let _ = write!(&mut ir, "%{} = call i32 @__riscv_csrrc(i32 {}, i32 {})", dest, csr, imm);
+            }
+            
+            /// RV32M/RV64M: Integer Multiplication and Division Extension
+            
+            // Multiplication instructions
+            RiscVInstruction::Mul { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = mul i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Mulh { dest, src1, src2 } => {
+                // High part of signed multiplication
+                let _ = write!(&mut ir, "%{}.ext1 = sext i32 {} to i64", dest, self.format_value(src1));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ext2 = sext i32 {} to i64", dest, self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.full = mul i64 %{}.ext1, %{}.ext2", dest, dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.shifted = lshr i64 %{}.full, 32", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = trunc i64 %{}.shifted to i32", dest, dest);
+            }
+            RiscVInstruction::Mulhu { dest, src1, src2 } => {
+                // High part of unsigned multiplication
+                let _ = write!(&mut ir, "%{}.ext1 = zext i32 {} to i64", dest, self.format_value(src1));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ext2 = zext i32 {} to i64", dest, self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.full = mul i64 %{}.ext1, %{}.ext2", dest, dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.shifted = lshr i64 %{}.full, 32", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = trunc i64 %{}.shifted to i32", dest, dest);
+            }
+            RiscVInstruction::Mulw { dest, src1, src2 } => {
+                // RV64M: 32-bit multiplication with sign extension
+                let _ = write!(&mut ir, "%{}.tmp = mul i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            
+            // Division instructions
+            RiscVInstruction::Div { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = sdiv i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Divu { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = udiv i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Rem { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = srem i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Remu { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{} = urem i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::Divw { dest, src1, src2 } => {
+                // RV64M: 32-bit division with sign extension
+                let _ = write!(&mut ir, "%{}.tmp = sdiv i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            RiscVInstruction::Divuw { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.tmp = udiv i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            RiscVInstruction::Remw { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.tmp = srem i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            RiscVInstruction::Remuw { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.tmp = urem i32 {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = sext i32 %{}.tmp to i64", dest, dest);
+            }
+            
+            /// RV32A/RV64A: Atomic Instructions Extension
+            
+            // Atomic memory operations (word)
+            RiscVInstruction::AmoswapW { dest, addr, src, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = atomicrmw xchg i32* %{}.ptr, i32 {} seq_cst", dest, dest, self.format_value(src));
+            }
+            RiscVInstruction::AmoaddW { dest, addr, src, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = atomicrmw add i32* %{}.ptr, i32 {} seq_cst", dest, dest, self.format_value(src));
+            }
+            RiscVInstruction::AmoxorW { dest, addr, src, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = atomicrmw xor i32* %{}.ptr, i32 {} seq_cst", dest, dest, self.format_value(src));
+            }
+            RiscVInstruction::AmoandW { dest, addr, src, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = atomicrmw and i32* %{}.ptr, i32 {} seq_cst", dest, dest, self.format_value(src));
+            }
+            RiscVInstruction::AmoorW { dest, addr, src, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = atomicrmw or i32* %{}.ptr, i32 {} seq_cst", dest, dest, self.format_value(src));
+            }
+            RiscVInstruction::AmominW { dest, addr, src, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = atomicrmw min i32* %{}.ptr, i32 {} seq_cst", dest, dest, self.format_value(src));
+            }
+            RiscVInstruction::AmomaxW { dest, addr, src, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = atomicrmw max i32* %{}.ptr, i32 {} seq_cst", dest, dest, self.format_value(src));
+            }
+            
+            // Load-reserved/Store-conditional
+            RiscVInstruction::LrW { dest, addr, aq: _, rl: _ } => {
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = load atomic i32, i32* %{}.ptr seq_cst, align 4", dest, dest);
+            }
+            RiscVInstruction::ScW { dest, addr, src, aq: _, rl: _ } => {
+                // Simplified store-conditional - would need LLVM intrinsics for full implementation
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 {} to i32*", dest, self.format_value(addr));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "store atomic i32 {}, i32* %{}.ptr seq_cst, align 4", self.format_value(src), dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = add i32 0, 0", dest); // Always success for simplicity
+            }
+            
+            /// RV32F: Single-Precision Floating-Point Extension
+            
+            // Single-precision loads/stores
+            RiscVInstruction::Flw { dest, base, offset } => {
+                let _ = write!(&mut ir, "%{}.addr = add i32 {}, {}", dest, self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 %{}.addr to float*", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = load float, float* %{}.ptr, align 4", dest, dest);
+            }
+            RiscVInstruction::Fsw { src, base, offset } => {
+                let _ = write!(&mut ir, "%fsw.addr = add i32 {}, {}", self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%fsw.ptr = inttoptr i32 %fsw.addr to float*");
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "store float {}, float* %fsw.ptr, align 4", self.format_value(src));
+            }
+            
+            // Single-precision arithmetic
+            RiscVInstruction::FaddS { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fadd float {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FsubS { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fsub float {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FmulS { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fmul float {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FdivS { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fdiv float {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FsqrtS { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = call float @llvm.sqrt.f32(float {})", dest, self.format_value(src));
+            }
+            
+            // Single-precision comparisons
+            RiscVInstruction::FeqS { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.cmp = fcmp oeq float {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = zext i1 %{}.cmp to i32", dest, dest);
+            }
+            RiscVInstruction::FltS { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.cmp = fcmp olt float {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = zext i1 %{}.cmp to i32", dest, dest);
+            }
+            RiscVInstruction::FleS { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.cmp = fcmp ole float {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = zext i1 %{}.cmp to i32", dest, dest);
+            }
+            
+            // Single-precision conversions
+            RiscVInstruction::FcvtWS { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fptosi float {} to i32", dest, self.format_value(src));
+            }
+            RiscVInstruction::FcvtSW { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = sitofp i32 {} to float", dest, self.format_value(src));
+            }
+            
+            /// RV32D: Double-Precision Floating-Point Extension
+            
+            // Double-precision loads/stores
+            RiscVInstruction::Fld { dest, base, offset } => {
+                let _ = write!(&mut ir, "%{}.addr = add i32 {}, {}", dest, self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 %{}.addr to double*", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = load double, double* %{}.ptr, align 8", dest, dest);
+            }
+            RiscVInstruction::Fsd { src, base, offset } => {
+                let _ = write!(&mut ir, "%fsd.addr = add i32 {}, {}", self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%fsd.ptr = inttoptr i32 %fsd.addr to double*");
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "store double {}, double* %fsd.ptr, align 8", self.format_value(src));
+            }
+            
+            // Double-precision arithmetic
+            RiscVInstruction::FaddD { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fadd double {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FsubD { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fsub double {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FmulD { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fmul double {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FdivD { dest, src1, src2, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fdiv double {}, {}", dest, self.format_value(src1), self.format_value(src2));
+            }
+            RiscVInstruction::FsqrtD { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = call double @llvm.sqrt.f64(double {})", dest, self.format_value(src));
+            }
+            
+            // Double-precision comparisons
+            RiscVInstruction::FeqD { dest, src1, src2 } => {
+                let _ = write!(&mut ir, "%{}.cmp = fcmp oeq double {}, {}", dest, self.format_value(src1), self.format_value(src2));
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = zext i1 %{}.cmp to i32", dest, dest);
+            }
+            
+            // Double-precision conversions
+            RiscVInstruction::FcvtSD { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fptrunc double {} to float", dest, self.format_value(src));
+            }
+            RiscVInstruction::FcvtDS { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fpext float {} to double", dest, self.format_value(src));
+            }
+            RiscVInstruction::FcvtWD { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = fptosi double {} to i32", dest, self.format_value(src));
+            }
+            RiscVInstruction::FcvtDW { dest, src, rm: _ } => {
+                let _ = write!(&mut ir, "%{} = sitofp i32 {} to double", dest, self.format_value(src));
+            }
+            
+            /// RV32C: Compressed Instructions Extension
+            /// These map to their uncompressed equivalents
+            
+            RiscVInstruction::CAddi { dest, imm } => {
+                let _ = write!(&mut ir, "%{} = add i32 %{}, {}", dest, dest, imm);
+            }
+            RiscVInstruction::CLi { dest, imm } => {
+                let _ = write!(&mut ir, "%{} = add i32 0, {}", dest, imm);
+            }
+            RiscVInstruction::CLw { dest, base, offset } => {
+                let _ = write!(&mut ir, "%{}.addr = add i32 {}, {}", dest, self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{}.ptr = inttoptr i32 %{}.addr to i32*", dest, dest);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%{} = load i32, i32* %{}.ptr, align 4", dest, dest);
+            }
+            RiscVInstruction::CSw { src, base, offset } => {
+                let _ = write!(&mut ir, "%csw.addr = add i32 {}, {}", self.format_value(base), offset);
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "%csw.ptr = inttoptr i32 %csw.addr to i32*");
+                ir.push('\n');
+                ir.push_str("  ");
+                let _ = write!(&mut ir, "store i32 {}, i32* %csw.ptr, align 4", self.format_value(src));
+            }
+            RiscVInstruction::CAdd { dest, src } => {
+                let _ = write!(&mut ir, "%{} = add i32 %{}, {}", dest, dest, self.format_value(src));
+            }
+            RiscVInstruction::CMv { dest, src } => {
+                let _ = write!(&mut ir, "%{} = add i32 0, {}", dest, self.format_value(src));
+            }
+            
+            // Handle remaining cases to ensure completeness
+            _ => {
+                ir.push_str("; RISC-V instruction not yet implemented in LLVM backend");
+            }
         }
         
         Ok(ir)
@@ -297,9 +877,10 @@ impl CodeGenerator {
     
     /// Legacy generate method for compatibility
     pub fn generate(&mut self) -> SeenResult<String> {
-        // Create a simple test module
+        // Create a simple test module with default target
         let test_module = Module {
             name: self.module_name.clone(),
+            target: Target::x86_64_linux(),
             functions: vec![Function {
                 name: "main".to_string(),
                 params: vec![],
@@ -313,5 +894,45 @@ impl CodeGenerator {
         };
         
         self.generate_llvm_ir(&test_module)
+    }
+    
+    /// Generate code with specific RISC-V target
+    pub fn generate_riscv(&mut self, target: Target, extensions: RiscVExtensions) -> SeenResult<String> {
+        if !target.is_riscv() {
+            return Err(seen_common::SeenError::codegen_error("Target is not RISC-V".to_string()));
+        }
+        
+        // Update target triple for RISC-V
+        self.target_triple = target.to_llvm_triple();
+        
+        // Store register size before moving target
+        let register_size = target.register_size();
+        
+        // Create RISC-V test module
+        let test_module = Module {
+            name: self.module_name.clone(),
+            target,
+            functions: vec![Function {
+                name: "main".to_string(),
+                params: vec![],
+                blocks: vec![BasicBlock {
+                    label: "entry".to_string(),
+                    instructions: vec![
+                        Instruction::Return { value: Some(crate::Value::Integer(0)) },
+                    ],
+                }],
+            }],
+        };
+        
+        let mut llvm_ir = self.generate_llvm_ir(&test_module)?;
+        
+        // Add RISC-V specific optimizations if vector extension is enabled
+        if extensions.v {
+            llvm_ir.push_str("\n; RISC-V Vector Extension optimizations enabled\n");
+            llvm_ir.push_str(&format!("attributes #0 = {{ \"target-features\"=\"+v,+zvl128b,+{extensions}\" }}\n", 
+                extensions = extensions.to_isa_string(register_size)));
+        }
+        
+        Ok(llvm_ir)
     }
 }

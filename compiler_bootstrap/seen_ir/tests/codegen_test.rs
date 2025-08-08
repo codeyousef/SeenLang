@@ -1,7 +1,7 @@
 //! Comprehensive tests for LLVM IR code generation
 //! Verifies that the code generator produces correct LLVM IR
 
-use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction, Value, BinaryOp, CompareOp, Type};
+use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction, Value, BinaryOp, CompareOp, Type, Target};
 use seen_common::SeenResult;
 
 #[test]
@@ -10,6 +10,7 @@ fn test_basic_function_generation() {
     
     let module = Module {
         name: "test".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "main".to_string(),
@@ -39,6 +40,7 @@ fn test_arithmetic_operations() {
     
     let module = Module {
         name: "arithmetic".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "calculate".to_string(),
@@ -80,6 +82,7 @@ fn test_comparison_operations() {
     
     let module = Module {
         name: "comparison".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "compare".to_string(),
@@ -114,6 +117,7 @@ fn test_control_flow() {
     
     let module = Module {
         name: "control".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "conditional".to_string(),
@@ -159,6 +163,7 @@ fn test_memory_operations() {
     
     let module = Module {
         name: "memory".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "memory_ops".to_string(),
@@ -192,6 +197,7 @@ fn test_function_calls() {
     
     let module = Module {
         name: "calls".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "caller".to_string(),
@@ -226,6 +232,7 @@ fn test_phi_nodes() {
     
     let module = Module {
         name: "phi".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "phi_example".to_string(),
@@ -278,6 +285,7 @@ fn test_debug_info_generation() {
     
     let module = Module {
         name: "debug".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "debug_func".to_string(),
@@ -311,6 +319,7 @@ fn test_optimization_levels() {
         
         let module = Module {
             name: format!("opt_level_{}", level),
+            target: Target::x86_64_linux(),
             functions: vec![
                 Function {
                     name: "opt_func".to_string(),
@@ -336,24 +345,23 @@ fn test_optimization_levels() {
 fn test_target_triple() {
     let mut codegen = CodeGenerator::new("target_test".to_string());
     
-    // Test different target triples
-    let targets = [
-        "x86_64-unknown-linux-gnu",
-        "x86_64-pc-windows-msvc",
-        "aarch64-apple-darwin",
-        "wasm32-unknown-unknown",
+    // Test different target configurations
+    let test_targets = [
+        ("x86_64-unknown-linux-gnu", Target::x86_64_linux()),
+        ("riscv64-unknown-linux-gnu", Target::riscv64_linux()),
+        ("riscv32-unknown-linux-gnu", Target::riscv32_linux()),
+        ("riscv32-unknown-none", Target::riscv32_bare_metal()),
     ];
     
-    for target in &targets {
-        codegen.set_target_triple(target);
-        
+    for (expected_triple, target) in &test_targets {
         let module = Module {
             name: "target".to_string(),
+            target: target.clone(),
             functions: vec![],
         };
         
         let ir = codegen.generate_llvm_ir(&module).expect("Should generate LLVM IR");
-        assert!(ir.contains(target), "Should include target triple: {}", target);
+        assert!(ir.contains(expected_triple), "Should include target triple: {}", expected_triple);
     }
 }
 
@@ -365,6 +373,7 @@ fn test_calling_conventions() {
     codegen.set_calling_convention("C");
     let module = Module {
         name: "ccc".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "c_func".to_string(),
@@ -399,6 +408,7 @@ fn test_complex_function() {
     // Create a more complex function with multiple blocks and operations
     let module = Module {
         name: "complex".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![
             Function {
                 name: "fibonacci".to_string(),
@@ -479,6 +489,7 @@ fn test_empty_module() {
     
     let module = Module {
         name: "empty".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![],
     };
     
@@ -517,6 +528,7 @@ fn test_performance_ir_generation() {
     
     let module = Module {
         name: "performance".to_string(),
+        target: Target::x86_64_linux(),
         functions,
     };
     

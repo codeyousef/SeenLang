@@ -28,3 +28,7 @@ harness = false
 [[bench]]
 name = "llvm_ir_quality"
 harness = false
+
+[[bench]]
+name = "riscv_performance"
+harness = false

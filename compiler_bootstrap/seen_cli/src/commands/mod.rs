@@ -18,3 +18,5 @@ pub mod pwd;
 pub mod cd;
 pub mod capture;
 pub mod benchmark;
+pub mod cross;
+pub mod riscv;

@@ -3,7 +3,7 @@
 //! These tests MUST fail initially to drive implementation (TDD).
 //! Performance targets are hard requirements for Phase 2 completion.
 
-use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction, Value};
+use seen_ir::{CodeGenerator, Module, Function, BasicBlock, Instruction, Value, Target};
 use seen_common::SeenResult;
 use std::time::{Duration, Instant};
 
@@ -15,6 +15,7 @@ fn test_codegen_performance_under_1ms() {
     // Generate test IR with 1000 instructions
     let mut module = Module {
         name: "test_module".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![],
     };
     
@@ -90,6 +91,7 @@ fn test_codegen_performance_under_1ms() {
 fn test_debug_info_generation() {
     let mut module = Module {
         name: "debug_test".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![Function {
             name: "main".to_string(),
             params: vec![],
@@ -127,6 +129,7 @@ fn test_debug_info_generation() {
 fn test_c_abi_compatibility() {
     let mut module = Module {
         name: "c_abi_test".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![Function {
             name: "extern_c_function".to_string(),
             params: vec!["x".to_string(), "y".to_string()],
@@ -165,6 +168,7 @@ fn test_c_abi_compatibility() {
 fn test_cross_compilation_targets() {
     let module = Module {
         name: "cross_compile_test".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![Function {
             name: "platform_specific".to_string(),
             params: vec![],
@@ -206,6 +210,7 @@ fn test_cross_compilation_targets() {
 fn test_memory_optimization() {
     let mut module = Module {
         name: "memory_test".to_string(),
+        target: Target::x86_64_linux(),
         functions: vec![],
     };
     

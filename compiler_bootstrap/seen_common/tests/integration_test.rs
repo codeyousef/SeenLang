@@ -164,6 +164,7 @@ fn convert_ast_to_ir(ast: &seen_parser::Program) -> seen_ir::Module {
     
     Module {
         name: "integration_test".to_string(),
+        target: seen_ir::ir::Target::x86_64_linux(),
         functions,
     }
 }
