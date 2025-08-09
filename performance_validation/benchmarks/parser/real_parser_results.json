@@ -1,0 +1,51 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "real_parser_performance",
+                     "timestamp":  "2025-08-09T09:58:37Z",
+                     "test_file":  "D:\\Projects\\Rust\\seenlang\\performance_validation\\benchmarks\\parser\\..\\..\\test_data\\large_codebases\\test_input.seen",
+                     "file_size":  59275,
+                     "iterations":  2
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "file_size":  59275,
+                                    "max_time":  0.0094945999999999989,
+                                    "times":  [
+                                                  0.0094945999999999989,
+                                                  0.008848
+                                              ],
+                                    "average_time":  0.0091713,
+                                    "min_time":  0.008848,
+                                    "nodes_per_second":  323155,
+                                    "timestamp":  "2025-08-09T09:58:39Z",
+                                    "benchmark":  "parser",
+                                    "language":  "seen",
+                                    "std_dev":  0.00032329999999999946,
+                                    "iterations":  2
+                                },
+                       "rust":  {
+                                    "language":  "rust",
+                                    "benchmark":  "parser",
+                                    "iterations":  2,
+                                    "nodes_processed":  6811,
+                                    "times":  [
+                                                  0.0014631,
+                                                  0.0014171
+                                              ],
+                                    "average_time":  0.0014401,
+                                    "nodes_per_second":  4729532.671342269
+                                },
+                       "cpp":  {
+                                   "language":  "cpp",
+                                   "benchmark":  "parser",
+                                   "iterations":  2,
+                                   "nodes_processed":  7561,
+                                   "times":  [
+                                                 0.0010357,
+                                                 0.0010405
+                                             ],
+                                   "average_time":  0.0010381,
+                                   "nodes_per_second":  7283500
+                               }
+                   }
+}

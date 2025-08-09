@@ -1,0 +1,51 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "real_lexer_performance",
+                     "timestamp":  "2025-08-09T09:58:29Z",
+                     "test_file":  "D:\\Projects\\Rust\\seenlang\\performance_validation\\benchmarks\\lexer\\..\\..\\test_data\\large_codebases\\test_input.seen",
+                     "file_size":  59275,
+                     "iterations":  2
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "tokens_per_second":  834737,
+                                    "max_time":  0.0115377,
+                                    "times":  [
+                                                  0.0115377,
+                                                  0.0062149
+                                              ],
+                                    "average_time":  0.0088763,
+                                    "min_time":  0.0062149,
+                                    "file_size":  59275,
+                                    "timestamp":  "2025-08-09T09:58:30Z",
+                                    "benchmark":  "lexer",
+                                    "language":  "seen",
+                                    "std_dev":  0.0026614,
+                                    "iterations":  2
+                                },
+                       "rust":  {
+                                    "language":  "rust",
+                                    "benchmark":  "lexer",
+                                    "iterations":  2,
+                                    "tokens_processed":  11332,
+                                    "times":  [
+                                                  0.0007854,
+                                                  0.0007616
+                                              ],
+                                    "average_time":  0.0007735,
+                                    "tokens_per_second":  14650290.885585003
+                                },
+                       "cpp":  {
+                                   "language":  "cpp",
+                                   "benchmark":  "lexer",
+                                   "iterations":  2,
+                                   "tokens_processed":  11334,
+                                   "times":  [
+                                                 0.000553,
+                                                 0.000641
+                                             ],
+                                   "average_time":  0.000597,
+                                   "tokens_per_second":  18984900
+                               }
+                   }
+}

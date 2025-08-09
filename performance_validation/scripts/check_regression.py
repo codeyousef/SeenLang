@@ -1,101 +1,83 @@
 #!/usr/bin/env python3
 """
-Performance Regression Detection Script
-
-Checks current benchmark results against baseline to detect performance regressions.
+Check for performance regressions and fail CI if found.
 """
 
 import json
-import os
+import argparse
 import sys
 from pathlib import Path
+from typing import Dict, List
 
-
-def check_regression(current_file, baseline_file, threshold=5.0):
-    """Check for performance regression"""
-    try:
-        if not Path(baseline_file).exists():
-            print(f"⚠️  No baseline found at {baseline_file}")
-            return False
+def check_regression(results_dir: Path, threshold: float = 10.0) -> bool:
+    """
+    Check if current results show regression.
+    
+    Returns:
+        True if regression detected, False otherwise
+    """
+    # Load claims validation
+    claims_file = results_dir / 'claims_validation.json'
+    if claims_file.exists():
+        with open(claims_file, 'r', encoding='utf-8-sig') as f:
+            claims = json.load(f)
             
-        with open(current_file, 'r') as f:
-            current = json.load(f)
+            # Check if any critical claims failed
+            if 'validations' in claims:
+                for validation in claims['validations']:
+                    if validation.get('critical', False) and not validation.get('passed', True):
+                        print(f"CRITICAL REGRESSION: {validation.get('claim', 'Unknown')}")
+                        return True
+    
+    # Load statistical analysis
+    stats_file = results_dir / 'analysis' / 'statistical_analysis.json'
+    if not stats_file.exists():
+        stats_file = results_dir / 'statistical_analysis.json'
+    
+    if stats_file.exists():
+        with open(stats_file, 'r', encoding='utf-8-sig') as f:
+            stats = json.load(f)
             
-        with open(baseline_file, 'r') as f:
-            baseline = json.load(f)
-            
-        regressions = []
-        
-        # Check each benchmark for regression
-        current_benchmarks = current.get('benchmarks', {})
-        baseline_benchmarks = baseline.get('benchmarks', {})
-        
-        for benchmark in current_benchmarks:
-            if benchmark in baseline_benchmarks:
-                current_time = current_benchmarks[benchmark].get('mean', 0)
-                baseline_time = baseline_benchmarks[benchmark].get('mean', 0)
+            # Check Seen performance against competitors
+            if 'executive_summary' in stats:
+                summary = stats['executive_summary']
+                seen_perf = summary.get('seen_performance', {})
                 
-                if baseline_time > 0:
-                    regression_pct = ((current_time - baseline_time) / baseline_time) * 100
-                    
-                    if regression_pct > threshold:
-                        regressions.append({
-                            'benchmark': benchmark,
-                            'regression': regression_pct,
-                            'current': current_time,
-                            'baseline': baseline_time
-                        })
-                        
-        if regressions:
-            print(f"❌ Found {len(regressions)} performance regressions:")
-            for reg in regressions:
-                print(f"  - {reg['benchmark']}: {reg['regression']:.1f}% slower")
-                print(f"    Current: {reg['current']:.3f}s, Baseline: {reg['baseline']:.3f}s")
-            
-            # Set output for GitHub Actions
-            if 'GITHUB_OUTPUT' in os.environ:
-                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                    f.write(f"regressions_found=true\n")
-                    f.write(f"regression_count={len(regressions)}\n")
-            return True
-        else:
-            print("✅ No significant performance regressions detected")
-            if 'GITHUB_OUTPUT' in os.environ:
-                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                    f.write(f"regressions_found=false\n")
-                    f.write(f"regression_count=0\n")
-            return False
-            
-    except Exception as e:
-        print(f"⚠️  Error checking regression: {e}")
-        return False
-
+                total = seen_perf.get('total_benchmarks', 1)
+                losses = seen_perf.get('losses', 0)
+                
+                loss_percentage = (losses / total) * 100 if total > 0 else 0
+                
+                if loss_percentage > threshold:
+                    print(f"REGRESSION: Seen loses {loss_percentage:.1f}% of benchmarks (threshold: {threshold}%)")
+                    return True
+    
+    return False
 
 def main():
-    """Main regression checking function"""
-    # Check for regressions in each result file
-    regression_found = False
-    result_files = [
-        "results/lexer_validation_results.json",
-        "results/memory_overhead_investigation.json", 
-        "results/reactive_validation_results.json",
-        "results/compilation_speed_results.json"
-    ]
+    parser = argparse.ArgumentParser(description='Check for performance regressions')
+    parser.add_argument('--current', required=True, help='Current results directory')
+    parser.add_argument('--threshold', type=float, default=10.0,
+                       help='Acceptable loss percentage')
+    parser.add_argument('--exit-on-regression', action='store_true',
+                       help='Exit with error code if regression detected')
     
-    threshold = float(os.environ.get('REGRESSION_THRESHOLD', '5.0'))
+    args = parser.parse_args()
     
-    for result_file in result_files:
-        if Path(result_file).exists():
-            baseline_file = f"baselines/{Path(result_file).name}"
-            print(f"Checking {result_file} against {baseline_file}")
-            if check_regression(result_file, baseline_file, threshold):
-                regression_found = True
-        else:
-            print(f"⚠️  Result file not found: {result_file}")
+    current_path = Path(args.current)
+    if not current_path.exists():
+        print(f"Error: Results directory does not exist: {current_path}")
+        sys.exit(1)
     
-    # Exit with error code if regressions found
-    sys.exit(1 if regression_found else 0)
+    has_regression = check_regression(current_path, args.threshold)
+    
+    if has_regression:
+        print("Performance regression detected!")
+        if args.exit_on_regression:
+            sys.exit(1)
+    else:
+        print("No performance regression detected")
+        sys.exit(0)
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -11,6 +11,7 @@ pub struct CodeGenerator {
     target_triple: String,
     optimization_level: u32,
     string_constants: std::collections::HashMap<String, usize>,
+    next_string_id: usize,
 }
 
 impl CodeGenerator {
@@ -22,6 +23,7 @@ impl CodeGenerator {
             target_triple: "x86_64-unknown-linux-gnu".to_string(),
             optimization_level: 2,
             string_constants: std::collections::HashMap::new(),
+            next_string_id: 0,
         }
     }
     
@@ -47,6 +49,9 @@ impl CodeGenerator {
     
     /// Generate LLVM IR from module
     pub fn generate_llvm_ir(&mut self, module: &Module) -> SeenResult<String> {
+        eprintln!("[DEBUG CodeGenerator] Starting LLVM IR generation for module: {}", module.name);
+        eprintln!("[DEBUG CodeGenerator] Module has {} functions", module.functions.len());
+        
         // Pre-calculate approximate size to avoid reallocations
         let estimated_size = module.functions.iter()
             .map(|f| f.blocks.iter().map(|b| b.instructions.len() * 50).sum::<usize>())
@@ -64,9 +69,25 @@ impl CodeGenerator {
             llvm_ir.push_str(&self.generate_debug_metadata());
         }
         
-        // Generate functions
+        // First pass: generate functions to collect all string constants
+        let mut function_irs = Vec::new();
         for function in &module.functions {
-            llvm_ir.push_str(&self.generate_function_ir(function)?);
+            eprintln!("[DEBUG CodeGenerator] Processing function: {}", function.name);
+            let func_ir = self.generate_function_ir(function)?;
+            function_irs.push(func_ir);
+        }
+        
+        eprintln!("[DEBUG CodeGenerator] After function generation, have {} string constants", self.string_constants.len());
+        
+        // Generate string constants BEFORE functions (they need to be declared first)
+        llvm_ir.push_str(&self.generate_string_constants());
+        
+        // Generate standard library function declarations BEFORE functions
+        llvm_ir.push_str(&self.generate_stdlib_declarations());
+        
+        // Now add the actual function definitions
+        for func_ir in function_irs {
+            llvm_ir.push_str(&func_ir);
             llvm_ir.push('\n');
         }
         
@@ -75,6 +96,7 @@ impl CodeGenerator {
             llvm_ir.push_str(&self.generate_debug_declarations());
         }
         
+        eprintln!("[DEBUG CodeGenerator] Final LLVM IR size: {} bytes", llvm_ir.len());
         Ok(llvm_ir)
     }
     
@@ -169,7 +191,16 @@ impl CodeGenerator {
                 
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 { ir.push_str(", "); }
-                    ir.push_str(&self.format_value(arg));
+                    // Handle string arguments specially for print functions
+                    if (func == "print" || func == "println") && matches!(arg, crate::Value::String(_)) {
+                        let str_ref = self.format_value(arg);
+                        let _ = write!(&mut ir, "i8* getelementptr inbounds ([{} x i8], [{} x i8]* {}, i32 0, i32 0)", 
+                            self.get_string_length(arg) + 1, 
+                            self.get_string_length(arg) + 1, 
+                            str_ref);
+                    } else {
+                        ir.push_str(&self.format_value(arg));
+                    }
                 }
                 ir.push(')');
             }
@@ -826,9 +857,17 @@ impl CodeGenerator {
             crate::Value::Boolean(val) => if *val { "1" } else { "0" }.to_string(),
             crate::Value::String(s) => {
                 // Generate a string constant reference
-                // Strings are stored as global constants
-                let str_id = self.string_constants.len();
-                self.string_constants.insert(s.clone(), str_id);
+                // Check if string already exists, reuse its ID if so
+                let str_id = if let Some(&existing_id) = self.string_constants.get(s) {
+                    println!("[DEBUG] Reusing string constant {}: '{}'", existing_id, s);
+                    existing_id
+                } else {
+                    let new_id = self.next_string_id;
+                    self.next_string_id += 1;
+                    println!("[DEBUG] Adding new string constant {}: '{}'", new_id, s);
+                    self.string_constants.insert(s.clone(), new_id);
+                    new_id
+                };
                 format!("@.str.{}", str_id)
             }
         }
@@ -934,5 +973,74 @@ impl CodeGenerator {
         }
         
         Ok(llvm_ir)
+    }
+    
+    /// Generate string constant declarations
+    fn generate_string_constants(&self) -> String {
+        println!("[DEBUG] generate_string_constants called with {} constants", self.string_constants.len());
+        for (text, id) in &self.string_constants {
+            println!("[DEBUG] String constant {}: '{}'", id, text);
+        }
+        
+        if self.string_constants.is_empty() {
+            return String::new();
+        }
+        
+        let mut result = String::with_capacity(self.string_constants.len() * 80);
+        result.push_str("\n; String constants\n");
+        
+        // Sort by ID to ensure consistent order
+        let mut constants: Vec<(&String, &usize)> = self.string_constants.iter().collect();
+        constants.sort_by_key(|(_, &id)| id);
+        
+        for (text, &id) in constants {
+            // Escape string for LLVM IR
+            let escaped = text
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\0A")
+                .replace("\r", "\\0D")
+                .replace("\t", "\\09");
+            
+            result.push_str(&format!(
+                "@.str.{} = private unnamed_addr constant [{} x i8] c\"{}\\00\", align 1\n", 
+                id, escaped.len() + 1, escaped
+            ));
+        }
+        result.push('\n');
+        result
+    }
+    
+    /// Generate standard library function declarations
+    fn generate_stdlib_declarations(&self) -> String {
+        let mut result = String::with_capacity(400);
+        result.push_str("; Standard library function declarations\n");
+        result.push_str("declare i32 @printf(i8*, ...)\n");
+        result.push_str("declare i32 @puts(i8*)\n");
+        result.push_str("\n");
+        
+        // Generate wrapper functions for Seen's print functions
+        result.push_str("; Seen print function wrappers\n");
+        result.push_str("define void @print(i8* %str) {\n");
+        result.push_str("entry:\n");
+        result.push_str("  %result = call i32 @printf(i8* %str)\n");
+        result.push_str("  ret void\n");
+        result.push_str("}\n\n");
+        
+        result.push_str("define void @println(i8* %str) {\n");
+        result.push_str("entry:\n");
+        result.push_str("  %result = call i32 @puts(i8* %str)\n");
+        result.push_str("  ret void\n");
+        result.push_str("}\n\n");
+        
+        result
+    }
+    
+    /// Get the length of a string value
+    fn get_string_length(&self, value: &crate::Value) -> usize {
+        match value {
+            crate::Value::String(s) => s.len(),
+            _ => 0,
+        }
     }
 }

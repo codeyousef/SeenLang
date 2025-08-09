@@ -3,6 +3,7 @@
 use crate::ast::*;
 use seen_lexer::{Token, TokenType};
 use seen_common::{SeenResult, Diagnostics, Span, Spanned, SeenError};
+use std::borrow::Cow;
 
 /// Parser for the Seen language
 pub struct Parser {
@@ -84,11 +85,10 @@ impl Parser {
         // Parse attributes first
         let attributes = self.parse_attributes()?;
         
-        // Debug: Print current token
-        #[cfg(test)]
-        if let Some(token) = self.current_token() {
-            eprintln!("parse_item: Current token = {:?}", token);
-        }
+        // Debug: Print current token (disabled)
+        // if let Some(token) = self.current_token() {
+        //     eprintln!("parse_item: Current token = {:?}", token);
+        // }
         
         if let Some(token) = self.current_token() {
             match &token.value {
@@ -137,9 +137,13 @@ impl Parser {
                     "enum" => self.parse_enum(),
                     "trait" => self.parse_trait(),
                     "impl" => self.parse_impl(),
+                    "use" | "import" => {
+                        self.advance(); // Consume the 'use' or 'import' token
+                        self.parse_import()
+                    },
                     _ => {
-                        eprintln!("parse_item: Unexpected identifier '{}'", name);
-                        self.error("Expected 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', 'inline', 'tailrec', 'operator', 'infix', or 'typealias'");
+                        // eprintln!("parse_item: Unexpected identifier '{}'", name); // Debug disabled
+                        self.error("Expected 'use', 'fun', 'struct', 'enum', 'extension', 'data', 'sealed', 'inline', 'tailrec', 'operator', 'infix', or 'typealias'");
                         Err(seen_common::SeenError::parse_error("Unexpected token"))
                     }
                 }
@@ -748,6 +752,110 @@ impl Parser {
         
         Ok(Item {
             kind: ItemKind::Struct(struct_def),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    fn parse_import(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        
+        // 'use' or 'import' has already been consumed
+        
+        // Parse the import path (e.g., std.io, std.collections.Vec)
+        let mut segments: Vec<seen_common::Spanned<&'static str>> = vec![];
+        let first_segment = self.expect_identifier_value()?;
+        let first_segment_static: &'static str = first_segment.leak();
+        segments.push(seen_common::Spanned::new(first_segment_static, self.previous_span()));
+        
+        while self.match_token(&TokenType::Dot) {
+            if self.check(&TokenType::Multiply) {
+                // Glob import: use std.io.*
+                self.advance();
+                let path = ImportPath {
+                    segments,
+                    span: start_span,
+                };
+                
+                let import = Import {
+                    path,
+                    kind: ImportKind::Glob,
+                    visibility: Visibility::Private,
+                };
+                
+                return Ok(Item {
+                    kind: ItemKind::Import(import),
+                    span: start_span,
+                    id: self.next_node_id(),
+                });
+            } else if self.check(&TokenType::LeftBrace) {
+                // List import: use std.collections.{Vec, HashMap}
+                self.advance();
+                let mut items = vec![];
+                
+                loop {
+                    let item_name = self.expect_identifier_value()?;
+                    let item_name_static: &'static str = item_name.leak();
+                    let item_span = self.previous_span();
+                    
+                    let alias = if self.match_identifier("as") {
+                        let alias_name = self.expect_identifier_value()?;
+                        let alias_name_static: &'static str = alias_name.leak();
+                        let alias_span = self.previous_span();
+                        Some(seen_common::Spanned::new(alias_name_static, alias_span))
+                    } else {
+                        None
+                    };
+                    
+                    items.push(ImportItem {
+                        name: seen_common::Spanned::new(item_name_static, item_span),
+                        alias,
+                    });
+                    
+                    if !self.match_token(&TokenType::Comma) {
+                        break;
+                    }
+                }
+                
+                self.expect_token(TokenType::RightBrace)?;
+                
+                let path = ImportPath {
+                    segments,
+                    span: start_span,
+                };
+                
+                let import = Import {
+                    path,
+                    kind: ImportKind::List(items),
+                    visibility: Visibility::Private,
+                };
+                
+                return Ok(Item {
+                    kind: ItemKind::Import(import),
+                    span: start_span,
+                    id: self.next_node_id(),
+                });
+            } else {
+                let next_segment = self.expect_identifier_value()?;
+                let next_segment_static: &'static str = next_segment.leak();
+                segments.push(seen_common::Spanned::new(next_segment_static, self.previous_span()));
+            }
+        }
+        
+        // Single import: use std.io
+        let path = ImportPath {
+            segments,
+            span: start_span,
+        };
+        
+        let import = Import {
+            path,
+            kind: ImportKind::Single,
+            visibility: Visibility::Private,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Import(import),
             span: start_span,
             id: self.next_node_id(),
         })

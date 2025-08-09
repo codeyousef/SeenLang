@@ -1,147 +1,179 @@
-# Ray Tracer Real-World Benchmark Runner
-# PowerShell script for testing ray tracing performance
-
+# Ray Tracer Benchmark Script
 param(
-    [int]$Iterations = 30,
-    [int]$Warmup = 5,
-    [string]$Output = "ray_tracer_results.json",
-    [string]$Competitors = "cpp,rust,zig",
-    [string]$TestSize = "medium",
-    [string]$Format = "json",
-    [switch]$Verbose,
-    [switch]$Help
+    [int]$Iterations = 5
 )
 
-if ($Help) {
-    Write-Host @"
-Ray Tracer Real-World Benchmark
-
-Usage: .\run_benchmark.ps1 [OPTIONS]
-
-DESCRIPTION:
-    Tests ray tracing performance on compute-intensive scenes.
-    Measures rendering time and memory usage.
-"@
-    exit 0
+$RAY_TRACER_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SEEN_CLI = "$PSScriptRoot\..\..\..\target\debug\seen.exe"
+if (-not (Test-Path $SEEN_CLI)) {
+    $SEEN_CLI = "$PSScriptRoot\..\..\..\target\release\seen.exe"
+}
+if (-not (Test-Path $SEEN_CLI)) {
+    $SEEN_CLI = "$PSScriptRoot\..\..\..\target-wsl\debug\seen"
+}
+if (-not (Test-Path $SEEN_CLI)) {
+    $SEEN_CLI = "$PSScriptRoot\..\..\..\target-wsl\release\seen"
 }
 
+Write-Host "Running Ray Tracer Benchmark..." -ForegroundColor Cyan
+
+# Define benchmark results
+$cppResults = @()
+$rustResults = @()
+$seenResults = @()
+
+# Run C++ version
+$CPP_EXE = "$PSScriptRoot\..\..\benchmarks\real_implementations\ray_tracer_bench_cpp.exe"
+if (Test-Path $CPP_EXE) {
+    Write-Host "Running C++ ray tracer..." -ForegroundColor Blue
+    
+    for ($i = 0; $i -lt $Iterations; $i++) {
+        # Always run C++ executable via WSL
+        $wslPath = $CPP_EXE -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1'
+        $wslPath = $wslPath.ToLower()
+        Write-Host "Executing C++ via WSL: $wslPath" -ForegroundColor Gray
+        $output = wsl bash -c "`"$wslPath`"" 2>&1
+        $outputStr = ($output -join " ").Trim()
+        Write-Host "C++ output: '$outputStr'" -ForegroundColor Gray
+        
+        if ($outputStr -match "([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)") {
+            $cppResults += @{
+                "render_time_ms" = [double]$matches[1]
+                "pixels_per_sec" = [double]$matches[2]
+                "memory_mb" = [double]$matches[3]
+            }
+        }
+    }
+    
+    if ($cppResults.Count -gt 0) {
+        $avgTime = ($cppResults | ForEach-Object { $_.render_time_ms } | Measure-Object -Average).Average
+        $avgPps = ($cppResults | ForEach-Object { $_.pixels_per_sec } | Measure-Object -Average).Average
+        Write-Host "C++ Average: $([math]::Round($avgTime, 1)) ms, $([math]::Round($avgPps / 1000000, 2))M pixels/s" -ForegroundColor Green
+    }
+}
+
+# Run Rust version
+$RUST_EXE = "$PSScriptRoot\..\..\benchmarks\real_implementations\ray_tracer_bench_rust.exe"
+if (Test-Path $RUST_EXE) {
+    Write-Host "Running Rust ray tracer..." -ForegroundColor Blue
+    
+    for ($i = 0; $i -lt $Iterations; $i++) {
+        # Always run Rust executable via WSL
+        $wslPath = $RUST_EXE -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1'
+        $wslPath = $wslPath.ToLower()
+        Write-Host "Executing Rust via WSL: $wslPath" -ForegroundColor Gray
+        $output = wsl bash -c "`"$wslPath`"" 2>&1
+        $outputStr = ($output -join " ").Trim()
+        Write-Host "Rust output: '$outputStr'" -ForegroundColor Gray
+        
+        if ($outputStr -match "([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)") {
+            $rustResults += @{
+                "render_time_ms" = [double]$matches[1]
+                "pixels_per_sec" = [double]$matches[2]
+                "memory_mb" = [double]$matches[3]
+            }
+        }
+    }
+    
+    if ($rustResults.Count -gt 0) {
+        $avgTime = ($rustResults | ForEach-Object { $_.render_time_ms } | Measure-Object -Average).Average
+        $avgPps = ($rustResults | ForEach-Object { $_.pixels_per_sec } | Measure-Object -Average).Average
+        Write-Host "Rust Average: $([math]::Round($avgTime, 1)) ms, $([math]::Round($avgPps / 1000000, 2))M pixels/s" -ForegroundColor Green
+    }
+}
+
+# Run Seen version  
+$SEEN_EXECUTABLE = "$RAY_TRACER_DIR\ray_tracer_benchmark\target\native\debug\ray_tracer_benchmark"
+
+# Try to build if executable doesn't exist
+if (-not (Test-Path $SEEN_EXECUTABLE)) {
+    Write-Host "Building Seen ray tracer benchmark..." -ForegroundColor Yellow
+    Push-Location "$RAY_TRACER_DIR\ray_tracer_benchmark"
+    & $SEEN_CLI build 2>&1 | Out-Null
+    Pop-Location
+}
+
+if (Test-Path $SEEN_EXECUTABLE) {
+    Write-Host "Running Seen ray tracer..." -ForegroundColor Blue
+    
+    for ($i = 0; $i -lt $Iterations; $i++) {
+        # Use WSL to execute the Linux binary if it doesn't have .exe extension
+        if ($SEEN_EXECUTABLE -notlike "*.exe") {
+            # Manual path conversion from Windows to WSL format
+            $wslPath = $SEEN_EXECUTABLE -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1'
+            $wslPath = $wslPath.ToLower()
+            Write-Host "Executing via WSL: $wslPath" -ForegroundColor Gray
+            $output = wsl bash -c "`"$wslPath`"" 2>&1
+            $exitCode = $LASTEXITCODE
+            Write-Host "WSL output: $($output -join ' ')" -ForegroundColor Gray
+            Write-Host "WSL exit code: $exitCode" -ForegroundColor Gray
+        } else {
+            $output = & $SEEN_EXECUTABLE 2>&1
+            $exitCode = $LASTEXITCODE
+            Write-Host "Exit code: $exitCode" -ForegroundColor Gray
+        }
+        
+        $outputStr = $output -join " "
+        Write-Host "Raw output string: '$outputStr'" -ForegroundColor Gray
+        
+        # Extract only the numeric line from output (ray_tracer outputs 4 values)
+        $numericLine = $output | Where-Object { $_ -match "^\s*([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s*$" }
+        Write-Host "Found numeric line: '$numericLine'" -ForegroundColor Gray
+        if ($exitCode -eq 0 -and $numericLine -and $numericLine -match "([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)") {
+            # Seen outputs: render_time_us pixels_per_sec_M memory_kb memory_mb
+            # Convert to consistent format: ms, pixels/sec, MB
+            $seenResults += @{
+                "render_time_ms" = [double]$matches[1] / 1000  # Convert microseconds to milliseconds
+                "pixels_per_sec" = [double]$matches[2] * 1000000  # Convert M pixels/sec to pixels/sec
+                "memory_mb" = [double]$matches[4]  # Use 4th value as memory in MB
+            }
+            Write-Host "Successfully parsed iteration $($i + 1): $([double]$matches[1])ms render, $([double]$matches[2]) pixels/s" -ForegroundColor Green
+        } else {
+            Write-Host "Failed to parse output on iteration $($i + 1). Exit code: $exitCode, Output: '$outputStr'" -ForegroundColor Red
+        }
+    }
+    
+    if ($seenResults.Count -gt 0) {
+        $avgTime = ($seenResults | ForEach-Object { $_.render_time_ms } | Measure-Object -Average).Average
+        $avgPps = ($seenResults | ForEach-Object { $_.pixels_per_sec } | Measure-Object -Average).Average
+        Write-Host "Seen Average: $([math]::Round($avgTime, 1)) ms, $([math]::Round($avgPps / 1000000, 2))M pixels/s" -ForegroundColor Green
+    }
+}
+
+# Save results
 $results = @{
     metadata = @{
         timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-        benchmark = "ray_tracer_real_world"
+        benchmark = "ray_tracer"
         iterations = $Iterations
-        application = "Ray Tracer"
     }
     benchmarks = @{}
 }
 
-Write-Host "[INFO] Starting ray tracer benchmark..." -ForegroundColor Blue
-Write-Host "[WARNING] Simulating ray tracer benchmark results" -ForegroundColor Yellow
-
-# Test scenes
-$scenes = @{
-    "simple" = @{ width = 800; height = 600; samples = 100 }
-    "complex" = @{ width = 1920; height = 1080; samples = 500 }
-}
-
-$seenResults = @{
-    render_times = @()
-    pixels_per_second = @()
-    memory_usage = @()
-    metadata = @{ language = "seen" }
-}
-
-for ($i = 0; $i -lt $Iterations; $i++) {
-    if ($Verbose) { Write-Host "  Iteration $($i + 1)/$Iterations" -ForegroundColor Gray }
-    
-    $totalTime = 0
-    $totalPixels = 0
-    $totalMemory = 0
-    
-    foreach ($sceneName in $scenes.Keys) {
-        $scene = $scenes[$sceneName]
-        $pixels = $scene.width * $scene.height
-        $samples = $scene.samples
-        
-        # Simulate rendering time (compute intensive)
-        $baseTime = ($pixels * $samples) / 50000000  # Base calculation
-        $renderTime = $baseTime * (Get-Random -Minimum 80 -Maximum 120) / 100.0
-        $memory = ($pixels * 4) / 1024 + (Get-Random -Minimum 100 -Maximum 500)  # MB
-        
-        $totalTime += $renderTime
-        $totalPixels += $pixels
-        $totalMemory += $memory
+if ($cppResults.Count -gt 0) {
+    $results.benchmarks.cpp = @{
+        "render_time_ms" = $cppResults | ForEach-Object { $_.render_time_ms }
+        "pixels_per_sec" = $cppResults | ForEach-Object { $_.pixels_per_sec }
+        "memory_mb" = $cppResults | ForEach-Object { $_.memory_mb }
     }
-    
-    $pixelsPerSec = $totalPixels / $totalTime
-    
-    $seenResults.render_times += $totalTime
-    $seenResults.pixels_per_second += $pixelsPerSec
-    $seenResults.memory_usage += $totalMemory
-    
-    Start-Sleep -Milliseconds 10
 }
 
-$results.benchmarks.seen = $seenResults
-
-# Add competitors
-$competitorList = $Competitors -split ',' | ForEach-Object { $_.Trim() }
-foreach ($competitor in $competitorList) {
-    Write-Host "[INFO] Testing $competitor ray tracer..." -ForegroundColor Blue
-    
-    $competitorResults = @{
-        render_times = @()
-        pixels_per_second = @()
-        memory_usage = @()
-        metadata = @{ language = $competitor }
+if ($rustResults.Count -gt 0) {
+    $results.benchmarks.rust = @{
+        "render_time_ms" = $rustResults | ForEach-Object { $_.render_time_ms }
+        "pixels_per_sec" = $rustResults | ForEach-Object { $_.pixels_per_sec }
+        "memory_mb" = $rustResults | ForEach-Object { $_.memory_mb }
     }
-    
-    for ($i = 0; $i -lt $Iterations; $i++) {
-        $totalTime = 0
-        $totalPixels = 0
-        $totalMemory = 0
-        
-        foreach ($sceneName in $scenes.Keys) {
-            $scene = $scenes[$sceneName]
-            $pixels = $scene.width * $scene.height
-            $samples = $scene.samples
-            
-            $baseTime = ($pixels * $samples) / 50000000
-            
-            # Different performance per language
-            $speedMultiplier = switch ($competitor) {
-                "cpp" { 0.85 }   # C++ fastest
-                "rust" { 0.90 }  # Rust close
-                "zig" { 0.88 }   # Zig similar to C++
-                default { 1.0 }
-            }
-            
-            $renderTime = $baseTime * $speedMultiplier * (Get-Random -Minimum 80 -Maximum 120) / 100.0
-            $memory = ($pixels * 4) / 1024 + (Get-Random -Minimum 80 -Maximum 400)
-            
-            $totalTime += $renderTime
-            $totalPixels += $pixels
-            $totalMemory += $memory
-        }
-        
-        $pixelsPerSec = $totalPixels / $totalTime
-        
-        $competitorResults.render_times += $totalTime
-        $competitorResults.pixels_per_second += $pixelsPerSec
-        $competitorResults.memory_usage += $totalMemory
-    }
-    
-    $results.benchmarks.$competitor = $competitorResults
 }
 
-# Display results
-$seenAvgTime = ($seenResults.render_times | Measure-Object -Average).Average
-$seenAvgPps = ($seenResults.pixels_per_second | Measure-Object -Average).Average
+if ($seenResults.Count -gt 0) {
+    $results.benchmarks.seen = @{
+        "render_time_ms" = $seenResults | ForEach-Object { $_.render_time_ms }
+        "pixels_per_sec" = $seenResults | ForEach-Object { $_.pixels_per_sec }
+        "memory_mb" = $seenResults | ForEach-Object { $_.memory_mb }
+    }
+}
 
-Write-Host "[INFO] Ray Tracer Results:" -ForegroundColor Blue
-Write-Host "Seen: $([math]::Round($seenAvgTime, 2))s, $([math]::Round($seenAvgPps / 1000000, 2))M pixels/s" -ForegroundColor White
-
-# Write results
-$results | ConvertTo-Json -Depth 10 | Out-File -FilePath $Output -Encoding UTF8
-Write-Host "[SUCCESS] Results written to: $Output" -ForegroundColor Green
-Write-Host "[INFO] Ray tracer benchmark completed" -ForegroundColor Blue
+$results | ConvertTo-Json -Depth 10 | Out-File -FilePath "ray_tracer_results.json" -Encoding UTF8
+Write-Host "Results saved to ray_tracer_results.json" -ForegroundColor Green
+Write-Output "Results saved to ray_tracer_results.json"  # For background job capture

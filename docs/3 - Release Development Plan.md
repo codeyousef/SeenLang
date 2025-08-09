@@ -1,30 +1,32 @@
-# [[Seen]] Language Release Phase Development Plan (RISC-V Enhanced)
+# Seen Language Release Phase Development Plan
 
-## Overview: Universal Architecture Leadership with RISC-V at the Forefront
+## Overview: Universal Architecture Leadership
 
-**Prerequisites**: Completed Beta with production RISC-V deployments (Steps 22-30) and enterprise tools  
-**Goal**: Stable 1.0 release with RISC-V as a primary platform alongside x86 and ARM  
-**Development Language**: **SEEN** (Running natively on RISC-V hardware in production)
+**Prerequisites**: Completed Beta with production deployments and enterprise tools  
+**Goal**: Stable 1.0 release with universal platform support  
+**Development Language**: **SEEN** (Running natively on all major architectures in production)
 
 **Core Release Requirements:**
-- Performance leadership across ALL architectures (x86, ARM, RISC-V)
-- RISC-V custom extension support framework
-- Hardware/software co-design tools for RISC-V
-- Academic validation of RISC-V optimizations
-- Industry-standard RISC-V certification
-- 100+ production RISC-V deployments
+- Performance leadership across ALL architectures (x86, ARM, RISC-V, WebAssembly)
+- Custom extension support framework
+- Hardware/software co-design tools
+- Academic validation
+- Industry-standard certification
+- 100+ production deployments
+- **Final tooling polish**: Installer and VSCode extension 1.0
+- **All keywords in TOML files**: Final verification
 
 ## Phase Structure
 
-### Milestone 10: Architecture Performance Leadership (Months 12-14)
+### Milestone 8: Architecture Performance Leadership (Months 11-12)
 
-#### Step 32: Comprehensive Cross-Architecture Benchmarks
+#### Step 35: Comprehensive Cross-Architecture Benchmarks
 
 **Tests Written First:**
-- [ ] Test: RISC-V beats ARM on power efficiency
-- [ ] Test: RVV matches AVX-512 on throughput
-- [ ] Test: RISC-V embedded beats Cortex-M on size
-- [ ] Test: Custom RISC-V extensions provide 2x speedup
+- [ ] Test: Each architecture performs optimally
+- [ ] Test: Vector extensions fully utilized (AVX-512, SVE2, RVV)
+- [ ] Test: Power efficiency optimal per platform
+- [ ] Test: Custom extensions provide speedup where available
 - [ ] Test: Reactive operators optimal on all architectures
 
 **Implementation:**
@@ -39,7 +41,8 @@ class ArchitectureBenchmarks {
         val architectures = listOf(
             X86_64(extensions = ["avx512"]),
             AArch64(extensions = ["sve2"]),
-            RiscV64(extensions = ["rvv1.0", "zfh"])
+            RiscV64(extensions = ["rvv1.0", "zfh"]),
+            WASM(features = ["simd128"])
         )
         
         for (arch in architectures) {
@@ -52,13 +55,9 @@ class ArchitectureBenchmarks {
                     .measure()
             }
             
-            // RISC-V should be competitive
-            when (arch) {
-                is RiscV64 -> {
-                    assert(results.throughput >= x86Results * 0.95)
-                    assert(results.powerEfficiency > armResults * 1.1)
-                }
-            }
+            // All architectures should be competitive
+            assert(results.throughput >= baseline * 0.95)
+            assert(results.powerEfficiency > baseline * efficiency_factor[arch])
         }
     }
     
@@ -69,16 +68,16 @@ class ArchitectureBenchmarks {
             x86_avx512 = benchAVX512(),
             arm_sve2 = benchSVE2(),
             riscv_rvv = benchRVV(),
-            riscv_custom = benchCustomVector()  // Custom extensions
+            wasm_simd = benchWASMSIMD()
         )
         
-        // RISC-V with custom extensions should lead
-        assert(comparison.riscv_custom > comparison.all.max() * 1.2)
+        // Each should excel in its domain
+        verifyOptimalPerformance(comparison)
     }
 }
 ```
 
-#### Step 33: RISC-V Custom Extension Framework
+#### Step 36: Custom Extension Framework
 
 **Tests Written First:**
 - [ ] Test: Custom instructions integrate seamlessly
@@ -90,25 +89,32 @@ class ArchitectureBenchmarks {
 **Implementation:**
 
 ```seen
-// Framework for RISC-V custom extensions
+// Framework for custom extensions (any architecture)
 @compiler_extension
-class RiscVCustomExtensions {
+class CustomExtensions {
     
     // Define custom instruction
-    @custom_instruction(
-        opcode = 0x7b,
-        funct3 = 0x0,
-        funct7 = 0x00
-    )
-    fun customVectorOp(
-        @rs1 src1: VectorReg,
-        @rs2 src2: VectorReg,
-        @rd dest: VectorReg
+    @custom_instruction
+    fun defineInstruction(
+        name: String,
+        semantics: Semantics,
+        pattern: Pattern,
+        architecture: Architecture
     ) {
-        // Compiler will emit custom instruction
-        asm("""
-            .insn r 0x7b, 0x0, 0x00, $dest, $src1, $src2
-        """)
+        val instruction = CustomInstruction(
+            name = name,
+            semantics = semantics,
+            pattern = pattern,
+            arch = architecture
+        )
+        
+        // Register with compiler
+        Compiler.registerInstruction(instruction)
+        
+        // Update pattern matcher
+        PatternMatcher.addPattern(pattern, instruction)
+        
+        return instruction
     }
     
     // Pattern matching for automatic use
@@ -126,30 +132,22 @@ class RiscVCustomExtensions {
         }
     }
     
-    // Vendor-specific extensions
-    @vendor_extension("sifive")
-    class SiFiveExtensions {
-        @instruction("sf.vqmaccu.4x8x4")
-        external fun quantizedMatMul(
-            a: Matrix<Int8>,
-            b: Matrix<Int8>,
-            c: Matrix<Int32>
-        ): Matrix<Int32>
+    // Vendor-specific extensions (examples)
+    @vendor_extension("intel")
+    class IntelExtensions {
+        @instruction("vpdpbusd")
+        external fun dotProduct(a: Vector<Int8>, b: Vector<UInt8>): Vector<Int32>
     }
     
-    @vendor_extension("thead")
-    class THeadExtensions {
-        @instruction("th.vmaqa")
-        external fun matrixAccumulate(
-            a: Vector<Int8>,
-            b: Vector<Int8>,
-            acc: Vector<Int32>
-        ): Vector<Int32>
+    @vendor_extension("arm")
+    class ARMExtensions {
+        @instruction("sdot")
+        external fun signedDotProduct(a: Vector<Int8>, b: Vector<Int8>): Vector<Int32>
     }
 }
 ```
 
-#### Step 34: Hardware/Software Co-Design Tools
+#### Step 37: Hardware/Software Co-Design Tools
 
 **Tests Written First:**
 - [ ] Test: HDL generation from Seen code works
@@ -161,8 +159,8 @@ class RiscVCustomExtensions {
 **Implementation:**
 
 ```seen
-// Hardware/software co-design for RISC-V
-class RiscVCoDesign {
+// Hardware/software co-design
+class HardwareCoDesign {
     
     // Generate Verilog from high-level description
     @generate_hdl
@@ -206,7 +204,7 @@ class RiscVCoDesign {
             power = PowerModel.estimate(design, results),
             area = AreaModel.estimate(design),
             
-            // RISC-V specific metrics
+            // Architecture-specific metrics
             vectorUtilization = results.vectorOps / results.totalOps,
             memoryBandwidth = results.memBytes / results.time,
             
@@ -215,38 +213,12 @@ class RiscVCoDesign {
             suggestions = generateOptimizations(results)
         )
     }
-    
-    // Automatic verification
-    fun generateVerification(
-        design: HardwareDesign
-    ): VerificationSuite {
-        
-        return VerificationSuite(
-            // Formal verification
-            formal = FormalVerification(
-                properties = extractProperties(design),
-                solver = "z3"
-            ),
-            
-            // Random testing
-            random = RandomTesting(
-                generator = ConstrainedRandom(design.constraints),
-                coverage = CoverageGoals(design)
-            ),
-            
-            // Directed tests
-            directed = DirectedTests(
-                corners = findCornerCases(design),
-                stress = generateStressTests(design)
-            )
-        )
-    }
 }
 ```
 
-### Milestone 11: RISC-V Ecosystem Leadership (Months 14-16)
+### Milestone 9: Ecosystem Leadership (Months 12-13)
 
-#### Step 35: RISC-V Developer Certification
+#### Step 38: Developer Certification
 
 **Tests Written First:**
 - [ ] Test: Certification exam comprehensive
@@ -258,11 +230,11 @@ class RiscVCoDesign {
 **Implementation:**
 
 ```seen
-// RISC-V certification program
-class RiscVCertification {
+// Developer certification program
+class DeveloperCertification {
     
     enum CertificationLevel {
-        FOUNDATION,    // Basic RISC-V knowledge
+        FOUNDATION,    // Basic knowledge
         PROFESSIONAL,  // Production development
         EXPERT,       // Architecture & optimization
         ARCHITECT     // Custom extensions & co-design
@@ -272,41 +244,41 @@ class RiscVCertification {
         return CertificationPath(
             foundation = FoundationCourse(
                 modules = listOf(
-                    "RISC-V ISA Basics",
-                    "Base Instructions",
-                    "Standard Extensions",
+                    "Seen Language Basics",
+                    "Type System",
                     "Memory Model",
-                    "Privilege Modes"
+                    "Reactive Programming",
+                    "Multi-Architecture Development"
                 ),
-                project = "Build a RISC-V Emulator in Seen",
+                project = "Build a cross-platform application",
                 exam = OnlineExam(questions = 100, passingScore = 80)
             ),
             
             professional = ProfessionalCourse(
                 modules = listOf(
-                    "Vector Programming",
                     "Performance Optimization",
-                    "Embedded Development",
-                    "Linux on RISC-V",
-                    "Debugging & Profiling"
+                    "Multi-platform Deployment",
+                    "Debugging & Profiling",
+                    "Package Creation",
+                    "Production Best Practices"
                 ),
-                project = "Optimize a Real Application for RVV",
+                project = "Optimize application for multiple architectures",
                 exam = ProctoredExam(questions = 150, passingScore = 85),
-                hardware = "Must complete on real RISC-V hardware"
+                hardware = "Must test on real hardware (x86, ARM, or RISC-V)"
             ),
             
             expert = ExpertCourse(
                 modules = listOf(
-                    "Microarchitecture",
+                    "Compiler Internals",
                     "Custom Extensions",
-                    "Compiler Optimization",
-                    "Hardware/Software Interface",
+                    "Architecture-Specific Tuning",
+                    "Hardware/Software Co-Design",
                     "Security Architecture"
                 ),
                 project = "Design and Implement Custom Extension",
                 exam = PracticalExam(
                     tasks = listOf(
-                        "Optimize compiler for specific RISC-V CPU",
+                        "Optimize compiler for specific CPU",
                         "Debug performance issue with hardware counters",
                         "Design custom instruction for workload"
                     )
@@ -317,10 +289,10 @@ class RiscVCertification {
 }
 ```
 
-#### Step 36: Academic Research Validation
+#### Step 39: Academic Research Validation
 
 **Tests Written First:**
-- [ ] Test: Research papers cite Seen RISC-V
+- [ ] Test: Research papers cite Seen
 - [ ] Test: University courses use platform
 - [ ] Test: Student projects successful
 - [ ] Test: Benchmarks academically validated
@@ -330,7 +302,7 @@ class RiscVCertification {
 
 ```seen
 // Academic research platform
-class RiscVResearch {
+class AcademicResearch {
     
     // Architecture exploration
     fun exploreNewExtension(
@@ -338,7 +310,7 @@ class RiscVResearch {
     ): ResearchResults {
         
         // Implement in simulator
-        val simulator = SpikeSimulator()
+        val simulator = ArchSimulator()
         simulator.addExtension(proposal)
         
         // Compiler support
@@ -351,8 +323,8 @@ class RiscVResearch {
         
         // Run experiments
         val results = Experiment(
-            baseline = runBenchmarks(RV64GC, benchmarks),
-            extended = runBenchmarks(RV64GC + proposal, benchmarks),
+            baseline = runBenchmarks(BaseArch, benchmarks),
+            extended = runBenchmarks(BaseArch + proposal, benchmarks),
             
             // Detailed analysis
             speedup = calculateSpeedup(),
@@ -376,7 +348,7 @@ class RiscVResearch {
     // Educational materials
     fun createCourseMaterial(): Course {
         return Course(
-            title = "Computer Architecture with RISC-V and Seen",
+            title = "Computer Architecture with Seen",
             
             labs = listOf(
                 Lab("Build a 5-stage pipeline"),
@@ -387,12 +359,12 @@ class RiscVResearch {
             ),
             
             projects = listOf(
-                Project("RISC-V CPU in Seen-generated Verilog"),
-                Project("Compiler optimization for RVV"),
+                Project("CPU in Seen-generated Verilog"),
+                Project("Compiler optimization for SIMD"),
                 Project("Custom accelerator design")
             ),
             
-            tools = SeenEducationalTools(
+            tools = EducationalTools(
                 visualizer = PipelineVisualizer(),
                 simulator = InteractiveSimulator(),
                 profiler = EducationalProfiler()
@@ -402,11 +374,11 @@ class RiscVResearch {
 }
 ```
 
-#### Step 37: Industry Standardization
+#### Step 40: Industry Standardization
 
 **Tests Written First:**
-- [ ] Test: Seen represents RISC-V best practices
-- [ ] Test: Compatibility with all RVI profiles
+- [ ] Test: Seen represents best practices
+- [ ] Test: Compatibility with all profiles
 - [ ] Test: Compliance test suite passes
 - [ ] Test: Vendor extensions documented
 - [ ] Test: Interoperability verified
@@ -414,76 +386,60 @@ class RiscVResearch {
 **Implementation:**
 
 ```seen
-// RISC-V standards compliance
-class RiscVStandardization {
+// Standards compliance
+class StandardsCompliance {
     
-    // Profile compliance
-    @validate_profile("RVA23")
-    fun validateRVA23Compliance(): ComplianceReport {
-        val required = RVA23.mandatoryExtensions
-        val optional = RVA23.optionalExtensions
+    // Architecture profile compliance
+    @validate_profiles
+    fun validateCompliance(): ComplianceReport {
+        val architectures = listOf("x86", "arm", "riscv", "wasm")
+        val reports = List<ComplianceReport>()
         
+        for (arch in architectures) {
+            reports.add(validateArchitecture(arch))
+        }
+        
+        return ComplianceReport.aggregate(reports)
+    }
+    
+    // Safety standards
+    @iso_26262  // Automotive safety
+    fun automotiveCompliance(): ComplianceReport {
         return ComplianceReport(
-            mandatory = required.map { ext ->
-                ExtensionCompliance(
-                    name = ext,
-                    implemented = hasExtension(ext),
-                    tests = runComplianceTests(ext),
-                    performance = benchmarkExtension(ext)
-                )
-            },
-            
-            optional = optional.map { ext ->
-                OptionalCompliance(
-                    name = ext,
-                    rationale = if (!hasExtension(ext)) 
-                        provideRationale(ext) 
-                    else null
-                )
-            },
-            
-            certification = RISCVInternational.certify(this)
+            standard = "ISO 26262",
+            level = "ASIL-D",
+            evidence = [
+                "Formal verification proofs",
+                "Test coverage reports",
+                "Traceability matrix",
+                "Safety analysis"
+            ],
+            toolQualification = qualifyTools()
         )
     }
     
-    // Contribute to standards
-    fun proposeStandardExtension(
-        extension: ProposedExtension
-    ): StandardsProposal {
-        
-        return StandardsProposal(
-            specification = extension.toAsciiDoc(),
-            rationale = extension.rationale,
-            
-            implementation = ImplementationProof(
-                compiler = SeenCompiler.implementation(extension),
-                simulator = Spike.implementation(extension),
-                hardware = FPGAPrototype(extension),
-                tests = ComplianceTests(extension)
-            ),
-            
-            benchmarks = BenchmarkResults(
-                speedup = measureSpeedup(extension),
-                codeSize = measureCodeSize(extension),
-                power = measurePower(extension)
-            ),
-            
-            ecosystem = EcosystemReadiness(
-                toolchain = ToolchainSupport(extension),
-                libraries = LibrarySupport(extension),
-                applications = ApplicationUsage(extension)
-            )
+    @do_178c  // Aviation safety
+    fun aviationCompliance(): ComplianceReport {
+        return ComplianceReport(
+            standard = "DO-178C",
+            level = "Level A",
+            evidence = [
+                "MC/DC coverage",
+                "Formal methods supplement",
+                "Tool qualification data",
+                "Certification artifacts"
+            ]
         )
     }
 }
 ```
 
-### Milestone 12: RISC-V Global Adoption (Months 16-18)
+### Milestone 10: Global Adoption (Months 13-14)
 
-#### Step 38: Specialized RISC-V Markets
+#### Step 41: Specialized Markets
 
 **Tests Written First:**
-- [ ] Test: Space-qualified RISC-V support
+- [ ] Test: Space-qualified support
 - [ ] Test: Automotive ASIL-D compliance
 - [ ] Test: Medical device certification
 - [ ] Test: Aviation DO-178C compliance
@@ -492,12 +448,12 @@ class RiscVStandardization {
 **Implementation:**
 
 ```seen
-// Specialized RISC-V deployments
-class SpecializedRiscV {
+// Specialized deployments
+class SpecializedMarkets {
     
     @space_qualified
-    class SpaceRiscV {
-        // Radiation-hardened RISC-V
+    class SpaceComputing {
+        // Radiation-hardened computing
         @triple_modular_redundancy
         fun criticalComputation(input: Data): Result {
             // Run on three cores, vote on result
@@ -521,7 +477,7 @@ class SpecializedRiscV {
     }
     
     @automotive("ASIL-D")
-    class AutomotiveRiscV {
+    class AutomotiveSafety {
         // Safety-critical automotive
         @lockstep
         fun safetyFunction(): SafetyResult {
@@ -536,26 +492,15 @@ class SpecializedRiscV {
             
             return primary
         }
-        
-        @iso26262_compliant
-        fun developmentProcess(): Process {
-            return Process(
-                requirements = TraceableRequirements(),
-                design = FormalDesign(),
-                implementation = CertifiedCompiler(),
-                verification = ExhaustiveVerification(),
-                validation = HardwareInLoopTesting()
-            )
-        }
     }
 }
 ```
 
-#### Step 39: RISC-V Performance Leadership
+#### Step 42: Performance Leadership
 
 **Tests Written First:**
 - [ ] Test: Beats all architectures on efficiency
-- [ ] Test: Custom extensions provide 10x on AI
+- [ ] Test: Custom extensions provide major speedups
 - [ ] Test: Reactive streams fully optimized
 - [ ] Test: Power/performance best in class
 - [ ] Test: Scalable from embedded to HPC
@@ -563,31 +508,26 @@ class SpecializedRiscV {
 **Implementation:**
 
 ```seen
-// Ultimate RISC-V performance
-class RiscVPerformanceLeader {
+// Ultimate performance demonstration
+class PerformanceLeader {
     
     fun demonstrateSupremacy(): BenchmarkResults {
         val workloads = Workloads.all()
         
         return workloads.map { workload ->
             val results = runOn(AllArchitectures) { arch ->
-                when (arch) {
-                    is RiscV -> {
-                        // Use optimal RISC-V configuration
-                        val config = selectOptimalConfig(workload)
-                        val custom = selectCustomExtensions(workload)
-                        
-                        runOptimized(workload, config, custom)
-                    }
-                    else -> runStandard(workload)
-                }
+                // Use optimal configuration for each architecture
+                val config = selectOptimalConfig(workload, arch)
+                val custom = selectCustomExtensions(workload, arch)
+                
+                runOptimized(workload, config, custom)
             }
             
             WorkloadResult(
                 name = workload.name,
-                riscvSpeedup = results.riscv / results.best_other,
-                powerEfficiency = results.riscv_power / results.best_other_power,
-                codeSize = results.riscv_size / results.best_other_size
+                speedup = results.seen / results.best_competitor,
+                powerEfficiency = results.seen_power / results.competitor_power,
+                codeSize = results.seen_size / results.competitor_size
             )
         }
     }
@@ -599,85 +539,73 @@ class RiscVPerformanceLeader {
                 category = "Reactive Stream Processing",
                 metric = "events/second/watt",
                 value = 1_000_000_000,
-                hardware = "RISC-V with custom stream processor"
+                hardware = "Optimized for each architecture"
             ),
             
             Record(
                 category = "AI Inference",
                 metric = "TOPS/watt",
                 value = 100,
-                hardware = "RISC-V with vector + custom AI"
+                hardware = "With architecture-specific acceleration"
             ),
             
             Record(
                 category = "Embedded",
                 metric = "CoreMark/MHz/mW",
                 value = 50,
-                hardware = "RISC-V RV32EMC"
+                hardware = "Minimal configuration"
             )
         )
     }
 }
 ```
 
-#### Step 40: RISC-V Future Vision
+#### Step 43: Future Vision
 
 **Tests Written First:**
-- [ ] Test: Quantum-RISC-V hybrid works
+- [ ] Test: Quantum-classical hybrid works
 - [ ] Test: Neuromorphic extensions functional
-- [ ] Test: Photonic RISC-V feasible
-- [ ] Test: 3D stacked RISC-V efficient
+- [ ] Test: Photonic computing feasible
+- [ ] Test: 3D stacked architectures efficient
 - [ ] Test: Extreme scale (1M cores) works
 
 **Implementation:**
 
 ```seen
-// Future RISC-V innovations
-class RiscVFuture {
+// Future innovations
+class FutureVision {
     
     @quantum_classical_hybrid
-    class QuantumRiscV {
-        // Quantum acceleration for RISC-V
+    class QuantumHybrid {
+        // Quantum acceleration
         @quantum_instruction
         fun quantumFourierTransform(
             qubits: QuantumRegister
         ): QuantumRegister {
-            // Classical RISC-V controls quantum processor
+            // Classical processor controls quantum processor
             return QuantumProcessor.qft(qubits)
         }
         
         fun hybridAlgorithm(problem: OptimizationProblem) {
-            // Classical preprocessing on RISC-V
+            // Classical preprocessing
             val encoded = encodeToQubits(problem)
             
             // Quantum processing
             val quantum = quantumSolve(encoded)
             
-            // Classical postprocessing on RISC-V
+            // Classical postprocessing
             return decodeResult(quantum)
         }
     }
     
-    @neuromorphic
-    class NeuromorphicRiscV {
-        // Spike-based neural computation
-        @spiking_neural_network
-        fun processSpikes(
-            inputs: SpikeStream
-        ): SpikeStream {
-            // RISC-V with neuromorphic extensions
-            return NeuronArray.process(inputs)
-        }
-    }
-    
     @extreme_scale
-    class MillionCoreRiscV {
-        // Massive parallel RISC-V
+    class MassiveParallel {
+        // Massive parallel computing
         fun globalComputation(
             problem: Problem
         ): Solution {
-            // Distributed across 1M RISC-V cores
-            return DistributedRiscV(
+            // Distributed across millions of cores
+            return DistributedCompute(
                 cores = 1_000_000,
                 topology = "3D-torus",
                 memory = "distributed-shared"
@@ -689,30 +617,30 @@ class RiscVFuture {
 
 ## Release Command Interface Final
 
-### Complete 1.0 Commands with Full RISC-V Support
+### Complete 1.0 Commands
 
 ```bash
 # Architecture selection
+seen build --arch x86_64     # Build for x86-64
+seen build --arch aarch64    # Build for ARM64
 seen build --arch riscv64    # Build for RISC-V
-seen build --arch all         # Build for all architectures
-seen build --custom-ext myext # Include custom extension
+seen build --arch wasm       # Build for WebAssembly
+seen build --arch all        # Build for all architectures
 
-# RISC-V specific
-seen riscv --validate RVA23   # Validate profile compliance
-seen riscv --extensions       # List available extensions
-seen riscv --custom create    # Create custom extension
-seen riscv --hdl generate     # Generate hardware
+# Custom extensions
+seen custom create           # Create custom extension
+seen custom validate         # Validate extension
 
 # Cross-platform
-seen cross --from x86 --to riscv
-seen cross --universal        # Build for all architectures
+seen cross --from x86 --to arm
+seen cross --universal       # Build for all architectures
 
 # Performance
-seen bench --arch-compare     # Compare architectures
-seen bench --riscv-supreme    # Demonstrate RISC-V leadership
+seen bench --arch-compare    # Compare architectures
+seen bench --optimize        # Find optimal configuration
 
 # Certification
-seen cert --riscv-level expert
+seen cert --level expert
 seen cert --validate
 
 # Research
@@ -720,78 +648,55 @@ seen research --new-extension
 seen research --publish
 
 # Deployment
-seen deploy --edge riscv32
-seen deploy --cloud riscv64
-seen deploy --embedded rv32e
+seen deploy --edge
+seen deploy --cloud
+seen deploy --embedded
 ```
 
 ## Success Criteria for 1.0 Release
 
-### RISC-V Performance Leadership
+### Performance Leadership
 
-- [ ] **Efficiency**: 30% better perf/watt than ARM
-- [ ] **Throughput**: Matches x86 on compute
-- [ ] **Embedded**: 50% smaller than competition
+- [ ] **Efficiency**: Best perf/watt across all architectures
+- [ ] **Throughput**: Matches or exceeds competitors
+- [ ] **Embedded**: Smallest footprint available
 - [ ] **Vectors**: >90% utilization achieved
-- [ ] **Custom**: 10x speedup on specialized tasks
+- [ ] **Custom**: Major speedups from extensions
 
 ### Market Adoption
 
-- [ ] 100+ production RISC-V deployments
+- [ ] 100+ production deployments
 - [ ] 10+ hardware vendors supported
-- [ ] 1000+ packages with RISC-V builds
-- [ ] 10K+ certified RISC-V developers
+- [ ] 1000+ packages available
+- [ ] 10K+ certified developers
 - [ ] Academic adoption in 50+ universities
 
 ### Technical Excellence
 
-- [ ] All RVI profiles supported
+- [ ] All major architectures equally supported
 - [ ] Custom extension framework mature
 - [ ] Hardware co-design tools production-ready
 - [ ] Certification program established
 - [ ] Performance records achieved
+- [ ] **All keywords in TOML files verified**
+- [ ] **Installer and VSCode extension at 1.0**
 
 ## Long-term Roadmap (Post-1.0)
 
 ### Version 2.0 Vision (Years 2-3)
 
-- Universal RISC-V dominance
+- Universal architecture dominance
 - Custom silicon generation from Seen
 - Quantum-classical hybrid systems
 - Neuromorphic computing extensions
-- Exascale RISC-V systems
+- Exascale systems
 
 ### Version 3.0 Vision (Years 4-5)
 
-- RISC-V becomes primary architecture
-- Seen drives RISC-V standard evolution
+- Primary language for systems programming
+- Drive architecture standard evolution
 - Biological computing interfaces
-- Photonic RISC-V processors
-- Interplanetary RISC-V deployment
+- Photonic processors
+- Interplanetary deployment
 
-## Success Metrics & KPIs
-
-### RISC-V Metrics
-
-- Market share growth rate
-- Performance leadership margins
-- Custom extension adoption
-- Hardware vendor count
-- Developer certification rate
-
-### Quality Metrics
-
-- Profile compliance rate: 100%
-- Performance regression rate: <1%
-- Security vulnerability rate: 0
-- Customer satisfaction: >95%
-
-### Ecosystem Metrics
-
-- RISC-V package count: >10,000
-- Hardware platforms: >50
-- Universities teaching: >100
-- Research papers: >500/year
-- Industry adoptions: >1000
-
-The Seen language 1.0 release establishes RISC-V as a first-class platform alongside x86 and ARM, with superior efficiency, customizability, and scalability. Through custom extensions, hardware co-design tools, and comprehensive optimization, Seen on RISC-V delivers unmatched performance from embedded devices to supercomputers, positioning RISC-V as the architecture of the future.
+The Seen language 1.0 release establishes universal architecture support with superior efficiency, customizability, and scalability across all platforms from embedded devices to supercomputers.

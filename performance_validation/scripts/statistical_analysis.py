@@ -85,9 +85,18 @@ class BenchmarkAnalyzer:
         if data_path.is_file():
             # Single JSON file
             print(f"DEBUG: Processing single JSON file: {data_path}")
-            with open(data_path, 'r') as f:
-                raw_data = json.load(f)
-                data = self._parse_json_data(raw_data)
+            # Try different encodings in case of Windows PowerShell output
+            for encoding in ['utf-8', 'utf-8-sig', 'utf-16']:
+                try:
+                    with open(data_path, 'r', encoding=encoding) as f:
+                        raw_data = json.load(f)
+                        print(f"DEBUG: Successfully loaded JSON with encoding {encoding}, keys: {list(raw_data.keys())}")
+                        data = self._parse_json_data(raw_data)
+                        break
+                except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                    if encoding == 'utf-16':  # Last encoding to try
+                        raise e
+                    continue
         elif data_path.is_dir():
             # Directory of JSON files
             json_files = list(data_path.glob('*.json'))
@@ -586,10 +595,19 @@ def main():
     print("Performing statistical analysis...")
     analysis_results = analyzer.generate_comprehensive_analysis(benchmark_data)
     
-    # Save results
+    # Save results  
     results_file = args.output / 'statistical_analysis.json'
+    
+    def json_serializer(obj):
+        """Custom JSON serializer for analysis results."""
+        if hasattr(obj, '__dict__'):
+            # Convert dataclass objects to dictionaries
+            return obj.__dict__
+        # Convert other non-serializable objects to string
+        return str(obj)
+    
     with open(results_file, 'w') as f:
-        json.dump(analysis_results, f, indent=2, default=str)
+        json.dump(analysis_results, f, indent=2, default=json_serializer)
     print(f"Analysis results saved to {results_file}")
     
     # Generate plots if requested

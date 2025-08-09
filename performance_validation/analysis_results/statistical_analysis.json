@@ -1,0 +1,38 @@
+{
+  "summary": {
+    "total_benchmarks": 1,
+    "analysis_timestamp": "2025-08-09T11:14:11.221911",
+    "statistical_parameters": {
+      "min_samples": 30,
+      "significance_level": 0.05,
+      "outlier_removal": "IQR method"
+    }
+  },
+  "benchmarks": {
+    "real_lexer_performance": {
+      "languages": {},
+      "comparisons": {},
+      "rankings": [],
+      "statistical_summary": {}
+    }
+  },
+  "language_rankings": {},
+  "statistical_significance": {},
+  "executive_summary": {
+    "seen_performance": {
+      "wins": 0,
+      "losses": 0,
+      "ties": 1,
+      "total_benchmarks": 1
+    },
+    "key_findings": [],
+    "statistical_reliability": {
+      "total_samples_collected": 0,
+      "min_samples_per_test": Infinity,
+      "max_samples_per_test": 0,
+      "meets_minimum_requirements": true,
+      "bonferroni_correction_applied": false
+    },
+    "recommendations": []
+  }
+}

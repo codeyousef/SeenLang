@@ -1,0 +1,201 @@
+{
+  "summary": {
+    "total_benchmarks": 1,
+    "analysis_timestamp": "2025-08-09T12:08:31.811920",
+    "statistical_parameters": {
+      "min_samples": 30,
+      "significance_level": 0.05,
+      "outlier_removal": "IQR method"
+    }
+  },
+  "benchmarks": {
+    "real_lexer_performance": {
+      "languages": {
+        "seen": {
+          "summary": {
+            "mean": 0.005696950000000001,
+            "median": 0.005518449999999999,
+            "std_dev": 0.0005323685972456802,
+            "min_val": 0.0052832,
+            "max_val": 0.0064677,
+            "percentiles": {
+              "p25": 0.005382275,
+              "p50": 0.005518449999999999,
+              "p75": 0.005833125,
+              "p90": 0.00621387,
+              "p95": 0.006340785,
+              "p99": 0.0064423169999999995
+            },
+            "confidence_interval_95": [
+              0.004849832762323061,
+              0.006544067237676941
+            ],
+            "coefficient_variation": 0.09344800239526063,
+            "sample_size": 4,
+            "outliers_removed": 1
+          },
+          "raw_data": [
+            0.010141899999999999,
+            0.0064677,
+            0.0056216,
+            0.0054153,
+            0.0052832
+          ],
+          "memory_usage": null,
+          "metadata": {}
+        },
+        "rust": {
+          "summary": {
+            "mean": 0.0007575399999999999,
+            "median": 0.0007348,
+            "std_dev": 3.4821229156938146e-05,
+            "min_val": 0.0007293,
+            "max_val": 0.0008054,
+            "percentiles": {
+              "p25": 0.0007342,
+              "p50": 0.0007348,
+              "p75": 0.000784,
+              "p90": 0.0007968399999999999,
+              "p95": 0.00080112,
+              "p99": 0.0008045439999999999
+            },
+            "confidence_interval_95": [
+              0.0007143037333826266,
+              0.0008007762666173733
+            ],
+            "coefficient_variation": 0.04596619209142507,
+            "sample_size": 5,
+            "outliers_removed": 0
+          },
+          "raw_data": [
+            0.0007348,
+            0.0007342,
+            0.000784,
+            0.0007293,
+            0.0008054
+          ],
+          "memory_usage": null,
+          "metadata": {}
+        },
+        "cpp": {
+          "summary": {
+            "mean": 0.00056125,
+            "median": 0.0005614999999999999,
+            "std_dev": 1.707825127659927e-06,
+            "min_val": 0.000559,
+            "max_val": 0.000563,
+            "percentiles": {
+              "p25": 0.0005605,
+              "p50": 0.0005614999999999999,
+              "p75": 0.00056225,
+              "p90": 0.0005627000000000001,
+              "p95": 0.00056285,
+              "p99": 0.00056297
+            },
+            "confidence_interval_95": [
+              0.0005585324691162035,
+              0.0005639675308837965
+            ],
+            "coefficient_variation": 0.003042895550396306,
+            "sample_size": 4,
+            "outliers_removed": 1
+          },
+          "raw_data": [
+            0.000561,
+            0.000562,
+            0.000559,
+            0.000563,
+            0.000571
+          ],
+          "memory_usage": null,
+          "metadata": {}
+        }
+      },
+      "comparisons": {
+        "seen_vs_rust": {
+          "language_a": "seen",
+          "language_b": "rust",
+          "p_value": 0.0009881456018732047,
+          "test_statistic": 18.52467972045312,
+          "effect_size": 14.13239888102287,
+          "is_significant": "True",
+          "mean_difference": 0.004939410000000001,
+          "speedup_ratio": 0.13297290655526198,
+          "confidence_interval_difference": [
+            0.004308907942700506,
+            0.005569912057299496
+          ]
+        },
+        "seen_vs_cpp": {
+          "language_a": "seen",
+          "language_b": "cpp",
+          "p_value": 0.0009122370216901629,
+          "test_statistic": 19.29367585077247,
+          "effect_size": 13.642689028096344,
+          "is_significant": "True",
+          "mean_difference": 0.005135700000000001,
+          "speedup_ratio": 0.09851762785350054,
+          "confidence_interval_difference": [
+            0.004484367133670017,
+            0.005787032866329984
+          ]
+        },
+        "rust_vs_cpp": {
+          "language_a": "rust",
+          "language_b": "cpp",
+          "p_value": 0.0006642313490428366,
+          "test_statistic": 12.585982835941193,
+          "effect_size": 7.450436205386403,
+          "is_significant": "True",
+          "mean_difference": 0.0001962899999999999,
+          "speedup_ratio": 0.7408849697705733,
+          "confidence_interval_difference": [
+            0.0001594115058533457,
+            0.00023316849414665408
+          ]
+        }
+      },
+      "rankings": [
+        {
+          "language": "cpp",
+          "mean_time": 0.00056125
+        },
+        {
+          "language": "rust",
+          "mean_time": 0.0007575399999999999
+        },
+        {
+          "language": "seen",
+          "mean_time": 0.005696950000000001
+        }
+      ],
+      "statistical_summary": {}
+    }
+  },
+  "language_rankings": {},
+  "statistical_significance": {},
+  "executive_summary": {
+    "seen_performance": {
+      "wins": 0,
+      "losses": 1,
+      "ties": 0,
+      "total_benchmarks": 1
+    },
+    "key_findings": [
+      "Seen shows statistically significant performance differences in 2 comparisons",
+      "Significant wins: 0, Significant losses: 2",
+      "Large effect sizes (>0.8) found in 2 comparisons"
+    ],
+    "statistical_reliability": {
+      "total_samples_collected": 13,
+      "min_samples_per_test": 4,
+      "max_samples_per_test": 5,
+      "meets_minimum_requirements": false,
+      "bonferroni_correction_applied": true
+    },
+    "recommendations": [
+      "Increase sample size to at least 30 for more reliable results",
+      "Focus optimization efforts on benchmarks where Seen underperforms"
+    ]
+  }
+}

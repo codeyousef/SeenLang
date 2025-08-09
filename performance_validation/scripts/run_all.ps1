@@ -14,7 +14,8 @@ param(
     [switch]$StatisticalOnly,
     [switch]$RealWorldOnly,
     [switch]$Clean,
-    [switch]$Help
+    [switch]$Help,
+    [switch]$AutoInstall
 )
 
 # Configuration
@@ -97,6 +98,7 @@ OPTIONS:
     -Verbose              Enable verbose output and debugging
     -Clean                Clean previous results and exit
     -Help                 Show this help message
+    -AutoInstall          Automatically install missing tools without prompting
 
 CATEGORIES:
     lexer      - Lexical analysis performance vs competitors
@@ -114,6 +116,7 @@ EXAMPLES:
     .\run_all.ps1 -RealWorldOnly -TestSize "large"  # Large real-world benchmarks only
     .\run_all.ps1 -StatisticalOnly                  # Only statistical analysis of existing data
     .\run_all.ps1 -Competitors "rust,zig"           # Compare only against Rust and Zig
+    .\run_all.ps1 -AutoInstall                      # Auto-install missing tools
 "@
 }
 
@@ -126,20 +129,126 @@ function Test-Environment {
     
     Log-Header "Environment Setup and Validation"
     
-    # Check required tools
-    $required_tools = @("python", "git", "cmake")
-    $missing_tools = @()
+    # Check required and optional tools
+    $required_tools = @("python")
+    $optional_tools = @{
+        "rustc" = "Rust compiler (for Rust benchmarks)"
+        "clang++" = "C++ compiler (for C++ benchmarks)"
+        "g++" = "C++ compiler alternative"
+        "zig" = "Zig compiler (for Zig benchmarks)"
+        "git" = "Version control"
+        "cmake" = "Build system"
+    }
     
+    $missing_required = @()
+    $missing_optional = @()
+    
+    # Check required tools
     foreach ($tool in $required_tools) {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-            $missing_tools += $tool
+            $missing_required += $tool
+        } else {
+            $version = & $tool --version 2>&1 | Select-Object -First 1
+            Log-Success "$tool found: $version"
         }
     }
     
-    if ($missing_tools.Count -gt 0) {
-        Log-Error "Missing required tools: $($missing_tools -join ', ')"
-        Log-Error "Please install missing tools and try again"
-        return $false
+    # Check optional tools
+    foreach ($tool in $optional_tools.Keys) {
+        if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+            Log-Warning "$tool not found - $($optional_tools[$tool])"
+            $missing_optional += $tool
+        } else {
+            try {
+                if ($tool -eq "cl") {
+                    $version = "MSVC compiler"
+                } else {
+                    $version = & $tool --version 2>&1 | Select-Object -First 1
+                }
+                Log-Success "$tool found: $version"
+            } catch {
+                Log-Success "$tool found"
+            }
+        }
+    }
+    
+    # Check if we have at least one C++ compiler
+    $has_cpp = (Get-Command "clang++" -ErrorAction SilentlyContinue) -or 
+               (Get-Command "g++" -ErrorAction SilentlyContinue) -or
+               (Get-Command "cl" -ErrorAction SilentlyContinue)
+    
+    if (-not $has_cpp) {
+        Log-Warning "No C++ compiler found - C++ benchmarks will be limited"
+    }
+    
+    # Handle missing tools (both required and optional)
+    $all_missing = $missing_required + $missing_optional
+    
+    if ($all_missing.Count -gt 0) {
+        if ($missing_required.Count -gt 0) {
+            Log-Error "Missing REQUIRED tools: $($missing_required -join ', ')"
+        }
+        if ($missing_optional.Count -gt 0) {
+            Log-Warning "Missing OPTIONAL tools: $($missing_optional -join ', ')"
+        }
+        
+        Log-Info "Missing tools can be installed automatically"
+        
+        # Check if auto-install is enabled or prompt user
+        $shouldInstall = $false
+        if ($AutoInstall) {
+            Log-Info "Auto-install enabled, proceeding with installation..."
+            $shouldInstall = $true
+        } else {
+            Write-Host ""
+            Write-Host "Would you like to install missing tools? (Y/N): " -NoNewline -ForegroundColor Yellow
+            $response = Read-Host
+            $shouldInstall = ($response -eq 'Y' -or $response -eq 'y')
+        }
+        
+        if ($shouldInstall) {
+            Log-Info "Attempting automatic installation of missing tools..."
+            
+            $installScript = "$SCRIPT_DIR\install_requirements.ps1"
+            if (Test-Path $installScript) {
+                Log-Info "Running installation script..."
+                
+                # Run installation script with list of missing tools
+                & $installScript -Tools ($all_missing -join ',')
+                
+                # Re-check required tools after installation
+                Log-Info "Rechecking tools after installation..."
+                foreach ($tool in $missing_required) {
+                    if (Get-Command $tool -ErrorAction SilentlyContinue) {
+                        Log-Success "$tool installed successfully"
+                    } else {
+                        Log-Error "$tool still missing after installation attempt"
+                        return $false
+                    }
+                }
+                
+                # Re-check optional tools
+                foreach ($tool in $missing_optional) {
+                    if (Get-Command $tool -ErrorAction SilentlyContinue) {
+                        Log-Success "$tool installed successfully"
+                    } else {
+                        Log-Warning "$tool could not be installed - some benchmarks may be skipped"
+                    }
+                }
+            } else {
+                Log-Error "Installation script not found at: $installScript"
+                if ($missing_required.Count -gt 0) {
+                    return $false
+                }
+            }
+        } else {
+            Log-Info "Skipping automatic installation"
+            Log-Warning "Some benchmarks may be skipped due to missing tools"
+            if ($missing_required.Count -gt 0) {
+                Log-Error "Cannot proceed without required tools"
+                return $false
+            }
+        }
     }
     
     # Check Python dependencies
@@ -271,23 +380,57 @@ function Invoke-CategoryBenchmarks {
     Log-Header "Running $Category Benchmarks"
     New-Item -ItemType Directory -Path $output_dir -Force | Out-Null
     
-    # Find all benchmark executables or scripts
-    $benchmarks = @()
-    $benchmarks += Get-ChildItem -Path $category_dir -Filter "*.ps1" -Recurse | Where-Object { $_.Name -like "benchmark_*" -or $_.Name -like "*_test*" }
-    $benchmarks += Get-ChildItem -Path $category_dir -Filter "*.bat" -Recurse | Where-Object { $_.Name -like "benchmark_*" -or $_.Name -like "*_test*" }
-    $benchmarks += Get-ChildItem -Path $category_dir -Filter "*.exe" -Recurse | Where-Object { $_.Name -like "benchmark_*" -or $_.Name -like "*_test*" }
+    # Check if we should run real or simulated benchmarks
+    $use_real_benchmarks = $false
+    $real_benchmark_script = "$category_dir\run_real_benchmark.ps1"
     
-    if ($benchmarks.Count -eq 0) {
-        Log-Warning "No benchmarks found in $category_dir"
-        return
+    if (Test-Path $real_benchmark_script) {
+        Log-Info "Found real benchmark script for $Category"
+        $use_real_benchmarks = $true
     }
     
-    foreach ($benchmark in $benchmarks) {
-        $benchmark_name = [System.IO.Path]::GetFileNameWithoutExtension($benchmark.Name)
-        Log-Info "Running benchmark: $benchmark_name"
+    if ($use_real_benchmarks) {
+        # Run real benchmarks (compile and execute actual code)
+        Log-Info "Running REAL $Category benchmarks (not simulated)..."
         
-        # Create benchmark-specific output file
-        $bench_output = "$output_dir\${benchmark_name}_results.json"
+        $bench_output = "$output_dir\${Category}_results.json"
+        
+        try {
+            # Run the real benchmark script
+            & $real_benchmark_script `
+                -Iterations $ITERATIONS `
+                -Output $bench_output `
+                -Verbose:$VERBOSE 2>&1 | Tee-Object "$SESSION_DIR\logs\${Category}_real_benchmark.log"
+            
+            if (Test-Path $bench_output) {
+                Log-Success "Real $Category benchmark completed"
+            } else {
+                Log-Warning "Real benchmark script ran but produced no output"
+            }
+        } catch {
+            Log-Error "Real benchmark failed: $_"
+        }
+    } else {
+        # Fall back to old simulation-based benchmarks
+        Log-Warning "No real benchmark found for $Category, using simulated data"
+        
+        # Find all benchmark executables or scripts
+        $benchmarks = @()
+        $benchmarks += Get-ChildItem -Path $category_dir -Filter "*.ps1" -Recurse | Where-Object { $_.Name -like "benchmark_*" -or $_.Name -like "*_test*" }
+        $benchmarks += Get-ChildItem -Path $category_dir -Filter "*.bat" -Recurse | Where-Object { $_.Name -like "benchmark_*" -or $_.Name -like "*_test*" }
+        $benchmarks += Get-ChildItem -Path $category_dir -Filter "*.exe" -Recurse | Where-Object { $_.Name -like "benchmark_*" -or $_.Name -like "*_test*" }
+        
+        if ($benchmarks.Count -eq 0) {
+            Log-Warning "No benchmarks found in $category_dir"
+            return
+        }
+        
+        foreach ($benchmark in $benchmarks) {
+            $benchmark_name = [System.IO.Path]::GetFileNameWithoutExtension($benchmark.Name)
+            Log-Info "Running benchmark: $benchmark_name"
+            
+            # Create benchmark-specific output file
+            $bench_output = "$output_dir\${benchmark_name}_results.json"
         $bench_log = "$SESSION_DIR\logs\${Category}_${benchmark_name}.log"
         
         # Run benchmark with timeout and capture output
@@ -333,6 +476,7 @@ function Invoke-CategoryBenchmarks {
             "Benchmark timed out after $TIMEOUT_SECONDS seconds" | Out-File $bench_log -Encoding UTF8
         }
     }
+    }  # End of old simulation-based benchmarks
 }
 
 # Run real-world application benchmarks
@@ -370,13 +514,8 @@ function Invoke-RealWorldBenchmarks {
             $job = Start-Job -ScriptBlock {
                 param($ScriptPath, $Iterations, $AppOutput, $Competitors, $TestSize)
                 
-                $args = @(
-                    "--iterations", $Iterations,
-                    "--output", $AppOutput,
-                    "--competitors", $Competitors,
-                    "--test-size", $TestSize,
-                    "--format", "json"
-                )
+                # Individual benchmark scripts only accept -Iterations parameter
+                $args = @("-Iterations", $Iterations)
                 
                 if ($ScriptPath.EndsWith(".ps1")) {
                     & powershell.exe -File $ScriptPath @args
@@ -392,6 +531,15 @@ function Invoke-RealWorldBenchmarks {
                 Remove-Job -Job $job
                 Log-Success "Completed real-world benchmark: $app"
                 $result | Out-File $app_log -Encoding UTF8
+                
+                # Copy the locally generated result file to centralized location
+                $local_result_file = "$app_dir\${app}_results.json"
+                if (Test-Path $local_result_file) {
+                    Copy-Item $local_result_file $app_output -Force
+                    Log-Info "Copied results to centralized location: $app_output"
+                } else {
+                    Log-Warning "Local result file not found: $local_result_file"
+                }
             } else {
                 Stop-Job -Job $job
                 Remove-Job -Job $job

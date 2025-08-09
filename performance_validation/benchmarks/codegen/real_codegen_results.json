@@ -1,0 +1,48 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "real_codegen_performance",
+                     "timestamp":  "2025-08-09T10:08:12Z",
+                     "iterations":  2
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "max_time":  0.0108217,
+                                    "times":  [
+                                                  0.0108217,
+                                                  0.0069717
+                                              ],
+                                    "average_time":  0.0088967,
+                                    "min_time":  0.0069717,
+                                    "lines_per_second":  2248,
+                                    "timestamp":  "2025-08-09T10:08:13Z",
+                                    "benchmark":  "codegen",
+                                    "language":  "seen",
+                                    "std_dev":  0.001925,
+                                    "iterations":  2
+                                },
+                       "rust":  {
+                                    "language":  "rust",
+                                    "benchmark":  "codegen",
+                                    "iterations":  2,
+                                    "instructions_generated":  2680,
+                                    "times":  [
+                                                  0.0001144,
+                                                  0.0000885
+                                              ],
+                                    "average_time":  0.00010145,
+                                    "instructions_per_second":  26416954.16461311
+                                },
+                       "cpp":  {
+                                   "language":  "cpp",
+                                   "benchmark":  "codegen",
+                                   "iterations":  2,
+                                   "instructions_generated":  2680,
+                                   "times":  [
+                                                 0.0001826,
+                                                 0.0001617
+                                             ],
+                                   "average_time":  0.00017215,
+                                   "instructions_per_second":  15567800
+                               }
+                   }
+}

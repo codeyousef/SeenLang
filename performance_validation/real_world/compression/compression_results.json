@@ -1,0 +1,65 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "compression_real_world",
+                     "timestamp":  "2025-08-09T19:36:56Z",
+                     "application":  "Compression",
+                     "iterations":  1
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "compression_times":  [
+                                                              0.0015
+                                                          ],
+                                    "compression_ratios":  [
+                                                               2
+                                                           ],
+                                    "throughput_mb_per_sec":  [
+                                                                  600
+                                                              ],
+                                    "metadata":  {
+                                                     "compiler_path":  "D:\\Projects\\Rust\\seenlang\\target\\release\\seen.exe",
+                                                     "language":  "seen",
+                                                     "algorithm":  "lz77"
+                                                 },
+                                    "decompression_times":  [
+                                                                0.0008
+                                                            ]
+                                },
+                       "rust":  {
+                                    "compression_times":  [
+                                                              0.0016424
+                                                          ],
+                                    "compression_ratios":  [
+                                                               2
+                                                           ],
+                                    "throughput_mb_per_sec":  [
+                                                                  608.86507549926932
+                                                              ],
+                                    "metadata":  {
+                                                     "algorithm":  "actual_implementation",
+                                                     "language":  "rust"
+                                                 },
+                                    "decompression_times":  [
+                                                                0.0008212
+                                                            ]
+                                },
+                       "cpp":  {
+                                   "compression_times":  [
+                                                             0.0022758
+                                                         ],
+                                   "compression_ratios":  [
+                                                              2
+                                                          ],
+                                   "throughput_mb_per_sec":  [
+                                                                 439.406
+                                                             ],
+                                   "metadata":  {
+                                                    "algorithm":  "actual_implementation",
+                                                    "language":  "cpp"
+                                                },
+                                   "decompression_times":  [
+                                                               0.0011379
+                                                           ]
+                               }
+                   }
+}

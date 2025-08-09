@@ -1033,6 +1033,7 @@ python scripts/report_generator.py results/latest/
         
         md = "## Detailed Benchmark Results\n\n"
         
+        # First, add benchmarks from statistical analysis
         for benchmark_name, benchmark_data in benchmarks.items():
             md += f"### {benchmark_name.replace('_', ' ').title()}\n\n"
             
@@ -1042,26 +1043,47 @@ python scripts/report_generator.py results/latest/
                 md += "|----------|---------------|---------|-------------|--------|\n"
                 
                 for lang, lang_data in languages.items():
+                    mean = 0
+                    std_dev = 0
+                    sample_size = 0
+                    
                     if isinstance(lang_data, dict):
                         summary = lang_data.get('summary', {})
-                        if isinstance(summary, dict):
+                        
+                        # If summary is a string (StatisticalSummary repr), parse it
+                        if isinstance(summary, str):
+                            import re
+                            # Extract values from string representation
+                            mean_match = re.search(r'mean=(?:np\.float64\()?([0-9.e+-]+)', summary)
+                            std_match = re.search(r'std_dev=(?:np\.float64\()?([0-9.e+-]+)', summary)
+                            size_match = re.search(r'sample_size=(\d+)', summary)
+                            
+                            if mean_match:
+                                mean = float(mean_match.group(1))
+                            if std_match:
+                                std_dev = float(std_match.group(1))
+                            if size_match:
+                                sample_size = int(size_match.group(1))
+                                
+                            # Fallback to raw_data if parsing fails
+                            if mean == 0 and 'raw_data' in lang_data and lang_data['raw_data']:
+                                times = lang_data['raw_data']
+                                mean = sum(times) / len(times) if times else 0
+                                if len(times) > 1:
+                                    variance = sum((x - mean) ** 2 for x in times) / (len(times) - 1)
+                                    std_dev = variance ** 0.5
+                                sample_size = len(times)
+                        
+                        elif isinstance(summary, dict):
                             mean = summary.get('mean', 0)
                             std_dev = summary.get('std_dev', 0)
                             sample_size = summary.get('sample_size', 0)
-                        else:
-                            # Handle case where summary is not a dict (could be from BenchmarkSummary object)
-                            if hasattr(summary, 'mean'):
-                                mean = summary.mean
-                                std_dev = summary.std_dev
-                                sample_size = summary.sample_size
-                            else:
-                                mean = 0
-                                std_dev = 0
-                                sample_size = 0
-                    else:
-                        mean = 0
-                        std_dev = 0
-                        sample_size = 0
+                        
+                        elif hasattr(summary, 'mean'):
+                            # Handle actual StatisticalSummary objects
+                            mean = summary.mean
+                            std_dev = summary.std_dev
+                            sample_size = summary.sample_size
                     
                     # Determine status based on performance
                     status = "✓ Measured" if sample_size > 0 else "⚠ No data"
@@ -1101,6 +1123,203 @@ python scripts/report_generator.py results/latest/
                             md += f"- **{lang_b}** is {1/speedup:.2f}x faster than **{lang_a}** (statistically significant)\n"
                     else:
                         md += f"- No significant difference between **{lang_a}** and **{lang_b}**\n"
+                
+                md += "\n"
+        
+        # Now add real-world benchmarks from raw data (even if empty)
+        raw_results = data.get('raw_results', {})
+        real_world_data = raw_results.get('real_world', {})
+        
+        # Define expected real-world benchmarks  
+        expected_real_world = {
+            'compression_real_world': 'Compression Real World',
+            'http_server_real_world': 'Http Server Real World',
+            'ray_tracer_real_world': 'Ray Tracer Real World', 
+            'regex_engine_real_world': 'Regex Engine Real World'
+        }
+        
+        # Always add these benchmarks if they're not in the statistical analysis
+        for benchmark_key, display_name in expected_real_world.items():
+            # Only add if not already included from statistical analysis
+            if benchmark_key not in benchmarks:
+                md += f"### {display_name}\n\n"
+                
+                has_data = False
+                
+                # Map benchmark key to result file name
+                result_file_map = {
+                    'compression_real_world': 'compression_results',
+                    'http_server_real_world': 'http_server_results',
+                    'ray_tracer_real_world': 'ray_tracer_results',
+                    'regex_engine_real_world': 'regex_engine_results'
+                }
+                
+                result_file = result_file_map.get(benchmark_key)
+                
+                # Check if we have raw data for this benchmark
+                if result_file and result_file in real_world_data:
+                    benchmark_data = real_world_data[result_file]
+                    if 'benchmarks' in benchmark_data:
+                        # Check if any language has data
+                        for lang, lang_data in benchmark_data['benchmarks'].items():
+                            # Check various possible data fields
+                            data_fields = ['times', 'compression_times', 'render_times', 
+                                         'requests_per_second', 'match_times', 'pixels_per_second']
+                            for field in data_fields:
+                                if field in lang_data and isinstance(lang_data[field], list) and len(lang_data[field]) > 0:
+                                    has_data = True
+                                    break
+                            if has_data:
+                                break
+                
+                if not has_data:
+                    md += "*No performance data available yet for this benchmark.*\n\n"
+                else:
+                    # Format and display the actual real-world benchmark data
+                    benchmark_data = real_world_data[result_file]
+                    if 'benchmarks' in benchmark_data:
+                        md += self._format_real_world_benchmark_data(benchmark_key, benchmark_data['benchmarks'])
+                    else:
+                        md += "*Performance data is available but not yet displayed.*\n\n"
+        
+        return md
+    
+    def _format_real_world_benchmark_data(self, benchmark_key: str, languages_data: Dict[str, Any]) -> str:
+        """Format real-world benchmark data into a table."""
+        md = ""
+        
+        # Different benchmarks have different metrics
+        if benchmark_key == 'compression_real_world':
+            # Compression benchmark metrics
+            md += "| Language | Compression Time (s) | Decompression Time (s) | Compression Ratio | Throughput (MB/s) | Status |\n"
+            md += "|----------|---------------------|------------------------|-------------------|-------------------|--------|\n"
+            
+            for lang, lang_data in languages_data.items():
+                comp_times = lang_data.get('compression_times', [])
+                decomp_times = lang_data.get('decompression_times', [])
+                ratios = lang_data.get('compression_ratios', [])
+                throughput = lang_data.get('throughput_mb_per_sec', [])
+                
+                if comp_times:
+                    avg_comp = sum(comp_times) / len(comp_times) if comp_times else 0
+                    avg_decomp = sum(decomp_times) / len(decomp_times) if decomp_times else 0
+                    avg_ratio = sum(ratios) / len(ratios) if ratios else 0
+                    avg_throughput = sum(throughput) / len(throughput) if throughput else 0
+                    
+                    md += f"| {lang} | {avg_comp:.6f} | {avg_decomp:.6f} | {avg_ratio:.2f} | {avg_throughput:.2f} | ✓ Measured |\n"
+                else:
+                    md += f"| {lang} | - | - | - | - | ❌ No Data |\n"
+                    
+        elif benchmark_key == 'http_server_real_world':
+            # HTTP Server benchmark metrics
+            md += "| Language | Requests/sec | Latency (ms) | Memory (MB) | Concurrent Connections | Status |\n"
+            md += "|----------|-------------|--------------|-------------|------------------------|--------|\n"
+            
+            for lang, lang_data in languages_data.items():
+                rps = lang_data.get('requests_per_second', [])
+                latency = lang_data.get('latency_ms', [])
+                memory = lang_data.get('memory_usage', [])
+                connections = lang_data.get('concurrent_connections', [])
+                
+                if rps:
+                    avg_rps = sum(rps) / len(rps) if rps else 0
+                    avg_latency = sum(latency) / len(latency) if latency else 0
+                    avg_memory = sum(memory) / len(memory) if memory else 0
+                    avg_connections = sum(connections) / len(connections) if connections else 0
+                    
+                    md += f"| {lang} | {avg_rps:.0f} | {avg_latency:.2f} | {avg_memory:.0f} | {avg_connections:.0f} | ✓ Measured |\n"
+                else:
+                    md += f"| {lang} | - | - | - | - | ❌ No Data |\n"
+                    
+        elif benchmark_key == 'ray_tracer_real_world':
+            # Ray Tracer benchmark metrics
+            md += "| Language | Render Time (s) | Pixels/sec | Memory (MB) | Status |\n"
+            md += "|----------|-----------------|------------|-------------|--------|\n"
+            
+            for lang, lang_data in languages_data.items():
+                render_times = lang_data.get('render_times', [])
+                pixels = lang_data.get('pixels_per_second', [])
+                memory = lang_data.get('memory_usage', [])
+                
+                if render_times:
+                    avg_render = sum(render_times) / len(render_times) if render_times else 0
+                    avg_pixels = sum(pixels) / len(pixels) if pixels else 0
+                    avg_memory = sum(memory) / len(memory) if memory else 0
+                    
+                    md += f"| {lang} | {avg_render:.6f} | {avg_pixels:.0f} | {avg_memory:.0f} | ✓ Measured |\n"
+                else:
+                    md += f"| {lang} | - | - | - | ❌ No Data |\n"
+                    
+        elif benchmark_key == 'regex_engine_real_world':
+            # Regex Engine benchmark metrics
+            md += "| Language | Compilation Time (s) | Match Time (s) | Matches/sec | Memory (MB) | Status |\n"
+            md += "|----------|---------------------|----------------|-------------|-------------|--------|\n"
+            
+            for lang, lang_data in languages_data.items():
+                comp_times = lang_data.get('pattern_compilation_times', [])
+                match_times = lang_data.get('match_times', [])
+                matches = lang_data.get('matches_per_second', [])
+                memory = lang_data.get('memory_usage', [])
+                
+                if comp_times:
+                    # Filter out negative values (which seem to be errors in the data)
+                    valid_match_times = [t for t in match_times if t > 0] if match_times else []
+                    valid_matches = [m for m in matches if m > 0] if matches else []
+                    
+                    avg_comp = sum(comp_times) / len(comp_times) if comp_times else 0
+                    avg_match = sum(valid_match_times) / len(valid_match_times) if valid_match_times else 0
+                    avg_matches = sum(valid_matches) / len(valid_matches) if valid_matches else 0
+                    avg_memory = sum(memory) / len(memory) if memory else 0
+                    
+                    md += f"| {lang} | {avg_comp:.6f} | {avg_match:.6f} | {avg_matches:.0f} | {avg_memory:.0f} | ✓ Measured |\n"
+                else:
+                    md += f"| {lang} | - | - | - | - | ❌ No Data |\n"
+        
+        md += "\n"
+        
+        # Add statistical comparisons if we have data for multiple languages
+        languages_with_data = []
+        primary_metric = None
+        
+        # Determine primary metric for comparisons
+        if benchmark_key == 'compression_real_world':
+            primary_metric = 'compression_times'
+        elif benchmark_key == 'http_server_real_world':
+            primary_metric = 'requests_per_second'
+        elif benchmark_key == 'ray_tracer_real_world':
+            primary_metric = 'render_times'
+        elif benchmark_key == 'regex_engine_real_world':
+            primary_metric = 'match_times'
+        
+        if primary_metric:
+            for lang, lang_data in languages_data.items():
+                metric_data = lang_data.get(primary_metric, [])
+                # Filter out invalid data for certain metrics
+                if primary_metric == 'match_times' and metric_data:
+                    metric_data = [t for t in metric_data if t > 0]
+                if metric_data:
+                    languages_with_data.append((lang, sum(metric_data) / len(metric_data)))
+            
+            if len(languages_with_data) > 1:
+                md += "#### Performance Comparisons\n\n"
+                
+                # Sort by performance (for requests_per_second, higher is better; for times, lower is better)
+                reverse = primary_metric == 'requests_per_second'
+                languages_with_data.sort(key=lambda x: x[1], reverse=reverse)
+                
+                # Generate comparisons
+                for i, (lang1, perf1) in enumerate(languages_with_data):
+                    for lang2, perf2 in languages_with_data[i+1:]:
+                        if primary_metric == 'requests_per_second':
+                            # Higher is better
+                            if perf1 > perf2 and perf2 > 0:
+                                ratio = perf1 / perf2
+                                md += f"- **{lang1}** handles {ratio:.2f}x more requests/sec than **{lang2}**\n"
+                        else:
+                            # Lower is better (times)
+                            if perf2 > perf1 and perf1 > 0:
+                                ratio = perf2 / perf1
+                                md += f"- **{lang1}** is {ratio:.2f}x faster than **{lang2}**\n"
                 
                 md += "\n"
         

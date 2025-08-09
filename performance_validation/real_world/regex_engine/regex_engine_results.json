@@ -1,0 +1,27 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "regex_engine",
+                     "timestamp":  "2025-08-09T19:36:57Z",
+                     "iterations":  1
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "memory_mb":  2,
+                                    "match_time_ms":  500000,
+                                    "compile_time_ms":  512,
+                                    "matches_per_sec":  0.5
+                                },
+                       "rust":  {
+                                    "memory_mb":  1000,
+                                    "match_time_ms":  0.0004761,
+                                    "compile_time_ms":  1.4E-06,
+                                    "matches_per_sec":  210039907.58244064
+                                },
+                       "cpp":  {
+                                   "memory_mb":  1024,
+                                   "match_time_ms":  0.0010695,
+                                   "compile_time_ms":  1E-07,
+                                   "matches_per_sec":  93501600
+                               }
+                   }
+}

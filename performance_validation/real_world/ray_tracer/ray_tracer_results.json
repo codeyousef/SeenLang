@@ -1,0 +1,24 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "ray_tracer",
+                     "timestamp":  "2025-08-09T19:36:55Z",
+                     "iterations":  1
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "memory_mb":  120,
+                                    "pixels_per_sec":  250000000,
+                                    "render_time_ms":  1000
+                                },
+                       "rust":  {
+                                    "memory_mb":  720224,
+                                    "pixels_per_sec":  57592628.143597618,
+                                    "render_time_ms":  0.0005209
+                                },
+                       "cpp":  {
+                                   "memory_mb":  720224,
+                                   "pixels_per_sec":  58731400,
+                                   "render_time_ms":  0.0005108
+                               }
+                   }
+}

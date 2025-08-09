@@ -1,0 +1,14 @@
+[project]
+name = "ray_tracer_benchmark"
+version = "0.1.0"
+language = "en"
+
+[build]
+targets = ["native"]
+optimize = "speed"
+
+[format]
+line-width = 100
+indent = 4
+trailing-comma = true
+document-types = [".seen", ".md", ".toml"]

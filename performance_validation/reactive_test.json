@@ -1,0 +1,48 @@
+﻿{
+    "benchmarks":  {
+                       "cpp":  {
+                                   "language":  "cpp",
+                                   "benchmark":  "reactive_zero_cost",
+                                   "iterations":  5,
+                                   "data_size":  1000,
+                                   "results":  {
+                                                   "simple_reactive":  4.98E-05,
+                                                   "imperative":  8.6E-06,
+                                                   "complex_composition":  6.72E-05,
+                                                   "backpressure":  3.93E-05,
+                                                   "overhead_percent":  479.07
+                                               },
+                                   "zero_cost":  false
+                               },
+                       "seen":  {
+                                    "benchmark":  "reactive_zero_cost",
+                                    "language":  "seen",
+                                    "iterations":  5,
+                                    "results":  {
+                                                    "complex_composition":  0.12293438488172106,
+                                                    "simple_reactive":  0.11309963409118337,
+                                                    "imperative":  0.098347507905376857,
+                                                    "backpressure":  0.11605005932834468,
+                                                    "overhead_percent":  15
+                                                },
+                                    "data_size":  1000,
+                                    "zero_cost":  false
+                                }
+                   },
+    "validation":  {
+                       "overhead_threshold":  5,
+                       "claim_validated":  false,
+                       "results":  {
+                                       "total_tests":  2,
+                                       "failed":  2,
+                                       "passed":  0
+                                   }
+                   },
+    "metadata":  {
+                     "benchmark":  "reactive_zero_cost",
+                     "timestamp":  "2025-08-09T07:42:54Z",
+                     "claim":  "Zero-cost reactive abstractions",
+                     "data_size":  1000,
+                     "iterations":  5
+                 }
+}

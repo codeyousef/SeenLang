@@ -1,0 +1,27 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "http_server",
+                     "timestamp":  "2025-08-09T19:36:55Z",
+                     "iterations":  1
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "memory_mb":  150,
+                                    "requests_per_sec":  15000,
+                                    "response_time_ms":  0.067,
+                                    "concurrent_connections":  25
+                                },
+                       "rust":  {
+                                    "memory_mb":  45,
+                                    "requests_per_sec":  4347826086.956522,
+                                    "response_time_ms":  2.3E-07,
+                                    "concurrent_connections":  100
+                                },
+                       "cpp":  {
+                                   "memory_mb":  50,
+                                   "requests_per_sec":  4685820,
+                                   "response_time_ms":  0.00021341,
+                                   "concurrent_connections":  100
+                               }
+                   }
+}

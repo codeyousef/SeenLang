@@ -1,0 +1,48 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "real_memory_performance",
+                     "timestamp":  "2025-08-09T10:09:37Z",
+                     "iterations":  2
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "max_time":  0.0089588,
+                                    "times":  [
+                                                  0.0089588,
+                                                  0.0062102
+                                              ],
+                                    "average_time":  0.0075844999999999992,
+                                    "min_time":  0.0062102,
+                                    "timestamp":  "2025-08-09T10:09:38Z",
+                                    "benchmark":  "memory",
+                                    "language":  "seen",
+                                    "memory_ops_per_second":  264,
+                                    "std_dev":  0.0013742999999999997,
+                                    "iterations":  2
+                                },
+                       "rust":  {
+                                    "language":  "rust",
+                                    "benchmark":  "memory",
+                                    "iterations":  2,
+                                    "allocations":  21100,
+                                    "times":  [
+                                                  0.0028969,
+                                                  0.0031207
+                                              ],
+                                    "average_time":  0.0030088,
+                                    "allocations_per_second":  7012762.563148099
+                                },
+                       "cpp":  {
+                                   "language":  "cpp",
+                                   "benchmark":  "memory",
+                                   "iterations":  2,
+                                   "allocations":  3000000,
+                                   "times":  [
+                                                 0.0003961,
+                                                 0.0026659
+                                             ],
+                                   "average_time":  0.001531,
+                                   "allocations_per_second":  1959500000
+                               }
+                   }
+}

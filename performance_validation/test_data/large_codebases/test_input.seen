@@ -1,0 +1,2401 @@
+﻿// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 0
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 1
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 2
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 3
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 4
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 5
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 6
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 7
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 8
+
+// Generated test file for lexer benchmarking
+// This file contains various Seen language constructs
+
+package com.example.benchmark
+
+import std.io.*
+import std.collections.*
+import std.math.{sin, cos, tan}
+
+// Data class example
+data class Person(
+    val name: String,
+    val age: Int,
+    val email: String? = null
+) {
+    fun greet() = "Hello, my name is $name"
+    
+    companion object {
+        fun create(name: String): Person = Person(name, 0)
+    }
+}
+
+// Sealed class hierarchy
+sealed class Result<out T> {
+    data class Success<T>(val value: T) : Result<T>()
+    data class Failure(val error: String) : Result<Nothing>()
+    
+    inline fun <R> map(transform: (T) -> R): Result<R> = when (this) {
+        is Success -> Success(transform(value))
+        is Failure -> this
+    }
+}
+
+// Generic class with constraints
+class Container<T : Comparable<T>>(private val items: MutableList<T> = mutableListOf()) {
+    fun add(item: T) {
+        items.add(item)
+        items.sort()
+    }
+    
+    fun find(predicate: (T) -> Boolean): T? {
+        return items.find(predicate)
+    }
+    
+    operator fun get(index: Int): T = items[index]
+    
+    inline fun forEach(action: (T) -> Unit) {
+        for (item in items) {
+            action(item)
+        }
+    }
+}
+
+// Extension functions
+fun String.isPalindrome(): Boolean {
+    val clean = this.filter { it.isLetterOrDigit() }.toLowerCase()
+    return clean == clean.reversed()
+}
+
+fun <T> List<T>.randomOrNull(): T? {
+    return if (isEmpty()) null else this[Random.nextInt(size)]
+}
+
+// Coroutines and async
+suspend fun fetchData(url: String): String {
+    delay(100)
+    return "Data from $url"
+}
+
+fun main() = runBlocking {
+    // Variables and constants
+    val message = "Hello, World!"
+    var counter = 0
+    
+    // Numbers
+    val intNum = 42
+    val longNum = 9223372036854775807L
+    val floatNum = 3.14159f
+    val doubleNum = 2.718281828459045
+    val hexNum = 0xFF_EC_DE_5E
+    val binNum = 0b11010010_01101001_10010100_10010010
+    
+    // Strings and characters
+    val multilineString = """
+        This is a multiline string.
+        It can contain "quotes" without escaping.
+        Indentation is preserved.
+    """.trimIndent()
+    
+    val char = 'A'
+    val unicodeChar = '\u0041'
+    val escapeChar = '\n'
+    
+    // Collections
+    val list = listOf(1, 2, 3, 4, 5)
+    val mutableList = mutableListOf("a", "b", "c")
+    val set = setOf(1, 2, 3, 3, 2, 1)
+    val map = mapOf("key1" to "value1", "key2" to "value2")
+    
+    // Control flow
+    if (counter < 10) {
+        counter++
+    } else if (counter < 20) {
+        counter += 2
+    } else {
+        counter = 0
+    }
+    
+    // When expression
+    val result = when (counter) {
+        0 -> "Zero"
+        1, 2, 3 -> "Small"
+        in 4..10 -> "Medium"
+        else -> "Large"
+    }
+    
+    // Loops
+    for (i in 1..10) {
+        println("Iteration $i")
+    }
+    
+    for ((index, value) in list.withIndex()) {
+        println("$index: $value")
+    }
+    
+    while (counter < 100) {
+        counter *= 2
+    }
+    
+    do {
+        counter--
+    } while (counter > 0)
+    
+    // Lambda expressions
+    val sum = { x: Int, y: Int -> x + y }
+    val doubled = list.map { it * 2 }
+    val filtered = list.filter { it > 2 }
+    val reduced = list.reduce { acc, n -> acc + n }
+    
+    // Try-catch
+    try {
+        val risky = 10 / counter
+    } catch (e: ArithmeticException) {
+        println("Division by zero!")
+    } finally {
+        println("Cleanup")
+    }
+    
+    // Null safety
+    var nullable: String? = null
+    nullable?.let { println(it) }
+    val length = nullable?.length ?: 0
+    
+    // Smart casts
+    val obj: Any = "String"
+    if (obj is String) {
+        println(obj.length) // obj is automatically cast to String
+    }
+    
+    // Ranges
+    val range = 1..100
+    val downTo = 100 downTo 1
+    val step = 1..100 step 2
+    
+    // Operator overloading
+    data class Point(val x: Int, val y: Int) {
+        operator fun plus(other: Point) = Point(x + other.x, y + other.y)
+        operator fun times(scalar: Int) = Point(x * scalar, y * scalar)
+    }
+    
+    val p1 = Point(10, 20)
+    val p2 = Point(30, 40)
+    val p3 = p1 + p2
+    val p4 = p1 * 3
+    
+    // Delegation
+    interface Base {
+        fun print()
+    }
+    
+    class BaseImpl(val x: Int) : Base {
+        override fun print() { println(x) }
+    }
+    
+    class Derived(b: Base) : Base by b
+    
+    // Type aliases
+    typealias StringMap<T> = Map<String, T>
+    typealias Handler = (String) -> Unit
+    
+    val myMap: StringMap<Int> = mapOf("one" to 1, "two" to 2)
+    val handler: Handler = { msg -> println(msg) }
+    
+    // Annotations
+    @Deprecated("Use newFunction instead")
+    fun oldFunction() {}
+    
+    @JvmStatic
+    fun staticFunction() {}
+    
+    // Inline functions
+    inline fun measure(block: () -> Unit): Long {
+        val start = System.currentTimeMillis()
+        block()
+        return System.currentTimeMillis() - start
+    }
+    
+    // Reified generics
+    inline fun <reified T> isInstance(value: Any): Boolean {
+        return value is T
+    }
+    
+    // Reactive streams
+    val observable = Observable.just(1, 2, 3, 4, 5)
+        .map { it * 2 }
+        .filter { it > 5 }
+        .subscribe { println(it) }
+    
+    // Pattern matching
+    fun describe(x: Any): String = when (x) {
+        is Int -> "Integer: $x"
+        is String -> "String of length ${x.length}"
+        is List<*> -> "List of size ${x.size}"
+        else -> "Unknown"
+    }
+}
+
+// Comments variations
+// Single line comment
+/* Multi-line
+   comment */
+/** 
+ * Documentation comment
+ * @param x The parameter
+ * @return The result
+ */
+
+
+// Section 9
+
+

@@ -3604,3 +3604,5 @@ target-wsl/
 /docs/private/
 /performance_validation/results/
 /performance_validation/scripts/analysis_results/
+/performance_validation/target/
+/performance_validation/real_world/compression/target/

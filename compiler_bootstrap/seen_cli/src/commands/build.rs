@@ -187,6 +187,9 @@ fn compile_project(project: &Project, config: &BuildConfig) -> Result<()> {
     
     info!("  Code generation: {} bytes of LLVM IR generated", llvm_ir.len());
     
+    // Debug: Print first 500 chars of generated IR
+    info!("  Generated IR preview: {}", &llvm_ir[..llvm_ir.len().min(500)]);
+    
     // Create a single module for the combined program
     let mut llvm_modules = Vec::new();
     let main_source_file = source_files.first().cloned()
@@ -275,12 +278,19 @@ fn generate_output_with_llvm(project: &Project, config: &BuildConfig, llvm_modul
         // Try to compile with LLVM tools if available
         let obj_path = temp_dir.join(format!("{}.o", stem));
         
-        // First try llc (LLVM compiler)
-        let llc_result = std::process::Command::new("llc")
+        // First try llc-18 (LLVM compiler) then fallback to llc
+        let llc_result = std::process::Command::new("llc-18")
             .args(&["-filetype=obj", "-o"])
             .arg(&obj_path)
             .arg(&ir_path)
-            .output();
+            .output()
+            .or_else(|_| {
+                std::process::Command::new("llc")
+                    .args(&["-filetype=obj", "-o"])
+                    .arg(&obj_path)
+                    .arg(&ir_path)
+                    .output()
+            });
         
         match llc_result {
             Ok(output) if output.status.success() => {
@@ -288,12 +298,19 @@ fn generate_output_with_llvm(project: &Project, config: &BuildConfig, llvm_modul
                 object_files.push(obj_path);
             }
             _ => {
-                // Fall back to clang if llc is not available
-                let clang_result = std::process::Command::new("clang")
+                // Fall back to clang-18 then clang if llc is not available
+                let clang_result = std::process::Command::new("clang-18")
                     .args(&["-c", "-x", "ir", "-o"])
                     .arg(&obj_path)
                     .arg(&ir_path)
-                    .output();
+                    .output()
+                    .or_else(|_| {
+                        std::process::Command::new("clang")
+                            .args(&["-c", "-x", "ir", "-o"])
+                            .arg(&obj_path)
+                            .arg(&ir_path)
+                            .output()
+                    });
                 
                 match clang_result {
                     Ok(output) if output.status.success() => {
@@ -316,6 +333,9 @@ fn generate_output_with_llvm(project: &Project, config: &BuildConfig, llvm_modul
         
         let mut link_cmd = std::process::Command::new("clang");
         link_cmd.arg("-o").arg(&output_path);
+        
+        // Add -no-pie flag to avoid PIE linking issues
+        link_cmd.arg("-no-pie");
         
         // Add optimization flags if in release mode
         if config.release {
@@ -834,18 +854,17 @@ impl FunctionIRBuilder {
             ExprKind::Call { function, args } => {
                 // Handle function calls
                 if let ExprKind::Identifier(name) = function.kind.as_ref() {
-                    // Special handling for println - generate actual printf call
+                    // Special handling for println - generate actual call
                     if name.value == "println" {
-                        // Generate a call to printf with newline
-                        // For string literals, we'd need to emit global string constants
-                        // For now, simplify to just return 0
-                        if !args.is_empty() {
-                            // Convert the argument for potential future use
-                            let _arg = self.convert_expression(&args[0]);
-                            // In a full implementation, we'd emit:
-                            // - Global string constant for the format string
-                            // - Call to printf with the format and arguments
-                        }
+                        let arg_values: Vec<seen_ir::Value> = args.iter()
+                            .map(|arg| self.convert_expression(arg))
+                            .collect();
+                        
+                        self.current_block.push(seen_ir::Instruction::Call {
+                            dest: None,
+                            func: "println".to_string(),
+                            args: arg_values,
+                        });
                         return seen_ir::Value::Integer(0);
                     }
                     

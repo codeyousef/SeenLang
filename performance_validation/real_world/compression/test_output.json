@@ -1,0 +1,73 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "compression_real_world",
+                     "timestamp":  "2025-08-09T15:33:14Z",
+                     "application":  "Compression",
+                     "iterations":  2
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "metadata":  {
+                                                     "compiler_path":  "D:\\Projects\\Rust\\seenlang\\target\\release\\seen.exe",
+                                                     "language":  "seen",
+                                                     "algorithm":  "lz77"
+                                                 },
+                                    "compression_times":  [
+
+                                                          ],
+                                    "compression_ratios":  [
+
+                                                           ],
+                                    "throughput_mb_per_sec":  [
+
+                                                              ],
+                                    "decompression_times":  [
+
+                                                            ]
+                                },
+                       "rust":  {
+                                    "compression_times":  [
+                                                              0.0016864,
+                                                              0.0016336
+                                                          ],
+                                    "compression_ratios":  [
+                                                               2,
+                                                               2
+                                                           ],
+                                    "throughput_mb_per_sec":  [
+                                                                  592.97912713472488,
+                                                                  612.14495592556318
+                                                              ],
+                                    "metadata":  {
+                                                     "algorithm":  "actual_implementation",
+                                                     "language":  "rust"
+                                                 },
+                                    "decompression_times":  [
+                                                                0.0008432,
+                                                                0.0008168
+                                                            ]
+                                },
+                       "cpp":  {
+                                   "compression_times":  [
+                                                             0.0018888,
+                                                             0.0019017
+                                                         ],
+                                   "compression_ratios":  [
+                                                              2,
+                                                              2
+                                                          ],
+                                   "throughput_mb_per_sec":  [
+                                                                 529.437,
+                                                                 525.845
+                                                             ],
+                                   "metadata":  {
+                                                    "algorithm":  "actual_implementation",
+                                                    "language":  "cpp"
+                                                },
+                                   "decompression_times":  [
+                                                               0.0009444,
+                                                               0.00095085
+                                                           ]
+                               }
+                   }
+}

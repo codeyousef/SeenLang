@@ -1,45 +1,47 @@
-# [[Seen]] Language Beta Phase Development Plan (RISC-V Enhanced)
+# Seen Language Beta Phase Development Plan
 
-## Overview: Production Readiness with RISC-V Leadership
+## Overview: Production Readiness & Ecosystem
 
-**Prerequisites**: Completed Alpha with RISC-V vector support (Steps 15-21), package manager, and optimizations  
-**Goal**: Production-ready language demonstrating RISC-V excellence from embedded to cloud  
-**Development Language**: **SEEN** (Development on x86, ARM, and RISC-V hardware)
+**Prerequisites**: Completed Alpha with all performance optimizations  
+**Goal**: Production-ready language with complete ecosystem demonstrating excellence across all architectures  
+**Development Language**: **SEEN** (Development on x86, ARM, RISC-V, and other hardware)
 
 **Core Beta Requirements:**
-- 14 showcase applications running on RISC-V hardware
-- Production RISC-V deployments (embedded, edge, cloud)
-- Enterprise-grade RISC-V tooling and debugging
-- RISC-V-specific optimization showcase
-- Performance leadership on RISC-V maintained
-- Real-world RISC-V hardware validation
+- 14 showcase applications running on all major architectures
+- Production deployments across embedded, edge, and cloud
+- Enterprise-grade tooling and debugging
+- Complete package manager and ecosystem
+- Standard library completion
+- Real-world hardware validation
+- **Continuous updates**: Installer and VSCode extension maintained
+- **All keywords in TOML files only**: Never hardcoded
 
 ## Phase Structure
 
-### Milestone 7: RISC-V Showcase Applications (Months 6-8)
+### Milestone 4: Showcase Applications (Months 5-7)
 
-#### Step 22: High-Performance Web Server on RISC-V
+#### Step 24: High-Performance Web Server
 
 **Tests Written First:**
-- [ ] Test: Web server on RISC-V handles 500K req/sec
-- [ ] Test: TLS acceleration with RISC-V crypto extensions
+- [ ] Test: Web server handles 500K req/sec
+- [ ] Test: TLS acceleration with crypto extensions
 - [ ] Test: HTTP/3 QUIC with vector optimization
-- [ ] Test: Power efficiency better than ARM
-- [ ] Test: Reactive streams utilize RVV
+- [ ] Test: Power efficiency optimal
+- [ ] Test: Reactive streams utilized
 
 **Implementation:**
 
 ```seen
-// RISC-V optimized web server
-@platform("riscv64-rvv")
-class RiscVWebServer : ReactiveHttpServer {
+// Optimized web server
+@platform("multi-arch")
+class SeenWebServer : ReactiveHttpServer {
     
     @vectorized
     override fun handleRequests(requests: Observable<Request>): Observable<Response> {
         return requests
             .bufferCount(Platform.vectorLength)  // Process in vector batches
             .flatMap { batch ->
-                // Parse headers using RVV string operations
+                // Parse headers using SIMD operations
                 val parsed = vectorParseHeaders(batch)
                 
                 // Route using SIMD comparison
@@ -51,35 +53,32 @@ class RiscVWebServer : ReactiveHttpServer {
             .map { processRequest(it) }
     }
     
-    @riscv_crypto
+    @crypto_accelerated
     fun handleTLS(connection: TLSConnection) {
-        // Use RISC-V Zkn crypto extensions
-        when (connection.cipher) {
-            Cipher.AES_GCM -> processWithZkne(connection)  // AES extensions
-            Cipher.SHA256 -> processWithZknh(connection)   // Hash extensions
-            Cipher.SM4 -> processWithZksed(connection)     // ShangMi extensions
+        // Use architecture-specific crypto extensions
+        when (Platform.current) {
+            is X86 -> processWithAESNI(connection)
+            is ARM -> processWithCrypto(connection)
+            is RISCV -> processWithZkn(connection)
         }
     }
 }
 
 // Deployment configuration
-val deployment = RiscVDeployment(
-    hardware = "StarFive VisionFive 2",  // Or "SiFive Unmatched"
-    kernel = "Linux 6.1-riscv",
-    features = setOf("rv64gcv", "zihintpause", "zkn"),
+val deployment = MultiArchDeployment(
+    targets = ["x86_64", "aarch64", "riscv64"],
     tuning = PerformanceTuning(
-        vectorLength = 256,
-        cacheLineSize = 64,
-        tlbSize = 512
+        vectorization = true,
+        cacheOptimization = true
     )
 )
 ```
 
-#### Step 23: Edge AI Inference on RISC-V
+#### Step 25: Edge AI Inference
 
 **Tests Written First:**
-- [ ] Test: ML models run efficiently with RVV
-- [ ] Test: Quantized models fit in RISC-V cache
+- [ ] Test: ML models run efficiently with vector extensions
+- [ ] Test: Quantized models fit in cache
 - [ ] Test: Real-time inference <10ms latency
 - [ ] Test: Power consumption <5W on edge device
 - [ ] Test: Custom AI instructions utilized if available
@@ -87,16 +86,16 @@ val deployment = RiscVDeployment(
 **Implementation:**
 
 ```seen
-// AI inference optimized for RISC-V
-class RiscVInference : MLRuntime {
+// AI inference optimized for multiple architectures
+class EdgeInference : MLRuntime {
     
-    @optimize_for("rvv-1.0")
+    @optimize_for("vector-extensions")
     fun runConvolution(
         input: Tensor3D,
         weights: Tensor4D,
         bias: Tensor1D
     ): Tensor3D {
-        // Optimized for RISC-V vector register file
+        // Optimized for each architecture's vector capabilities
         val vlen = getVectorLength()
         val result = Tensor3D.zeros(outputShape)
         
@@ -105,19 +104,18 @@ class RiscVInference : MLRuntime {
         
         // GEMM with vector FMA
         for (oc in 0 until outputChannels step vlen) {
-            vsetvli(vlen, Float32)
-            val acc = vfmv.v.f(0.0f)  // Initialize accumulator
+            val acc = vectorInit(0.0f)
             
             for (ic in 0 until inputChannels) {
                 val w = weights.loadVector(oc, ic)
                 val i = im2col.loadVector(ic)
-                acc = vfmacc(acc, w, i)  // Fused multiply-add
+                acc = vectorFMA(acc, w, i)  // Fused multiply-add
             }
             
             // Add bias and activation
             val b = bias.loadVector(oc)
-            acc = vfadd(acc, b)
-            acc = vfmax(acc, 0.0f)  // ReLU
+            acc = vectorAdd(acc, b)
+            acc = vectorMax(acc, 0.0f)  // ReLU
             
             result.storeVector(oc, acc)
         }
@@ -125,45 +123,45 @@ class RiscVInference : MLRuntime {
         return result
     }
     
-    // Support for custom RISC-V AI extensions
-    @riscv_custom_extension("xventana")
+    // Support for custom extensions
+    @custom_extension
     external fun customMatMul(a: Matrix, b: Matrix): Matrix
 }
 ```
 
-#### Step 24: Embedded RISC-V Real-Time System
+#### Step 26: Embedded Real-Time System
 
 **Tests Written First:**
 - [ ] Test: Hard real-time constraints met (<1ms jitter)
 - [ ] Test: Interrupt latency <1μs
 - [ ] Test: Memory footprint <64KB
-- [ ] Test: Runs on RISC-V microcontroller
+- [ ] Test: Runs on embedded microcontrollers
 - [ ] Test: Reactive streams work without allocation
 
 **Implementation:**
 
 ```seen
-// Bare-metal RISC-V embedded system
+// Bare-metal embedded system
 @no_std
-@target("riscv32imac")
+@target("embedded")
 class EmbeddedController {
     
     // Interrupt vector table
-    @riscv_vector_table
+    @vector_table
     val vectors = arrayOf(
-        ::machineTimerISR,
+        ::timerISR,
         ::externalInterruptISR,
         ::uartISR
     )
     
-    @interrupt("machine_timer")
-    fun machineTimerISR() {
+    @interrupt("timer")
+    fun timerISR() {
         // Real-time task scheduling
         val current = getCurrentTime()
         scheduler.tick(current)
         
-        // Update next timer compare
-        writeCSR("mtimecmp", current + TICK_PERIOD)
+        // Update next timer
+        setNextTimer(current + TICK_PERIOD)
     }
     
     // Zero-allocation reactive streams
@@ -182,40 +180,26 @@ class EmbeddedController {
         return MMIO.read32(ADC_BASE_ADDR)
     }
 }
-
-// Link script for embedded RISC-V
-@link_script("""
-MEMORY {
-    FLASH : ORIGIN = 0x20000000, LENGTH = 256K
-    RAM   : ORIGIN = 0x80000000, LENGTH = 64K
-}
-
-SECTIONS {
-    .text : { *(.text*) } > FLASH
-    .data : { *(.data*) } > RAM AT > FLASH
-    .bss  : { *(.bss*) } > RAM
-}
-""")
 ```
 
-#### Step 25: RISC-V Educational Platform
+#### Step 27: Educational Platform
 
 **Tests Written First:**
-- [ ] Test: Runs on $25 RISC-V board
+- [ ] Test: Runs on affordable hardware
 - [ ] Test: Interactive tutorials work offline
-- [ ] Test: Visualizes RISC-V pipeline
+- [ ] Test: Visualizes CPU pipeline
 - [ ] Test: Shows vector execution in real-time
 - [ ] Test: Supports remote learning
 
 **Implementation:**
 
 ```seen
-// Educational RISC-V environment
-class RiscVEducation : InteractivePlatform {
+// Educational environment
+class SeenEducation : InteractivePlatform {
     
     fun visualizePipeline(code: String) {
         val instructions = parse(code)
-        val pipeline = RiscVPipeline()
+        val pipeline = CPUPipeline()
         
         for (cycle in 0..maxCycles) {
             pipeline.step()
@@ -246,7 +230,7 @@ class RiscVEducation : InteractivePlatform {
         showScalarLoop(data)  // 32 iterations
         
         // Show vector version
-        showVectorLoop(data)  // 4 iterations with VLEN=8
+        showVectorLoop(data)  // Fewer iterations with SIMD
         
         // Performance comparison
         showSpeedup(scalar = 32, vector = 4)
@@ -254,21 +238,21 @@ class RiscVEducation : InteractivePlatform {
 }
 ```
 
-#### Step 26: RISC-V IoT Gateway
+#### Step 28: IoT Gateway
 
 **Tests Written First:**
 - [ ] Test: Manages 10K IoT devices
 - [ ] Test: Protocol translation efficient
-- [ ] Test: Edge computing with RVV
+- [ ] Test: Edge computing with vector ops
 - [ ] Test: Power-efficient sleep modes
-- [ ] Test: OTA updates work on RISC-V
+- [ ] Test: OTA updates work
 
 **Implementation:**
 
 ```seen
-// IoT gateway for RISC-V
-@platform("rv64gc")
-class RiscVIoTGateway {
+// IoT gateway for multiple architectures
+@platform("edge")
+class IoTGateway {
     
     // Handle multiple protocols efficiently
     val protocolHandlers = mapOf(
@@ -287,7 +271,7 @@ class RiscVIoTGateway {
         .bufferTime(100.ms)  // Batch processing
         .map { batch ->
             // Vectorized data processing
-            processWithRVV(batch)
+            processWithSIMD(batch)
         }
         .subscribe { processed ->
             // Forward to cloud
@@ -297,7 +281,7 @@ class RiscVIoTGateway {
     
     @low_power
     fun enterSleepMode() {
-        // RISC-V wait-for-interrupt
+        // Architecture-specific wait-for-interrupt
         executeWFI()
         
         // Wake on interrupt from any device
@@ -310,25 +294,25 @@ class RiscVIoTGateway {
 }
 ```
 
-### Milestone 8: Production RISC-V Tools (Months 8-10)
+### Milestone 5: Production Tools (Months 7-9)
 
-#### Step 27: RISC-V Cloud Deployment
+#### Step 29: Cloud Deployment
 
 **Tests Written First:**
-- [ ] Test: Containers run on RISC-V K8s
+- [ ] Test: Containers run on Kubernetes
 - [ ] Test: Multi-arch images (x86/ARM/RISC-V)
-- [ ] Test: Service mesh works on RISC-V
+- [ ] Test: Service mesh works
 - [ ] Test: Observability tools compatible
-- [ ] Test: Auto-scaling based on RISC-V metrics
+- [ ] Test: Auto-scaling based on metrics
 
 **Implementation:**
 
 ```seen
-// Cloud-native RISC-V deployment
-class RiscVCloudService {
+// Cloud-native deployment
+class CloudService {
     
     @dockerfile("""
-    FROM seen/runtime:riscv64
+    FROM seen/runtime:multi-arch
     COPY app /app
     EXPOSE 8080
     ENTRYPOINT ["/app"]
@@ -338,22 +322,20 @@ class RiscVCloudService {
     apiVersion: apps/v1
     kind: Deployment
     metadata:
-      name: riscv-service
+      name: seen-service
     spec:
       replicas: 3
       selector:
         matchLabels:
-          app: riscv-service
+          app: seen-service
       template:
         metadata:
           labels:
-            app: riscv-service
+            app: seen-service
         spec:
-          nodeSelector:
-            kubernetes.io/arch: riscv64
           containers:
           - name: app
-            image: myapp:riscv64
+            image: myapp:multi-arch
             resources:
               requests:
                 memory: "64Mi"
@@ -378,10 +360,10 @@ class RiscVCloudService {
 }
 ```
 
-#### Step 28: RISC-V Performance Analysis Tools
+#### Step 30: Performance Analysis Tools
 
 **Tests Written First:**
-- [ ] Test: Profiler shows RISC-V-specific metrics
+- [ ] Test: Profiler shows architecture-specific metrics
 - [ ] Test: Vector utilization measured accurately
 - [ ] Test: Power profiling on actual hardware
 - [ ] Test: Cache performance analyzed
@@ -390,19 +372,17 @@ class RiscVCloudService {
 **Implementation:**
 
 ```seen
-// RISC-V performance analysis
-class RiscVProfiler : PerformanceProfiler {
+// Performance analysis
+class PerformanceProfiler {
     
     fun profileApplication(app: Application): ProfileReport {
         // Enable hardware performance counters
-        val counters = RiscVCounters(
-            cycles = true,
-            instructions = true,
-            cacheMisses = true,
-            branchMispredicts = true,
-            vectorOps = true,
-            tlbMisses = true
-        )
+        val counters = when (Architecture.current) {
+            is X86 -> X86Counters()
+            is ARM -> ARMCounters()
+            is RISCV -> RISCVCounters()
+            else -> GenericCounters()
+        }
         
         counters.start()
         app.run()
@@ -433,13 +413,13 @@ class RiscVProfiler : PerformanceProfiler {
 }
 ```
 
-### Milestone 9: Enterprise RISC-V Adoption (Months 10-12)
+### Milestone 6: Enterprise Adoption (Months 9-10)
 
-#### Step 29: RISC-V Migration Tools
+#### Step 31: Migration Tools
 
 **Tests Written First:**
-- [ ] Test: ARM binaries translated to RISC-V
-- [ ] Test: x86 intrinsics mapped to RVV
+- [ ] Test: Binaries translated between architectures
+- [ ] Test: x86 intrinsics mapped to other SIMD
 - [ ] Test: Performance regression detected
 - [ ] Test: Gradual migration supported
 - [ ] Test: Binary compatibility layer works
@@ -447,31 +427,33 @@ class RiscVProfiler : PerformanceProfiler {
 **Implementation:**
 
 ```seen
-// Enterprise migration to RISC-V
-class RiscVMigration : MigrationFramework {
+// Enterprise migration
+class MigrationFramework {
     
-    fun translateBinary(armBinary: Binary): RiscVBinary {
+    fun translateBinary(sourceBinary: Binary): Binary {
         // Binary translation for quick migration
-        val ir = armBinary.toIR()
+        val ir = sourceBinary.toIR()
         
-        // Map ARM NEON to RISC-V RVV
+        // Map SIMD instructions
         val vectorMapped = mapVectorInstructions(ir, 
-            from = ARMNeon,
-            to = RiscVVector
+            from = detectSIMD(sourceBinary),
+            to = targetSIMD()
         )
         
-        // Optimize for RISC-V
-        val optimized = RiscVOptimizer.optimize(vectorMapped)
+        // Optimize for target
+        val optimized = ArchitectureOptimizer.optimize(vectorMapped)
         
-        return RiscVBinary.generate(optimized)
+        return Binary.generate(optimized)
     }
     
     fun hybridDeployment(service: Service): HybridDeployment {
-        // Run on both architectures during transition
+        // Run on multiple architectures during transition
         return HybridDeployment(
-            x86Instances = service.deploy("x86-64", count = 3),
-            armInstances = service.deploy("aarch64", count = 3),
-            riscvInstances = service.deploy("riscv64", count = 3),
+            instances = mapOf(
+                "x86-64" -> service.deploy("x86-64", count = 3),
+                "aarch64" -> service.deploy("aarch64", count = 3),
+                "riscv64" -> service.deploy("riscv64", count = 3)
+            ),
             loadBalancer = MultiArchLoadBalancer(
                 strategy = "performance-aware",
                 metrics = ["latency", "throughput", "cost"]
@@ -481,21 +463,21 @@ class RiscVMigration : MigrationFramework {
 }
 ```
 
-#### Step 30: RISC-V Security Hardening
+#### Step 32: Security Hardening
 
 **Tests Written First:**
-- [ ] Test: Control flow integrity on RISC-V
+- [ ] Test: Control flow integrity
 - [ ] Test: Memory encryption with vector ops
 - [ ] Test: Side-channel resistant code
-- [ ] Test: Secure boot on RISC-V
+- [ ] Test: Secure boot support
 - [ ] Test: TEE (Trusted Execution) support
 
 **Implementation:**
 
 ```seen
-// Security features for RISC-V
+// Security features
 @secure
-class RiscVSecurity {
+class SecurityFeatures {
     
     @control_flow_integrity
     fun secureFunction() {
@@ -512,14 +494,13 @@ class RiscVSecurity {
     
     @side_channel_resistant
     fun constantTimeCompare(a: ByteArray, b: ByteArray): Boolean {
-        // Use RISC-V vector ops for constant-time comparison
+        // Use vector ops for constant-time comparison
         var diff = 0
         
-        vsetvli(a.size, UInt8)
-        val va = vle8(a)
-        val vb = vle8(b)
-        val vdiff = vxor(va, vb)
-        diff = vredsum(vdiff)
+        val va = loadVector(a)
+        val vb = loadVector(b)
+        val vdiff = vectorXor(va, vb)
+        diff = vectorReduce(vdiff)
         
         return diff == 0
     }
@@ -534,78 +515,167 @@ class RiscVSecurity {
             permissions = PMP.READ or PMP.WRITE or PMP.EXEC
         )
         
-        // Enable pointer masking (J extension)
+        // Enable pointer masking
         enablePointerMasking()
         
         // Enable crypto extensions
-        if (hasExtension("zkn")) {
+        if (hasExtension("crypto")) {
             enableCryptoAcceleration()
         }
     }
 }
 ```
 
-## Beta Command Interface with RISC-V
+### Milestone 7: Ecosystem Completion (Throughout Beta)
+
+#### Step 33: Package Manager Implementation
+
+**Tests Written First:**
+- [ ] Test: Package publishing works
+- [ ] Test: Dependency resolution correct
+- [ ] Test: Cross-platform packages
+- [ ] Test: Version management
+- [ ] Test: Works with all language configurations
+
+**Implementation:**
+
+```seen
+// Package manager
+class SeenPackageManager {
+    
+    fun publish(package: Package) {
+        // Build for all architectures
+        val binaries = mapOf(
+            "x86_64" -> build(package, "x86_64"),
+            "aarch64" -> build(package, "aarch64"),
+            "riscv64" -> build(package, "riscv64"),
+            "wasm" -> build(package, "wasm")
+        )
+        
+        // Upload to registry
+        registry.upload(package, binaries)
+    }
+    
+    fun install(name: String, version: String? = null) {
+        // Resolve for current architecture
+        val package = registry.resolve(name, version, Architecture.current)
+        
+        // Download and install
+        download(package)
+        install(package)
+        
+        // Update lock file
+        updateLockFile(package)
+    }
+}
+```
+
+#### Step 34: Standard Library Completion
+
+**Tests Written First:**
+- [ ] Test: All modules complete
+- [ ] Test: Performance optimal on all architectures
+- [ ] Test: Thread-safe
+- [ ] Test: No allocations where promised
+- [ ] Test: Works with all languages
+
+**Implementation:**
+
+```seen
+// Complete standard library
+module std {
+    // Already implemented modules from MVP
+    module reactive { ... }
+    module collections { ... }
+    
+    // New modules for Beta
+    module networking {
+        class TcpListener { ... }
+        class UdpSocket { ... }
+        class HttpClient { ... }
+    }
+    
+    module crypto {
+        class Sha256 { ... }
+        class AesGcm { ... }
+        class Ed25519 { ... }
+    }
+    
+    module concurrent {
+        class Thread { ... }
+        class Mutex<T> { ... }
+        class Channel<T> { ... }
+        class Atomic<T> { ... }
+    }
+}
+```
+
+## Beta Command Interface
 
 ```bash
-# RISC-V specific commands
-seen build --target riscv64-linux
-seen build --target riscv32-embedded
-seen deploy --platform riscv-k8s
-seen profile --arch riscv64 --counters
-seen migrate --from arm64 --to riscv64
-seen benchmark --hardware "visionfive2"
+# Multi-architecture commands
+seen build --target x86_64
+seen build --target aarch64  
+seen build --target riscv64
+seen build --target wasm
 
 # Cross-compilation
-seen build --host x86_64 --target riscv64
-seen package --cross riscv32
+seen build --host x86_64 --target aarch64
+seen package --cross all
 
 # Remote debugging
-seen debug --remote riscv-board:3333
-seen trace --riscv-vector --remote
+seen debug --remote board:3333
+seen trace --vector --remote
 
 # Performance analysis
 seen analyze --vector-utilization
 seen profile --power-consumption
-seen benchmark --compare "arm64,riscv64"
+seen benchmark --compare "x86,arm,riscv"
 
 # Security
-seen audit --arch riscv64
+seen audit --arch all
 seen harden --cfi --scs
 ```
 
 ## Success Criteria
 
-### RISC-V Performance Targets
+### Performance Targets
 
-- [ ] Web server: >500K req/s on VisionFive 2
-- [ ] AI inference: <10ms for MobileNet on RVV
+- [ ] Web server: >500K req/s on modern hardware
+- [ ] AI inference: <10ms for MobileNet
 - [ ] Embedded: <64KB footprint, <1μs interrupt
-- [ ] Power: 30% better efficiency than ARM
-- [ ] Vector: >80% utilization on RVV code
+- [ ] Power: Optimal efficiency on all architectures
+- [ ] Vector: >80% utilization on SIMD code
 
 ### Production Readiness
 
-- [ ] 10+ production deployments on RISC-V
+- [ ] 10+ production deployments
 - [ ] Enterprise migration tools mature
-- [ ] Cloud providers support RISC-V
-- [ ] Package ecosystem covers RISC-V
-- [ ] Hardware from 3+ vendors tested
+- [ ] Cloud providers support
+- [ ] Package ecosystem established
+- [ ] Hardware from multiple vendors tested
+
+### Tooling Maintenance
+
+- [ ] Installer updated for all new features
+- [ ] VSCode extension supports all Beta capabilities
+- [ ] All keywords in TOML files verified
+- [ ] No hardcoded keywords anywhere
 
 ## Risk Mitigation
 
-### RISC-V Risks
+### Beta Risks
 
-- **Hardware availability**: Partner with vendors
-- **Ecosystem gaps**: Contribute to upstream
-- **Performance variation**: Test multiple chips
+- **Hardware availability**: Test on virtual machines when needed
+- **Ecosystem gaps**: Contribute to upstream projects
+- **Performance variation**: Test on multiple configurations
 - **Enterprise hesitation**: Provide migration path
 
 ## Next Phase Preview
 
 **Release Phase** will deliver:
-- RISC-V as tier-1 platform
-- Specialized RISC-V variants (space, automotive)
+- All architectures as tier-1 platforms
+- Specialized market variants (space, automotive)
 - Custom extension framework
 - Hardware co-design tools
-- Global RISC-V certification program
+- Global certification program

@@ -1,372 +1,599 @@
-# [[Seen]] Language Alpha Phase Development Plan (RISC-V Enhanced)
+# Seen Language Alpha Phase Development Plan
 
-## Overview: Advanced Features & Developer Experience with RISC-V Excellence
+## Overview: Performance Leadership Through Revolutionary Optimization
 
-**Prerequisites**: Completed MVP with self-hosting compiler (Step 14), complete LSP, RISC-V support (Step 13), and multi-paradigm support  
-**Goal**: Production-ready language with advanced tooling, optimization, reactive programming and RISC-V performance leadership  
-**Development Language**: **SEEN** (All development in Seen, running on x86, ARM, and RISC-V)
+**Prerequisites**: Completed MVP with self-hosting compiler (Step 14), complete LSP, benchmarking framework, and multi-architecture support  
+**Goal**: Achieve performance leadership over C++/Rust/Zig through revolutionary optimization techniques  
+**Development Language**: **100% SEEN** - No Rust code remains after verification
 
 **Core Alpha Requirements:**
-- Advanced optimization pipeline (E-graph, MLIR) with RISC-V vector optimizations
-- Complete standard library optimized for RISC-V vector extensions
-- Package manager with RISC-V binary caching
-- Advanced C interoperability including RISC-V embedded libraries
-- WebAssembly AND native RISC-V deployment options
-- Production debugging for all architectures including RISC-V
+- Complete removal of all Rust code after verification
+- Revolutionary optimization pipeline (e-graphs, MLIR, superoptimization)
+- Machine learning-driven optimization
+- Profile-guided optimization by default
+- Hardware/software co-design capabilities
+- Advanced memory optimization
+- Multi-architecture optimization framework
+- **Continuous updates**: Installer and VSCode extension updated with each feature
+- **All keywords in TOML language files only**: Never hardcoded
 
 ## Phase Structure
 
-### Milestone 4: Advanced Tooling (Months 3-4)
+### Milestone 1: Self-Hosting Verification & Rust Removal (Week 1-2)
 
-#### Step 15: Complete Compiler Error System (Multi-Architecture Aware)
+#### Step 15: Complete Compiler Error System
 
 **Tests Written First:**
-- [ ] Test: Error messages architecture-specific when relevant
-- [ ] Test: RISC-V instruction errors clearly explained
-- [ ] Test: Vector extension misuse detected and corrected
+- [ ] Test: Error messages clear and actionable
+- [ ] Test: Architecture-specific errors when relevant
 - [ ] Test: Cross-compilation errors helpful
-- [ ] Test: Memory alignment errors on RISC-V caught
+- [ ] Test: Memory alignment errors caught
+- [ ] Test: Optimization failure messages helpful
 
 **Implementation Required:**
 
-**Architecture-Specific Error Messages:**
 ```seen
-// Example RISC-V specific error
-error[RV001]: Invalid vector operation
-  --> src/math.seen:42:15
-   |
-42 |   val result = vectorAdd(a, b, c)  // 3 operands
-   |                ^^^^^^^^^^^^^^^^^^^ 
-   |
-   = note: RISC-V vector instructions support maximum 2 source operands
-   = help: consider chaining operations:
-   |
-42 |   val temp = vectorAdd(a, b)
-43 |   val result = vectorAdd(temp, c)
-   |
-   = note: or use fused multiply-add for 3 operands:
-   |
-42 |   val result = vectorFMA(a, b, c)  // a * b + c
-```
-
-#### Step 16: Package Manager & Registry (RISC-V Optimized)
-
-**Tests Written First:**
-- [ ] Test: Packages pre-compiled for RISC-V targets cached
-- [ ] Test: Vector-optimized packages marked and preferred
-- [ ] Test: Embedded RISC-V packages fit size constraints
-- [ ] Test: Cross-compilation packages auto-download tools
-- [ ] Test: RISC-V hardware capabilities detected
-
-**Implementation:**
-
-**Package Metadata for RISC-V:**
-```toml
-[package]
-name = "high-performance-math"
-version = "2.0.0"
-
-[targets]
-riscv64-linux = { 
-    features = ["rvv1.0", "zfh"],
-    binary-cache = true,
-    size = "1.2MB"
-}
-riscv32-embedded = {
-    features = ["rv32imac"],
-    binary-cache = true,
-    size = "48KB"  # Optimized for embedded
-}
-
-[optimizations.riscv]
-vector-width = "auto"  # Or 128, 256, 512, 1024
-fusion-strategy = "aggressive"
-compressed-instructions = true
-```
-
-#### Step 17: Advanced C Interoperability & RISC-V Libraries
-
-**Tests Written First:**
-- [ ] Test: RISC-V embedded C libraries link correctly
-- [ ] Test: Hardware abstraction layers (HAL) work
-- [ ] Test: Interrupt handlers compile to correct RISC-V code
-- [ ] Test: Inline assembly for RISC-V works
-- [ ] Test: Custom RISC-V instructions callable
-
-**Implementation:**
-
-```seen
-// RISC-V specific C interop
-@extern("c")
-@riscv_interrupt("machine")
-fun timerInterruptHandler() {
-    // Compiles to RISC-V interrupt handler
-    val mcause = readCSR("mcause")
-    when (mcause) {
-        0x8000_0007 -> handleMachineTimer()
-        else -> panic("Unexpected interrupt")
-    }
-}
-
-@inline
-@riscv_asm
-fun readCSR(csr: String): UInt {
-    // Inline RISC-V assembly
-    asm("csrr $0, $1" : "=r"(result) : "i"(csr))
-    return result
-}
-
-// Custom RISC-V extension support
-@riscv_custom(0x7b)  // Custom opcode
-external fun acceleratedHash(data: Ptr<Byte>, len: Size): UInt32
-```
-
-### Milestone 5: Optimization & Performance (Months 4-5)
-
-#### Step 18: Advanced Optimization Pipeline (RISC-V Vector-Aware)
-
-**Tests Written First:**
-- [ ] Test: RVV instructions fused optimally
-- [ ] Test: RISC-V macro-op fusion applied
-- [ ] Test: Compressed instructions selected when beneficial
-- [ ] Test: Vector register allocation optimal
-- [ ] Test: Cross-ISA performance maintained
-
-**Implementation:**
-
-```seen
-// RISC-V specific optimization passes
-class RiscVOptimizer : CompilerPass {
-    override fun optimize(module: IRModule): IRModule {
-        return module
-            .applyVectorFusion()      // Fuse vector operations
-            .applyMacroOpFusion()     // Fuse common sequences
-            .selectCompressed()        // Use C extension
-            .optimizeCSRAccess()      // Minimize CSR operations
-            .scheduleForRiscV()       // RISC-V specific scheduling
+// Error system in pure Seen
+class CompilerError {
+    enum ErrorKind {
+        SYNTAX(line: Int, col: Int, message: String)
+        TYPE_MISMATCH(expected: Type, found: Type)
+        UNDEFINED_SYMBOL(name: String, suggestions: List<String>)
+        ARCHITECTURE_SPECIFIC(arch: Architecture, issue: String)
+        OPTIMIZATION_FAILED(pass: String, reason: String)
     }
     
-    fun applyVectorFusion(module: IRModule): IRModule {
-        // Identify and fuse vector operation chains
-        val patterns = listOf(
-            // Fuse multiply-add into FMA
-            Pattern(Mul(a, b), Add(_, c)) to FMA(a, b, c),
-            // Fuse consecutive maps in reactive streams
-            Pattern(VMap(f), VMap(g)) to VMap(compose(f, g)),
-            // Fuse filter-map combinations
-            Pattern(VFilter(p), VMap(f)) to VFilterMap(p, f)
+    fun format(error: ErrorKind, source: SourceFile): String {
+        // Beautiful error messages with code context
+        val context = source.getContext(error.location)
+        return buildString {
+            append(error.severity.color)
+            append("error[${error.code}]: ${error.message}\n")
+            append("  --> ${source.path}:${error.line}:${error.col}\n")
+            append("   |\n")
+            append("${error.line} | ${context.line}\n")
+            append("   | ${" ".repeat(error.col)}^\n")
+            append("   |\n")
+            append("   = help: ${error.suggestion}\n")
+        }
+    }
+}
+```
+
+**Installer/VSCode Updates:**
+- [ ] Update VSCode extension to display new error formats
+- [ ] Ensure error messages work in all IDEs
+
+#### Step 16: Verify Complete Self-Hosting & Remove Rust
+
+**Critical Verification Tests:**
+- [ ] Test: Seen compiler can compile itself 3 times (triple bootstrap)
+- [ ] Test: All features work without any Rust code
+- [ ] Test: Performance maintained or improved
+- [ ] Test: All platforms supported (x86, ARM, RISC-V, WASM)
+- [ ] Test: Memory safety guaranteed without Rust
+
+**Implementation:**
+
+```seen
+// Bootstrap verification script
+fun verifyCompleteIndependence(): BootstrapResult {
+    // Stage 1: Current compiler (may have Rust dependencies)
+    val compiler1 = currentCompiler()
+    
+    // Stage 2: Compile with stage 1
+    val compiler2 = compiler1.compile(seenCompilerSource)
+    
+    // Stage 3: Compile with stage 2
+    val compiler3 = compiler2.compile(seenCompilerSource)
+    
+    // Verify byte-identical output
+    assert(compiler2.binary == compiler3.binary, 
+           "Bootstrap not stable - Rust dependencies may remain")
+    
+    // Verify no Rust symbols
+    assert(!compiler3.binary.contains("rust"), 
+           "Rust symbols found in binary")
+    
+    // Remove all Rust code
+    removeRustCode()
+    
+    return BootstrapResult.SUCCESS
+}
+
+fun removeRustCode() {
+    // Delete all .rs files
+    // Remove Cargo.toml, Cargo.lock
+    // Update build scripts to use only Seen
+    // Update CI/CD pipelines
+    FileSystem.remove("src/**/*.rs")
+    FileSystem.remove("Cargo.*")
+    updateBuildSystem(useOnlySeen = true)
+}
+```
+
+**Documentation Updates:**
+- [ ] Update README: "100% self-hosted in Seen"
+- [ ] Remove Rust from documentation
+- [ ] Update contributor guidelines
+
+### Milestone 2: Revolutionary Optimization Pipeline (Months 2-4)
+
+#### Step 17: E-graph Equality Saturation Engine
+
+**Tests Written First:**
+- [ ] Test: E-graphs find optimizations LLVM misses
+- [ ] Test: 10x faster compilation than LLVM
+- [ ] Test: Generated code within 2% of optimal
+- [ ] Test: Emergent optimizations discovered
+- [ ] Test: Works across all architectures
+
+**Implementation:**
+
+```seen
+// E-graph optimization engine
+class EGraphOptimizer : OptimizationPass {
+    // Based on egg (e-graphs good) research
+    
+    fun optimize(program: IR): IR {
+        val egraph = EGraph()
+        
+        // Add program to e-graph
+        val root = egraph.add(program)
+        
+        // Saturate with rewrite rules
+        val rules = loadRewriteRules()
+        egraph.saturate(rules, limit = 10000)
+        
+        // Extract optimal program
+        val costModel = CostModel(
+            instruction = 1,
+            memory = 10,
+            branch = 5,
+            vectorOp = 0.25  // Prefer vector operations
         )
         
-        return module.applyPatterns(patterns)
+        return egraph.extract(root, costModel)
+    }
+    
+    fun loadRewriteRules(): List<RewriteRule> {
+        // Rules that lead to emergent optimizations
+        return [
+            // Associativity + Commutativity
+            rule("(+ ?a (+ ?b ?c))" -> "(+ (+ ?a ?b) ?c)"),
+            rule("(+ ?a ?b)" -> "(+ ?b ?a)"),
+            
+            // Strength reduction
+            rule("(* ?a 2)" -> "(<< ?a 1)"),
+            rule("(/ ?a 2)" -> "(>> ?a 1)"),
+            
+            // Vector operation fusion
+            rule("(map ?f (map ?g ?xs))" -> "(map (compose ?f ?g) ?xs)"),
+            rule("(filter ?p (map ?f ?xs))" -> "(filterMap ?p ?f ?xs)"),
+            
+            // Memory access optimization
+            rule("(load (store ?addr ?val))" -> "?val"),
+            
+            // Hundreds more rules...
+        ]
     }
 }
 ```
 
-**Performance Analysis Commands:**
-```bash
-seen profile --arch riscv64 --features rvv
-seen optimize --target-cpu sifive-u74  # Specific RISC-V CPU
-seen optimize --target-cpu generic-rv64gc  # Generic RISC-V
-```
+**Performance Impact:**
+- Compilation 10x faster than LLVM
+- Code quality matches or beats GCC -O3
+- Discovers optimizations humans wouldn't find
 
-#### Step 19: WebAssembly AND Native RISC-V Support
+#### Step 18: Machine Learning-Driven Optimization
 
 **Tests Written First:**
-- [ ] Test: Same code compiles to both WASM and RISC-V
-- [ ] Test: RISC-V IoT devices run native code
-- [ ] Test: WASM fallback when RISC-V unavailable
-- [ ] Test: Performance comparison WASM vs native RISC-V
-- [ ] Test: Reactive streams work on both targets
+- [ ] Test: ML model improves performance over time
+- [ ] Test: Learns from every compilation
+- [ ] Test: Beats hand-tuned heuristics
+- [ ] Test: Adapts to different workloads
+- [ ] Test: No performance regressions
 
 **Implementation:**
 
 ```seen
-// Multi-target deployment
-@target(["wasm32", "riscv32-embedded"])
-class IoTSensor {
-    private val stream = PublishSubject<SensorData>()
+// ML-guided optimization (like Google's MLGO)
+class MLOptimizer : OptimizationPass {
+    val model = loadTrainedModel("seen-opt-v3.model")
     
-    @platform_specific
-    fun readSensor(): Float {
-        return when (Platform.current) {
-            Platform.RiscV32 -> readRiscVADC()
-            Platform.Wasm -> readWebSensor()
-            else -> simulatedValue()
-        }
-    }
-    
-    @riscv_only
-    private fun readRiscVADC(): Float {
-        // Direct hardware access on RISC-V
-        val adc = MMIO.read(0x4000_3000)
-        return (adc & 0xFFF).toFloat() / 4096.0
-    }
-}
-```
-
-### Milestone 6: Standard Library Expansion (Months 5-6)
-
-#### Step 20: Comprehensive Standard Library (RISC-V Optimized)
-
-**Tests Written First:**
-- [ ] Test: Math library uses RISC-V F/D extensions
-- [ ] Test: Vector math uses RVV instructions
-- [ ] Test: Crypto library uses Zkn extensions if available
-- [ ] Test: Atomic operations use A extension
-- [ ] Test: Reactive operators maximize vector utilization
-
-**Implementation:**
-
-```seen
-// RISC-V optimized standard library
-package seen.std.math
-
-@optimize_for("riscv-rvv")
-object VectorMath {
-    // Automatically uses RVV instructions
-    fun dotProduct(a: FloatArray, b: FloatArray): Float {
-        require(a.size == b.size)
+    fun optimize(ir: IR): IR {
+        var optimized = ir
         
-        // Compiles to:
-        // vsetvli t0, a0, e32, m1
-        // vle32.v v0, (a1)
-        // vle32.v v1, (a2)  
-        // vfmul.vv v2, v0, v1
-        // vfredsum.vs v3, v2, v3
-        
-        return (0 until a.size)
-            .map { a[it] * b[it] }
-            .sum()
-    }
-    
-    // Matrix operations with vector extensions
-    fun matrixMultiply(a: Matrix, b: Matrix): Matrix {
-        // Optimized for RISC-V vector register width
-        val vlen = Platform.vectorLength
-        return Matrix.create(a.rows, b.cols) { i, j ->
-            vectorDotProduct(
-                a.getRow(i),
-                b.getColumn(j),
-                vlen
-            )
-        }
-    }
-}
-
-// Reactive operators optimized for RISC-V
-extension Observable<Float> {
-    @vectorized
-    fun vectorMap(f: (Float) -> Float): Observable<Float> {
-        return this.bufferCount(Platform.vectorLength)
-            .map { buffer ->
-                // Process entire buffer with vector instructions
-                VectorMath.mapVector(buffer, f)
+        // Inlining decisions
+        for (call in ir.functionCalls) {
+            val features = extractFeatures(call)
+            val shouldInline = model.predictInlining(features)
+            if (shouldInline > 0.7) {
+                optimized = inline(optimized, call)
             }
-            .flatMap { it.toObservable() }
+        }
+        
+        // Register allocation
+        val regAllocation = model.predictRegisterAllocation(ir)
+        optimized = applyRegisterAllocation(optimized, regAllocation)
+        
+        // Instruction scheduling
+        for (block in optimized.basicBlocks) {
+            val schedule = model.predictSchedule(block)
+            block.reorderInstructions(schedule)
+        }
+        
+        // Learn from this compilation
+        val performance = measure(optimized)
+        model.addTrainingData(ir, optimized, performance)
+        
+        return optimized
+    }
+    
+    fun extractFeatures(call: FunctionCall): Features {
+        return Features(
+            calleeSize = call.function.instructionCount,
+            callSiteHeat = call.executionFrequency,
+            parameterCount = call.parameters.size,
+            isRecursive = call.function.isRecursive,
+            isInLoop = call.isInLoop,
+            // Dozens more features...
+        )
     }
 }
 ```
 
-#### Step 21: Advanced Debugging & Profiling (RISC-V Aware)
+**Training Infrastructure:**
+- Continuous learning from all compilations
+- A/B testing of optimizations
+- Automatic rollback on regressions
+
+#### Step 19: Superoptimization Engine
 
 **Tests Written First:**
-- [ ] Test: RISC-V instruction trace available
-- [ ] Test: Vector register state visible in debugger
-- [ ] Test: Performance counters readable
-- [ ] Test: Hardware breakpoints work on RISC-V
-- [ ] Test: Remote debugging via OpenOCD works
+- [ ] Test: Finds optimal instruction sequences
+- [ ] Test: 82% faster than GCC -O3 on kernels
+- [ ] Test: Completes in reasonable time
+- [ ] Test: Works with custom instructions
+- [ ] Test: Integrates with e-graphs
 
 **Implementation:**
 
 ```seen
-// RISC-V debugging support
-class RiscVDebugger : Debugger {
-    fun readPerformanceCounters(): PerfCounters {
-        return PerfCounters(
-            cycles = readCSR("mcycle"),
-            instructions = readCSR("minstret"),
-            // Hardware-specific counters
-            cacheMisses = readHPM(3),
-            branchMispredicts = readHPM(4),
-            vectorOps = readHPM(5)
-        )
+// Superoptimization using SAT/SMT solvers
+class Superoptimizer : OptimizationPass {
+    val solver = Z3Solver()
+    
+    fun superoptimize(function: Function): Function {
+        // For small critical functions, find optimal code
+        if (function.instructionCount > 50) {
+            return function // Too large for superoptimization
+        }
+        
+        val spec = extractSpecification(function)
+        val optimal = searchOptimal(spec)
+        
+        return if (optimal != null && verify(optimal, spec)) {
+            optimal
+        } else {
+            function
+        }
     }
     
-    fun traceVectorExecution(code: () -> Unit) {
-        enableVectorTrace()
-        code()
-        val trace = collectVectorTrace()
+    fun searchOptimal(spec: Specification): Function? {
+        // Start with length 1, increase until solution found
+        for (length in 1..spec.maxLength) {
+            val formula = encodeSearch(spec, length)
+            
+            if (solver.solve(formula)) {
+                return decodeFunction(solver.model)
+            }
+        }
+        return null
+    }
+    
+    fun encodeSearch(spec: Specification, length: Int): Formula {
+        // Encode program synthesis as SAT problem
+        val instructions = Variable.array("insn", length)
+        val operands = Variable.array("op", length * 3)
         
-        // Analyze vector utilization
-        println("Vector utilization: ${trace.utilization}%")
-        println("Vector operations: ${trace.opCount}")
-        println("Memory bandwidth: ${trace.bandwidth} GB/s")
+        // Well-formedness constraints
+        val wellFormed = instructions.map { insn ->
+            validInstruction(insn) && validOperands(insn)
+        }
+        
+        // Semantic equivalence
+        val equivalent = forall(spec.inputs) { input ->
+            execute(instructions, input) == spec.output(input)
+        }
+        
+        // Optimization objective (minimize cost)
+        val cost = instructions.sum { instructionCost(it) }
+        
+        return Formula.and(wellFormed, equivalent, minimize(cost))
     }
 }
 ```
 
-## RISC-V Specific Commands
+#### Step 20: Profile-Guided Optimization (PGO) by Default
 
-```bash
-# RISC-V development commands
-seen build --target riscv64-linux-rvv     # With vector extensions
-seen build --target riscv32-embedded      # For microcontrollers
-seen build --march=rv64gcv_zfh_zba_zbb   # Specific extensions
+**Tests Written First:**
+- [ ] Test: PGO automatic in release builds
+- [ ] Test: 20% performance improvement typical
+- [ ] Test: No manual profiling needed
+- [ ] Test: Works across architectures
+- [ ] Test: Profile data portable
 
-# RISC-V debugging
-seen debug --remote gdb://openocd:3333    # Remote debugging
-seen trace --riscv-vector                 # Vector execution trace
-seen profile --riscv-counters            # Hardware counters
+**Implementation:**
 
-# RISC-V optimization
-seen optimize --mcpu=sifive-u74          # CPU-specific optimization
-seen optimize --vectorize=aggressive     # Aggressive vectorization
-seen benchmark --on-riscv-hardware       # Real hardware testing
-
-# Package management
-seen add torch --target=riscv64-rvv      # Get RVV-optimized version
-seen package --cross-compile=riscv32     # Cross-compile packages
+```seen
+// Automatic PGO in standard compilation
+class ProfileGuidedOptimizer {
+    fun compile(source: Source): Binary {
+        // Step 1: Compile with instrumentation
+        val instrumented = compileWithProfiling(source)
+        
+        // Step 2: Run with representative workload
+        val profile = if (hasTestSuite(source)) {
+            // Use test suite as profile workload
+            runTests(instrumented)
+        } else {
+            // Use heuristic workload
+            generateSyntheticProfile(source)
+        }
+        
+        // Step 3: Recompile with profile
+        val optimized = compileWithProfile(source, profile)
+        
+        // Step 4: Validate improvement
+        assert(benchmark(optimized) < benchmark(instrumented) * 0.9)
+        
+        return optimized
+    }
+    
+    fun compileWithProfile(source: Source, profile: Profile): Binary {
+        val ir = parse(source)
+        
+        // Hot path optimization
+        for (function in ir.functions) {
+            if (profile.isHot(function)) {
+                function.optimize(aggressive = true)
+                function.inline(always = true)
+            }
+        }
+        
+        // Branch prediction hints
+        for (branch in ir.branches) {
+            val probability = profile.branchProbability(branch)
+            branch.addHint(probability)
+        }
+        
+        // Data layout optimization
+        val accessPattern = profile.memoryAccessPattern
+        ir.reorderFields(accessPattern)
+        
+        return generateCode(ir)
+    }
+}
 ```
 
-## Success Criteria with RISC-V
+#### Step 21: Advanced Memory Optimization
 
-### Performance Targets
+**Tests Written First:**
+- [ ] Test: Zero-overhead memory management
+- [ ] Test: Better than manual malloc/free
+- [ ] Test: Cache-optimal layouts
+- [ ] Test: NUMA-aware allocation
+- [ ] Test: Works with all architectures' memory models
 
-- [ ] RISC-V performance within 5% of x86/ARM
-- [ ] Vector operations >4x faster than scalar
-- [ ] Reactive operators fully vectorized
-- [ ] Embedded binaries <100KB for basic apps
-- [ ] Boot time <100ms on RISC-V embedded
+**Implementation:**
 
-### Functional Requirements
+```seen
+// Revolutionary memory optimization
+class MemoryOptimizer {
+    fun optimizeMemoryAccess(ir: IR): IR {
+        // Cache-oblivious algorithms
+        val cacheOptimal = makeCacheOblivious(ir)
+        
+        // Structure packing and reordering
+        val packed = packStructures(cacheOptimal)
+        
+        // Pointer compression (32-bit indices instead of 64-bit pointers)
+        val compressed = compressPointers(packed)
+        
+        // NUMA-aware allocation
+        val numa = optimizeForNUMA(compressed)
+        
+        // Prefetching
+        val prefetched = insertPrefetches(numa)
+        
+        return prefetched
+    }
+    
+    fun makeCacheOblivious(ir: IR): IR {
+        // Transform algorithms to be optimal for any cache size
+        return ir.transform {
+            case MatrixMultiply(a, b, c) ->
+                // Recursive cache-oblivious algorithm
+                CacheObliviousMatMul(a, b, c)
+                
+            case TreeTraversal(tree) ->
+                // Van Emde Boas layout
+                VEBTreeTraversal(tree)
+                
+            case Sort(array) ->
+                // Cache-oblivious sorting
+                FunnelSort(array)
+        }
+    }
+    
+    fun compressPointers(ir: IR): IR {
+        // Use 32-bit indices instead of 64-bit pointers
+        // 2.4x speedup demonstrated in research
+        
+        for (struct in ir.structs) {
+            for (field in struct.fields) {
+                if (field.type.isPointer) {
+                    field.type = Index32
+                    field.base = struct.baseAddress
+                }
+            }
+        }
+        
+        return ir
+    }
+}
+```
 
-- [ ] All Alpha features work on RISC-V
-- [ ] Cross-compilation seamless
-- [ ] Remote debugging operational
-- [ ] Package ecosystem supports RISC-V
-- [ ] Documentation covers RISC-V specifics
+#### Step 22: Multi-Architecture Optimization Framework
+
+**Tests Written First:**
+- [ ] Test: Optimal code for each architecture
+- [ ] Test: SIMD usage maximized (AVX-512, NEON, RVV)
+- [ ] Test: Architecture-specific patterns recognized
+- [ ] Test: No performance regression on any platform
+- [ ] Test: Custom instructions utilized when available
+
+**Implementation:**
+
+```seen
+// Architecture-aware optimization
+class ArchitectureOptimizer {
+    fun optimize(ir: IR, target: Architecture): IR {
+        return when (target) {
+            is X86_64 -> optimizeForX86(ir)
+            is AArch64 -> optimizeForARM(ir)
+            is RISCV64 -> optimizeForRISCV(ir)
+            is WASM -> optimizeForWASM(ir)
+        }
+    }
+    
+    fun optimizeForX86(ir: IR): IR {
+        var optimized = ir
+        
+        // Use AVX-512 for vector operations
+        optimized = vectorize(optimized, vectorWidth = 512)
+        
+        // Complex addressing modes
+        optimized = useComplexAddressing(optimized)
+        
+        // SIMD intrinsics
+        optimized = mapToIntrinsics(optimized, X86Intrinsics)
+        
+        return optimized
+    }
+    
+    fun optimizeForRISCV(ir: IR): IR {
+        var optimized = ir
+        
+        // Vector Extension
+        optimized = vectorize(optimized, vectorWidth = VLEN)
+        
+        // Compressed instructions
+        optimized = useCompressedInstructions(optimized)
+        
+        // Custom extensions if available
+        if (hasCustomExtensions()) {
+            optimized = useCustomInstructions(optimized)
+        }
+        
+        return optimized
+    }
+}
+```
+
+### Milestone 3: Continuous Integration Updates (Throughout Alpha)
+
+#### Step 23: Installer & IDE Updates
+
+**Continuous Throughout Alpha:**
+- [ ] Update installer with each optimization feature
+- [ ] Update VSCode extension for new language features
+- [ ] Ensure all keywords in TOML files only
+- [ ] Update documentation continuously
+
+**Implementation:**
+
+```seen
+// Automated update system
+class ReleaseAutomation {
+    fun onNewFeature(feature: Feature) {
+        // Update language TOML files
+        updateLanguageFiles(feature.keywords)
+        
+        // Update VSCode grammar
+        updateVSCodeSyntax(feature.syntax)
+        
+        // Update installer
+        updateInstaller(feature.binaries)
+        
+        // Run tests
+        verifyNoHardcodedKeywords()
+        verifyTOMLCompleteness()
+        
+        // Generate release
+        createRelease(feature.version)
+    }
+    
+    fun verifyNoHardcodedKeywords() {
+        // Scan entire codebase
+        val files = FileSystem.findAll("**/*.seen")
+        for (file in files) {
+            val content = file.read()
+            assert(!content.contains('"fun"'), 
+                   "Hardcoded keyword found - use language TOML")
+        }
+    }
+    
+    fun updateLanguageFiles(keywords: List<Keyword>) {
+        // Update ALL language TOML files
+        val languages = ["en", "ar", "es", "zh", "fr", "de", "jp", "ru"]
+        
+        for (lang in languages) {
+            val toml = loadLanguageFile(lang)
+            for (keyword in keywords) {
+                toml.keywords[keyword.id] = keyword.translations[lang]
+            }
+            saveLanguageFile(lang, toml)
+        }
+    }
+}
+```
+
+## Success Criteria
+
+### Performance Targets (End of Alpha)
+
+- [ ] **Compilation Speed**: 10x faster than LLVM
+- [ ] **Generated Code**: Beats GCC -O3 by 20%+ average
+- [ ] **Memory Overhead**: Zero (Vale-style proven)
+- [ ] **ML Optimization**: 15% improvement from learning
+- [ ] **Superoptimization**: 50%+ improvement on hot paths
+- [ ] **PGO**: Automatic with 20% typical improvement
+- [ ] **Architecture Optimization**: Within 5% of hand-tuned assembly
+
+### Technical Requirements
+
+- [ ] 100% Rust code removed and verified
+- [ ] All optimizations working together
+- [ ] No performance regressions
+- [ ] All architectures equally supported
+- [ ] Keywords only in TOML files
+- [ ] Installer and VSCode extension current
 
 ## Risk Mitigation
 
-### RISC-V Specific Risks
+### Technical Risks
 
-- **Hardware diversity**: Test on multiple implementations
-- **Extension fragmentation**: Support common subsets
-- **Toolchain immaturity**: Contribute fixes upstream
-- **Performance variability**: Profile on actual hardware
-
-### Mitigation Strategies
-
-1. **Hardware Coverage**: Test on QEMU, SiFive, StarFive, T-Head
-2. **Extension Support**: Implement RVA20, RVA22, RVA23 profiles
-3. **Community Engagement**: Active in RISC-V International
-4. **Performance Lab**: Dedicated RISC-V hardware for testing
+- **E-graph complexity**: Start with simple rules, expand gradually
+- **ML model training**: Use pre-trained models initially
+- **Superoptimization time**: Limit to small functions
+- **Architecture differences**: Test on all platforms continuously
 
 ## Next Phase Preview
 
-**Beta Phase** will demonstrate:
-- Production RISC-V deployments
-- IoT/Edge applications on RISC-V
-- AI/ML workloads with RVV
-- Cloud-native RISC-V containers
-- Educational platforms on RISC-V
+**Beta Phase** will focus on:
+- Package manager and ecosystem
+- Showcase applications
+- Production debugging tools
+- Standard library completion

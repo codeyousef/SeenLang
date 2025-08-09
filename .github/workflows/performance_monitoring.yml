@@ -1,0 +1,267 @@
+name: Continuous Performance Monitoring
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_size:
+        description: 'Test data size'
+        required: false
+        default: 'medium'
+        type: choice
+        options:
+          - small
+          - medium
+          - large
+      iterations:
+        description: 'Number of iterations'
+        required: false
+        default: '50'
+
+jobs:
+  performance-validation:
+    name: Performance Validation Suite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, nightly]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for performance comparisons
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+          components: rustfmt, clippy
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Python dependencies
+        run: |
+          pip install numpy scipy matplotlib pandas seaborn plotly
+      
+      - name: Setup C++ (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ clang valgrind hyperfine
+      
+      - name: Setup C++ (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm mingw -y
+      
+      - name: Setup C++ (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm hyperfine
+      
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build Seen compiler
+        run: cargo build --release --bin seen
+      
+      - name: Run performance benchmarks
+        run: |
+          cd performance_validation
+          python scripts/run_benchmarks.py \
+            --iterations ${{ github.event.inputs.iterations || '50' }} \
+            --test-size ${{ github.event.inputs.test_size || 'medium' }} \
+            --output results/ci_${{ github.run_number }}
+      
+      - name: Statistical analysis
+        run: |
+          cd performance_validation
+          python scripts/statistical_analysis.py \
+            results/ci_${{ github.run_number }}/raw_data \
+            --output results/ci_${{ github.run_number }}/analysis \
+            --min-samples 25 \
+            --plot
+      
+      - name: Validate performance claims
+        run: |
+          cd performance_validation
+          python scripts/validate_claims.py \
+            --benchmark-data results/ci_${{ github.run_number }}/analysis/statistical_analysis.json \
+            --output results/ci_${{ github.run_number }}/claims_validation.json \
+            --verbose
+      
+      - name: Generate performance report
+        run: |
+          cd performance_validation
+          python scripts/report_generator.py \
+            --data-dir results/ci_${{ github.run_number }} \
+            --output results/ci_${{ github.run_number }}/performance_report.md \
+            --format markdown \
+            --include-plots \
+            --honest-mode
+      
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request'
+        run: |
+          cd performance_validation
+          python scripts/compare_performance.py \
+            --baseline results/baseline \
+            --current results/ci_${{ github.run_number }} \
+            --threshold 5 \
+            --output results/ci_${{ github.run_number }}/comparison.md
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-results-${{ matrix.os }}-${{ matrix.rust }}-${{ github.run_number }}
+          path: performance_validation/results/ci_${{ github.run_number }}
+      
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            const reportPath = path.join('performance_validation', 'results', `ci_${context.runNumber}`, 'performance_report.md');
+            const comparisonPath = path.join('performance_validation', 'results', `ci_${context.runNumber}`, 'comparison.md');
+            
+            let comment = '## Performance Validation Results\n\n';
+            
+            if (fs.existsSync(comparisonPath)) {
+              const comparison = fs.readFileSync(comparisonPath, 'utf8');
+              comment += comparison;
+            } else if (fs.existsSync(reportPath)) {
+              const report = fs.readFileSync(reportPath, 'utf8');
+              // Extract summary section
+              const summaryMatch = report.match(/## Executive Summary[\s\S]*?##/);
+              if (summaryMatch) {
+                comment += summaryMatch[0];
+              }
+            }
+            
+            comment += '\n\n[View full report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+      
+      - name: Check performance regression
+        run: |
+          cd performance_validation
+          python scripts/check_regression.py \
+            --current results/ci_${{ github.run_number }} \
+            --threshold 10 \
+            --exit-on-regression
+  
+  benchmark-tracking:
+    name: Track Performance Trends
+    runs-on: ubuntu-latest
+    needs: performance-validation
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: performance_validation/results/artifacts
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: pip install numpy scipy matplotlib pandas seaborn plotly
+      
+      - name: Generate trend analysis
+        run: |
+          cd performance_validation
+          python scripts/trend_analysis.py \
+            --data-dir results/artifacts \
+            --output results/trends \
+            --window 30
+      
+      - name: Update performance dashboard
+        run: |
+          cd performance_validation
+          python scripts/generate_dashboard.py \
+            --trends results/trends \
+            --output docs/performance_dashboard.html
+      
+      - name: Deploy to GitHub Pages
+        if: success()
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./performance_validation/docs
+          publish_branch: gh-pages
+          destination_dir: performance
+  
+  docker-validation:
+    name: Third-Party Docker Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Build validation Docker image
+        run: |
+          cd performance_validation
+          docker build -t seen-validation:latest .
+      
+      - name: Run validation in Docker
+        run: |
+          cd performance_validation
+          docker run --rm \
+            -v $(pwd)/results:/validation/results \
+            -e ITERATIONS=100 \
+            -e TEST_SIZE=large \
+            seen-validation:latest \
+            validate-all
+      
+      - name: Upload Docker validation results
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-validation-${{ github.run_number }}
+          path: performance_validation/results/latest
+      
+      - name: Notify if validation fails
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Performance Validation Failed',
+              body: `The scheduled performance validation failed.\n\nRun: ${context.runId}\nCommit: ${context.sha}`,
+              labels: ['performance', 'automated']
+            });

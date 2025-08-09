@@ -1,0 +1,48 @@
+﻿{
+    "metadata":  {
+                     "benchmark":  "real_runtime_performance",
+                     "timestamp":  "2025-08-09T10:09:52Z",
+                     "iterations":  2
+                 },
+    "benchmarks":  {
+                       "seen":  {
+                                    "max_time":  0.0099606,
+                                    "times":  [
+                                                  0.0099606,
+                                                  0.0067703999999999993
+                                              ],
+                                    "timestamp":  "2025-08-09T10:09:53Z",
+                                    "average_time":  0.0083655,
+                                    "min_time":  0.0067703999999999993,
+                                    "runtime_ops_per_second":  239,
+                                    "benchmark":  "runtime",
+                                    "language":  "seen",
+                                    "std_dev":  0.0015951000000000003,
+                                    "iterations":  2
+                                },
+                       "rust":  {
+                                    "language":  "rust",
+                                    "benchmark":  "runtime",
+                                    "iterations":  2,
+                                    "operations":  67650,
+                                    "times":  [
+                                                  0.0000211,
+                                                  0.0000151
+                                              ],
+                                    "average_time":  0.0000181,
+                                    "ops_per_second":  3737569060.773481
+                                },
+                       "cpp":  {
+                                   "language":  "cpp",
+                                   "benchmark":  "runtime",
+                                   "iterations":  2,
+                                   "operations":  67650,
+                                   "times":  [
+                                                 4.01E-05,
+                                                 3.18E-05
+                                             ],
+                                   "average_time":  3.595E-05,
+                                   "ops_per_second":  1881780000
+                               }
+                   }
+}

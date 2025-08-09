@@ -1,219 +1,180 @@
-# Regex Engine Real-World Benchmark Runner
-# PowerShell script for testing regular expression performance
-
+# Regex Engine Benchmark Script
 param(
-    [int]$Iterations = 30,
-    [int]$Warmup = 5,
-    [string]$Output = "regex_engine_results.json",
-    [string]$Competitors = "cpp,rust,zig",
-    [string]$TestSize = "medium",
-    [string]$Format = "json",
-    [switch]$Verbose,
-    [switch]$Help
+    [int]$Iterations = 5
 )
 
-if ($Help) {
-    Write-Host @"
-Regex Engine Real-World Benchmark
-
-Usage: .\run_benchmark.ps1 [OPTIONS]
-
-DESCRIPTION:
-    Tests regular expression engine performance with various patterns.
-    Measures matching speed and memory usage.
-"@
-    exit 0
+$REGEX_ENGINE_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SEEN_CLI = "$PSScriptRoot\..\..\..\target\debug\seen.exe"
+if (-not (Test-Path $SEEN_CLI)) {
+    $SEEN_CLI = "$PSScriptRoot\..\..\..\target\release\seen.exe"
+}
+if (-not (Test-Path $SEEN_CLI)) {
+    $SEEN_CLI = "$PSScriptRoot\..\..\..\target-wsl\debug\seen"
+}
+if (-not (Test-Path $SEEN_CLI)) {
+    $SEEN_CLI = "$PSScriptRoot\..\..\..\target-wsl\release\seen"
 }
 
+Write-Host "Running Regex Engine Benchmark..." -ForegroundColor Cyan
+
+# Define benchmark results
+$cppResults = @()
+$rustResults = @()
+$seenResults = @()
+
+# Run C++ version
+$CPP_EXE = "$PSScriptRoot\..\..\benchmarks\real_implementations\regex_bench_cpp.exe"
+if (Test-Path $CPP_EXE) {
+    Write-Host "Running C++ regex engine..." -ForegroundColor Blue
+    
+    for ($i = 0; $i -lt $Iterations; $i++) {
+        # Always run C++ executable via WSL
+        $wslPath = $CPP_EXE -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1'
+        $wslPath = $wslPath.ToLower()
+        Write-Host "Executing C++ via WSL: $wslPath" -ForegroundColor Gray
+        $output = wsl bash -c "`"$wslPath`"" 2>&1
+        $outputStr = ($output -join " ").Trim()
+        Write-Host "C++ output: '$outputStr'" -ForegroundColor Gray
+        
+        if ($outputStr -match "([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)") {
+            $cppResults += @{
+                "match_time_ms" = [double]$matches[1]
+                "matches_per_sec" = [double]$matches[2]
+                "memory_mb" = [double]$matches[3]
+                "compile_time_ms" = [double]$matches[4]
+            }
+        }
+    }
+    
+    if ($cppResults.Count -gt 0) {
+        $avgTime = ($cppResults | ForEach-Object { $_.match_time_ms } | Measure-Object -Average).Average
+        $avgMps = ($cppResults | ForEach-Object { $_.matches_per_sec } | Measure-Object -Average).Average
+        Write-Host "C++ Average: $([math]::Round($avgTime, 1)) ms, $([math]::Round($avgMps / 1000, 1))K matches/s" -ForegroundColor Green
+    }
+}
+
+# Run Rust version
+$RUST_EXE = "$PSScriptRoot\..\..\benchmarks\real_implementations\regex_bench_rust.exe"
+if (Test-Path $RUST_EXE) {
+    Write-Host "Running Rust regex engine..." -ForegroundColor Blue
+    
+    for ($i = 0; $i -lt $Iterations; $i++) {
+        # Always run Rust executable via WSL
+        $wslPath = $RUST_EXE -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1'
+        $wslPath = $wslPath.ToLower()
+        Write-Host "Executing Rust via WSL: $wslPath" -ForegroundColor Gray
+        $output = wsl bash -c "`"$wslPath`"" 2>&1
+        $outputStr = ($output -join " ").Trim()
+        Write-Host "Rust output: '$outputStr'" -ForegroundColor Gray
+        
+        if ($outputStr -match "([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)\s+([\d.]+(?:[eE][+-]?\d+)?)") {
+            $rustResults += @{
+                "match_time_ms" = [double]$matches[1]
+                "matches_per_sec" = [double]$matches[2]
+                "memory_mb" = [double]$matches[3]
+                "compile_time_ms" = [double]$matches[4]
+            }
+        }
+    }
+    
+    if ($rustResults.Count -gt 0) {
+        $avgTime = ($rustResults | ForEach-Object { $_.match_time_ms } | Measure-Object -Average).Average
+        $avgMps = ($rustResults | ForEach-Object { $_.matches_per_sec } | Measure-Object -Average).Average
+        Write-Host "Rust Average: $([math]::Round($avgTime, 1)) ms, $([math]::Round($avgMps / 1000, 1))K matches/s" -ForegroundColor Green
+    }
+}
+
+# Run Seen version
+$SEEN_EXECUTABLE = "$REGEX_ENGINE_DIR\regex_engine_benchmark\target\native\debug\regex_engine_benchmark"
+
+# Try to build if executable doesn't exist
+if (-not (Test-Path $SEEN_EXECUTABLE)) {
+    Write-Host "Building Seen regex engine benchmark..." -ForegroundColor Yellow
+    Push-Location "$REGEX_ENGINE_DIR\regex_engine_benchmark"
+    & $SEEN_CLI build 2>&1 | Out-Null
+    Pop-Location
+}
+
+if (Test-Path $SEEN_EXECUTABLE) {
+    Write-Host "Running Seen regex engine..." -ForegroundColor Blue
+    
+    for ($i = 0; $i -lt $Iterations; $i++) {
+        # Use WSL to execute the Linux binary if it doesn't have .exe extension
+        if ($SEEN_EXECUTABLE -notlike "*.exe") {
+            # Manual path conversion from Windows to WSL format
+            $wslPath = $SEEN_EXECUTABLE -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1'
+            $wslPath = $wslPath.ToLower()
+            Write-Host "Executing via WSL: $wslPath" -ForegroundColor Gray
+            $output = wsl bash -c "`"$wslPath`"" 2>&1
+            $exitCode = $LASTEXITCODE
+            Write-Host "WSL output: $($output -join ' ')" -ForegroundColor Gray
+            Write-Host "WSL exit code: $exitCode" -ForegroundColor Gray
+        } else {
+            $output = & $SEEN_EXECUTABLE 2>&1
+            $exitCode = $LASTEXITCODE
+            Write-Host "Exit code: $exitCode" -ForegroundColor Gray
+        }
+        
+        $outputStr = $output -join " "
+        Write-Host "Raw output string: '$outputStr'" -ForegroundColor Gray
+        
+        if ($exitCode -eq 0 -and $outputStr -match "(\d+\.?\d*)\s+(\d+\.?\d*)\s+(\d+\.?\d*)\s+(\d+\.?\d*)") {
+            $seenResults += @{
+                "match_time_ms" = [double]$matches[1]
+                "matches_per_sec" = [double]$matches[2]
+                "memory_mb" = [double]$matches[3]
+                "compile_time_ms" = [double]$matches[4]
+            }
+            Write-Host "Successfully parsed iteration $($i + 1): $([double]$matches[1])ms match, $([double]$matches[2]) matches/s" -ForegroundColor Green
+        } else {
+            Write-Host "Failed to parse output on iteration $($i + 1). Exit code: $exitCode, Output: '$outputStr'" -ForegroundColor Red
+        }
+    }
+    
+    if ($seenResults.Count -gt 0) {
+        $avgTime = ($seenResults | ForEach-Object { $_.match_time_ms } | Measure-Object -Average).Average
+        $avgMps = ($seenResults | ForEach-Object { $_.matches_per_sec } | Measure-Object -Average).Average
+        Write-Host "Seen Average: $([math]::Round($avgTime, 1)) ms, $([math]::Round($avgMps / 1000, 1))K matches/s" -ForegroundColor Green
+    }
+}
+
+# Save results
 $results = @{
     metadata = @{
         timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-        benchmark = "regex_engine_real_world"
+        benchmark = "regex_engine"
         iterations = $Iterations
-        application = "Regex Engine"
     }
     benchmarks = @{}
 }
 
-Write-Host "[INFO] Starting regex engine benchmark..." -ForegroundColor Blue
-Write-Host "[WARNING] Simulating regex engine benchmark results" -ForegroundColor Yellow
-
-# Test patterns with different complexity
-$regexPatterns = @{
-    "email" = @{ 
-        pattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        complexity = "medium"
-        text_size_kb = 500
-    }
-    "phone" = @{
-        pattern = "^\(\d{3}\)\s?\d{3}-\d{4}$"
-        complexity = "simple" 
-        text_size_kb = 200
-    }
-    "url" = @{
-        pattern = "https?://(?:[-\w.])+(?::[0-9]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?)?$"
-        complexity = "high"
-        text_size_kb = 1000
-    }
-    "complex_nested" = @{
-        pattern = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$"
-        complexity = "high"
-        text_size_kb = 300
+if ($cppResults.Count -gt 0) {
+    $results.benchmarks.cpp = @{
+        "match_time_ms" = $cppResults | ForEach-Object { $_.match_time_ms }
+        "matches_per_sec" = $cppResults | ForEach-Object { $_.matches_per_sec }
+        "memory_mb" = $cppResults | ForEach-Object { $_.memory_mb }
+        "compile_time_ms" = $cppResults | ForEach-Object { $_.compile_time_ms }
     }
 }
 
-$seenResults = @{
-    match_times = @()
-    matches_per_second = @()
-    memory_usage = @()
-    pattern_compilation_times = @()
-    metadata = @{ language = "seen"; engine = "built-in" }
-}
-
-for ($i = 0; $i -lt $Iterations; $i++) {
-    if ($Verbose) { Write-Host "  Iteration $($i + 1)/$Iterations" -ForegroundColor Gray }
-    
-    $totalTime = 0
-    $totalMatches = 0
-    $totalMemory = 0
-    $totalCompileTime = 0
-    
-    foreach ($patternName in $regexPatterns.Keys) {
-        $patternInfo = $regexPatterns[$patternName]
-        $textSizeKB = $patternInfo.text_size_kb
-        $complexity = $patternInfo.complexity
-        
-        # Simulate pattern compilation time
-        $compileTime = switch ($complexity) {
-            "simple" { (Get-Random -Minimum 1 -Maximum 5) / 1000.0 }
-            "medium" { (Get-Random -Minimum 5 -Maximum 15) / 1000.0 }
-            "high" { (Get-Random -Minimum 15 -Maximum 50) / 1000.0 }
-        }
-        
-        # Simulate matching time based on text size and pattern complexity
-        $baseMatchTime = $textSizeKB * 0.002  # Base: 2ms per KB
-        if ($complexity -eq "high") {
-            $baseMatchTime *= 2.5
-        } elseif ($complexity -eq "medium") {
-            $baseMatchTime *= 1.5
-        }
-        
-        $matchTime = ($baseMatchTime + (Get-Random -Minimum -10 -Maximum 10)) / 1000.0
-        $matches = Get-Random -Minimum 100 -Maximum 5000  # Simulated matches found
-        $memory = $textSizeKB * 0.3 + (Get-Random -Minimum 5 -Maximum 20)  # MB
-        
-        $totalTime += $matchTime
-        $totalMatches += $matches
-        $totalMemory += $memory
-        $totalCompileTime += $compileTime
+if ($rustResults.Count -gt 0) {
+    $results.benchmarks.rust = @{
+        "match_time_ms" = $rustResults | ForEach-Object { $_.match_time_ms }
+        "matches_per_sec" = $rustResults | ForEach-Object { $_.matches_per_sec }
+        "memory_mb" = $rustResults | ForEach-Object { $_.memory_mb }
+        "compile_time_ms" = $rustResults | ForEach-Object { $_.compile_time_ms }
     }
-    
-    $matchesPerSec = $totalMatches / $totalTime
-    
-    $seenResults.match_times += $totalTime
-    $seenResults.matches_per_second += $matchesPerSec
-    $seenResults.memory_usage += $totalMemory
-    $seenResults.pattern_compilation_times += $totalCompileTime
-    
-    Start-Sleep -Milliseconds 6
 }
 
-$results.benchmarks.seen = $seenResults
-
-# Add competitors
-$competitorList = $Competitors -split ',' | ForEach-Object { $_.Trim() }
-foreach ($competitor in $competitorList) {
-    Write-Host "[INFO] Testing $competitor regex engine..." -ForegroundColor Blue
-    
-    $competitorResults = @{
-        match_times = @()
-        matches_per_second = @()
-        memory_usage = @()
-        pattern_compilation_times = @()
-        metadata = @{ 
-            language = $competitor
-            engine = switch ($competitor) {
-                "cpp" { "PCRE2" }
-                "rust" { "regex crate" }
-                "zig" { "std.regex" }
-                default { "standard" }
-            }
-        }
+if ($seenResults.Count -gt 0) {
+    $results.benchmarks.seen = @{
+        "match_time_ms" = $seenResults | ForEach-Object { $_.match_time_ms }
+        "matches_per_sec" = $seenResults | ForEach-Object { $_.matches_per_sec }
+        "memory_mb" = $seenResults | ForEach-Object { $_.memory_mb }
+        "compile_time_ms" = $seenResults | ForEach-Object { $_.compile_time_ms }
     }
-    
-    for ($i = 0; $i -lt $Iterations; $i++) {
-        $totalTime = 0
-        $totalMatches = 0
-        $totalMemory = 0
-        $totalCompileTime = 0
-        
-        foreach ($patternName in $regexPatterns.Keys) {
-            $patternInfo = $regexPatterns[$patternName]
-            $textSizeKB = $patternInfo.text_size_kb
-            $complexity = $patternInfo.complexity
-            
-            # Different performance characteristics per language
-            $speedMultiplier = switch ($competitor) {
-                "cpp" { 0.7 }    # C++ PCRE2 fastest
-                "rust" { 0.8 }   # Rust regex crate very fast
-                "zig" { 0.9 }    # Zig competitive
-                default { 1.0 }
-            }
-            
-            $compileTime = switch ($complexity) {
-                "simple" { (Get-Random -Minimum 1 -Maximum 5) / 1000.0 * $speedMultiplier }
-                "medium" { (Get-Random -Minimum 5 -Maximum 15) / 1000.0 * $speedMultiplier }
-                "high" { (Get-Random -Minimum 15 -Maximum 50) / 1000.0 * $speedMultiplier }
-            }
-            
-            $baseMatchTime = $textSizeKB * 0.002 * $speedMultiplier
-            if ($complexity -eq "high") {
-                $baseMatchTime *= 2.5
-            } elseif ($complexity -eq "medium") {
-                $baseMatchTime *= 1.5
-            }
-            
-            $matchTime = ($baseMatchTime + (Get-Random -Minimum -8 -Maximum 8)) / 1000.0
-            $matches = Get-Random -Minimum 100 -Maximum 5000
-            $memory = $textSizeKB * 0.25 + (Get-Random -Minimum 3 -Maximum 15)
-            
-            $totalTime += $matchTime
-            $totalMatches += $matches
-            $totalMemory += $memory
-            $totalCompileTime += $compileTime
-        }
-        
-        $matchesPerSec = $totalMatches / $totalTime
-        
-        $competitorResults.match_times += $totalTime
-        $competitorResults.matches_per_second += $matchesPerSec
-        $competitorResults.memory_usage += $totalMemory
-        $competitorResults.pattern_compilation_times += $totalCompileTime
-    }
-    
-    $results.benchmarks.$competitor = $competitorResults
 }
 
-# Display results
-$seenAvgTime = ($seenResults.match_times | Measure-Object -Average).Average
-$seenAvgMps = ($seenResults.matches_per_second | Measure-Object -Average).Average
-$seenAvgCompile = ($seenResults.pattern_compilation_times | Measure-Object -Average).Average
-
-Write-Host "[INFO] Regex Engine Results:" -ForegroundColor Blue
-$seenAvgTimeMs = [math]::Round($seenAvgTime * 1000, 2)
-$seenAvgMpsK = [math]::Round($seenAvgMps / 1000, 1)
-$seenAvgCompileMs = [math]::Round($seenAvgCompile * 1000, 2)
-Write-Host "Seen: ${seenAvgTimeMs}ms match, ${seenAvgMpsK}K matches/s, ${seenAvgCompileMs}ms compile" -ForegroundColor White
-
-foreach ($competitor in $competitorList) {
-    $compResults = $results.benchmarks.$competitor
-    $compAvgTime = ($compResults.match_times | Measure-Object -Average).Average
-    $speedRatio = $compAvgTime / $seenAvgTime
-    $speedRatioRounded = [math]::Round($speedRatio, 2)
-    Write-Host "${competitor}: ${speedRatioRounded}x time vs Seen" -ForegroundColor Cyan
-}
-
-# Write results
-$results | ConvertTo-Json -Depth 10 | Out-File -FilePath $Output -Encoding UTF8
-Write-Host "[SUCCESS] Results written to: $Output" -ForegroundColor Green
-Write-Host "[INFO] Regex engine benchmark completed" -ForegroundColor Blue
+$results | ConvertTo-Json -Depth 10 | Out-File -FilePath "regex_engine_results.json" -Encoding UTF8
+Write-Host "Results saved to regex_engine_results.json" -ForegroundColor Green
+Write-Output "Results saved to regex_engine_results.json"  # For background job capture

@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  validation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: seen-validation:latest
+    container_name: seen-performance-validation
+    volumes:
+      - ./results:/validation/results
+      - ./benchmarks:/validation/benchmarks
+      - ./scripts:/validation/scripts
+      - ./test_data:/validation/test_data
+    environment:
+      - VALIDATION_MODE=third_party
+      - HONEST_MODE=true
+      - ITERATIONS=100
+      - WARMUP=10
+      - TEST_SIZE=large
+    networks:
+      - validation-network
+    command: validate-all
+    
+  report-server:
+    image: nginx:alpine
+    container_name: seen-validation-reports
+    volumes:
+      - ./results:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    networks:
+      - validation-network
+    depends_on:
+      - validation
+
+networks:
+  validation-network:
+    driver: bridge
