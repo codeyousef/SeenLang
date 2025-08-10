@@ -1,7 +1,7 @@
 // Simplified AST Module
 
-class AST {
-    fun new() -> AST {
+public class AST {
+    public fun new() -> AST {
         println("Creating AST");
     }
 }

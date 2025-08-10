@@ -857,7 +857,8 @@
       "Bash(CARGO_TARGET_DIR=target-wsl rustc --edition 2021 /tmp/debug_detailed_parsing.rs --extern seen_lexer=target-wsl/debug/libseen_lexer.rlib --extern seen_parser=target-wsl/debug/libseen_parser.rlib --extern seen_common=target-wsl/debug/libseen_common.rlib -L target-wsl/debug/deps -o /tmp/debug_detailed_parsing)",
       "Bash(CARGO_TARGET_DIR=target-wsl /tmp/debug_detailed_parsing)",
       "Bash(CARGO_TARGET_DIR=target-wsl ./target-wsl/debug/seen build --manifest-path compiler_seen)",
-      "Bash(./compiler_seen/target/native/debug/seen_compiler)"
+      "Bash(./compiler_seen/target/native/debug/seen_compiler)",
+      "Bash(bootstrap_verification/stage1/seen:*)"
     ],
     "deny": []
   }

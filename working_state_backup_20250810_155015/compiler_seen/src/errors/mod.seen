@@ -1,7 +1,7 @@
 // Simplified Error System Module for Seen Compiler
 
-class ErrorManager {
-    fun new() -> ErrorManager {
+public class ErrorManager {
+    public fun new() -> ErrorManager {
         return ErrorManager {};
     }
 }

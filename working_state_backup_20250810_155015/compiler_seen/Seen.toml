@@ -1,0 +1,71 @@
+[project]
+name = "seen_compiler"
+version = "1.0.0"
+language = "en"
+description = "Self-hosted Seen compiler - written in Seen"
+authors = ["Seen Language Team"]
+edition = "2025"
+
+[build]
+targets = ["native", "riscv64", "wasm32"]
+optimize = "speed"
+lto = true
+codegen-units = 1
+debug-info = true
+profile = "release"
+
+[dependencies]
+# Core dependencies for compiler implementation
+seen_std = "../seen_std"
+seen_reactive = "../seen_std/reactive"
+
+[build-dependencies]
+# Dependencies needed for bootstrap build process
+
+[targets.native]
+triple = "x86_64-unknown-linux-gnu"
+features = ["simd", "vectorization"]
+
+[targets.riscv64]
+triple = "riscv64-unknown-linux-gnu"
+features = ["rvv", "compressed", "atomic"]
+
+[targets.wasm32]
+triple = "wasm32-unknown-unknown" 
+features = ["simd128"]
+
+[format]
+line-width = 100
+indent = 4
+trailing-comma = true
+document-types = [".seen", ".md", ".toml"]
+
+[test]
+# Test configuration
+threads = "auto"
+timeout = 300
+coverage = true
+
+[benchmark]
+# Benchmark configuration
+iterations = 1000
+warmup = 100
+timeout = 60
+statistical-significance = 0.05
+
+[lsp]
+# Language Server Protocol configuration
+diagnostics = true
+completion = true
+hover = true
+goto-definition = true
+find-references = true
+semantic-tokens = true
+
+[performance]
+# Performance targets for self-hosted compiler
+lexer-throughput = "25M tokens/sec"  # Slightly lower due to Seen overhead
+parser-throughput = "800K lines/sec" # Account for self-hosting overhead
+typechecker-speed = "80μs/function"  # Still under target with overhead
+codegen-speed = "300μs/function"     # Account for additional abstraction
+memory-overhead = "10%"              # Allow some overhead for self-hosting

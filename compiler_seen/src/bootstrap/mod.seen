@@ -1,8 +1,9 @@
 // Simplified Bootstrap Module
-public use verifier.{BootstrapVerifier};
+use verifier.{BootstrapVerifier};
 
-public class BootstrapManager {
-    public fun new() -> BootstrapManager {
+class BootstrapManager {
+    fun New() -> BootstrapManager {
         println("Creating BootstrapManager");
+        return BootstrapManager {};
     }
 }

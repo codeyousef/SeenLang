@@ -1,19 +1,19 @@
 // Simplified Self-hosted Seen Code Generator
 
-public class SeenCodeGenerator {
-    public fun new() -> SeenCodeGenerator {
+class SeenCodeGenerator {
+    fun new() -> SeenCodeGenerator {
         println("Creating SeenCodeGenerator");
     }
 }
 
-public class LLVMModule {
-    public fun new() -> LLVMModule {
+class LLVMModule {
+    fun new() -> LLVMModule {
         println("Creating LLVMModule");
     }
 }
 
-public class TypedProgram {
-    public fun new() -> TypedProgram {
+class TypedProgram {
+    fun new() -> TypedProgram {
         println("Creating TypedProgram");
     }
 }

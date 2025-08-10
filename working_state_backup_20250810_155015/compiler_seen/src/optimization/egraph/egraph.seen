@@ -1,7 +1,7 @@
 // Simplified EGraph Module
 
-class EGraphCore {
-    fun new() -> EGraphCore {
+public class EGraphCore {
+    public fun new() -> EGraphCore {
         println("Creating EGraphCore");
     }
 }

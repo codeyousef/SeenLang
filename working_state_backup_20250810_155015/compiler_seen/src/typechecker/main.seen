@@ -16,7 +16,7 @@ class TypedProgram {
     }
 }
 
-// Program (uppercase) = class  
+// Program (uppercase) = public class  
 class Program {
     // New (uppercase) = public constructor
     fun New() -> Program {

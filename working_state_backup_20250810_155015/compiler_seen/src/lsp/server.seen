@@ -1,7 +1,7 @@
 // Simplified LSP Server Module
 
-class SeenLspServer {
-    fun new() -> SeenLspServer {
+public class SeenLspServer {
+    public fun new() -> SeenLspServer {
         println("Creating SeenLspServer");
     }
 }

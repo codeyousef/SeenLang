@@ -1,7 +1,7 @@
 // Simplified EGraph Test
 
-class EGraphTest {
-    fun new() -> EGraphTest {
+public class EGraphTest {
+    public fun new() -> EGraphTest {
         println("Creating EGraphTest");
     }
 }

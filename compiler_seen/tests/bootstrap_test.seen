@@ -1,7 +1,8 @@
 // Simplified Bootstrap Test
 
-public class BootstrapTest {
-    public fun new() -> BootstrapTest {
+class BootstrapTest {
+    fun New() -> BootstrapTest {
         println("Creating BootstrapTest");
+        return BootstrapTest {};
     }
 }

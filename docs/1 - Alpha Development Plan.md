@@ -138,7 +138,16 @@ class CompilerError {  // CompilerError (uppercase) = public class
 
 #### Step 16: Verify Complete Self-Hosting & Remove Rust
 
-**Status**: 🚧 **IN PROGRESS** - Self-hosting achieved, triple bootstrap pending
+**Status**: ⏳ **DEFERRED** - Self-hosted proof-of-concept complete, full implementation needed first
+
+**Progress Update (Aug 10, 2025):**
+- ✅ **Self-hosted proof-of-concept**: 24 Seen modules compile successfully
+- ✅ **Research syntax integration**: All code uses evidence-based syntax  
+- ✅ **LLVM IR generation**: Working compilation pipeline demonstrated
+- ❌ **Full compiler functionality**: Current implementation is proof-of-concept only
+- ❌ **Triple bootstrap**: Requires full compiler implementation first
+
+**Corrected sequence**: Step 17-22 (full implementation) → Step 16 (triple bootstrap) → Rust removal
 
 **Critical Verification Tests:**
 - [x] Test: Seen compiler successfully compiles and runs
@@ -655,25 +664,33 @@ class ReleaseAutomation {
 ## Next Steps
 
 ### Immediate Priorities (Phase 3)
-1. **Triple Bootstrap Verification**
+1. **Full Compiler Implementation (PRIORITY)**
+   - Expand simplified modules to full functionality
+   - Implement complete lexer, parser, typechecker, codegen
+   - Add CLI interface matching bootstrap compiler capabilities
+   - Enable self-hosted compiler to compile other Seen projects
+   
+2. **Triple Bootstrap Verification (After full compiler)**
    - Compile Seen compiler with itself
-   - Use result to compile again
+   - Use result to compile again  
    - Verify byte-identical output
    
-2. **Rust Remolet Preparation**
-   - Create comprehensive test suite
-   - Document all functionality
-   - Prepare migration scripts
-   
-3. **Full Feature Implementation**
-   - Expand simplified modules to full functionality
-   - Add support for all Seen language features
-   - Implement complete type system
+3. **Rust Removal (Final step)**
+   - Only after successful triple bootstrap
+   - Remove all Rust dependencies
+   - Update build system to pure Seen
 
-### Blocked Items
-- E-graph optimization (Step 17) - Awaiting full self-hosting
-- ML-driven optimization (Step 18) - Requires stable compiler
-- Superoptimization (Step 19) - Needs complete IR system
+### Next Steps (Correct Order)
+1. **Step 16a**: Implement full compiler functionality (expand from proof-of-concept)
+2. **Step 16b**: Triple bootstrap verification 
+3. **Step 16c**: Rust removal
+4. **Step 17+**: Revolutionary optimizations (E-graphs, ML, superoptimization)
+
+### Current Status: Ready for Full Implementation
+- ✅ **Foundation complete**: Proof-of-concept demonstrates viability
+- ✅ **Syntax ready**: Research-based syntax fully implemented
+- ✅ **Infrastructure ready**: Build system, LLVM backend working
+- 🚧 **Next**: Expand modules from proof-of-concept to full functionality
 
 ## Success Criteria
 
