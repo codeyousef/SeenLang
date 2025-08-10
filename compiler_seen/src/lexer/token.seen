@@ -1,7 +1,7 @@
-// Simplified Token Module
+// Token Utilities for Self-hosted Lexer
 
-class Token {
-    fun new() -> Token {
-        println("Creating Token");
+public class TokenUtils {
+    public fun new() -> TokenUtils {
+        return TokenUtils();
     }
 }

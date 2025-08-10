@@ -1,9 +1,10 @@
 // Simplified Bootstrap Module
-use verifier.{BootstrapVerifier};
-
 class BootstrapManager {
-    fun New() -> BootstrapManager {
-        println("Creating BootstrapManager");
-        return BootstrapManager {};
+    fun new() -> BootstrapManager {
+        return BootstrapManager();
+    }
+    
+    fun getVerifier() -> String {
+        return "bootstrap_verifier";
     }
 }

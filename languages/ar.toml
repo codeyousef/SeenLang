@@ -42,8 +42,6 @@ description = "Arabic keyword set for the Seen programming language - مجموع
 # Module system - نظام الوحدات
 "وحدة" = "KeywordModule"       # module
 "استورد" = "KeywordImport"     # import
-"عام" = "KeywordPub"           # public
-"خاص" = "KeywordPriv"         # private
 
 # Literals - القيم الحرفية
 "صحيح" = "KeywordTrue"         # true
@@ -84,6 +82,16 @@ description = "Arabic keyword set for the Seen programming language - مجموع
 "متأخر_البدء" = "KeywordLateinit" # lateinit
 "رفيق" = "KeywordCompanion"    # companion
 
+# Logical operators - المشغلات المنطقية
+"و" = "KeywordAnd"             # and
+"أو" = "KeywordOr"             # or  
+"ليس" = "KeywordNot"           # not
+
+# Memory management - إدارة الذاكرة
+"انقل" = "KeywordMove"          # move
+"استعر" = "KeywordBorrow"       # borrow
+"في_المكان" = "KeywordInout"     # inout
+
 [operators]
 # Arithmetic operators - المشغلات الحسابية
 "+" = "Plus"
@@ -108,10 +116,6 @@ description = "Arabic keyword set for the Seen programming language - مجموع
 ">" = "Greater"
 ">=" = "GreaterEqual"
 
-# Logical operators - المشغلات المنطقية
-"&&" = "LogicalAnd"
-"||" = "LogicalOr"
-"!" = "LogicalNot"
 
 # Bitwise operators - المشغلات البتية
 "&" = "BitwiseAnd"

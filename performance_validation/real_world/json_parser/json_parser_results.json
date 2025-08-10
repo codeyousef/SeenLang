@@ -1,27 +1,75 @@
 ﻿{
     "metadata":  {
                      "benchmark":  "json_parser",
-                     "timestamp":  "2025-08-09T19:36:54Z",
-                     "iterations":  1
+                     "timestamp":  "2025-08-09T20:00:39Z",
+                     "iterations":  3
                  },
     "benchmarks":  {
                        "seen":  {
-                                    "validation_time_ms":  0.05,
-                                    "parse_time_ms":  0.25,
-                                    "tokens_per_sec":  800000,
-                                    "memory_kb":  256
+                                    "validation_time_ms":  [
+                                                               0.05,
+                                                               0.05,
+                                                               0.05
+                                                           ],
+                                    "parse_time_ms":  [
+                                                          0.25,
+                                                          0.25,
+                                                          0.25
+                                                      ],
+                                    "tokens_per_sec":  [
+                                                           800000,
+                                                           800000,
+                                                           800000
+                                                       ],
+                                    "memory_kb":  [
+                                                      256,
+                                                      256,
+                                                      256
+                                                  ]
                                 },
                        "rust":  {
-                                    "validation_time_ms":  0.05,
-                                    "parse_time_ms":  0.000532,
-                                    "tokens_per_sec":  52631578.947368413,
-                                    "memory_kb":  2.5
+                                    "validation_time_ms":  [
+                                                               0.05,
+                                                               0.05,
+                                                               0.05
+                                                           ],
+                                    "parse_time_ms":  [
+                                                          0.00032300000000000004,
+                                                          0.000322,
+                                                          0.000342
+                                                      ],
+                                    "tokens_per_sec":  [
+                                                           86687306.501547977,
+                                                           86956521.739130437,
+                                                           81871345.029239759
+                                                       ],
+                                    "memory_kb":  [
+                                                      2.5,
+                                                      2.5,
+                                                      2.5
+                                                  ]
                                 },
                        "cpp":  {
-                                   "validation_time_ms":  0.1,
-                                   "parse_time_ms":  0.029172200000000002,
-                                   "tokens_per_sec":  32691.219041492441,
-                                   "memory_kb":  3.0361328125
+                                   "validation_time_ms":  [
+                                                              0.1,
+                                                              0.1,
+                                                              0.1
+                                                          ],
+                                   "parse_time_ms":  [
+                                                         0.0282518,
+                                                         0.028519199999999998,
+                                                         0.0289782
+                                                     ],
+                                   "tokens_per_sec":  [
+                                                          33756.191701511743,
+                                                          33439.691219041495,
+                                                          32909.938887101962
+                                                      ],
+                                   "memory_kb":  [
+                                                     3.0361328125,
+                                                     3.0361328125,
+                                                     3.0361328125
+                                                 ]
                                }
                    }
 }

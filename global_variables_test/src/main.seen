@@ -1,0 +1,33 @@
+// Test global variable declarations
+// This tests the newly added parser support for const, let, var at global level
+
+// Global constants
+const PI = 3.14159
+const GREETING = "Hello, World!"
+
+// Global immutable variables
+let defaultName = "Anonymous"
+let maxRetries = 5
+
+// Global mutable variables
+var counter = 0
+var isDebugMode = true
+
+fun incrementCounter() {
+    counter = counter + 1
+}
+
+fun main() {
+    println("PI constant: " + PI)
+    println("Greeting: " + GREETING)
+    println("Default name: " + defaultName)
+    println("Max retries: " + maxRetries)
+    println("Initial counter: " + counter)
+    
+    incrementCounter()
+    println("After increment: " + counter)
+    
+    if isDebugMode {
+        println("Debug mode is enabled")
+    }
+}

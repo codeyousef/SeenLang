@@ -155,7 +155,7 @@ fun main() {
     
     // Try modifying this code and run 'seen run' to see the changes
     let message = "Seen is fast, safe, and expressive";
-    println("{}", message);
+    println(message);
 }
 "#
 }

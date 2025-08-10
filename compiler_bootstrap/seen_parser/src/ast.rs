@@ -7,6 +7,21 @@ use std::fmt;
 /// Type alias for node IDs
 pub type NodeId = u32;
 
+/// Ownership mode for function parameters - supports automatic inference
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OwnershipMode {
+    /// Automatic inference - compiler determines ownership from usage (default)
+    Automatic,
+    /// Explicit move - parameter ownership is transferred
+    Move,
+    /// Explicit immutable borrow - parameter is borrowed immutably
+    Borrow,
+    /// Explicit mutable borrow - parameter is borrowed mutably (using 'mut' keyword)
+    BorrowMut,
+    /// In-place modification - Vale-style inout parameter
+    Inout,
+}
+
 /// A complete Seen program
 #[derive(Debug, Clone, Serialize)]
 #[derive(Deserialize)]
@@ -76,6 +91,7 @@ pub struct Parameter<'a> {
     pub ty: Type<'a>,
     pub is_mutable: bool,
     pub default_value: Option<Expr<'a>>, // Kotlin-style default parameters
+    pub ownership: OwnershipMode, // New: automatic inference or explicit control
     pub span: Span,
 }
 
@@ -376,8 +392,6 @@ pub enum TypeKind<'a> {
     Array { element_type: Box<Type<'a>>, size: Option<Box<Expr<'a>>> },
     /// Function type
     Function { params: Vec<Type<'a>>, return_type: Box<Type<'a>> },
-    /// Reference type
-    Reference { inner: Box<Type<'a>>, is_mutable: bool },
     /// Nullable type (Kotlin-style T?)
     Nullable(Box<Type<'a>>),
     /// Inferred type (for type inference)
@@ -589,6 +603,15 @@ pub enum ExprKind<'a> {
         supertype: Option<Box<Type<'a>>>,
         members: Vec<Item<'a>>,
     },
+    /// Ownership cast expression (move expr, borrow expr, etc.)
+    OwnershipCast {
+        expr: Box<Expr<'a>>,
+        mode: OwnershipMode,
+    },
+    /// String interpolation expression ("Hello {name}!")
+    StringInterpolation {
+        parts: Vec<StringInterpolationPart<'a>>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -597,6 +620,17 @@ pub enum ExprKind<'a> {
 pub struct FieldExpr<'a> {
     pub name: Spanned<&'a str>,
     pub value: Expr<'a>,
+}
+
+/// String interpolation parts
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub enum StringInterpolationPart<'a> {
+    /// Static string literal part
+    Literal(String),
+    /// Expression to be interpolated
+    Expression(Expr<'a>),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -928,13 +962,6 @@ impl<'a> fmt::Display for Type<'a> {
                     write!(f, "{}", param)?;
                 }
                 write!(f, ") -> {}", return_type)
-            },
-            TypeKind::Reference { inner, is_mutable } => {
-                if *is_mutable {
-                    write!(f, "&mut {}", inner)
-                } else {
-                    write!(f, "&{}", inner)
-                }
             },
             TypeKind::Nullable(inner) => {
                 write!(f, "{}?", inner)

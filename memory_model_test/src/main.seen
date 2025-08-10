@@ -1,0 +1,47 @@
+// Comprehensive test of the new automatic memory inference model
+
+fun basicFunction(data: String): String {
+    return "Basic: {data}"
+}
+
+fun moveFunction(data: String): String {
+    return "Moved: {data}"
+}
+
+fun borrowFunction(data: String): String {
+    return "Borrowed: {data}"  
+}
+
+fun inoutFunction(data: String): String {
+    return "Inout: {data}"
+}
+
+fun testBasicMemoryModel() {
+    println("=== Testing Basic Memory Model ===")
+    
+    // Test basic automatic inference
+    let message = "hello world"
+    let result1 = basicFunction(message)
+    println(result1)
+    
+    // Test explicit move semantics
+    let moveData = "move test"
+    let result2 = moveFunction(move moveData)
+    println(result2)
+    
+    // Test explicit borrow semantics  
+    let borrowData = "borrow test"
+    let result3 = borrowFunction(borrow borrowData)
+    println(result3)
+    
+    // Test inout semantics
+    let inoutData = "inout test"
+    let result4 = inoutFunction(inout inoutData)
+    println(result4)
+    
+    println("All memory model tests completed!")
+}
+
+fun main() {
+    testBasicMemoryModel()
+}

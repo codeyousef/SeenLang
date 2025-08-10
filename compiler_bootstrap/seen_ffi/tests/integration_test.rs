@@ -23,7 +23,8 @@ fn test_type_mapping() {
     
     // Test pointer mapping
     let ptr_type = ctx.map_type(&CType::Pointer(Box::new(CType::Char)));
-    assert!(matches!(ptr_type, Type::Reference { .. }));
+    // C pointers now map to primitive types in the automatic inference system
+    assert!(matches!(ptr_type, Type::Primitive(_)));
     
     // Test void mapping
     let void_type = ctx.map_type(&CType::Void);

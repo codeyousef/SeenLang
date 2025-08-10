@@ -41,10 +41,10 @@ impl LanguageConfig {
         keywords.insert("is".to_string(), "KeywordIs".to_string());
         keywords.insert("null".to_string(), "KeywordNull".to_string());
         keywords.insert("else".to_string(), "KeywordElse".to_string());
-        keywords.insert("public".to_string(), "KeywordPublic".to_string());
-        keywords.insert("private".to_string(), "KeywordPrivate".to_string());
-        keywords.insert("internal".to_string(), "KeywordInternal".to_string());
         keywords.insert("use".to_string(), "KeywordUse".to_string());
+        keywords.insert("move".to_string(), "KeywordMove".to_string());
+        keywords.insert("borrow".to_string(), "KeywordBorrow".to_string());
+        keywords.insert("inout".to_string(), "KeywordInout".to_string());
         
         let mut operators = HashMap::new();
         operators.insert("+".to_string(), "Plus".to_string());
@@ -117,9 +117,6 @@ impl LanguageConfig {
                 "KeywordUse" | "TokenUse" => Some(TokenType::KeywordUse),
                 "KeywordImport" | "TokenImport" => Some(TokenType::KeywordImport),
                 "KeywordModule" | "TokenModule" => Some(TokenType::KeywordModule),
-                "KeywordPublic" | "TokenPublic" => Some(TokenType::KeywordPublic),
-                "KeywordPrivate" | "TokenPrivate" => Some(TokenType::KeywordPrivate),
-                "KeywordInternal" | "TokenInternal" => Some(TokenType::KeywordInternal),
                 "KeywordStatic" | "TokenStatic" => Some(TokenType::KeywordStatic),
                 "KeywordConst" | "TokenConst" => Some(TokenType::KeywordConst),
                 "KeywordType" | "TokenType" => Some(TokenType::KeywordType),
@@ -155,6 +152,12 @@ impl LanguageConfig {
                 "KeywordOperator" | "TokenOperator" => Some(TokenType::KeywordOperator),
                 "KeywordInfix" | "TokenInfix" => Some(TokenType::KeywordInfix),
                 "KeywordTailrec" | "TokenTailrec" => Some(TokenType::KeywordTailrec),
+                "KeywordAnd" | "TokenAnd" => Some(TokenType::KeywordAnd),
+                "KeywordOr" | "TokenOr" => Some(TokenType::KeywordOr),
+                "KeywordNot" | "TokenNot" => Some(TokenType::KeywordNot),
+                "KeywordMove" | "TokenMove" => Some(TokenType::KeywordMove),
+                "KeywordBorrow" | "TokenBorrow" => Some(TokenType::KeywordBorrow),
+                "KeywordInout" | "TokenInout" => Some(TokenType::KeywordInout),
                 "TokenString" => Some(TokenType::Identifier("String".to_string())),
                 "TokenInt" => Some(TokenType::Identifier("Int".to_string())),
                 "TokenAny" => Some(TokenType::Identifier("Any".to_string())),
@@ -181,9 +184,6 @@ impl LanguageConfig {
                 "LessEqual" | "TokenLessEqual" => Some(TokenType::LessEqual),
                 "Greater" | "TokenGreater" => Some(TokenType::Greater),
                 "GreaterEqual" | "TokenGreaterEqual" => Some(TokenType::GreaterEqual),
-                "LogicalAnd" | "TokenLogicalAnd" => Some(TokenType::LogicalAnd),
-                "LogicalOr" | "TokenLogicalOr" => Some(TokenType::LogicalOr),
-                "LogicalNot" | "TokenLogicalNot" => Some(TokenType::LogicalNot),
                 "BitwiseAnd" | "TokenBitwiseAnd" => Some(TokenType::BitwiseAnd),
                 "BitwiseOr" | "TokenBitwiseOr" => Some(TokenType::BitwiseOr),
                 "BitwiseXor" | "TokenBitwiseXor" => Some(TokenType::BitwiseXor),
@@ -249,9 +249,6 @@ impl LanguageConfig {
             TokenType::KeywordUse => "KeywordUse",
             TokenType::KeywordImport => "KeywordImport",
             TokenType::KeywordModule => "KeywordModule",
-            TokenType::KeywordPublic => "KeywordPublic",
-            TokenType::KeywordPrivate => "KeywordPrivate",
-            TokenType::KeywordInternal => "KeywordInternal",
             TokenType::KeywordStatic => "KeywordStatic",
             TokenType::KeywordConst => "KeywordConst",
             TokenType::KeywordType => "KeywordType",

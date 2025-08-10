@@ -34,11 +34,6 @@ pub enum Type {
         name: String,
         args: Vec<Type>,
     },
-    /// Reference types
-    Reference {
-        inner: Box<Type>,
-        mutable: bool,
-    },
     /// Generic types
     Generic {
         name: String,
@@ -198,12 +193,6 @@ impl Substitution {
                     args: args.iter().map(|a| self.apply(a)).collect(),
                 }
             }
-            Type::Reference { inner, mutable } => {
-                Type::Reference {
-                    inner: Box::new(self.apply(inner)),
-                    mutable: *mutable,
-                }
-            }
             Type::TraitImpl { base_type, trait_name } => {
                 Type::TraitImpl {
                     base_type: Box::new(self.apply(base_type)),
@@ -272,13 +261,6 @@ impl fmt::Display for Type {
                     write!(f, ">")?;
                 }
                 Ok(())
-            }
-            Type::Reference { inner, mutable } => {
-                if *mutable {
-                    write!(f, "&mut {}", inner)
-                } else {
-                    write!(f, "&{}", inner)
-                }
             }
             Type::Generic { name, bounds } => {
                 write!(f, "{}", name)?;

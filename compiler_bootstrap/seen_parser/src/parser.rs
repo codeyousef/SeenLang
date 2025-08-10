@@ -90,17 +90,8 @@ impl Parser {
         //     eprintln!("parse_item: Current token = {:?}", token);
         // }
         
-        // Support both old explicit keywords and new capitalization-based visibility
-        let visibility = if self.match_token(&TokenType::KeywordPublic) {
-            Visibility::Public
-        } else if self.match_token(&TokenType::KeywordPrivate) {
-            Visibility::Private
-        } else if self.match_token(&TokenType::KeywordInternal) {
-            Visibility::Internal
-        } else {
-            // Fall back to capitalization-based visibility for new syntax
-            self.determine_visibility_from_capitalization()
-        };
+        // Visibility is determined by capitalization only (research-based design)
+        let visibility = self.determine_visibility_from_capitalization();
 
         if let Some(token) = self.current_token() {
             match &token.value {
@@ -117,6 +108,9 @@ impl Parser {
                 TokenType::KeywordClass => self.parse_class_with_visibility(visibility),
                 TokenType::KeywordObject => self.parse_object_declaration_with_visibility(visibility),
                 TokenType::KeywordInterface => self.parse_interface_with_visibility(visibility),
+                TokenType::KeywordConst => self.parse_const_with_visibility(visibility),
+                TokenType::KeywordLet => self.parse_global_let_with_visibility(visibility),
+                TokenType::KeywordVar => self.parse_global_var_with_visibility(visibility),
                 TokenType::Identifier(name) => {
                 // Check for Kotlin-style features and backwards compatibility
                 match name.as_str() {
@@ -1290,6 +1284,28 @@ impl Parser {
         }
         
         loop {
+            // Parse optional ownership keyword
+            let ownership = if self.check(&TokenType::KeywordMove) {
+                self.advance();
+                OwnershipMode::Move
+            } else if self.check(&TokenType::KeywordBorrow) {
+                self.advance();
+                if self.check(&TokenType::KeywordMut) {
+                    self.advance();
+                    OwnershipMode::BorrowMut
+                } else {
+                    OwnershipMode::Borrow
+                }
+            } else if self.check(&TokenType::KeywordInout) {
+                self.advance();
+                OwnershipMode::Inout
+            } else if self.check(&TokenType::KeywordMut) {
+                self.advance();
+                OwnershipMode::BorrowMut
+            } else {
+                OwnershipMode::Automatic // Default: compiler infers
+            };
+            
             let name = self.expect_identifier_value()?;
             let name_span = self.previous_span();
             
@@ -1311,6 +1327,7 @@ impl Parser {
                 ty,
                 is_mutable: false,
                 default_value,
+                ownership,
                 span: name_span,
             });
             
@@ -1722,6 +1739,38 @@ impl Parser {
                     
                     StmtKind::Expr(expr)
                 }
+                TokenType::KeywordBreak => {
+                    self.advance(); // consume 'break'
+                    
+                    let value = if let Some(token) = self.current_token() {
+                        if matches!(token.value, TokenType::Semicolon) {
+                            None
+                        } else {
+                            Some(Box::new(self.parse_expression()?))
+                        }
+                    } else {
+                        None
+                    };
+                    
+                    let expr = Expr {
+                        kind: Box::new(ExprKind::Break(value)),
+                        span,
+                        id: self.next_node_id(),
+                    };
+                    
+                    StmtKind::Expr(expr)
+                }
+                TokenType::KeywordContinue => {
+                    self.advance(); // consume 'continue'
+                    
+                    let expr = Expr {
+                        kind: Box::new(ExprKind::Continue),
+                        span,
+                        id: self.next_node_id(),
+                    };
+                    
+                    StmtKind::Expr(expr)
+                }
                 TokenType::KeywordIf => {
                     let if_expr = self.parse_if_expression()?;
                     StmtKind::Expr(if_expr)
@@ -1917,33 +1966,73 @@ impl Parser {
         }
         
         loop {
-            // Try to parse named argument (identifier followed by colon)
-            if let Some(Token { value: TokenType::Identifier(name), .. }) = self.current_token() {
-                // Look ahead for colon to detect named argument
-                let saved_position = self.current;
-                let arg_name = name.clone();
-                let name_span = self.current_span();
-                self.advance(); // consume identifier
-                
-                if self.match_token(&TokenType::Colon) {
-                    // It's a named argument
-                    let value = self.parse_expression()?;
-                    args.push(Expr {
-                        kind: Box::new(ExprKind::NamedArg {
-                            name: seen_common::Spanned::new(arg_name.leak(), name_span),
-                            value: Box::new(value),
-                        }),
-                        span: self.current_span(),
-                        id: self.next_node_id(),
-                    });
-                } else {
-                    // Not a named argument, backtrack and parse as regular expression
-                    self.current = saved_position;
-                    args.push(self.parse_expression()?);
-                }
+            // Check for ownership keywords first
+            let ownership = if self.check(&TokenType::KeywordMove) {
+                self.advance();
+                Some(OwnershipMode::Move)
+            } else if self.check(&TokenType::KeywordBorrow) {
+                self.advance();
+                Some(OwnershipMode::Borrow)
+            } else if self.check(&TokenType::KeywordInout) {
+                self.advance();
+                Some(OwnershipMode::Inout)
+            } else if self.check(&TokenType::KeywordMut) {
+                self.advance();
+                Some(OwnershipMode::BorrowMut)
             } else {
-                // Regular positional argument
-                args.push(self.parse_expression()?);
+                None
+            };
+            
+            // If we have an ownership keyword, parse the expression directly
+            // Ownership keywords cannot be used with named arguments
+            if ownership.is_some() {
+                let expr = self.parse_expression()?;
+                let expr_span = expr.span;
+                
+                // Wrap the argument with ownership mode
+                let arg = Expr {
+                    kind: Box::new(ExprKind::OwnershipCast {
+                        expr: Box::new(expr),
+                        mode: ownership.unwrap(),
+                    }),
+                    span: expr_span, // Use the expression's span
+                    id: self.next_node_id(),
+                };
+                
+                args.push(arg);
+            } else {
+                // No ownership keyword - try to parse named argument (identifier followed by colon)
+                if let Some(Token { value: TokenType::Identifier(name), .. }) = self.current_token() {
+                    // Look ahead for colon to detect named argument
+                    let saved_position = self.current;
+                    let arg_name = name.clone();
+                    let name_span = self.current_span();
+                    self.advance(); // consume identifier
+                    
+                    if self.match_token(&TokenType::Colon) {
+                        // It's a named argument
+                        let value = self.parse_expression()?;
+                        let arg = Expr {
+                            kind: Box::new(ExprKind::NamedArg {
+                                name: seen_common::Spanned::new(arg_name.leak(), name_span),
+                                value: Box::new(value),
+                            }),
+                            span: self.current_span(),
+                            id: self.next_node_id(),
+                        };
+                        
+                        args.push(arg);
+                    } else {
+                        // Not a named argument, backtrack and parse as regular expression
+                        self.current = saved_position;
+                        let arg = self.parse_expression()?;
+                        args.push(arg);
+                    }
+                } else {
+                    // Regular positional argument
+                    let arg = self.parse_expression()?;
+                    args.push(arg);
+                }
             }
             
             if !self.match_token(&TokenType::Comma) {
@@ -2138,7 +2227,7 @@ impl Parser {
         
         if let Some(token) = self.current_token() {
             match &token.value {
-                TokenType::LogicalNot | TokenType::KeywordNot => {
+                TokenType::KeywordNot => {
                     self.advance(); // consume the operator
                     let operand = self.parse_unary_expression()?; // Right-associative
                     return Ok(Expr {
@@ -2203,6 +2292,10 @@ impl Parser {
                         kind: LiteralKind::String(val.leak()),
                         span,
                     })
+                }
+                TokenType::StringInterpolationStart(value) => {
+                    // Handle string interpolation
+                    return self.parse_string_interpolation(value.clone());
                 }
                 TokenType::BooleanLiteral(value) => {
                     let val = *value;
@@ -2993,8 +3086,8 @@ impl Parser {
         // Based on Kotlin operator precedence
         match token_type {
             TokenType::Assign => (0, true), // Assignment has lowest precedence and is right-associative
-            TokenType::LogicalOr | TokenType::KeywordOr => (1, false),
-            TokenType::LogicalAnd | TokenType::KeywordAnd => (2, false),
+            TokenType::KeywordOr => (1, false),
+            TokenType::KeywordAnd => (2, false),
             TokenType::Equal | TokenType::NotEqual => (3, false),
             TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual | TokenType::KeywordIs => (4, false),
             TokenType::Plus | TokenType::Minus => (5, false),
@@ -3016,8 +3109,8 @@ impl Parser {
             TokenType::LessEqual => Some(BinaryOp::Le),
             TokenType::Greater => Some(BinaryOp::Gt),
             TokenType::GreaterEqual => Some(BinaryOp::Ge),
-            TokenType::LogicalAnd | TokenType::KeywordAnd => Some(BinaryOp::And),
-            TokenType::LogicalOr | TokenType::KeywordOr => Some(BinaryOp::Or),
+            TokenType::KeywordAnd => Some(BinaryOp::And),
+            TokenType::KeywordOr => Some(BinaryOp::Or),
             TokenType::KeywordIs => Some(BinaryOp::Is),
             _ => None,
         }
@@ -3856,9 +3949,9 @@ impl Parser {
             let mut members = vec![];
             
             while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-                // For now, just skip class body parsing - basic support
-                self.skip_nested_block()?;
-                break;
+                // Parse class members (functions for now)
+                let member = self.parse_class_member()?;
+                members.push(member);
             }
             
             self.expect_token(TokenType::RightBrace)?;
@@ -3885,6 +3978,22 @@ impl Parser {
         })
     }
 
+    fn parse_class_member(&mut self) -> SeenResult<ClassMember<'static>> {
+        // Visibility is determined by capitalization only (research-based design)
+        
+        // For now, only support function members
+        if self.check(&TokenType::KeywordFun) {
+            let func = self.parse_function()?;
+            match func.kind {
+                ItemKind::Function(function) => Ok(ClassMember::Method(function)),
+                _ => unreachable!("parse_function should return Function"),
+            }
+        } else {
+            // Skip any unrecognized tokens for now
+            return Err(seen_common::SeenError::parse_error("Expected function in class body"));
+        }
+    }
+
     fn parse_object_declaration_with_visibility(&mut self, _visibility: Visibility) -> SeenResult<Item<'static>> {
         // Object declarations are not yet fully implemented in AST
         self.parse_object_declaration()
@@ -3893,5 +4002,184 @@ impl Parser {
     fn parse_interface_with_visibility(&mut self, _visibility: Visibility) -> SeenResult<Item<'static>> {
         // Interfaces are not yet fully implemented in AST  
         self.parse_interface()
+    }
+    
+    /// Parse const declaration at global level
+    fn parse_const_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        self.expect_token(TokenType::KeywordConst)?;
+        
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        self.expect_token(TokenType::Assign)?;
+        
+        let value = self.parse_expression()?;
+        
+        let const_item = Const {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            ty: Type {
+                kind: Box::new(TypeKind::Infer),
+                span: name_span,
+            }, // Type inference
+            value,
+            visibility,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Const(const_item),
+            span: name_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    /// Parse global let declaration
+    fn parse_global_let_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        self.expect_token(TokenType::KeywordLet)?;
+        
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        let ty = if self.match_token(&TokenType::Colon) {
+            self.parse_type()?
+        } else {
+            Type {
+                kind: Box::new(TypeKind::Infer),
+                span: name_span,
+            }
+        };
+        
+        self.expect_token(TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        
+        let static_item = Static {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            ty,
+            value,
+            is_mutable: false,
+            visibility,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Static(static_item),
+            span: name_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    /// Parse global var declaration  
+    fn parse_global_var_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        self.expect_token(TokenType::KeywordVar)?;
+        
+        let name = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        
+        let ty = if self.match_token(&TokenType::Colon) {
+            self.parse_type()?
+        } else {
+            Type {
+                kind: Box::new(TypeKind::Infer),
+                span: name_span,
+            }
+        };
+        
+        self.expect_token(TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        
+        let static_item = Static {
+            name: seen_common::Spanned::new(name.leak(), name_span),
+            ty,
+            value,
+            is_mutable: true,
+            visibility,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Static(static_item),
+            span: name_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    /// Parse string interpolation expression
+    fn parse_string_interpolation(&mut self, start_part: String) -> SeenResult<Expr<'static>> {
+        let start_span = self.previous_span();
+        let mut parts = Vec::new();
+        
+        // Add the initial string part if not empty
+        if !start_part.is_empty() {
+            parts.push(StringInterpolationPart::Literal(start_part));
+        }
+        
+        self.advance(); // Move past StringInterpolationStart token
+        
+        // Parse interpolated expressions and string parts
+        loop {
+            match &self.current_token().unwrap().value {
+                TokenType::InterpolationExpression(expr_str) => {
+                    // Parse the expression string as a mini Seen expression
+                    let expr_str_copy = expr_str.clone();
+                    self.advance();
+                    let expr = self.parse_interpolation_expr_from_string(&expr_str_copy)?;
+                    parts.push(StringInterpolationPart::Expression(expr));
+                }
+                TokenType::StringInterpolationMiddle(middle_str) => {
+                    if !middle_str.is_empty() {
+                        parts.push(StringInterpolationPart::Literal(middle_str.clone()));
+                    }
+                    self.advance();
+                }
+                TokenType::StringInterpolationEnd(end_str) => {
+                    if !end_str.is_empty() {
+                        parts.push(StringInterpolationPart::Literal(end_str.clone()));
+                    }
+                    self.advance();
+                    break;
+                }
+                TokenType::LeftBraceInterpolation => {
+                    // Parse the interpolation expression directly
+                    self.advance(); // Skip {
+                    let expr = self.parse_expression()?;
+                    parts.push(StringInterpolationPart::Expression(expr));
+                    self.expect_token(TokenType::RightBraceInterpolation)?;
+                }
+                _ => {
+                    return Err(seen_common::SeenError::parse_error("Unexpected token in string interpolation"));
+                }
+            }
+        }
+        
+        Ok(Expr {
+            kind: Box::new(ExprKind::StringInterpolation { parts }),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+    
+    /// Parse an expression from a string (for interpolation expressions)
+    fn parse_interpolation_expr_from_string(&mut self, expr_str: &str) -> SeenResult<Expr<'static>> {
+        // For simplicity, treat as identifier for now
+        // In a full implementation, this would need a sub-lexer and parser
+        let trimmed = expr_str.trim();
+        if trimmed.is_empty() {
+            return Err(seen_common::SeenError::parse_error("Empty interpolation expression"));
+        }
+        
+        // Simple case: just an identifier
+        if trimmed.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            let trimmed_static: &'static str = trimmed.to_string().leak();
+            Ok(Expr {
+                kind: Box::new(ExprKind::Identifier(seen_common::Spanned::new(
+                    trimmed_static,
+                    self.previous_span(),
+                ))),
+                span: self.previous_span(),
+                id: self.next_node_id(),
+            })
+        } else {
+            // For more complex expressions, would need full parsing
+            Err(seen_common::SeenError::parse_error(
+                "Complex interpolation expressions not yet supported"
+            ))
+        }
     }
 }

@@ -1,7 +1,7 @@
 //! Code generation with LLVM backend
 
 use crate::ir::*;
-use seen_common::SeenResult;
+use seen_common::{SeenResult, SeenError};
 
 /// Code generator with LLVM backend
 pub struct CodeGenerator {
@@ -183,26 +183,162 @@ impl CodeGenerator {
                 let _ = write!(&mut ir, "store i32 %{}, i32* %{}, align 4", src, dest);
             }
             Instruction::Call { dest, func, args } => {
-                if let Some(dest_reg) = dest {
-                    let _ = write!(&mut ir, "%{} = call i32 @{}(", dest_reg, func);
-                } else {
-                    let _ = write!(&mut ir, "call void @{}(", func);
-                }
-                
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { ir.push_str(", "); }
-                    // Handle string arguments specially for print functions
-                    if (func == "print" || func == "println") && matches!(arg, crate::Value::String(_)) {
-                        let str_ref = self.format_value(arg);
-                        let _ = write!(&mut ir, "i8* getelementptr inbounds ([{} x i8], [{} x i8]* {}, i32 0, i32 0)", 
-                            self.get_string_length(arg) + 1, 
-                            self.get_string_length(arg) + 1, 
-                            str_ref);
-                    } else {
-                        ir.push_str(&self.format_value(arg));
+                // Handle built-in functions with proper implementations
+                if func.starts_with("__builtin_") {
+                    match func.as_str() {
+                        "__builtin_length" => {
+                            // Get string or array length
+                            if let Some(dest_reg) = dest {
+                                if args.len() == 1 {
+                                    // Call strlen for strings
+                                    let _ = write!(&mut ir, "%{} = call i64 @strlen(i8* {})", dest_reg, self.format_value(&args[0]));
+                                }
+                            }
+                        }
+                        "__builtin_char_at" => {
+                            // Get character at index
+                            if let Some(dest_reg) = dest {
+                                if args.len() == 2 {
+                                    let _ = write!(&mut ir, "%{}.ptr = getelementptr i8, i8* {}, i32 {}", 
+                                        dest_reg, self.format_value(&args[0]), self.format_value(&args[1]));
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "%{}.char = load i8, i8* %{}.ptr", dest_reg, dest_reg);
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "%{} = zext i8 %{}.char to i32", dest_reg, dest_reg);
+                                }
+                            }
+                        }
+                        "__builtin_substring" => {
+                            // Extract substring from start to end
+                            if let Some(dest_reg) = dest {
+                                if args.len() == 3 {
+                                    // Calculate length
+                                    let _ = write!(&mut ir, "%{}.len = sub i32 {}, {}", 
+                                        dest_reg, self.format_value(&args[2]), self.format_value(&args[1]));
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    // Allocate memory for substring
+                                    let _ = write!(&mut ir, "%{}.size = add i32 %{}.len, 1", dest_reg, dest_reg);
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "%{}.mem = call i8* @malloc(i32 %{}.size)", dest_reg, dest_reg);
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    // Get source pointer
+                                    let _ = write!(&mut ir, "%{}.src = getelementptr i8, i8* {}, i32 {}", 
+                                        dest_reg, self.format_value(&args[0]), self.format_value(&args[1]));
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    // Copy substring
+                                    let _ = write!(&mut ir, "call void @llvm.memcpy.p0i8.p0i8.i32(i8* %{}.mem, i8* %{}.src, i32 %{}.len, i1 false)", 
+                                        dest_reg, dest_reg, dest_reg);
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    // Null terminate
+                                    let _ = write!(&mut ir, "%{}.end = getelementptr i8, i8* %{}.mem, i32 %{}.len", 
+                                        dest_reg, dest_reg, dest_reg);
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "store i8 0, i8* %{}.end", dest_reg);
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "%{} = bitcast i8* %{}.mem to i8*", dest_reg, dest_reg);
+                                }
+                            }
+                        }
+                        "__builtin_array_get" => {
+                            // Get array element at index
+                            if let Some(dest_reg) = dest {
+                                if args.len() == 2 {
+                                    let _ = write!(&mut ir, "%{}.ptr = getelementptr i32, i32* {}, i32 {}", 
+                                        dest_reg, self.format_value(&args[0]), self.format_value(&args[1]));
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "%{} = load i32, i32* %{}.ptr", dest_reg, dest_reg);
+                                }
+                            }
+                        }
+                        "__builtin_array_push" => {
+                            // Push value to array - requires dynamic array implementation
+                            if args.len() == 2 {
+                                // Get array struct pointer
+                                ir.push_str("; array.push implementation");
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                // Load current size
+                                let _ = write!(&mut ir, "%push.size.ptr = getelementptr %%array_t, %%array_t* {}, i32 0, i32 0", 
+                                    self.format_value(&args[0]));
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                ir.push_str("%push.size = load i32, i32* %push.size.ptr");
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                // Get data pointer
+                                ir.push_str("%push.data.ptr = getelementptr %array_t, %array_t* {}, i32 0, i32 2");
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                ir.push_str("%push.data = load i32*, i32** %push.data.ptr");
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                // Store new element
+                                let _ = write!(&mut ir, "%push.elem.ptr = getelementptr i32, i32* %push.data, i32 %push.size");
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                let _ = write!(&mut ir, "store i32 {}, i32* %push.elem.ptr", self.format_value(&args[1]));
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                // Increment size
+                                ir.push_str("%push.new.size = add i32 %push.size, 1");
+                                ir.push('\n');
+                                ir.push_str("  ");
+                                ir.push_str("store i32 %push.new.size, i32* %push.size.ptr");
+                            }
+                        }
+                        "__builtin_char_code_at" => {
+                            // Get character code at index
+                            if let Some(dest_reg) = dest {
+                                if args.len() == 2 {
+                                    let _ = write!(&mut ir, "%{}.ptr = getelementptr i8, i8* {}, i32 {}", 
+                                        dest_reg, self.format_value(&args[0]), self.format_value(&args[1]));
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "%{}.char = load i8, i8* %{}.ptr", dest_reg, dest_reg);
+                                    ir.push('\n');
+                                    ir.push_str("  ");
+                                    let _ = write!(&mut ir, "%{} = zext i8 %{}.char to i32", dest_reg, dest_reg);
+                                }
+                            }
+                        }
+                        _ => {
+                            // Unknown built-in - this should not happen in production
+                            return Err(SeenError::codegen_error(format!("Unknown built-in function: {}", func)));
+                        }
                     }
+                } else {
+                    // Regular function call
+                    if let Some(dest_reg) = dest {
+                        let _ = write!(&mut ir, "%{} = call i32 @{}(", dest_reg, func);
+                    } else {
+                        let _ = write!(&mut ir, "call void @{}(", func);
+                    }
+                    
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 { ir.push_str(", "); }
+                        // Handle string arguments specially for print functions
+                        if (func == "print" || func == "println") && matches!(arg, crate::Value::String(_)) {
+                            let str_ref = self.format_value(arg);
+                            let _ = write!(&mut ir, "i8* getelementptr inbounds ([{} x i8], [{} x i8]* {}, i32 0, i32 0)", 
+                                self.get_string_length(arg) + 1, 
+                                self.get_string_length(arg) + 1, 
+                                str_ref);
+                        } else {
+                            ir.push_str(&self.format_value(arg));
+                        }
+                    }
+                    ir.push(')');
                 }
-                ir.push(')');
             }
             Instruction::Return { value } => {
                 if let Some(val) = value {
@@ -1013,10 +1149,16 @@ impl CodeGenerator {
     
     /// Generate standard library function declarations
     fn generate_stdlib_declarations(&self) -> String {
-        let mut result = String::with_capacity(400);
+        let mut result = String::with_capacity(800);
         result.push_str("; Standard library function declarations\n");
         result.push_str("declare i32 @printf(i8*, ...)\n");
         result.push_str("declare i32 @puts(i8*)\n");
+        result.push_str("declare i64 @strlen(i8*)\n");
+        result.push_str("declare i8* @malloc(i32)\n");
+        result.push_str("declare void @free(i8*)\n");
+        result.push_str("declare void @llvm.memcpy.p0i8.p0i8.i32(i8*, i8*, i32, i1)\n");
+        result.push_str("declare void @llvm.memmove.p0i8.p0i8.i32(i8*, i8*, i32, i1)\n");
+        result.push_str("declare void @llvm.memset.p0i8.i32(i8*, i8, i32, i1)\n");
         result.push_str("\n");
         
         // Generate wrapper functions for Seen's print functions

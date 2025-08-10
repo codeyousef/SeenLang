@@ -25,11 +25,9 @@ pub fn c_to_seen_type(c_type: &CType) -> Type {
         CType::LongDouble => Type::Primitive(PrimitiveType::F64), // Map to f64
         CType::Bool => Type::Primitive(PrimitiveType::Bool),
         CType::Pointer(inner) => {
-            // Pointers map to references in Seen
-            Type::Reference {
-                inner: Box::new(c_to_seen_type(inner)),
-                mutable: false,
-            }
+            // In the new memory model, pointers map directly to the inner type
+            // The compiler will handle borrowing automatically
+            c_to_seen_type(inner)
         }
         CType::Array(inner, size) => {
             Type::Array {
@@ -93,9 +91,7 @@ pub fn seen_to_c_type(seen_type: &Type) -> Option<CType> {
             }
             _ => None,
         },
-        Type::Reference { inner, .. } => {
-            seen_to_c_type(inner).map(|t| CType::Pointer(Box::new(t)))
-        }
+        // No more Reference types - this case is removed in the new memory model
         Type::Array { element_type, size } => {
             seen_to_c_type(element_type).map(|t| CType::Array(Box::new(t), *size))
         }
@@ -184,7 +180,8 @@ mod tests {
         let char_ptr = CType::Pointer(Box::new(CType::Char));
         let seen_type = c_to_seen_type(&char_ptr);
         
-        assert!(matches!(seen_type, Type::Reference { .. }));
+        // C char* should map to a pointer type in Seen's automatic inference system
+        assert!(matches!(seen_type, Type::Primitive(_)));
     }
     
     #[test]

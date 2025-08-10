@@ -606,10 +606,12 @@ fn convert_ast_to_ir(ast: &seen_parser::Program<'_>) -> seen_ir::Module {
 struct FunctionIRBuilder {
     next_register: u32,
     next_label: u32,
+    next_label_id: u32,
     current_block: Vec<seen_ir::Instruction>,
-    blocks: Vec<seen_ir::BasicBlock>,
+    blocks: Vec<(String, Vec<seen_ir::Instruction>)>,
     // Track variable names to registers
     variables: std::collections::HashMap<String, u32>,
+    var_map: std::collections::HashMap<String, u32>,
 }
 
 impl FunctionIRBuilder {
@@ -617,9 +619,11 @@ impl FunctionIRBuilder {
         Self {
             next_register: 0,
             next_label: 0,
+            next_label_id: 0,
             current_block: Vec::new(),
             blocks: Vec::new(),
             variables: std::collections::HashMap::new(),
+            var_map: std::collections::HashMap::new(),
         }
     }
     
@@ -659,7 +663,7 @@ impl FunctionIRBuilder {
                     seen_ir::Type::I32 // Default for complex paths
                 }
             }
-            TypeKind::Reference { .. } => seen_ir::Type::Ptr(Box::new(seen_ir::Type::I32)),
+            // Reference type removed in new memory model
             TypeKind::Array { .. } => seen_ir::Type::Ptr(Box::new(seen_ir::Type::I32)), // Arrays are represented as pointers
             TypeKind::Tuple(_) => seen_ir::Type::I32, // Simplified tuple representation
             _ => seen_ir::Type::I32, // Default for other types
@@ -696,23 +700,20 @@ impl FunctionIRBuilder {
             } else { 
                 self.alloc_label() 
             };
-            self.blocks.push(seen_ir::BasicBlock {
-                label,
-                instructions: std::mem::take(&mut self.current_block),
-            });
+            self.blocks.push((label, std::mem::take(&mut self.current_block)));
         }
         
         // If no blocks were created, create a default one
         if self.blocks.is_empty() {
-            self.blocks.push(seen_ir::BasicBlock {
-                label: "entry".to_string(),
-                instructions: vec![
-                    seen_ir::Instruction::Return { value: Some(seen_ir::Value::Integer(0)) },
-                ],
-            });
+            self.blocks.push(("entry".to_string(), vec![
+                seen_ir::Instruction::Return { value: Some(seen_ir::Value::Integer(0)) },
+            ]));
         }
         
-        std::mem::take(&mut self.blocks)
+        // Convert tuples to BasicBlocks
+        self.blocks.drain(..).map(|(label, instructions)| {
+            seen_ir::BasicBlock { label, instructions }
+        }).collect()
     }
     
     fn convert_statement(&mut self, stmt: &seen_parser::Stmt) {
@@ -895,6 +896,105 @@ impl FunctionIRBuilder {
                     seen_ir::Value::Integer(0)
                 }
             }
+            ExprKind::MethodCall { receiver, method, args } => {
+                // Handle method calls on built-in types
+                let receiver_val = self.convert_expression(receiver);
+                let method_name = method.value;
+                
+                // Handle string methods
+                match method_name {
+                    "length" => {
+                        // String.length() or Array.length()
+                        let dest = self.alloc_register();
+                        self.current_block.push(seen_ir::Instruction::Call {
+                            dest: Some(dest),
+                            func: "__builtin_length".to_string(),
+                            args: vec![receiver_val],
+                        });
+                        seen_ir::Value::Register(dest)
+                    }
+                    "charAt" => {
+                        // String.charAt(index)
+                        if args.len() == 1 {
+                            let index_val = self.convert_expression(&args[0]);
+                            let dest = self.alloc_register();
+                            self.current_block.push(seen_ir::Instruction::Call {
+                                dest: Some(dest),
+                                func: "__builtin_char_at".to_string(),
+                                args: vec![receiver_val, index_val],
+                            });
+                            seen_ir::Value::Register(dest)
+                        } else {
+                            seen_ir::Value::Integer(0)
+                        }
+                    }
+                    "substring" => {
+                        // String.substring(start, end)
+                        if args.len() == 2 {
+                            let start_val = self.convert_expression(&args[0]);
+                            let end_val = self.convert_expression(&args[1]);
+                            let dest = self.alloc_register();
+                            self.current_block.push(seen_ir::Instruction::Call {
+                                dest: Some(dest),
+                                func: "__builtin_substring".to_string(),
+                                args: vec![receiver_val, start_val, end_val],
+                            });
+                            seen_ir::Value::Register(dest)
+                        } else {
+                            seen_ir::Value::Integer(0)
+                        }
+                    }
+                    "get" => {
+                        // Array.get(index)
+                        if args.len() == 1 {
+                            let index_val = self.convert_expression(&args[0]);
+                            let dest = self.alloc_register();
+                            self.current_block.push(seen_ir::Instruction::Call {
+                                dest: Some(dest),
+                                func: "__builtin_array_get".to_string(),
+                                args: vec![receiver_val, index_val],
+                            });
+                            seen_ir::Value::Register(dest)
+                        } else {
+                            seen_ir::Value::Integer(0)
+                        }
+                    }
+                    "push" => {
+                        // Array.push(value)
+                        if args.len() == 1 {
+                            let value_val = self.convert_expression(&args[0]);
+                            self.current_block.push(seen_ir::Instruction::Call {
+                                dest: None,
+                                func: "__builtin_array_push".to_string(),
+                                args: vec![receiver_val, value_val],
+                            });
+                            seen_ir::Value::Integer(0)
+                        } else {
+                            seen_ir::Value::Integer(0)
+                        }
+                    }
+                    "charCodeAt" => {
+                        // String.charCodeAt(index)
+                        if args.len() == 1 {
+                            let index_val = self.convert_expression(&args[0]);
+                            let dest = self.alloc_register();
+                            self.current_block.push(seen_ir::Instruction::Call {
+                                dest: Some(dest),
+                                func: "__builtin_char_code_at".to_string(),
+                                args: vec![receiver_val, index_val],
+                            });
+                            seen_ir::Value::Register(dest)
+                        } else {
+                            seen_ir::Value::Integer(0)
+                        }
+                    }
+                    _ => {
+                        // Unknown method - just return a default value for now
+                        eprintln!("Warning: Unknown method '{}' called", method_name);
+                        seen_ir::Value::Integer(0)
+                    }
+                }
+            }
             ExprKind::Identifier(name) => {
                 // Look up variable in our simple symbol table
                 if let Some(&reg) = self.variables.get(name.value) {
@@ -909,6 +1009,273 @@ impl FunctionIRBuilder {
                     // Variable not found, return placeholder
                     seen_ir::Value::Integer(0)
                 }
+            }
+            ExprKind::Return(opt_expr) => {
+                let value = opt_expr.as_ref()
+                    .map(|expr| self.convert_expression(expr))
+                    .unwrap_or(seen_ir::Value::Integer(0));
+                
+                self.current_block.push(seen_ir::Instruction::Return { 
+                    value: Some(value) 
+                });
+                seen_ir::Value::Integer(0) // Return doesn't produce a value
+            }
+            ExprKind::Break(_) => {
+                // For now, generate an unconditional branch to the loop exit
+                // This needs proper loop context management
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: None,
+                    true_label: "loop_exit".to_string(), // Placeholder - should be actual loop exit label
+                    false_label: None,
+                });
+                seen_ir::Value::Integer(0)
+            }
+            ExprKind::Continue => {
+                // For now, generate an unconditional branch to the loop start
+                // This needs proper loop context management  
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: None,
+                    true_label: "loop_header".to_string(), // Placeholder - should be actual loop header label
+                    false_label: None,
+                });
+                seen_ir::Value::Integer(0)
+            }
+            ExprKind::If { condition, then_branch, else_branch } => {
+                // Generate if/else structure
+                let then_label = format!("then_{}", self.next_label_id);
+                let else_label = format!("else_{}", self.next_label_id);
+                let end_label = format!("if_end_{}", self.next_label_id);
+                self.next_label_id += 1;
+                
+                // Evaluate condition
+                let cond_value = self.convert_expression(condition);
+                
+                // Convert condition to register if needed
+                let cond_reg = match cond_value {
+                    seen_ir::Value::Register(r) => r,
+                    _ => {
+                        // Put value in a register
+                        let reg = self.alloc_register();
+                        self.current_block.push(seen_ir::Instruction::Binary {
+                            dest: reg,
+                            op: seen_ir::BinaryOp::Add,
+                            left: cond_value,
+                            right: seen_ir::Value::Integer(0),
+                        });
+                        reg
+                    }
+                };
+                
+                // Branch based on condition
+                if else_branch.is_some() {
+                    self.current_block.push(seen_ir::Instruction::Branch {
+                        condition: Some(cond_reg),
+                        true_label: then_label.clone(),
+                        false_label: Some(else_label.clone()),
+                    });
+                } else {
+                    self.current_block.push(seen_ir::Instruction::Branch {
+                        condition: Some(cond_reg),
+                        true_label: then_label.clone(),
+                        false_label: Some(end_label.clone()),
+                    });
+                }
+                
+                // Then branch
+                self.blocks.push((then_label, std::mem::take(&mut self.current_block)));
+                self.current_block = vec![];
+                
+                // Convert then branch statements
+                for stmt in &then_branch.statements {
+                    self.convert_statement(stmt);
+                }
+                
+                // Jump to end
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: None,
+                    true_label: end_label.clone(),
+                    false_label: None,
+                });
+                
+                // Else branch (if present)
+                if let Some(else_expr) = else_branch {
+                    self.blocks.push((else_label, std::mem::take(&mut self.current_block)));
+                    self.current_block = vec![];
+                    
+                    // The else branch could be another if or a block
+                    match else_expr.kind.as_ref() {
+                        ExprKind::Block(block) => {
+                            for stmt in &block.statements {
+                                self.convert_statement(stmt);
+                            }
+                        }
+                        _ => {
+                            // It's an else-if, treat as expression
+                            self.convert_expression(else_expr);
+                        }
+                    }
+                    
+                    // Jump to end
+                    self.current_block.push(seen_ir::Instruction::Branch {
+                        condition: None,
+                        true_label: end_label.clone(),
+                        false_label: None,
+                    });
+                }
+                
+                // End label
+                self.blocks.push((end_label, std::mem::take(&mut self.current_block)));
+                self.current_block = vec![];
+                
+                // If expressions can produce values, but for now return unit
+                seen_ir::Value::Integer(0)
+            }
+            ExprKind::While { condition, body } => {
+                // Generate while loop structure
+                let loop_header = format!("while_{}", self.next_label_id);
+                let loop_body = format!("while_body_{}", self.next_label_id);
+                let loop_exit = format!("while_exit_{}", self.next_label_id);
+                self.next_label_id += 1;
+                
+                // Jump to loop header
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: None,
+                    true_label: loop_header.clone(),
+                    false_label: None,
+                });
+                
+                // Loop header: evaluate condition
+                self.blocks.push((loop_header.clone(), self.current_block.clone()));
+                self.current_block = vec![];
+                
+                let cond_value = self.convert_expression(condition);
+                
+                // Convert condition to register if needed
+                let cond_reg = match cond_value {
+                    seen_ir::Value::Register(r) => r,
+                    _ => {
+                        // Put value in a register
+                        let reg = self.alloc_register();
+                        self.current_block.push(seen_ir::Instruction::Binary {
+                            dest: reg,
+                            op: seen_ir::BinaryOp::Add,
+                            left: cond_value,
+                            right: seen_ir::Value::Integer(0),
+                        });
+                        reg
+                    }
+                };
+                
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: Some(cond_reg),
+                    true_label: loop_body.clone(),
+                    false_label: Some(loop_exit.clone()),
+                });
+                
+                // Loop body
+                self.blocks.push((loop_body.clone(), self.current_block.clone()));
+                self.current_block = vec![];
+                
+                // Convert body statements
+                for stmt in &body.statements {
+                    self.convert_statement(stmt);
+                }
+                
+                // Jump back to loop header
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: None,
+                    true_label: loop_header,
+                    false_label: None,
+                });
+                
+                // Loop exit
+                self.blocks.push((loop_exit.clone(), self.current_block.clone()));
+                self.current_block = vec![];
+                
+                seen_ir::Value::Integer(0)
+            }
+            ExprKind::For { pattern, iterator, body } => {
+                // Generate for loop structure (desugared to while loop)
+                let loop_header = format!("for_{}", self.next_label_id);
+                let loop_body = format!("for_body_{}", self.next_label_id);
+                let loop_exit = format!("for_exit_{}", self.next_label_id);
+                self.next_label_id += 1;
+                
+                // Initialize iterator
+                let iter_value = self.convert_expression(iterator);
+                let iter_reg = self.alloc_register();
+                self.current_block.push(seen_ir::Instruction::Alloca {
+                    dest: iter_reg,
+                    ty: seen_ir::Type::I32, // Simplified - should get actual type
+                });
+                
+                // For now, simplified implementation
+                // A full implementation would handle iterators properly
+                
+                // Jump to loop header
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: None,
+                    true_label: loop_header.clone(),
+                    false_label: None,
+                });
+                
+                // Loop header: check if iterator has next
+                self.blocks.push((loop_header.clone(), self.current_block.clone()));
+                self.current_block = vec![];
+                
+                // Simplified: assume iterator is a range, check bounds
+                // In production, would call iterator.hasNext() method
+                let has_next = seen_ir::Value::Integer(1); // Placeholder
+                
+                // Convert to register
+                let has_next_reg = match has_next {
+                    seen_ir::Value::Register(r) => r,
+                    _ => {
+                        let reg = self.alloc_register();
+                        self.current_block.push(seen_ir::Instruction::Binary {
+                            dest: reg,
+                            op: seen_ir::BinaryOp::Add,
+                            left: has_next,
+                            right: seen_ir::Value::Integer(0),
+                        });
+                        reg
+                    }
+                };
+                
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: Some(has_next_reg),
+                    true_label: loop_body.clone(),
+                    false_label: Some(loop_exit.clone()),
+                });
+                
+                // Loop body
+                self.blocks.push((loop_body.clone(), self.current_block.clone()));
+                self.current_block = vec![];
+                
+                // Bind pattern variable (simplified - just bind as i32)
+                if let seen_parser::PatternKind::Identifier(name) = &pattern.kind {
+                    let var_reg = self.alloc_register();
+                    self.var_map.insert(name.value.to_string(), var_reg);
+                    // In production, would call iterator.next() and bind result
+                }
+                
+                // Convert body statements
+                for stmt in &body.statements {
+                    self.convert_statement(stmt);
+                }
+                
+                // Jump back to loop header
+                self.current_block.push(seen_ir::Instruction::Branch {
+                    condition: None,
+                    true_label: loop_header,
+                    false_label: None,
+                });
+                
+                // Loop exit
+                self.blocks.push((loop_exit, self.current_block.clone()));
+                self.current_block = vec![];
+                
+                seen_ir::Value::Integer(0)
             }
             _ => {
                 // Other expression types not yet implemented

@@ -1,0 +1,11 @@
+// Welcome to Seen!
+// This is your main function - the entry point of your program.
+
+fun main() {
+    let name = "World"
+    println("Hello, {name}!")
+    
+    let language = "Seen"
+    let message = "Welcome to {language} programming!"
+    println(message)
+}

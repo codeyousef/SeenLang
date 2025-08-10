@@ -426,6 +426,16 @@ pub fn walk_expr<'a, V: Visitor<'a>>(visitor: &mut V, expr: &Expr<'a>) {
                 visitor.visit_item(item);
             }
         }
+        ExprKind::OwnershipCast { expr, mode: _ } => {
+            visitor.visit_expr(expr);
+        }
+        ExprKind::StringInterpolation { parts } => {
+            for part in parts {
+                if let StringInterpolationPart::Expression(expr) = part {
+                    visitor.visit_expr(expr);
+                }
+            }
+        }
     }
 }
 
@@ -454,7 +464,6 @@ pub fn walk_type<'a, V: Visitor<'a>>(visitor: &mut V, ty: &Type<'a>) {
             }
             visitor.visit_type(return_type);
         }
-        TypeKind::Reference { inner, .. } => visitor.visit_type(inner),
         TypeKind::Nullable(inner) => visitor.visit_type(inner),
     }
 }
@@ -823,6 +832,16 @@ pub fn walk_expr_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, expr: &mut Expr<'a>
                 visitor.visit_item(item);
             }
         }
+        ExprKind::OwnershipCast { expr, mode: _ } => {
+            visitor.visit_expr(expr);
+        }
+        ExprKind::StringInterpolation { parts } => {
+            for part in parts {
+                if let StringInterpolationPart::Expression(expr) = part {
+                    visitor.visit_expr(expr);
+                }
+            }
+        }
     }
 }
 
@@ -851,7 +870,6 @@ pub fn walk_type_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, ty: &mut Type<'a>) 
             }
             visitor.visit_type(return_type);
         }
-        TypeKind::Reference { inner, .. } => visitor.visit_type(inner),
         TypeKind::Nullable(inner) => visitor.visit_type(inner),
     }
 }

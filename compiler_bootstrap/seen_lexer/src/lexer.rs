@@ -352,12 +352,83 @@ impl<'a> Lexer<'a> {
         self.advance(); // Skip opening quote
         
         let mut value = String::new();
+        let mut has_interpolation = false;
+        
+        // Scan string and collect parts, detecting interpolation
+        let mut full_content = String::new();
+        while !self.is_at_end() && self.current_char() != '"' {
+            if self.current_char() == '\\' {
+                full_content.push(self.current_char());
+                self.advance();
+                if !self.is_at_end() {
+                    full_content.push(self.current_char());
+                    self.advance();
+                }
+            } else if self.current_char() == '{' {
+                // Look ahead to see if this is interpolation
+                let saved_pos = self.position;
+                let saved_current_pos = self.current_pos;
+                
+                self.advance(); // Move past '{'
+                if !self.is_at_end() {
+                    let next_char = self.current_char();
+                    if next_char.is_alphabetic() || next_char == '_' {
+                        has_interpolation = true;
+                    }
+                }
+                
+                // Restore position
+                self.position = saved_pos;
+                self.current_pos = saved_current_pos;
+                
+                if has_interpolation {
+                    break; // Stop collecting, we found interpolation
+                }
+                
+                full_content.push(self.current_char());
+                self.advance();
+            } else {
+                full_content.push(self.current_char());
+                if self.current_char() == '\n' {
+                    self.advance_line();
+                } else {
+                    self.advance();
+                }
+            }
+        }
+        
+        if !has_interpolation {
+            // Process escape sequences for simple string
+            for ch in full_content.chars() {
+                match ch {
+                    '\\' => {
+                        // This is simplified - in real implementation would need proper escape handling
+                        value.push(ch);
+                    }
+                    c => value.push(c),
+                }
+            }
+            
+            if self.is_at_end() {
+                self.diagnostics.error("Unterminated string literal", Span::single(self.current_pos, self.file_id));
+                return Ok(TokenType::StringLiteral(value));
+            }
+            
+            self.advance(); // Skip closing quote
+            return Ok(TokenType::StringLiteral(value));
+        }
+        
+        // For interpolation, return just the first part up to the '{'
+        return Ok(TokenType::StringLiteral(full_content));
+    }
+    
+    fn scan_simple_string_literal(&mut self) -> SeenResult<TokenType> {
+        let mut value = String::new();
         
         while !self.is_at_end() && self.current_char() != '"' {
             if self.current_char() == '\\' {
                 self.advance();
                 if self.is_at_end() {
-                    // Error recovery: treat as escaped character and continue
                     self.diagnostics.error("Unterminated string literal in escape sequence", Span::single(self.current_pos, self.file_id));
                     break;
                 }
@@ -388,13 +459,113 @@ impl<'a> Lexer<'a> {
         }
         
         if self.is_at_end() {
-            // Error recovery: treat as unterminated string but continue
             self.diagnostics.error("Unterminated string literal", Span::single(self.current_pos, self.file_id));
             return Ok(TokenType::StringLiteral(value));
         }
         
         self.advance(); // Skip closing quote
         Ok(TokenType::StringLiteral(value))
+    }
+    
+    /// Scan interpolation expression inside { }
+    pub fn scan_interpolation_expression(&mut self) -> SeenResult<TokenType> {
+        if self.current_char() != '{' {
+            return Err(SeenError::lex_error("Expected '{' at start of interpolation expression"));
+        }
+        
+        self.advance(); // Skip opening brace
+        let mut expr = String::new();
+        let mut brace_depth = 1;
+        
+        while !self.is_at_end() && brace_depth > 0 {
+            match self.current_char() {
+                '{' => {
+                    brace_depth += 1;
+                    expr.push(self.current_char());
+                }
+                '}' => {
+                    brace_depth -= 1;
+                    if brace_depth > 0 {
+                        expr.push(self.current_char());
+                    }
+                }
+                '\n' => {
+                    self.advance_line();
+                    expr.push('\n');
+                }
+                c => expr.push(c),
+            }
+            
+            if brace_depth > 0 {
+                self.advance();
+            }
+        }
+        
+        if brace_depth > 0 {
+            return Err(SeenError::lex_error("Unterminated interpolation expression"));
+        }
+        
+        self.advance(); // Skip closing brace
+        Ok(TokenType::InterpolationExpression(expr))
+    }
+    
+    /// Continue scanning string interpolation after an expression
+    pub fn scan_string_interpolation_continuation(&mut self) -> SeenResult<TokenType> {
+        let mut value = String::new();
+        let mut has_more_interpolation = false;
+        
+        // Scan string content until next { or end quote
+        while !self.is_at_end() && self.current_char() != '"' && self.current_char() != '{' {
+            if self.current_char() == '\\' {
+                self.advance();
+                if self.is_at_end() {
+                    self.diagnostics.error("Unterminated string literal in escape sequence", Span::single(self.current_pos, self.file_id));
+                    break;
+                }
+                
+                match self.current_char() {
+                    'n' => value.push('\n'),
+                    't' => value.push('\t'),
+                    'r' => value.push('\r'),
+                    '\\' => value.push('\\'),
+                    '"' => value.push('"'),
+                    '\'' => value.push('\''),
+                    '0' => value.push('\0'),
+                    c => {
+                        self.diagnostics.warning(
+                            &format!("Unknown escape sequence: \\{}", c),
+                            Span::single(self.current_pos, self.file_id)
+                        );
+                        value.push(c);
+                    }
+                }
+            } else if self.current_char() == '\n' {
+                self.advance_line();
+                value.push('\n');
+            } else {
+                value.push(self.current_char());
+            }
+            self.advance();
+        }
+        
+        // Check what ended the loop
+        if self.current_char() == '{' {
+            // More interpolation follows
+            has_more_interpolation = true;
+        } else if self.current_char() == '"' {
+            // End of string
+            self.advance(); // Skip closing quote
+            return Ok(TokenType::StringInterpolationEnd(value));
+        } else if self.is_at_end() {
+            self.diagnostics.error("Unterminated string literal", Span::single(self.current_pos, self.file_id));
+            return Ok(TokenType::StringInterpolationEnd(value));
+        }
+        
+        if has_more_interpolation {
+            Ok(TokenType::StringInterpolationMiddle(value))
+        } else {
+            Ok(TokenType::StringInterpolationEnd(value))
+        }
     }
     
     /// Scan a character literal
@@ -573,7 +744,9 @@ impl<'a> Lexer<'a> {
             self.advance();
             TokenType::NotEqual
         } else {
-            TokenType::LogicalNot
+            // '!' is no longer a logical not operator - research shows word operators are better
+            // Return an error for unsupported symbol
+            TokenType::Error("Unsupported operator '!' - use 'not' instead".to_string())
         }
     }
     
@@ -607,7 +780,8 @@ impl<'a> Lexer<'a> {
         self.advance();
         if !self.is_at_end() && self.current_char() == '&' {
             self.advance();
-            TokenType::LogicalAnd
+            // '&&' is no longer supported - research shows word operators are better
+            TokenType::Error("Unsupported operator '&&' - use 'and' instead".to_string())
         } else {
             TokenType::BitwiseAnd
         }
@@ -617,7 +791,8 @@ impl<'a> Lexer<'a> {
         self.advance();
         if !self.is_at_end() && self.current_char() == '|' {
             self.advance();
-            TokenType::LogicalOr
+            // '||' is no longer supported - research shows word operators are better
+            TokenType::Error("Unsupported operator '||' - use 'or' instead".to_string())
         } else {
             TokenType::BitwiseOr
         }
@@ -896,13 +1071,13 @@ impl<'a> Lexer<'a> {
                 _ => {
                     self.current_pos.column += 1;
                     self.current_pos.offset = self.position as u32;
-                    TokenType::LogicalNot
+                    TokenType::Error("Unsupported operator '!' - use 'not' instead".to_string())
                 }
             }
         } else {
             self.current_pos.column += 1;
             self.current_pos.offset = self.position as u32;
-            TokenType::LogicalNot
+            TokenType::Error("Unsupported operator '!' - use 'not' instead".to_string())
         }
     }
     
@@ -972,7 +1147,7 @@ impl<'a> Lexer<'a> {
             self.position += 1;
             self.current_pos.column += 2;
             self.current_pos.offset = self.position as u32;
-            TokenType::LogicalAnd
+            TokenType::Error("Unsupported operator '&&' - use 'and' instead".to_string())
         } else {
             self.current_pos.column += 1;
             self.current_pos.offset = self.position as u32;
@@ -986,7 +1161,7 @@ impl<'a> Lexer<'a> {
             self.position += 1;
             self.current_pos.column += 2;
             self.current_pos.offset = self.position as u32;
-            TokenType::LogicalOr
+            TokenType::Error("Unsupported operator '||' - use 'or' instead".to_string())
         } else {
             self.current_pos.column += 1;
             self.current_pos.offset = self.position as u32;

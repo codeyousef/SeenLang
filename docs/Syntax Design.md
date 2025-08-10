@@ -103,7 +103,33 @@ const defaultTimeout = 30 // Private constant (lowercase)
 // Type annotations when needed
 let port: Int = 8080
 let host: String = "localhost"
+
+// RESEARCH-BASED: Simple braces without cryptic $ symbol
+// Consistent with our principle of avoiding unnecessary symbols
+
+let name = "Alice"
+let age = 25
+
+// String interpolation uses {} not ${}
+let greeting = "Hello, {name}!"
+let message = "You are {age} years old"
+
+// Expressions in braces
+let calc = "2 + 2 = {2 + 2}"
+let upper = "Uppercase: {name.toUpperCase()}"
+
+// Multi-line strings with interpolation
+let letter = """
+    Dear {name},
+    
+    Happy {age}th birthday!
+"""
+
+// Literal braces use doubling
+let example = "Use {{braces}} for literal { and } characters"
 ```
+
+
 
 ### Operators
 
@@ -313,7 +339,7 @@ for i in 0..<10 {
 }
 
 for (index, value) in list.WithIndex() {
-    print("$index: $value")
+    print("{index}: {value}")
 }
 
 // While loops
@@ -444,43 +470,225 @@ struct Config {
     }
     
     var Name: String by observable("") { old, new ->
-        print("Changed from $old to $new")
-    }
+    print("Changed from $old to $new")
+	}
 }
 ```
 
 ## Memory Management
 
-### Vale-Style Regions
+### Vale-Style Regions with Automatic Inference
+
+**RESEARCH-BASED**: Vale's proven memory model without garbage collection, combined with automatic inference to minimize cognitive load.
 
 ```seen
-// RESEARCH-BASED: Safe without garbage collection (Vale model)
+// AUTOMATIC BY DEFAULT - Compiler infers everything
+fun ProcessData(data: Data): Result {
+    // Compiler knows: data is only read -> immutable borrow
+    return transform(data)
+}
 
-// Region-based memory management
-region myRegion {
+fun UpdateData(data: Data) {
+    // Compiler sees mutation -> automatically mutable borrow
+    data.count++
+}
+
+fun ConsumeData(data: Data): NewData {
+    // Compiler sees data not used after -> automatically moves
+    return NewData(data)
+}
+
+// Usage - no annotations needed!
+let myData = CreateData()
+let result = ProcessData(myData)    // Auto-borrows immutably
+UpdateData(myData)                   // Auto-borrows mutably
+let newData = ConsumeData(myData)    // Auto-moves
+// Compiler prevents use after move
+
+// Region-based memory management (automatic)
+// Compiler infers regions - no explicit syntax needed usually
+fun Process() {
     let buffer = Array<Byte>(1024)
     let cache = HashMap<String, Int>()
     
-    Process(buffer, cache)
-} // Everything in region freed here
+    DoWork(buffer, cache)  // Compiler tracks lifetimes
+} // Compiler knows when to free
 
-// Ownership transfer
-let data = ComputeResult()          // data owns result
-Process(move data)                  // ownership transfers
-// data no longer accessible
+// MANUAL CONTROL - Only when needed (rare)
+// Use words, not symbols - consistent with our research
 
-// Borrowing
-let data = CreateData()
-ReadOnly(&data)                     // Immutable borrow
-Modify(&mut data)                   // Mutable borrow
-Use(data)                           // Still own it
+// Force ownership transfer when compiler would borrow
+let result = ExpensiveOperation(move data)
 
-// Arena allocation
+// Force borrowing when compiler might move  
+let result = KeepOwnership(borrow data)
+
+// Explicit mutable borrow when needed
+UpdateInPlace(borrow mut data)
+
+// Explicit regions for specific memory control
+region fastMemory {
+    let criticalData = Array<Float>(10000)
+    // Allocated in specific memory region
+    ProcessCritical(criticalData)
+} // Region freed here
+
+// Arena allocation for bulk operations
 arena {
     let nodes = (1..1000).Map { Node(it) }
     BuildTree(nodes)
 } // All arena memory freed at once
 ```
+
+### Ownership Patterns
+
+```seen
+// The compiler analyzes usage patterns to determine ownership
+
+// Pattern 1: Read-only access -> automatic immutable borrow
+fun CalculateSum(numbers: Array<Int>): Int {
+    return numbers.Sum()  // Just reading -> borrows
+}
+
+// Pattern 2: Mutation -> automatic mutable borrow
+fun Normalize(vector: Vector3) {
+    let length = vector.Length()
+    vector.x /= length  // Mutating -> mutable borrow
+    vector.y /= length
+    vector.z /= length
+}
+
+// Pattern 3: Consumption -> automatic move
+fun CreateWrapper(data: Data): Wrapper {
+    return Wrapper(data)  // Data consumed -> moves
+}
+
+// Pattern 4: Complex usage -> compiler figures it out
+fun ComplexOperation(data: Data): Result {
+    print(data.name)           // Read -> starts as immutable borrow
+    
+    if condition {
+        data.count++            // Mutation -> upgrades to mutable borrow
+    }
+    
+    return Result(data.id)      // Only uses field -> still borrowing
+} // data still valid after call
+
+// EXPLICIT CONTROL - When you need to override compiler
+fun PerformanceCritical(data: LargeData): Result {
+    // Force move to avoid copying
+    let processed = HeavyProcessing(move data)
+    // data no longer accessible - moved
+    
+    return processed
+}
+
+fun ShareData(data: SharedData): (Result1, Result2) {
+    // Force borrowing to use data twice
+    let r1 = Process1(borrow data)
+    let r2 = Process2(borrow data)  // Can still use data
+    return (r1, r2)
+}
+```
+
+### Function Parameter Semantics
+
+```seen
+// DEFAULT: Compiler infers from usage
+fun AutomaticFunction(data: Data) {
+    // Compiler analyzes body and decides
+}
+
+// EXPLICIT: When you want to guarantee specific behavior
+// Use words for clarity, not symbols
+
+fun RequireOwnership(move data: Data) {
+    // Caller must transfer ownership
+    // Useful for constructors or sinks
+}
+
+fun RequireMutable(mut data: Data) {
+    // Explicitly requires mutable access
+    // Makes mutation intent clear
+}
+
+fun RequireBorrow(borrow data: Data) {
+    // Guarantees data won't be moved
+    // Caller keeps ownership
+}
+
+// Inout pattern for in-place modification (Vale-style)
+fun ModifyInPlace(inout data: Data) {
+    // Clear that data will be modified
+    data.value *= 2
+}
+```
+
+### Memory Safety Guarantees
+
+```seen
+// The compiler ensures these at compile time:
+
+// 1. No use after move
+let data = CreateData()
+let wrapper = Wrapper(move data)  // Explicit move
+// print(data)  // ERROR: use after move
+
+// 2. No data races
+let data = CreateData()
+spawn {
+    Process(data)  // Compiler ensures safe access
+}
+
+// 3. Automatic cleanup
+fun AutoCleanup() {
+    let file = OpenFile("data.txt")
+    ProcessFile(file)
+    // File automatically closed when leaving scope
+}
+
+// 4. No null pointer dereferences (non-nullable by default)
+let user: User = GetUser()  // Can't be null
+let maybe: User? = FindUser(id)  // Explicitly nullable
+
+// 5. No memory leaks (compiler tracks all allocations)
+region bounded {
+    let growing = DynamicArray<Int>()
+    // Even if we forget to free, region cleanup handles it
+}
+```
+
+### Performance Notes
+
+```seen
+// Zero-cost abstractions - all compile away
+
+// This high-level code:
+fun HighLevel(data: Data): Result {
+    return Process(data)
+}
+
+// Compiles to same assembly as manual memory management
+// No runtime overhead for:
+// - Automatic borrowing inference
+// - Region tracking  
+// - Ownership analysis
+// - Safety checks
+
+// Explicit annotations are just compile-time hints
+let result = Process(move data)  // 'move' has no runtime cost
+```
+
+### Summary
+
+The memory model follows our research principles:
+1. **Automatic by default** - Compiler infers borrowing/ownership (minimal cognitive load)
+2. **Word-based manual control** - `move`, `borrow`, `mut`, `inout` (not cryptic symbols)
+3. **Safe by default** - Memory safety without garbage collection
+4. **Zero overhead** - All safety compiles away
+5. **Explicit when needed** - Manual control for performance-critical code
+
+This gives us Vale's safety, Rust's performance, and Python's simplicity in most code.
 
 ## Concurrency
 
@@ -508,6 +716,8 @@ async {
 
 ### Channels and Select
 
+### Channels and Select
+
 ```seen
 // Channels for communication
 let (sender, receiver) = Channel<Int>()
@@ -524,20 +734,21 @@ spawn {
     }
 }
 
-// Select expression
+// Select expression (word-based, not symbols)
 select {
-    case value <- channel1: {
+    when channel1 receives value: {
         HandleChannel1(value)
     }
-    case value <- channel2: {
+    when channel2 receives value: {
         HandleChannel2(value)
     }
-    case Timeout(1.second): {
+    when timeout(1.second): {
         HandleTimeout()
     }
 }
 ```
 
+```
 ### Actor Model
 
 ```seen
@@ -554,11 +765,10 @@ actor Counter {
     }
 }
 
-// Usage
+// Usage (word-based, not symbols)
 let counter = spawn Counter()
-counter ! Increment
-let value = counter ? Get           // Request-reply
-```
+send Increment to counter           // Not: counter ! Increment
+let value = request Get from counter // Not: counter ? Get
 
 ## Reactive Programming
 
@@ -629,7 +839,7 @@ comptime for size in [8, 16, 32, 64] {
 // Hygienic macros (AST-based, not text)
 macro Log(level, message) {
     #if DEBUG {
-        print("[$level] ${caller.location}: $message")
+        print("[{level}] {caller.location}: {message}")
     }
 }
 
@@ -757,8 +967,8 @@ fun ParseNumber(text: String): Result<Int, ParseError> {
 
 // Pattern matching on results
 match ParseNumber(input) {
-    Success(n) -> print("Number: $n")
-    Failure(e) -> print("Error: $e")
+    Success(n) -> print("Number: {n}")
+    Failure(e) -> print("Error: {e}")
 }
 
 // Error propagation with ?

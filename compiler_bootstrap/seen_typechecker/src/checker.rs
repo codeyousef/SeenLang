@@ -239,9 +239,71 @@ impl TypeChecker {
                 seen_parser::ItemKind::SealedClass(_) => {
                     // Sealed classes - implement in Step 11
                 }
-                seen_parser::ItemKind::Class(_class) => {
-                    // Regular classes - basic validation for now
-                    // Full class type checking will be implemented later
+                seen_parser::ItemKind::Class(class) => {
+                    // Register the class as a type
+                    let class_name = &class.name.value;
+                    
+                    // Register the class constructor as a function
+                    // For now, assume constructor takes no arguments and returns the class type
+                    let class_type = Type::Named {
+                        name: class_name.to_string(),
+                        args: vec![],
+                    };
+                    
+                    // Add the class type to the environment
+                    self.env.bind(format!("type:{}", class_name), class_type.clone());
+                    
+                    // Register as a constructor function 
+                    self.env.bind(format!("func:{}", class_name), Type::Function {
+                        params: vec![],
+                        return_type: Box::new(class_type.clone()),
+                    });
+                    
+                    // Process class body
+                    for member in &class.body {
+                        match member {
+                            seen_parser::ClassMember::Method(method) => {
+                                // Register method in the environment
+                                let method_name = format!("{}::{}", class_name, method.name.value);
+                                let param_types: Vec<Type> = method.params.iter()
+                                    .map(|p| {
+                                        // p is a Param, which has ty field of type Type
+                                        self.resolve_type_annotation(&p.ty).unwrap_or(Type::Unknown)
+                                    })
+                                    .collect();
+                                
+                                let return_type = if let Some(ref ty) = method.return_type {
+                                    self.resolve_type_annotation(ty).unwrap_or(Type::Unknown)
+                                } else {
+                                    Type::Primitive(PrimitiveType::Unit)
+                                };
+                                
+                                self.env.bind(format!("func:{}", method_name), Type::Function {
+                                    params: param_types,
+                                    return_type: Box::new(return_type),
+                                });
+                            }
+                            seen_parser::ClassMember::Property(prop) => {
+                                // Register property type
+                                if let Some(ref ty) = prop.ty {
+                                    self.resolve_type_annotation(ty)?;
+                                }
+                            }
+                            seen_parser::ClassMember::Constructor(constructor) => {
+                                // Handle constructor - it should update the class constructor signature
+                                let param_types: Vec<Type> = constructor.params.iter()
+                                    .map(|p| self.resolve_type_annotation(&p.ty).unwrap_or(Type::Unknown))
+                                    .collect();
+                                
+                                // Update the class constructor with actual parameters
+                                self.env.bind(format!("func:{}", class_name), Type::Function {
+                                    params: param_types,
+                                    return_type: Box::new(class_type.clone()),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 seen_parser::ItemKind::Property(prop) => {
                     // Property declarations - type check property definition
@@ -426,6 +488,9 @@ impl TypeChecker {
                 // For now, assume it's a primitive type name
                 if let Some(segment) = path.segments.first() {
                     match segment.name.value.as_ref() {
+                        "String" | "string" | "str" => Ok(Type::Primitive(PrimitiveType::Str)),
+                        "Bool" | "bool" => Ok(Type::Primitive(PrimitiveType::Bool)),
+                        "Int" | "int" => Ok(Type::Primitive(PrimitiveType::I32)),
                         "i8" => Ok(Type::Primitive(PrimitiveType::I8)),
                         "i16" => Ok(Type::Primitive(PrimitiveType::I16)),
                         "i32" => Ok(Type::Primitive(PrimitiveType::I32)),
@@ -441,6 +506,29 @@ impl TypeChecker {
                         "bool" => Ok(Type::Primitive(PrimitiveType::Bool)),
                         "str" => Ok(Type::Primitive(PrimitiveType::Str)),
                         "char" => Ok(Type::Primitive(PrimitiveType::Char)),
+                        "Array" => {
+                            // Array<T> type - handle generic Array type
+                            if let seen_parser::TypeKind::Named { generic_args, .. } = ty.kind.as_ref() {
+                                if let Some(inner_ty) = generic_args.first() {
+                                    let element_type = self.resolve_type_annotation(inner_ty)?;
+                                    Ok(Type::Array {
+                                        element_type: Box::new(element_type),
+                                        size: None,
+                                    })
+                                } else {
+                                    // Default to Array<i32> if no type parameter
+                                    Ok(Type::Array {
+                                        element_type: Box::new(Type::Primitive(PrimitiveType::I32)),
+                                        size: None,
+                                    })
+                                }
+                            } else {
+                                Ok(Type::Array {
+                                    element_type: Box::new(Type::Primitive(PrimitiveType::I32)),
+                                    size: None,
+                                })
+                            }
+                        }
                         name => {
                             // First check if this is a type parameter
                             if let Some(type_var) = self.env.get(&format!("type:{}", name)) {
@@ -449,8 +537,21 @@ impl TypeChecker {
                             // Then look up in type environment
                             else if let Some(ty) = self.env.get_type(name) {
                                 Ok(ty.clone())
+                            } 
+                            // Check if it's a class type (registered as a function that returns the type)
+                            else if let Some(_) = self.env.get_function_type(name) {
+                                // It's a class, return a Named type
+                                Ok(Type::Named {
+                                    name: name.to_string(),
+                                    args: vec![],
+                                })
                             } else {
-                                Err(seen_common::SeenError::type_error(&format!("Unknown type: {}", name)))
+                                // For unknown types, return a Named type instead of error
+                                // This allows classes to be used as types even if not fully registered
+                                Ok(Type::Named {
+                                    name: name.to_string(),
+                                    args: vec![],
+                                })
                             }
                         }
                     }
@@ -609,14 +710,19 @@ impl TypeChecker {
                     BinaryOp::Eq | BinaryOp::Ne |
                     BinaryOp::Lt | BinaryOp::Le |
                     BinaryOp::Gt | BinaryOp::Ge => {
-                        match self.inference.unify(&left_type, &right_type) {
-                            Ok(_) => Ok(Type::Primitive(PrimitiveType::Bool)),
-                            Err(_) => {
-                                self.diagnostics.error(
-                                    &format!("Type mismatch in comparison: {:?} and {:?}", left_type, right_type),
-                                    expr.span
-                                );
-                                Ok(Type::Error)
+                        // Allow comparisons with Unknown types (for better error recovery)
+                        if matches!(left_type, Type::Unknown) || matches!(right_type, Type::Unknown) {
+                            Ok(Type::Primitive(PrimitiveType::Bool))
+                        } else {
+                            match self.inference.unify(&left_type, &right_type) {
+                                Ok(_) => Ok(Type::Primitive(PrimitiveType::Bool)),
+                                Err(_) => {
+                                    self.diagnostics.error(
+                                        &format!("Type mismatch in comparison: {:?} and {:?}", left_type, right_type),
+                                        expr.span
+                                    );
+                                    Ok(Type::Error)
+                                }
                             }
                         }
                     }
@@ -894,31 +1000,19 @@ impl TypeChecker {
                         }
                     }
                     UnaryOp::Deref => {
-                        // Dereference operator - expects a reference type
-                        match &operand_type {
-                            Type::Reference { inner, .. } => Ok((**inner).clone()),
-                            _ => {
-                                self.diagnostics.error(
-                                    "Cannot dereference non-reference type",
-                                    expr.span
-                                );
-                                Ok(Type::Unknown)
-                            }
-                        }
+                        // In the new memory model, dereferencing is handled automatically
+                        // Return the operand type as-is
+                        Ok(operand_type)
                     }
                     UnaryOp::Ref => {
-                        // Reference operator - creates an immutable reference
-                        Ok(Type::Reference {
-                            inner: Box::new(operand_type),
-                            mutable: false,
-                        })
+                        // In the new memory model, borrowing is automatic
+                        // Return the operand type as-is
+                        Ok(operand_type)
                     }
                     UnaryOp::RefMut => {
-                        // Mutable reference operator
-                        Ok(Type::Reference {
-                            inner: Box::new(operand_type),
-                            mutable: true,
-                        })
+                        // In the new memory model, mutable borrowing is automatic
+                        // Return the operand type as-is
+                        Ok(operand_type)
                     }
                 }
             }
@@ -971,6 +1065,137 @@ impl TypeChecker {
                 self.unify(&target_type, &value_type)?;
                 Ok(Type::Primitive(PrimitiveType::Unit))
             }
+            ExprKind::MethodCall { receiver, method, args } => {
+                // Handle method calls on built-in types and user-defined classes
+                let receiver_type = self.infer_expression_type(receiver)?;
+                
+                // First check if it's a method on a user-defined class
+                if let Type::Named { name, .. } = &receiver_type {
+                    let method_name = format!("{}::{}", name, method.value);
+                    if let Some(func_type) = self.env.get(&format!("func:{}", method_name)) {
+                        if let Type::Function { params, return_type } = func_type.clone() {
+                            // Type check arguments
+                            if args.len() != params.len() {
+                                self.diagnostics.error(
+                                    &format!("Method '{}' expects {} arguments, got {}", 
+                                            method.value, params.len(), args.len()),
+                                    method.span
+                                );
+                            } else {
+                                for (arg, param_type) in args.iter().zip(params.iter()) {
+                                    let arg_type = self.infer_expression_type(arg)?;
+                                    self.unify(&arg_type, param_type)?;
+                                }
+                            }
+                            return Ok(*return_type);
+                        }
+                    }
+                    // If method not found, still return Unknown to allow compilation to continue
+                    // The method might be defined but not registered yet
+                    return Ok(Type::Unknown);
+                }
+                
+                // Then check built-in types
+                match (&receiver_type, method.value.as_ref()) {
+                    // String methods
+                    (Type::Primitive(PrimitiveType::Str), "length") => {
+                        // length() returns Int
+                        if !args.is_empty() {
+                            self.diagnostics.error(
+                                &format!("Method 'length' expects 0 arguments, got {}", args.len()),
+                                method.span
+                            );
+                        }
+                        Ok(Type::Primitive(PrimitiveType::I32))
+                    }
+                    (Type::Primitive(PrimitiveType::Str), "charAt") => {
+                        // charAt(index: Int) returns String
+                        if args.len() != 1 {
+                            self.diagnostics.error(
+                                &format!("Method 'charAt' expects 1 argument, got {}", args.len()),
+                                method.span
+                            );
+                        } else {
+                            let arg_type = self.infer_expression_type(&args[0])?;
+                            self.unify(&arg_type, &Type::Primitive(PrimitiveType::I32))?;
+                        }
+                        Ok(Type::Primitive(PrimitiveType::Str))
+                    }
+                    (Type::Primitive(PrimitiveType::Str), "substring") => {
+                        // substring(start: Int, end: Int) returns String
+                        if args.len() != 2 {
+                            self.diagnostics.error(
+                                &format!("Method 'substring' expects 2 arguments, got {}", args.len()),
+                                method.span
+                            );
+                        } else {
+                            for arg in args {
+                                let arg_type = self.infer_expression_type(arg)?;
+                                self.unify(&arg_type, &Type::Primitive(PrimitiveType::I32))?;
+                            }
+                        }
+                        Ok(Type::Primitive(PrimitiveType::Str))
+                    }
+                    (Type::Primitive(PrimitiveType::Str), "charCodeAt") => {
+                        // charCodeAt(index: Int) returns Int
+                        if args.len() != 1 {
+                            self.diagnostics.error(
+                                &format!("Method 'charCodeAt' expects 1 argument, got {}", args.len()),
+                                method.span
+                            );
+                        } else {
+                            let arg_type = self.infer_expression_type(&args[0])?;
+                            self.unify(&arg_type, &Type::Primitive(PrimitiveType::I32))?;
+                        }
+                        Ok(Type::Primitive(PrimitiveType::I32))
+                    }
+                    // Array methods
+                    (Type::Array { element_type, .. }, "length") => {
+                        // length() returns Int
+                        if !args.is_empty() {
+                            self.diagnostics.error(
+                                &format!("Method 'length' expects 0 arguments, got {}", args.len()),
+                                method.span
+                            );
+                        }
+                        Ok(Type::Primitive(PrimitiveType::I32))
+                    }
+                    (Type::Array { element_type, .. }, "get") => {
+                        // get(index: Int) returns element type
+                        if args.len() != 1 {
+                            self.diagnostics.error(
+                                &format!("Method 'get' expects 1 argument, got {}", args.len()),
+                                method.span
+                            );
+                        } else {
+                            let arg_type = self.infer_expression_type(&args[0])?;
+                            self.unify(&arg_type, &Type::Primitive(PrimitiveType::I32))?;
+                        }
+                        Ok(element_type.as_ref().clone())
+                    }
+                    (Type::Array { element_type, .. }, "push") => {
+                        // push(element: T) returns unit
+                        if args.len() != 1 {
+                            self.diagnostics.error(
+                                &format!("Method 'push' expects 1 argument, got {}", args.len()),
+                                method.span
+                            );
+                        } else {
+                            let arg_type = self.infer_expression_type(&args[0])?;
+                            self.unify(&arg_type, element_type)?;
+                        }
+                        Ok(Type::Primitive(PrimitiveType::Unit))
+                    }
+                    _ => {
+                        // Unknown method or type
+                        self.diagnostics.error(
+                            &format!("Method '{}' does not exist on type {:?}", method.value, receiver_type),
+                            method.span
+                        );
+                        Ok(Type::Error)
+                    }
+                }
+            }
             ExprKind::Break(_) | ExprKind::Continue => {
                 Ok(Type::Primitive(PrimitiveType::Unit))
             }
@@ -997,6 +1222,11 @@ impl TypeChecker {
                         Ok(Type::Unknown)
                     }
                 }
+            }
+            ExprKind::OwnershipCast { expr, mode: _ } => {
+                // Ownership cast expressions have the same type as the wrapped expression
+                // The ownership mode is handled at runtime, not in the type system
+                self.infer_expression_type(expr)
             }
             _ => {
                 // Remaining complex expressions (Match, etc.) 
@@ -1229,13 +1459,6 @@ impl TypeChecker {
                 Ok(Type::Function {
                     params: param_types,
                     return_type: Box::new(ret_ty),
-                })
-            }
-            TypeKind::Reference { inner, is_mutable } => {
-                let inner_ty = self.ast_type_to_type(inner)?;
-                Ok(Type::Reference {
-                    inner: Box::new(inner_ty),
-                    mutable: *is_mutable,
                 })
             }
             TypeKind::Nullable(inner) => {

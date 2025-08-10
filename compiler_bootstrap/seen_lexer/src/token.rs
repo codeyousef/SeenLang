@@ -14,6 +14,14 @@ pub enum TokenType {
     BooleanLiteral(bool),
     CharLiteral(char),
     
+    // String interpolation tokens
+    StringInterpolationStart(String),  // The string part before first {
+    StringInterpolationMiddle(String), // String parts between } and {
+    StringInterpolationEnd(String),    // The string part after last }
+    InterpolationExpression(String),   // The expression inside { }
+    LeftBraceInterpolation,           // { in interpolation context
+    RightBraceInterpolation,          // } in interpolation context
+    
     // Identifiers
     Identifier(String),
     
@@ -38,9 +46,6 @@ pub enum TokenType {
     KeywordUse,
     KeywordImport,
     KeywordModule,
-    KeywordPublic,     // Kotlin: public
-    KeywordPrivate,    // Kotlin: private  
-    KeywordInternal,   // Kotlin: internal
     KeywordStatic,
     KeywordConst,
     KeywordType,
@@ -81,6 +86,9 @@ pub enum TokenType {
     KeywordAnd,        // and (word operator)
     KeywordOr,         // or (word operator)
     KeywordNot,        // not (word operator)
+    KeywordMove,       // move (ownership transfer)
+    KeywordBorrow,     // borrow (explicit immutable borrow)
+    KeywordInout,      // inout (in-place modification)
     
     // Operators
     Plus,              // +
@@ -95,9 +103,6 @@ pub enum TokenType {
     LessEqual,         // <=
     Greater,           // >
     GreaterEqual,      // >=
-    LogicalAnd,        // &&
-    LogicalOr,         // ||
-    LogicalNot,        // !
     BitwiseAnd,        // &
     BitwiseOr,         // |
     BitwiseXor,        // ^
@@ -158,6 +163,14 @@ impl fmt::Display for TokenType {
             TokenType::Identifier(name) => write!(f, "{}", name),
             TokenType::Comment(text) => write!(f, "// {}", text),
             TokenType::Error(msg) => write!(f, "ERROR: {}", msg),
+            
+            // String interpolation tokens
+            TokenType::StringInterpolationStart(s) => write!(f, "\"{}{{", s),
+            TokenType::StringInterpolationMiddle(s) => write!(f, "}}{}{{", s),
+            TokenType::StringInterpolationEnd(s) => write!(f, "}}{}\"", s),
+            TokenType::InterpolationExpression(expr) => write!(f, "{{{}}}", expr),
+            TokenType::LeftBraceInterpolation => write!(f, "{{"),
+            TokenType::RightBraceInterpolation => write!(f, "}}"),
             _ => {
                 // For keywords and operators, display the enum variant name
                 // Language-specific strings should come from LanguageConfig
@@ -182,9 +195,6 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordUse => "KeywordUse",
                     TokenType::KeywordImport => "KeywordImport",
                     TokenType::KeywordModule => "KeywordModule",
-                    TokenType::KeywordPublic => "KeywordPublic",
-                    TokenType::KeywordPrivate => "KeywordPrivate", 
-                    TokenType::KeywordInternal => "KeywordInternal",
                     TokenType::KeywordStatic => "KeywordStatic",
                     TokenType::KeywordConst => "KeywordConst",
                     TokenType::KeywordType => "KeywordType",
@@ -225,6 +235,9 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordAnd => "KeywordAnd",
                     TokenType::KeywordOr => "KeywordOr",
                     TokenType::KeywordNot => "KeywordNot",
+                    TokenType::KeywordMove => "KeywordMove",
+                    TokenType::KeywordBorrow => "KeywordBorrow",
+                    TokenType::KeywordInout => "KeywordInout",
                     TokenType::Plus => "+",
                     TokenType::Minus => "-",
                     TokenType::Multiply => "*",
@@ -237,9 +250,6 @@ impl fmt::Display for TokenType {
                     TokenType::LessEqual => "<=",
                     TokenType::Greater => ">",
                     TokenType::GreaterEqual => ">=",
-                    TokenType::LogicalAnd => "&&",
-                    TokenType::LogicalOr => "||",
-                    TokenType::LogicalNot => "!",
                     TokenType::BitwiseAnd => "&",
                     TokenType::BitwiseOr => "|",
                     TokenType::BitwiseXor => "^",
@@ -314,8 +324,8 @@ impl TokenUtils for Token {
             TokenType::KeywordVal |
             TokenType::KeywordTrue | TokenType::KeywordFalse | TokenType::KeywordStruct |
             TokenType::KeywordEnum | TokenType::KeywordImpl | TokenType::KeywordTrait |
-            TokenType::KeywordUse | TokenType::KeywordImport | TokenType::KeywordModule | TokenType::KeywordPublic |
-            TokenType::KeywordPrivate | TokenType::KeywordInternal | TokenType::KeywordStatic | TokenType::KeywordConst |
+            TokenType::KeywordUse | TokenType::KeywordImport | TokenType::KeywordModule |
+            TokenType::KeywordStatic | TokenType::KeywordConst |
             TokenType::KeywordType | TokenType::KeywordMatch | TokenType::KeywordBreak |
             TokenType::KeywordContinue | TokenType::KeywordIs | TokenType::KeywordAs |
             TokenType::KeywordSuspend | TokenType::KeywordAwait | TokenType::KeywordLaunch |
@@ -327,7 +337,9 @@ impl TokenUtils for Token {
             TokenType::KeywordOpen | TokenType::KeywordFinal | TokenType::KeywordAbstract |
             TokenType::KeywordOverride | TokenType::KeywordLateinit | TokenType::KeywordCompanion |
             TokenType::KeywordOperator | TokenType::KeywordInfix | TokenType::KeywordTailrec |
-            TokenType::KeywordWhen | TokenType::KeywordVar
+            TokenType::KeywordWhen | TokenType::KeywordVar | TokenType::KeywordNull |
+            TokenType::KeywordAnd | TokenType::KeywordOr | TokenType::KeywordNot |
+            TokenType::KeywordMove | TokenType::KeywordBorrow | TokenType::KeywordInout
         )
     }
     
@@ -336,7 +348,6 @@ impl TokenUtils for Token {
             TokenType::Plus | TokenType::Minus | TokenType::Multiply | TokenType::Divide |
             TokenType::Modulo | TokenType::Assign | TokenType::Equal | TokenType::NotEqual |
             TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual |
-            TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::LogicalNot |
             TokenType::BitwiseAnd | TokenType::BitwiseOr | TokenType::BitwiseXor |
             TokenType::BitwiseNot | TokenType::LeftShift | TokenType::RightShift |
             TokenType::PlusAssign | TokenType::MinusAssign | TokenType::MultiplyAssign |

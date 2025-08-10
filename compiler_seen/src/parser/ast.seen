@@ -1,7 +1,7 @@
-// Simplified AST Module
+// Abstract Syntax Tree Node Definitions
 
-class AST {
-    fun new() -> AST {
-        println("Creating AST");
+public class ASTNode {
+    public fun new() -> ASTNode {
+        return ASTNode();
     }
 }

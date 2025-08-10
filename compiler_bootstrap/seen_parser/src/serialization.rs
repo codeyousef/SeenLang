@@ -536,10 +536,6 @@ impl PartialEq for Box<TypeKind<'_>> {
              TypeKind::Function { params: pb, return_type: rb }) => {
                 pa == pb && ra == rb
             }
-            (TypeKind::Reference { inner: ia, is_mutable: ma },
-             TypeKind::Reference { inner: ib, is_mutable: mb }) => {
-                ia == ib && ma == mb
-            }
             _ => false,
         }
     }
@@ -550,6 +546,7 @@ impl PartialEq for Parameter<'_> {
         self.name == other.name &&
         self.ty == other.ty &&
         self.is_mutable == other.is_mutable &&
+        self.ownership == other.ownership &&
         self.span == other.span
     }
 }

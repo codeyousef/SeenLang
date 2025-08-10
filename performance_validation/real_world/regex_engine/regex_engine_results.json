@@ -1,27 +1,75 @@
 ﻿{
     "metadata":  {
                      "benchmark":  "regex_engine",
-                     "timestamp":  "2025-08-09T19:36:57Z",
-                     "iterations":  1
+                     "timestamp":  "2025-08-09T20:00:43Z",
+                     "iterations":  3
                  },
     "benchmarks":  {
                        "seen":  {
-                                    "memory_mb":  2,
-                                    "match_time_ms":  500000,
-                                    "compile_time_ms":  512,
-                                    "matches_per_sec":  0.5
+                                    "memory_mb":  [
+                                                      2,
+                                                      2,
+                                                      2
+                                                  ],
+                                    "match_time_ms":  [
+                                                          500000,
+                                                          500000,
+                                                          500000
+                                                      ],
+                                    "compile_time_ms":  [
+                                                            512,
+                                                            512,
+                                                            512
+                                                        ],
+                                    "matches_per_sec":  [
+                                                            0.5,
+                                                            0.5,
+                                                            0.5
+                                                        ]
                                 },
                        "rust":  {
-                                    "memory_mb":  1000,
-                                    "match_time_ms":  0.0004761,
-                                    "compile_time_ms":  1.4E-06,
-                                    "matches_per_sec":  210039907.58244064
+                                    "memory_mb":  [
+                                                      1000,
+                                                      1000,
+                                                      1000
+                                                  ],
+                                    "match_time_ms":  [
+                                                          0.0005076,
+                                                          0.000494,
+                                                          0.0004893
+                                                      ],
+                                    "compile_time_ms":  [
+                                                            1.4E-06,
+                                                            1.1E-06,
+                                                            1E-06
+                                                        ],
+                                    "matches_per_sec":  [
+                                                            197005516.15445232,
+                                                            202429149.79757085,
+                                                            204373594.93153483
+                                                        ]
                                 },
                        "cpp":  {
-                                   "memory_mb":  1024,
-                                   "match_time_ms":  0.0010695,
-                                   "compile_time_ms":  1E-07,
-                                   "matches_per_sec":  93501600
+                                   "memory_mb":  [
+                                                     1024,
+                                                     1024,
+                                                     1024
+                                                 ],
+                                   "match_time_ms":  [
+                                                         0.0011114,
+                                                         0.0010662,
+                                                         0.0010513
+                                                     ],
+                                   "compile_time_ms":  [
+                                                           1E-07,
+                                                           1E-07,
+                                                           1E-07
+                                                       ],
+                                   "matches_per_sec":  [
+                                                           89976600,
+                                                           93791000,
+                                                           95120300
+                                                       ]
                                }
                    }
 }
