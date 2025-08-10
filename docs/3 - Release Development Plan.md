@@ -37,17 +37,26 @@ Building on Beta's 50+ packages, Release adds 50+ more specialized packages for 
 **Package Implementations:**
 
 ```seen
-// Scientific computing package
+// Scientific computing package - using new research-based syntax
 package seen-scientific {
     version = "1.0.0"
     description = "Scientific computing and numerical analysis"
     
-    module NumericalAnalysis {
-        // High-precision arithmetic
+    module NumericalAnalysis {  // NumericalAnalysis (uppercase) = public module
+        // High-precision arithmetic - BigDecimal (uppercase) = public class
         class BigDecimal {
-            fun add(other: BigDecimal): BigDecimal
-            fun multiply(other: BigDecimal): BigDecimal
-            fun sqrt(): BigDecimal
+            // Add (uppercase) = public method
+            fun Add(other: BigDecimal): BigDecimal {
+                let precision = max(this.precision, other.precision)  // let = immutable
+                return if (this.isValid() and other.isValid()) {  // word operators
+                    performAddition(other, precision)
+                } else {
+                    BigDecimal.ZERO  // everything-as-expression
+                }
+            }
+            
+            fun Multiply(other: BigDecimal): BigDecimal
+            fun Sqrt(): BigDecimal?  // nullable return type for edge cases
             fun pow(n: Int): BigDecimal
         }
         

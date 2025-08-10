@@ -1,13 +1,17 @@
 // Simplified Self-hosted Seen Parser
 
-public class SeenParser {
-    public fun new() -> SeenParser {
+// SeenParser (uppercase) = public class
+class SeenParser {
+    // New (uppercase) = public constructor  
+    fun New() -> SeenParser {
         println("Creating SeenParser");
     }
 }
 
-public class Program {
-    public fun new() -> Program {
+// Program (uppercase) = public class
+class Program {
+    // New (uppercase) = public constructor
+    fun New() -> Program {
         println("Creating Program");
     }
 }

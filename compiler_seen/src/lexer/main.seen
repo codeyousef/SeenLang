@@ -1,13 +1,17 @@
 // Simplified Self-hosted Seen Lexer
 
-public class SeenLexer {
-    public fun new() -> SeenLexer {
+// Capitalization-based visibility: SeenLexer (uppercase) = public
+class SeenLexer {
+    // New (uppercase) = public constructor
+    fun New() -> SeenLexer {
         println("Creating SeenLexer");
     }
 }
 
-public class Vec {
-    public fun new() -> Vec {
+// Vec (uppercase) = public class
+class Vec {
+    // New (uppercase) = public constructor
+    fun New() -> Vec {
         println("Creating Vec");
     }
 }

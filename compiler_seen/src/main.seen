@@ -1,6 +1,6 @@
 // Simplified Self-hosted Seen Compiler Entry Point
 
-// Main compiler entry point
+// Main compiler entry point - lowercase name = private function
 fun main() {
     println("Seen Compiler v1.0.0 (Self-hosted)");
     println("Bootstrap: Complete");

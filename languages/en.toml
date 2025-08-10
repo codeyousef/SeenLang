@@ -66,6 +66,9 @@ description = "English keyword set for the Seen programming language"
 "is" = "KeywordIs"
 "as" = "KeywordAs"
 "by" = "KeywordBy"
+"and" = "KeywordAnd"
+"or" = "KeywordOr"
+"not" = "KeywordNot"
 
 [operators]
 "+" = "Plus"

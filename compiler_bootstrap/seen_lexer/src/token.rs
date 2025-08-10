@@ -78,6 +78,9 @@ pub enum TokenType {
     KeywordTailrec,
     KeywordWhen,       // when (for pattern matching)
     KeywordNull,       // null
+    KeywordAnd,        // and (word operator)
+    KeywordOr,         // or (word operator)
+    KeywordNot,        // not (word operator)
     
     // Operators
     Plus,              // +
@@ -219,6 +222,9 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordTailrec => "KeywordTailrec",
                     TokenType::KeywordWhen => "KeywordWhen",
                     TokenType::KeywordNull => "KeywordNull",
+                    TokenType::KeywordAnd => "KeywordAnd",
+                    TokenType::KeywordOr => "KeywordOr",
+                    TokenType::KeywordNot => "KeywordNot",
                     TokenType::Plus => "+",
                     TokenType::Minus => "-",
                     TokenType::Multiply => "*",

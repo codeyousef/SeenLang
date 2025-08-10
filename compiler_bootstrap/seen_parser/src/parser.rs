@@ -90,7 +90,7 @@ impl Parser {
         //     eprintln!("parse_item: Current token = {:?}", token);
         // }
         
-        // Check for visibility modifiers first
+        // Support both old explicit keywords and new capitalization-based visibility
         let visibility = if self.match_token(&TokenType::KeywordPublic) {
             Visibility::Public
         } else if self.match_token(&TokenType::KeywordPrivate) {
@@ -98,7 +98,8 @@ impl Parser {
         } else if self.match_token(&TokenType::KeywordInternal) {
             Visibility::Internal
         } else {
-            Visibility::Private
+            // Fall back to capitalization-based visibility for new syntax
+            self.determine_visibility_from_capitalization()
         };
 
         if let Some(token) = self.current_token() {
@@ -1005,6 +1006,45 @@ impl Parser {
         Err(seen_common::SeenError::parse_error("Expected identifier"))
     }
     
+    fn determine_visibility_from_capitalization(&self) -> Visibility {
+        // Look ahead to find the identifier after the keyword
+        let mut look_ahead = 0;
+        
+        // Skip current position to look at the next meaningful token
+        while let Some(token) = self.peek_token(look_ahead + 1) {
+            match &token.value {
+                TokenType::Identifier(name) => {
+                    // If the identifier starts with an uppercase letter, it's public
+                    if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        return Visibility::Public;
+                    } else {
+                        return Visibility::Private;
+                    }
+                }
+                TokenType::Whitespace | TokenType::Comment(_) | TokenType::Newline => {
+                    // Skip whitespace and comments
+                    look_ahead += 1;
+                    continue;
+                }
+                _ => {
+                    // For non-identifier tokens (like keywords), default to private
+                    return Visibility::Private;
+                }
+            }
+        }
+        
+        // Default to private if no identifier found
+        Visibility::Private
+    }
+    
+    fn peek_token(&self, offset: usize) -> Option<&Token> {
+        if self.current + offset < self.tokens.len() {
+            Some(&self.tokens[self.current + offset])
+        } else {
+            None
+        }
+    }
+    
     fn expect_identifier_value(&mut self) -> SeenResult<String> {
         #[cfg(test)]
         eprintln!("expect_identifier_value: current token = {:?}", self.current_token());
@@ -1626,8 +1666,9 @@ impl Parser {
         
         let kind = if let Some(token) = self.current_token() {
             match &token.value {
-                TokenType::KeywordLet | TokenType::KeywordVal => {
-                self.advance(); // consume 'let' or 'val'
+                TokenType::KeywordLet | TokenType::KeywordVal | TokenType::KeywordVar => {
+                let is_mutable = matches!(token.value, TokenType::KeywordVar);
+                self.advance(); // consume 'let', 'val', or 'var'
                     
                     let pattern_name = self.expect_identifier_value()?;
                 let pattern_span = self.previous_span();
@@ -1654,7 +1695,7 @@ impl Parser {
                     pattern,
                     ty,
                     initializer,
-                    is_mutable: false,
+                    is_mutable,
                 })
                 }
                 TokenType::KeywordReturn => {
@@ -1914,7 +1955,7 @@ impl Parser {
     }
     
     fn parse_postfix_expression(&mut self) -> SeenResult<Expr<'static>> {
-        let mut expr = self.parse_primary_expression()?;
+        let mut expr = self.parse_unary_expression()?;
         
         loop {
             if let Some(token) = self.current_token() {
@@ -2090,6 +2131,45 @@ impl Parser {
         }
         
         Ok(expr)
+    }
+    
+    fn parse_unary_expression(&mut self) -> SeenResult<Expr<'static>> {
+        let span = self.current_span();
+        
+        if let Some(token) = self.current_token() {
+            match &token.value {
+                TokenType::LogicalNot | TokenType::KeywordNot => {
+                    self.advance(); // consume the operator
+                    let operand = self.parse_unary_expression()?; // Right-associative
+                    return Ok(Expr {
+                        kind: Box::new(ExprKind::Unary {
+                            op: UnaryOp::Not,
+                            operand: Box::new(operand),
+                        }),
+                        span,
+                        id: self.next_node_id(),
+                    });
+                }
+                TokenType::Minus => {
+                    // Check if this is unary minus by looking at context
+                    // If we're at the start of an expression or after certain tokens, it's unary
+                    self.advance(); // consume '-'
+                    let operand = self.parse_unary_expression()?; // Right-associative
+                    return Ok(Expr {
+                        kind: Box::new(ExprKind::Unary {
+                            op: UnaryOp::Neg,
+                            operand: Box::new(operand),
+                        }),
+                        span,
+                        id: self.next_node_id(),
+                    });
+                }
+                _ => {} // Fall through to primary expression
+            }
+        }
+        
+        // Not a unary operator, parse as primary expression
+        self.parse_primary_expression()
     }
     
     fn parse_primary_expression(&mut self) -> SeenResult<Expr<'static>> {
@@ -2277,6 +2357,10 @@ impl Parser {
                     let elements = self.parse_expression_list()?;
                     self.expect_token(TokenType::RightBracket)?;
                     ExprKind::Array(elements)
+                }
+                TokenType::KeywordIf => {
+                    // Parse if expression
+                    return self.parse_if_expression();
                 }
                 TokenType::KeywordMatch => {
                     // Parse match expression
@@ -2909,8 +2993,8 @@ impl Parser {
         // Based on Kotlin operator precedence
         match token_type {
             TokenType::Assign => (0, true), // Assignment has lowest precedence and is right-associative
-            TokenType::LogicalOr => (1, false),
-            TokenType::LogicalAnd => (2, false),
+            TokenType::LogicalOr | TokenType::KeywordOr => (1, false),
+            TokenType::LogicalAnd | TokenType::KeywordAnd => (2, false),
             TokenType::Equal | TokenType::NotEqual => (3, false),
             TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual | TokenType::KeywordIs => (4, false),
             TokenType::Plus | TokenType::Minus => (5, false),
@@ -2932,8 +3016,8 @@ impl Parser {
             TokenType::LessEqual => Some(BinaryOp::Le),
             TokenType::Greater => Some(BinaryOp::Gt),
             TokenType::GreaterEqual => Some(BinaryOp::Ge),
-            TokenType::LogicalAnd => Some(BinaryOp::And),
-            TokenType::LogicalOr => Some(BinaryOp::Or),
+            TokenType::LogicalAnd | TokenType::KeywordAnd => Some(BinaryOp::And),
+            TokenType::LogicalOr | TokenType::KeywordOr => Some(BinaryOp::Or),
             TokenType::KeywordIs => Some(BinaryOp::Is),
             _ => None,
         }

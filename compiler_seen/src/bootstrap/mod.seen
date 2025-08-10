@@ -2,11 +2,7 @@
 public use verifier.{BootstrapVerifier};
 
 public class BootstrapManager {
-    verifier: BootstrapVerifier
-    
     public fun new() -> BootstrapManager {
-        return BootstrapManager {
-            verifier: BootstrapVerifier()
-        };
+        println("Creating BootstrapManager");
     }
 }

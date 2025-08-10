@@ -36,18 +36,23 @@ Based on common requirements from production crates, certain features should be 
 **Core Language Features:**
 
 ```seen
-// Built-in SIMD types and operations (replacing ultraviolet/wide crates)
+// Built-in SIMD types and operations - using new research-based syntax
 @builtin
 module std.simd {
     // SIMD vector types detected at compile-time
-    type Vec4f = simd[Float, 4]
+    type Vec4f = simd[Float, 4]  // Vec4f (uppercase) = public type
     type Vec8f = simd[Float, 8]
     type Vec16f = simd[Float, 16]
     
-    // Automatic vectorization
+    // Automatic vectorization - Dot (uppercase) = public function
     @vectorize
-    inline fun dot(a: Vec4f, b: Vec4f): Float {
-        return (a * b).sum()
+    inline fun Dot(a: Vec4f, b: Vec4f): Float {
+        let result = a * b  // let = immutable
+        return if (result.isValid() and not result.hasNaN()) {  // word operators
+            result.sum()
+        } else {
+            0.0  // everything-as-expression
+        }
     }
     
     // Platform-optimal implementation
