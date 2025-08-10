@@ -1,0 +1,204 @@
+// Bootstrap Module for Seen Compiler
+// Manages self-hosting verification and Rust code removal
+
+public use verifier.{
+    BootstrapVerifier,
+    CompilerInfo,
+    VerificationResult
+};
+
+public use rust_remover.{
+    RustRemover,
+    RemovalResult
+};
+
+// Main bootstrap management
+public class BootstrapManager {
+    verifier: BootstrapVerifier
+    remover: RustRemover
+    
+    public fun new() -> BootstrapManager {
+        return BootstrapManager {
+            verifier: BootstrapVerifier(),
+            remover: RustRemover()
+        };
+    }
+    
+    // Run complete bootstrap and migration process
+    public fun migrate_to_seen(&mut self) -> MigrationResult {
+        println("=== Seen Self-Hosting Migration ===\n");
+        
+        // Step 1: Verify bootstrap
+        println("Phase 1: Bootstrap Verification");
+        let verification = self.verifier.verify_self_hosting();
+        
+        if !verification.success {
+            return MigrationResult::failed(
+                "Bootstrap verification failed. Cannot proceed with migration.",
+                verification
+            );
+        }
+        
+        if !verification.rust_free {
+            return MigrationResult::failed(
+                "Binary still contains Rust symbols. Cannot proceed with migration.",
+                verification
+            );
+        }
+        
+        println("\n✅ Bootstrap verification complete!");
+        println("   - Triple bootstrap successful");
+        println("   - No Rust symbols in binary");
+        println("   - Ready for migration");
+        
+        // Step 2: Remove Rust code
+        println("\nPhase 2: Rust Code Removal");
+        let removal = self.remover.remove_rust_code();
+        
+        if !removal.success {
+            return MigrationResult::partial(
+                "Rust removal encountered issues",
+                verification,
+                removal
+            );
+        }
+        
+        println("\n✅ Rust code removal complete!");
+        
+        // Step 3: Final verification
+        println("\nPhase 3: Final Verification");
+        let final_check = self.run_final_checks();
+        
+        if !final_check.all_passed {
+            return MigrationResult::partial(
+                "Some final checks failed",
+                verification,
+                removal
+            );
+        }
+        
+        println("\n🎉 Migration to Seen completed successfully!");
+        println("   The compiler is now 100% self-hosted in Seen language");
+        
+        return MigrationResult::successful(verification, removal);
+    }
+    
+    // Run final verification checks
+    fun run_final_checks(&self) -> FinalCheckResult {
+        let mut checks_passed = true;
+        let mut failed_checks = Vec::new();
+        
+        // Check 1: Seen compiler exists and works
+        println("  Checking Seen compiler...");
+        if !self.check_seen_compiler() {
+            checks_passed = false;
+            failed_checks.push("Seen compiler not functional");
+        } else {
+            println("    ✓ Seen compiler functional");
+        }
+        
+        // Check 2: No Rust files remain
+        println("  Checking for Rust files...");
+        if self.find_rust_files().len() > 0 {
+            checks_passed = false;
+            failed_checks.push("Rust files still present");
+        } else {
+            println("    ✓ No Rust files found");
+        }
+        
+        // Check 3: Build system updated
+        println("  Checking build system...");
+        if !self.check_build_system() {
+            checks_passed = false;
+            failed_checks.push("Build system not fully updated");
+        } else {
+            println("    ✓ Build system updated");
+        }
+        
+        // Check 4: Tests pass
+        println("  Running test suite...");
+        if !self.run_test_suite() {
+            checks_passed = false;
+            failed_checks.push("Test suite failures");
+        } else {
+            println("    ✓ All tests pass");
+        }
+        
+        return FinalCheckResult {
+            all_passed: checks_passed,
+            failed_checks
+        };
+    }
+    
+    fun check_seen_compiler(&self) -> Bool {
+        let result = std.process.Command::new("seen")
+            .arg("--version")
+            .run();
+        return result.exit_code() == 0;
+    }
+    
+    fun find_rust_files(&self) -> Vec<Path> {
+        let mut rust_files = Vec::new();
+        for entry in std.fs.walk_dir(Path::new(".")) {
+            if entry.is_file() && entry.path().extension() == Some("rs") {
+                rust_files.push(entry.path());
+            }
+        }
+        return rust_files;
+    }
+    
+    fun check_build_system(&self) -> Bool {
+        // Check if Seen.toml exists and is valid
+        let seen_toml = Path::new("compiler_seen/Seen.toml");
+        return std.fs.exists(seen_toml);
+    }
+    
+    fun run_test_suite(&self) -> Bool {
+        let result = std.process.Command::new("seen")
+            .arg("test")
+            .arg("--quiet")
+            .run();
+        return result.exit_code() == 0;
+    }
+}
+
+// Final check result
+struct FinalCheckResult {
+    all_passed: Bool
+    failed_checks: Vec<String>
+}
+
+// Migration result
+public struct MigrationResult {
+    success: Bool
+    message: String
+    verification: Option<VerificationResult>
+    removal: Option<RemovalResult>
+    
+    public fun successful(verification: VerificationResult, removal: RemovalResult) -> MigrationResult {
+        return MigrationResult {
+            success: true,
+            message: "Migration completed successfully".to_string(),
+            verification: Some(verification),
+            removal: Some(removal)
+        };
+    }
+    
+    public fun failed(message: String, verification: VerificationResult) -> MigrationResult {
+        return MigrationResult {
+            success: false,
+            message,
+            verification: Some(verification),
+            removal: None
+        };
+    }
+    
+    public fun partial(message: String, verification: VerificationResult, removal: RemovalResult) -> MigrationResult {
+        return MigrationResult {
+            success: false,
+            message,
+            verification: Some(verification),
+            removal: Some(removal)
+        };
+    }
+}

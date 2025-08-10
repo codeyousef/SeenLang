@@ -44,6 +44,7 @@ pub enum ItemKind<'a> {
     ExtensionFunction(ExtensionFunction<'a>),
     DataClass(DataClass<'a>),
     SealedClass(SealedClass<'a>),
+    Class(Class<'a>),
     Property(Property<'a>),
 }
 
@@ -330,6 +331,7 @@ pub struct GenericParam<'a> {
 pub enum Visibility {
     Public,
     Private,
+    Internal,
 }
 
 /// Attribute
@@ -737,6 +739,32 @@ pub struct SealedClassVariant<'a> {
     pub fields: Vec<DataClassField<'a>>,
     pub parent: Option<Type<'a>>,
     pub span: Span,
+}
+
+/// Regular class (like Kotlin class)
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub struct Class<'a> {
+    pub name: Spanned<&'a str>,
+    pub generic_params: Vec<GenericParam<'a>>,
+    pub superclass: Option<Type<'a>>,
+    pub interfaces: Vec<Type<'a>>,
+    pub body: Vec<ClassMember<'a>>,
+    pub visibility: Visibility,
+    pub attributes: Vec<Attribute<'a>>,
+    pub span: Span,
+}
+
+/// Class member (method, property, nested class, etc.)
+#[derive(Debug, Clone, Serialize)]
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+pub enum ClassMember<'a> {
+    Method(Function<'a>),
+    Property(Property<'a>),
+    Constructor(Function<'a>),
+    InitBlock(Block<'a>),
 }
 
 /// Closure expression

@@ -90,19 +90,32 @@ impl Parser {
         //     eprintln!("parse_item: Current token = {:?}", token);
         // }
         
+        // Check for visibility modifiers first
+        let visibility = if self.match_token(&TokenType::KeywordPublic) {
+            Visibility::Public
+        } else if self.match_token(&TokenType::KeywordPrivate) {
+            Visibility::Private
+        } else if self.match_token(&TokenType::KeywordInternal) {
+            Visibility::Internal
+        } else {
+            Visibility::Private
+        };
+
         if let Some(token) = self.current_token() {
             match &token.value {
-                TokenType::KeywordFun => self.parse_function_with_attributes(attributes),
-                TokenType::KeywordSuspend => self.parse_suspend_function(),
-                TokenType::KeywordInline => self.parse_inline_function(),
-                TokenType::KeywordStruct => self.parse_struct(),
-                TokenType::KeywordEnum => self.parse_enum(),
-                TokenType::KeywordTrait => self.parse_trait(),
+                TokenType::KeywordUse => self.parse_use_statement_with_visibility(visibility),
+                TokenType::KeywordFun => self.parse_function_with_visibility(attributes, visibility),
+                TokenType::KeywordSuspend => self.parse_suspend_function_with_visibility(visibility),
+                TokenType::KeywordInline => self.parse_inline_function_with_visibility(visibility),
+                TokenType::KeywordStruct => self.parse_struct_with_visibility(visibility),
+                TokenType::KeywordEnum => self.parse_enum_with_visibility(visibility),
+                TokenType::KeywordTrait => self.parse_trait_with_visibility(visibility),
                 TokenType::KeywordImpl => self.parse_impl(),
-                TokenType::KeywordData => self.parse_data_class(),
-                TokenType::KeywordSealed => self.parse_sealed_class(),
-                TokenType::KeywordObject => self.parse_object_declaration(),
-                TokenType::KeywordInterface => self.parse_interface(),
+                TokenType::KeywordData => self.parse_data_class_with_visibility(visibility),
+                TokenType::KeywordSealed => self.parse_sealed_class_with_visibility(visibility),
+                TokenType::KeywordClass => self.parse_class_with_visibility(visibility),
+                TokenType::KeywordObject => self.parse_object_declaration_with_visibility(visibility),
+                TokenType::KeywordInterface => self.parse_interface_with_visibility(visibility),
                 TokenType::Identifier(name) => {
                 // Check for Kotlin-style features and backwards compatibility
                 match name.as_str() {
@@ -139,7 +152,7 @@ impl Parser {
                     "impl" => self.parse_impl(),
                     "use" | "import" => {
                         self.advance(); // Consume the 'use' or 'import' token
-                        self.parse_import()
+                        self.parse_import_with_visibility(visibility)
                     },
                     _ => {
                         // eprintln!("parse_item: Unexpected identifier '{}'", name); // Debug disabled
@@ -757,7 +770,7 @@ impl Parser {
         })
     }
     
-    fn parse_import(&mut self) -> SeenResult<Item<'static>> {
+    fn parse_import_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
         let start_span = self.current_span();
         
         // 'use' or 'import' has already been consumed
@@ -780,7 +793,7 @@ impl Parser {
                 let import = Import {
                     path,
                     kind: ImportKind::Glob,
-                    visibility: Visibility::Private,
+                    visibility,
                 };
                 
                 return Ok(Item {
@@ -827,7 +840,7 @@ impl Parser {
                 let import = Import {
                     path,
                     kind: ImportKind::List(items),
-                    visibility: Visibility::Private,
+                    visibility,
                 };
                 
                 return Ok(Item {
@@ -851,7 +864,7 @@ impl Parser {
         let import = Import {
             path,
             kind: ImportKind::Single,
-            visibility: Visibility::Private,
+            visibility,
         };
         
         Ok(Item {
@@ -859,6 +872,18 @@ impl Parser {
             span: start_span,
             id: self.next_node_id(),
         })
+    }
+    
+    fn parse_import(&mut self) -> SeenResult<Item<'static>> {
+        self.parse_import_with_visibility(Visibility::Private)
+    }
+    
+    fn parse_use_statement_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        // Consume the 'use' token
+        self.expect_keyword(TokenType::KeywordUse)?;
+        
+        // 'use' is the same as 'import' in our language - they're synonyms
+        self.parse_import_with_visibility(visibility)
     }
     
     fn parse_enum(&mut self) -> SeenResult<Item<'static>> {
@@ -2125,11 +2150,36 @@ impl Parser {
                         return self.parse_match_expression_impl();
                     } else {
                         let name_val = name.clone();
+                        let first_segment_span = span;
                         self.advance();
                         
+                        // Check if this is a path (identifier followed by '::')
+                        if self.check(&TokenType::DoubleColon) {
+                            // Parse as a path expression (e.g., BootstrapVerifier::new)
+                            let mut segments = vec![PathSegment {
+                                name: seen_common::Spanned::new(name_val.leak(), first_segment_span),
+                                generic_args: vec![],
+                            }];
+                            
+                            while self.match_token(&TokenType::DoubleColon) {
+                                let segment_name = self.expect_identifier_value()?;
+                                let segment_span = self.previous_span();
+                                
+                                // TODO: Parse generic arguments for segments if needed
+                                segments.push(PathSegment {
+                                    name: seen_common::Spanned::new(segment_name.leak(), segment_span),
+                                    generic_args: vec![],
+                                });
+                            }
+                            
+                            ExprKind::Path(Path {
+                                segments,
+                                span: first_segment_span.combine(self.previous_span()),
+                            })
+                        }
                         // Check for struct literal (identifier followed by '{')
                         // But not if the next token after '{' could be part of a different construct
-                        if let Some(token) = self.current_token() {
+                        else if let Some(token) = self.current_token() {
                             if matches!(token.value, TokenType::LeftBrace) {
                             // Look ahead to see if this looks like a struct literal
                             // Struct literals have field_name: value patterns
@@ -3612,5 +3662,152 @@ impl Parser {
             data,
             span: span.combine(self.previous_span()),
         })
+    }
+
+    // Visibility-aware parsing methods
+    fn parse_function_with_visibility(&mut self, attributes: Vec<Attribute<'static>>, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_function_with_attributes(attributes)?;
+        if let ItemKind::Function(ref mut func) = item.kind {
+            func.visibility = visibility;
+        }
+        Ok(item)
+    }
+
+    fn parse_suspend_function_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_suspend_function()?;
+        if let ItemKind::Function(ref mut func) = item.kind {
+            func.visibility = visibility;
+        }
+        Ok(item)
+    }
+
+    fn parse_inline_function_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_inline_function()?;
+        if let ItemKind::Function(ref mut func) = item.kind {
+            func.visibility = visibility;
+        }
+        Ok(item)
+    }
+
+    fn parse_struct_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_struct()?;
+        if let ItemKind::Struct(ref mut strct) = item.kind {
+            strct.visibility = visibility;
+        }
+        Ok(item)
+    }
+
+    fn parse_enum_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_enum()?;
+        if let ItemKind::Enum(ref mut enm) = item.kind {
+            enm.visibility = visibility;
+        }
+        Ok(item)
+    }
+
+    fn parse_trait_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_trait()?;
+        if let ItemKind::Trait(ref mut trt) = item.kind {
+            trt.visibility = visibility;
+        }
+        Ok(item)
+    }
+
+    fn parse_data_class_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_data_class()?;
+        if let ItemKind::DataClass(ref mut dc) = item.kind {
+            dc.visibility = visibility;
+        }
+        Ok(item)
+    }
+
+    fn parse_sealed_class_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_sealed_class()?;
+        if let ItemKind::SealedClass(ref mut sc) = item.kind {
+            sc.visibility = visibility;
+        }
+        Ok(item)
+    }
+    
+    fn parse_class_with_visibility(&mut self, visibility: Visibility) -> SeenResult<Item<'static>> {
+        let mut item = self.parse_class()?;
+        if let ItemKind::Class(ref mut c) = item.kind {
+            c.visibility = visibility;
+        }
+        Ok(item)
+    }
+    
+    fn parse_class(&mut self) -> SeenResult<Item<'static>> {
+        let start_span = self.current_span();
+        
+        // Consume 'class'
+        self.expect_keyword(TokenType::KeywordClass)?;
+        
+        // Parse class name
+        let name_value = self.expect_identifier_value()?;
+        let name_span = self.previous_span();
+        let name_static: &'static str = Box::leak(name_value.into_boxed_str());
+        let name = seen_common::Spanned::new(name_static, name_span);
+        
+        // Parse optional generic parameters
+        let generic_params = if self.check(&TokenType::Less) {
+            self.parse_generic_params()?
+        } else {
+            vec![]
+        };
+        
+        // Parse optional superclass
+        let superclass = if self.match_token(&TokenType::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        // Parse optional interfaces (implements clause)
+        let interfaces = vec![]; // TODO: Add implements parsing if needed
+        
+        // Parse class body
+        let body = if self.check(&TokenType::LeftBrace) {
+            self.advance(); // consume '{'
+            let mut members = vec![];
+            
+            while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+                // For now, just skip class body parsing - basic support
+                self.skip_nested_block()?;
+                break;
+            }
+            
+            self.expect_token(TokenType::RightBrace)?;
+            members
+        } else {
+            vec![]
+        };
+        
+        let class = Class {
+            name,
+            generic_params,
+            superclass,
+            interfaces,
+            body,
+            visibility: Visibility::Private, // Default, will be overridden by with_visibility
+            attributes: vec![], // TODO: Support attributes
+            span: start_span,
+        };
+        
+        Ok(Item {
+            kind: ItemKind::Class(class),
+            span: start_span,
+            id: self.next_node_id(),
+        })
+    }
+
+    fn parse_object_declaration_with_visibility(&mut self, _visibility: Visibility) -> SeenResult<Item<'static>> {
+        // Object declarations are not yet fully implemented in AST
+        self.parse_object_declaration()
+    }
+
+    fn parse_interface_with_visibility(&mut self, _visibility: Visibility) -> SeenResult<Item<'static>> {
+        // Interfaces are not yet fully implemented in AST  
+        self.parse_interface()
     }
 }

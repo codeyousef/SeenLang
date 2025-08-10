@@ -35,10 +35,12 @@ pub enum TokenType {
     KeywordEnum,
     KeywordImpl,
     KeywordTrait,
+    KeywordUse,
     KeywordImport,
     KeywordModule,
-    KeywordPub,
-    KeywordPriv,
+    KeywordPublic,     // Kotlin: public
+    KeywordPrivate,    // Kotlin: private  
+    KeywordInternal,   // Kotlin: internal
     KeywordStatic,
     KeywordConst,
     KeywordType,
@@ -174,10 +176,12 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordEnum => "KeywordEnum",
                     TokenType::KeywordImpl => "KeywordImpl",
                     TokenType::KeywordTrait => "KeywordTrait",
+                    TokenType::KeywordUse => "KeywordUse",
                     TokenType::KeywordImport => "KeywordImport",
                     TokenType::KeywordModule => "KeywordModule",
-                    TokenType::KeywordPub => "KeywordPub",
-                    TokenType::KeywordPriv => "KeywordPriv",
+                    TokenType::KeywordPublic => "KeywordPublic",
+                    TokenType::KeywordPrivate => "KeywordPrivate", 
+                    TokenType::KeywordInternal => "KeywordInternal",
                     TokenType::KeywordStatic => "KeywordStatic",
                     TokenType::KeywordConst => "KeywordConst",
                     TokenType::KeywordType => "KeywordType",
@@ -304,8 +308,8 @@ impl TokenUtils for Token {
             TokenType::KeywordVal |
             TokenType::KeywordTrue | TokenType::KeywordFalse | TokenType::KeywordStruct |
             TokenType::KeywordEnum | TokenType::KeywordImpl | TokenType::KeywordTrait |
-            TokenType::KeywordImport | TokenType::KeywordModule | TokenType::KeywordPub |
-            TokenType::KeywordPriv | TokenType::KeywordStatic | TokenType::KeywordConst |
+            TokenType::KeywordUse | TokenType::KeywordImport | TokenType::KeywordModule | TokenType::KeywordPublic |
+            TokenType::KeywordPrivate | TokenType::KeywordInternal | TokenType::KeywordStatic | TokenType::KeywordConst |
             TokenType::KeywordType | TokenType::KeywordMatch | TokenType::KeywordBreak |
             TokenType::KeywordContinue | TokenType::KeywordIs | TokenType::KeywordAs |
             TokenType::KeywordSuspend | TokenType::KeywordAwait | TokenType::KeywordLaunch |

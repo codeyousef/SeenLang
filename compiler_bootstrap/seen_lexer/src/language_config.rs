@@ -41,6 +41,10 @@ impl LanguageConfig {
         keywords.insert("is".to_string(), "KeywordIs".to_string());
         keywords.insert("null".to_string(), "KeywordNull".to_string());
         keywords.insert("else".to_string(), "KeywordElse".to_string());
+        keywords.insert("public".to_string(), "KeywordPublic".to_string());
+        keywords.insert("private".to_string(), "KeywordPrivate".to_string());
+        keywords.insert("internal".to_string(), "KeywordInternal".to_string());
+        keywords.insert("use".to_string(), "KeywordUse".to_string());
         
         let mut operators = HashMap::new();
         operators.insert("+".to_string(), "Plus".to_string());
@@ -110,10 +114,12 @@ impl LanguageConfig {
                 "KeywordEnum" | "TokenEnum" => Some(TokenType::KeywordEnum),
                 "KeywordImpl" | "TokenImpl" => Some(TokenType::KeywordImpl),
                 "KeywordTrait" | "TokenTrait" => Some(TokenType::KeywordTrait),
+                "KeywordUse" | "TokenUse" => Some(TokenType::KeywordUse),
                 "KeywordImport" | "TokenImport" => Some(TokenType::KeywordImport),
                 "KeywordModule" | "TokenModule" => Some(TokenType::KeywordModule),
-                "KeywordPub" | "TokenPub" => Some(TokenType::KeywordPub),
-                "KeywordPriv" | "TokenPriv" => Some(TokenType::KeywordPriv),
+                "KeywordPublic" | "TokenPublic" => Some(TokenType::KeywordPublic),
+                "KeywordPrivate" | "TokenPrivate" => Some(TokenType::KeywordPrivate),
+                "KeywordInternal" | "TokenInternal" => Some(TokenType::KeywordInternal),
                 "KeywordStatic" | "TokenStatic" => Some(TokenType::KeywordStatic),
                 "KeywordConst" | "TokenConst" => Some(TokenType::KeywordConst),
                 "KeywordType" | "TokenType" => Some(TokenType::KeywordType),
@@ -240,10 +246,12 @@ impl LanguageConfig {
             TokenType::KeywordEnum => "KeywordEnum",
             TokenType::KeywordImpl => "KeywordImpl",
             TokenType::KeywordTrait => "KeywordTrait",
+            TokenType::KeywordUse => "KeywordUse",
             TokenType::KeywordImport => "KeywordImport",
             TokenType::KeywordModule => "KeywordModule",
-            TokenType::KeywordPub => "KeywordPub",
-            TokenType::KeywordPriv => "KeywordPriv",
+            TokenType::KeywordPublic => "KeywordPublic",
+            TokenType::KeywordPrivate => "KeywordPrivate",
+            TokenType::KeywordInternal => "KeywordInternal",
             TokenType::KeywordStatic => "KeywordStatic",
             TokenType::KeywordConst => "KeywordConst",
             TokenType::KeywordType => "KeywordType",
