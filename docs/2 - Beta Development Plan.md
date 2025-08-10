@@ -231,8 +231,8 @@ module std.log {
         var colorize: Boolean = isTerminal()
         
         override fun log(level: Level, msg: String, fields: Map<String, Any>?) {
-            val formatted = format.format(level, msg, fields)
-            val output = if (colorize) colorize(formatted, level) else formatted
+            let formatted = format.format(level, msg, fields)
+            let output = if (colorize) colorize(formatted, level) else formatted
             
             if (level >= Level.ERROR) {
                 stderr.writeln(output)
@@ -249,8 +249,8 @@ module std.log {
     
     // Async logger for high-performance scenarios
     class AsyncLogger(inner: Logger, bufferSize: Int = 8192) : Logger {
-        private val channel = Channel<LogEntry>(bufferSize)
-        private val worker = launch {
+        private let channel = Channel<LogEntry>(bufferSize)
+        private let worker = launch {
             for (entry in channel) {
                 inner.log(entry.level, entry.msg, entry.fields)
             }
@@ -278,7 +278,7 @@ module std.log {
     
     // Log context for request tracing
     class LogContext {
-        private val fields = mutableMapOf<String, Any>()
+        private let fields = mutableMapOf<String, Any>()
         
         fun with(key: String, value: Any): LogContext {
             fields[key] = value
@@ -312,14 +312,14 @@ module std.log {
     
     @internal
     fun logStructured(level: Level, msg: String, fields: Map<String, Any>) {
-        val allFields = LogConfig.defaultFields + fields
+        let allFields = LogConfig.defaultFields + fields
         LogConfig.logger.log(level, msg, allFields)
     }
     
     // Convenience macros for efficient logging
     @macro
     fun logIf(condition: Boolean, level: Level, msg: () -> String) {
-        if (condition && MIN_LOG_LEVEL <= level) {
+        if (condition  and  MIN_LOG_LEVEL <= level) {
             log(level, msg(), null)
         }
     }
@@ -327,14 +327,14 @@ module std.log {
     // Performance logging
     @macro
     fun logTiming(name: String, block: () -> T): T {
-        val start = Instant.now()
+        let start = Instant.now()
         try {
-            val result = block()
-            val duration = Instant.now() - start
+            let result = block()
+            let duration = Instant.now() - start
             debug("$name took ${duration.toMillis()}ms")
             return result
         } catch (e: Exception) {
-            val duration = Instant.now() - start
+            let duration = Instant.now() - start
             error("$name failed after ${duration.toMillis()}ms: $e")
             throw e
         }
@@ -498,7 +498,7 @@ package seen-gpu {
         class Renderer {
             fun create(backend: Backend? = null): Renderer {
                 // Auto-detect best backend if not specified
-                val selected = backend ?: detectBestBackend()
+                let selected = backend ?: detectBestBackend()
                 return when (selected) {
                     Vulkan -> VulkanRenderer()
                     Metal -> MetalRenderer()
@@ -880,7 +880,7 @@ package seen-proptest {
         // Property test macro
         @property_test
         fun testSorting(input: Arbitrary<List<Int>>) {
-            val sorted = input.sort()
+            let sorted = input.sort()
             assert(sorted.isSorted())
             assert(sorted.size == input.size)
             assert(sorted.toSet() == input.toSet())
@@ -923,11 +923,11 @@ package seen-criterion {
         
         // Statistical analysis
         class BenchmarkResult {
-            val mean: Duration
-            val median: Duration
-            val stdDev: Duration
-            val min: Duration
-            val max: Duration
+            let mean: Duration
+            let median: Duration
+            let stdDev: Duration
+            let min: Duration
+            let max: Duration
             
             fun compare(baseline: BenchmarkResult): Comparison
         }
@@ -964,7 +964,7 @@ package seen-mock {
         }
         
         // Usage
-        val mockDb = mock<Database> {
+        let mockDb = mock<Database> {
             on { query("SELECT *") } returns Result.Ok(testRows)
             on { execute(any()) } returns Result.Ok(1)
         }
@@ -980,7 +980,7 @@ package seen-fuzz {
         @fuzz_test
         fun fuzzParser(input: ByteArray) {
             // Try to parse random input
-            val result = parse(input)
+            let result = parse(input)
             // Should not crash
         }
         
@@ -1072,10 +1072,10 @@ package seen-dhat {
         }
         
         class HeapSnapshot {
-            val totalBytes: Long
-            val totalAllocations: Long
-            val liveBytes: Long
-            val liveAllocations: Long
+            let totalBytes: Long
+            let totalAllocations: Long
+            let liveBytes: Long
+            let liveAllocations: Long
             
             fun compare(other: HeapSnapshot): SnapshotDiff
         }
@@ -1108,9 +1108,9 @@ package seen-tracing {
         
         // Distributed context propagation
         class TraceContext {
-            val traceId: String
-            val spanId: String
-            val parentSpanId: String?
+            let traceId: String
+            let spanId: String
+            let parentSpanId: String?
             
             fun serialize(): String  // For HTTP headers
             fun deserialize(header: String): TraceContext
@@ -1304,9 +1304,9 @@ package seen-assets {
                 fun fromDds(data: ByteArray): Image
             }
             
-            val width: Int
-            val height: Int
-            val format: PixelFormat
+            let width: Int
+            let height: Int
+            let format: PixelFormat
             
             fun resize(width: Int, height: Int): Image
             fun generateMipmaps(): List<Image>
@@ -1320,9 +1320,9 @@ package seen-assets {
                 fun fromFbx(data: ByteArray): Model
             }
             
-            val meshes: List<Mesh>
-            val materials: List<Material>
-            val animations: List<Animation>
+            let meshes: List<Mesh>
+            let materials: List<Material>
+            let animations: List<Animation>
         }
     }
 }
@@ -1360,7 +1360,7 @@ package seen-wasm-bindgen {
         // Types that can cross boundary
         @wasm_bindgen
         class SharedData {
-            val field: String
+            let field: String
             fun method(): Int
         }
     }
@@ -1388,8 +1388,8 @@ package seen-web-sys {
         }
         
         class Window {
-            val document: Document
-            val localStorage: Storage
+            let document: Document
+            let localStorage: Storage
             
             fun alert(message: String)
             fun setTimeout(handler: () -> Unit, delay: Int): Int
@@ -1549,7 +1549,7 @@ package seen-lazy {
         }
         
         @lazy_static
-        val GLOBAL_CONFIG = loadConfig()
+        let GLOBAL_CONFIG = loadConfig()
     }
 }
 ```
@@ -1579,7 +1579,7 @@ import std.log.{info, error, debug}
 
 @platform("multi-arch")
 class SeenWebServer : ReactiveHttpServer {
-    val scope = CoroutineScope(Dispatchers.IO)
+    let scope = CoroutineScope(Dispatchers.IO)
     
     @instrument
     @vectorized
@@ -1588,10 +1588,10 @@ class SeenWebServer : ReactiveHttpServer {
             .bufferCount(Platform.vectorLength)  // Process in vector batches
             .flatMap { batch ->
                 // Parse headers using SIMD operations
-                val parsed = vectorParseHeaders(batch)
+                let parsed = vectorParseHeaders(batch)
                 
                 // Route using SIMD comparison
-                val routed = vectorRoute(parsed)
+                let routed = vectorRoute(parsed)
                 
                 // Process in parallel
                 Observable.from(routed)
@@ -1603,12 +1603,12 @@ class SeenWebServer : ReactiveHttpServer {
         info("Processing request: ${req.path}")
         
         // Use built-in coroutines for I/O operations
-        val data = withContext(Dispatchers.IO) {
+        let data = withContext(Dispatchers.IO) {
             database.query(req.params)
         }
         
-        val body = generateResponse(data)
-        val compressed = Compression.LZ4Compressor().compress(body)
+        let body = generateResponse(data)
+        let compressed = Compression.LZ4Compressor().compress(body)
         
         debug("Request processed, response size: ${compressed.size}")
         
@@ -1631,7 +1631,7 @@ class SeenWebServer : ReactiveHttpServer {
 }
 
 // Deployment configuration
-val deployment = MultiArchDeployment(
+let deployment = MultiArchDeployment(
     targets = ["x86_64", "aarch64", "riscv64"],
     tuning = PerformanceTuning(
         vectorization = true,
@@ -1670,24 +1670,24 @@ class EdgeInference : MLRuntime {
     ): Tensor3D {
         logTiming("convolution") {
             // Optimized for each architecture's vector capabilities
-            val vlen = getVectorLength()
-            val result = Tensor3D.zeros(outputShape)
+            let vlen = getVectorLength()
+            let result = Tensor3D.zeros(outputShape)
             
             // Im2col with vector operations
-            val im2col = input.im2colVectorized(vlen)
+            let im2col = input.im2colVectorized(vlen)
             
             // GEMM with vector FMA
             for (oc in 0 until outputChannels step vlen) {
-                val acc = vectorInit(0.0f)
+                let acc = vectorInit(0.0f)
                 
                 for (ic in 0 until inputChannels) {
-                    val w = weights.loadVector(oc, ic)
-                    val i = im2col.loadVector(ic)
+                    let w = weights.loadVector(oc, ic)
+                    let i = im2col.loadVector(ic)
                     acc = vectorFMA(acc, w, i)  // Fused multiply-add
                 }
                 
                 // Add bias and activation
-                val b = bias.loadVector(oc)
+                let b = bias.loadVector(oc)
                 acc = vectorAdd(acc, b)
                 acc = vectorMax(acc, 0.0f)  // ReLU
                 
@@ -1727,7 +1727,7 @@ class EmbeddedController {
     
     // Interrupt vector table
     @vector_table
-    val vectors = arrayOf(
+    let vectors = arrayOf(
         ::timerISR,
         ::externalInterruptISR,
         ::uartISR
@@ -1736,7 +1736,7 @@ class EmbeddedController {
     @interrupt("timer")
     fun timerISR() {
         // Real-time task scheduling
-        val current = getCurrentTime()
+        let current = getCurrentTime()
         scheduler.tick(current)
         
         // Update next timer
@@ -1745,7 +1745,7 @@ class EmbeddedController {
     
     // Zero-allocation reactive streams
     @static_memory
-    val sensorStream = Observable.interval(10.ms)
+    let sensorStream = Observable.interval(10.ms)
         .map { readSensor() }
         .filter { it > threshold }
         .buffer(staticBuffer, 100)  // Pre-allocated buffer
@@ -1766,7 +1766,7 @@ class EmbeddedController {
     
     // Real-time scheduling
     class Scheduler {
-        private val tasks = StaticArray<Task>(MAX_TASKS)
+        private let tasks = StaticArray<Task>(MAX_TASKS)
         
         fun tick(time: Time) {
             for (task in tasks) {
@@ -1799,14 +1799,14 @@ import seen_gpu.GPU
 import std.log.{info, debug}
 
 class SeenEducation : InteractivePlatform {
-    val window = Window.create("Seen Education", Size(1024, 768))
-    val renderer = GPU.Renderer.create()
+    let window = Window.create("Seen Education", Size(1024, 768))
+    let renderer = GPU.Renderer.create()
     
     fun visualizePipeline(code: String) {
         info("Visualizing pipeline for code: ${code.lines().size} lines")
         
-        val instructions = parse(code)
-        val pipeline = CPUPipeline()
+        let instructions = parse(code)
+        let pipeline = CPUPipeline()
         
         for (cycle in 0..maxCycles) {
             pipeline.step()
@@ -1832,7 +1832,7 @@ class SeenEducation : InteractivePlatform {
     
     fun demonstrateVectorOps() {
         // Interactive vector operation visualization
-        val data = FloatArray(32) { it.toFloat() }
+        let data = FloatArray(32) { it.toFloat() }
         
         // Show scalar version
         showScalarLoop(data)  // 32 iterations
@@ -1846,13 +1846,13 @@ class SeenEducation : InteractivePlatform {
     
     fun interactiveCoding() {
         // Live coding environment
-        val editor = CodeEditor()
-        val output = OutputPanel()
+        let editor = CodeEditor()
+        let output = OutputPanel()
         
         editor.onChange { code ->
             try {
-                val result = compile(code)
-                val output = execute(result)
+                let result = compile(code)
+                let output = execute(result)
                 output.show(output)
             } catch (e: CompilationError) {
                 output.showError(e)
@@ -1883,10 +1883,10 @@ import std.log.{info, warn, debug}
 
 @platform("edge")
 class IoTGateway {
-    val scope = CoroutineScope(Dispatchers.IO)
+    let scope = CoroutineScope(Dispatchers.IO)
     
     // Handle multiple protocols efficiently
-    val protocolHandlers = mapOf(
+    let protocolHandlers = mapOf(
         Protocol.MQTT -> MqttHandler(),
         Protocol.CoAP -> CoapHandler(),
         Protocol.LoRaWAN -> LoRaHandler()
@@ -1942,12 +1942,12 @@ class IoTGateway {
         info("Received OTA update: version ${update.version}")
         
         // Download update with built-in coroutines
-        val firmware = withContext(Dispatchers.IO) {
+        let firmware = withContext(Dispatchers.IO) {
             download(update.url)
         }
         
         // Verify signature
-        if (!verify(firmware, update.signature)) {
+        if (not verify(firmware, update.signature)) {
             warn("OTA update signature verification failed")
             return
         }
@@ -2018,7 +2018,7 @@ class CloudService {
         info("Starting multi-architecture deployment")
         
         // Multi-arch deployment
-        val architectures = listOf("amd64", "arm64", "riscv64")
+        let architectures = listOf("amd64", "arm64", "riscv64")
         
         for (arch in architectures) {
             debug("Building container for $arch")
@@ -2034,7 +2034,7 @@ class CloudService {
     
     // Service mesh integration
     fun configureIstio() {
-        val virtualService = """
+        let virtualService = """
         apiVersion: networking.istio.io/v1alpha3
         kind: VirtualService
         metadata:
@@ -2080,7 +2080,7 @@ class PerformanceProfiler {
         info("Starting performance profiling")
         
         // Enable hardware performance counters
-        val counters = when (Architecture.current) {
+        let counters = when (Architecture.current) {
             is X86 -> X86Counters()
             is ARM -> ARMCounters()
             is RISCV -> RISCVCounters()
@@ -2091,7 +2091,7 @@ class PerformanceProfiler {
         app.run()
         counters.stop()
         
-        val report = ProfileReport(
+        let report = ProfileReport(
             ipc = counters.instructions / counters.cycles,
             vectorUtilization = counters.vectorOps / counters.totalOps,
             cacheHitRate = 1.0 - (counters.cacheMisses / counters.memOps),
@@ -2107,9 +2107,9 @@ class PerformanceProfiler {
         debug("Analyzing vector code")
         
         // Analyze vector register usage
-        val regUsage = analyzeRegisterPressure(code)
-        val memPattern = analyzeMemoryAccess(code)
-        val chainable = findChainableOps(code)
+        let regUsage = analyzeRegisterPressure(code)
+        let memPattern = analyzeMemoryAccess(code)
+        let chainable = findChainableOps(code)
         
         return VectorAnalysis(
             registerPressure = regUsage,
@@ -2166,16 +2166,16 @@ class MigrationFramework {
         info("Starting binary translation from ${sourceBinary.arch}")
         
         // Binary translation for quick migration
-        val ir = sourceBinary.toIR()
+        let ir = sourceBinary.toIR()
         
         // Map SIMD instructions
-        val vectorMapped = mapVectorInstructions(ir, 
+        let vectorMapped = mapVectorInstructions(ir, 
             from = detectSIMD(sourceBinary),
             to = targetSIMD()
         )
         
         // Optimize for target
-        val optimized = ArchitectureOptimizer.optimize(vectorMapped)
+        let optimized = ArchitectureOptimizer.optimize(vectorMapped)
         
         info("Binary translation complete")
         return Binary.generate(optimized)
@@ -2221,8 +2221,8 @@ class MigrationFramework {
                 external fun legacyFunction(args: Any): Any
                 
                 fun wrappedFunction(args: SeenArgs): SeenResult {
-                    val converted = convertArgs(args)
-                    val result = legacyFunction(converted)
+                    let converted = convertArgs(args)
+                    let result = legacyFunction(converted)
                     return convertResult(result)
                 }
             }
@@ -2268,9 +2268,9 @@ class SecurityFeatures {
         // Use vector ops for constant-time comparison
         var diff = 0
         
-        val va = loadVector(a)
-        val vb = loadVector(b)
-        val vdiff = vectorXor(va, vb)
+        let va = loadVector(a)
+        let vb = loadVector(b)
+        let vdiff = vectorXor(va, vb)
         diff = vectorReduce(vdiff)
         
         return diff == 0
@@ -2279,16 +2279,16 @@ class SecurityFeatures {
     // Memory encryption
     @encrypted_memory
     class SecureBuffer {
-        private val key = generateKey()
-        private val encrypted = ByteArray(size)
+        private let key = generateKey()
+        private let encrypted = ByteArray(size)
         
         fun write(offset: Int, data: ByteArray) {
-            val encrypted = encrypt(data, key)
+            let encrypted = encrypt(data, key)
             encrypted.copyTo(this.encrypted, offset)
         }
         
         fun read(offset: Int, size: Int): ByteArray {
-            val encrypted = this.encrypted.slice(offset, offset + size)
+            let encrypted = this.encrypted.slice(offset, offset + size)
             return decrypt(encrypted, key)
         }
     }
@@ -2347,7 +2347,7 @@ class SeenPackageManager {
         info("Publishing package: ${package.name} v${package.version}")
         
         // Build for all architectures
-        val binaries = mapOf(
+        let binaries = mapOf(
             "x86_64" -> build(package, "x86_64"),
             "aarch64" -> build(package, "aarch64"),
             "riscv64" -> build(package, "riscv64"),
@@ -2367,7 +2367,7 @@ class SeenPackageManager {
         debug("Installing package: $name${version?.let { " v$it" } ?: ""}")
         
         // Resolve for current architecture
-        val package = registry.resolve(name, version, Architecture.current)
+        let package = registry.resolve(name, version, Architecture.current)
         
         // Download and install
         download(package)
@@ -2383,19 +2383,19 @@ class SeenPackageManager {
     fun resolveDependencies(manifest: Manifest): DependencyGraph {
         debug("Resolving dependencies for ${manifest.name}")
         
-        val graph = DependencyGraph()
+        let graph = DependencyGraph()
         
         for (dep in manifest.dependencies) {
-            val resolved = resolveVersion(dep)
+            let resolved = resolveVersion(dep)
             graph.add(resolved)
             
             // Recursive resolution
-            val subDeps = resolveDependencies(resolved.manifest)
+            let subDeps = resolveDependencies(resolved.manifest)
             graph.merge(subDeps)
         }
         
         // Check for conflicts
-        val conflicts = graph.findConflicts()
+        let conflicts = graph.findConflicts()
         if (conflicts.isNotEmpty()) {
             throw DependencyConflict(conflicts)
         }
@@ -2509,9 +2509,9 @@ module std {
         
         // Dispatchers
         object Dispatchers {
-            val Default: CoroutineDispatcher  // CPU-bound
-            val IO: CoroutineDispatcher       // I/O operations  
-            val Main: CoroutineDispatcher     // UI thread
+            let Default: CoroutineDispatcher  // CPU-bound
+            let IO: CoroutineDispatcher       // I/O operations  
+            let Main: CoroutineDispatcher     // UI thread
         }
     }
     

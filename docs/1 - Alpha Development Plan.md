@@ -14,7 +14,7 @@
 - 📊 **Achievement**: 24 Seen source files using new syntax, parsing, type-checking, and generating LLVM IR
 
 **Core Alpha Requirements:**
-- Complete removal of all Rust code after verification
+- Complete remolet of all Rust code after verification
 - Revolutionary optimization pipeline (e-graphs, MLIR, superoptimization)
 - Machine learning-driven optimization
 - Profile-guided optimization by default
@@ -84,7 +84,7 @@ Based on Stefik & Siebert 2013 research and Go's production evidence:
 
 ## Phase Structure
 
-### Milestone 1: Self-Hosting Verification & Rust Removal (Week 1-2)
+### Milestone 1: Self-Hosting Verification & Rust Remolet (Week 1-2)
 
 #### Step 15: Complete Compiler Error System
 
@@ -276,37 +276,50 @@ class EGraphOptimizer : OptimizationPass {  // EGraphOptimizer (uppercase) = pub
 **Implementation:**
 
 ```seen
-// ML-guided optimization (like Google's MLGO)
-class MLOptimizer : OptimizationPass {
-    val model = loadTrainedModel("seen-opt-v3.model")
+// ML-guided optimization - using new research-based syntax
+class MLOptimizer : OptimizationPass {  // MLOptimizer (uppercase) = public
+    let model = loadTrainedModel("seen-opt-v3.model")  // let = immutable
     
-    fun optimize(ir: IR): IR {
-        var optimized = ir
+    // Optimize (uppercase) = public method
+    fun Optimize(ir: IR): IR? {  // nullable return for error handling
+        var optimized = ir  // var = mutable when needed
         
-        // Inlining decisions
+        // Inlining decisions (using word operators)
         for (call in ir.functionCalls) {
-            val features = extractFeatures(call)
-            val shouldInline = model.predictInlining(features)
-            if (shouldInline > 0.7) {
-                optimized = inline(optimized, call)
+            let features = extractFeatures(call)
+            let shouldInline = model.predictInlining(features)
+            optimized = if (shouldInline > 0.7 and call.isInlinable()) {  // everything-as-expression
+                inline(optimized, call)
+            } else {
+                optimized  // no change
             }
         }
         
         // Register allocation
-        val regAllocation = model.predictRegisterAllocation(ir)
-        optimized = applyRegisterAllocation(optimized, regAllocation)
+        let regAllocation = model.predictRegisterAllocation(ir)
+        optimized = if (regAllocation.isValid() and not regAllocation.isEmpty()) {
+            applyRegisterAllocation(optimized, regAllocation)
+        } else {
+            optimized
+        }
         
         // Instruction scheduling
         for (block in optimized.basicBlocks) {
-            val schedule = model.predictSchedule(block)
-            block.reorderInstructions(schedule)
+            let schedule = model.predictSchedule(block)
+            if (schedule.isOptimal() or schedule.improvesPerformance()) {
+                block.reorderInstructions(schedule)
+            }
         }
         
         // Learn from this compilation
-        val performance = measure(optimized)
+        let performance = measure(optimized)
         model.addTrainingData(ir, optimized, performance)
         
-        return optimized
+        return if (optimized.isValid() and not optimized.hasErrors()) {
+            optimized
+        } else {
+            null  // optimization failed
+        }
     }
     
     fun extractFeatures(call: FunctionCall): Features {
@@ -341,7 +354,7 @@ class MLOptimizer : OptimizationPass {
 ```seen
 // Superoptimization using SAT/SMT solvers
 class Superoptimizer : OptimizationPass {
-    val solver = Z3Solver()
+    let solver = Z3Solver()
     
     fun superoptimize(function: Function): Function {
         // For small critical functions, find optimal code
@@ -349,10 +362,10 @@ class Superoptimizer : OptimizationPass {
             return function // Too large for superoptimization
         }
         
-        val spec = extractSpecification(function)
-        val optimal = searchOptimal(spec)
+        let spec = extractSpecification(function)
+        let optimal = searchOptimal(spec)
         
-        return if (optimal != null && verify(optimal, spec)) {
+        return if (optimal != null and verify(optimal, spec)) {
             optimal
         } else {
             function
@@ -362,7 +375,7 @@ class Superoptimizer : OptimizationPass {
     fun searchOptimal(spec: Specification): Function? {
         // Start with length 1, increase until solution found
         for (length in 1..spec.maxLength) {
-            val formula = encodeSearch(spec, length)
+            let formula = encodeSearch(spec, length)
             
             if (solver.solve(formula)) {
                 return decodeFunction(solver.model)
@@ -373,21 +386,21 @@ class Superoptimizer : OptimizationPass {
     
     fun encodeSearch(spec: Specification, length: Int): Formula {
         // Encode program synthesis as SAT problem
-        val instructions = Variable.array("insn", length)
-        val operands = Variable.array("op", length * 3)
+        let instructions = Variable.array("insn", length)
+        let operands = Variable.array("op", length * 3)
         
         // Well-formedness constraints
-        val wellFormed = instructions.map { insn ->
-            validInstruction(insn) && validOperands(insn)
+        let wellFormed = instructions.map { insn ->
+            validInstruction(insn)  and  validOperands(insn)
         }
         
         // Semantic equivalence
-        val equivalent = forall(spec.inputs) { input ->
+        let equivalent = forall(spec.inputs) { input ->
             execute(instructions, input) == spec.output(input)
         }
         
         // Optimization objective (minimize cost)
-        val cost = instructions.sum { instructionCost(it) }
+        let cost = instructions.sum { instructionCost(it) }
         
         return Formula.and(wellFormed, equivalent, minimize(cost))
     }
@@ -410,10 +423,10 @@ class Superoptimizer : OptimizationPass {
 class ProfileGuidedOptimizer {
     fun compile(source: Source): Binary {
         // Step 1: Compile with instrumentation
-        val instrumented = compileWithProfiling(source)
+        let instrumented = compileWithProfiling(source)
         
         // Step 2: Run with representative workload
-        val profile = if (hasTestSuite(source)) {
+        let profile = if (hasTestSuite(source)) {
             // Use test suite as profile workload
             runTests(instrumented)
         } else {
@@ -422,7 +435,7 @@ class ProfileGuidedOptimizer {
         }
         
         // Step 3: Recompile with profile
-        val optimized = compileWithProfile(source, profile)
+        let optimized = compileWithProfile(source, profile)
         
         // Step 4: Validate improvement
         assert(benchmark(optimized) < benchmark(instrumented) * 0.9)
@@ -431,7 +444,7 @@ class ProfileGuidedOptimizer {
     }
     
     fun compileWithProfile(source: Source, profile: Profile): Binary {
-        val ir = parse(source)
+        let ir = parse(source)
         
         // Hot path optimization
         for (function in ir.functions) {
@@ -443,12 +456,12 @@ class ProfileGuidedOptimizer {
         
         // Branch prediction hints
         for (branch in ir.branches) {
-            val probability = profile.branchProbability(branch)
+            let probability = profile.branchProbability(branch)
             branch.addHint(probability)
         }
         
         // Data layout optimization
-        val accessPattern = profile.memoryAccessPattern
+        let accessPattern = profile.memoryAccessPattern
         ir.reorderFields(accessPattern)
         
         return generateCode(ir)
@@ -472,19 +485,19 @@ class ProfileGuidedOptimizer {
 class MemoryOptimizer {
     fun optimizeMemoryAccess(ir: IR): IR {
         // Cache-oblivious algorithms
-        val cacheOptimal = makeCacheOblivious(ir)
+        let cacheOptimal = makeCacheOblivious(ir)
         
         // Structure packing and reordering
-        val packed = packStructures(cacheOptimal)
+        let packed = packStructures(cacheOptimal)
         
         // Pointer compression (32-bit indices instead of 64-bit pointers)
-        val compressed = compressPointers(packed)
+        let compressed = compressPointers(packed)
         
         // NUMA-aware allocation
-        val numa = optimizeForNUMA(compressed)
+        let numa = optimizeForNUMA(compressed)
         
         // Prefetching
-        val prefetched = insertPrefetches(numa)
+        let prefetched = insertPrefetches(numa)
         
         return prefetched
     }
@@ -616,20 +629,20 @@ class ReleaseAutomation {
     
     fun verifyNoHardcodedKeywords() {
         // Scan entire codebase
-        val files = FileSystem.findAll("**/*.seen")
+        let files = FileSystem.findAll("**/*.seen")
         for (file in files) {
-            val content = file.read()
-            assert(!content.contains('"fun"'), 
+            let content = file.read()
+            assert(not content.contains('"fun"'), 
                    "Hardcoded keyword found - use language TOML")
         }
     }
     
     fun updateLanguageFiles(keywords: List<Keyword>) {
         // Update ALL language TOML files
-        val languages = ["en", "ar", "es", "zh", "fr", "de", "jp", "ru"]
+        let languages = ["en", "ar", "es", "zh", "fr", "de", "jp", "ru"]
         
         for (lang in languages) {
-            val toml = loadLanguageFile(lang)
+            let toml = loadLanguageFile(lang)
             for (keyword in keywords) {
                 toml.keywords[keyword.id] = keyword.translations[lang]
             }
@@ -647,7 +660,7 @@ class ReleaseAutomation {
    - Use result to compile again
    - Verify byte-identical output
    
-2. **Rust Removal Preparation**
+2. **Rust Remolet Preparation**
    - Create comprehensive test suite
    - Document all functionality
    - Prepare migration scripts

@@ -25,7 +25,7 @@ Every syntax decision in Seen is backed by empirical research or proven industry
 
 #### The Stefik & Siebert Study (2013)
 
-**Finding**: Traditional C-style syntax (`&&`, `||`, `!`) performed no better than randomly chosen symbols for novice programmers. Word-based operators showed significantly higher accuracy rates.
+**Finding**: Traditional C-style syntax (` and `, `||`, `!`) performed no better than randomly chosen symbols for novice programmers. Word-based operators showed significantly higher accuracy rates.
 
 **Our Application**: Logical operators use words (`and`, `or`, `not`) for clearer intent.
 
@@ -109,7 +109,7 @@ let host: String = "localhost"
 
 ```seen
 // RESEARCH-BASED: Word operators for logic (Stefik & Siebert 2013)
-if age >= 18 and hasPermission {    // Not: && 
+if age >= 18 and hasPermission {    // Not:  and  
     processRequest()
 }
 
@@ -439,7 +439,7 @@ struct Application: Logger by logger {
 
 // Property delegation
 struct Config {
-    val Data: Map by lazy {          // Lazy initialization
+    let Data: Map by lazy {          // Lazy initialization
         loadConfigFile()
     }
     
@@ -583,7 +583,7 @@ struct ViewModel {
     @Reactive var Username = ""
     @Reactive var Email = ""
     
-    @Computed val IsValid: Bool {
+    @Computed let IsValid: Bool {
         return Username.isNotEmpty() and Email.contains("@")
     }
 }
@@ -789,7 +789,7 @@ fun SafeDivide(a: Int, b: Int): Int {
 
 |Feature|Research Basis|Our Choice|Traditional|Impact|
 |---|---|---|---|---|
-|Logical operators|Stefik & Siebert 2013|`and`, `or`, `not`|`&&`, `||
+|Logical operators|Stefik & Siebert 2013|`and`, `or`, `not`|` and `, `||
 |Visibility|Go at Google scale|Capitalization|Keywords|Zero cognitive overhead|
 |Control flow|Expression research|Everything returns value|Statements|Eliminates bug categories|
 |Defaults|Safety studies|Immutable, non-null|Mutable, nullable|70% fewer bugs|

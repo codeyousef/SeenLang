@@ -911,7 +911,7 @@ interface BenchmarkResult {
     "prefix": "data",
     "body": [
       "data class ${1:ClassName}(",
-      "\tval ${2:property}: ${3:Type}",
+      "\tlet ${2:property}: ${3:Type}",
       ")"
     ],
     "description": "Data class declaration"
@@ -920,8 +920,8 @@ interface BenchmarkResult {
     "prefix": "sealed",
     "body": [
       "sealed class ${1:SealedClass} {",
-      "\tdata class ${2:Variant1}(val ${3:prop}: ${4:Type}) : ${1}()",
-      "\tdata class ${5:Variant2}(val ${6:prop}: ${7:Type}) : ${1}()",
+      "\tdata class ${2:Variant1}(let ${3:prop}: ${4:Type}) : ${1}()",
+      "\tdata class ${5:Variant2}(let ${6:prop}: ${7:Type}) : ${1}()",
       "}"
     ],
     "description": "Sealed class with variants"
@@ -929,7 +929,7 @@ interface BenchmarkResult {
   "Observable": {
     "prefix": "observable",
     "body": [
-      "val ${1:observable} = Observable.create<${2:Type}> { emitter ->",
+      "let ${1:observable} = Observable.create<${2:Type}> { emitter ->",
       "\t$0",
       "\temitter.onComplete()",
       "}"
@@ -939,7 +939,7 @@ interface BenchmarkResult {
   "Flow": {
     "prefix": "flow",
     "body": [
-      "val ${1:flow} = flow {",
+      "let ${1:flow} = flow {",
       "\temit(${2:value})",
       "\t$0",
       "}"
@@ -1080,7 +1080,7 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
                 }
             });
             
-            if (formatted && formatted.length > 0) {
+            if (formatted  and  formatted.length > 0) {
                 await editor.edit(editBuilder => {
                     formatted.forEach((edit: any) => {
                         editBuilder.replace(
@@ -1323,7 +1323,7 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'  and  github.ref == 'refs/heads/main'
     
     steps:
       - uses: actions/checkout@v3

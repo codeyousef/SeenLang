@@ -63,8 +63,8 @@ package seen-scientific {
         // Automatic differentiation
         @differentiable
         class DualNumber {
-            val value: Float
-            val derivative: Float
+            let value: Float
+            let derivative: Float
             
             operator fun +(other: DualNumber): DualNumber
             operator fun *(other: DualNumber): DualNumber
@@ -179,8 +179,8 @@ package seen-ml {
         }
         
         class Dense(inputSize: Int, outputSize: Int) : Layer {
-            val weights = Tensor.random(inputSize, outputSize)
-            val bias = Tensor.zeros(outputSize)
+            let weights = Tensor.random(inputSize, outputSize)
+            let bias = Tensor.zeros(outputSize)
             
             override fun forward(input: Tensor): Tensor {
                 return input.matmul(weights) + bias
@@ -208,7 +208,7 @@ package seen-ml {
         
         // Model container
         class Sequential {
-            private val layers = mutableListOf<Layer>()
+            private let layers = mutableListOf<Layer>()
             
             fun add(layer: Layer): Sequential {
                 layers.add(layer)
@@ -239,8 +239,8 @@ package seen-ml {
             ) {
                 for (epoch in 1..epochs) {
                     for (batch in x.batches(batchSize)) {
-                        val pred = forward(batch.x)
-                        val loss = loss.compute(pred, batch.y)
+                        let pred = forward(batch.x)
+                        let loss = loss.compute(pred, batch.y)
                         
                         backward(loss.gradient)
                         optimizer.step()
@@ -324,7 +324,7 @@ package seen-crypto-advanced {
             }
             
             fun select(condition: Boolean, a: Int, b: Int): Int {
-                val mask = -(condition.toInt())
+                let mask = -(condition.toInt())
                 return (a and mask) or (b and mask.inv())
             }
         }
@@ -395,18 +395,18 @@ package seen-blockchain {
     module Blockchain {
         // Blockchain structure
         class Block {
-            val index: Long
-            val timestamp: Instant
-            val transactions: List<Transaction>
-            val previousHash: Hash
-            val nonce: Long
+            let index: Long
+            let timestamp: Instant
+            let transactions: List<Transaction>
+            let previousHash: Hash
+            let nonce: Long
             
             fun hash(): Hash
             fun mine(difficulty: Int): Block
         }
         
         class Blockchain {
-            private val chain = mutableListOf<Block>()
+            private let chain = mutableListOf<Block>()
             
             fun addBlock(block: Block): Boolean {
                 if (isValid(block)) {
@@ -417,8 +417,8 @@ package seen-blockchain {
             }
             
             fun isValid(block: Block): Boolean {
-                val previous = chain.last()
-                return block.previousHash == previous.hash() &&
+                let previous = chain.last()
+                return block.previousHash == previous.hash()  and 
                        block.hash().startsWith("0".repeat(difficulty))
             }
         }
@@ -432,8 +432,8 @@ package seen-blockchain {
         @contract
         class TokenContract : SmartContract {
             data class State(
-                val balances: Map<Address, UInt256>,
-                val totalSupply: UInt256
+                let balances: Map<Address, UInt256>,
+                let totalSupply: UInt256
             )
             
             sealed class Input {
@@ -458,7 +458,7 @@ package seen-blockchain {
             fun mine(block: Block): Block {
                 var nonce = 0L
                 while (true) {
-                    val hash = block.copy(nonce = nonce).hash()
+                    let hash = block.copy(nonce = nonce).hash()
                     if (hash.startsWith("0".repeat(difficulty))) {
                         return block.copy(nonce = nonce)
                     }
@@ -470,8 +470,8 @@ package seen-blockchain {
         // Proof of Stake
         class ProofOfStake(validators: List<Validator>) : Consensus {
             fun selectValidator(): Validator {
-                val totalStake = validators.sumOf { it.stake }
-                val random = Random.nextLong(totalStake)
+                let totalStake = validators.sumOf { it.stake }
+                let random = Random.nextLong(totalStake)
                 var cumulative = 0L
                 for (validator in validators) {
                     cumulative += validator.stake
@@ -486,10 +486,10 @@ package seen-blockchain {
         // PBFT
         class PBFT(nodes: List<Node>) : Consensus {
             fun propose(value: Value): Boolean {
-                val proposal = Proposal(value)
-                val prepares = collectPrepares(proposal)
+                let proposal = Proposal(value)
+                let prepares = collectPrepares(proposal)
                 if (prepares.size >= 2 * f + 1) {
-                    val commits = collectCommits(proposal)
+                    let commits = collectCommits(proposal)
                     return commits.size >= 2 * f + 1
                 }
                 return false
@@ -523,7 +523,7 @@ package seen-realtime {
         class RTScheduler {
             fun schedule(tasks: List<Task>) {
                 // Rate monotonic scheduling
-                val sorted = tasks.sortedBy { it.period }
+                let sorted = tasks.sortedBy { it.period }
                 for (task in sorted) {
                     if (task.deadline <= currentTime()) {
                         task.execute()
@@ -533,8 +533,8 @@ package seen-realtime {
             
             // Earliest deadline first
             fun edf(tasks: List<Task>) {
-                val ready = tasks.filter { it.ready }
-                val next = ready.minByOrNull { it.deadline }
+                let ready = tasks.filter { it.ready }
+                let next = ready.minByOrNull { it.deadline }
                 next?.execute()
             }
         }
@@ -548,7 +548,7 @@ package seen-realtime {
         // Priority ceiling protocol
         class PriorityCeiling {
             fun lock(mutex: Mutex, priority: Int) {
-                val oldPriority = currentPriority()
+                let oldPriority = currentPriority()
                 raisePriority(max(oldPriority, priority))
                 mutex.lock()
                 restorePriority(oldPriority)
@@ -558,7 +558,7 @@ package seen-realtime {
         // Deadline monitoring
         class DeadlineMonitor {
             fun watchdog(task: Task, deadline: Duration) {
-                val timer = Timer(deadline)
+                let timer = Timer(deadline)
                 timer.onExpire {
                     task.abort()
                     reportMissedDeadline(task)
@@ -589,7 +589,7 @@ package seen-formal {
             fun check(model: Model, property: LTLFormula): CounterExample? {
                 // Bounded model checking
                 for (depth in 1..maxDepth) {
-                    val counterExample = checkBounded(model, property, depth)
+                    let counterExample = checkBounded(model, property, depth)
                     if (counterExample != null) {
                         return counterExample
                     }
@@ -602,8 +602,8 @@ package seen-formal {
         class TheoremProver {
             fun prove(theorem: Theorem): Proof {
                 // SMT solving
-                val smt = Z3Solver()
-                val formula = theorem.toSMT()
+                let smt = Z3Solver()
+                let formula = theorem.toSMT()
                 
                 if (smt.solve(formula)) {
                     return Proof.Valid(smt.getProof())
@@ -650,12 +650,12 @@ package seen-robotics {
     module Perception {
         // SLAM (Simultaneous Localization and Mapping)
         class SLAM {
-            private val map = OccupancyGrid()
+            private let map = OccupancyGrid()
             private var pose = Pose()
             
             fun update(scan: LaserScan, odometry: Odometry) {
                 // Particle filter SLAM
-                val particles = resample(particles, scan, odometry)
+                let particles = resample(particles, scan, odometry)
                 pose = estimatePose(particles)
                 updateMap(map, scan, pose)
             }
@@ -667,9 +667,9 @@ package seen-robotics {
         // Visual SLAM
         class VisualSLAM {
             fun processFrame(image: Image, depth: DepthImage) {
-                val features = detectFeatures(image)
-                val matches = matchFeatures(features, previousFeatures)
-                val pose = estimatePose(matches, depth)
+                let features = detectFeatures(image)
+                let matches = matchFeatures(features, previousFeatures)
+                let pose = estimatePose(matches, depth)
                 updateKeyframes(image, pose)
             }
         }
@@ -677,7 +677,7 @@ package seen-robotics {
         // Object detection
         class ObjectRecognition {
             fun detect(pointCloud: PointCloud): List<Object3D> {
-                val clusters = euclideanClustering(pointCloud)
+                let clusters = euclideanClustering(pointCloud)
                 return clusters.map { classify(it) }
             }
         }
@@ -687,14 +687,14 @@ package seen-robotics {
         // Path planning
         class PathPlanner {
             fun rrt(start: State, goal: State, obstacles: List<Obstacle>): Path? {
-                val tree = Tree(start)
+                let tree = Tree(start)
                 
                 for (i in 1..maxIterations) {
-                    val random = sampleRandom()
-                    val nearest = tree.nearest(random)
-                    val new = extend(nearest, random)
+                    let random = sampleRandom()
+                    let nearest = tree.nearest(random)
+                    let new = extend(nearest, random)
                     
-                    if (!collides(new, obstacles)) {
+                    if (not collides(new, obstacles)) {
                         tree.add(new)
                         if (near(new, goal)) {
                             return extractPath(tree, new)
@@ -705,18 +705,18 @@ package seen-robotics {
             }
             
             fun aStar(start: Node, goal: Node, graph: Graph): Path? {
-                val openSet = PriorityQueue<Node>()
+                let openSet = PriorityQueue<Node>()
                 openSet.add(start)
                 
                 while (openSet.isNotEmpty()) {
-                    val current = openSet.poll()
+                    let current = openSet.poll()
                     
                     if (current == goal) {
                         return reconstructPath(current)
                     }
                     
                     for (neighbor in graph.neighbors(current)) {
-                        val tentativeG = gScore[current] + distance(current, neighbor)
+                        let tentativeG = gScore[current] + distance(current, neighbor)
                         if (tentativeG < gScore[neighbor]) {
                             gScore[neighbor] = tentativeG
                             fScore[neighbor] = tentativeG + heuristic(neighbor, goal)
@@ -739,7 +739,7 @@ package seen-robotics {
                 var trajectory = initialGuess(start, goal)
                 
                 for (iter in 1..maxIterations) {
-                    val gradient = computeGradient(trajectory, constraints)
+                    let gradient = computeGradient(trajectory, constraints)
                     trajectory = update(trajectory, gradient)
                     
                     if (converged(trajectory)) {
@@ -759,9 +759,9 @@ package seen-robotics {
             private var previousError = 0.0f
             
             fun compute(setpoint: Float, measured: Float, dt: Float): Float {
-                val error = setpoint - measured
+                let error = setpoint - measured
                 integral += error * dt
-                val derivative = (error - previousError) / dt
+                let derivative = (error - previousError) / dt
                 previousError = error
                 
                 return kp * error + ki * integral + kd * derivative
@@ -772,7 +772,7 @@ package seen-robotics {
         class MPC(model: Model, horizon: Int) {
             fun compute(state: State, reference: Trajectory): Control {
                 // Solve optimization problem
-                val problem = OptimizationProblem(
+                let problem = OptimizationProblem(
                     objective = sum((predicted - reference)^2 + control^2),
                     constraints = [
                         dynamics(state, control) == predicted,
@@ -781,7 +781,7 @@ package seen-robotics {
                     ]
                 )
                 
-                val solution = solve(problem)
+                let solution = solve(problem)
                 return solution.control[0]  // Apply first control
             }
         }
@@ -814,7 +814,7 @@ package seen-sql {
             fun release(conn: Connection)
             
             fun withConnection<T>(block: (Connection) -> T): T {
-                val conn = acquire()
+                let conn = acquire()
                 try {
                     return block(conn)
                 } finally {
@@ -839,10 +839,10 @@ package seen-sql {
         // ORM
         @entity
         data class User(
-            @id val id: Long,
-            @column("username") val name: String,
-            @column val email: String,
-            @manyToOne val role: Role
+            @id let id: Long,
+            @column("username") let name: String,
+            @column let email: String,
+            @manyToOne let role: Role
         )
         
         class Repository<T> {
@@ -927,7 +927,7 @@ package seen-cache {
         ) {
             fun get(key: K): V {
                 return cache.get(key) ?: run {
-                    val value = loader(key)
+                    let value = loader(key)
                     cache.put(key, value)
                     value
                 }
@@ -1012,7 +1012,7 @@ package seen-service-mesh {
             rate: Int,
             per: Duration
         ) {
-            private val tokens = AtomicInteger(rate)
+            private let tokens = AtomicInteger(rate)
             
             fun tryAcquire(): Boolean {
                 return tokens.getAndDecrement() > 0
@@ -1048,8 +1048,8 @@ package seen-distributed {
             
             fun execute(input: List<(K, V)>): Map<K2, V2> {
                 // Distributed execution
-                val mapped = distributeMap(input)
-                val shuffled = shuffle(mapped)
+                let mapped = distributeMap(input)
+                let shuffled = shuffle(mapped)
                 return distributeReduce(shuffled)
             }
         }
@@ -1102,7 +1102,7 @@ class ArchitectureBenchmarks {
     
     @test_all_architectures
     fun benchmarkReactivePerformance() {
-        val architectures = listOf(
+        let architectures = listOf(
             X86_64(extensions = ["avx512"]),
             AArch64(extensions = ["sve2"]),
             RiscV64(extensions = ["rvv1.0", "zfh"]),
@@ -1110,7 +1110,7 @@ class ArchitectureBenchmarks {
         )
         
         for (arch in architectures) {
-            val results = runOn(arch) {
+            let results = runOn(arch) {
                 // Reactive stream processing
                 Observable.range(1, 10_000_000)
                     .map { it * 2 }
@@ -1128,7 +1128,7 @@ class ArchitectureBenchmarks {
     @specialized_benchmark
     fun benchmarkVectorExtensions() {
         // Compare vector extensions across architectures
-        val comparison = VectorComparison(
+        let comparison = VectorComparison(
             x86_avx512 = benchAVX512(),
             arm_sve2 = benchSVE2(),
             riscv_rvv = benchRVV(),
@@ -1142,9 +1142,9 @@ class ArchitectureBenchmarks {
     fun benchAVX512(): BenchResult {
         return benchmark {
             // AVX-512 specific operations
-            val a = Vec16f.load(dataA)
-            val b = Vec16f.load(dataB)
-            val c = a.fma(b, Vec16f.broadcast(2.0f))
+            let a = Vec16f.load(dataA)
+            let b = Vec16f.load(dataB)
+            let c = a.fma(b, Vec16f.broadcast(2.0f))
             c.store(result)
         }
     }
@@ -1152,10 +1152,10 @@ class ArchitectureBenchmarks {
     fun benchSVE2(): BenchResult {
         return benchmark {
             // ARM SVE2 scalable vectors
-            val vl = getVectorLength()
-            val a = loadVector(dataA, vl)
-            val b = loadVector(dataB, vl)
-            val c = sveFMA(a, b, 2.0f)
+            let vl = getVectorLength()
+            let a = loadVector(dataA, vl)
+            let b = loadVector(dataB, vl)
+            let c = sveFMA(a, b, 2.0f)
             storeVector(result, c, vl)
         }
     }
@@ -1163,10 +1163,10 @@ class ArchitectureBenchmarks {
     fun benchRVV(): BenchResult {
         return benchmark {
             // RISC-V vector operations
-            val vl = vsetvl(dataSize)
-            val a = vle32(dataA, vl)
-            val b = vle32(dataB, vl)
-            val c = vfmadd(a, b, 2.0f)
+            let vl = vsetvl(dataSize)
+            let a = vle32(dataA, vl)
+            let b = vle32(dataB, vl)
+            let c = vfmadd(a, b, 2.0f)
             vse32(result, c, vl)
         }
     }
@@ -1198,7 +1198,7 @@ class CustomExtensions {
         pattern: Pattern,
         architecture: Architecture
     ) {
-        val instruction = CustomInstruction(
+        let instruction = CustomInstruction(
             name = name,
             semantics = semantics,
             pattern = pattern,
@@ -1293,7 +1293,7 @@ class HardwareCoDesign {
         spec: AcceleratorSpec
     ): VerilogModule {
         
-        val module = VerilogModule("custom_accelerator")
+        let module = VerilogModule("custom_accelerator")
         
         // Define interface
         module.addPort(Input("clk", 1))
@@ -1347,8 +1347,8 @@ class HardwareCoDesign {
         workload: Workload
     ): PerformanceModel {
         
-        val cycleAccurate = CycleAccurateSimulator(design)
-        val results = cycleAccurate.run(workload)
+        let cycleAccurate = CycleAccurateSimulator(design)
+        let results = cycleAccurate.run(workload)
         
         return PerformanceModel(
             latency = results.cycles / design.frequency,
@@ -1372,11 +1372,11 @@ class HardwareCoDesign {
         // Seen code to hardware
         return Hardware {
             // Systolic array for matrix multiplication
-            val array = SystolicArray(size, size)
+            let array = SystolicArray(size, size)
             
             for (i in 0 until size) {
                 for (j in 0 until size) {
-                    val pe = ProcessingElement()
+                    let pe = ProcessingElement()
                     pe.accumulator = 0
                     
                     @pipeline(stages = 3)
@@ -1501,7 +1501,7 @@ class DeveloperCertification {
     
     // Certification verification
     fun verifyCertification(id: String): CertificationStatus {
-        val cert = database.getCertification(id)
+        let cert = database.getCertification(id)
         
         return CertificationStatus(
             valid = cert.isValid(),
@@ -1537,30 +1537,30 @@ class AcademicResearch {
     ): ResearchResults {
         
         // Implement in simulator
-        val simulator = ArchSimulator()
+        let simulator = ArchSimulator()
         simulator.addExtension(proposal)
         
         // Compiler support
-        val compiler = SeenCompiler()
+        let compiler = SeenCompiler()
         compiler.addIntrinsics(proposal.instructions)
         compiler.addPatterns(proposal.patterns)
         
         // Benchmark suite
-        val benchmarks = StandardBenchmarks() + proposal.targetWorkloads
+        let benchmarks = StandardBenchmarks() + proposal.targetWorkloads
         
         // Run experiments
-        val baseline = runBenchmarks(BaseArch, benchmarks)
-        val extended = runBenchmarks(BaseArch + proposal, benchmarks)
+        let baseline = runBenchmarks(BaseArch, benchmarks)
+        let extended = runBenchmarks(BaseArch + proposal, benchmarks)
         
         // Detailed analysis
-        val speedup = calculateSpeedup(baseline, extended)
-        val power = estimatePower(proposal)
-        val area = estimateArea(proposal)
+        let speedup = calculateSpeedup(baseline, extended)
+        let power = estimatePower(proposal)
+        let area = estimateArea(proposal)
         
         // Academic metrics
-        val novelty = assessNovelty(proposal)
-        val generality = assessGenerality(proposal)
-        val significance = assessSignificance(speedup)
+        let novelty = assessNovelty(proposal)
+        let generality = assessGenerality(proposal)
+        let significance = assessSignificance(speedup)
         
         // Generate paper
         return ResearchResults(
@@ -1684,11 +1684,11 @@ class StandardsCompliance {
     // Architecture profile compliance
     @validate_profiles
     fun validateCompliance(): ComplianceReport {
-        val architectures = listOf("x86", "arm", "riscv", "wasm")
-        val reports = mutableListOf<ComplianceReport>()
+        let architectures = listOf("x86", "arm", "riscv", "wasm")
+        let reports = mutableListOf<ComplianceReport>()
         
         for (arch in architectures) {
-            val report = validateArchitecture(arch)
+            let report = validateArchitecture(arch)
             reports.add(report)
         }
         
@@ -1696,7 +1696,7 @@ class StandardsCompliance {
     }
     
     fun validateArchitecture(arch: String): ComplianceReport {
-        val tests = when (arch) {
+        let tests = when (arch) {
             "x86" -> X86ComplianceTests()
             "arm" -> ARMComplianceTests()
             "riscv" -> RISCVComplianceTests()
@@ -1708,7 +1708,7 @@ class StandardsCompliance {
             architecture = arch,
             testsRun = tests.count(),
             testsPassed = tests.filter { it.passed }.count(),
-            compliance = tests.all { it.passed || it.optional },
+            compliance = tests.all { it.passed  or  it.optional },
             details = tests.map { it.toDetail() }
         )
     }
@@ -1815,7 +1815,7 @@ class SpecializedMarkets {
         @triple_modular_redundancy
         fun criticalComputation(input: Data): Result {
             // Run on three cores, vote on result
-            val results = parallel(
+            let results = parallel(
                 core1.compute(input),
                 core2.compute(input),
                 core3.compute(input)
@@ -1853,8 +1853,8 @@ class SpecializedMarkets {
         @lockstep
         fun safetyFunction(): SafetyResult {
             // Dual-core lockstep execution
-            val primary = primaryCore.execute()
-            val checker = checkerCore.execute()
+            let primary = primaryCore.execute()
+            let checker = checkerCore.execute()
             
             if (primary != checker) {
                 enterSafeState()
@@ -1868,13 +1868,13 @@ class SpecializedMarkets {
         @safety_mechanism
         fun brakeControl(request: BrakeRequest): BrakeCommand {
             // Check request validity
-            if (!isValid(request)) {
+            if (not isValid(request)) {
                 return SafeBrakeCommand()
             }
             
             // Calculate brake force with limits
-            val force = calculateForce(request)
-            val limited = limitForce(force)
+            let force = calculateForce(request)
+            let limited = limitForce(force)
             
             // Monitor execution
             if (executionTime() > WCET) {
@@ -1891,12 +1891,12 @@ class SpecializedMarkets {
         @life_critical
         fun vitalSignMonitor(): VitalSigns {
             // Continuous monitoring with redundancy
-            val ecg = monitorECG()
-            val spo2 = monitorSpO2()
-            val bp = monitorBloodPressure()
+            let ecg = monitorECG()
+            let spo2 = monitorSpO2()
+            let bp = monitorBloodPressure()
             
             // Validate readings
-            if (!validateVitals(ecg, spo2, bp)) {
+            if (not validateVitals(ecg, spo2, bp)) {
                 alarm(Priority.HIGH)
             }
             
@@ -1907,18 +1907,18 @@ class SpecializedMarkets {
         @safety_critical
         fun infusionPump(prescription: Prescription): Delivery {
             // Verify prescription
-            if (!verifyPrescription(prescription)) {
+            if (not verifyPrescription(prescription)) {
                 return Delivery.blocked("Invalid prescription")
             }
             
             // Check drug library
-            if (!drugLibrary.contains(prescription.drug)) {
+            if (not drugLibrary.contains(prescription.drug)) {
                 return Delivery.blocked("Unknown drug")
             }
             
             // Calculate delivery with safety limits
-            val rate = calculateRate(prescription)
-            val safeRate = applySafetyLimits(rate)
+            let rate = calculateRate(prescription)
+            let safeRate = applySafetyLimits(rate)
             
             return Delivery(safeRate)
         }
@@ -1943,22 +1943,22 @@ class SpecializedMarkets {
 class PerformanceLeader {
     
     fun demonstrateSupremacy(): BenchmarkResults {
-        val workloads = Workloads.all()
-        val results = mutableListOf<WorkloadResult>()
+        let workloads = Workloads.all()
+        let results = mutableListOf<WorkloadResult>()
         
         for (workload in workloads) {
-            val seenResult = runOn(AllArchitectures) { arch ->
+            let seenResult = runOn(AllArchitectures) { arch ->
                 // Use optimal configuration for each architecture
-                val config = selectOptimalConfig(workload, arch)
-                val custom = selectCustomExtensions(workload, arch)
+                let config = selectOptimalConfig(workload, arch)
+                let custom = selectCustomExtensions(workload, arch)
                 
                 runOptimized(workload, config, custom)
             }
             
             // Compare with competitors
-            val rustResult = runRust(workload)
-            val cppResult = runCpp(workload)
-            val zigResult = runZig(workload)
+            let rustResult = runRust(workload)
+            let cppResult = runCpp(workload)
+            let zigResult = runZig(workload)
             
             results.add(WorkloadResult(
                 name = workload.name,
@@ -2020,16 +2020,16 @@ class PerformanceLeader {
     // Specific performance demonstrations
     fun demonstrateVectorPerformance() {
         // Show vector operation supremacy
-        val data = FloatArray(1_000_000)
+        let data = FloatArray(1_000_000)
         
-        val seenTime = measure {
+        let seenTime = measure {
             // Seen with automatic vectorization
             data.parallelMap { it * 2.0f + 1.0f }
                 .filter { it > 0.5f }
                 .reduce { a, b -> a + b }
         }
         
-        val cTime = measureC {
+        let cTime = measureC {
             // Hand-optimized C with intrinsics
             // ... complex SIMD code
         }
@@ -2068,11 +2068,11 @@ class FutureVision {
         
         fun hybridAlgorithm(problem: OptimizationProblem) {
             // Classical preprocessing
-            val encoded = classicalPreprocess(problem)
-            val qubits = encodeToQubits(encoded)
+            let encoded = classicalPreprocess(problem)
+            let qubits = encodeToQubits(encoded)
             
             // Quantum processing
-            val quantum = quantumCircuit {
+            let quantum = quantumCircuit {
                 hadamard(qubits[0])
                 for (i in 1 until qubits.size) {
                     controlledPhase(qubits[i-1], qubits[i], angle)
@@ -2090,8 +2090,8 @@ class FutureVision {
             var params = randomParameters()
             
             for (iteration in 1..maxIterations) {
-                val circuit = ansatz(params)
-                val energy = expectationValue(circuit, hamiltonian)
+                let circuit = ansatz(params)
+                let energy = expectationValue(circuit, hamiltonian)
                 params = classicalOptimizer.update(params, energy)
             }
             
@@ -2104,7 +2104,7 @@ class FutureVision {
         // Spiking neural networks
         class SpikingNeuron {
             var potential = 0.0f
-            val threshold = 1.0f
+            let threshold = 1.0f
             
             fun receiveSpike(weight: Float, time: Time) {
                 potential += weight * exp(-(currentTime - time))
@@ -2119,14 +2119,14 @@ class FutureVision {
         // Neuromorphic processor
         @hardware
         class NeuromorphicChip {
-            val neurons = Array(1_000_000) { SpikingNeuron() }
-            val synapses = SparseMatrix<Float>(1_000_000, 1_000_000)
+            let neurons = Array(1_000_000) { SpikingNeuron() }
+            let synapses = SparseMatrix<Float>(1_000_000, 1_000_000)
             
             @event_driven
             fun process(input: SpikeStream): SpikeStream {
                 // Only compute when spikes occur
                 return input.flatMap { spike ->
-                    val targets = synapses.getRow(spike.neuronId)
+                    let targets = synapses.getRow(spike.neuronId)
                     targets.map { (targetId, weight) ->
                         neurons[targetId].receiveSpike(weight, spike.time)
                     }
@@ -2154,7 +2154,7 @@ class FutureVision {
         @exascale
         fun exascaleSimulation(model: ClimateModel): Prediction {
             // 10^18 operations per second
-            val grid = Grid3D(
+            let grid = Grid3D(
                 resolution = 1.km,
                 extent = Earth.surface
             )
@@ -2178,8 +2178,8 @@ class FutureVision {
             b: OpticalMatrix
         ): OpticalMatrix {
             // Computation at the speed of light
-            val modulated = phaseModulate(a)
-            val interfered = interfere(modulated, b)
+            let modulated = phaseModulate(a)
+            let interfered = interfere(modulated, b)
             return detect(interfered)
         }
     }
