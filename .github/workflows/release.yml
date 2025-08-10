@@ -69,7 +69,7 @@ jobs:
         fetch-depth: 0
 
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/seen-toolchain@stable
       with:
         targets: ${{ matrix.target }}
 
@@ -97,17 +97,17 @@ jobs:
 
     - name: Build release binaries
       run: |
-        cargo build --release --target ${{ matrix.target }} --workspace --bin seen
+        seen build --release --target ${{ matrix.target }} --workspace --bin seen
 
     - name: Build LSP server
       run: |
-        cargo build --release --target ${{ matrix.target }} --bin seen-lsp
+        seen build --release --target ${{ matrix.target }} --bin seen-lsp
       continue-on-error: true
 
     - name: Build RISC-V tools
       if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-pc-windows-msvc' || matrix.target == 'x86_64-apple-darwin'
       run: |
-        cargo build --release --target ${{ matrix.target }} --bin seen-riscv
+        seen build --release --target ${{ matrix.target }} --bin seen-riscv
       continue-on-error: true
 
     - name: Prepare release assets

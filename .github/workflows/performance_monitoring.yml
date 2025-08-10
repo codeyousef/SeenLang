@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0  # Full history for performance comparisons
       
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: seen-lang/toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
           override: true
@@ -75,13 +75,13 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.seen/registry
+            ~/.seen/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-seen-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Build Seen compiler
-        run: cargo build --release --bin seen
+        run: seen build --release --bin seen
       
       - name: Run performance benchmarks
         run: |

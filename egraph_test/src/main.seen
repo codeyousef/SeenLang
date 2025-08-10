@@ -1,0 +1,4 @@
+// Simple test for bootstrap compiler
+fun main() {
+    println("Hello from bootstrap compiler!");
+}

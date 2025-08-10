@@ -7,8 +7,10 @@ import { SeenDebugAdapterFactory, registerDebugSupport } from './debugger';
 import { SeenReplProvider, registerReplCommands } from './repl';
 import { ReactiveVisualizer, ReactiveStreamViewProvider, ReactiveInlineValueProvider } from './reactive';
 import { BenchmarkRunner, BenchmarkTreeDataProvider, BenchmarkCodeLensProvider, registerBenchmarkCommands } from './benchmark';
+import { SeenDiagnosticProvider, SeenQuickFixProvider, SeenErrorLens } from './errorDiagnostics';
 
 let client: LanguageClient;
+let diagnosticProvider: SeenDiagnosticProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Seen Language extension is activating');
@@ -107,6 +109,56 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Start the client
     await client.start();
+
+    // Initialize error diagnostics provider
+    diagnosticProvider = new SeenDiagnosticProvider();
+    context.subscriptions.push(diagnosticProvider);
+    
+    // Register quick fix provider
+    const quickFixProvider = new SeenQuickFixProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionProvider(
+            { language: 'seen' },
+            quickFixProvider,
+            {
+                providedCodeActionKinds: [vscode.CodeActionKind.QuickFix]
+            }
+        )
+    );
+    
+    // Register error lens provider
+    const errorLensProvider = new SeenErrorLens();
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'seen' },
+            errorLensProvider
+        )
+    );
+    
+    // Update diagnostics on document changes
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeTextDocument(event => {
+            if (event.document.languageId === 'seen') {
+                diagnosticProvider.updateDiagnostics(event.document);
+            }
+        })
+    );
+    
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument(document => {
+            if (document.languageId === 'seen') {
+                diagnosticProvider.updateDiagnostics(document);
+            }
+        })
+    );
+    
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(document => {
+            if (document.languageId === 'seen') {
+                diagnosticProvider.updateDiagnostics(document);
+            }
+        })
+    );
 
     // Register commands
     setupCommands(context, client);

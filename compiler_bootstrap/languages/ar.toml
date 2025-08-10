@@ -1,0 +1,88 @@
+# Arabic language configuration for the Seen programming language
+# This file defines the Arabic keywords and operators used in Seen source code
+# اللغة العربية للغة البرمجة المرئية
+
+name = "Arabic"
+description = "Arabic keyword set for the Seen programming language - مجموعة الكلمات المفتاحية العربية للغة البرمجة المرئية"
+
+[keywords]
+# Control flow - التحكم في التدفق
+"دالة" = "TokenFunc"           # function
+"إذا" = "TokenIf"             # if
+"وإلا" = "TokenElse"           # else  
+"بينما" = "TokenWhile"         # while
+"لكل" = "TokenFor"            # for
+"في" = "TokenIn"              # in
+"طابق" = "TokenMatch"          # match
+"اكسر" = "TokenBreak"          # break
+"واصل" = "TokenContinue"       # continue
+"ارجع" = "TokenReturn"         # return
+
+# Variable declarations - إعلانات المتغيرات
+"اجعل" = "TokenLet"           # let
+"متغير" = "TokenMut"          # mutable
+"ثابت" = "TokenConst"         # const
+"ساكن" = "TokenStatic"        # static
+
+# Type definitions - تعريفات الأنواع
+"هيكل" = "TokenStruct"        # struct
+"تعداد" = "TokenEnum"          # enum
+"صفة" = "TokenTrait"          # trait
+"تطبيق" = "TokenImpl"          # impl
+"نوع" = "TokenType"           # type
+
+# Module system - نظام الوحدات
+"وحدة" = "TokenModule"        # module
+"استورد" = "TokenImport"       # import
+"عام" = "TokenPub"            # public
+"خاص" = "TokenPriv"          # private
+
+# Literals - القيم الحرفية
+"صحيح" = "TokenTrue"          # true
+"خطأ" = "TokenFalse"          # false
+
+[operators]
+# Arithmetic operators - المشغلات الحسابية
+"+" = "TokenPlus"
+"-" = "TokenMinus"
+"*" = "TokenMultiply"
+"/" = "TokenDivide"
+"%" = "TokenModulo"
+
+# Assignment operators - مشغلات التعيين
+"=" = "TokenAssign"
+"+=" = "TokenPlusAssign"
+"-=" = "TokenMinusAssign"
+"*=" = "TokenMultiplyAssign"
+"/=" = "TokenDivideAssign"
+"%=" = "TokenModuloAssign"
+
+# Comparison operators - مشغلات المقارنة
+"==" = "TokenEqual"
+"!=" = "TokenNotEqual"
+"<" = "TokenLess"
+"<=" = "TokenLessEqual"
+">" = "TokenGreater"
+">=" = "TokenGreaterEqual"
+
+# Logical operators - المشغلات المنطقية
+"&&" = "TokenLogicalAnd"
+"||" = "TokenLogicalOr"
+"!" = "TokenLogicalNot"
+
+# Bitwise operators - المشغلات البتية
+"&" = "TokenBitwiseAnd"
+"|" = "TokenBitwiseOr"
+"^" = "TokenBitwiseXor"
+"~" = "TokenBitwiseNot"
+"<<" = "TokenLeftShift"
+">>" = "TokenRightShift"
+
+# Special operators - المشغلات الخاصة
+"->" = "TokenArrow"
+"=>" = "TokenFatArrow"
+"?" = "TokenQuestion"
+"." = "TokenDot"
+".." = "TokenDoubleDot"
+"..." = "TokenTripleDot"
+"::" = "TokenDoubleColon"

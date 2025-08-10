@@ -1,0 +1,12 @@
+// Rust Remover Module - Simplified
+public class RustRemover {
+    public fun new() -> RustRemover {
+        println("Creating RustRemover");
+    }
+}
+
+public class RemovalResult {
+    public fun new() -> RemovalResult {
+        println("Creating RemovalResult");
+    }
+}

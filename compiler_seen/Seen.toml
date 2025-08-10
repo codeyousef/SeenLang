@@ -16,8 +16,8 @@ profile = "release"
 
 [dependencies]
 # Core dependencies for compiler implementation
-seen_std = { path = "../seen_std" }
-seen_reactive = { path = "../seen_std/reactive" }
+seen_std = "../seen_std"
+seen_reactive = "../seen_std/reactive"
 
 [build-dependencies]
 # Dependencies needed for bootstrap build process

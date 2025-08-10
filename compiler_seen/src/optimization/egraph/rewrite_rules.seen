@@ -1,0 +1,7 @@
+// Simplified Rewrite Rules Module
+
+public class RewriteRules {
+    public fun new() -> RewriteRules {
+        println("Creating RewriteRules");
+    }
+}

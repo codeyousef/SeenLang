@@ -1,0 +1,7 @@
+// Simplified Error System Test
+
+public class ErrorSystemTest {
+    public fun new() -> ErrorSystemTest {
+        println("Creating ErrorSystemTest");
+    }
+}

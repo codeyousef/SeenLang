@@ -47,13 +47,14 @@ fn test_public_use_statement() {
 #[test]
 fn test_public_class_simple() {
     let config = LanguageConfig::new_english();
-    let test_code = r#"
-        public class BootstrapManager {
-            public fun new() -> BootstrapManager {
-                return BootstrapManager();
-            }
-        }
-    "#;
+    let test_code = r#"public class BootstrapManager {
+    verifier: BootstrapVerifier
+    remover: RustRemover
+    
+    public fun new() -> BootstrapManager {
+        return BootstrapManager();
+    }
+}"#;
     
     let mut lexer = Lexer::new(test_code, 0, &config);
     let tokens = lexer.tokenize().expect("Failed to tokenize");

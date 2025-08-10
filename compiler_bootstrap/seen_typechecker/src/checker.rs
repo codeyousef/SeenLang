@@ -239,6 +239,10 @@ impl TypeChecker {
                 seen_parser::ItemKind::SealedClass(_) => {
                     // Sealed classes - implement in Step 11
                 }
+                seen_parser::ItemKind::Class(_class) => {
+                    // Regular classes - basic validation for now
+                    // Full class type checking will be implemented later
+                }
                 seen_parser::ItemKind::Property(prop) => {
                     // Property declarations - type check property definition
                     if let Some(ref ty) = prop.ty {

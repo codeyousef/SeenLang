@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -29,9 +29,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
       - name: Run unit tests
-        run: cargo test --lib --all
+        run: seen test --lib --all
       - name: Run doc tests
-        run: cargo test --doc --all
+        run: seen test --doc --all
 
   # Full test matrix
   full-test:
@@ -44,7 +44,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -64,9 +64,9 @@ jobs:
           choco install llvm --version=14.0.6
           echo "LLVM_SYS_140_PREFIX=C:\Program Files\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Run all tests
-        run: cargo test --all --all-features
+        run: seen test --all --all-features
       - name: Run integration tests
-        run: cargo test --test '*' --all-features
+        run: seen test --test '*' --all-features
 
   # Test individual crates
   crate-tests:
@@ -77,7 +77,7 @@ jobs:
         crate: [seen_lexer, seen_parser, seen_typechecker, seen_interpreter, seen_ir, seen_cli]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -88,7 +88,7 @@ jobs:
       - name: Test ${{ matrix.crate }}
         run: |
           cd ${{ matrix.crate }}
-          cargo test --all-features
+          seen test --all-features
 
   # Property-based tests
   property-tests:
@@ -96,14 +96,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install LLVM
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
       - name: Run property tests
-        run: cargo test --all --features proptest
+        run: seen test --all --features proptest
         env:
           PROPTEST_CASES: 1000
 
@@ -113,16 +113,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install LLVM
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
       - name: Test English keywords
-        run: cargo test --all bilingual_english
+        run: seen test --all bilingual_english
       - name: Test Arabic keywords
-        run: cargo test --all bilingual_arabic
+        run: seen test --all bilingual_arabic
 
   # Test report
   test-report:

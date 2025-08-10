@@ -17,11 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
         with:
           components: rustfmt
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: seen fmt --all -- --check
 
   # Lint code with clippy
   clippy:
@@ -29,12 +29,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: seen clippy --all-targets --all-features -- -D warnings
 
   # Run tests on multiple platforms
   test:
@@ -52,7 +52,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/seen-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@v2
@@ -72,10 +72,10 @@ jobs:
           choco install llvm --version=14.0.6
           echo "LLVM_SYS_140_PREFIX=C:\Program Files\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Run tests
-        run: cargo test --all --verbose
+        run: seen test --all --verbose
         continue-on-error: ${{ matrix.rust == 'nightly' }}
       - name: Run ignored tests
-        run: cargo test --all --verbose -- --ignored
+        run: seen test --all --verbose -- --ignored
         continue-on-error: true
 
   # Run benchmarks
@@ -84,14 +84,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install LLVM
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
       - name: Run benchmarks
-        run: cargo bench --all
+        run: seen bench --all
 
   # Check documentation
   doc:
@@ -99,10 +99,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check documentation
-        run: cargo doc --all --no-deps --document-private-items
+        run: seen doc --all --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -112,16 +112,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install LLVM
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
       - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin
+        run: seen install seen-tarpaulin
       - name: Run coverage
-        run: cargo tarpaulin --all --out Xml --verbose
+        run: seen tarpaulin --all --out Xml --verbose
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
         with:
@@ -145,12 +145,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-machete
-        run: cargo install cargo-machete
+      - name: Install seen-machete
+        run: seen install seen-machete
       - name: Check for unused dependencies
-        run: cargo machete
+        run: seen machete
 
   # Build release binaries
   release-build:
@@ -169,7 +169,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/seen-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
@@ -189,7 +189,7 @@ jobs:
           choco install llvm --version=14.0.6
           echo "LLVM_SYS_140_PREFIX=C:\Program Files\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: seen build --release --target ${{ matrix.target }}
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:

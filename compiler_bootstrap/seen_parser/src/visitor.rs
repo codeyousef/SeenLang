@@ -177,6 +177,42 @@ pub fn walk_item<'a, V: Visitor<'a>>(visitor: &mut V, item: &Item<'a>) {
                 visitor.visit_block(setter);
             }
         }
+        ItemKind::Class(class) => {
+            if let Some(ref superclass) = class.superclass {
+                visitor.visit_type(superclass);
+            }
+            for interface in &class.interfaces {
+                visitor.visit_type(interface);
+            }
+            for member in &class.body {
+                match member {
+                    crate::ast::ClassMember::Method(func) | 
+                    crate::ast::ClassMember::Constructor(func) => {
+                        visitor.visit_function(func);
+                    }
+                    crate::ast::ClassMember::Property(prop) => {
+                        if let Some(ref ty) = prop.ty {
+                            visitor.visit_type(ty);
+                        }
+                        if let Some(ref initializer) = prop.initializer {
+                            visitor.visit_expr(initializer);
+                        }
+                        if let Some(ref delegate) = prop.delegate {
+                            visitor.visit_expr(delegate);
+                        }
+                        if let Some(ref getter) = prop.getter {
+                            visitor.visit_block(getter);
+                        }
+                        if let Some(ref setter) = prop.setter {
+                            visitor.visit_block(setter);
+                        }
+                    }
+                    crate::ast::ClassMember::InitBlock(block) => {
+                        visitor.visit_block(block);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -536,6 +572,42 @@ pub fn walk_item_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, item: &mut Item<'a>
             }
             if let Some(ref mut setter) = prop.setter {
                 visitor.visit_block(setter);
+            }
+        }
+        ItemKind::Class(class) => {
+            if let Some(ref mut superclass) = class.superclass {
+                visitor.visit_type(superclass);
+            }
+            for interface in &mut class.interfaces {
+                visitor.visit_type(interface);
+            }
+            for member in &mut class.body {
+                match member {
+                    crate::ast::ClassMember::Method(func) | 
+                    crate::ast::ClassMember::Constructor(func) => {
+                        visitor.visit_function(func);
+                    }
+                    crate::ast::ClassMember::Property(prop) => {
+                        if let Some(ref mut ty) = prop.ty {
+                            visitor.visit_type(ty);
+                        }
+                        if let Some(ref mut initializer) = prop.initializer {
+                            visitor.visit_expr(initializer);
+                        }
+                        if let Some(ref mut delegate) = prop.delegate {
+                            visitor.visit_expr(delegate);
+                        }
+                        if let Some(ref mut getter) = prop.getter {
+                            visitor.visit_block(getter);
+                        }
+                        if let Some(ref mut setter) = prop.setter {
+                            visitor.visit_block(setter);
+                        }
+                    }
+                    crate::ast::ClassMember::InitBlock(block) => {
+                        visitor.visit_block(block);
+                    }
+                }
             }
         }
     }

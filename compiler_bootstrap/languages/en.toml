@@ -1,0 +1,106 @@
+# English language configuration for the Seen programming language
+# This file defines the English keywords and operators used in Seen source code
+
+name = "English"
+description = "English keyword set for the Seen programming language"
+
+[keywords]
+# Control flow  
+"fun" = "KeywordFun"
+"func" = "TokenFunc"
+"if" = "TokenIf"
+"else" = "TokenElse"
+"while" = "TokenWhile"
+"for" = "TokenFor"
+"in" = "TokenIn"
+"match" = "TokenMatch"
+"when" = "KeywordWhen"
+"break" = "TokenBreak"
+"continue" = "TokenContinue"
+"return" = "TokenReturn"
+
+# Variable declarations
+"let" = "TokenLet"
+"val" = "KeywordVal"
+"var" = "KeywordVar"
+"mut" = "TokenMut"
+"const" = "TokenConst"
+"static" = "TokenStatic"
+
+# Type definitions
+"struct" = "TokenStruct"
+"class" = "KeywordClass"
+"data" = "KeywordData"
+"enum" = "TokenEnum"
+"trait" = "TokenTrait"
+"impl" = "TokenImpl"
+"type" = "TokenType"
+
+# Module system
+"module" = "TokenModule"
+"import" = "TokenImport"
+"use" = "KeywordUse"
+"pub" = "TokenPub"
+"priv" = "TokenPriv"
+
+# Kotlin-style visibility
+"public" = "KeywordPublic"
+"private" = "KeywordPrivate"
+"internal" = "KeywordInternal"
+
+# Literals and keywords
+"true" = "TokenTrue"
+"false" = "TokenFalse"
+"null" = "KeywordNull"
+"is" = "KeywordIs"
+
+# Kotlin coroutines
+"suspend" = "KeywordSuspend"
+"await" = "KeywordAwait"
+"launch" = "KeywordLaunch"
+
+[operators]
+# Arithmetic operators
+"+" = "TokenPlus"
+"-" = "TokenMinus"
+"*" = "TokenMultiply"
+"/" = "TokenDivide"
+"%" = "TokenModulo"
+
+# Assignment operators
+"=" = "TokenAssign"
+"+=" = "TokenPlusAssign"
+"-=" = "TokenMinusAssign"
+"*=" = "TokenMultiplyAssign"
+"/=" = "TokenDivideAssign"
+"%=" = "TokenModuloAssign"
+
+# Comparison operators
+"==" = "TokenEqual"
+"!=" = "TokenNotEqual"
+"<" = "TokenLess"
+"<=" = "TokenLessEqual"
+">" = "TokenGreater"
+">=" = "TokenGreaterEqual"
+
+# Logical operators
+"&&" = "TokenLogicalAnd"
+"||" = "TokenLogicalOr"
+"!" = "TokenLogicalNot"
+
+# Bitwise operators
+"&" = "TokenBitwiseAnd"
+"|" = "TokenBitwiseOr"
+"^" = "TokenBitwiseXor"
+"~" = "TokenBitwiseNot"
+"<<" = "TokenLeftShift"
+">>" = "TokenRightShift"
+
+# Special operators
+"->" = "TokenArrow"
+"=>" = "TokenFatArrow"
+"?" = "TokenQuestion"
+"." = "TokenDot"
+".." = "TokenDoubleDot"
+"..." = "TokenTripleDot"
+"::" = "TokenDoubleColon"

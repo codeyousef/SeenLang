@@ -1,0 +1,7 @@
+// Simplified Cost Model Module
+
+public class CostModel {
+    public fun new() -> CostModel {
+        println("Creating CostModel");
+    }
+}
