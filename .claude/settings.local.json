@@ -973,7 +973,9 @@
       "Bash(ldd:*)",
       "Bash(./target/native/debug/final_verification_test)",
       "Bash(./target/native/debug/complex_test)",
-      "Bash(./target/native/debug/final_rust_removal_test)"
+      "Bash(./target/native/debug/final_rust_removal_test)",
+      "Bash(CARGO_TARGET_DIR=target-wsl timeout 30s ./target-wsl/debug/seen build --manifest-path compiler_seen)",
+      "Bash(./compiler_seen/target/native/debug/seen_compiler:*)"
     ],
     "deny": []
   }
