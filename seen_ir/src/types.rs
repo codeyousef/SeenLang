@@ -31,11 +31,16 @@ impl<'ctx> TypeSystem<'ctx> {
                     BasicTypeEnum::ArrayType(t) => t.array_type(10).into(),
                     BasicTypeEnum::StructType(t) => t.array_type(10).into(),
                     BasicTypeEnum::VectorType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::ScalableVectorType(_) => todo!("Handle ScalableVectorType in array creation"),
+                    BasicTypeEnum::ScalableVectorType(t) => t.array_type(10).into(),
                 };
                 
                 Ok(array_type)
-            }
+            },
+            AstType::Struct(struct_name) => {
+                // Create a struct type with the given name
+                let struct_type = self.context.opaque_struct_type(struct_name);
+                Ok(struct_type.into())
+            },
         }
     }
 

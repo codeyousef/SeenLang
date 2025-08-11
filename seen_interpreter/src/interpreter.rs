@@ -52,6 +52,9 @@ impl Interpreter {
             Declaration::Variable(var_decl) => {
                 self.interpret_variable_declaration(var_decl)
             }
+            Declaration::Struct(struct_decl) => {
+                self.interpret_struct_declaration(struct_decl)
+            }
         }
     }
 
@@ -108,6 +111,9 @@ impl Interpreter {
             }
             Statement::DeclarationStatement(decl) => {
                 self.interpret_declaration(decl)
+            }
+            Statement::For(for_stmt) => {
+                self.interpret_for_statement(for_stmt)
             }
         }
     }
@@ -224,6 +230,21 @@ impl Interpreter {
             }
             Expression::Parenthesized(paren) => {
                 self.interpret_expression(&paren.expression)
+            }
+            Expression::StructLiteral(struct_literal) => {
+                self.interpret_struct_literal_expression(struct_literal)
+            }
+            Expression::FieldAccess(field_access) => {
+                self.interpret_field_access_expression(field_access)
+            }
+            Expression::ArrayLiteral(array_literal) => {
+                self.interpret_array_literal_expression(array_literal)
+            }
+            Expression::Index(index) => {
+                self.interpret_index_expression(index)
+            }
+            Expression::Range(range) => {
+                self.interpret_range_expression(range)
             }
         }
     }
@@ -389,6 +410,119 @@ impl Interpreter {
             .map_err(|e| InterpreterError::runtime(e, assignment.location))?;
 
         Ok(value)
+    }
+
+    /// Interpret a struct declaration
+    fn interpret_struct_declaration(&mut self, _struct_decl: &seen_parser::ast::StructDeclaration) -> Result<Option<Value>, InterpreterError> {
+        // For the interpreter, struct declarations don't produce runtime values
+        // The struct type info is handled by the type checker
+        Ok(None)
+    }
+
+    /// Interpret a for statement
+    fn interpret_for_statement(&mut self, for_stmt: &seen_parser::ast::ForStatement) -> Result<Option<Value>, InterpreterError> {
+        // For MVP implementation - simplified for loop
+        let _iterable_value = self.interpret_expression(&for_stmt.iterable)?;
+        
+        // In a complete implementation, we'd iterate over the iterable
+        // For now, just execute the body once
+        self.interpret_statement(&for_stmt.body)
+    }
+
+    /// Interpret a struct literal expression
+    fn interpret_struct_literal_expression(&mut self, struct_literal: &seen_parser::ast::StructLiteralExpression) -> Result<Value, InterpreterError> {
+        let mut fields = std::collections::HashMap::new();
+        
+        for field_init in &struct_literal.fields {
+            let field_value = self.interpret_expression(&field_init.value)?;
+            fields.insert(field_init.field_name.clone(), field_value);
+        }
+        
+        Ok(Value::Struct {
+            name: struct_literal.struct_name.clone(),
+            fields,
+        })
+    }
+
+    /// Interpret a field access expression
+    fn interpret_field_access_expression(&mut self, field_access: &seen_parser::ast::FieldAccessExpression) -> Result<Value, InterpreterError> {
+        let object_value = self.interpret_expression(&field_access.object)?;
+        
+        match object_value {
+            Value::Struct { fields, .. } => {
+                if let Some(field_value) = fields.get(&field_access.field) {
+                    Ok(field_value.clone())
+                } else {
+                    Err(InterpreterError::runtime(
+                        format!("Field '{}' not found in struct", field_access.field),
+                        field_access.location
+                    ))
+                }
+            }
+            _ => Err(InterpreterError::runtime(
+                format!("Cannot access field '{}' on non-struct value", field_access.field),
+                field_access.location
+            ))
+        }
+    }
+
+    /// Interpret an array literal expression
+    fn interpret_array_literal_expression(&mut self, array_literal: &seen_parser::ast::ArrayLiteralExpression) -> Result<Value, InterpreterError> {
+        let mut elements = Vec::new();
+        
+        for element_expr in &array_literal.elements {
+            let element_value = self.interpret_expression(element_expr)?;
+            elements.push(element_value);
+        }
+        
+        Ok(Value::Array(elements))
+    }
+
+    /// Interpret an index expression
+    fn interpret_index_expression(&mut self, index: &seen_parser::ast::IndexExpression) -> Result<Value, InterpreterError> {
+        let object_value = self.interpret_expression(&index.object)?;
+        let index_value = self.interpret_expression(&index.index)?;
+        
+        match object_value {
+            Value::Array(ref arr) => {
+                if let Some(idx) = index_value.as_integer() {
+                    let idx = idx as usize;
+                    if idx < arr.len() {
+                        Ok(arr[idx].clone())
+                    } else {
+                        Err(InterpreterError::runtime(
+                            "Array index out of bounds".to_string(),
+                            index.location
+                        ))
+                    }
+                } else {
+                    Err(InterpreterError::runtime(
+                        "Array index must be an integer".to_string(),
+                        index.location
+                    ))
+                }
+            }
+            _ => Err(InterpreterError::runtime(
+                "Cannot index non-array value".to_string(),
+                index.location
+            ))
+        }
+    }
+
+    /// Interpret a range expression
+    fn interpret_range_expression(&mut self, range: &seen_parser::ast::RangeExpression) -> Result<Value, InterpreterError> {
+        let start_value = self.interpret_expression(&range.start)?;
+        let end_value = self.interpret_expression(&range.end)?;
+        
+        // Create a range struct with start and end fields
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("start".to_string(), start_value);
+        fields.insert("end".to_string(), end_value);
+        
+        Ok(Value::Struct {
+            name: "Range".to_string(),
+            fields,
+        })
     }
 }
 

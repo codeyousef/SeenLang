@@ -102,6 +102,21 @@ impl<'ctx> CodeGenerator<'ctx> {
         match declaration {
             Declaration::Function(func_decl) => { self.generate_function(func_decl)?; },
             Declaration::Variable(var_decl) => { self.generate_global_variable(var_decl)?; },
+            Declaration::Struct(struct_decl) => {
+                // Create struct type with fields
+                let field_types: Vec<BasicTypeEnum<'ctx>> = struct_decl
+                    .fields
+                    .iter()
+                    .map(|field| self.type_system.convert_type(&field.field_type))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let _struct_type = self.context.struct_type(&field_types, false);
+                
+                // Register the struct type for later use
+                // We create an opaque struct first and then set its body
+                let named_struct = self.context.opaque_struct_type(&struct_decl.name);
+                named_struct.set_body(&field_types, false);
+            },
         }
 
         Ok(())
@@ -346,6 +361,34 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(())
             },
             Statement::DeclarationStatement(decl) => self.generate_declaration(decl),
+            Statement::For(for_stmt) => {
+                // Generate for-in loop: for variable in iterable { body }
+                let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+
+                // For now, generate a simple loop over the iterable
+                let loop_block = self.context.append_basic_block(function, "for.body");
+                let end_block = self.context.append_basic_block(function, "for.end");
+
+                // Generate the iterable expression (but don't use it for now - just a simple implementation)
+                self.generate_expression(&for_stmt.iterable)?;
+                
+                // Jump to loop body (simplified for MVP)
+                self.builder.build_unconditional_branch(loop_block)?;
+                
+                // Generate loop body
+                self.builder.position_at_end(loop_block);
+                self.generate_statement(&for_stmt.body)?;
+                
+                // Jump to end (simplified - real implementation would iterate)
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(end_block)?;
+                }
+
+                // Position at end block for next statement
+                self.builder.position_at_end(end_block);
+
+                Ok(())
+            },
         }
     }
 
@@ -436,6 +479,184 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
             Expression::Parenthesized(paren_expr) => {
                 self.generate_expression(&paren_expr.expression)
+            }
+            Expression::StructLiteral(struct_literal) => {
+                // Create struct instance and initialize all fields
+                let struct_name = &struct_literal.struct_name;
+                let struct_type = self.context.opaque_struct_type(struct_name);
+                
+                // Allocate struct on stack
+                let struct_alloca = self.create_entry_block_alloca(
+                    &format!("{}_struct", struct_name), 
+                    struct_type.into()
+                );
+                
+                // Initialize each field
+                for (field_index, field_init) in struct_literal.fields.iter().enumerate() {
+                    let field_value = self.generate_expression(&field_init.value)?;
+                    let field_ptr = self.builder.build_struct_gep(
+                        struct_type,
+                        struct_alloca,
+                        field_index as u32,
+                        &format!("{}_field", field_init.field_name)
+                    )?;
+                    self.builder.build_store(field_ptr, field_value)?;
+                }
+                
+                // Load the complete struct
+                let loaded_struct = self.builder.build_load(
+                    struct_type,
+                    struct_alloca,
+                    &format!("{}_value", struct_name)
+                )?;
+                Ok(loaded_struct)
+            }
+            Expression::FieldAccess(field_access) => {
+                // Access field from struct
+                let object_value = self.generate_expression(&field_access.object)?;
+                let object_ptr = if object_value.is_pointer_value() {
+                    object_value.into_pointer_value()
+                } else {
+                    // If not a pointer, create temporary storage
+                    let temp_alloca = self.create_entry_block_alloca(
+                        "temp_struct", 
+                        object_value.get_type()
+                    );
+                    self.builder.build_store(temp_alloca, object_value)?;
+                    temp_alloca
+                };
+                
+                // For struct access, we need to know the struct type
+                // In a complete implementation, we'd maintain type information
+                // For now, we'll create a dummy struct type
+                let struct_type = self.context.struct_type(&[self.context.i64_type().into()], false);
+                
+                // Access the field (assuming field index 0 for now - real implementation would map field names to indices)
+                let field_ptr = self.builder.build_struct_gep(
+                    struct_type,
+                    object_ptr,
+                    0, // Field index - real implementation would look up by field name
+                    &format!("{}_field_access", field_access.field)
+                )?;
+                
+                let field_value = self.builder.build_load(
+                    struct_type.get_field_type_at_index(0).unwrap(),
+                    field_ptr,
+                    &format!("{}_field_value", field_access.field)
+                )?;
+                
+                Ok(field_value)
+            }
+            Expression::ArrayLiteral(array_literal) => {
+                // Create array with all elements
+                if array_literal.elements.is_empty() {
+                    return Ok(self.context.i32_type().const_zero().into());
+                }
+                
+                // Generate first element to determine array type
+                let first_element = self.generate_expression(&array_literal.elements[0])?;
+                let element_type = first_element.get_type();
+                let array_type = element_type.array_type(array_literal.elements.len() as u32);
+                
+                // Allocate array on stack
+                let array_alloca = self.create_entry_block_alloca("array", array_type.into());
+                
+                // Initialize each element
+                for (index, element_expr) in array_literal.elements.iter().enumerate() {
+                    let element_value = self.generate_expression(element_expr)?;
+                    let element_ptr = unsafe {
+                        self.builder.build_gep(
+                            array_type,
+                            array_alloca,
+                            &[
+                                self.context.i32_type().const_int(0, false),
+                                self.context.i32_type().const_int(index as u64, false)
+                            ],
+                            &format!("array_element_{}", index)
+                        )?
+                    };
+                    self.builder.build_store(element_ptr, element_value)?;
+                }
+                
+                // Return pointer to array
+                Ok(array_alloca.into())
+            }
+            Expression::Index(index_expr) => {
+                // Index into array
+                let array_value = self.generate_expression(&index_expr.object)?;
+                let index_value = self.generate_expression(&index_expr.index)?;
+                
+                let array_ptr = if array_value.is_pointer_value() {
+                    array_value.into_pointer_value()
+                } else {
+                    return Err(CodeGenError::InvalidASTNode {
+                        location: "index expression".to_string(),
+                        message: "Cannot index non-array type".to_string(),
+                    });
+                };
+                
+                // For array indexing, we need to know the array type
+                // In a complete implementation, we'd maintain type information
+                // For now, we'll assume i64 elements
+                let element_type = self.context.i64_type();
+                
+                // Build GEP to access array element
+                // For a complete implementation, we'd get the actual array type
+                let array_type = self.context.i64_type().array_type(10);
+                let element_ptr = unsafe {
+                    self.builder.build_gep(
+                        array_type,
+                        array_ptr,
+                        &[
+                            self.context.i32_type().const_int(0, false),
+                            index_value.into_int_value()
+                        ],
+                        "array_index"
+                    )?
+                };
+                
+                // Load the element value
+                let element_value = self.builder.build_load(element_type, element_ptr, "indexed_value")?;
+                Ok(element_value)
+            }
+            Expression::Range(range_expr) => {
+                // Create range struct with start and end values
+                let start_value = self.generate_expression(&range_expr.start)?;
+                let end_value = self.generate_expression(&range_expr.end)?;
+                
+                // Create range struct type (start: i64, end: i64)
+                let i64_type = self.context.i64_type();
+                let range_struct_type = self.context.struct_type(&[i64_type.into(), i64_type.into()], false);
+                
+                // Allocate range struct
+                let range_alloca = self.create_entry_block_alloca("range", range_struct_type.into());
+                
+                // Set start field
+                let start_ptr = self.builder.build_struct_gep(
+                    range_struct_type,
+                    range_alloca,
+                    0,
+                    "range_start_ptr"
+                )?;
+                self.builder.build_store(start_ptr, start_value)?;
+                
+                // Set end field  
+                let end_ptr = self.builder.build_struct_gep(
+                    range_struct_type,
+                    range_alloca,
+                    1,
+                    "range_end_ptr"
+                )?;
+                self.builder.build_store(end_ptr, end_value)?;
+                
+                // Load complete range struct
+                let range_value = self.builder.build_load(
+                    range_struct_type,
+                    range_alloca,
+                    "range_value"
+                )?;
+                
+                Ok(range_value)
             }
         }
     }

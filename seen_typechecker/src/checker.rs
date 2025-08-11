@@ -14,6 +14,8 @@ struct Environment {
     variables: HashMap<String, Type>,
     /// Functions in scope with their signatures
     functions: HashMap<String, FunctionSignature>,
+    /// User-defined types in scope
+    types: HashMap<String, Type>,
     /// Parent environment for nested scopes
     parent: Option<Box<Environment>>,
 }
@@ -24,6 +26,7 @@ impl Environment {
         Self {
             variables: HashMap::new(),
             functions: HashMap::new(),
+            types: HashMap::new(),
             parent: None,
         }
     }
@@ -33,6 +36,7 @@ impl Environment {
         Self {
             variables: HashMap::new(),
             functions: HashMap::new(),
+            types: HashMap::new(),
             parent: Some(Box::new(parent)),
         }
     }
@@ -67,6 +71,16 @@ impl Environment {
     /// Check if a function is defined in this scope only
     fn has_function(&self, name: &str) -> bool {
         self.functions.contains_key(name)
+    }
+
+    /// Define a type in this environment
+    fn define_type(&mut self, name: String, type_def: Type) {
+        self.types.insert(name, type_def);
+    }
+
+    /// Check if a type is defined in this scope only
+    fn has_type(&self, name: &str) -> bool {
+        self.types.contains_key(name)
     }
 }
 
@@ -133,6 +147,9 @@ impl TypeChecker {
             Declaration::Variable(var_decl) => {
                 self.check_variable_declaration(var_decl);
             }
+            Declaration::Struct(struct_decl) => {
+                self.check_struct_declaration(struct_decl);
+            }
         }
     }
 
@@ -177,6 +194,49 @@ impl TypeChecker {
         };
 
         self.env.define_variable(var_decl.name.clone(), var_type);
+    }
+
+    /// Type check a struct declaration
+    fn check_struct_declaration(&mut self, struct_decl: &seen_parser::ast::StructDeclaration) {
+        // Check for duplicate struct
+        if self.env.has_type(&struct_decl.name) {
+            self.result.add_error(TypeError::DuplicateType {
+                name: struct_decl.name.clone(),
+                position: self.location_to_position(&struct_decl.location),
+            });
+            return;
+        }
+
+        // Check each field
+        let mut field_names = std::collections::HashSet::new();
+        for field in &struct_decl.fields {
+            // Check for duplicate field names
+            if !field_names.insert(&field.name) {
+                self.result.add_error(TypeError::DuplicateField {
+                    struct_name: struct_decl.name.clone(),
+                    field_name: field.name.clone(),
+                    position: self.location_to_position(&field.location),
+                });
+            }
+            
+            // Verify field type exists
+            let field_type = Type::from(&field.field_type);
+            if matches!(field_type, Type::Unknown) {
+                self.result.add_error(TypeError::UnknownType {
+                    name: format!("{:?}", field.field_type),
+                    position: self.location_to_position(&field.location),
+                });
+            }
+        }
+
+        // Register the struct type in the environment
+        let struct_type = Type::Struct {
+            name: struct_decl.name.clone(),
+            fields: struct_decl.fields.iter().map(|f| {
+                (f.name.clone(), Type::from(&f.field_type))
+            }).collect(),
+        };
+        self.env.define_type(struct_decl.name.clone(), struct_type);
     }
 
     /// Type check a function declaration
@@ -254,6 +314,9 @@ impl TypeChecker {
             Statement::DeclarationStatement(decl) => {
                 self.check_declaration(decl);
             }
+            Statement::For(for_stmt) => {
+                self.check_for_statement(for_stmt);
+            }
         }
     }
 
@@ -286,6 +349,17 @@ impl TypeChecker {
         }
 
         self.check_statement(&while_stmt.body);
+    }
+
+    /// Type check a for statement
+    fn check_for_statement(&mut self, for_stmt: &seen_parser::ast::ForStatement) {
+        // Type check the iterable expression
+        let _iterable_type = self.check_expression(&for_stmt.iterable);
+        
+        // For MVP, accept any type as iterable (later we'd check for Array or Iterator traits)
+        
+        // Type check loop body
+        self.check_statement(&for_stmt.body);
     }
 
     /// Type check a return statement
@@ -359,6 +433,21 @@ impl TypeChecker {
             }
             Expression::Parenthesized(paren) => {
                 self.check_expression(&paren.expression)
+            }
+            Expression::StructLiteral(struct_literal) => {
+                self.check_struct_literal_expression(struct_literal)
+            }
+            Expression::FieldAccess(field_access) => {
+                self.check_field_access_expression(field_access)
+            }
+            Expression::ArrayLiteral(array_literal) => {
+                self.check_array_literal_expression(array_literal)
+            }
+            Expression::Index(index) => {
+                self.check_index_expression(index)
+            }
+            Expression::Range(range) => {
+                self.check_range_expression(range)
             }
         }
     }
@@ -554,6 +643,126 @@ impl TypeChecker {
         }
     }
 
+    /// Type check a struct literal expression
+    fn check_struct_literal_expression(&mut self, struct_literal: &seen_parser::ast::StructLiteralExpression) -> Type {
+        // Check if the struct type exists
+        let struct_name = &struct_literal.struct_name;
+        if let Some(struct_type) = self.env.types.get(struct_name).cloned() {
+            // Type check each field initialization
+            for field_init in &struct_literal.fields {
+                self.check_expression(&field_init.value);
+            }
+            struct_type
+        } else {
+            self.result.add_error(TypeError::UnknownType {
+                name: struct_name.clone(),
+                position: self.location_to_position(&struct_literal.location),
+            });
+            Type::Unknown
+        }
+    }
+
+    /// Type check a field access expression
+    fn check_field_access_expression(&mut self, field_access: &seen_parser::ast::FieldAccessExpression) -> Type {
+        let object_type = self.check_expression(&field_access.object);
+        match object_type {
+            Type::Struct { fields, .. } => {
+                if let Some(field_type) = fields.get(&field_access.field) {
+                    field_type.clone()
+                } else {
+                    self.result.add_error(TypeError::UnknownType {
+                        name: format!("field '{}' not found", field_access.field),
+                        position: self.location_to_position(&field_access.location),
+                    });
+                    Type::Unknown
+                }
+            }
+            _ => {
+                self.result.add_error(TypeError::InvalidOperation {
+                    operation: "field access".to_string(),
+                    left_type: object_type,
+                    right_type: Type::String,
+                    position: self.location_to_position(&field_access.location),
+                });
+                Type::Unknown
+            }
+        }
+    }
+
+    /// Type check an array literal expression
+    fn check_array_literal_expression(&mut self, array_literal: &seen_parser::ast::ArrayLiteralExpression) -> Type {
+        if array_literal.elements.is_empty() {
+            return Type::Array(Box::new(Type::Unknown));
+        }
+
+        let element_type = self.check_expression(&array_literal.elements[0]);
+        for element in &array_literal.elements[1..] {
+            let elem_type = self.check_expression(element);
+            if !elem_type.is_assignable_to(&element_type) {
+                self.result.add_error(type_mismatch(
+                    element_type.clone(),
+                    elem_type,
+                    self.location_to_position(&array_literal.location)
+                ));
+            }
+        }
+
+        Type::Array(Box::new(element_type))
+    }
+
+    /// Type check an index expression
+    fn check_index_expression(&mut self, index: &seen_parser::ast::IndexExpression) -> Type {
+        let array_type = self.check_expression(&index.object);
+        let index_type = self.check_expression(&index.index);
+
+        if !index_type.is_assignable_to(&Type::Int) {
+            self.result.add_error(TypeError::InvalidIndexType {
+                actual_type: index_type,
+                position: self.location_to_position(&index.location),
+            });
+        }
+
+        match array_type {
+            Type::Array(element_type) => *element_type,
+            _ => {
+                self.result.add_error(TypeError::InvalidOperation {
+                    operation: "indexing".to_string(),
+                    left_type: array_type,
+                    right_type: Type::Int,
+                    position: self.location_to_position(&index.location),
+                });
+                Type::Unknown
+            }
+        }
+    }
+
+    /// Type check a range expression
+    fn check_range_expression(&mut self, range: &seen_parser::ast::RangeExpression) -> Type {
+        let start_type = self.check_expression(&range.start);
+        if !start_type.is_assignable_to(&Type::Int) {
+            self.result.add_error(type_mismatch(
+                Type::Int,
+                start_type,
+                self.location_to_position(&range.location)
+            ));
+        }
+
+        let end_type = self.check_expression(&range.end);
+        if !end_type.is_assignable_to(&Type::Int) {
+            self.result.add_error(type_mismatch(
+                Type::Int,
+                end_type,
+                self.location_to_position(&range.location)
+            ));
+        }
+
+        // Range type - for now we'll use a simple representation
+        Type::Struct {
+            name: "Range".to_string(),
+            fields: std::collections::HashMap::new(),
+        }
+    }
+
     /// Get the location of an expression
     fn expression_location(&self, expr: &Expression) -> seen_lexer::token::Position {
         let location = match expr {
@@ -569,6 +778,11 @@ impl TypeChecker {
             Expression::Identifier(i) => &i.location,
             Expression::Call(c) => &c.location,
             Expression::Parenthesized(p) => &p.location,
+            Expression::StructLiteral(s) => &s.location,
+            Expression::FieldAccess(f) => &f.location,
+            Expression::ArrayLiteral(a) => &a.location,
+            Expression::Index(i) => &i.location,
+            Expression::Range(r) => &r.location,
         };
         self.location_to_position(location)
     }

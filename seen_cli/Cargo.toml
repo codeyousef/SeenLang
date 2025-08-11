@@ -10,8 +10,7 @@ seen_lexer = { path = "../seen_lexer" }
 seen_parser = { path = "../seen_parser" }
 seen_typechecker = { path = "../seen_typechecker" }
 seen_interpreter = { path = "../seen_interpreter" }
-# seen_compiler = { path = "../seen_compiler" }  # Disabled due to LLVM dependency
-# seen_ir = { path = "../seen_ir" }  # Disabled due to LLVM dependency
+seen_ir = { path = "../seen_ir" }
 
 # For CLI argument parsing
 clap = { version = "4.5.4", features = ["derive"] }
@@ -37,8 +36,8 @@ tera = "1.19.1"
 # For terminal coloring
 colored = "2.1.0"
 
-# For LLVM bindings (disabled due to Polly dependency issue)
-# inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+# For LLVM bindings
+inkwell = { version = "0.6.0", features = ["llvm18-1"] }
 [dev-dependencies]
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }

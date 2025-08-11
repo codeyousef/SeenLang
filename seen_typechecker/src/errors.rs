@@ -105,6 +105,25 @@ pub enum TypeError {
     CircularDependency {
         position: Position,
     },
+
+    #[error("Type '{name}' is already defined at {position}")]
+    DuplicateType {
+        name: String,
+        position: Position,
+    },
+
+    #[error("Duplicate field '{field_name}' in struct '{struct_name}' at {position}")]
+    DuplicateField {
+        struct_name: String,
+        field_name: String,
+        position: Position,
+    },
+
+    #[error("Unknown type '{name}' at {position}")]
+    UnknownType {
+        name: String,
+        position: Position,
+    },
 }
 
 /// Kind of type error for categorization
@@ -143,7 +162,10 @@ impl TypeError {
             TypeError::MissingReturn { position, .. } |
             TypeError::GenericConstraintViolation { position, .. } |
             TypeError::InferenceFailed { position, .. } |
-            TypeError::CircularDependency { position, .. } => *position,
+            TypeError::CircularDependency { position, .. } |
+            TypeError::DuplicateType { position, .. } |
+            TypeError::DuplicateField { position, .. } |
+            TypeError::UnknownType { position, .. } => *position,
         }
     }
     
@@ -151,11 +173,11 @@ impl TypeError {
     pub fn kind(&self) -> TypeErrorKind {
         match self {
             TypeError::TypeMismatch { .. } => TypeErrorKind::TypeMismatch,
-            TypeError::UndefinedVariable { .. } | TypeError::UndefinedFunction { .. } => TypeErrorKind::UndefinedReference,
+            TypeError::UndefinedVariable { .. } | TypeError::UndefinedFunction { .. } | TypeError::UnknownType { .. } => TypeErrorKind::UndefinedReference,
             TypeError::ArgumentCountMismatch { .. } => TypeErrorKind::ArgumentMismatch,
             TypeError::InvalidOperation { .. } => TypeErrorKind::InvalidOperation,
             TypeError::ImmutableAssignment { .. } => TypeErrorKind::AssignmentError,
-            TypeError::DuplicateVariable { .. } | TypeError::DuplicateFunction { .. } => TypeErrorKind::DuplicateDefinition,
+            TypeError::DuplicateVariable { .. } | TypeError::DuplicateFunction { .. } | TypeError::DuplicateType { .. } | TypeError::DuplicateField { .. } => TypeErrorKind::DuplicateDefinition,
             TypeError::NullSafety { .. } => TypeErrorKind::NullSafety,
             TypeError::IndexOutOfBounds { .. } | TypeError::InvalidIndexType { .. } => TypeErrorKind::IndexError,
             TypeError::ReturnTypeMismatch { .. } | TypeError::MissingReturn { .. } => TypeErrorKind::ReturnError,

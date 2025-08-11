@@ -3,7 +3,7 @@
 use serde::{Serialize, Deserialize};
 
 /// Represents a type in the Seen language
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Type {
     /// Primitive integer type
     Int,
@@ -25,7 +25,10 @@ pub enum Type {
         return_type: Box<Type>,
     },
     /// User-defined struct type
-    Struct(String),
+    Struct {
+        name: String,
+        fields: std::collections::HashMap<String, Type>,
+    },
     /// User-defined enum type
     Enum(String),
     /// Generic type parameter
@@ -109,7 +112,7 @@ impl Type {
                 let param_names: Vec<String> = params.iter().map(|p| p.name()).collect();
                 format!("({}) -> {}", param_names.join(", "), return_type.name())
             },
-            Type::Struct(name) => name.clone(),
+            Type::Struct { name, .. } => name.clone(),
             Type::Enum(name) => name.clone(),
             Type::Generic(name) => name.clone(),
             Type::Unit => "()".to_string(),
@@ -163,11 +166,20 @@ impl From<&seen_parser::ast::Type> for Type {
                     "String" => Type::String,
                     "Char" => Type::Char,
                     "()" => Type::Unit,
-                    _ => Type::Struct(name.clone()),
+                    _ => Type::Struct { 
+                        name: name.clone(), 
+                        fields: std::collections::HashMap::new() 
+                    },
                 }
             },
             seen_parser::ast::Type::Array(inner) => {
                 Type::Array(Box::new(Type::from(inner.as_ref())))
+            },
+            seen_parser::ast::Type::Struct(name) => {
+                Type::Struct { 
+                    name: name.clone(), 
+                    fields: std::collections::HashMap::new() 
+                }
             },
         }
     }

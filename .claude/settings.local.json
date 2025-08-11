@@ -109,7 +109,10 @@
       "Bash(/mnt/d/Projects/Rust/seenlang/verify_fixes.sh:*)",
       "Bash(/mnt/d/Projects/Rust/seenlang/copy_parser_fixes.sh:*)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo build --manifest-path seen_parser_fixed/Cargo.toml)",
-      "Bash(CARGO_TARGET_DIR=target-wsl cargo test --manifest-path seen_parser_fixed/Cargo.toml)"
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo test --manifest-path seen_parser_fixed/Cargo.toml)",
+      "Bash(CARGO_TARGET_DIR=target-wsl ./target-wsl/debug/seen init bootstrap_test)",
+      "Bash(CARGO_TARGET_DIR=../target-wsl ../target-wsl/debug/seen run)",
+      "Bash(CARGO_TARGET_DIR=../target-wsl ../target-wsl/debug/seen benchmark)"
     ],
     "deny": []
   }

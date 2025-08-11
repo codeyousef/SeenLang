@@ -22,6 +22,11 @@ pub enum Value {
     Null,
     /// Unit value (empty/void)
     Unit,
+    /// Struct value
+    Struct {
+        name: String,
+        fields: HashMap<String, Value>,
+    },
     /// Function value (closure)
     Function {
         name: String,
@@ -42,6 +47,7 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::Array(arr) => !arr.is_empty(),
+            Value::Struct { .. } => true,
             _ => true,
         }
     }
@@ -55,6 +61,7 @@ impl Value {
             Value::String(_) => "String",
             Value::Character(_) => "Char",
             Value::Array(_) => "Array",
+            Value::Struct { .. } => "Struct",
             Value::Null => "Null",
             Value::Unit => "Unit",
             Value::Function { .. } => "Function",
@@ -72,6 +79,12 @@ impl Value {
             Value::Array(arr) => {
                 let elements: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
                 format!("[{}]", elements.join(", "))
+            }
+            Value::Struct { name, fields } => {
+                let field_strs: Vec<String> = fields.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.to_string()))
+                    .collect();
+                format!("{}({})", name, field_strs.join(", "))
             }
             Value::Null => "null".to_string(),
             Value::Unit => "()".to_string(),
@@ -117,6 +130,11 @@ impl Value {
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Character(a), Value::Character(b)) => a == b,
+            (Value::Struct { name: n1, fields: f1 }, Value::Struct { name: n2, fields: f2 }) => {
+                n1 == n2 && f1.len() == f2.len() && f1.iter().all(|(k, v)| {
+                    f2.get(k).map_or(false, |v2| v.equals(v2))
+                })
+            }
             (Value::Null, Value::Null) => true,
             (Value::Unit, Value::Unit) => true,
             // Type coercion for numeric comparisons
