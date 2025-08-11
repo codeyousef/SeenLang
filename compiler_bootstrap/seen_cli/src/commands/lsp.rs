@@ -107,7 +107,7 @@ fn create_default_language_config() -> LanguageConfig {
     
     let mut keywords = HashMap::new();
     keywords.insert("fun".to_string(), "KeywordFun".to_string());
-    keywords.insert("val".to_string(), "KeywordVal".to_string());
+    keywords.insert("let".to_string(), "KeywordLet".to_string());
     keywords.insert("var".to_string(), "KeywordVar".to_string());
     keywords.insert("struct".to_string(), "KeywordStruct".to_string());
     keywords.insert("if".to_string(), "KeywordIf".to_string());
@@ -376,11 +376,11 @@ fn handle_request(request: JsonRpcRequest, document_manager: &mut DocumentManage
                         "insertTextFormat": 2  // Snippet
                     },
                     {
-                        "label": "val",
+                        "label": "let",
                         "kind": 6,  // Variable
                         "detail": "Immutable variable",
                         "documentation": "Define an immutable variable with type inference",
-                        "insertText": "val ${1:name} = $0"
+                        "insertText": "let ${1:name} = $0"
                     },
                     {
                         "label": "var",

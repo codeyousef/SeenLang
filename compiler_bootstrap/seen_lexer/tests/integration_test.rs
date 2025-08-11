@@ -113,13 +113,13 @@ fn test_comments() {
 #[test]
 fn test_kotlin_keywords() {
     let config = create_test_config();
-    let source = "fun val var if else when sealed data class object companion inline suspend";
+    let source = "fun let var if else when sealed data class object companion inline suspend";
     
     let mut lexer = Lexer::new(source, 0, &config);
     let tokens = lexer.tokenize().expect("Tokenization should succeed");
     
     assert!(matches!(tokens[0].value, TokenType::KeywordFun));
-    assert!(matches!(tokens[1].value, TokenType::KeywordVal));
+    assert!(matches!(tokens[1].value, TokenType::KeywordLet));
     assert!(matches!(tokens[2].value, TokenType::KeywordVar));
     assert!(matches!(tokens[3].value, TokenType::KeywordIf));
     assert!(matches!(tokens[4].value, TokenType::KeywordElse));

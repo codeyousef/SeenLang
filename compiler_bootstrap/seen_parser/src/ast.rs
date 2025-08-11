@@ -92,6 +92,7 @@ pub struct Parameter<'a> {
     pub is_mutable: bool,
     pub default_value: Option<Expr<'a>>, // Kotlin-style default parameters
     pub ownership: OwnershipMode, // New: automatic inference or explicit control
+    pub is_receiver: bool, // True if this is the receiver parameter (self)
     pub span: Span,
 }
 
@@ -492,6 +493,8 @@ pub enum PatternKind<'a> {
     Wildcard,
     /// Literal pattern
     Literal(Literal<'a>),
+    /// Range pattern (e.g., 1..5)
+    Range { start: Option<Box<Pattern<'a>>>, end: Option<Box<Pattern<'a>>>, inclusive: bool },
     /// Tuple pattern
     Tuple(Vec<Pattern<'a>>),
     /// Struct pattern

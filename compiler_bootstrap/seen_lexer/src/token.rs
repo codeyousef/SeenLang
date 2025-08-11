@@ -34,9 +34,8 @@ pub enum TokenType {
     KeywordIn,
     KeywordReturn,
     KeywordLet,
-    KeywordMut,
-    KeywordVal,
     KeywordVar,
+    KeywordMut,  // For 'borrow mut' syntax
     KeywordTrue,
     KeywordFalse,
     KeywordStruct,
@@ -183,9 +182,8 @@ impl fmt::Display for TokenType {
                     TokenType::KeywordIn => "KeywordIn",
                     TokenType::KeywordReturn => "KeywordReturn",
                     TokenType::KeywordLet => "KeywordLet",
-                    TokenType::KeywordMut => "KeywordMut",
-                    TokenType::KeywordVal => "KeywordVal",
                     TokenType::KeywordVar => "KeywordVar",
+                    TokenType::KeywordMut => "KeywordMut",
                     TokenType::KeywordTrue => "KeywordTrue",
                     TokenType::KeywordFalse => "KeywordFalse",
                     TokenType::KeywordStruct => "KeywordStruct",
@@ -320,9 +318,8 @@ impl TokenUtils for Token {
         matches!(self.value, 
             TokenType::KeywordFun | TokenType::KeywordIf | TokenType::KeywordElse |
             TokenType::KeywordWhile | TokenType::KeywordFor | TokenType::KeywordIn |
-            TokenType::KeywordReturn | TokenType::KeywordLet | TokenType::KeywordMut |
-            TokenType::KeywordVal |
-            TokenType::KeywordTrue | TokenType::KeywordFalse | TokenType::KeywordStruct |
+            TokenType::KeywordReturn | TokenType::KeywordLet | TokenType::KeywordVar |
+            TokenType::KeywordMut | TokenType::KeywordTrue | TokenType::KeywordFalse | TokenType::KeywordStruct |
             TokenType::KeywordEnum | TokenType::KeywordImpl | TokenType::KeywordTrait |
             TokenType::KeywordUse | TokenType::KeywordImport | TokenType::KeywordModule |
             TokenType::KeywordStatic | TokenType::KeywordConst |
@@ -337,7 +334,7 @@ impl TokenUtils for Token {
             TokenType::KeywordOpen | TokenType::KeywordFinal | TokenType::KeywordAbstract |
             TokenType::KeywordOverride | TokenType::KeywordLateinit | TokenType::KeywordCompanion |
             TokenType::KeywordOperator | TokenType::KeywordInfix | TokenType::KeywordTailrec |
-            TokenType::KeywordWhen | TokenType::KeywordVar | TokenType::KeywordNull |
+            TokenType::KeywordWhen | TokenType::KeywordNull |
             TokenType::KeywordAnd | TokenType::KeywordOr | TokenType::KeywordNot |
             TokenType::KeywordMove | TokenType::KeywordBorrow | TokenType::KeywordInout
         )

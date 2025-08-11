@@ -46,8 +46,8 @@ impl Parser {
         
         // Parse top-level items until end of file
         while !self.is_at_end() {
-            #[cfg(test)]
-            eprintln!("parse_program: About to parse item, current = {:?}", self.current_token());
+            // Debug output (disabled)
+            // eprintln!("parse_program: About to parse item, current = {:?}", self.current_token());
             
             match self.parse_item() {
                 Ok(item) => {
@@ -182,9 +182,42 @@ impl Parser {
         #[cfg(test)]
         eprintln!("parse_function: After consuming 'fun', current token = {:?}", self.current_token());
         
-        // Parse function name
-        let name = self.expect_identifier_value()?;
-        let name_span = self.previous_span();
+        // Check for receiver syntax: fun (receiver: Type) MethodName()
+        let mut receiver_param = None;
+        let (name, name_span) = if self.check(&TokenType::LeftParen) {
+            // This looks like receiver syntax
+            self.advance(); // consume '('
+            
+            // Parse receiver parameter
+            let receiver_name = self.expect_identifier_value()?;
+            let receiver_name_span = self.previous_span();
+            self.expect_token(TokenType::Colon)?;
+            let receiver_type = self.parse_type()?;
+            
+            // Create receiver parameter
+            let receiver_static: &'static str = Box::leak(receiver_name.into_boxed_str());
+            receiver_param = Some(Parameter {
+                name: seen_common::Spanned::new(receiver_static, receiver_name_span),
+                ty: receiver_type,
+                is_mutable: false,
+                default_value: None,
+                ownership: OwnershipMode::Automatic,
+                is_receiver: true,
+                span: receiver_name_span,
+            });
+            
+            self.expect_token(TokenType::RightParen)?;
+            
+            // Now parse the actual method name
+            let method_name = self.expect_identifier_value()?;
+            let method_name_span = self.previous_span();
+            (method_name, method_name_span)
+        } else {
+            // Regular function syntax
+            let name = self.expect_identifier_value()?;
+            let name_span = self.previous_span();
+            (name, name_span)
+        };
         
         #[cfg(test)]
         eprintln!("parse_function: Parsed function name '{}', checking for generic params", name);
@@ -202,8 +235,13 @@ impl Parser {
         
         // Parse parameters
         self.expect_token(TokenType::LeftParen)?;
-        let params = self.parse_parameter_list()?;
+        let mut params = self.parse_parameter_list()?;
         self.expect_token(TokenType::RightParen)?;
+        
+        // If we have a receiver, prepend it to the parameters
+        if let Some(receiver) = receiver_param {
+            params.insert(0, receiver);
+        }
         
         // Parse optional return type (supports both ':' and '->' syntax)
         let return_type = if self.match_token(&TokenType::Colon) || self.match_token(&TokenType::Arrow) {
@@ -216,13 +254,21 @@ impl Parser {
         let body = self.parse_block()?;
         
         let name_static: &'static str = Box::leak(name.into_boxed_str());
+        
+        // Determine visibility based on function name capitalization
+        let visibility = if name_static.chars().next().map_or(false, |c| c.is_uppercase()) {
+            Visibility::Public
+        } else {
+            Visibility::Private
+        };
+        
         let func = Function {
             name: seen_common::Spanned::new(name_static, name_span),
             type_params,
             params,
             return_type,
             body,
-            visibility: Visibility::Private,
+            visibility,
             attributes,
             is_inline: false,
             is_suspend: false,
@@ -412,6 +458,7 @@ impl Parser {
         // Parse function name
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
+        let visibility = Self::visibility_from_name(&name);
         
         // Parse optional generic type parameters
         let type_params = if self.check(&TokenType::LeftAngle) {
@@ -441,7 +488,7 @@ impl Parser {
             params,
             return_type,
             body,
-            visibility: Visibility::Private,
+            visibility,
             attributes: Vec::new(),
             is_inline: false,
             is_suspend: false,
@@ -466,6 +513,7 @@ impl Parser {
         // Parse function name (can be an operator like 'plus', 'minus', etc.)
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
+        let visibility = Self::visibility_from_name(&name);
         
         // Parse optional generic type parameters
         let type_params = if self.check(&TokenType::LeftAngle) {
@@ -495,7 +543,7 @@ impl Parser {
             params,
             return_type,
             body,
-            visibility: Visibility::Private,
+            visibility,
             attributes: Vec::new(),
             is_inline: false,
             is_suspend: false,
@@ -520,6 +568,7 @@ impl Parser {
         // Parse function name
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
+        let visibility = Self::visibility_from_name(&name);
         
         // Parse optional generic type parameters
         let type_params = if self.check(&TokenType::LeftAngle) {
@@ -555,7 +604,7 @@ impl Parser {
             params,
             return_type,
             body,
-            visibility: Visibility::Private,
+            visibility,
             attributes: Vec::new(),
             is_inline: false,
             is_suspend: false,
@@ -582,6 +631,7 @@ impl Parser {
         // Parse function name
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
+        let visibility = Self::visibility_from_name(&name);
         
         // Parse optional generic type parameters (after function name, with possible reified)
         let type_params = if self.check(&TokenType::LeftAngle) {
@@ -618,7 +668,7 @@ impl Parser {
             params,
             return_type,
             body,
-            visibility: Visibility::Private,
+            visibility,
             attributes: vec![inline_attr],
             is_inline: true,
             is_suspend: false,
@@ -706,6 +756,7 @@ impl Parser {
         // Parse type alias name
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
+        let visibility = Self::visibility_from_name(&name);
         
         // Parse optional generic parameters
         let generic_params = if self.check(&TokenType::Less) || self.check(&TokenType::LeftAngle) {
@@ -724,7 +775,7 @@ impl Parser {
             name: seen_common::Spanned::new(name.leak(), name_span),
             ty,
             generic_params,
-            visibility: Visibility::Public,
+            visibility,
         };
         
         Ok(Item {
@@ -744,15 +795,27 @@ impl Parser {
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
         
+        // Skip any newlines before opening brace
+        while matches!(self.current_token(), Some(Token { value: TokenType::Newline, .. })) {
+            self.advance();
+        }
+        
         // Parse struct body
         self.expect_token(TokenType::LeftBrace)?;
         let fields = self.parse_field_list()?;
         self.expect_token(TokenType::RightBrace)?;
         
+        // Determine visibility based on struct name capitalization
+        let visibility = if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+            Visibility::Public
+        } else {
+            Visibility::Private
+        };
+        
         let struct_def = Struct {
             name: seen_common::Spanned::new(name.leak(), name_span),
             fields,
-            visibility: Visibility::Private,
+            visibility,
             generic_params: Vec::new(),
             attributes: Vec::new(),
             companion_object: None,
@@ -890,6 +953,7 @@ impl Parser {
         // Parse enum name
         let name = self.expect_identifier_value()?;
         let name_span = self.previous_span();
+        let visibility = Self::visibility_from_name(&name);
         
         // Parse enum body
         self.expect_token(TokenType::LeftBrace)?;
@@ -899,7 +963,7 @@ impl Parser {
         let enum_def = Enum {
             name: seen_common::Spanned::new(name.leak(), name_span),
             variants,
-            visibility: Visibility::Private,
+            visibility,
             generic_params: Vec::new(),
             attributes: Vec::new(),
         };
@@ -963,6 +1027,9 @@ impl Parser {
     }
     
     fn expect_token(&mut self, token_type: TokenType) -> SeenResult<()> {
+        // Skip any newlines before the expected token
+        self.skip_newlines();
+        
         if let Some(token) = self.current_token() {
             if std::mem::discriminant(&token.value) == std::mem::discriminant(&token_type) {
                 self.advance();
@@ -972,6 +1039,15 @@ impl Parser {
         
         self.error(&format!("Expected {:?}", token_type));
         Err(seen_common::SeenError::parse_error("Unexpected token"))
+    }
+    
+    fn skip_newlines(&mut self) {
+        while matches!(self.current_token(), Some(Token { value: TokenType::Newline, .. })) {
+            self.advance();
+            if self.is_at_end() {
+                break;
+            }
+        }
     }
     
     fn expect_keyword(&mut self, expected: TokenType) -> SeenResult<()> {
@@ -1031,6 +1107,15 @@ impl Parser {
         Visibility::Private
     }
     
+    /// Determine visibility from a name string
+    fn visibility_from_name(name: &str) -> Visibility {
+        if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+            Visibility::Public
+        } else {
+            Visibility::Private
+        }
+    }
+    
     fn peek_token(&self, offset: usize) -> Option<&Token> {
         if self.current + offset < self.tokens.len() {
             Some(&self.tokens[self.current + offset])
@@ -1040,6 +1125,9 @@ impl Parser {
     }
     
     fn expect_identifier_value(&mut self) -> SeenResult<String> {
+        // Skip any newlines before the identifier
+        self.skip_newlines();
+        
         #[cfg(test)]
         eprintln!("expect_identifier_value: current token = {:?}", self.current_token());
         
@@ -1122,12 +1210,12 @@ impl Parser {
         let mut fields = vec![];
         
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-            // Parse field visibility (default to public)
-            let visibility = Visibility::Public;
-            
             // Parse field name
             let name = self.expect_identifier_value()?;
             let name_span = self.previous_span();
+            
+            // Determine field visibility based on capitalization
+            let visibility = Self::visibility_from_name(&name);
             
             // Expect ':'
             self.expect_token(TokenType::Colon)?;
@@ -1166,11 +1254,11 @@ impl Parser {
             // Parse field visibility (default to public)
             let visibility = Visibility::Public;
             
-            // Check for 'var' or 'val' keywords 
-            // Note: 'var' is tokenized as Identifier("var"), 'val' as KeywordVal
-            let is_mutable = if self.match_identifier("var") {
+            // Check for 'var' or 'let' keywords 
+            // 'var' is mutable, 'let' is immutable
+            let is_mutable = if self.match_token(&TokenType::KeywordVar) {
                 true
-            } else if self.match_token(&TokenType::KeywordVal) {
+            } else if self.match_token(&TokenType::KeywordLet) {
                 false
             } else {
                 false // Default to immutable
@@ -1328,6 +1416,7 @@ impl Parser {
                 is_mutable: false,
                 default_value,
                 ownership,
+                is_receiver: false, // Regular parameters are not receivers
                 span: name_span,
             });
             
@@ -1342,14 +1431,32 @@ impl Parser {
     fn parse_field_list(&mut self) -> SeenResult<Vec<Field<'static>>> {
         let mut fields = Vec::new();
         
+        // Skip any initial newlines
+        self.skip_newlines();
+        
         while !matches!(self.current_token(), Some(Token { value: TokenType::RightBrace, .. })) {
             if self.is_at_end() {
                 self.error("Unexpected end of file in field list");
                 break;
             }
             
+            // Skip any newlines/comments before field
+            while matches!(self.current_token(), Some(Token { value: TokenType::Newline, .. }) | 
+                                                 Some(Token { value: TokenType::Comment(_), .. })) {
+                self.advance();
+                if self.is_at_end() {
+                    break;
+                }
+            }
+            
+            // Check again for right brace after skipping whitespace
+            if matches!(self.current_token(), Some(Token { value: TokenType::RightBrace, .. })) || self.is_at_end() {
+                break;
+            }
+            
             let name = self.expect_identifier_value()?;
             let name_span = self.previous_span();
+            let visibility = Self::visibility_from_name(&name);
             
             self.expect_token(TokenType::Colon)?;
             let ty = self.parse_type()?;
@@ -1357,12 +1464,21 @@ impl Parser {
             fields.push(Field {
                 name: seen_common::Spanned::new(name.leak(), name_span),
                 ty,
-                visibility: Visibility::Private,
+                visibility,
                 span: name_span,
             });
             
             // Optional comma
             self.match_token(&TokenType::Comma);
+            
+            // Skip any trailing newlines
+            while matches!(self.current_token(), Some(Token { value: TokenType::Newline, .. }) | 
+                                                 Some(Token { value: TokenType::Comment(_), .. })) {
+                self.advance();
+                if self.is_at_end() {
+                    break;
+                }
+            }
         }
         
         Ok(fields)
@@ -1683,9 +1799,9 @@ impl Parser {
         
         let kind = if let Some(token) = self.current_token() {
             match &token.value {
-                TokenType::KeywordLet | TokenType::KeywordVal | TokenType::KeywordVar => {
+                TokenType::KeywordLet | TokenType::KeywordVar => {
                 let is_mutable = matches!(token.value, TokenType::KeywordVar);
-                self.advance(); // consume 'let', 'val', or 'var'
+                self.advance(); // consume 'let' or 'var'
                     
                     let pattern_name = self.expect_identifier_value()?;
                 let pattern_span = self.previous_span();
@@ -1901,6 +2017,30 @@ impl Parser {
                     kind: Box::new(ExprKind::Assign {
                         target: Box::new(left),
                         value: Box::new(right),
+                    }),
+                    span: self.current_span(),
+                    id: self.next_node_id(),
+                };
+                continue;
+            }
+            
+            // Handle range operators specially
+            if matches!(token.value, TokenType::DotDot | TokenType::DotDotLess) {
+                let inclusive = matches!(token.value, TokenType::DotDot);
+                self.advance(); // consume '..' or '..<'
+                
+                let end = if !self.is_at_end() && !matches!(self.current_token(), 
+                    Some(Token { value: TokenType::RightBrace | TokenType::RightParen | TokenType::Comma | TokenType::Semicolon, .. })) {
+                    Some(Box::new(self.parse_postfix_expression()?))
+                } else {
+                    None
+                };
+                
+                left = Expr {
+                    kind: Box::new(ExprKind::Range {
+                        start: Some(Box::new(left)),
+                        end,
+                        inclusive,
                     }),
                     span: self.current_span(),
                     id: self.next_node_id(),
@@ -2304,6 +2444,10 @@ impl Parser {
                         kind: LiteralKind::Boolean(val),
                         span,
                     })
+                }
+                TokenType::KeywordNull => {
+                    self.advance();
+                    ExprKind::Null
                 }
                 TokenType::Identifier(name) => {
                     // Check for special identifiers
@@ -2972,8 +3116,8 @@ impl Parser {
                 None
             };
             
-            // Expect =>
-            self.expect_token(TokenType::FatArrow)?;
+            // Expect ->
+            self.expect_token(TokenType::Arrow)?;
             
             // Parse arm body
             let body = self.parse_expression()?;
@@ -3006,6 +3150,41 @@ impl Parser {
     }
     
     fn parse_pattern(&mut self) -> SeenResult<Pattern<'static>> {
+        let span = self.current_span();
+        
+        // Parse the left-hand side of a potential range pattern
+        let mut pattern = self.parse_primary_pattern()?;
+        
+        // Check for range operators (.., ..<)
+        if let Some(token) = self.current_token() {
+            if matches!(token.value, TokenType::DotDot | TokenType::DotDotLess) {
+                let inclusive = matches!(token.value, TokenType::DotDot);
+                self.advance(); // consume range operator
+                
+                // Parse the end pattern (right-hand side)
+                let end_pattern = if self.check(&TokenType::Arrow) || self.check(&TokenType::RightBrace) || self.check(&TokenType::Comma) {
+                    // Unbounded range like "1.." 
+                    None
+                } else {
+                    Some(Box::new(self.parse_primary_pattern()?))
+                };
+                
+                pattern = Pattern {
+                    kind: PatternKind::Range {
+                        start: Some(Box::new(pattern)),
+                        end: end_pattern,
+                        inclusive,
+                    },
+                    span: self.current_span(), // Update span to include the range
+                    id: self.next_node_id(),
+                };
+            }
+        }
+        
+        Ok(pattern)
+    }
+    
+    fn parse_primary_pattern(&mut self) -> SeenResult<Pattern<'static>> {
         let span = self.current_span();
         
         let kind = if let Some(token) = self.current_token() {
@@ -3090,6 +3269,7 @@ impl Parser {
             TokenType::KeywordAnd => (2, false),
             TokenType::Equal | TokenType::NotEqual => (3, false),
             TokenType::Less | TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual | TokenType::KeywordIs => (4, false),
+            TokenType::DotDot | TokenType::DotDotLess => (4, false), // Range operators same as comparison
             TokenType::Plus | TokenType::Minus => (5, false),
             TokenType::Multiply | TokenType::Divide | TokenType::Modulo => (6, false),
             _ => (255, false), // No precedence - don't treat as binary operator
@@ -3137,13 +3317,13 @@ impl Parser {
         
         if !self.check(&TokenType::RightParen) {
             loop {
-                // Parse val/var
+                // Parse let/var
                 let is_mutable = if self.match_token(&TokenType::KeywordVar) {
                     true
-                } else if self.match_token(&TokenType::KeywordVal) {
-                    false // val is immutable
+                } else if self.match_token(&TokenType::KeywordLet) {
+                    false // let is immutable
                 } else {
-                    return Err(seen_common::SeenError::parse_error("Expected 'val' or 'var' in data class constructor"));
+                    return Err(seen_common::SeenError::parse_error("Expected 'let' or 'var' in data class constructor"));
                 };
                 
                 let field_name = self.expect_identifier_value()?;
@@ -3238,7 +3418,12 @@ impl Parser {
                 
                 if !self.check(&TokenType::RightParen) {
                     loop {
-                        let is_mutable = self.match_token(&TokenType::KeywordVar) || !self.match_token(&TokenType::KeywordVal);
+                        let is_mutable = if self.match_token(&TokenType::KeywordVar) {
+                            true
+                        } else {
+                            self.match_token(&TokenType::KeywordLet); // Consume optional 'let'
+                            false
+                        };
                         let field_name = self.expect_identifier_value()?;
                         self.expect_token(TokenType::Colon)?;
                         let field_type = self.parse_type()?;
@@ -3649,7 +3834,7 @@ impl Parser {
                     span: method_span,
                     id: self.next_node_id(),
                 });
-            } else if self.match_token(&TokenType::KeywordVal) || self.match_token(&TokenType::KeywordVar) {
+            } else if self.match_token(&TokenType::KeywordLet) || self.match_token(&TokenType::KeywordVar) {
                 // Parse property
                 let prop_name = self.expect_identifier_value()?;
                 let prop_span = self.previous_span();

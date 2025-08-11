@@ -183,14 +183,16 @@ impl Project {
     pub fn load_language_config(&self) -> Result<LanguageConfig> {
         let lang = &self.config.project.language;
         
-        // For English, use the built-in configuration
-        if lang == "en" {
-            return Ok(LanguageConfig::new_english());
-        }
-        
-        // For Arabic, use the built-in configuration
-        if lang == "ar" {
-            return Ok(LanguageConfig::new_arabic());
+        // First try to load from compiler's built-in languages directory
+        let compiler_lang_file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("languages")
+            .join(format!("{}.toml", lang));
+            
+        if compiler_lang_file.exists() {
+            return LanguageConfig::load_from_file(&compiler_lang_file)
+                .map_err(|e| anyhow::anyhow!("Failed to load compiler language config: {}", e));
         }
         
         // Try project-local language file first

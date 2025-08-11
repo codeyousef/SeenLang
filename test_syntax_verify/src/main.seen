@@ -1,0 +1,115 @@
+// Test all Seen language features according to Syntax Design
+
+// 1. Variable declarations (let/var, NO val)
+fun testVariables() {
+    let immutableValue = 42
+    var mutableValue = 100
+    mutableValue = 101
+}
+
+// 2. String interpolation with {} (not ${})
+fun testStringInterpolation() {
+    let name = "Alice"
+    let age = 25
+    let message = "Hello, {name}! You are {age} years old."
+    println(message)
+}
+
+// 3. Word-based logical operators (and/or/not)
+fun testLogicalOperators() {
+    let age = 25
+    let isAdult = age >= 18
+    let hasPermission = true
+    let canEnter = isAdult and hasPermission
+    let isDenied = not canEnter
+    let allowAccess = canEnter or isDenied
+}
+
+// 4. Capitalization-based visibility
+struct User {          // Public (capital U)
+    Name: String       // Public field (capital N)
+    Age: Int           // Public field (capital A)
+    password: String   // Private field (lowercase p)
+}
+
+fun ProcessData(data: String): String {  // Public function (capital P)
+    return processInternal(data)
+}
+
+fun processInternal(data: String): String {  // Private function (lowercase p)
+    return data
+}
+
+// 5. Nullable types with ?
+fun testNullableTypes() {
+    let maybeUser: User? = null
+    let userName = maybeUser?.Name ?: "Guest"
+}
+
+// 6. Type checking with 'is'
+fun testTypeChecking() {
+    let value: Any = 42
+    if value is Int {
+        println("It's an integer!")
+    }
+}
+
+// 7. Control flow as expressions
+fun testControlFlowExpressions() {
+    let isAdult = true
+    let status = if isAdult { "adult" } else { "minor" }
+    
+    let age = 25
+    let category = match age {
+        0..12 -> "child"
+        13..19 -> "teenager"
+        _ -> "adult"
+    }
+}
+
+// 8. Lambda/closure syntax
+fun testLambdas() {
+    let addOne = |x: Int| x + 1
+    let multiply = |x: Int, y: Int| -> Int { x * y }
+}
+
+// 9. Memory management keywords
+struct Data {
+    value: Int
+}
+
+fun TransferOwnership(move data: Data) {
+    // Takes ownership
+}
+
+fun BorrowData(borrow data: Data) {
+    // Borrows data
+}
+
+fun MutateData(borrow mut data: Data) {
+    // Borrows mutably
+}
+
+// 10. Receiver syntax for methods
+fun (u: User) GetFullName(): String {
+    return "{u.Name}"
+}
+
+fun (u: User) greet(): String {  // Private method (lowercase)
+    return "Hello!"
+}
+
+// Main function
+fun main() {
+    println("Testing Seen language features...")
+    
+    testVariables()
+    testStringInterpolation()
+    testLogicalOperators()
+    testNullableTypes()
+    testTypeChecking()
+    testControlFlowExpressions()
+    testLambdas()
+    
+    println("All Seen language features test complete!")
+}

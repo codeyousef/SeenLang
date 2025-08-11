@@ -471,6 +471,14 @@ pub fn walk_type<'a, V: Visitor<'a>>(visitor: &mut V, ty: &Type<'a>) {
 pub fn walk_pattern<'a, V: Visitor<'a>>(visitor: &mut V, pat: &Pattern<'a>) {
     match &pat.kind {
         PatternKind::Identifier(_) | PatternKind::Wildcard | PatternKind::Literal(_) => {}
+        PatternKind::Range { start, end, .. } => {
+            if let Some(ref start_pat) = start {
+                visitor.visit_pattern(start_pat);
+            }
+            if let Some(ref end_pat) = end {
+                visitor.visit_pattern(end_pat);
+            }
+        }
         PatternKind::Tuple(patterns) => {
             for pat in patterns {
                 visitor.visit_pattern(pat);
@@ -877,6 +885,14 @@ pub fn walk_type_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, ty: &mut Type<'a>) 
 pub fn walk_pattern_mut<'a, V: MutVisitor<'a>>(visitor: &mut V, pat: &mut Pattern<'a>) {
     match &mut pat.kind {
         PatternKind::Identifier(_) | PatternKind::Wildcard | PatternKind::Literal(_) => {}
+        PatternKind::Range { start, end, .. } => {
+            if let Some(ref mut start_pat) = start {
+                visitor.visit_pattern(start_pat);
+            }
+            if let Some(ref mut end_pat) = end {
+                visitor.visit_pattern(end_pat);
+            }
+        }
         PatternKind::Tuple(patterns) => {
             for pat in patterns {
                 visitor.visit_pattern(pat);

@@ -165,8 +165,7 @@ fn create_english_config() -> LanguageConfig {
     operators.insert("<=".to_string(), "TokenLessEqual".to_string());
     operators.insert(">".to_string(), "TokenGreater".to_string());
     operators.insert(">=".to_string(), "TokenGreaterEqual".to_string());
-    operators.insert("&&".to_string(), "TokenLogicalAnd".to_string());
-    operators.insert("||".to_string(), "TokenLogicalOr".to_string());
+    // NO symbolic logical operators - word-based only per Syntax Design
     
     LanguageConfig {
         keywords,

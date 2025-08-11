@@ -352,43 +352,30 @@ impl<'a> Lexer<'a> {
         self.advance(); // Skip opening quote
         
         let mut value = String::new();
-        let mut has_interpolation = false;
         
-        // Scan string and collect parts, detecting interpolation
-        let mut full_content = String::new();
+        // Scan the entire string including any {} interpolation markers
         while !self.is_at_end() && self.current_char() != '"' {
             if self.current_char() == '\\' {
-                full_content.push(self.current_char());
                 self.advance();
                 if !self.is_at_end() {
-                    full_content.push(self.current_char());
+                    // Handle escape sequences
+                    match self.current_char() {
+                        'n' => value.push('\n'),
+                        't' => value.push('\t'),
+                        'r' => value.push('\r'),
+                        '\\' => value.push('\\'),
+                        '"' => value.push('"'),
+                        '{' => value.push('{'),
+                        '}' => value.push('}'),
+                        c => {
+                            value.push('\\');
+                            value.push(c);
+                        }
+                    }
                     self.advance();
                 }
-            } else if self.current_char() == '{' {
-                // Look ahead to see if this is interpolation
-                let saved_pos = self.position;
-                let saved_current_pos = self.current_pos;
-                
-                self.advance(); // Move past '{'
-                if !self.is_at_end() {
-                    let next_char = self.current_char();
-                    if next_char.is_alphabetic() || next_char == '_' {
-                        has_interpolation = true;
-                    }
-                }
-                
-                // Restore position
-                self.position = saved_pos;
-                self.current_pos = saved_current_pos;
-                
-                if has_interpolation {
-                    break; // Stop collecting, we found interpolation
-                }
-                
-                full_content.push(self.current_char());
-                self.advance();
             } else {
-                full_content.push(self.current_char());
+                value.push(self.current_char());
                 if self.current_char() == '\n' {
                     self.advance_line();
                 } else {
@@ -397,29 +384,16 @@ impl<'a> Lexer<'a> {
             }
         }
         
-        if !has_interpolation {
-            // Process escape sequences for simple string
-            for ch in full_content.chars() {
-                match ch {
-                    '\\' => {
-                        // This is simplified - in real implementation would need proper escape handling
-                        value.push(ch);
-                    }
-                    c => value.push(c),
-                }
-            }
-            
-            if self.is_at_end() {
-                self.diagnostics.error("Unterminated string literal", Span::single(self.current_pos, self.file_id));
-                return Ok(TokenType::StringLiteral(value));
-            }
-            
-            self.advance(); // Skip closing quote
+        if self.is_at_end() {
+            self.diagnostics.error("Unterminated string literal", Span::single(self.current_pos, self.file_id));
             return Ok(TokenType::StringLiteral(value));
         }
         
-        // For interpolation, return just the first part up to the '{'
-        return Ok(TokenType::StringLiteral(full_content));
+        self.advance(); // Skip closing quote
+        
+        // Return the complete string with interpolation markers intact
+        // The parser/semantic analyzer will handle interpolation expansion
+        Ok(TokenType::StringLiteral(value))
     }
     
     fn scan_simple_string_literal(&mut self) -> SeenResult<TokenType> {
@@ -539,13 +513,14 @@ impl<'a> Lexer<'a> {
                         value.push(c);
                     }
                 }
+                self.advance();
             } else if self.current_char() == '\n' {
-                self.advance_line();
                 value.push('\n');
+                self.advance_line();
             } else {
                 value.push(self.current_char());
+                self.advance();
             }
-            self.advance();
         }
         
         // Check what ended the loop

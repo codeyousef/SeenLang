@@ -212,13 +212,12 @@ fn create_english_config() -> LanguageConfig {
     let mut keywords = HashMap::new();
     keywords.insert("fun".to_string(), "KeywordFun".to_string());
     keywords.insert("let".to_string(), "KeywordLet".to_string());
+    keywords.insert("var".to_string(), "KeywordVar".to_string());
     keywords.insert("if".to_string(), "KeywordIf".to_string());
     keywords.insert("else".to_string(), "KeywordElse".to_string());
     keywords.insert("return".to_string(), "KeywordReturn".to_string());
     keywords.insert("true".to_string(), "KeywordTrue".to_string());
     keywords.insert("false".to_string(), "KeywordFalse".to_string());
-    keywords.insert("val".to_string(), "KeywordVal".to_string());
-    keywords.insert("var".to_string(), "KeywordVar".to_string());
     
     let mut operators = HashMap::new();
     operators.insert("+".to_string(), "TokenPlus".to_string());
@@ -232,8 +231,7 @@ fn create_english_config() -> LanguageConfig {
     operators.insert("<=".to_string(), "TokenLessEqual".to_string());
     operators.insert(">".to_string(), "TokenGreater".to_string());
     operators.insert(">=".to_string(), "TokenGreaterEqual".to_string());
-    operators.insert("&&".to_string(), "TokenLogicalAnd".to_string());
-    operators.insert("||".to_string(), "TokenLogicalOr".to_string());
+    // NO symbolic logical operators - word-based only per Syntax Design
     
     LanguageConfig {
         keywords,
