@@ -1,0 +1,141 @@
+# Arabic language configuration for the Seen programming language
+# This file defines the Arabic keywords and operators used in Seen source code
+# اللغة العربية للغة البرمجة المرئية
+
+name = "Arabic"
+description = "Arabic keyword set for the Seen programming language - مجموعة الكلمات المفتاحية العربية للغة البرمجة المرئية"
+
+[keywords]
+# Control flow - التحكم في التدفق
+"دالة" = "KeywordFun"           # function
+"إذا" = "KeywordIf"             # if
+"وإلا" = "KeywordElse"          # else  
+"بينما" = "KeywordWhile"       # while
+"لكل" = "KeywordFor"           # for
+"في" = "KeywordIn"             # in
+"طابق" = "KeywordMatch"        # match
+"اكسر" = "KeywordBreak"        # break
+"استمر" = "KeywordContinue"    # continue
+"رجع" = "KeywordReturn"        # return
+"عندما" = "KeywordWhen"        # when
+
+# Variable declarations - إعلانات المتغيرات
+"اجعل" = "KeywordLet"          # let
+"ثابت" = "KeywordVal"          # val
+"متغير" = "KeywordVar"        # var
+"قابل_للتغيير" = "KeywordMut" # mutable
+"ثابت_عام" = "KeywordConst"   # const
+"ساكن" = "KeywordStatic"       # static
+
+# Type definitions - تعريفات الأنواع
+"هيكل" = "KeywordStruct"       # struct
+"تعداد" = "KeywordEnum"         # enum
+"صفة" = "KeywordTrait"         # trait
+"تطبيق" = "KeywordImpl"        # impl
+"نوع" = "KeywordType"          # type
+"فئة" = "KeywordClass"         # class
+"بيانات" = "KeywordData"       # data
+"مختوم" = "KeywordSealed"      # sealed
+"كائن" = "KeywordObject"       # object
+"واجهة" = "KeywordInterface"   # interface
+
+# Module system - نظام الوحدات
+"وحدة" = "KeywordModule"       # module
+"استورد" = "KeywordImport"     # import
+
+# Literals - القيم الحرفية
+"صحيح" = "KeywordTrue"         # true
+"خطأ" = "KeywordFalse"         # false
+"عدم" = "KeywordNull"          # null
+
+# Type checking - فحص الأنواع
+"هو" = "KeywordIs"             # is
+"ك" = "KeywordAs"              # as
+"بواسطة" = "KeywordBy"         # by
+
+# Async/Coroutines - غير متزامن
+"علق" = "KeywordSuspend"       # suspend
+"انتظر" = "KeywordAwait"       # await
+"شغل" = "KeywordLaunch"        # launch
+"تدفق" = "KeywordFlow"         # flow
+
+# Error handling - معالجة الأخطاء
+"جرب" = "KeywordTry"           # try
+"امسك" = "KeywordCatch"        # catch
+"أخيرا" = "KeywordFinally"     # finally
+"ارم" = "KeywordThrow"         # throw
+
+# Function modifiers - محددات الوظائف
+"مضمن" = "KeywordInline"       # inline
+"محقق" = "KeywordReified"      # reified
+"مضمن_متقاطع" = "KeywordCrossinline" # crossinline
+"غير_مضمن" = "KeywordNoinline" # noinline
+"مشغل" = "KeywordOperator"     # operator
+"ثابت_وسط" = "KeywordInfix"    # infix
+"عودة_ذيل" = "KeywordTailrec"  # tailrec
+
+# Class modifiers - محددات الفئات
+"مفتوح" = "KeywordOpen"        # open
+"نهائي" = "KeywordFinal"       # final
+"مجرد" = "KeywordAbstract"     # abstract
+"تجاوز" = "KeywordOverride"    # override
+"متأخر_البدء" = "KeywordLateinit" # lateinit
+"رفيق" = "KeywordCompanion"    # companion
+
+# Logical operators - المشغلات المنطقية
+"و" = "KeywordAnd"             # and
+"أو" = "KeywordOr"             # or  
+"ليس" = "KeywordNot"           # not
+
+# Memory management - إدارة الذاكرة
+"انقل" = "KeywordMove"          # move
+"استعر" = "KeywordBorrow"       # borrow
+"في_المكان" = "KeywordInout"     # inout
+
+[operators]
+# Arithmetic operators - المشغلات الحسابية
+"+" = "Plus"
+"-" = "Minus"
+"*" = "Multiply"
+"/" = "Divide"
+"%" = "Modulo"
+
+# Assignment operators - مشغلات التعيين
+"=" = "Assign"
+"+=" = "PlusAssign"
+"-=" = "MinusAssign"
+"*=" = "MultiplyAssign"
+"/=" = "DivideAssign"
+"%=" = "ModuloAssign"
+
+# Comparison operators - مشغلات المقارنة
+"==" = "Equal"
+"!=" = "NotEqual"
+"<" = "Less"
+"<=" = "LessEqual"
+">" = "Greater"
+">=" = "GreaterEqual"
+
+
+# Bitwise operators - المشغلات البتية
+"&" = "BitwiseAnd"
+"|" = "BitwiseOr"
+"^" = "BitwiseXor"
+"~" = "BitwiseNot"
+"<<" = "LeftShift"
+">>" = "RightShift"
+
+# Special operators - المشغلات الخاصة
+"->" = "Arrow"
+"=>" = "FatArrow"
+"?" = "Question"
+"." = "Dot"
+".." = "DotDot"
+"..." = "TripleDot"
+"..<" = "DotDotLess"
+"::" = "DoubleColon"
+"?." = "QuestionDot"
+"?:" = "Elvis"
+"!!" = "BangBang"
+"_" = "Underscore"
+"@" = "At"

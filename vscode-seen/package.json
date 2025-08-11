@@ -1,8 +1,8 @@
 {
   "name": "seen-vscode",
   "displayName": "Seen Language",
-  "description": "Official Seen language support with reactive programming features",
-  "version": "1.0.0",
+  "description": "Official Seen language support with revolutionary optimization features and Alpha phase completeness",
+  "version": "1.1.0",
   "publisher": "seen-lang",
   "icon": "images/icon.png",
   "engines": {
@@ -21,7 +21,15 @@
     "kotlin",
     "rust",
     "performance",
-    "riscv"
+    "riscv",
+    "optimization",
+    "egraph",
+    "machine-learning",
+    "superoptimization",
+    "pgo",
+    "memory",
+    "multi-architecture",
+    "alpha-complete"
   ],
   "activationEvents": [
     "onLanguage:seen",

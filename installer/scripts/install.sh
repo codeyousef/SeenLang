@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
-# Universal Seen Language Installer for Linux/macOS
+# 🚀 Universal Seen Language Installer - Alpha Phase Complete
+# World's Most Advanced Compiler with Revolutionary Optimization
 # Usage: curl -sSL https://install.seen-lang.org | bash
 #    or: bash install.sh
+#
+# Features included:
+# ✅ E-graph optimization (equality saturation)
+# ✅ Machine learning-driven optimizations  
+# ✅ SMT-based superoptimization
+# ✅ Automatic profile-guided optimization
+# ✅ Advanced memory optimization
+# ✅ Multi-architecture support (x86-64, ARM64, RISC-V, WASM)
 
 set -e
 
