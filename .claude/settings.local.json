@@ -112,7 +112,8 @@
       "Bash(CARGO_TARGET_DIR=target-wsl cargo test --manifest-path seen_parser_fixed/Cargo.toml)",
       "Bash(CARGO_TARGET_DIR=target-wsl ./target-wsl/debug/seen init bootstrap_test)",
       "Bash(CARGO_TARGET_DIR=../target-wsl ../target-wsl/debug/seen run)",
-      "Bash(CARGO_TARGET_DIR=../target-wsl ../target-wsl/debug/seen benchmark)"
+      "Bash(CARGO_TARGET_DIR=../target-wsl ../target-wsl/debug/seen benchmark)",
+      "Bash(CARGO_TARGET_DIR=../target-wsl cargo build --quiet)"
     ],
     "deny": []
   }
