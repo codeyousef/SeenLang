@@ -1,7 +1,0 @@
-// Simplified AST Module
-
-public class AST {
-    public fun new() -> AST {
-        println("Creating AST");
-    }
-}

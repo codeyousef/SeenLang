@@ -1,7 +1,0 @@
-// Simplified Language Config Module
-
-public class LanguageConfig {
-    public fun new() -> LanguageConfig {
-        println("Creating LanguageConfig");
-    }
-}

@@ -1,7 +1,0 @@
-// Simplified Token Module
-
-public class Token {
-    public fun new() -> Token {
-        println("Creating Token");
-    }
-}

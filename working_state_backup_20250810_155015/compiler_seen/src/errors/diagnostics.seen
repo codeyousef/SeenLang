@@ -1,7 +1,0 @@
-// Simplified Diagnostics Module
-
-public class Diagnostics {
-    public fun new() -> Diagnostics {
-        println("Creating Diagnostics");
-    }
-}

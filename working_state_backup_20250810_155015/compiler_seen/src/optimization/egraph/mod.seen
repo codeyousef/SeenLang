@@ -1,7 +1,0 @@
-// Simplified E-graph Optimization Module
-
-public class EGraph {
-    public fun new() -> EGraph {
-        return EGraph {};
-    }
-}

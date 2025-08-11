@@ -1,7 +1,11 @@
-// Simplified Cost Model Module
+// Cost Model for E-graph Extraction - Bootstrap Compatible
 
 class CostModel {
     fun new() -> CostModel {
-        println("Creating CostModel");
+        return CostModel{};
+    }
+    
+    fun calculateCost(term: Term) -> Float {
+        return 1.0; // Simplified for bootstrap
     }
 }

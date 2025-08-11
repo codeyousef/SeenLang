@@ -1,7 +1,0 @@
-// Simplified LSP Server Module
-
-public class SeenLspServer {
-    public fun new() -> SeenLspServer {
-        println("Creating SeenLspServer");
-    }
-}

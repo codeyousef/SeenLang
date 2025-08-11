@@ -1,3 +1,0 @@
-fun main() {
-    println("Testing built-in println function");
-}
