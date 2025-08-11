@@ -1,0 +1,6 @@
+fun main() {
+    println("Hello, World!");
+    val x = 42;
+    val y = x + 8;
+    println(y);
+}

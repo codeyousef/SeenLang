@@ -1,0 +1,48 @@
+[package]
+name = "seen_cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command line interface for the Seen programming language"
+
+[dependencies]
+# Seen language components
+seen_lexer = { path = "../seen_lexer" }
+seen_parser = { path = "../seen_parser" }
+seen_typechecker = { path = "../seen_typechecker" }
+seen_interpreter = { path = "../seen_interpreter" }
+seen_ir = { path = "../seen_ir" }
+
+# For CLI argument parsing
+clap = { version = "4.5.4", features = ["derive"] }
+
+# For error handling
+anyhow = "1.0.82"
+thiserror = "1.0"
+
+# For logging
+env_logger = "0.11.3"
+log = "0.4.21"
+
+# For file operations
+tempfile = "3.10.1"
+
+# For project configuration
+toml = "0.8.2"
+serde = { version = "1.0", features = ["derive"] }
+
+# For file templating
+tera = "1.19.1"
+
+# For terminal coloring
+colored = "2.1.0"
+
+# For LLVM bindings
+inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+test-case = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }
+assert_cmd = "2.0"
+predicates = "3.1"

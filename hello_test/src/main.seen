@@ -1,0 +1,5 @@
+// Hello World program in Seen
+
+func main() {
+    println("Hello, World!");
+}
