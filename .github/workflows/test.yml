@@ -19,8 +19,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
-      - uses: actions/cache@v3
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - uses: actions/cache@v4
         with:
           path: |
             ./target
@@ -29,7 +29,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-seen-quick-
       - name: Run quick tests
-        run: ./target-wsl/debug/seen test --unit --quick
+        run: ./compiler_seen/target/native/release/seen_compiler test --unit --quick
 
   # Comprehensive test suite
   full-test:
@@ -42,17 +42,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
-      - uses: actions/cache@v3
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - uses: actions/cache@v4
         with:
           path: |
             ./target
             ./compiler_seen/target
           key: ${{ runner.os }}-seen-full-${{ hashFiles('**/Seen.toml') }}
       - name: Run all tests
-        run: ./target-wsl/debug/seen test --all --verbose
+        run: ./compiler_seen/target/native/release/seen_compiler test --all --verbose
       - name: Run integration tests
-        run: ./target-wsl/debug/seen test --integration --verbose
+        run: ./compiler_seen/target/native/release/seen_compiler test --integration --verbose
         continue-on-error: true
 
   # Performance tests
@@ -63,9 +63,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Run performance benchmarks
-        run: ./target-wsl/debug/seen benchmark --all
+        run: ./compiler_seen/target/native/release/seen_compiler benchmark --all
         continue-on-error: true
 
   # Memory safety tests  
@@ -76,9 +76,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Run memory safety tests
-        run: ./target-wsl/debug/seen test --memory-safety --all
+        run: ./compiler_seen/target/native/release/seen_compiler test --memory-safety --all
         continue-on-error: true
 
   # Cross-compilation tests
@@ -92,9 +92,9 @@ jobs:
       - uses: actions/checkout@v4  
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Test cross compilation for ${{ matrix.target }}
-        run: ./target-wsl/debug/seen build --target ${{ matrix.target }} --check-only
+        run: ./compiler_seen/target/native/release/seen_compiler build --target ${{ matrix.target }} --check-only
         continue-on-error: true
 
   # Example programs test
@@ -105,12 +105,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Test example programs
         run: |
           for example in test/examples/basic/*.seen test/examples/advanced/*.seen; do
             echo "Testing $example"
-            ./target-wsl/debug/seen run "$example" || echo "Example $example failed"
+            ./compiler_seen/target/native/release/seen_compiler run "$example" || echo "Example $example failed"
           done
 
   # Notify on completion

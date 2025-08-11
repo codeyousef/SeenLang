@@ -19,9 +19,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Check formatting
-        run: ./target-wsl/debug/seen format --check
+        run: ./compiler_seen/target/native/release/seen_compiler format --check
 
   # Static analysis with Seen
   check:
@@ -31,9 +31,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Run static analysis
-        run: ./target-wsl/debug/seen check --all
+        run: ./compiler_seen/target/native/release/seen_compiler check --all
 
   # Run tests on multiple platforms
   test:
@@ -46,8 +46,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
-      - uses: actions/cache@v3
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - uses: actions/cache@v4
         with:
           path: |
             ./target
@@ -55,9 +55,9 @@ jobs:
           key: ${{ runner.os }}-seen-test-${{ hashFiles('**/Seen.toml') }}
       # Seen compiler has built-in LLVM support - no external installation needed
       - name: Run tests
-        run: ./target-wsl/debug/seen test --all --verbose
+        run: ./compiler_seen/target/native/release/seen_compiler test --all --verbose
       - name: Run integration tests
-        run: ./target-wsl/debug/seen test --integration --verbose
+        run: ./compiler_seen/target/native/release/seen_compiler test --integration --verbose
         continue-on-error: true
 
   # Run benchmarks
@@ -68,9 +68,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Run benchmarks
-        run: ./target-wsl/debug/seen benchmark --all
+        run: ./compiler_seen/target/native/release/seen_compiler benchmark --all
 
   # Check documentation
   doc:
@@ -80,9 +80,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Check documentation
-        run: ./target-wsl/debug/seen doc --all
+        run: ./compiler_seen/target/native/release/seen_compiler doc --all
 
   # Code coverage with Seen
   coverage:
@@ -92,9 +92,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Run tests with coverage
-        run: ./target-wsl/debug/seen test --coverage --all
+        run: ./compiler_seen/target/native/release/seen_compiler test --coverage --all
         continue-on-error: true
 
   # Security audit
@@ -105,9 +105,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Run security checks
-        run: ./target-wsl/debug/seen audit --all
+        run: ./compiler_seen/target/native/release/seen_compiler audit --all
         continue-on-error: true
 
   # Check for unused dependencies
@@ -118,9 +118,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       - name: Check for unused dependencies
-        run: ./target-wsl/debug/seen deps --unused --all
+        run: ./compiler_seen/target/native/release/seen_compiler deps --unused --all
         continue-on-error: true
 
   # Build release binaries
@@ -142,17 +142,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
-      - uses: actions/cache@v3
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - uses: actions/cache@v4
         with:
           path: |
             ./target
             ./compiler_seen/target
           key: ${{ runner.os }}-seen-release-${{ hashFiles('**/Seen.toml') }}
       - name: Build release binary
-        run: ./target-wsl/debug/seen build --release --target ${{ matrix.target }}
+        run: ./compiler_seen/target/native/release/seen_compiler build --release --target ${{ matrix.target }}
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: seen-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/seen${{ matrix.os == 'windows-latest' && '.exe' || '' }}

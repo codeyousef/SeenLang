@@ -40,7 +40,7 @@ jobs:
       
       - name: Setup Seen compiler
         run: |
-          chmod +x ./target-wsl/debug/seen
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
       
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -68,7 +68,7 @@ jobs:
           brew install llvm hyperfine
       
       - name: Cache Seen dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ./target
@@ -76,7 +76,7 @@ jobs:
           key: ${{ runner.os }}-seen-perf-${{ hashFiles('**/Seen.toml') }}
       
       - name: Build Seen compiler
-        run: ./target-wsl/debug/seen build --release --bin seen
+        run: ./compiler_seen/target/native/release/seen_compiler build --release --bin seen
       
       - name: Run performance benchmarks
         run: |
@@ -124,7 +124,7 @@ jobs:
             --output results/ci_${{ github.run_number }}/comparison.md
       
       - name: Upload results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: performance-results-${{ matrix.os }}-${{ github.run_number }}
           path: performance_validation/results/ci_${{ github.run_number }}
@@ -182,7 +182,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: performance_validation/results/artifacts
       
@@ -243,7 +243,7 @@ jobs:
             validate-all
       
       - name: Upload Docker validation results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: docker-validation-${{ github.run_number }}
           path: performance_validation/results/latest
