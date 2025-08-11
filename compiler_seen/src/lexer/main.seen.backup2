@@ -1,0 +1,278 @@
+// Simplified Seen Lexer - Bootstrap Compatible Version
+// Basic lexer that can be parsed by the Rust bootstrap compiler
+
+// Basic token class
+class Token {
+    let tokenType: String
+    let value: String
+    let line: Int
+    let column: Int
+    let length: Int
+    let fileId: Int
+    
+    fun new(tokenType: String, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
+        return Token{
+            tokenType: tokenType,
+            value: value,
+            line: line,
+            column: column,
+            length: length,
+            fileId: fileId
+        };
+    }
+    
+    fun getType() -> String {
+        return this.tokenType;
+    }
+    
+    fun getValue() -> String {
+        return this.value;
+    }
+    
+    fun getLine() -> Int {
+        return this.line;
+    }
+    
+    fun getColumn() -> Int {
+        return this.column;
+    }
+}
+
+// Simple language config
+class LanguageConfig {
+    let name: String
+    
+    fun new(name: String) -> LanguageConfig {
+        return LanguageConfig{
+            name: name
+        };
+    }
+    
+    fun isKeyword(word: String) -> String? {
+        if (word == "fun") {
+            return "KeywordFun";
+        } else if (word == "class") {
+            return "KeywordClass";
+        } else if (word == "let") {
+            return "KeywordLet";
+        } else if (word == "if") {
+            return "KeywordIf";
+        } else if (word == "else") {
+            return "KeywordElse";
+        } else if (word == "return") {
+            return "KeywordReturn";
+        } else if (word == "true") {
+            return "KeywordTrue";
+        } else if (word == "false") {
+            return "KeywordFalse";
+        }
+        
+        return null;
+    }
+}
+
+// Simple lexer class
+class SeenLexer {
+    let source: String
+    let position: Int
+    let line: Int
+    let column: Int
+    let fileId: Int
+    let config: LanguageConfig
+    
+    fun new(source: String, fileId: Int, config: LanguageConfig) -> SeenLexer {
+        return SeenLexer{
+            source: source,
+            position: 0,
+            line: 1,
+            column: 1,
+            fileId: fileId,
+            config: config
+        };
+    }
+    
+    // Main tokenization method
+    fun tokenize() -> Array<Token> {
+        let tokens = Array<Token>();
+        
+        while (this.position < this.source.length()) {
+            this.skipWhitespace();
+            
+            if (this.position >= this.source.length()) {
+                break;
+            }
+            
+            let startLine = this.line;
+            let startColumn = this.column;
+            let token = this.scanToken(startLine, startColumn);
+            
+            if (token != null) {
+                tokens.push(token);
+            }
+        }
+        
+        let eofToken = Token.new("EndOfFile", "", this.line, this.column, 0, this.fileId);
+        tokens.push(eofToken);
+        
+        return tokens;
+    }
+    
+    // Scan single token
+    fun scanToken(startLine: Int, startColumn: Int) -> Token? {
+        let ch = this.currentChar();
+        
+        if (this.isAlpha(ch)) {
+            return this.scanIdentifierOrKeyword(startLine, startColumn);
+        } else if (this.isDigit(ch)) {
+            return this.scanNumber(startLine, startColumn);
+        } else if (ch == "\"") {
+            return this.scanString(startLine, startColumn);
+        } else {
+            return this.scanOperator(startLine, startColumn);
+        }
+    }
+    
+    // Scan identifier or keyword
+    fun scanIdentifierOrKeyword(startLine: Int, startColumn: Int) -> Token {
+        let start = this.position;
+        
+        while (this.position < this.source.length() and this.isAlphaNumeric(this.currentChar())) {
+            this.advance();
+        }
+        
+        let value = this.source.substring(start, this.position);
+        let length = this.position - start;
+        
+        let keywordType = this.config.isKeyword(value);
+        if (keywordType != null) {
+            return Token.new(keywordType, value, startLine, startColumn, length, this.fileId);
+        }
+        
+        return Token.new("Identifier", value, startLine, startColumn, length, this.fileId);
+    }
+    
+    // Scan number
+    fun scanNumber(startLine: Int, startColumn: Int) -> Token {
+        let start = this.position;
+        
+        while (this.position < this.source.length() and this.isDigit(this.currentChar())) {
+            this.advance();
+        }
+        
+        let value = this.source.substring(start, this.position);
+        let length = this.position - start;
+        return Token.new("IntegerLiteral", value, startLine, startColumn, length, this.fileId);
+    }
+    
+    // Scan string
+    fun scanString(startLine: Int, startColumn: Int) -> Token {
+        let start = this.position;
+        this.advance(); // Skip opening quote
+        
+        let value = "";
+        while (this.position < this.source.length() and this.currentChar() != "\"") {
+            value = value + this.currentChar();
+            this.advance();
+        }
+        
+        if (this.position < this.source.length()) {
+            this.advance(); // Skip closing quote
+        }
+        
+        let length = this.position - start;
+        return Token.new("StringLiteral", value, startLine, startColumn, length, this.fileId);
+    }
+    
+    // Scan operator
+    fun scanOperator(startLine: Int, startColumn: Int) -> Token {
+        let ch = this.currentChar();
+        this.advance();
+        
+        if (ch == "(") {
+            return Token.new("LeftParen", "(", startLine, startColumn, 1, this.fileId);
+        } else if (ch == ")") {
+            return Token.new("RightParen", ")", startLine, startColumn, 1, this.fileId);
+        } else if (ch == "{") {
+            return Token.new("LeftBrace", "{", startLine, startColumn, 1, this.fileId);
+        } else if (ch == "}") {
+            return Token.new("RightBrace", "}", startLine, startColumn, 1, this.fileId);
+        } else if (ch == ";") {
+            return Token.new("Semicolon", ";", startLine, startColumn, 1, this.fileId);
+        } else if (ch == ",") {
+            return Token.new("Comma", ",", startLine, startColumn, 1, this.fileId);
+        } else if (ch == ".") {
+            return Token.new("Dot", ".", startLine, startColumn, 1, this.fileId);
+        } else if (ch == ":") {
+            return Token.new("Colon", ":", startLine, startColumn, 1, this.fileId);
+        } else if (ch == "=") {
+            return Token.new("Assign", "=", startLine, startColumn, 1, this.fileId);
+        } else if (ch == "+") {
+            return Token.new("Plus", "+", startLine, startColumn, 1, this.fileId);
+        } else if (ch == "-") {
+            return Token.new("Minus", "-", startLine, startColumn, 1, this.fileId);
+        }
+        
+        return Token.new("Unknown", ch, startLine, startColumn, 1, this.fileId);
+    }
+    
+    // Helper methods
+    fun currentChar() -> String {
+        if (this.position >= this.source.length()) {
+            return "";
+        }
+        return this.source.charAt(this.position);
+    }
+    
+    fun advance() {
+        if (this.position < this.source.length()) {
+            if (this.currentChar() == "\n") {
+                this.line = this.line + 1;
+                this.column = 1;
+            } else {
+                this.column = this.column + 1;
+            }
+            this.position = this.position + 1;
+        }
+    }
+    
+    fun skipWhitespace() {
+        while (this.position < this.source.length()) {
+            let ch = this.currentChar();
+            if (ch == " " or ch == "\t" or ch == "\n" or ch == "\r") {
+                this.advance();
+            } else {
+                break;
+            }
+        }
+    }
+    
+    fun isAlpha(ch: String) -> Bool {
+        if (ch.length() == 0) {
+            return false;
+        }
+        let code = ch.charCodeAt(0);
+        return (code >= 65 and code <= 90) or (code >= 97 and code <= 122);
+    }
+    
+    fun isDigit(ch: String) -> Bool {
+        if (ch.length() == 0) {
+            return false;
+        }
+        let code = ch.charCodeAt(0);
+        return code >= 48 and code <= 57;
+    }
+    
+    fun isAlphaNumeric(ch: String) -> Bool {
+        return this.isAlpha(ch) or this.isDigit(ch);
+    }
+}
+
+// Factory functions
+fun createLexer(source: String, fileId: Int, configPath: String) -> SeenLexer {
+    let config = LanguageConfig.new("en");
+    return SeenLexer.new(source, fileId, config);
+}
+
+fun loadLanguageConfig(language: String) -> LanguageConfig {
+    return LanguageConfig.new(language);
+}

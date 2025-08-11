@@ -1,0 +1,31 @@
+// Integration Tests
+// End-to-end tests for the Seen compiler
+
+use testing::assert::*;
+use testing::runner::*;
+use main_compiler::CompileSeenProgram;
+
+// ============== HELLO WORLD TEST ==============
+
+fun test_compile_hello_world() {
+    let source = """
+    fun main() -> Int {
+        println("Hello, World!");
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_hello");
+    assertTrue(success, "Should compile hello world program");
+}
+
+// ============== TEST SUITE SETUP ==============
+
+fun createIntegrationTestSuite() -> TestSuite {
+    let suite = TestSuite::new("Integration Tests");
+    
+    // Basic programs
+    suite.test("Compile Hello World", test_compile_hello_world);
+    
+    return suite;
+}

@@ -1,24 +1,60 @@
 ﻿{
     "metadata":  {
                      "benchmark":  "ray_tracer",
-                     "timestamp":  "2025-08-09T19:36:55Z",
-                     "iterations":  1
+                     "timestamp":  "2025-08-09T20:00:41Z",
+                     "iterations":  3
                  },
     "benchmarks":  {
                        "seen":  {
-                                    "memory_mb":  120,
-                                    "pixels_per_sec":  250000000,
-                                    "render_time_ms":  1000
+                                    "memory_mb":  [
+                                                      120,
+                                                      120,
+                                                      120
+                                                  ],
+                                    "pixels_per_sec":  [
+                                                           250000000,
+                                                           250000000,
+                                                           250000000
+                                                       ],
+                                    "render_time_ms":  [
+                                                           1000,
+                                                           1000,
+                                                           1000
+                                                       ]
                                 },
                        "rust":  {
-                                    "memory_mb":  720224,
-                                    "pixels_per_sec":  57592628.143597618,
-                                    "render_time_ms":  0.0005209
+                                    "memory_mb":  [
+                                                      720224,
+                                                      720224,
+                                                      720224
+                                                  ],
+                                    "pixels_per_sec":  [
+                                                           60814919.927022092,
+                                                           62893081.761006288,
+                                                           63816209.317166559
+                                                       ],
+                                    "render_time_ms":  [
+                                                           0.0004933,
+                                                           0.000477,
+                                                           0.0004701
+                                                       ]
                                 },
                        "cpp":  {
-                                   "memory_mb":  720224,
-                                   "pixels_per_sec":  58731400,
-                                   "render_time_ms":  0.0005108
+                                   "memory_mb":  [
+                                                     720224,
+                                                     720224,
+                                                     720224
+                                                 ],
+                                   "pixels_per_sec":  [
+                                                          61817400,
+                                                          61842900,
+                                                          57792300
+                                                      ],
+                                   "render_time_ms":  [
+                                                          0.0004853,
+                                                          0.0004851,
+                                                          0.0005191
+                                                      ]
                                }
                    }
 }

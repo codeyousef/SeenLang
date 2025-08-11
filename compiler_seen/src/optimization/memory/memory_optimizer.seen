@@ -1,0 +1,535 @@
+// Advanced Memory Optimization Engine
+// Zero-overhead memory management with cache-optimal layouts
+
+use optimization::base::OptimizationPass;
+use ir::module::Module;
+use memory::layout::MemoryLayout;
+use memory::allocator::Allocator;
+use hardware::cache::CacheHierarchy;
+use hardware::numa::NUMATopology;
+
+// MemoryOptimizer (uppercase) = public class
+class MemoryOptimizer : OptimizationPass {
+    let cacheHierarchy = CacheHierarchy::detect();
+    let numaTopology = NUMATopology::detect();
+    let allocator = Allocator::new();
+    
+    // Optimize (uppercase) = public method
+    fun Optimize(ir: Module) -> Module {
+        println("🧠 Starting Advanced Memory Optimization...");
+        
+        // Step 1: Analyze memory access patterns
+        let patterns = analyzeMemoryPatterns(ir);
+        
+        // Step 2: Apply cache-oblivious algorithms
+        ir = makeCacheOblivious(ir, patterns);
+        
+        // Step 3: Optimize data structure layouts
+        ir = optimizeStructLayouts(ir, patterns);
+        
+        // Step 4: Apply pointer compression
+        ir = compressPointers(ir);
+        
+        // Step 5: NUMA-aware allocation
+        ir = optimizeForNUMA(ir);
+        
+        // Step 6: Insert prefetch instructions
+        ir = insertPrefetches(ir, patterns);
+        
+        // Step 7: Apply memory pooling
+        ir = applyMemoryPooling(ir);
+        
+        // Step 8: Optimize for TLB
+        ir = optimizeForTLB(ir);
+        
+        println("  ✅ Memory optimization complete");
+        return ir;
+    }
+    
+    // Analyze memory access patterns
+    fun analyzeMemoryPatterns(ir: Module) -> MemoryPatterns {
+        let patterns = MemoryPatterns::new();
+        
+        for function in ir.functions {
+            for instruction in function.instructions {
+                if instruction.isMemoryAccess() {
+                    let access = MemoryAccess{
+                        address: instruction.address,
+                        size: instruction.size,
+                        type: instruction.accessType,
+                        frequency: estimateFrequency(instruction),
+                        stride: detectStride(instruction)
+                    };
+                    patterns.add(access);
+                }
+            }
+        }
+        
+        patterns.analyze();
+        return patterns;
+    }
+    
+    // Transform to cache-oblivious algorithms
+    fun makeCacheOblivious(ir: Module, patterns: MemoryPatterns) -> Module {
+        for function in ir.functions {
+            // Detect algorithm patterns
+            if isMatrixMultiply(function) {
+                function = transformToCacheObliviousMatMul(function);
+            } else if isTreeTraversal(function) {
+                function = transformToVanEmdeBoas(function);
+            } else if isSorting(function) {
+                function = transformToFunnelSort(function);
+            } else if isFFT(function) {
+                function = transformToCacheObliviousFFT(function);
+            }
+        }
+        return ir;
+    }
+    
+    // Cache-oblivious matrix multiplication
+    fun transformToCacheObliviousMatMul(function: Function) -> Function {
+        // Recursive divide-and-conquer approach
+        return Function{
+            name: function.name,
+            body: """
+                fun matmul_recursive(A: Matrix, B: Matrix, C: Matrix, 
+                                    i0: Int, i1: Int, j0: Int, j1: Int, 
+                                    k0: Int, k1: Int) {
+                    let di = i1 - i0;
+                    let dj = j1 - j0;
+                    let dk = k1 - k0;
+                    
+                    // Base case: small enough for L1 cache
+                    if di * dj + dj * dk + di * dk < CACHE_SIZE {
+                        matmul_base(A, B, C, i0, i1, j0, j1, k0, k1);
+                        return;
+                    }
+                    
+                    // Recursive case: divide largest dimension
+                    if di >= dj and di >= dk {
+                        let im = (i0 + i1) / 2;
+                        matmul_recursive(A, B, C, i0, im, j0, j1, k0, k1);
+                        matmul_recursive(A, B, C, im, i1, j0, j1, k0, k1);
+                    } else if dj >= dk {
+                        let jm = (j0 + j1) / 2;
+                        matmul_recursive(A, B, C, i0, i1, j0, jm, k0, k1);
+                        matmul_recursive(A, B, C, i0, i1, jm, j1, k0, k1);
+                    } else {
+                        let km = (k0 + k1) / 2;
+                        matmul_recursive(A, B, C, i0, i1, j0, j1, k0, km);
+                        matmul_recursive(A, B, C, i0, i1, j0, j1, km, k1);
+                    }
+                }
+            """
+        };
+    }
+    
+    // Optimize structure layouts for cache
+    fun optimizeStructLayouts(ir: Module, patterns: MemoryPatterns) -> Module {
+        for struct in ir.structs {
+            // Analyze field access patterns
+            let fieldAccess = patterns.getFieldAccess(struct);
+            
+            // Group frequently accessed fields together
+            let hotFields = fieldAccess.filter { it.frequency > 1000 };
+            let coldFields = fieldAccess.filter { it.frequency <= 1000 };
+            
+            // Reorder fields for cache line optimization
+            struct.fields = reorderFields(hotFields, coldFields);
+            
+            // Apply structure packing
+            struct = packStructure(struct);
+            
+            // Structure splitting for hot/cold separation
+            if shouldSplit(struct, fieldAccess) {
+                let (hotStruct, coldStruct) = splitStructure(struct, fieldAccess);
+                ir.replaceStruct(struct, hotStruct, coldStruct);
+            }
+        }
+        return ir;
+    }
+    
+    // Reorder fields for optimal cache usage
+    fun reorderFields(hotFields: List<Field>, coldFields: List<Field>) -> List<Field> {
+        // Sort hot fields by access frequency and size
+        hotFields.sortBy { -it.frequency * it.size };
+        
+        // Pack fields to minimize padding
+        let packed = [];
+        let currentOffset = 0;
+        
+        // Place 8-byte fields first (best alignment)
+        for field in hotFields.filter { it.size == 8 } {
+            packed.append(field);
+            currentOffset = currentOffset + 8;
+        }
+        
+        // Then 4-byte fields
+        for field in hotFields.filter { it.size == 4 } {
+            packed.append(field);
+            currentOffset = currentOffset + 4;
+        }
+        
+        // Then 2-byte fields
+        for field in hotFields.filter { it.size == 2 } {
+            packed.append(field);
+            currentOffset = currentOffset + 2;
+        }
+        
+        // Then 1-byte fields
+        for field in hotFields.filter { it.size == 1 } {
+            packed.append(field);
+            currentOffset = currentOffset + 1;
+        }
+        
+        // Cold fields at the end
+        packed.extend(coldFields);
+        
+        return packed;
+    }
+    
+    // Pointer compression (use 32-bit offsets instead of 64-bit pointers)
+    fun compressPointers(ir: Module) -> Module {
+        // Find base addresses for pointer compression
+        let heapBase = allocator.getHeapBase();
+        
+        for function in ir.functions {
+            for instruction in function.instructions {
+                if instruction.isPointer() and canCompress(instruction) {
+                    // Convert 64-bit pointer to 32-bit offset
+                    instruction = compressPointer(instruction, heapBase);
+                }
+            }
+        }
+        
+        // Add decompression at dereference sites
+        for function in ir.functions {
+            for instruction in function.instructions {
+                if instruction.isDereference() and instruction.operand.isCompressed() {
+                    instruction = insertDecompression(instruction, heapBase);
+                }
+            }
+        }
+        
+        return ir;
+    }
+    
+    // NUMA-aware memory allocation
+    fun optimizeForNUMA(ir: Module) -> Module {
+        if not numaTopology.isNUMA() {
+            return ir;  // Not a NUMA system
+        }
+        
+        println("  🔧 Optimizing for NUMA topology...");
+        
+        for function in ir.functions {
+            // Analyze thread affinity
+            let affinity = analyzeThreadAffinity(function);
+            
+            // Place allocations on correct NUMA node
+            for allocation in function.allocations {
+                let node = selectNUMANode(allocation, affinity);
+                allocation.numaNode = node;
+                allocation.flags.add(AllocFlag::NUMA_LOCAL);
+            }
+            
+            // Insert memory migration hints
+            for access in function.memoryAccesses {
+                if shouldMigrate(access) {
+                    insertMigrationHint(access);
+                }
+            }
+        }
+        
+        return ir;
+    }
+    
+    // Insert prefetch instructions
+    fun insertPrefetches(ir: Module, patterns: MemoryPatterns) -> Module {
+        for function in ir.functions {
+            for loop in function.loops {
+                // Analyze loop memory access
+                let accesses = patterns.getLoopAccesses(loop);
+                
+                for access in accesses {
+                    if access.isPredictable() {
+                        // Calculate prefetch distance
+                        let distance = calculatePrefetchDistance(access, loop);
+                        
+                        // Insert prefetch instruction
+                        let prefetch = Instruction{
+                            op: "prefetch",
+                            address: access.address + distance * access.stride,
+                            hint: getPrefetchHint(access)
+                        };
+                        
+                        loop.insertBefore(access, prefetch);
+                    }
+                }
+            }
+        }
+        return ir;
+    }
+    
+    // Apply memory pooling for frequent allocations
+    fun applyMemoryPooling(ir: Module) -> Module {
+        // Identify allocation sites
+        let allocSites = findAllocationSites(ir);
+        
+        for site in allocSites {
+            if site.frequency > 100 {
+                // Create memory pool for this allocation size
+                let pool = MemoryPool{
+                    size: site.size,
+                    alignment: site.alignment,
+                    initialCapacity: site.frequency * 2
+                };
+                
+                // Replace malloc/free with pool operations
+                site.allocation = PoolAllocation{
+                    pool: pool,
+                    op: "pool_alloc"
+                };
+                
+                site.deallocation = PoolDeallocation{
+                    pool: pool,
+                    op: "pool_free"
+                };
+            }
+        }
+        
+        return ir;
+    }
+    
+    // Optimize for Translation Lookaside Buffer (TLB)
+    fun optimizeForTLB(ir: Module) -> Module {
+        // Use huge pages for large allocations
+        for allocation in ir.allocations {
+            if allocation.size >= 2 * 1024 * 1024 {  // 2MB threshold
+                allocation.flags.add(AllocFlag::HUGE_PAGE);
+            }
+        }
+        
+        // Reduce TLB pressure by batching small allocations
+        let smallAllocs = ir.allocations.filter { it.size < 4096 };
+        if smallAllocs.size > 10 {
+            batchAllocations(smallAllocs);
+        }
+        
+        return ir;
+    }
+    
+    // Helper: Calculate prefetch distance
+    fun calculatePrefetchDistance(access: MemoryAccess, loop: Loop) -> Int {
+        // Prefetch distance = memory latency / loop iteration time
+        let memoryLatency = cacheHierarchy.getMemoryLatency();
+        let loopIterationTime = estimateIterationTime(loop);
+        
+        let distance = (memoryLatency / loopIterationTime).toInt();
+        
+        // Clamp to reasonable range
+        return min(max(distance, 1), 8);
+    }
+    
+    // Helper: Get prefetch hint based on access pattern
+    fun getPrefetchHint(access: MemoryAccess) -> PrefetchHint {
+        if access.isWrite {
+            return PrefetchHint::T0_WRITE;  // Prefetch for write
+        } else if access.isTemporary {
+            return PrefetchHint::NTA;  // Non-temporal (bypass cache)
+        } else {
+            return PrefetchHint::T0_READ;  // Prefetch for read
+        }
+    }
+    
+    // Helper: Structure packing
+    fun packStructure(struct: Struct) -> Struct {
+        // Remove unnecessary padding
+        struct.packed = true;
+        
+        // But maintain critical alignments
+        for field in struct.fields {
+            if field.requiresAlignment {
+                field.forceAlign = true;
+            }
+        }
+        
+        return struct;
+    }
+    
+    // Helper: Should split structure?
+    fun shouldSplit(struct: Struct, access: FieldAccessPattern) -> Bool {
+        let hotSize = access.hotFields.sum { it.size };
+        let coldSize = access.coldFields.sum { it.size };
+        
+        // Split if hot fields fit in cache line and cold fields are large
+        return hotSize <= 64 and coldSize > 128;
+    }
+    
+    // Helper: Split structure into hot and cold parts
+    fun splitStructure(struct: Struct, access: FieldAccessPattern) -> (Struct, Struct) {
+        let hotStruct = Struct{
+            name: struct.name + "_hot",
+            fields: access.hotFields,
+            packed: true
+        };
+        
+        let coldStruct = Struct{
+            name: struct.name + "_cold",
+            fields: access.coldFields,
+            packed: false
+        };
+        
+        // Add pointer from hot to cold
+        hotStruct.fields.append(Field{
+            name: "_cold_ptr",
+            type: Pointer<coldStruct>,
+            size: 8
+        });
+        
+        return (hotStruct, coldStruct);
+    }
+}
+
+// Memory access patterns
+class MemoryPatterns {
+    var accesses: List<MemoryAccess>;
+    var fieldAccess: Map<Struct, FieldAccessPattern>;
+    var loopAccess: Map<Loop, List<MemoryAccess>>;
+    
+    static fun new() -> MemoryPatterns {
+        return MemoryPatterns{
+            accesses: [],
+            fieldAccess: Map::new(),
+            loopAccess: Map::new()
+        };
+    }
+    
+    fun add(access: MemoryAccess) {
+        accesses.append(access);
+    }
+    
+    fun analyze() {
+        // Analyze access patterns
+        detectStreaming();
+        detectRandomAccess();
+        detectStrided();
+        detectTemporal();
+    }
+    
+    fun detectStreaming() {
+        // Identify streaming access patterns
+        for access in accesses {
+            if access.stride == access.size {
+                access.pattern = AccessPattern::Streaming;
+            }
+        }
+    }
+    
+    fun detectRandomAccess() {
+        // Identify random access patterns
+        for access in accesses {
+            if access.stride == 0 or access.stride > 4096 {
+                access.pattern = AccessPattern::Random;
+            }
+        }
+    }
+    
+    fun detectStrided() {
+        // Identify strided access patterns
+        for access in accesses {
+            if access.stride > 0 and access.stride < 4096 {
+                access.pattern = AccessPattern::Strided;
+            }
+        }
+    }
+    
+    fun detectTemporal() {
+        // Identify temporal locality
+        for access in accesses {
+            if access.reuseDistance < 1000 {
+                access.temporal = Temporal::High;
+            } else {
+                access.temporal = Temporal::Low;
+            }
+        }
+    }
+}
+
+// Memory access descriptor
+class MemoryAccess {
+    var address: Address;
+    var size: Int;
+    var type: AccessType;
+    var frequency: Int;
+    var stride: Int;
+    var pattern: AccessPattern;
+    var temporal: Temporal;
+    var isWrite: Bool;
+    var isTemporary: Bool;
+    var reuseDistance: Int;
+    
+    fun isPredictable() -> Bool {
+        return pattern == AccessPattern::Streaming or 
+               pattern == AccessPattern::Strided;
+    }
+}
+
+// Access patterns
+enum AccessPattern {
+    Streaming,
+    Strided,
+    Random,
+    Unknown
+}
+
+enum Temporal {
+    High,
+    Low,
+    None
+}
+
+enum PrefetchHint {
+    T0_READ,   // Temporal, all cache levels
+    T0_WRITE,  // Temporal write
+    T1,        // Temporal, L2 and above
+    T2,        // Temporal, L3 and above
+    NTA        // Non-temporal (bypass cache)
+}
+
+enum AllocFlag {
+    NUMA_LOCAL,
+    HUGE_PAGE,
+    ZERO_INIT,
+    NO_ACCESS
+}
+
+// Memory pool for frequent allocations
+class MemoryPool {
+    var size: Int;
+    var alignment: Int;
+    var initialCapacity: Int;
+    var freeList: List<Pointer>;
+    var chunks: List<MemoryChunk>;
+    
+    fun alloc() -> Pointer {
+        if freeList.isEmpty() {
+            growPool();
+        }
+        return freeList.pop();
+    }
+    
+    fun free(ptr: Pointer) {
+        freeList.append(ptr);
+    }
+    
+    fun growPool() {
+        let chunk = MemoryChunk::allocate(initialCapacity * size);
+        chunks.append(chunk);
+        
+        // Add all slots to free list
+        for i in 0..initialCapacity {
+            freeList.append(chunk.base + i * size);
+        }
+    }
+}

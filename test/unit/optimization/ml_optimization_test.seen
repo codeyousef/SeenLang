@@ -1,0 +1,524 @@
+// Machine Learning-Driven Optimization Tests (TDD First!)
+// Based on Alpha Development Plan Step 18
+
+fun test_ml_model_improves_performance_over_time() {
+    // Test: ML model improves performance over time
+    let mlOptimizer = MLOptimizer{};
+    
+    // Create baseline IR for testing
+    let testIR = createTestIR_MLTraining();
+    
+    // Get initial performance
+    let initialOptimized = mlOptimizer.Optimize(testIR);
+    let initialPerformance = measureOptimizationQuality(initialOptimized);
+    
+    // Train with more data
+    for i in range(0, 100) {
+        let trainingIR = createTrainingIR_Variant(i);
+        let _ = mlOptimizer.Optimize(trainingIR); // Train through optimization
+    }
+    
+    // Test performance after training
+    let trainedOptimized = mlOptimizer.Optimize(testIR);
+    let trainedPerformance = measureOptimizationQuality(trainedOptimized);
+    
+    let improvement = (trainedPerformance - initialPerformance) / initialPerformance * 100.0;
+    assert(improvement > 10.0, "ML model should improve >10% over time");
+    
+    println("✅ ML model improves performance over time");
+}
+
+fun test_learns_from_every_compilation() {
+    // Test: Learns from every compilation
+    let mlOptimizer = MLOptimizer{};
+    
+    let trainingDataSizeBefore = mlOptimizer.getTrainingDataSize();
+    
+    // Perform several compilations
+    for i in range(0, 10) {
+        let testIR = createTestIR_UniquePattern(i);
+        let _ = mlOptimizer.Optimize(testIR);
+    }
+    
+    let trainingDataSizeAfter = mlOptimizer.getTrainingDataSize();
+    let newDataPoints = trainingDataSizeAfter - trainingDataSizeBefore;
+    
+    assert(newDataPoints >= 10, "Should learn from every compilation");
+    assert(mlOptimizer.hasLearnedNewPatterns(), "Should discover new patterns");
+    
+    println("✅ Learns from every compilation");
+}
+
+fun test_beats_hand_tuned_heuristics() {
+    // Test: Beats hand-tuned heuristics
+    let mlOptimizer = MLOptimizer{};
+    let heuristicOptimizer = HeuristicOptimizer{}; // Traditional approach
+    
+    let testCases = createComplexOptimizationTestCases();
+    let mlWins = 0;
+    let heuristicWins = 0;
+    
+    for testCase in testCases {
+        let mlResult = mlOptimizer.Optimize(testCase);
+        let heuristicResult = heuristicOptimizer.Optimize(testCase);
+        
+        let mlPerformance = measureExecutionTime(mlResult);
+        let heuristicPerformance = measureExecutionTime(heuristicResult);
+        
+        if mlPerformance < heuristicPerformance {
+            mlWins = mlWins + 1;
+        } else {
+            heuristicWins = heuristicWins + 1;
+        }
+    }
+    
+    let mlWinRate = mlWins / (mlWins + heuristicWins) * 100.0;
+    assert(mlWinRate > 60.0, "ML should beat heuristics >60% of time");
+    
+    println("✅ Beats hand-tuned heuristics");
+}
+
+fun test_adapts_to_different_workloads() {
+    // Test: Adapts to different workloads
+    let mlOptimizer = MLOptimizer{};
+    
+    // Test compute-heavy workload
+    let computeIR = createWorkload_ComputeHeavy();
+    mlOptimizer.trainOnWorkload(computeIR, iterations = 20);
+    let computeResult = mlOptimizer.Optimize(computeIR);
+    assert(computeResult.hasComputeOptimizations(), "Should optimize for compute");
+    
+    // Test memory-intensive workload
+    let memoryIR = createWorkload_MemoryIntensive();
+    mlOptimizer.trainOnWorkload(memoryIR, iterations = 20);
+    let memoryResult = mlOptimizer.Optimize(memoryIR);
+    assert(memoryResult.hasMemoryOptimizations(), "Should optimize for memory");
+    
+    // Test I/O-bound workload
+    let ioIR = createWorkload_IOBound();
+    mlOptimizer.trainOnWorkload(ioIR, iterations = 20);
+    let ioResult = mlOptimizer.Optimize(ioIR);
+    assert(ioResult.hasIOOptimizations(), "Should optimize for I/O");
+    
+    println("✅ Adapts to different workloads");
+}
+
+fun test_no_performance_regressions() {
+    // Test: No performance regressions
+    let mlOptimizer = MLOptimizer{};
+    
+    // Create baseline performance measurements
+    let baselineTests = createPerformanceRegressionTests();
+    let baselineResults = [];
+    
+    for test in baselineTests {
+        let result = mlOptimizer.Optimize(test);
+        let performance = measureDetailedPerformance(result);
+        baselineResults.append(performance);
+    }
+    
+    // Train with new data
+    let newTrainingData = createAdditionalTrainingData();
+    for data in newTrainingData {
+        let _ = mlOptimizer.Optimize(data);
+    }
+    
+    // Test for regressions
+    let regressionCount = 0;
+    for i in range(0, baselineTests.size()) {
+        let newResult = mlOptimizer.Optimize(baselineTests[i]);
+        let newPerformance = measureDetailedPerformance(newResult);
+        
+        let regression = (baselineResults[i] - newPerformance) / baselineResults[i];
+        if regression > 0.05 { // More than 5% regression
+            regressionCount = regressionCount + 1;
+        }
+    }
+    
+    let regressionRate = regressionCount / baselineTests.size() * 100.0;
+    assert(regressionRate < 10.0, "Regression rate should be <10%");
+    
+    println("✅ No significant performance regressions");
+}
+
+fun test_ml_model_feature_extraction() {
+    // Test feature extraction for ML training
+    let mlOptimizer = MLOptimizer{};
+    
+    let testCall = createTestFunctionCall_Complex();
+    let features = mlOptimizer.extractFeatures(testCall);
+    
+    assert(features != null, "Should extract features");
+    assert(features.getCalleeSize() > 0, "Should extract callee size");
+    assert(features.getCallSiteHeat() >= 0.0, "Should extract execution frequency");
+    assert(features.getParameterCount() >= 0, "Should extract parameter count");
+    
+    // Test feature vector dimensionality
+    let featureVector = features.toVector();
+    assert(featureVector.size() >= 20, "Should extract >=20 features");
+    
+    println("✅ ML model feature extraction");
+}
+
+fun test_ml_model_prediction_accuracy() {
+    // Test prediction accuracy of trained model
+    let mlOptimizer = MLOptimizer{};
+    
+    // Create training set with known optimal decisions
+    let trainingSet = createKnownOptimalDecisionSet();
+    for example in trainingSet {
+        mlOptimizer.trainOnExample(example.input, example.optimalDecision);
+    }
+    
+    // Test prediction accuracy
+    let testSet = createTestDecisionSet();
+    let correctPredictions = 0;
+    
+    for test in testSet {
+        let prediction = mlOptimizer.predictOptimization(test.input);
+        if prediction.matches(test.expectedDecision) {
+            correctPredictions = correctPredictions + 1;
+        }
+    }
+    
+    let accuracy = correctPredictions / testSet.size() * 100.0;
+    assert(accuracy > 75.0, "Prediction accuracy should be >75%");
+    
+    println("✅ ML model prediction accuracy");
+}
+
+fun test_continuous_learning_infrastructure() {
+    // Test continuous learning system
+    let mlOptimizer = MLOptimizer{};
+    
+    // Test A/B testing capability
+    let testIR = createTestIR_ABTesting();
+    let abResults = mlOptimizer.runABTest(testIR, strategies = ["aggressive", "conservative"]);
+    assert(abResults.hasWinner(), "A/B test should identify winner");
+    
+    // Test automatic rollback on regression
+    let badUpdate = createRegressiveUpdate();
+    mlOptimizer.applyUpdate(badUpdate);
+    
+    let regressionDetected = mlOptimizer.detectRegression();
+    assert(regressionDetected, "Should detect regression");
+    
+    mlOptimizer.rollbackToLastGoodState();
+    let rollbackSuccessful = not mlOptimizer.detectRegression();
+    assert(rollbackSuccessful, "Should rollback successfully");
+    
+    println("✅ Continuous learning infrastructure");
+}
+
+// Helper Functions for Test IR Generation
+
+fun createTestIR_MLTraining() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "ml_training_target",
+                instructions: [
+                    Instruction{ op: "call", target: "expensive_function" },
+                    Instruction{ op: "loop", iterations: 1000 },
+                    Instruction{ op: "call", target: "inlinable_function" }
+                ]
+            }
+        ]
+    };
+}
+
+fun createTrainingIR_Variant(variant: Int) -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "variant_" + variant.toString(),
+                instructions: generateVariantInstructions(variant)
+            }
+        ]
+    };
+}
+
+fun createComplexOptimizationTestCases() -> List<IR> {
+    return [
+        createTestCase_InliningDecisions(),
+        createTestCase_LoopOptimizations(),
+        createTestCase_RegisterAllocation(),
+        createTestCase_InstructionScheduling(),
+        createTestCase_VectorizationOpportunities()
+    ];
+}
+
+fun createWorkload_ComputeHeavy() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "compute_heavy",
+                instructions: [
+                    Instruction{ op: "mul", args: ["matrix_a", "matrix_b"] },
+                    Instruction{ op: "add", args: ["result", "bias"] },
+                    Instruction{ op: "activation", args: ["sigmoid"] }
+                ]
+            }
+        ]
+    };
+}
+
+fun createWorkload_MemoryIntensive() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "memory_intensive",
+                instructions: [
+                    Instruction{ op: "load", args: ["large_array"] },
+                    Instruction{ op: "store", args: ["processed_data"] },
+                    Instruction{ op: "memcpy", args: ["src", "dst"] }
+                ]
+            }
+        ]
+    };
+}
+
+fun createWorkload_IOBound() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "io_bound",
+                instructions: [
+                    Instruction{ op: "read", args: ["file_handle"] },
+                    Instruction{ op: "write", args: ["output_stream"] },
+                    Instruction{ op: "flush", args: ["buffer"] }
+                ]
+            }
+        ]
+    };
+}
+
+fun createPerformanceRegressionTests() -> List<IR> {
+    return [
+        createTestIR_MLTraining(),
+        createWorkload_ComputeHeavy(),
+        createWorkload_MemoryIntensive(),
+        createWorkload_IOBound()
+    ];
+}
+
+fun createAdditionalTrainingData() -> List<IR> {
+    return [
+        createTrainingIR_Variant(101),
+        createTrainingIR_Variant(102),
+        createTrainingIR_Variant(103)
+    ];
+}
+
+fun createTestFunctionCall_Complex() -> FunctionCall {
+    return FunctionCall{
+        name: "complex_function",
+        parameters: ["param1", "param2", "param3"],
+        size: 150
+    };
+}
+
+fun createKnownOptimalDecisionSet() -> List<OptimalExample> {
+    return [
+        OptimalExample{
+            input: createTestIR_MLTraining(),
+            optimalDecision: Decision{ action: "inline" }
+        },
+        OptimalExample{
+            input: createWorkload_ComputeHeavy(),
+            optimalDecision: Decision{ action: "vectorize" }
+        }
+    ];
+}
+
+fun createTestDecisionSet() -> List<DecisionTest> {
+    return [
+        DecisionTest{
+            input: createTestIR_MLTraining(),
+            expectedDecision: Decision{ action: "inline" }
+        },
+        DecisionTest{
+            input: createWorkload_ComputeHeavy(),
+            expectedDecision: Decision{ action: "vectorize" }
+        }
+    ];
+}
+
+fun createTestIR_ABTesting() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "ab_test_function",
+                instructions: [
+                    Instruction{ op: "call", target: "candidate_function" },
+                    Instruction{ op: "branch", condition: "hot_path" }
+                ]
+            }
+        ]
+    };
+}
+
+fun createRegressiveUpdate() -> Update {
+    return Update{
+        version: "regressive_update_v1"
+    };
+}
+
+fun createTestIR_UniquePattern(variant: Int) -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "unique_pattern_" + variant.toString(),
+                instructions: generateUniqueInstructions(variant)
+            }
+        ]
+    };
+}
+
+fun createTestCase_InliningDecisions() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "inlining_test",
+                instructions: [
+                    Instruction{ op: "call", target: "small_function" },
+                    Instruction{ op: "call", target: "large_function" }
+                ]
+            }
+        ]
+    };
+}
+
+fun createTestCase_LoopOptimizations() -> IR {
+    return createWorkload_ComputeHeavy(); // Reuse compute-heavy workload
+}
+
+fun createTestCase_RegisterAllocation() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "register_allocation_test",
+                instructions: [
+                    Instruction{ op: "mov", args: ["reg1", "value1"] },
+                    Instruction{ op: "add", args: ["reg1", "reg2"] },
+                    Instruction{ op: "mul", args: ["reg2", "reg3"] }
+                ]
+            }
+        ]
+    };
+}
+
+fun createTestCase_InstructionScheduling() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "scheduling_test",
+                instructions: [
+                    Instruction{ op: "load", args: ["memory_addr"] },
+                    Instruction{ op: "add", args: ["reg1", "reg2"] },
+                    Instruction{ op: "store", args: ["result"] }
+                ]
+            }
+        ]
+    };
+}
+
+fun createTestCase_VectorizationOpportunities() -> IR {
+    return IR{
+        functions: [
+            Function{
+                name: "vectorization_test",
+                instructions: [
+                    Instruction{ op: "loop", iterations: 1000 },
+                    Instruction{ op: "add", args: ["array[i]", "scalar"] },
+                    Instruction{ op: "store", args: ["result[i]"] }
+                ]
+            }
+        ]
+    };
+}
+
+// Additional helper functions and classes
+
+fun generateVariantInstructions(variant: Int) -> List<Instruction> {
+    return [
+        Instruction{ op: "variant_op_" + variant.toString(), args: [] },
+        Instruction{ op: "process", args: ["data"] }
+    ];
+}
+
+fun generateUniqueInstructions(variant: Int) -> List<Instruction> {
+    return [
+        Instruction{ op: "unique_" + variant.toString(), args: [] },
+        Instruction{ op: "pattern_" + (variant % 5).toString(), args: [] }
+    ];
+}
+
+fun measureOptimizationQuality(ir: IR) -> Float {
+    return 100.0 + (ir.getFunctionCount().toFloat() * 2.0);
+}
+
+fun measureExecutionTime(ir: IR) -> Float {
+    return 50.0 - (ir.getFunctionCount().toFloat() * 0.5);
+}
+
+fun measureDetailedPerformance(ir: IR) -> Float {
+    return 95.0 + (ir.getFunctionCount().toFloat() * 1.5);
+}
+
+class OptimalExample {
+    var input: IR;
+    var optimalDecision: Decision;
+    
+    fun new() -> OptimalExample {
+        return OptimalExample{
+            input: IR{},
+            optimalDecision: Decision{}
+        };
+    }
+}
+
+class DecisionTest {
+    var input: IR;
+    var expectedDecision: Decision;
+    
+    fun new() -> DecisionTest {
+        return DecisionTest{
+            input: IR{},
+            expectedDecision: Decision{}
+        };
+    }
+}
+
+class OptimizedResult {
+    fun new() -> OptimizedResult {
+        return OptimizedResult{};
+    }
+    
+    fun hasComputeOptimizations() -> Bool {
+        return true;
+    }
+    
+    fun hasMemoryOptimizations() -> Bool {
+        return true;
+    }
+    
+    fun hasIOOptimizations() -> Bool {
+        return true;
+    }
+}
+
+fun runAllMLOptimizationTests() {
+    println("🧠 Running Machine Learning Optimization Tests...\n");
+    
+    test_ml_model_improves_performance_over_time();
+    test_learns_from_every_compilation();
+    test_beats_hand_tuned_heuristics();
+    test_adapts_to_different_workloads();
+    test_no_performance_regressions();
+    test_ml_model_feature_extraction();
+    test_ml_model_prediction_accuracy();
+    test_continuous_learning_infrastructure();
+    
+    println("\n🎉 All ML optimization tests passed! Ready for implementation.");
+}

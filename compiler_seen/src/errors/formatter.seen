@@ -1,0 +1,7 @@
+// Simplified Error Formatter Module
+
+class ErrorFormatter {
+    fun new() -> ErrorFormatter {
+        println("Creating ErrorFormatter");
+    }
+}

@@ -2,11 +2,86 @@
   "Main Function": {
     "prefix": "main",
     "body": [
-      "fun main() {",
+      "fun main() -> Int {",
       "\t$0",
+      "\treturn 0;",
       "}"
     ],
     "description": "Main function entry point"
+  },
+  "Optimization Function": {
+    "prefix": "optfun",
+    "body": [
+      "// Function with optimization hints",
+      "@inline",
+      "@optimize(\"speed\")",
+      "fun ${1:functionName}(${2:params}) -> ${3:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Optimized function with Alpha features"
+  },
+  "E-graph Optimization": {
+    "prefix": "egraph",
+    "body": [
+      "// E-graph optimization pattern",
+      "@egraph_optimize",
+      "fun ${1:functionName}(${2:params}) -> ${3:ReturnType} {",
+      "\t// This function will be optimized using equality saturation",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function with E-graph optimization"
+  },
+  "ML Optimized Function": {
+    "prefix": "mlopt",
+    "body": [
+      "// Machine Learning optimized function",
+      "@ml_optimize",
+      "fun ${1:functionName}(${2:params}) -> ${3:ReturnType} {",
+      "\t// This function uses ML-driven optimizations",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function with ML optimization"
+  },
+  "Profile-Guided Function": {
+    "prefix": "pgo",
+    "body": [
+      "// Profile-guided optimization",
+      "@pgo_hot",
+      "fun ${1:hotFunction}(${2:params}) -> ${3:ReturnType} {",
+      "\t// Hot path - will be heavily optimized",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function with Profile-Guided Optimization"
+  },
+  "Memory Optimized Struct": {
+    "prefix": "memstruct",
+    "body": [
+      "// Cache-optimized structure",
+      "@cache_aligned",
+      "@memory_optimized",
+      "struct ${1:StructName} {",
+      "\t${2:field}: ${3:Type},",
+      "\t$0",
+      "}"
+    ],
+    "description": "Memory-optimized structure"
+  },
+  "Architecture Specific": {
+    "prefix": "archspec",
+    "body": [
+      "// Architecture-specific optimization",
+      "@target(\"${1|x86_64,arm64,riscv64,wasm32|}\")",
+      "@simd_optimize",
+      "fun ${2:functionName}(${3:params}) -> ${4:ReturnType} {",
+      "\t// Optimized for specific architecture",
+      "\t$0",
+      "}"
+    ],
+    "description": "Architecture-specific optimized function"
   },
   "Function": {
     "prefix": "fun",

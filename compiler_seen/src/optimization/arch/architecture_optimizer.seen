@@ -1,0 +1,558 @@
+// Multi-Architecture Optimization Framework
+// Generate optimal code for each target architecture
+
+use optimization::base::OptimizationPass;
+use ir::module::Module;
+use hardware::architecture::*;
+use hardware::simd::*;
+use hardware::isa::*;
+
+// ArchitectureOptimizer (uppercase) = public class
+class ArchitectureOptimizer : OptimizationPass {
+    let architecture: Architecture;
+    let cpuInfo = CPUInfo::detect();
+    let isaExtensions = ISAExtensions::detect();
+    
+    static fun new(target: String) -> ArchitectureOptimizer {
+        return ArchitectureOptimizer{
+            architecture: Architecture::fromString(target)
+        };
+    }
+    
+    // Optimize (uppercase) = public method
+    fun Optimize(ir: Module) -> Module {
+        println("🎯 Multi-Architecture Optimization for {architecture.name}");
+        
+        // Architecture-specific optimization
+        ir = when architecture {
+            is X86_64 -> optimizeForX86_64(ir)
+            is ARM64 -> optimizeForARM64(ir)
+            is RISCV64 -> optimizeForRISCV64(ir)
+            is WASM32 -> optimizeForWASM32(ir)
+            else -> ir  // Unknown architecture, no optimization
+        };
+        
+        // Common optimizations
+        ir = optimizeSIMD(ir);
+        ir = optimizeMemoryAccess(ir);
+        ir = optimizeControlFlow(ir);
+        
+        println("  ✅ Architecture optimization complete");
+        return ir;
+    }
+    
+    // ============== X86-64 OPTIMIZATION ==============
+    
+    fun optimizeForX86_64(ir: Module) -> Module {
+        println("  🔧 Optimizing for x86-64...");
+        
+        // Detect CPU features
+        let hasAVX512 = cpuInfo.hasFeature("avx512f");
+        let hasAVX2 = cpuInfo.hasFeature("avx2");
+        let hasFMA = cpuInfo.hasFeature("fma");
+        let hasBMI2 = cpuInfo.hasFeature("bmi2");
+        
+        // Apply vectorization based on available features
+        if hasAVX512 {
+            println("    ✓ Using AVX-512 (512-bit vectors)");
+            ir = vectorizeAVX512(ir);
+        } else if hasAVX2 {
+            println("    ✓ Using AVX2 (256-bit vectors)");
+            ir = vectorizeAVX2(ir);
+        } else {
+            println("    ✓ Using SSE4.2 (128-bit vectors)");
+            ir = vectorizeSSE(ir);
+        }
+        
+        // Use FMA instructions for multiply-add
+        if hasFMA {
+            ir = useFMAInstructions(ir);
+        }
+        
+        // Complex addressing modes
+        ir = useX86ComplexAddressing(ir);
+        
+        // Conditional moves instead of branches
+        ir = useConditionalMoves(ir);
+        
+        // Optimize for micro-architecture
+        ir = when cpuInfo.microarch {
+            is "zen3" -> optimizeForZen3(ir)
+            is "skylake" -> optimizeForSkylake(ir)
+            is "icelake" -> optimizeForIcelake(ir)
+            else -> ir
+        };
+        
+        return ir;
+    }
+    
+    fun vectorizeAVX512(ir: Module) -> Module {
+        for function in ir.functions {
+            for loop in function.loops {
+                if canVectorize(loop) {
+                    // Use 512-bit vectors (16 floats or 8 doubles)
+                    loop.vectorWidth = 512;
+                    loop.vectorize(AVX512VectorOps);
+                    
+                    // Use masked operations for remainder
+                    if loop.hasRemainder() {
+                        loop.useAVX512Masks();
+                    }
+                    
+                    // Scatter/gather for non-contiguous access
+                    if loop.hasIndirectAccess() {
+                        loop.useAVX512ScatterGather();
+                    }
+                }
+            }
+        }
+        return ir;
+    }
+    
+    fun vectorizeAVX2(ir: Module) -> Module {
+        for function in ir.functions {
+            for loop in function.loops {
+                if canVectorize(loop) {
+                    // Use 256-bit vectors (8 floats or 4 doubles)
+                    loop.vectorWidth = 256;
+                    loop.vectorize(AVX2VectorOps);
+                    
+                    // FMA for multiply-add patterns
+                    loop.detectAndUseFMA();
+                }
+            }
+        }
+        return ir;
+    }
+    
+    fun useX86ComplexAddressing(ir: Module) -> Module {
+        // x86 supports [base + index*scale + offset]
+        for function in ir.functions {
+            for instruction in function.instructions {
+                if instruction.isMemoryAccess() {
+                    let addr = instruction.address;
+                    if addr.canUseComplexMode() {
+                        instruction.addressing = ComplexAddressing{
+                            base: addr.base,
+                            index: addr.index,
+                            scale: addr.scale,  // 1, 2, 4, or 8
+                            offset: addr.offset
+                        };
+                    }
+                }
+            }
+        }
+        return ir;
+    }
+    
+    // ============== ARM64 OPTIMIZATION ==============
+    
+    fun optimizeForARM64(ir: Module) -> Module {
+        println("  🔧 Optimizing for ARM64...");
+        
+        // Detect ARM features
+        let hasSVE2 = cpuInfo.hasFeature("sve2");
+        let hasSVE = cpuInfo.hasFeature("sve");
+        let hasNEON = cpuInfo.hasFeature("neon");
+        
+        // Apply vectorization
+        if hasSVE2 {
+            println("    ✓ Using SVE2 (scalable vectors)");
+            ir = vectorizeSVE2(ir);
+        } else if hasSVE {
+            println("    ✓ Using SVE (scalable vectors)");
+            ir = vectorizeSVE(ir);
+        } else if hasNEON {
+            println("    ✓ Using NEON (128-bit vectors)");
+            ir = vectorizeNEON(ir);
+        }
+        
+        // Use load/store pair instructions
+        ir = useLoadStorePairs(ir);
+        
+        // Conditional select instead of branches
+        ir = useConditionalSelect(ir);
+        
+        // Pre/post increment addressing
+        ir = useAutoIncrement(ir);
+        
+        // Optimize for specific cores
+        ir = when cpuInfo.core {
+            is "cortex-a78" -> optimizeForCortexA78(ir)
+            is "neoverse-n2" -> optimizeForNeoverseN2(ir)
+            is "apple-m1" -> optimizeForAppleM1(ir)
+            else -> ir
+        };
+        
+        return ir;
+    }
+    
+    fun vectorizeSVE2(ir: Module) -> Module {
+        // Scalable Vector Extension 2
+        for function in ir.functions {
+            for loop in function.loops {
+                if canVectorize(loop) {
+                    // SVE uses vector-length agnostic code
+                    loop.vectorMode = VectorMode::Scalable;
+                    loop.vectorize(SVE2VectorOps);
+                    
+                    // Predicated execution for control flow
+                    if loop.hasConditionals() {
+                        loop.usePredicatedExecution();
+                    }
+                    
+                    // Gather/scatter with predicates
+                    if loop.hasIndirectAccess() {
+                        loop.useSVEGatherScatter();
+                    }
+                }
+            }
+        }
+        return ir;
+    }
+    
+    fun useLoadStorePairs(ir: Module) -> Module {
+        // ARM64 can load/store two registers at once
+        for function in ir.functions {
+            let loads = function.findConsecutiveLoads();
+            for pair in loads.pairs() {
+                if pair.isAligned() and pair.isConsecutive() {
+                    pair.replaceWithLoadPair();
+                }
+            }
+            
+            let stores = function.findConsecutiveStores();
+            for pair in stores.pairs() {
+                if pair.isAligned() and pair.isConsecutive() {
+                    pair.replaceWithStorePair();
+                }
+            }
+        }
+        return ir;
+    }
+    
+    // ============== RISC-V OPTIMIZATION ==============
+    
+    fun optimizeForRISCV64(ir: Module) -> Module {
+        println("  🔧 Optimizing for RISC-V 64...");
+        
+        // Detect RISC-V extensions
+        let hasV = isaExtensions.has("V");      // Vector extension
+        let hasB = isaExtensions.has("B");      // Bit manipulation
+        let hasZba = isaExtensions.has("Zba");  // Address generation
+        let hasZbb = isaExtensions.has("Zbb");  // Basic bit manipulation
+        let hasC = isaExtensions.has("C");      // Compressed instructions
+        
+        // Apply vector extension
+        if hasV {
+            println("    ✓ Using RVV (RISC-V Vector Extension)");
+            ir = vectorizeRVV(ir);
+        }
+        
+        // Use bit manipulation instructions
+        if hasB or hasZbb {
+            ir = useBitManipulation(ir);
+        }
+        
+        // Address generation instructions
+        if hasZba {
+            ir = useAddressGeneration(ir);
+        }
+        
+        // Compressed instructions for code size
+        if hasC {
+            ir = useCompressedInstructions(ir);
+        }
+        
+        // Fusion opportunities
+        ir = exploitMacroFusion(ir);
+        
+        // Custom extensions
+        if hasCustomExtensions() {
+            ir = useCustomInstructions(ir);
+        }
+        
+        return ir;
+    }
+    
+    fun vectorizeRVV(ir: Module) -> Module {
+        // RISC-V Vector Extension
+        for function in ir.functions {
+            for loop in function.loops {
+                if canVectorize(loop) {
+                    // RVV uses LMUL (length multiplier) for grouping
+                    let lmul = selectOptimalLMUL(loop);
+                    loop.vectorConfig = RVVConfig{
+                        lmul: lmul,
+                        sew: selectElementWidth(loop),  // SEW: element width
+                        vta: true,  // Tail agnostic
+                        vma: true   // Mask agnostic
+                    };
+                    
+                    loop.vectorize(RVVVectorOps);
+                    
+                    // Segment load/store for structs
+                    if loop.accessesStructs() {
+                        loop.useSegmentedLoadStore();
+                    }
+                }
+            }
+        }
+        return ir;
+    }
+    
+    fun exploitMacroFusion(ir: Module) -> Module {
+        // RISC-V cores can fuse certain instruction pairs
+        for function in ir.functions {
+            // Fuse compare and branch
+            let compareBranches = function.findCompareBranchPairs();
+            for pair in compareBranches {
+                pair.markForFusion();
+            }
+            
+            // Fuse lui/auipc with subsequent instructions
+            let luiPairs = function.findLuiPairs();
+            for pair in luiPairs {
+                pair.markForFusion();
+            }
+            
+            // Fuse multiply-add sequences
+            let mulAdds = function.findMultiplyAdds();
+            for seq in mulAdds {
+                seq.fuseToFMA();
+            }
+        }
+        return ir;
+    }
+    
+    // ============== WASM OPTIMIZATION ==============
+    
+    fun optimizeForWASM32(ir: Module) -> Module {
+        println("  🔧 Optimizing for WebAssembly...");
+        
+        // Detect WASM features
+        let hasSIMD = wasmFeatures.has("simd128");
+        let hasThreads = wasmFeatures.has("threads");
+        let hasBulkMemory = wasmFeatures.has("bulk-memory");
+        let hasExceptionHandling = wasmFeatures.has("exception-handling");
+        
+        // SIMD optimization
+        if hasSIMD {
+            println("    ✓ Using WASM SIMD (128-bit vectors)");
+            ir = vectorizeWASMSIMD(ir);
+        }
+        
+        // Memory optimization
+        if hasBulkMemory {
+            ir = useBulkMemoryOps(ir);
+        }
+        
+        // Threading optimization
+        if hasThreads {
+            ir = optimizeForWASMThreads(ir);
+        }
+        
+        // Minimize code size (important for web)
+        ir = minimizeCodeSize(ir);
+        
+        // Optimize for JavaScript interop
+        ir = optimizeJSInterop(ir);
+        
+        return ir;
+    }
+    
+    fun vectorizeWASMSIMD(ir: Module) -> Module {
+        for function in ir.functions {
+            for loop in function.loops {
+                if canVectorize(loop) {
+                    // WASM SIMD is 128-bit (4 floats, 2 doubles)
+                    loop.vectorWidth = 128;
+                    loop.vectorize(WASMSIMDOps);
+                    
+                    // Use shuffle for permutations
+                    if loop.needsPermutation() {
+                        loop.useWASMShuffle();
+                    }
+                }
+            }
+        }
+        return ir;
+    }
+    
+    // ============== COMMON OPTIMIZATIONS ==============
+    
+    fun optimizeSIMD(ir: Module) -> Module {
+        // Auto-vectorization for all architectures
+        for function in ir.functions {
+            // Find vectorizable patterns
+            let patterns = findVectorizablePatterns(function);
+            
+            for pattern in patterns {
+                when pattern {
+                    is DotProduct -> vectorizeDotProduct(pattern)
+                    is MatrixMultiply -> vectorizeMatMul(pattern)
+                    is Reduction -> vectorizeReduction(pattern)
+                    is Broadcast -> vectorizeBroadcast(pattern)
+                    is Gather -> vectorizeGather(pattern)
+                    is Scatter -> vectorizeScatter(pattern)
+                }
+            }
+        }
+        return ir;
+    }
+    
+    fun optimizeMemoryAccess(ir: Module) -> Module {
+        // Architecture-aware memory optimization
+        for function in ir.functions {
+            // Align data for SIMD
+            alignDataForSIMD(function);
+            
+            // Optimize memory access patterns
+            optimizeAccessPatterns(function);
+            
+            // Insert prefetch hints
+            insertArchSpecificPrefetch(function);
+        }
+        return ir;
+    }
+    
+    fun optimizeControlFlow(ir: Module) -> Module {
+        // Architecture-specific control flow optimization
+        for function in ir.functions {
+            // Minimize branch misprediction
+            minimizeBranches(function);
+            
+            // Use architecture-specific conditional ops
+            useConditionalOps(function);
+            
+            // Optimize loop structure
+            optimizeLoops(function);
+        }
+        return ir;
+    }
+    
+    // ============== HELPER FUNCTIONS ==============
+    
+    fun canVectorize(loop: Loop) -> Bool {
+        return loop.hasNoDataDependencies() and
+               loop.hasConstantTripCount() and
+               loop.isInnermost() and
+               not loop.hasRecurrence();
+    }
+    
+    fun selectOptimalLMUL(loop: Loop) -> Int {
+        // Select RISC-V LMUL based on register pressure
+        let regPressure = analyzeRegisterPressure(loop);
+        return when {
+            regPressure < 8 -> 8   // LMUL=8, use many registers
+            regPressure < 16 -> 4  // LMUL=4
+            regPressure < 24 -> 2  // LMUL=2
+            else -> 1              // LMUL=1, conserve registers
+        };
+    }
+    
+    fun hasCustomExtensions() -> Bool {
+        // Check for domain-specific extensions
+        return isaExtensions.hasAny(["Xabc", "Xdef", "Xcrypto"]);
+    }
+    
+    fun useCustomInstructions(ir: Module) -> Module {
+        // Map to custom instructions if available
+        for ext in isaExtensions.customExtensions {
+            ir = ext.optimize(ir);
+        }
+        return ir;
+    }
+}
+
+// Architecture detection
+class CPUInfo {
+    var vendor: String;
+    var family: Int;
+    var model: Int;
+    var microarch: String;
+    var core: String;
+    var features: Set<String>;
+    
+    static fun detect() -> CPUInfo {
+        // Use CPUID on x86, system registers on ARM, etc.
+        return detectCPUInfo();
+    }
+    
+    fun hasFeature(feature: String) -> Bool {
+        return features.contains(feature);
+    }
+}
+
+// ISA Extensions
+class ISAExtensions {
+    var extensions: Set<String>;
+    var customExtensions: List<CustomExtension>;
+    
+    static fun detect() -> ISAExtensions {
+        return detectISAExtensions();
+    }
+    
+    fun has(ext: String) -> Bool {
+        return extensions.contains(ext);
+    }
+    
+    fun hasAny(exts: List<String>) -> Bool {
+        return exts.any { extensions.contains(it) };
+    }
+}
+
+// Architecture enumeration
+enum Architecture {
+    X86_64,
+    ARM64,
+    RISCV64,
+    WASM32,
+    Unknown
+    
+    static fun fromString(arch: String) -> Architecture {
+        return when arch {
+            "x86_64", "amd64" -> X86_64
+            "aarch64", "arm64" -> ARM64
+            "riscv64" -> RISCV64
+            "wasm32" -> WASM32
+            else -> Unknown
+        };
+    }
+    
+    fun name() -> String {
+        return when self {
+            X86_64 -> "x86-64"
+            ARM64 -> "ARM64"
+            RISCV64 -> "RISC-V 64"
+            WASM32 -> "WebAssembly"
+            Unknown -> "Unknown"
+        };
+    }
+}
+
+// Vector operations for different architectures
+interface VectorOps {
+    fun add(a: Vector, b: Vector) -> Vector;
+    fun mul(a: Vector, b: Vector) -> Vector;
+    fun fma(a: Vector, b: Vector, c: Vector) -> Vector;
+    fun reduce(v: Vector) -> Scalar;
+    fun broadcast(s: Scalar) -> Vector;
+    fun shuffle(v: Vector, mask: ShuffleMask) -> Vector;
+}
+
+class AVX512VectorOps : VectorOps {
+    // AVX-512 specific implementations
+}
+
+class SVE2VectorOps : VectorOps {
+    // ARM SVE2 specific implementations
+}
+
+class RVVVectorOps : VectorOps {
+    // RISC-V Vector specific implementations
+}
+
+class WASMSIMDOps : VectorOps {
+    // WebAssembly SIMD specific implementations
+}

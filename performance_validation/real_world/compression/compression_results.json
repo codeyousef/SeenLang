@@ -1,19 +1,25 @@
 ﻿{
     "metadata":  {
                      "benchmark":  "compression_real_world",
-                     "timestamp":  "2025-08-09T19:36:56Z",
+                     "timestamp":  "2025-08-09T20:00:41Z",
                      "application":  "Compression",
-                     "iterations":  1
+                     "iterations":  3
                  },
     "benchmarks":  {
                        "seen":  {
                                     "compression_times":  [
+                                                              0.0015,
+                                                              0.0015,
                                                               0.0015
                                                           ],
                                     "compression_ratios":  [
+                                                               2,
+                                                               2,
                                                                2
                                                            ],
                                     "throughput_mb_per_sec":  [
+                                                                  600,
+                                                                  600,
                                                                   600
                                                               ],
                                     "metadata":  {
@@ -22,43 +28,61 @@
                                                      "algorithm":  "lz77"
                                                  },
                                     "decompression_times":  [
+                                                                0.0008,
+                                                                0.0008,
                                                                 0.0008
                                                             ]
                                 },
                        "rust":  {
                                     "compression_times":  [
-                                                              0.0016424
+                                                              0.0015218,
+                                                              0.0016052,
+                                                              0.0015342
                                                           ],
                                     "compression_ratios":  [
+                                                               2,
+                                                               2,
                                                                2
                                                            ],
                                     "throughput_mb_per_sec":  [
-                                                                  608.86507549926932
+                                                                  657.11657247995788,
+                                                                  622.975330176925,
+                                                                  651.80550123843045
                                                               ],
                                     "metadata":  {
                                                      "algorithm":  "actual_implementation",
                                                      "language":  "rust"
                                                  },
                                     "decompression_times":  [
-                                                                0.0008212
+                                                                0.0007609,
+                                                                0.0008026,
+                                                                0.0007671
                                                             ]
                                 },
                        "cpp":  {
                                    "compression_times":  [
-                                                             0.0022758
+                                                             0.001709,
+                                                             0.0017975,
+                                                             0.0016679
                                                          ],
                                    "compression_ratios":  [
+                                                              2,
+                                                              2,
                                                               2
                                                           ],
                                    "throughput_mb_per_sec":  [
-                                                                 439.406
+                                                                 585.138,
+                                                                 556.328,
+                                                                 599.556
                                                              ],
                                    "metadata":  {
                                                     "algorithm":  "actual_implementation",
                                                     "language":  "cpp"
                                                 },
                                    "decompression_times":  [
-                                                               0.0011379
+                                                               0.0008545,
+                                                               0.00089875,
+                                                               0.00083395
                                                            ]
                                }
                    }

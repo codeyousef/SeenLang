@@ -1,0 +1,33 @@
+// Advanced memory model features demonstration
+fun basicFunction(data: String): String {
+    return "Basic: " + data
+}
+
+fun moveFunction(data: String): String {
+    return "Moved: " + data
+}
+
+fun borrowFunction(data: String): String {
+    return "Borrowed: " + data  
+}
+
+fun main() {
+    println("=== Advanced Memory Model Demo ===")
+    
+    // Automatic inference
+    let message = "hello world"
+    let result1 = basicFunction(message)
+    println(result1)
+    
+    // Explicit move semantics
+    let moveData = "move test"
+    let result2 = moveFunction(move moveData)
+    println(result2)
+    
+    // Explicit borrow semantics  
+    let borrowData = "borrow test"
+    let result3 = borrowFunction(borrow borrowData)
+    println(result3)
+    
+    println("Memory model demo completed!")
+}

@@ -1,0 +1,388 @@
+// Profile-Guided Optimization (PGO) Engine
+// Automatic profiling and optimization in release builds
+
+use optimization::base::OptimizationPass;
+use ir::function::Function;
+use ir::module::Module;
+use profiling::profiler::Profiler;
+use profiling::profile_data::ProfileData;
+
+// ProfileGuidedOptimizer (uppercase) = public class
+class ProfileGuidedOptimizer : OptimizationPass {
+    let profiler = Profiler::new();
+    var profileData: ProfileData? = null;  // nullable for initial compilation
+    let threshold = 0.8;  // 80% confidence threshold
+    
+    // Compile (uppercase) = public method
+    fun Compile(source: Source, mode: CompilationMode) -> Binary {
+        return if mode == CompilationMode::Release {
+            compileWithPGO(source)
+        } else {
+            compileNormal(source)
+        };
+    }
+    
+    // Main PGO compilation pipeline
+    fun compileWithPGO(source: Source) -> Binary {
+        println("🎯 Starting Profile-Guided Optimization...");
+        
+        // Step 1: Compile with instrumentation
+        let instrumented = compileWithInstrumentation(source);
+        
+        // Step 2: Generate or load profile data
+        let profile = if existingProfileData(source) {
+            println("  ✓ Loading existing profile data");
+            loadProfile(source)
+        } else {
+            println("  ⚡ Generating profile from test suite");
+            generateProfile(instrumented, source)
+        };
+        
+        // Step 3: Optimize with profile data
+        println("  🔧 Recompiling with profile data...");
+        let optimized = optimizeWithProfile(source, profile);
+        
+        // Step 4: Validate improvement
+        let improvement = measureImprovement(instrumented, optimized);
+        println("  📈 Performance improvement: {improvement}%");
+        
+        return optimized;
+    }
+    
+    // Compile with profiling instrumentation
+    fun compileWithInstrumentation(source: Source) -> Binary {
+        let ir = source.toIR();
+        
+        // Add profiling hooks
+        for function in ir.functions {
+            instrumentFunction(function);
+        }
+        
+        // Compile instrumented IR
+        return ir.compile(
+            flags = CompileFlags{
+                instrumentation: true,
+                optimization: OptLevel::O1,  // Light optimization
+                profileGenerate: true
+            }
+        );
+    }
+    
+    // Generate profile from test execution
+    fun generateProfile(binary: Binary, source: Source) -> ProfileData {
+        let profile = ProfileData::new();
+        
+        // Use test suite if available
+        if source.hasTests() {
+            println("    Running test suite for profiling...");
+            let testResults = binary.runTests();
+            profile.addTestRun(testResults);
+        }
+        
+        // Add synthetic workload
+        println("    Generating synthetic workload...");
+        let synthetic = generateSyntheticWorkload(source);
+        let syntheticResults = binary.run(synthetic);
+        profile.addSyntheticRun(syntheticResults);
+        
+        // Analyze hot paths
+        profile.analyzeHotPaths();
+        profile.identifyBottlenecks();
+        
+        // Save for future use
+        profile.save(source.profilePath());
+        
+        return profile;
+    }
+    
+    // Optimize using profile data
+    fun optimizeWithProfile(source: Source, profile: ProfileData) -> Binary {
+        let ir = source.toIR();
+        
+        // Apply profile-guided optimizations
+        applyInliningDecisions(ir, profile);
+        applyBranchPrediction(ir, profile);
+        applyLoopOptimizations(ir, profile);
+        applyCodeLayout(ir, profile);
+        applyColdCodeElimination(ir, profile);
+        
+        // Compile optimized IR
+        return ir.compile(
+            flags = CompileFlags{
+                optimization: OptLevel::O3,
+                profileUse: profile,
+                lto: true,  // Link-time optimization
+                vectorize: true
+            }
+        );
+    }
+    
+    // Inlining based on call frequency
+    fun applyInliningDecisions(ir: Module, profile: ProfileData) {
+        for function in ir.functions {
+            for call in function.calls {
+                let frequency = profile.getCallFrequency(call);
+                let calleeSize = call.callee.instructionCount;
+                
+                // Aggressive inlining for hot calls
+                if frequency > 1000 and calleeSize < 100 {
+                    call.markForInlining();
+                }
+                // Conservative for cold paths
+                else if frequency < 10 {
+                    call.preventInlining();
+                }
+            }
+        }
+    }
+    
+    // Branch prediction hints
+    fun applyBranchPrediction(ir: Module, profile: ProfileData) {
+        for function in ir.functions {
+            for branch in function.branches {
+                let takenProbability = profile.getBranchProbability(branch);
+                
+                // Add prediction hints
+                if takenProbability > 0.9 {
+                    branch.hint = BranchHint::Likely;
+                } else if takenProbability < 0.1 {
+                    branch.hint = BranchHint::Unlikely;
+                }
+                
+                // Reorder basic blocks for better prediction
+                if takenProbability > 0.7 {
+                    function.moveBlockAfter(branch.takenBlock, branch.block);
+                }
+            }
+        }
+    }
+    
+    // Loop optimizations based on iteration counts
+    fun applyLoopOptimizations(ir: Module, profile: ProfileData) {
+        for function in ir.functions {
+            for loop in function.loops {
+                let iterations = profile.getLoopIterations(loop);
+                let isHot = profile.isHotLoop(loop);
+                
+                // Unroll small hot loops
+                if isHot and iterations < 16 and iterations > 0 {
+                    loop.unroll(iterations);
+                }
+                // Vectorize large hot loops
+                else if isHot and iterations > 100 {
+                    loop.vectorize();
+                }
+                // Strip mine for cache optimization
+                else if isHot and iterations > 1000 {
+                    loop.stripMine(64);  // Cache line size
+                }
+            }
+        }
+    }
+    
+    // Code layout optimization
+    fun applyCodeLayout(ir: Module, profile: ProfileData) {
+        // Group hot functions together
+        let hotFunctions = ir.functions.filter { profile.isHot(it) };
+        let coldFunctions = ir.functions.filter { not profile.isHot(it) };
+        
+        // Reorder for better cache locality
+        ir.functions = hotFunctions + coldFunctions;
+        
+        // Within functions, reorder blocks
+        for function in ir.functions {
+            let blockOrder = profile.getOptimalBlockOrder(function);
+            function.reorderBlocks(blockOrder);
+        }
+    }
+    
+    // Remove cold code from hot path
+    fun applyColdCodeElimination(ir: Module, profile: ProfileData) {
+        for function in ir.functions {
+            if not profile.isHot(function) {
+                continue;
+            }
+            
+            // Outline cold blocks
+            for block in function.blocks {
+                if profile.getBlockFrequency(block) < 0.01 {
+                    function.outlineBlock(block);
+                }
+            }
+            
+            // Move error handling out of hot path
+            for handler in function.errorHandlers {
+                if not profile.wasExecuted(handler) {
+                    function.outlineErrorHandler(handler);
+                }
+            }
+        }
+    }
+    
+    // Generate synthetic workload for profiling
+    fun generateSyntheticWorkload(source: Source) -> Workload {
+        let workload = Workload::new();
+        
+        // Analyze source structure
+        let analysis = source.analyze();
+        
+        // Generate representative inputs
+        if analysis.hasNumericCode {
+            workload.add(NumericWorkload::fibonacci(40));
+            workload.add(NumericWorkload::primes(10000));
+        }
+        
+        if analysis.hasStringCode {
+            workload.add(StringWorkload::parsing(1000));
+            workload.add(StringWorkload::formatting(1000));
+        }
+        
+        if analysis.hasCollections {
+            workload.add(CollectionWorkload::sorting(10000));
+            workload.add(CollectionWorkload::searching(10000));
+        }
+        
+        if analysis.hasIO {
+            workload.add(IOWorkload::fileOperations(100));
+        }
+        
+        return workload;
+    }
+    
+    // Instrument function for profiling
+    fun instrumentFunction(function: Function) {
+        // Add entry counter
+        function.addEntryProbe(CounterProbe::new());
+        
+        // Add branch profiling
+        for branch in function.branches {
+            branch.addProbe(BranchProbe::new());
+        }
+        
+        // Add loop profiling
+        for loop in function.loops {
+            loop.addProbe(LoopProbe::new());
+        }
+        
+        // Add call site profiling
+        for call in function.calls {
+            call.addProbe(CallProbe::new());
+        }
+    }
+    
+    // Check for existing profile data
+    fun existingProfileData(source: Source) -> Bool {
+        let profilePath = source.profilePath();
+        return FileSystem::exists(profilePath) and 
+               not isProfileStale(profilePath, source);
+    }
+    
+    // Check if profile is outdated
+    fun isProfileStale(profilePath: String, source: Source) -> Bool {
+        let profileTime = FileSystem::modificationTime(profilePath);
+        let sourceTime = source.lastModified();
+        return sourceTime > profileTime;
+    }
+    
+    // Load saved profile
+    fun loadProfile(source: Source) -> ProfileData {
+        let path = source.profilePath();
+        return ProfileData::load(path);
+    }
+    
+    // Measure performance improvement
+    fun measureImprovement(original: Binary, optimized: Binary) -> Float {
+        // Run micro-benchmarks
+        let originalTime = benchmark(original);
+        let optimizedTime = benchmark(optimized);
+        
+        let improvement = ((originalTime - optimizedTime) / originalTime) * 100.0;
+        return improvement;
+    }
+    
+    // Run benchmarks
+    fun benchmark(binary: Binary) -> Float {
+        let times = [];
+        
+        // Run multiple iterations for stability
+        for i in 0..10 {
+            let start = getCurrentTime();
+            binary.runBenchmark();
+            let end = getCurrentTime();
+            times.append(end - start);
+        }
+        
+        // Return median time
+        times.sort();
+        return times[5];
+    }
+}
+
+// Profile data persistence
+extension ProfileData {
+    fun save(path: String) {
+        let data = ProfileFormat{
+            version: 1,
+            timestamp: getCurrentTime(),
+            functions: self.functions.map { f -> 
+                FunctionProfile{
+                    name: f.name,
+                    callCount: f.callCount,
+                    totalTime: f.totalTime,
+                    branches: f.branches,
+                    loops: f.loops
+                }
+            }
+        };
+        
+        FileSystem::writeJson(path, data);
+    }
+    
+    static fun load(path: String) -> ProfileData {
+        let data = FileSystem::readJson(path);
+        return ProfileData::fromFormat(data);
+    }
+}
+
+// Supporting types
+enum CompilationMode {
+    Debug,
+    Release,
+    Profile
+}
+
+class CompileFlags {
+    var instrumentation: Bool;
+    var optimization: OptLevel;
+    var profileGenerate: Bool;
+    var profileUse: ProfileData?;
+    var lto: Bool;
+    var vectorize: Bool;
+}
+
+enum OptLevel {
+    O0,  // No optimization
+    O1,  // Basic optimization
+    O2,  // Standard optimization
+    O3,  // Aggressive optimization
+    Os,  // Size optimization
+    Oz   // Extreme size optimization
+}
+
+enum BranchHint {
+    Likely,
+    Unlikely,
+    None
+}
+
+class Workload {
+    var tasks: List<WorkloadTask>;
+    
+    static fun new() -> Workload {
+        return Workload{ tasks: [] };
+    }
+    
+    fun add(task: WorkloadTask) {
+        tasks.append(task);
+    }
+}

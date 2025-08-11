@@ -1,0 +1,7 @@
+// Simplified Error System Module for Seen Compiler
+
+class ErrorManager {
+    fun new() -> ErrorManager {
+        return ErrorManager {};
+    }
+}

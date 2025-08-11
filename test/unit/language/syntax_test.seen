@@ -1,0 +1,195 @@
+// Test file to verify all Seen syntax features are properly handled
+// Following docs/Syntax Design.md
+
+// 1. Capitalization-based visibility
+fun PublicFunction() -> String {  // Public (capital P)
+    return "I'm public!";
+}
+
+fun privateHelper() -> String {   // Private (lowercase p)
+    return "I'm private!";
+}
+
+// 2. Immutable by default, explicit mutability
+fun TestVariables() {
+    let immutable = 42;           // Immutable by default
+    var mutable = 100;            // Explicitly mutable with 'var'
+    
+    // immutable = 50;            // ERROR: Cannot modify immutable
+    mutable = 200;                // OK: Can modify mutable
+}
+
+// 3. Nullable types with ?
+fun TestNullSafety() {
+    let user: User = GetUser();           // Non-nullable
+    let maybe: User? = FindUser(123);     // Nullable with ?
+    
+    // Safe navigation with ?.
+    let name = maybe?.Name;               // Returns String?
+    
+    // Elvis operator for defaults
+    let display = maybe?.Name ?: "Guest"; // Provides default
+    
+    // Force unwrap (dangerous!)
+    let definite = maybe!!;                // !! screams danger
+    
+    // Smart casting
+    if maybe != null {
+        println(maybe.Name);               // No ?. needed - smart cast
+    }
+}
+
+// 4. Word operators (and, or, not)
+fun TestLogicalOperators() {
+    let age = 25;
+    let hasPermission = true;
+    
+    // Using 'and' instead of &&
+    if age >= 18 and hasPermission {
+        println("Access granted");
+    }
+    
+    // Using 'or' instead of ||
+    if age < 18 or not hasPermission {  // 'not' instead of !
+        println("Access denied");
+    }
+}
+
+// 5. String interpolation with {}
+fun TestStringInterpolation() {
+    let name = "Alice";
+    let age = 30;
+    
+    // Interpolation uses {} not ${}
+    let greeting = "Hello, {name}!";
+    let message = "You are {age} years old";
+    
+    // Expressions in braces
+    let calc = "2 + 2 = {2 + 2}";
+    
+    // Literal braces use doubling
+    let example = "Use {{braces}} for literal { and }";
+}
+
+// 6. Range operators
+fun TestRanges() {
+    // Inclusive range with ..
+    for i in 1..10 {                // 1 through 10
+        println(i);
+    }
+    
+    // Exclusive range with ..<
+    for j in 1..<10 {               // 1 through 9
+        println(j);
+    }
+}
+
+// 7. Everything is an expression
+fun TestExpressions() -> String {
+    let status = if true { "active" } else { "inactive" };
+    
+    let category = if age < 13 {
+        "child"
+    } else if age < 20 {
+        "teenager"
+    } else {
+        "adult"
+    };
+    
+    // Match expression
+    let result = match value {
+        0 -> "zero"
+        1..3 -> "few"
+        4..10 -> "several"
+        n if n > 10 -> "many"
+        _ -> "unknown"
+    };
+    
+    return result;
+}
+
+// 8. Struct with visibility rules
+struct User {                      // Public struct (capital U)
+    Name: String                   // Public field (capital N)
+    Age: Int                       // Public field (capital A)
+    password: String               // Private field (lowercase p)
+}
+
+// 9. Generic types
+fun ProcessList<T>(items: List<T>) -> T? {
+    if items.isEmpty() {
+        return null;
+    }
+    return items[0];
+}
+
+// 10. Async/await
+async fun FetchData(url: String) -> String {
+    let response = await Http.Get(url);
+    return response.body;
+}
+
+// 11. Memory management keywords (Vale-style)
+fun TestMemoryKeywords() {
+    let data = CreateData();
+    
+    // Explicit move
+    let result = Process(move data);
+    // data no longer accessible
+    
+    // Explicit borrow
+    let temp = Calculate(borrow result);
+    // result still accessible
+    
+    // Explicit mutable borrow
+    Modify(borrow mut result);
+}
+
+// 12. Collections literals
+fun TestCollections() {
+    let array = [1, 2, 3, 4, 5];           // Array literal
+    let map = {"key": "value"};            // Map literal
+    let set = {1, 2, 3};                   // Set literal
+    let empty = {};                        // Empty literal
+}
+
+// 13. Extension methods
+extension String {
+    fun Reversed() -> String {             // Public extension (capital R)
+        return this.chars().reverse().join();
+    }
+    
+    fun trimmed() -> String {              // Private extension (lowercase t)
+        return this.trim();
+    }
+}
+
+// 14. Data classes
+data class Point(X: Float, Y: Float)       // Public data class
+
+// 15. Sealed classes for exhaustive matching
+sealed class Result<T, E> {
+    class Success(value: T): Result<T, E>()
+    class Failure(error: E): Result<T, E>()
+}
+
+// Main entry point
+fun main() -> Int {
+    println("Testing Seen syntax features...");
+    
+    TestVariables();
+    TestNullSafety();
+    TestLogicalOperators();
+    TestStringInterpolation();
+    TestRanges();
+    TestCollections();
+    
+    let message = PublicFunction();
+    println(message);
+    
+    // Test string extension
+    let reversed = "Hello".Reversed();
+    println("Reversed: {reversed}");
+    
+    return 0;
+}

@@ -1,0 +1,358 @@
+// Profile-Guided Optimization Tests
+// Verify PGO delivers performance improvements
+
+use optimization::pgo::profile_guided_optimizer::ProfileGuidedOptimizer;
+use optimization::pgo::profiler::Profiler;
+use testing::assert::*;
+
+fun createPGOTestSuite() -> TestSuite {
+    let suite = TestSuite::new("Profile-Guided Optimization");
+    
+    suite.addTest(TestCase::new("PGO automatic in release builds", test_pgo_automatic));
+    suite.addTest(TestCase::new("20% performance improvement typical", test_performance_improvement));
+    suite.addTest(TestCase::new("No manual profiling needed", test_no_manual_profiling));
+    suite.addTest(TestCase::new("Works across architectures", test_cross_architecture));
+    suite.addTest(TestCase::new("Profile data portable", test_profile_portability));
+    suite.addTest(TestCase::new("Inlining decisions based on profile", test_profile_inlining));
+    suite.addTest(TestCase::new("Branch prediction from profile", test_branch_prediction));
+    suite.addTest(TestCase::new("Loop optimization from profile", test_loop_optimization));
+    
+    return suite;
+}
+
+// Test: PGO automatic in release builds
+fun test_pgo_automatic() {
+    let source = createTestSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Compile in release mode
+    let binary = optimizer.Compile(source, CompilationMode::Release);
+    
+    // Verify PGO was applied
+    assertTrue(binary.hasProfileData(), "PGO should be applied in release mode");
+    assertTrue(binary.isOptimized(), "Binary should be optimized");
+    
+    // Compile in debug mode - no PGO
+    let debugBinary = optimizer.Compile(source, CompilationMode::Debug);
+    assertFalse(debugBinary.hasProfileData(), "PGO should not be applied in debug mode");
+}
+
+// Test: 20% performance improvement typical
+fun test_performance_improvement() {
+    let source = createBenchmarkSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Compile without PGO
+    let normalBinary = compileWithoutPGO(source);
+    let normalTime = benchmarkBinary(normalBinary);
+    
+    // Compile with PGO
+    let pgoBinary = optimizer.Compile(source, CompilationMode::Release);
+    let pgoTime = benchmarkBinary(pgoBinary);
+    
+    // Calculate improvement
+    let improvement = ((normalTime - pgoTime) / normalTime) * 100.0;
+    
+    // Should see at least 20% improvement
+    assertTrue(improvement >= 20.0, "PGO should provide at least 20% improvement");
+    println("  Actual improvement: {improvement}%");
+}
+
+// Test: No manual profiling needed
+fun test_no_manual_profiling() {
+    let source = createTestSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Just compile - no manual steps
+    let binary = optimizer.Compile(source, CompilationMode::Release);
+    
+    // Verify profile was automatically generated
+    assertTrue(binary.hasProfileData(), "Profile should be generated automatically");
+    
+    // Verify test suite was used for profiling if available
+    if source.hasTests() {
+        assertTrue(binary.profileData.fromTests, "Should use test suite for profiling");
+    }
+    
+    // Verify synthetic workload was generated
+    assertTrue(binary.profileData.hasSyntheticData, "Should generate synthetic workload");
+}
+
+// Test: Works across architectures
+fun test_cross_architecture() {
+    let source = createTestSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Test different target architectures
+    let architectures = ["x86_64", "arm64", "riscv64", "wasm32"];
+    
+    for arch in architectures {
+        source.setTargetArchitecture(arch);
+        let binary = optimizer.Compile(source, CompilationMode::Release);
+        
+        assertTrue(binary.hasProfileData(), "PGO should work for {arch}");
+        assertTrue(binary.isOptimizedFor(arch), "Should be optimized for {arch}");
+        
+        // Verify architecture-specific optimizations
+        if arch == "x86_64" {
+            assertTrue(binary.hasAVX512(), "Should use AVX-512 on x86_64");
+        } else if arch == "arm64" {
+            assertTrue(binary.hasNEON(), "Should use NEON on ARM64");
+        } else if arch == "riscv64" {
+            assertTrue(binary.hasRVV(), "Should use RVV on RISC-V");
+        }
+    }
+}
+
+// Test: Profile data portable
+fun test_profile_portability() {
+    let source = createTestSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Generate profile on one architecture
+    source.setTargetArchitecture("x86_64");
+    let x86Binary = optimizer.Compile(source, CompilationMode::Release);
+    let profilePath = source.profilePath();
+    
+    // Verify profile was saved
+    assertTrue(FileSystem::exists(profilePath), "Profile should be saved");
+    
+    // Use same profile for different architecture
+    source.setTargetArchitecture("arm64");
+    let armBinary = optimizer.Compile(source, CompilationMode::Release);
+    
+    // Should reuse existing profile
+    assertTrue(armBinary.usedExistingProfile, "Should reuse existing profile");
+    assertTrue(armBinary.hasProfileData(), "Should have profile data");
+    
+    // Profile should be architecture-agnostic
+    assertEquals(
+        x86Binary.profileData.functionCounts,
+        armBinary.profileData.functionCounts,
+        "Profile data should be portable"
+    );
+}
+
+// Test: Inlining decisions based on profile
+fun test_profile_inlining() {
+    let source = createInliningTestSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Compile with PGO
+    let binary = optimizer.Compile(source, CompilationMode::Release);
+    
+    // Check inlining decisions
+    let ir = binary.getIR();
+    
+    // Hot function should be inlined
+    let hotCall = ir.findCall("hotFunction");
+    assertTrue(hotCall.isInlined, "Hot function should be inlined");
+    
+    // Cold function should not be inlined
+    let coldCall = ir.findCall("coldFunction");
+    assertFalse(coldCall.isInlined, "Cold function should not be inlined");
+    
+    // Large hot function should still be considered
+    let largeHotCall = ir.findCall("largeHotFunction");
+    assertTrue(
+        largeHotCall.isInlined or largeHotCall.hasInlineHint,
+        "Large hot function should be considered for inlining"
+    );
+}
+
+// Test: Branch prediction from profile
+fun test_branch_prediction() {
+    let source = createBranchTestSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Compile with PGO
+    let binary = optimizer.Compile(source, CompilationMode::Release);
+    let ir = binary.getIR();
+    
+    // Check branch predictions
+    let likelyBranch = ir.findBranch("error_check");
+    assertEquals(BranchHint::Unlikely, likelyBranch.hint, "Error check should be unlikely");
+    
+    let loopBranch = ir.findBranch("loop_condition");
+    assertEquals(BranchHint::Likely, loopBranch.hint, "Loop condition should be likely");
+    
+    // Check basic block reordering
+    let function = ir.findFunction("main");
+    let blocks = function.getBlockOrder();
+    
+    // Hot path should come first
+    assertTrue(blocks[0].isHot, "First block should be hot");
+    assertTrue(blocks[1].isHot, "Second block should be hot");
+    
+    // Cold blocks should be at the end
+    assertTrue(blocks[blocks.size - 1].isCold, "Last block should be cold");
+}
+
+// Test: Loop optimization from profile
+fun test_loop_optimization() {
+    let source = createLoopTestSource();
+    let optimizer = ProfileGuidedOptimizer::new();
+    
+    // Compile with PGO
+    let binary = optimizer.Compile(source, CompilationMode::Release);
+    let ir = binary.getIR();
+    
+    // Small hot loop should be unrolled
+    let smallLoop = ir.findLoop("small_hot_loop");
+    assertTrue(smallLoop.isUnrolled, "Small hot loop should be unrolled");
+    assertEquals(8, smallLoop.unrollFactor, "Should unroll by iteration count");
+    
+    // Large hot loop should be vectorized
+    let largeLoop = ir.findLoop("large_hot_loop");
+    assertTrue(largeLoop.isVectorized, "Large hot loop should be vectorized");
+    
+    // Very large loop should be strip mined
+    let hugeLoop = ir.findLoop("huge_hot_loop");
+    assertTrue(hugeLoop.isStripMined, "Huge loop should be strip mined");
+    assertEquals(64, hugeLoop.stripSize, "Should use cache line size");
+    
+    // Cold loop should not be optimized
+    let coldLoop = ir.findLoop("cold_loop");
+    assertFalse(coldLoop.isOptimized, "Cold loop should not be optimized");
+}
+
+// Helper functions
+
+fun createTestSource() -> Source {
+    return Source::fromString("""
+        fun main() -> Int {
+            let result = fibonacci(40);
+            println("Result: {result}");
+            return 0;
+        }
+        
+        fun fibonacci(n: Int) -> Int {
+            if n <= 1 { return n; }
+            return fibonacci(n - 1) + fibonacci(n - 2);
+        }
+    """);
+}
+
+fun createBenchmarkSource() -> Source {
+    return Source::fromString("""
+        fun main() -> Int {
+            let sum = 0;
+            for i in 0..1000000 {
+                sum = sum + compute(i);
+            }
+            return sum;
+        }
+        
+        fun compute(x: Int) -> Int {
+            return x * x + x / 2;
+        }
+    """);
+}
+
+fun createInliningTestSource() -> Source {
+    return Source::fromString("""
+        fun main() -> Int {
+            // Hot path - called many times
+            for i in 0..10000 {
+                hotFunction(i);
+            }
+            
+            // Cold path - rarely called
+            if false {
+                coldFunction(0);
+            }
+            
+            // Large but hot
+            for i in 0..1000 {
+                largeHotFunction(i);
+            }
+            
+            return 0;
+        }
+        
+        fun hotFunction(x: Int) -> Int {
+            return x * 2;  // Small and hot - should inline
+        }
+        
+        fun coldFunction(x: Int) -> Int {
+            return x * 3;  // Cold - should not inline
+        }
+        
+        fun largeHotFunction(x: Int) -> Int {
+            // 50+ instructions but hot
+            let a = x * 2;
+            let b = a + 3;
+            let c = b * 4;
+            // ... more computation ...
+            return c;
+        }
+    """);
+}
+
+fun createBranchTestSource() -> Source {
+    return Source::fromString("""
+        fun main() -> Int {
+            for i in 0..10000 {
+                // Error check - unlikely
+                if i < 0 {
+                    handleError();
+                }
+                
+                // Loop condition - likely
+                if i < 9999 {
+                    process(i);
+                }
+            }
+            return 0;
+        }
+    """);
+}
+
+fun createLoopTestSource() -> Source {
+    return Source::fromString("""
+        fun main() -> Int {
+            // Small hot loop - should unroll
+            for i in 0..8 {
+                smallComputation(i);
+            }
+            
+            // Large hot loop - should vectorize
+            for i in 0..1000 {
+                largeComputation(i);
+            }
+            
+            // Huge hot loop - should strip mine
+            for i in 0..100000 {
+                hugeComputation(i);
+            }
+            
+            // Cold loop - should not optimize
+            if false {
+                for i in 0..100 {
+                    coldComputation(i);
+                }
+            }
+            
+            return 0;
+        }
+    """);
+}
+
+fun compileWithoutPGO(source: Source) -> Binary {
+    // Compile with basic optimization, no PGO
+    return source.compile(OptLevel::O2);
+}
+
+fun benchmarkBinary(binary: Binary) -> Float {
+    let times = [];
+    for i in 0..5 {
+        let start = getCurrentTime();
+        binary.run();
+        let end = getCurrentTime();
+        times.append(end - start);
+    }
+    
+    // Return median time
+    times.sort();
+    return times[2];
+}

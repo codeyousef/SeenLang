@@ -563,7 +563,7 @@
 
 - [x] **Statistical Analysis:**
   - [x] Warmup detection and elimination ✅
-  - [x] Outlier detection and removal ✅
+  - [x] Outlier detection and remolet ✅
   - [x] Mean, median, percentiles (p50, p90, p99) ✅
   - [x] Standard deviation and variance ✅
   - [x] Confidence intervals ✅
@@ -870,7 +870,7 @@ impl CrossCompiler {
 ```seen
 @benchmark
 fun benchRiscVPerformance(b: Bencher) {
-    val targets = listOf(
+    let targets = listOf(
         Target.X86_64_Linux,
         Target.RiscV64_Linux,
         Target.AArch64_Linux
@@ -879,19 +879,19 @@ fun benchRiscVPerformance(b: Bencher) {
     for (target in targets) {
         b.iter {
             // Test reactive operator performance
-            val reactivePerf = benchmarkReactiveOps(target)
+            let reactivePerf = benchmarkReactiveOps(target)
             if (target == Target.RiscV64_Linux) {
                 // RISC-V with RVV should match or beat x86 with AVX2
                 assert(reactivePerf >= x86Performance * 0.95)
             }
             
             // Test memory operations
-            val memPerf = benchmarkMemoryOps(target)
+            let memPerf = benchmarkMemoryOps(target)
             assert(memPerf.overhead < 0.05)  // <5% overhead
             
             // Test vector operations
             if (target.hasVectorExtensions()) {
-                val vecPerf = benchmarkVectorOps(target)
+                let vecPerf = benchmarkVectorOps(target)
                 assert(vecPerf.speedup > 4.0)  // >4x speedup with vectors
             }
         }
@@ -900,11 +900,11 @@ fun benchRiscVPerformance(b: Bencher) {
 
 @benchmark
 fun benchRiscVReactiveStreams(b: Bencher) {
-    val source = Observable.range(1, 1_000_000)
+    let source = Observable.range(1, 1_000_000)
     
     b.iter {
         // This should compile to efficient RVV instructions
-        val result = source
+        let result = source
             .map { it * 2 }           // Vectorized multiply
             .filter { it % 3 == 0 }   // Vectorized modulo
             .reduce { a, b -> a + b } // Vectorized reduction

@@ -1,0 +1,18 @@
+// Bootstrap Verifier Module - Simplified
+class BootstrapVerifier {
+    fun new() -> BootstrapVerifier {
+        println("Creating BootstrapVerifier");
+    }
+}
+
+class CompilerInfo {
+    fun new() -> CompilerInfo {
+        println("Creating CompilerInfo");
+    }
+}
+
+class VerificationResult {
+    fun new() -> VerificationResult {
+        println("Creating VerificationResult");
+    }
+}

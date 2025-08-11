@@ -1,0 +1,7 @@
+// Simplified Error Types Module
+
+class ErrorTypes {
+    fun new() -> ErrorTypes {
+        println("Creating ErrorTypes");
+    }
+}

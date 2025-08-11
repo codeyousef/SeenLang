@@ -1,0 +1,539 @@
+// Multi-Architecture Optimization Tests
+// Verify optimal code generation for each target platform
+
+use optimization::arch::architecture_optimizer::ArchitectureOptimizer;
+use testing::assert::*;
+
+fun createArchitectureTestSuite() -> TestSuite {
+    let suite = TestSuite::new("Multi-Architecture Optimization");
+    
+    suite.addTest(TestCase::new("Optimal code for each architecture", test_optimal_per_arch));
+    suite.addTest(TestCase::new("SIMD usage maximized", test_simd_maximized));
+    suite.addTest(TestCase::new("Architecture patterns recognized", test_arch_patterns));
+    suite.addTest(TestCase::new("No performance regression", test_no_regression));
+    suite.addTest(TestCase::new("Custom instructions utilized", test_custom_instructions));
+    suite.addTest(TestCase::new("x86-64 AVX-512 optimization", test_x86_avx512));
+    suite.addTest(TestCase::new("ARM64 SVE2 optimization", test_arm_sve2));
+    suite.addTest(TestCase::new("RISC-V RVV optimization", test_riscv_rvv));
+    suite.addTest(TestCase::new("WASM SIMD optimization", test_wasm_simd));
+    suite.addTest(TestCase::new("Cross-architecture portability", test_portability));
+    
+    return suite;
+}
+
+// Test: Optimal code for each architecture
+fun test_optimal_per_arch() {
+    let source = createVectorizableSource();
+    
+    let architectures = [
+        ("x86_64", "AVX-512"),
+        ("arm64", "SVE2"),
+        ("riscv64", "RVV"),
+        ("wasm32", "SIMD128")
+    ];
+    
+    for (arch, feature) in architectures {
+        let optimizer = ArchitectureOptimizer::new(arch);
+        let ir = source.toIR();
+        let optimized = optimizer.Optimize(ir);
+        
+        // Verify architecture-specific optimizations applied
+        assertTrue(
+            optimized.hasOptimizationsFor(arch),
+            "Should have optimizations for {arch}"
+        );
+        
+        // Check for feature usage
+        assertTrue(
+            optimized.uses(feature),
+            "Should use {feature} on {arch}"
+        );
+        
+        // Verify performance improvement
+        let baseline = compileBaseline(source, arch);
+        let optimizedBinary = compile(optimized, arch);
+        
+        let baselinePerf = benchmark(baseline);
+        let optimizedPerf = benchmark(optimizedBinary);
+        
+        assertTrue(
+            optimizedPerf < baselinePerf * 0.7,
+            "{arch} should improve performance by 30%+"
+        );
+    }
+}
+
+// Test: SIMD usage maximized
+fun test_simd_maximized() {
+    let source = createSIMDTestSource();
+    
+    // Test x86-64 AVX-512
+    let x86Optimizer = ArchitectureOptimizer::new("x86_64");
+    let x86IR = source.toIR();
+    let x86Optimized = x86Optimizer.Optimize(x86IR);
+    
+    // Should use 512-bit vectors where possible
+    let avx512Ops = x86Optimized.findInstructions("v.*ps.*zmm");  // AVX-512 ops
+    assertTrue(avx512Ops.size > 0, "Should use AVX-512 instructions");
+    
+    // Should use masked operations
+    let maskedOps = x86Optimized.findInstructions("k[0-7]");  // Mask registers
+    assertTrue(maskedOps.size > 0, "Should use AVX-512 masks");
+    
+    // Test ARM64 NEON/SVE
+    let armOptimizer = ArchitectureOptimizer::new("arm64");
+    let armIR = source.toIR();
+    let armOptimized = armOptimizer.Optimize(armIR);
+    
+    // Should use NEON or SVE
+    let neonOps = armOptimized.findInstructions("v[0-9]+\\.");  // NEON ops
+    let sveOps = armOptimized.findInstructions("z[0-9]+\\.");   // SVE ops
+    assertTrue(
+        neonOps.size > 0 or sveOps.size > 0,
+        "Should use NEON or SVE instructions"
+    );
+    
+    // Test RISC-V Vector
+    let riscvOptimizer = ArchitectureOptimizer::new("riscv64");
+    let riscvIR = source.toIR();
+    let riscvOptimized = riscvOptimizer.Optimize(riscvIR);
+    
+    // Should use vector instructions
+    let vectorOps = riscvOptimized.findInstructions("v.*\\.v");  // RVV ops
+    assertTrue(vectorOps.size > 0, "Should use RVV instructions");
+}
+
+// Test: Architecture-specific patterns recognized
+fun test_arch_patterns() {
+    // Test complex addressing on x86
+    let x86Source = Source::fromString("""
+        fun processArray(arr: Array<Int>, indices: Array<Int>) {
+            for i in 0..100 {
+                arr[indices[i] * 4 + 8] = compute(i);
+            }
+        }
+    """);
+    
+    let x86Optimizer = ArchitectureOptimizer::new("x86_64");
+    let x86Optimized = x86Optimizer.Optimize(x86Source.toIR());
+    
+    // Should use complex addressing mode [base + index*scale + offset]
+    let complexAddr = x86Optimized.findAddressingModes();
+    assertTrue(
+        complexAddr.any { it.hasScale and it.hasOffset },
+        "Should use x86 complex addressing"
+    );
+    
+    // Test load/store pairs on ARM
+    let armSource = Source::fromString("""
+        fun copyData(src: Array<Long>, dst: Array<Long>) {
+            for i in 0..100 {
+                let a = src[i * 2];
+                let b = src[i * 2 + 1];
+                dst[i * 2] = a;
+                dst[i * 2 + 1] = b;
+            }
+        }
+    """);
+    
+    let armOptimizer = ArchitectureOptimizer::new("arm64");
+    let armOptimized = armOptimizer.Optimize(armSource.toIR());
+    
+    // Should use load/store pair instructions
+    let ldpInstructions = armOptimized.findInstructions("ldp");
+    let stpInstructions = armOptimized.findInstructions("stp");
+    assertTrue(ldpInstructions.size > 0, "Should use ARM ldp");
+    assertTrue(stpInstructions.size > 0, "Should use ARM stp");
+    
+    // Test macro fusion on RISC-V
+    let riscvSource = Source::fromString("""
+        fun branch_intensive(x: Int) -> Int {
+            if x < 10 { return x * 2; }
+            if x < 20 { return x * 3; }
+            if x < 30 { return x * 4; }
+            return x * 5;
+        }
+    """);
+    
+    let riscvOptimizer = ArchitectureOptimizer::new("riscv64");
+    let riscvOptimized = riscvOptimizer.Optimize(riscvSource.toIR());
+    
+    // Should mark compare-branch pairs for fusion
+    let fusionPairs = riscvOptimized.findFusionCandidates();
+    assertTrue(fusionPairs.size >= 3, "Should identify fusion opportunities");
+}
+
+// Test: No performance regression on any platform
+fun test_no_regression() {
+    let testSources = [
+        createComputeIntensive(),
+        createMemoryIntensive(),
+        createBranchIntensive(),
+        createMixedWorkload()
+    ];
+    
+    let architectures = ["x86_64", "arm64", "riscv64", "wasm32"];
+    
+    for source in testSources {
+        for arch in architectures {
+            let optimizer = ArchitectureOptimizer::new(arch);
+            
+            // Compile with and without optimization
+            let baseline = compileBaseline(source, arch);
+            let optimized = optimizer.Optimize(source.toIR());
+            let optimizedBinary = compile(optimized, arch);
+            
+            // Measure performance
+            let baselinePerf = benchmark(baseline);
+            let optimizedPerf = benchmark(optimizedBinary);
+            
+            // Should never be slower
+            assertTrue(
+                optimizedPerf <= baselinePerf,
+                "No regression on {arch} for {source.name}"
+            );
+            
+            // Should usually be faster
+            assertTrue(
+                optimizedPerf < baselinePerf * 0.95 or optimizedPerf == baselinePerf,
+                "Should improve or maintain performance on {arch}"
+            );
+        }
+    }
+}
+
+// Test: Custom instructions utilized when available
+fun test_custom_instructions() {
+    // Simulate custom RISC-V extension
+    let source = Source::fromString("""
+        fun crypto_hash(data: Array<Byte>) -> Hash {
+            // SHA-256 computation
+            return sha256(data);
+        }
+    """);
+    
+    // Enable crypto extension
+    let optimizer = ArchitectureOptimizer::new("riscv64");
+    optimizer.enableExtension("Xcrypto");
+    
+    let ir = source.toIR();
+    let optimized = optimizer.Optimize(ir);
+    
+    // Should use custom crypto instructions if available
+    if optimizer.hasExtension("Xcrypto") {
+        let cryptoOps = optimized.findInstructions("sha256.*");
+        assertTrue(cryptoOps.size > 0, "Should use crypto extension");
+    }
+    
+    // Test x86 custom instructions (e.g., CRC32)
+    let crcSource = Source::fromString("""
+        fun compute_crc32(data: Array<Byte>) -> Int {
+            return crc32(data);
+        }
+    """);
+    
+    let x86Optimizer = ArchitectureOptimizer::new("x86_64");
+    let x86Optimized = x86Optimizer.Optimize(crcSource.toIR());
+    
+    // Should use CRC32 instruction if available
+    if x86Optimizer.cpuInfo.hasFeature("sse4.2") {
+        let crcInstructions = x86Optimized.findInstructions("crc32");
+        assertTrue(crcInstructions.size > 0, "Should use CRC32 instruction");
+    }
+}
+
+// Test: x86-64 AVX-512 specific optimizations
+fun test_x86_avx512() {
+    let optimizer = ArchitectureOptimizer::new("x86_64");
+    optimizer.cpuInfo.features.add("avx512f");
+    optimizer.cpuInfo.features.add("avx512dq");
+    
+    let source = createDotProductSource();
+    let optimized = optimizer.Optimize(source.toIR());
+    
+    // Should use 512-bit vectors
+    let zmm = optimized.findRegisters("zmm");
+    assertTrue(zmm.size > 0, "Should use ZMM registers");
+    
+    // Should use FMA for dot product
+    let fma = optimized.findInstructions("vfmadd");
+    assertTrue(fma.size > 0, "Should use FMA instructions");
+    
+    // Should use reduction
+    let reduce = optimized.findInstructions("vreduce");
+    assertTrue(reduce.size > 0, "Should use reduction");
+    
+    // Check vector width
+    let loops = optimized.findVectorizedLoops();
+    assertTrue(
+        loops.all { it.vectorWidth == 512 },
+        "Should use 512-bit vectors"
+    );
+}
+
+// Test: ARM64 SVE2 specific optimizations
+fun test_arm_sve2() {
+    let optimizer = ArchitectureOptimizer::new("arm64");
+    optimizer.cpuInfo.features.add("sve2");
+    
+    let source = createConditionalSource();
+    let optimized = optimizer.Optimize(source.toIR());
+    
+    // Should use scalable vectors
+    let sve = optimized.findInstructions("z[0-9]+");
+    assertTrue(sve.size > 0, "Should use SVE registers");
+    
+    // Should use predicated execution
+    let predicated = optimized.findInstructions("p[0-9]+");
+    assertTrue(predicated.size > 0, "Should use predication");
+    
+    // Should be vector-length agnostic
+    let loops = optimized.findVectorizedLoops();
+    assertTrue(
+        loops.all { it.vectorMode == VectorMode::Scalable },
+        "Should use scalable vectors"
+    );
+}
+
+// Test: RISC-V RVV specific optimizations
+fun test_riscv_rvv() {
+    let optimizer = ArchitectureOptimizer::new("riscv64");
+    optimizer.isaExtensions.extensions.add("V");
+    
+    let source = createStructArraySource();
+    let optimized = optimizer.Optimize(source.toIR());
+    
+    // Should use vector registers
+    let vreg = optimized.findRegisters("v[0-9]+");
+    assertTrue(vreg.size > 0, "Should use vector registers");
+    
+    // Should use segment load/store for structs
+    let segment = optimized.findInstructions("v[ls]seg");
+    assertTrue(segment.size > 0, "Should use segment load/store");
+    
+    // Should configure LMUL appropriately
+    let config = optimized.findVectorConfig();
+    assertTrue(config.lmul >= 1, "Should set LMUL");
+    assertTrue(config.sew > 0, "Should set SEW");
+}
+
+// Test: WASM SIMD specific optimizations
+fun test_wasm_simd() {
+    let optimizer = ArchitectureOptimizer::new("wasm32");
+    optimizer.wasmFeatures.add("simd128");
+    
+    let source = createImageProcessingSource();
+    let optimized = optimizer.Optimize(source.toIR());
+    
+    // Should use 128-bit SIMD
+    let simd = optimized.findInstructions("v128\\.");
+    assertTrue(simd.size > 0, "Should use WASM SIMD");
+    
+    // Should use shuffle for permutations
+    let shuffle = optimized.findInstructions("i8x16\\.shuffle");
+    assertTrue(shuffle.size > 0, "Should use shuffle");
+    
+    // Code size should be optimized
+    let codeSize = optimized.calculateCodeSize();
+    let baselineSize = source.toIR().calculateCodeSize();
+    assertTrue(
+        codeSize < baselineSize * 1.1,
+        "Should not increase code size much"
+    );
+}
+
+// Test: Cross-architecture portability
+fun test_portability() {
+    let source = createPortableSource();
+    let architectures = ["x86_64", "arm64", "riscv64", "wasm32"];
+    
+    let results = Map<String, Binary>();
+    
+    // Compile for all architectures
+    for arch in architectures {
+        let optimizer = ArchitectureOptimizer::new(arch);
+        let optimized = optimizer.Optimize(source.toIR());
+        results[arch] = compile(optimized, arch);
+    }
+    
+    // All should produce correct results
+    let testInput = createTestInput();
+    let expectedOutput = computeExpectedOutput(testInput);
+    
+    for (arch, binary) in results {
+        let output = binary.run(testInput);
+        assertEquals(
+            expectedOutput,
+            output,
+            "Should produce same results on {arch}"
+        );
+    }
+    
+    // Performance should be good on all platforms
+    for (arch, binary) in results {
+        let perf = benchmark(binary);
+        let baseline = getBaselinePerformance(arch);
+        assertTrue(
+            perf < baseline * 1.5,
+            "Should have reasonable performance on {arch}"
+        );
+    }
+}
+
+// Helper functions
+
+fun createVectorizableSource() -> Source {
+    return Source::fromString("""
+        fun vectorAdd(a: Array<Float>, b: Array<Float>, c: Array<Float>) {
+            for i in 0..1000 {
+                c[i] = a[i] + b[i];
+            }
+        }
+    """);
+}
+
+fun createSIMDTestSource() -> Source {
+    return Source::fromString("""
+        fun matmul(A: Matrix, B: Matrix, C: Matrix) {
+            for i in 0..N {
+                for j in 0..M {
+                    let sum = 0.0;
+                    for k in 0..K {
+                        sum = sum + A[i][k] * B[k][j];
+                    }
+                    C[i][j] = sum;
+                }
+            }
+        }
+    """);
+}
+
+fun createDotProductSource() -> Source {
+    return Source::fromString("""
+        fun dotProduct(a: Array<Float>, b: Array<Float>) -> Float {
+            let sum = 0.0;
+            for i in 0..1000 {
+                sum = sum + a[i] * b[i];
+            }
+            return sum;
+        }
+    """);
+}
+
+fun createConditionalSource() -> Source {
+    return Source::fromString("""
+        fun conditionalProcess(data: Array<Float>, threshold: Float) {
+            for i in 0..1000 {
+                if data[i] > threshold {
+                    data[i] = sqrt(data[i]);
+                } else {
+                    data[i] = data[i] * 2.0;
+                }
+            }
+        }
+    """);
+}
+
+fun createStructArraySource() -> Source {
+    return Source::fromString("""
+        struct Vec3 {
+            x: Float;
+            y: Float;
+            z: Float;
+        }
+        
+        fun processVectors(vectors: Array<Vec3>) {
+            for i in 0..1000 {
+                vectors[i].x = vectors[i].x * 2.0;
+                vectors[i].y = vectors[i].y * 2.0;
+                vectors[i].z = vectors[i].z * 2.0;
+            }
+        }
+    """);
+}
+
+fun createImageProcessingSource() -> Source {
+    return Source::fromString("""
+        fun applyFilter(image: Array<Byte>, kernel: Array<Float>) {
+            // Convolution operation
+            for y in 1..height-1 {
+                for x in 1..width-1 {
+                    let sum = 0.0;
+                    for ky in -1..1 {
+                        for kx in -1..1 {
+                            sum = sum + image[y+ky][x+kx] * kernel[ky+1][kx+1];
+                        }
+                    }
+                    output[y][x] = clamp(sum, 0, 255);
+                }
+            }
+        }
+    """);
+}
+
+fun createComputeIntensive() -> Source {
+    return Source::fromString("""
+        fun compute() -> Float {
+            let result = 0.0;
+            for i in 0..10000 {
+                result = result + sin(i) * cos(i);
+            }
+            return result;
+        }
+    """);
+}
+
+fun createMemoryIntensive() -> Source {
+    return Source::fromString("""
+        fun traverse(data: Array<Node>) {
+            for node in data {
+                process(node);
+                if node.left != null { traverse(node.left); }
+                if node.right != null { traverse(node.right); }
+            }
+        }
+    """);
+}
+
+fun createBranchIntensive() -> Source {
+    return Source::fromString("""
+        fun classify(values: Array<Int>) -> Array<Category> {
+            let results = [];
+            for v in values {
+                if v < 10 { results.append(Category::Small); }
+                else if v < 100 { results.append(Category::Medium); }
+                else if v < 1000 { results.append(Category::Large); }
+                else { results.append(Category::Huge); }
+            }
+            return results;
+        }
+    """);
+}
+
+fun createMixedWorkload() -> Source {
+    return Source::fromString("""
+        fun process(data: Array<Float>) -> Float {
+            // Mix of compute, memory, and branches
+            let sum = 0.0;
+            for i in 0..data.size {
+                if data[i] > 0 {
+                    sum = sum + sqrt(data[i]) * log(data[i]);
+                }
+            }
+            return sum;
+        }
+    """);
+}
+
+fun createPortableSource() -> Source {
+    return Source::fromString("""
+        fun portableAlgorithm(input: Array<Int>) -> Int {
+            // Algorithm that should work well on all architectures
+            let result = 0;
+            for i in input {
+                result = result ^ (i * 31 + 17);
+            }
+            return result;
+        }
+    """);
+}

@@ -1,0 +1,38 @@
+// Test Basic Syntax Design Features that work with bootstrap parser
+
+// Basic functions (avoiding class limitations for now)
+fun simpleFunction(x: Int) -> Int {
+    return x + 1;
+}
+
+fun testStringConcatenation(name: String) -> String {
+    return "Hello " + name;
+}
+
+fun testBooleanLogic(x: Bool, y: Bool) -> Bool {
+    return x;
+}
+
+fun main() {
+    println("Testing basic syntax features...");
+    
+    // Test basic function calls
+    let result = simpleFunction(42);
+    println("Function result calculated");
+    
+    // Test string operations  
+    let greeting = testStringConcatenation("Seen");
+    println(greeting);
+    
+    // Test boolean logic
+    let boolResult = testBooleanLogic(true, false);
+    println("Boolean logic works");
+    
+    // Test variable declarations
+    let number = 123;
+    let text = "Simple text";
+    let flag = true;
+    
+    println("Variable declarations work");
+    println("Basic syntax test completed!");
+}

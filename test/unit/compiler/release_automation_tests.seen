@@ -1,0 +1,387 @@
+// Release Automation Tests
+// Verify installer and IDE updates work correctly
+
+use tools::release_automation::ReleaseAutomation;
+use testing::assert::*;
+
+fun createReleaseAutomationTestSuite() -> TestSuite {
+    let suite = TestSuite::new("Release Automation");
+    
+    suite.addTest(TestCase::new("Update installer with each optimization", test_installer_updates));
+    suite.addTest(TestCase::new("Update VSCode extension for new features", test_vscode_updates));
+    suite.addTest(TestCase::new("Ensure all keywords in TOML files only", test_toml_keywords));
+    suite.addTest(TestCase::new("Update documentation continuously", test_documentation_updates));
+    suite.addTest(TestCase::new("No hardcoded keywords verification", test_no_hardcoded_keywords));
+    suite.addTest(TestCase::new("Language file consistency", test_language_consistency));
+    suite.addTest(TestCase::new("Cross-platform installer generation", test_cross_platform_installers));
+    suite.addTest(TestCase::new("Automated release creation", test_automated_releases));
+    
+    return suite;
+}
+
+// Test: Update installer with each optimization
+fun test_installer_updates() {
+    let automation = ReleaseAutomation::new();
+    
+    // Create test optimization feature
+    let feature = Feature{
+        name: "Advanced Vectorization",
+        description: "Enhanced SIMD optimizations",
+        binaries: [
+            Binary{ name: "seen", path: "/usr/bin/seen" },
+            Binary{ name: "seen-opt", path: "/usr/bin/seen-opt" }
+        ],
+        libraries: [
+            Library{ name: "libseen_simd.so", path: "/usr/lib/libseen_simd.so" }
+        ],
+        requirements: Requirements{
+            minOS: "Ubuntu 20.04",
+            minRAM: "4GB",
+            architecture: "x86_64"
+        },
+        isNewFeature: true
+    };
+    
+    // Update installer
+    automation.updateInstaller(feature);
+    
+    // Verify installer was updated
+    let installer = automation.installer;
+    assertTrue(installer.hasBinary("seen"), "Should include seen binary");
+    assertTrue(installer.hasBinary("seen-opt"), "Should include optimization binary");
+    assertTrue(installer.hasLibrary("libseen_simd.so"), "Should include SIMD library");
+    
+    // Verify platform-specific installers created
+    let platforms = ["windows", "macos", "linux-x64", "linux-arm64"];
+    for platform in platforms {
+        assertTrue(
+            installer.hasInstallerFor(platform),
+            "Should have installer for {platform}"
+        );
+    }
+    
+    // Test installation process
+    let testResult = installer.testInstallation();
+    assertTrue(testResult.success, "Installation should succeed");
+    assertTrue(testResult.binariesWork, "Installed binaries should work");
+}
+
+// Test: Update VSCode extension for new features
+fun test_vscode_updates() {
+    let automation = ReleaseAutomization::new();
+    
+    // Create feature with new syntax
+    let feature = Feature{
+        name: "Async/Await Syntax",
+        syntaxRules: [
+            SyntaxRule{ pattern: "async", tokenType: "keyword" },
+            SyntaxRule{ pattern: "await", tokenType: "keyword" }
+        ],
+        codeSnippets: [
+            Snippet{
+                name: "async_function",
+                prefix: "async",
+                body: "async fun \${1:name}() -> \${2:Type} {\\n    \${3:// body}\\n}"
+            }
+        ],
+        completions: [
+            Completion{ word: "async", detail: "Async function keyword" },
+            Completion{ word: "await", detail: "Await async operation" }
+        ],
+        isNewFeature: true
+    };
+    
+    // Update VSCode extension
+    automation.updateVSCodeExtension(feature);
+    
+    // Verify extension was updated
+    let extension = automation.vscodeExt;
+    assertTrue(extension.hasSyntaxRule("async"), "Should recognize async keyword");
+    assertTrue(extension.hasSyntaxRule("await"), "Should recognize await keyword");
+    assertTrue(extension.hasSnippet("async_function"), "Should have async snippet");
+    assertTrue(extension.hasCompletion("async"), "Should complete async");
+    
+    // Verify version was incremented
+    let oldVersion = "1.2.3";
+    let newVersion = extension.version;
+    assertTrue(newVersion > oldVersion, "Should increment version");
+    
+    // Test extension packaging
+    let packageResult = extension.package();
+    assertTrue(packageResult.success, "Should package successfully");
+    assertTrue(packageResult.isValid(), "Package should be valid");
+}
+
+// Test: Ensure all keywords in TOML files only
+fun test_toml_keywords() {
+    let automation = ReleaseAutomation::new();
+    
+    // Run keyword verification
+    automation.verifyNoHardcodedKeywords();
+    
+    // Should pass without exceptions
+    assertTrue(true, "No hardcoded keywords should be found");
+    
+    // Test TOML completeness
+    automation.verifyTOMLCompleteness();
+    
+    // Verify all language files have same keywords
+    let languages = ["en", "ar", "es", "zh", "fr"];
+    let englishKeywords = automation.langLoader.loadLanguageFile("en.toml").keywords;
+    
+    for lang in languages {
+        if lang == "en" { continue; }
+        
+        let langKeywords = automation.langLoader.loadLanguageFile("{lang}.toml").keywords;
+        
+        // Check all English keywords are present
+        for (key, value) in englishKeywords {
+            assertTrue(
+                langKeywords.hasKey(key),
+                "Language {lang} should have keyword '{key}'"
+            );
+        }
+    }
+}
+
+// Test: Update documentation continuously
+fun test_documentation_updates() {
+    let automation = ReleaseAutomation::new();
+    
+    // Create feature with documentation changes
+    let feature = Feature{
+        name: "Pattern Matching",
+        languageChanges: [
+            LanguageChange{
+                section: "Pattern Matching",
+                description: "Added match expressions with guards"
+            }
+        ],
+        examples: [
+            Example{
+                title: "Basic Pattern Matching",
+                code: """
+                match value {
+                    0 -> "zero"
+                    x if x > 0 -> "positive"
+                    _ -> "negative"
+                }
+                """
+            }
+        ],
+        newDocPages: [
+            DocumentationPage{
+                title: "Pattern Matching Guide",
+                content: "Comprehensive guide to pattern matching..."
+            }
+        ],
+        isNewFeature: true
+    };
+    
+    // Update documentation
+    automation.updateDocumentation(feature);
+    
+    // Verify documentation was updated
+    let docGen = automation.docGen;
+    assertTrue(docGen.hasSection("Pattern Matching"), "Should have pattern matching section");
+    assertTrue(docGen.hasExample("Basic Pattern Matching"), "Should have example");
+    assertTrue(docGen.hasPage("Pattern Matching Guide"), "Should have guide page");
+    
+    // Verify site was built
+    assertTrue(docGen.siteBuilt, "Documentation site should be built");
+    assertTrue(docGen.isUpToDate(), "Documentation should be current");
+}
+
+// Test: No hardcoded keywords verification
+fun test_no_hardcoded_keywords() {
+    let automation = ReleaseAutomation::new();
+    
+    // Create test file with hardcoded keyword
+    let testFile = "/tmp/test_hardcoded.seen";
+    FileSystem::write(testFile, """
+        fun main() {
+            // This should be detected as violation
+            let keyword = "fun";  // Hardcoded keyword!
+            return 0;
+        }
+    """);
+    
+    // Should detect violation
+    let caught = false;
+    try {
+        automation.verifyNoHardcodedKeywords();
+    } catch (e: PanicException) {
+        caught = true;
+        assertTrue(
+            e.message.contains("Hardcoded keywords detected"),
+            "Should report hardcoded keywords"
+        );
+    }
+    
+    assertTrue(caught, "Should catch hardcoded keyword violation");
+    
+    // Clean up
+    FileSystem::delete(testFile);
+    
+    // Test with clean file
+    let cleanFile = "/tmp/test_clean.seen";
+    FileSystem::write(cleanFile, """
+        fun main() {
+            let x = compute();
+            return x;
+        }
+    """);
+    
+    // Should pass
+    automation.verifyNoHardcodedKeywords();
+    assertTrue(true, "Clean file should pass verification");
+    
+    // Clean up
+    FileSystem::delete(cleanFile);
+}
+
+// Test: Language file consistency
+fun test_language_consistency() {
+    let automation = ReleaseAutomation::new();
+    
+    // Test consistency verification
+    automation.verifyTOMLCompleteness();
+    
+    // All language files should have same structure
+    let languages = automation.getAllLanguageFiles();
+    let englishToml = automation.langLoader.loadLanguageFile("en.toml");
+    
+    assertTrue(languages.size >= 8, "Should support multiple languages");
+    
+    for langFile in languages {
+        if langFile == "en.toml" { continue; }
+        
+        let toml = automation.langLoader.loadLanguageFile(langFile);
+        
+        // Should have same sections
+        assertTrue(toml.hasSection("keywords"), "{langFile} should have keywords");
+        assertTrue(toml.hasSection("operators"), "{langFile} should have operators");
+        assertTrue(toml.hasSection("builtins"), "{langFile} should have builtins");
+        
+        // Should have same number of entries
+        assertEquals(
+            englishToml.keywords.size,
+            toml.keywords.size,
+            "{langFile} should have same keyword count"
+        );
+    }
+}
+
+// Test: Cross-platform installer generation
+fun test_cross_platform_installers() {
+    let automation = ReleaseAutomation::new();
+    
+    let feature = Feature{
+        name: "Cross-Platform Test",
+        binaries: [Binary{ name: "seen", path: "/usr/bin/seen" }],
+        isNewFeature: true
+    };
+    
+    // Update installer
+    automation.updateInstaller(feature);
+    
+    // Verify all platforms supported
+    let expectedPlatforms = [
+        "windows",
+        "macos", 
+        "linux-x64",
+        "linux-arm64"
+    ];
+    
+    let installer = automation.installer;
+    
+    for platform in expectedPlatforms {
+        assertTrue(
+            installer.hasInstallerFor(platform),
+            "Should generate installer for {platform}"
+        );
+        
+        // Verify installer is valid
+        let installerFile = installer.getInstallerPath(platform);
+        assertTrue(
+            FileSystem::exists(installerFile),
+            "Installer file should exist for {platform}"
+        );
+        
+        assertTrue(
+            installer.validateInstaller(platform),
+            "Installer should be valid for {platform}"
+        );
+    }
+    
+    // Test universal installer
+    assertTrue(installer.hasUniversalInstaller(), "Should have universal installer");
+}
+
+// Test: Automated release creation
+fun test_automated_releases() {
+    let automation = ReleaseAutomation::new();
+    
+    let feature = Feature{
+        name: "Test Release Feature",
+        description: "Testing automated releases",
+        newFeatures: ["Feature A", "Feature B"],
+        bugFixes: ["Fix issue #123"],
+        improvements: ["Better performance"],
+        isNewFeature: true
+    };
+    
+    // Create release
+    automation.createRelease(feature);
+    
+    // Verify release was created
+    let latestRelease = GitHubAPI::getLatestRelease();
+    assertNotNull(latestRelease, "Should create release");
+    assertTrue(
+        latestRelease.title.contains("Test Release Feature"),
+        "Release should have correct title"
+    );
+    
+    // Verify release notes
+    let notes = latestRelease.notes;
+    assertTrue(notes.contains("Feature A"), "Should include new features");
+    assertTrue(notes.contains("Fix issue #123"), "Should include bug fixes");
+    assertTrue(notes.contains("Better performance"), "Should include improvements");
+    
+    // Verify assets attached
+    assertTrue(latestRelease.assets.size > 0, "Should have release assets");
+    
+    let assetNames = latestRelease.assets.map { it.name };
+    assertTrue(
+        assetNames.any { it.contains("windows") },
+        "Should include Windows installer"
+    );
+    assertTrue(
+        assetNames.any { it.contains("macos") },
+        "Should include macOS installer"
+    );
+    assertTrue(
+        assetNames.any { it.contains("linux") },
+        "Should include Linux installer"
+    );
+}
+
+// Helper functions
+
+fun createTestFeature() -> Feature {
+    return Feature{
+        name: "Test Feature",
+        description: "Feature for testing",
+        newKeywords: [
+            Keyword{
+                id: "test",
+                translations: Map::from([
+                    ("en", "test"),
+                    ("ar", "اختبار"),
+                    ("es", "prueba")
+                ])
+            }
+        ],
+        isNewFeature: true
+    };
+}

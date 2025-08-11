@@ -54,6 +54,10 @@
           "match": "\\b(as|is|in|out|where|by|constructor|init|companion|crossinline|noinline|vararg|dynamic|match|loop)\\b"
         },
         {
+          "name": "keyword.operator.word.seen",
+          "match": "\\b(and|or|not|xor|shl|shr)\\b"
+        },
+        {
           "name": "constant.language.seen",
           "match": "\\b(true|false|null|undefined)\\b"
         }
@@ -137,6 +141,27 @@
     },
     "strings": {
       "patterns": [
+        {
+          "name": "string.interpolated.seen",
+          "begin": "f?\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "meta.embedded.expression.seen",
+              "begin": "\\{",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "include": "#expressions"
+                }
+              ]
+            },
+            {
+              "name": "constant.character.escape.seen",
+              "match": "\\\\."
+            }
+          ]
+        },
         {
           "name": "string.quoted.double.seen",
           "begin": "\"",

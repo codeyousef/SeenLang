@@ -1,0 +1,19 @@
+// E-graph Core Data Structure - Bootstrap Compatible
+
+class EGraph {
+    fun new() -> EGraph {
+        return EGraph{};
+    }
+    
+    fun add(term: Term) -> EClassId {
+        return 1; // Simplified for bootstrap
+    }
+    
+    fun saturate(rules: List<RewriteRule>, limit: Int) -> Bool {
+        return true; // Simplified for bootstrap
+    }
+    
+    fun extract(costModel: CostModel) -> Term? {
+        return null; // Simplified for bootstrap
+    }
+}

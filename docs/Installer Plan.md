@@ -458,7 +458,7 @@ install_binary_package() {
     fi
     
     # Install standard library
-    if [ "$INSTALL_STDLIB" = "true" ] && [ -d "$temp_dir/stdlib" ]; then
+    if [ "$INSTALL_STDLIB" = "true" ]  and  [ -d "$temp_dir/stdlib" ]; then
         sudo cp -r "$temp_dir/stdlib" "$install_dir/lib/seen/"
     fi
     
@@ -647,7 +647,7 @@ verify_installation() {
 }
 
 cleanup() {
-    if [ -n "$1" ] && [ -d "$1" ]; then
+    if [ -n "$1" ]  and  [ -d "$1" ]; then
         rm -rf "$1"
     fi
 }
@@ -657,7 +657,7 @@ main() {
     
     # Check for root/sudo when needed
     if [ "$INSTALL_DIR" = "/usr/local" ] || [ "$INSTALL_DIR" = "/usr" ]; then
-        if [ "$EUID" -ne 0 ] && ! sudo -n true 2>/dev/null; then
+        if [ "$EUID" -ne 0 ]  and  ! sudo -n true 2>/dev/null; then
             error "This script requires sudo privileges for system-wide installation"
         fi
     fi

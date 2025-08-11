@@ -1,0 +1,10 @@
+// Simplified Bootstrap Module
+class BootstrapManager {
+    fun new() -> BootstrapManager {
+        return BootstrapManager();
+    }
+    
+    fun getVerifier() -> String {
+        return "bootstrap_verifier";
+    }
+}
