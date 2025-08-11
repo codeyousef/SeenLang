@@ -1,7 +1,7 @@
 // Abstract Syntax Tree Node Definitions
 
-public class ASTNode {
-    public fun new() -> ASTNode {
-        return ASTNode();
+class ASTNode {
+    fun new() -> ASTNode {
+        return ASTNode{};
     }
 }

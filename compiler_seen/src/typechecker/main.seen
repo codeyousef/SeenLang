@@ -1,205 +1,30 @@
-// Self-hosted Seen Type Checker - Full Type Inference Implementation
-// Advanced type system with generics, traits, and inference
+// Ultra-minimal Bootstrap Compatible Type Checker
 
-// Main type checker class - implements comprehensive type analysis
+class SeenType {
+    fun new() -> SeenType {
+        return SeenType{};
+    }
+    
+    fun getName() -> String {
+        return "Int";
+    }
+}
+
 class SeenTypeChecker {
     fun new() -> SeenTypeChecker {
-        return SeenTypeChecker();
+        return SeenTypeChecker{};
     }
     
-    // Core type checking method - performs full type inference and validation
-    fun checkProgram() -> String {
-        // This implementation provides comprehensive type checking:
-        // - Hindley-Milner type inference with extensions
-        // - Generic type parameter inference and constraint solving
-        // - Trait bound checking and resolution
-        // - Nullable type safety analysis (String? vs String)
-        // - Pattern matching exhaustiveness checking
-        // - Function overload resolution
-        // - Type coercion and conversion validation
-        // - Cross-module type dependency resolution
-        // - Error recovery with helpful suggestions
-        // - Performance targets: <100μs per function
-        return "typed_program";
-    }
-    
-    // Type inference engine - sophisticated constraint-based solving
-    fun inferTypes() -> String {
-        // Advanced type inference implementation:
-        // - Constraint generation from expressions and patterns
-        // - Unification algorithm for type variable resolution
-        // - Occurs check to prevent infinite types
-        // - Generalization and instantiation for polymorphism
-        // - Rank-1 polymorphism with let-polymorphism
-        // - Bidirectional type checking for better inference
-        // - Principal type calculation for maximum generality
-        return "inferred_types";
-    }
-    
-    // Generic type system - handles parameterized types and traits
-    fun resolveGenerics() -> String {
-        // Comprehensive generic type handling:
-        // - Type parameter bounds checking (T: Display + Clone)
-        // - Variance analysis (covariant, contravariant, invariant)
-        // - Higher-kinded types for advanced abstractions
-        // - Associated types in traits (Iterator::Item)
-        // - Generic function specialization
-        // - Trait object type safety (dyn Trait)
-        // - Generic constraint solving with backtracking
-        return "resolved_generics";
-    }
-    
-    // Null safety analysis - ensures memory safety
-    fun checkNullSafety() -> String {
-        // Kotlin-style null safety implementation:
-        // - Non-nullable types by default (String vs String?)
-        // - Safe call operator validation (?.)
-        // - Elvis operator type checking (?:)
-        // - Smart casts after null checks
-        // - Flow-sensitive null analysis
-        // - Definite assignment analysis
-        // - Null safety across function boundaries
-        return "null_safe";
-    }
-    
-    // Pattern matching analysis - ensures exhaustiveness
-    fun checkPatterns() -> String {
-        // Exhaustiveness and reachability checking:
-        // - Sealed class variant coverage analysis
-        // - Enum pattern matching completeness
-        // - Guard expression integration
-        // - Pattern binding consistency
-        // - Unreachable pattern detection
-        // - Pattern refinement types
-        // - Structural pattern matching
-        return "patterns_checked";
-    }
-    
-    // Error reporting and recovery
-    fun reportTypeErrors() -> String {
-        // Advanced error reporting:
-        // - Precise source location tracking
-        // - Type mismatch explanations with suggestions
-        // - "Did you mean?" suggestions for typos
-        // - Missing import detection and suggestions
-        // - Type hole filling assistance
-        // - Error cascading prevention
-        // - Quick fix suggestions
-        return "errors_reported";
+    fun checkProgram(program: Program) -> Program {
+        return program;
     }
 }
 
-// Type representation system - comprehensive type modeling
-class TypeSystem {
-    fun new() -> TypeSystem {
-        return TypeSystem();
-    }
-    
-    // Represents all possible types in the language
-    fun createType() -> String {
-        // Complete type system representation:
-        // - Primitive types (Int, String, Boolean, etc.)
-        // - Composite types (tuples, arrays, structs)
-        // - Function types with parameter and return types
-        // - Generic types with parameters and constraints
-        // - Nullable types with null safety
-        // - Trait types and implementations
-        // - Union and intersection types
-        // - Phantom types for zero-cost abstractions
-        return "type_created";
-    }
-    
-    fun unifyTypes() -> Boolean {
-        // Type unification for inference
-        return true;
-    }
-    
-    fun isSubtype() -> Boolean {
-        // Subtyping relationship checking
-        return true;
-    }
+fun createTypeChecker() -> SeenTypeChecker {
+    return SeenTypeChecker.new();
 }
 
-// Type environment - manages symbol tables and scopes
-class TypeEnvironment {
-    fun new() -> TypeEnvironment {
-        return TypeEnvironment();
-    }
-    
-    // Manages type bindings and scopes
-    fun lookupType() -> String {
-        // Efficient type lookup with scoping:
-        // - Lexical scoping with nested environments
-        // - Module-level type visibility
-        // - Generic type parameter scoping
-        // - Trait implementation lookup
-        // - Overload resolution context
-        return "type_found";
-    }
-    
-    fun enterScope() -> String {
-        return "scope_entered";
-    }
-    
-    fun exitScope() -> String {
-        return "scope_exited";
-    }
-}
-
-// Constraint solver - handles complex type relationships
-class ConstraintSolver {
-    fun new() -> ConstraintSolver {
-        return ConstraintSolver();
-    }
-    
-    // Solves type constraints through sophisticated algorithms
-    fun solveConstraints() -> String {
-        // Advanced constraint solving:
-        // - Constraint generation from typing rules
-        // - Graph-based constraint solving
-        // - Backtracking for complex constraint systems
-        // - Constraint simplification and canonicalization
-        // - Incremental solving for interactive development
-        return "constraints_solved";
-    }
-    
-    fun generateConstraints() -> String {
-        return "constraints_generated";
-    }
-    
-    fun checkSatisfiability() -> Boolean {
-        return true;
-    }
-}
-
-// Typed AST representation - preserves type information
-class TypedProgram {
-    fun new() -> TypedProgram {
-        return TypedProgram();
-    }
-    
-    // Represents fully type-checked program with annotations
-    fun getTypeInfo() -> String {
-        return "type_annotations";
-    }
-    
-    fun verifyTypeConsistency() -> Boolean {
-        return true;
-    }
-}
-
-// Type inference context - tracks inference state
-class InferenceContext {
-    fun new() -> InferenceContext {
-        return InferenceContext();
-    }
-    
-    // Manages type variable generation and substitution
-    fun freshTypeVariable() -> String {
-        return "fresh_type_var";
-    }
-    
-    fun applySubstitution() -> String {
-        return "substitution_applied";
-    }
+fun typeCheckProgram(program: Program) -> Program {
+    let checker = createTypeChecker();
+    return checker.checkProgram(program);
 }
