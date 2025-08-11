@@ -19,7 +19,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Seen compiler
         run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
+          # For cross-platform compatibility, check if binary exists and is executable
+          if [ -f "./compiler_seen/target/native/release/seen_compiler" ]; then
+            chmod +x ./compiler_seen/target/native/release/seen_compiler
+            echo "Using existing Seen compiler binary"
+          else
+            echo "Error: Seen compiler binary not found at ./compiler_seen/target/native/release/seen_compiler"
+            ls -la ./compiler_seen/target/native/release/ || echo "Release directory not found"
+            exit 1
+          fi
       - uses: actions/cache@v4
         with:
           path: |
@@ -36,7 +44,7 @@ jobs:
     name: Full Test Suite
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest] # Only Linux until cross-platform binaries are available
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
