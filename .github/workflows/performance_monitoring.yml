@@ -31,7 +31,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, nightly]
     
     steps:
       - name: Checkout code
@@ -39,12 +38,9 @@ jobs:
         with:
           fetch-depth: 0  # Full history for performance comparisons
       
-      - name: Setup Rust
-        uses: seen-lang/toolchain@v1
-        with:
-          toolchain: ${{ matrix.rust }}
-          override: true
-          components: rustfmt, clippy
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./target-wsl/debug/seen
       
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -71,17 +67,16 @@ jobs:
         run: |
           brew install llvm hyperfine
       
-      - name: Cache Rust dependencies
+      - name: Cache Seen dependencies
         uses: actions/cache@v3
         with:
           path: |
-            ~/.seen/registry
-            ~/.seen/git
-            target
-          key: ${{ runner.os }}-seen-${{ hashFiles('**/Cargo.lock') }}
+            ./target
+            ./compiler_seen/target
+          key: ${{ runner.os }}-seen-perf-${{ hashFiles('**/Seen.toml') }}
       
       - name: Build Seen compiler
-        run: seen build --release --bin seen
+        run: ./target-wsl/debug/seen build --release --bin seen
       
       - name: Run performance benchmarks
         run: |
@@ -131,7 +126,7 @@ jobs:
       - name: Upload results
         uses: actions/upload-artifact@v3
         with:
-          name: performance-results-${{ matrix.os }}-${{ matrix.rust }}-${{ github.run_number }}
+          name: performance-results-${{ matrix.os }}-${{ github.run_number }}
           path: performance_validation/results/ci_${{ github.run_number }}
       
       - name: Comment PR with results
