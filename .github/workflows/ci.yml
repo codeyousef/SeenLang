@@ -40,7 +40,7 @@ jobs:
     name: Test Suite
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest] # Only Linux until cross-platform binaries are available
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
