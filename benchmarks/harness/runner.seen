@@ -1,0 +1,444 @@
+// Comprehensive Benchmark Runner for Seen vs Rust/Zig/C++
+// This is the main orchestrator for all performance benchmarks
+
+import std::time
+import std::process
+import std::json
+import std::collections::HashMap
+import std::collections::Vec
+import std::fs
+import std::string
+
+// Configuration for benchmark execution
+struct BenchmarkConfig {
+    iterations: i32,
+    warmup_runs: i32,
+    timeout_seconds: i32,
+    test_size: String, // "small", "medium", "large"
+    output_dir: String,
+    competitors: Vec<String>, // ["rust", "zig", "cpp"]
+    categories: Vec<String>, // benchmark categories to run
+    include_jit: bool,
+    include_aot: bool,
+    statistical_significance: f64, // p-value threshold (0.05)
+    min_effect_size: f64, // Cohen's d threshold (0.2)
+}
+
+impl BenchmarkConfig {
+    fun default() -> BenchmarkConfig {
+        return BenchmarkConfig {
+            iterations: 100,
+            warmup_runs: 10,
+            timeout_seconds: 300,
+            test_size: "medium",
+            output_dir: "results",
+            competitors: Vec::from(["rust", "zig", "cpp"]),
+            categories: Vec::from([
+                "microbenchmarks", "systems", "algorithms", 
+                "compilation", "real_world"
+            ]),
+            include_jit: true,
+            include_aot: true,
+            statistical_significance: 0.05,
+            min_effect_size: 0.2,
+        }
+    }
+}
+
+// Results for a single benchmark run
+struct BenchmarkResult {
+    name: String,
+    language: String,
+    execution_mode: String, // "jit", "aot", "native"
+    execution_time_ns: i64,
+    memory_peak_bytes: i64,
+    memory_avg_bytes: i64,
+    cpu_cycles: i64,
+    cache_misses: i64,
+    success: bool,
+    error_message: String,
+}
+
+// Statistical summary of multiple benchmark runs
+struct StatisticalSummary {
+    name: String,
+    language: String,
+    sample_size: i32,
+    mean_time_ns: f64,
+    median_time_ns: f64,
+    std_dev_time_ns: f64,
+    min_time_ns: i64,
+    max_time_ns: i64,
+    p95_time_ns: i64,
+    p99_time_ns: i64,
+    confidence_interval_lower: f64,
+    confidence_interval_upper: f64,
+    outliers_removed: i32,
+}
+
+// Performance comparison between languages
+struct PerformanceComparison {
+    benchmark_name: String,
+    seen_jit: StatisticalSummary,
+    seen_aot: StatisticalSummary,
+    rust: StatisticalSummary,
+    zig: StatisticalSummary,
+    cpp: StatisticalSummary,
+    winner: String,
+    significance_test_p_value: f64,
+    effect_size_cohens_d: f64,
+    performance_difference_percent: f64,
+}
+
+// Main benchmark runner class
+class BenchmarkRunner {
+    config: BenchmarkConfig,
+    metrics_collector: MetricsCollector,
+    statistical_analyzer: StatisticalAnalyzer,
+    reporter: BenchmarkReporter,
+    
+    fun new(config: BenchmarkConfig) -> BenchmarkRunner {
+        return BenchmarkRunner {
+            config: config,
+            metrics_collector: MetricsCollector::new(),
+            statistical_analyzer: StatisticalAnalyzer::new(config),
+            reporter: BenchmarkReporter::new(config),
+        }
+    }
+    
+    // Run all benchmarks and generate comprehensive comparison
+    fun run_comprehensive_suite() -> ComprehensiveResults {
+        println("🚀 Starting Comprehensive Seen vs Rust/Zig/C++ Benchmark Suite")
+        println("   Configuration: {} iterations, {} categories", 
+                config.iterations, config.categories.len())
+        
+        // Create output directory structure
+        self.setup_output_directories()
+        
+        // Collect system information
+        let system_info = self.metrics_collector.collect_system_info()
+        println("   System: {} cores, {} GB RAM, {}",
+                system_info.cpu_cores, system_info.memory_gb, system_info.os_info)
+        
+        let mut comprehensive_results = ComprehensiveResults {
+            timestamp: time::now(),
+            config: self.config,
+            system_info: system_info,
+            category_results: HashMap::new(),
+        }
+        
+        // Run benchmarks by category
+        for category in self.config.categories {
+            println("\n📊 Running {} benchmarks...", category)
+            let category_results = self.run_category_benchmarks(category)
+            comprehensive_results.category_results.insert(category, category_results)
+            
+            // Generate intermediate report
+            self.reporter.generate_category_report(category, category_results)
+        }
+        
+        // Perform statistical analysis and comparisons
+        println("\n📈 Performing statistical analysis...")
+        let comparisons = self.statistical_analyzer.compare_all_results(comprehensive_results)
+        
+        // Generate final comprehensive report
+        println("\n📋 Generating comprehensive report...")
+        self.reporter.generate_comprehensive_report(comprehensive_results, comparisons)
+        
+        // Validate performance claims
+        println("\n✅ Validating performance claims...")
+        let claim_validation = self.validate_performance_claims(comparisons)
+        self.reporter.generate_claim_validation_report(claim_validation)
+        
+        return comprehensive_results
+    }
+    
+    // Run benchmarks for a specific category
+    fun run_category_benchmarks(category: String) -> CategoryResults {
+        let benchmark_dir = format!("suite/{}", category)
+        let benchmarks = self.discover_benchmarks(benchmark_dir)
+        
+        let mut category_results = CategoryResults {
+            category: category,
+            benchmarks: HashMap::new(),
+        }
+        
+        for benchmark in benchmarks {
+            println("  🔬 Running benchmark: {}", benchmark)
+            
+            let mut benchmark_results = BenchmarkResults::new(benchmark)
+            
+            // Run Seen benchmarks (JIT and AOT modes)
+            if self.config.include_jit {
+                let jit_results = self.run_seen_benchmark(benchmark, "jit")
+                benchmark_results.seen_jit = self.statistical_analyzer.analyze(jit_results)
+            }
+            
+            if self.config.include_aot {
+                let aot_results = self.run_seen_benchmark(benchmark, "aot")
+                benchmark_results.seen_aot = self.statistical_analyzer.analyze(aot_results)
+            }
+            
+            // Run competitor benchmarks
+            for competitor in self.config.competitors {
+                let competitor_results = self.run_competitor_benchmark(benchmark, competitor)
+                
+                match competitor {
+                    "rust" => benchmark_results.rust = self.statistical_analyzer.analyze(competitor_results),
+                    "zig" => benchmark_results.zig = self.statistical_analyzer.analyze(competitor_results),
+                    "cpp" => benchmark_results.cpp = self.statistical_analyzer.analyze(competitor_results),
+                    _ => println("Warning: Unknown competitor {}", competitor),
+                }
+            }
+            
+            category_results.benchmarks.insert(benchmark, benchmark_results)
+        }
+        
+        return category_results
+    }
+    
+    // Run a Seen benchmark in specified mode (JIT or AOT)
+    fun run_seen_benchmark(benchmark_name: String, mode: String) -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        // Compile benchmark if AOT mode
+        if mode == "aot" {
+            let compile_cmd = format!("seen build --release --bin {} suite/{}", benchmark_name, benchmark_name)
+            let compile_result = process::run(compile_cmd)
+            if !compile_result.success {
+                println("    ❌ Failed to compile Seen benchmark {}: {}", benchmark_name, compile_result.stderr)
+                return results
+            }
+        }
+        
+        // Warmup runs
+        for _ in 0..self.config.warmup_runs {
+            self.execute_seen_benchmark(benchmark_name, mode, false)
+        }
+        
+        // Actual benchmark runs
+        for iteration in 0..self.config.iterations {
+            if iteration % 20 == 0 {
+                print!("    Progress: {}/{}\r", iteration, self.config.iterations)
+            }
+            
+            let result = self.execute_seen_benchmark(benchmark_name, mode, true)
+            results.push(result)
+        }
+        
+        println("    ✅ Completed {} iterations", results.len())
+        return results
+    }
+    
+    // Execute a single Seen benchmark run
+    fun execute_seen_benchmark(benchmark_name: String, mode: String, measure: bool) -> BenchmarkResult {
+        let start_time = time::precise_time_ns()
+        let start_memory = self.metrics_collector.current_memory_usage()
+        
+        let cmd = if mode == "jit" {
+            format!("seen run suite/{}/{}.seen --test-size {}", benchmark_name, benchmark_name, self.config.test_size)
+        } else {
+            format!("./target/release/{} --test-size {}", benchmark_name, self.config.test_size)
+        }
+        
+        let execution_result = process::run_with_timeout(cmd, self.config.timeout_seconds)
+        
+        let end_time = time::precise_time_ns()
+        let peak_memory = self.metrics_collector.peak_memory_usage()
+        
+        return BenchmarkResult {
+            name: benchmark_name,
+            language: "seen",
+            execution_mode: mode,
+            execution_time_ns: end_time - start_time,
+            memory_peak_bytes: peak_memory,
+            memory_avg_bytes: (start_memory + peak_memory) / 2,
+            cpu_cycles: self.metrics_collector.cpu_cycles_used(),
+            cache_misses: self.metrics_collector.cache_misses(),
+            success: execution_result.success,
+            error_message: if execution_result.success { "" } else { execution_result.stderr },
+        }
+    }
+    
+    // Run competitor benchmark (Rust, Zig, or C++)
+    fun run_competitor_benchmark(benchmark_name: String, competitor: String) -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        // Build competitor benchmark
+        let build_success = self.build_competitor_benchmark(benchmark_name, competitor)
+        if !build_success {
+            println("    ❌ Failed to build {} benchmark {}", competitor, benchmark_name)
+            return results
+        }
+        
+        // Run benchmark iterations
+        for iteration in 0..self.config.iterations {
+            if iteration % 20 == 0 {
+                print!("    {}: {}/{}\r", competitor.to_uppercase(), iteration, self.config.iterations)
+            }
+            
+            let result = self.execute_competitor_benchmark(benchmark_name, competitor)
+            results.push(result)
+        }
+        
+        println("    ✅ {} completed {} iterations", competitor.to_uppercase(), results.len())
+        return results
+    }
+    
+    // Build a competitor benchmark
+    fun build_competitor_benchmark(benchmark_name: String, competitor: String) -> bool {
+        let build_cmd = match competitor {
+            "rust" => format!("cd competitors/rust && cargo build --release --bin {}", benchmark_name),
+            "zig" => format!("cd competitors/zig && zig build-exe -O ReleaseFast {}.zig", benchmark_name),
+            "cpp" => format!("cd competitors/cpp && g++ -O3 -march=native -o {} {}.cpp", benchmark_name, benchmark_name),
+            _ => return false,
+        }
+        
+        let build_result = process::run(build_cmd)
+        return build_result.success
+    }
+    
+    // Execute a single competitor benchmark run
+    fun execute_competitor_benchmark(benchmark_name: String, competitor: String) -> BenchmarkResult {
+        let start_time = time::precise_time_ns()
+        
+        let cmd = match competitor {
+            "rust" => format!("competitors/rust/target/release/{} --test-size {}", benchmark_name, self.config.test_size),
+            "zig" => format!("competitors/zig/{} --test-size {}", benchmark_name, self.config.test_size),
+            "cpp" => format!("competitors/cpp/{} --test-size {}", benchmark_name, self.config.test_size),
+            _ => return BenchmarkResult::error(benchmark_name, competitor, "Unknown competitor"),
+        }
+        
+        let execution_result = process::run_with_timeout(cmd, self.config.timeout_seconds)
+        let end_time = time::precise_time_ns()
+        
+        return BenchmarkResult {
+            name: benchmark_name,
+            language: competitor,
+            execution_mode: "native",
+            execution_time_ns: end_time - start_time,
+            memory_peak_bytes: self.metrics_collector.peak_memory_usage(),
+            memory_avg_bytes: 0, // Will be measured by external tools
+            cpu_cycles: 0, // Will be measured by external tools  
+            cache_misses: 0, // Will be measured by external tools
+            success: execution_result.success,
+            error_message: if execution_result.success { "" } else { execution_result.stderr },
+        }
+    }
+    
+    // Validate Seen's performance claims against benchmark results
+    fun validate_performance_claims(comparisons: Vec<PerformanceComparison>) -> ClaimValidationReport {
+        let mut validation_report = ClaimValidationReport::new()
+        
+        // Validate specific claims
+        self.validate_lexer_speed_claim(comparisons, validation_report)
+        self.validate_memory_overhead_claim(comparisons, validation_report)
+        self.validate_compilation_speed_claim(comparisons, validation_report)
+        self.validate_runtime_performance_claim(comparisons, validation_report)
+        
+        return validation_report
+    }
+    
+    // Set up output directory structure
+    fun setup_output_directories() {
+        let timestamp = time::now().format("%Y%m%d_%H%M%S")
+        let output_dir = format!("{}/{}", self.config.output_dir, timestamp)
+        
+        fs::create_dir_all(format!("{}/raw_data", output_dir))
+        fs::create_dir_all(format!("{}/analysis", output_dir))
+        fs::create_dir_all(format!("{}/reports", output_dir))
+        fs::create_dir_all(format!("{}/plots", output_dir))
+        
+        self.config.output_dir = output_dir
+    }
+    
+    // Discover available benchmarks in a category
+    fun discover_benchmarks(benchmark_dir: String) -> Vec<String> {
+        let mut benchmarks = Vec::new()
+        
+        if let Ok(entries) = fs::read_dir(benchmark_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    if entry.path().extension() == Some("seen") {
+                        if let Some(name) = entry.path().file_stem() {
+                            benchmarks.push(name.to_string())
+                        }
+                    }
+                }
+            }
+        }
+        
+        benchmarks.sort()
+        return benchmarks
+    }
+}
+
+// Supporting data structures
+struct ComprehensiveResults {
+    timestamp: time::SystemTime,
+    config: BenchmarkConfig,
+    system_info: SystemInfo,
+    category_results: HashMap<String, CategoryResults>,
+}
+
+struct CategoryResults {
+    category: String,
+    benchmarks: HashMap<String, BenchmarkResults>,
+}
+
+struct BenchmarkResults {
+    benchmark_name: String,
+    seen_jit: Option<StatisticalSummary>,
+    seen_aot: Option<StatisticalSummary>,
+    rust: Option<StatisticalSummary>,
+    zig: Option<StatisticalSummary>,
+    cpp: Option<StatisticalSummary>,
+}
+
+impl BenchmarkResults {
+    fun new(name: String) -> BenchmarkResults {
+        return BenchmarkResults {
+            benchmark_name: name,
+            seen_jit: None,
+            seen_aot: None,
+            rust: None,
+            zig: None,
+            cpp: None,
+        }
+    }
+}
+
+struct ClaimValidationReport {
+    claims_tested: Vec<String>,
+    claims_validated: Vec<String>,
+    claims_failed: Vec<String>,
+    detailed_analysis: HashMap<String, String>,
+}
+
+impl ClaimValidationReport {
+    fun new() -> ClaimValidationReport {
+        return ClaimValidationReport {
+            claims_tested: Vec::new(),
+            claims_validated: Vec::new(),
+            claims_failed: Vec::new(),
+            detailed_analysis: HashMap::new(),
+        }
+    }
+}
+
+// Main entry point for benchmark suite
+fun main(args: Vec<String>) -> i32 {
+    let config = if args.len() > 1 {
+        BenchmarkConfig::from_args(args)
+    } else {
+        BenchmarkConfig::default()
+    }
+    
+    let runner = BenchmarkRunner::new(config)
+    let results = runner.run_comprehensive_suite()
+    
+    println("\n🎉 Comprehensive benchmark suite completed!")
+    println("   Results available in: {}", runner.config.output_dir)
+    
+    return 0
+}

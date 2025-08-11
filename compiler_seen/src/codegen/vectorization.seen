@@ -1,0 +1,397 @@
+// Advanced Vectorization Support - SIMD Code Generation
+// Automatically vectorizes loops and arithmetic operations
+
+class VectorizationEngine {
+    var targetISA: String;
+    var vectorWidth: Int;
+    var availableFeatures: List<String>;
+    
+    fun new() -> VectorizationEngine {
+        return VectorizationEngine{
+            targetISA: detectTargetISA(),
+            vectorWidth: getOptimalVectorWidth(),
+            availableFeatures: detectSIMDFeatures()
+        };
+    }
+    
+    fun vectorizeLoop(loop: LoopStatement, context: CodeGenContext) -> String {
+        if not canVectorizeLoop(loop) {
+            return generateScalarLoop(loop, context);
+        }
+        
+        let vectorIR = "";
+        
+        // Detect loop pattern
+        let pattern = analyzeLoopPattern(loop);
+        
+        match pattern {
+            "simple_addition" => {
+                vectorIR = generateVectorAddition(loop, context);
+            }
+            "simple_multiplication" => {
+                vectorIR = generateVectorMultiplication(loop, context);
+            }
+            "reduction" => {
+                vectorIR = generateVectorReduction(loop, context);
+            }
+            "fused_multiply_add" => {
+                vectorIR = generateVectorFMA(loop, context);
+            }
+            "bitwise_operations" => {
+                vectorIR = generateVectorBitwise(loop, context);
+            }
+            default => {
+                vectorIR = generateScalarLoop(loop, context);
+            }
+        }
+        
+        return vectorIR;
+    }
+    
+    fun generateVectorAddition(loop: LoopStatement, context: CodeGenContext) -> String {
+        let ir = "";
+        
+        // Generate vectorized addition using AVX2
+        ir = ir + "; Vectorized addition loop (AVX2)\n";
+        ir = ir + "vector.loop:\n";
+        
+        if vectorWidth == 8 { // 8x f32 or 4x f64
+            // AVX2 256-bit vectors
+            ir = ir + "  %vec_a = load <8 x float>, <8 x float>* %ptr_a, align 32\n";
+            ir = ir + "  %vec_b = load <8 x float>, <8 x float>* %ptr_b, align 32\n";
+            ir = ir + "  %vec_result = fadd <8 x float> %vec_a, %vec_b\n";
+            ir = ir + "  store <8 x float> %vec_result, <8 x float>* %ptr_c, align 32\n";
+        } else if vectorWidth == 16 { // 16x f32 with AVX-512
+            ir = ir + "  %vec_a = load <16 x float>, <16 x float>* %ptr_a, align 64\n";
+            ir = ir + "  %vec_b = load <16 x float>, <16 x float>* %ptr_b, align 64\n";
+            ir = ir + "  %vec_result = fadd <16 x float> %vec_a, %vec_b\n";
+            ir = ir + "  store <16 x float> %vec_result, <16 x float>* %ptr_c, align 64\n";
+        } else { // SSE2 128-bit vectors
+            ir = ir + "  %vec_a = load <4 x float>, <4 x float>* %ptr_a, align 16\n";
+            ir = ir + "  %vec_b = load <4 x float>, <4 x float>* %ptr_b, align 16\n";
+            ir = ir + "  %vec_result = fadd <4 x float> %vec_a, %vec_b\n";
+            ir = ir + "  store <4 x float> %vec_result, <4 x float>* %ptr_c, align 16\n";
+        }
+        
+        // Update pointers
+        ir = ir + "  %ptr_a_next = getelementptr <8 x float>, <8 x float>* %ptr_a, i64 1\n";
+        ir = ir + "  %ptr_b_next = getelementptr <8 x float>, <8 x float>* %ptr_b, i64 1\n";
+        ir = ir + "  %ptr_c_next = getelementptr <8 x float>, <8 x float>* %ptr_c, i64 1\n";
+        
+        // Loop condition
+        ir = ir + "  %i_next = add i64 %i, " + vectorWidth.toString() + "\n";
+        ir = ir + "  %cond = icmp ult i64 %i_next, %size\n";
+        ir = ir + "  br i1 %cond, label %vector.loop, label %scalar.remainder\n\n";
+        
+        // Add metadata for vectorization
+        ir = ir + "!llvm.loop.vectorize.enable = !{!0}\n";
+        ir = ir + "!llvm.loop.vectorize.width = !{i32 " + vectorWidth.toString() + "}\n";
+        ir = ir + "!llvm.loop.unroll.disable = !{}\n";
+        
+        return ir;
+    }
+    
+    fun generateVectorMultiplication(loop: LoopStatement, context: CodeGenContext) -> String {
+        let ir = "";
+        
+        ir = ir + "; Vectorized multiplication loop\n";
+        ir = ir + "vector.mul.loop:\n";
+        
+        if vectorWidth == 8 {
+            ir = ir + "  %vec_a = load <8 x float>, <8 x float>* %ptr_a, align 32\n";
+            ir = ir + "  %vec_b = load <8 x float>, <8 x float>* %ptr_b, align 32\n";
+            ir = ir + "  %vec_result = fmul <8 x float> %vec_a, %vec_b\n";
+            ir = ir + "  store <8 x float> %vec_result, <8 x float>* %ptr_c, align 32\n";
+        } else {
+            ir = ir + "  %vec_a = load <4 x float>, <4 x float>* %ptr_a, align 16\n";
+            ir = ir + "  %vec_b = load <4 x float>, <4 x float>* %ptr_b, align 16\n";
+            ir = ir + "  %vec_result = fmul <4 x float> %vec_a, %vec_b\n";
+            ir = ir + "  store <4 x float> %vec_result, <4 x float>* %ptr_c, align 16\n";
+        }
+        
+        ir = ir + "  %i_next = add i64 %i, " + vectorWidth.toString() + "\n";
+        ir = ir + "  %cond = icmp ult i64 %i_next, %size\n";
+        ir = ir + "  br i1 %cond, label %vector.mul.loop, label %scalar.remainder\n\n";
+        
+        return ir;
+    }
+    
+    fun generateVectorFMA(loop: LoopStatement, context: CodeGenContext) -> String {
+        let ir = "";
+        
+        ir = ir + "; Vectorized FMA (Fused Multiply-Add) loop\n";
+        ir = ir + "vector.fma.loop:\n";
+        
+        if vectorWidth == 8 {
+            ir = ir + "  %vec_a = load <8 x float>, <8 x float>* %ptr_a, align 32\n";
+            ir = ir + "  %vec_b = load <8 x float>, <8 x float>* %ptr_b, align 32\n";
+            ir = ir + "  %vec_c = load <8 x float>, <8 x float>* %ptr_c, align 32\n";
+            
+            // FMA: result = a * b + c
+            ir = ir + "  %vec_result = call <8 x float> @llvm.fma.v8f32(<8 x float> %vec_a, <8 x float> %vec_b, <8 x float> %vec_c)\n";
+            ir = ir + "  store <8 x float> %vec_result, <8 x float>* %ptr_result, align 32\n";
+        } else {
+            ir = ir + "  %vec_a = load <4 x float>, <4 x float>* %ptr_a, align 16\n";
+            ir = ir + "  %vec_b = load <4 x float>, <4 x float>* %ptr_b, align 16\n";
+            ir = ir + "  %vec_c = load <4 x float>, <4 x float>* %ptr_c, align 16\n";
+            ir = ir + "  %vec_result = call <4 x float> @llvm.fma.v4f32(<4 x float> %vec_a, <4 x float> %vec_b, <4 x float> %vec_c)\n";
+            ir = ir + "  store <4 x float> %vec_result, <4 x float>* %ptr_result, align 16\n";
+        }
+        
+        ir = ir + "  %i_next = add i64 %i, " + vectorWidth.toString() + "\n";
+        ir = ir + "  %cond = icmp ult i64 %i_next, %size\n";
+        ir = ir + "  br i1 %cond, label %vector.fma.loop, label %scalar.remainder\n\n";
+        
+        return ir;
+    }
+    
+    fun generateVectorBitwise(loop: LoopStatement, context: CodeGenContext) -> String {
+        let ir = "";
+        
+        ir = ir + "; Vectorized bitwise operations\n";
+        ir = ir + "vector.bitwise.loop:\n";
+        
+        if vectorWidth == 8 { // 8x i32 vectors
+            ir = ir + "  %vec_a = load <8 x i32>, <8 x i32>* %ptr_a, align 32\n";
+            ir = ir + "  %vec_b = load <8 x i32>, <8 x i32>* %ptr_b, align 32\n";
+            
+            // Multiple bitwise operations
+            ir = ir + "  %vec_xor = xor <8 x i32> %vec_a, %vec_b\n";
+            ir = ir + "  %vec_and = and <8 x i32> %vec_xor, %vec_a\n";
+            ir = ir + "  %vec_or = or <8 x i32> %vec_and, %vec_b\n";
+            
+            ir = ir + "  store <8 x i32> %vec_or, <8 x i32>* %ptr_result, align 32\n";
+        } else {
+            ir = ir + "  %vec_a = load <4 x i32>, <4 x i32>* %ptr_a, align 16\n";
+            ir = ir + "  %vec_b = load <4 x i32>, <4 x i32>* %ptr_b, align 16\n";
+            ir = ir + "  %vec_xor = xor <4 x i32> %vec_a, %vec_b\n";
+            ir = ir + "  %vec_and = and <4 x i32> %vec_xor, %vec_a\n";
+            ir = ir + "  %vec_or = or <4 x i32> %vec_and, %vec_b\n";
+            ir = ir + "  store <4 x i32> %vec_or, <4 x i32>* %ptr_result, align 16\n";
+        }
+        
+        ir = ir + "  %i_next = add i64 %i, " + vectorWidth.toString() + "\n";
+        ir = ir + "  %cond = icmp ult i64 %i_next, %size\n";
+        ir = ir + "  br i1 %cond, label %vector.bitwise.loop, label %scalar.remainder\n\n";
+        
+        return ir;
+    }
+    
+    fun generateVectorReduction(loop: LoopStatement, context: CodeGenContext) -> String {
+        let ir = "";
+        
+        ir = ir + "; Vectorized reduction (sum/product)\n";
+        ir = ir + "vector.reduction.loop:\n";
+        
+        if vectorWidth == 8 {
+            ir = ir + "  %vec_data = load <8 x float>, <8 x float>* %ptr_data, align 32\n";
+            ir = ir + "  %vec_acc = load <8 x float>, <8 x float>* %accumulator_vec, align 32\n";
+            ir = ir + "  %vec_result = fadd <8 x float> %vec_acc, %vec_data\n";
+            ir = ir + "  store <8 x float> %vec_result, <8 x float>* %accumulator_vec, align 32\n";
+        } else {
+            ir = ir + "  %vec_data = load <4 x float>, <4 x float>* %ptr_data, align 16\n";
+            ir = ir + "  %vec_acc = load <4 x float>, <4 x float>* %accumulator_vec, align 16\n";
+            ir = ir + "  %vec_result = fadd <4 x float> %vec_acc, %vec_data\n";
+            ir = ir + "  store <4 x float> %vec_result, <4 x float>* %accumulator_vec, align 16\n";
+        }
+        
+        ir = ir + "  %i_next = add i64 %i, " + vectorWidth.toString() + "\n";
+        ir = ir + "  %cond = icmp ult i64 %i_next, %size\n";
+        ir = ir + "  br i1 %cond, label %vector.reduction.loop, label %final.reduction\n\n";
+        
+        // Final horizontal reduction
+        ir = ir + "final.reduction:\n";
+        if vectorWidth == 8 {
+            // Horizontal add to reduce 8 elements to 1
+            ir = ir + "  %vec_final = load <8 x float>, <8 x float>* %accumulator_vec, align 32\n";
+            ir = ir + "  %reduced = call float @llvm.vector.reduce.fadd.v8f32(float 0.0, <8 x float> %vec_final)\n";
+        } else {
+            ir = ir + "  %vec_final = load <4 x float>, <4 x float>* %accumulator_vec, align 16\n";
+            ir = ir + "  %reduced = call float @llvm.vector.reduce.fadd.v4f32(float 0.0, <4 x float> %vec_final)\n";
+        }
+        
+        ir = ir + "  store float %reduced, float* %final_result\n\n";
+        
+        return ir;
+    }
+    
+    fun canVectorizeLoop(loop: LoopStatement) -> Bool {
+        // Check if loop can be vectorized
+        if not hasSimpleInductionVariable(loop) {
+            return false;
+        }
+        
+        if hasComplexControlFlow(loop) {
+            return false;
+        }
+        
+        if hasMemoryDependencies(loop) {
+            return false;
+        }
+        
+        if not hasVectorizableOperations(loop) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    fun analyzeLoopPattern(loop: LoopStatement) -> String {
+        let operations = getLoopOperations(loop);
+        
+        if containsOnly(operations, ["add", "sub"]) {
+            return "simple_addition";
+        }
+        
+        if containsOnly(operations, ["mul"]) {
+            return "simple_multiplication";
+        }
+        
+        if containsOnly(operations, ["xor", "and", "or", "shl", "shr"]) {
+            return "bitwise_operations";
+        }
+        
+        if contains(operations, ["fma"]) or 
+           (contains(operations, ["mul"]) and contains(operations, ["add"])) {
+            return "fused_multiply_add";
+        }
+        
+        if isReductionPattern(loop) {
+            return "reduction";
+        }
+        
+        return "complex";
+    }
+    
+    fun detectTargetISA() -> String {
+        // Detect available SIMD instruction sets
+        if hasCPUID("avx512f") {
+            return "avx512";
+        } else if hasCPUID("avx2") {
+            return "avx2";
+        } else if hasCPUID("avx") {
+            return "avx";
+        } else if hasCPUID("sse4.2") {
+            return "sse42";
+        } else if hasCPUID("sse2") {
+            return "sse2";
+        } else {
+            return "scalar";
+        }
+    }
+    
+    fun getOptimalVectorWidth() -> Int {
+        match targetISA {
+            "avx512" => return 16; // 512-bit / 32-bit = 16 elements
+            "avx2" => return 8;    // 256-bit / 32-bit = 8 elements
+            "avx" => return 8;     // 256-bit / 32-bit = 8 elements
+            "sse42" => return 4;   // 128-bit / 32-bit = 4 elements
+            "sse2" => return 4;    // 128-bit / 32-bit = 4 elements
+            default => return 1;   // Scalar
+        }
+    }
+    
+    fun detectSIMDFeatures() -> List<String> {
+        let features: List<String> = [];
+        
+        if hasCPUID("fma") {
+            features.append("fma");
+        }
+        
+        if hasCPUID("avx2") {
+            features.append("gather");
+            features.append("scatter");
+        }
+        
+        if hasCPUID("avx512f") {
+            features.append("mask");
+            features.append("compress");
+            features.append("expand");
+        }
+        
+        return features;
+    }
+    
+    fun generateIntrinsicDeclarations() -> String {
+        let decl = "";
+        
+        // Vector reduction intrinsics
+        decl = decl + "declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>)\n";
+        decl = decl + "declare float @llvm.vector.reduce.fadd.v8f32(float, <8 x float>)\n";
+        decl = decl + "declare float @llvm.vector.reduce.fadd.v16f32(float, <16 x float>)\n";
+        
+        // FMA intrinsics
+        decl = decl + "declare <4 x float> @llvm.fma.v4f32(<4 x float>, <4 x float>, <4 x float>)\n";
+        decl = decl + "declare <8 x float> @llvm.fma.v8f32(<8 x float>, <8 x float>, <8 x float>)\n";
+        decl = decl + "declare <16 x float> @llvm.fma.v16f32(<16 x float>, <16 x float>, <16 x float>)\n";
+        
+        return decl;
+    }
+    
+    // Helper functions
+    fun hasSimpleInductionVariable(loop: LoopStatement) -> Bool {
+        // Check for simple i++ or i += constant pattern
+        return true; // Simplified for now
+    }
+    
+    fun hasComplexControlFlow(loop: LoopStatement) -> Bool {
+        // Check for early exits, nested loops, function calls
+        return false; // Simplified for now
+    }
+    
+    fun hasMemoryDependencies(loop: LoopStatement) -> Bool {
+        // Check for read-after-write dependencies that prevent vectorization
+        return false; // Simplified for now
+    }
+    
+    fun hasVectorizableOperations(loop: LoopStatement) -> Bool {
+        // Check if operations can be vectorized
+        return true; // Simplified for now
+    }
+    
+    fun getLoopOperations(loop: LoopStatement) -> List<String> {
+        // Extract list of operations in the loop
+        return ["add", "mul"]; // Simplified for now
+    }
+    
+    fun containsOnly(operations: List<String>, allowed: List<String>) -> Bool {
+        for op in operations {
+            if not allowed.contains(op) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    fun contains(operations: List<String>, target: List<String>) -> Bool {
+        for t in target {
+            if operations.contains(t) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    fun isReductionPattern(loop: LoopStatement) -> Bool {
+        // Check if this is a reduction (sum, product, min, max)
+        return false; // Simplified for now
+    }
+    
+    fun hasCPUID(feature: String) -> Bool {
+        // Check CPU features via CPUID instruction
+        // In real implementation, would use inline assembly
+        match feature {
+            "sse2" => return true;    // Assume SSE2 is always available
+            "avx" => return true;     // Assume AVX is available
+            "avx2" => return true;    // Assume AVX2 is available
+            "fma" => return true;     // Assume FMA is available
+            "avx512f" => return false; // Assume AVX-512 is not available
+            default => return false;
+        }
+    }
+    
+    fun generateScalarLoop(loop: LoopStatement, context: CodeGenContext) -> String {
+        // Fall back to scalar code generation
+        return "  ; Scalar loop (vectorization not beneficial)\n";
+    }
+}

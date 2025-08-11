@@ -1,0 +1,359 @@
+// Real-World Web Server Benchmark
+// Tests HTTP request handling, routing, middleware, and response generation
+
+import std::net::{TcpListener, TcpStream}
+import std::io::{Read, Write}
+import std::thread
+import std::sync::{Arc, Mutex}
+import std::time::Instant
+import std::collections::{Vec, HashMap}
+
+// HTTP request structure
+struct HttpRequest {
+    method: String,
+    path: String,
+    headers: HashMap<String, String>,
+    body: Vec<u8>,
+}
+
+// HTTP response structure
+struct HttpResponse {
+    status_code: i32,
+    status_text: String,
+    headers: HashMap<String, String>,
+    body: Vec<u8>,
+}
+
+// Route handler function type
+type RouteHandler = fn(HttpRequest) -> HttpResponse
+
+// Simple web server implementation
+class WebServer {
+    port: u16,
+    routes: HashMap<String, RouteHandler>,
+    middleware: Vec<fn(HttpRequest) -> HttpRequest>,
+    request_count: Arc<Mutex<i64>>,
+    total_bytes_served: Arc<Mutex<i64>>,
+    
+    fun new(port: u16) -> WebServer {
+        return WebServer {
+            port: port,
+            routes: HashMap::new(),
+            middleware: Vec::new(),
+            request_count: Arc::new(Mutex::new(0)),
+            total_bytes_served: Arc::new(Mutex::new(0)),
+        }
+    }
+    
+    // Add route handler
+    fun route(&mut self, path: String, handler: RouteHandler) {
+        self.routes.insert(path, handler)
+    }
+    
+    // Add middleware
+    fun use_middleware(&mut self, middleware: fn(HttpRequest) -> HttpRequest) {
+        self.middleware.push(middleware)
+    }
+    
+    // Parse HTTP request from raw bytes
+    fun parse_request(data: &[u8]) -> Result<HttpRequest, String> {
+        let request_str = String::from_utf8_lossy(data)
+        let lines: Vec<&str> = request_str.lines().collect()
+        
+        if lines.is_empty() {
+            return Err("Empty request".to_string())
+        }
+        
+        // Parse request line
+        let request_parts: Vec<&str> = lines[0].split(' ').collect()
+        if request_parts.len() < 2 {
+            return Err("Invalid request line".to_string())
+        }
+        
+        let method = request_parts[0].to_string()
+        let path = request_parts[1].to_string()
+        
+        // Parse headers
+        let mut headers = HashMap::new()
+        let mut body_start = 0
+        
+        for i in 1..lines.len() {
+            if lines[i].is_empty() {
+                body_start = i + 1
+                break
+            }
+            
+            if let Some(colon_pos) = lines[i].find(':') {
+                let key = lines[i][..colon_pos].trim().to_string()
+                let value = lines[i][colon_pos + 1..].trim().to_string()
+                headers.insert(key, value)
+            }
+        }
+        
+        // Extract body if present
+        let body = if body_start > 0 && body_start < lines.len() {
+            lines[body_start..].join("\n").into_bytes()
+        } else {
+            Vec::new()
+        }
+        
+        Ok(HttpRequest {
+            method,
+            path,
+            headers,
+            body,
+        })
+    }
+    
+    // Format HTTP response to bytes
+    fun format_response(response: &HttpResponse) -> Vec<u8> {
+        let mut result = Vec::new()
+        
+        // Status line
+        let status_line = format!("HTTP/1.1 {} {}\r\n", 
+                                  response.status_code, 
+                                  response.status_text)
+        result.extend_from_slice(status_line.as_bytes())
+        
+        // Headers
+        for (key, value) in &response.headers {
+            let header_line = format!("{}: {}\r\n", key, value)
+            result.extend_from_slice(header_line.as_bytes())
+        }
+        
+        // Content-Length header
+        let content_length = format!("Content-Length: {}\r\n", response.body.len())
+        result.extend_from_slice(content_length.as_bytes())
+        
+        // Empty line between headers and body
+        result.extend_from_slice(b"\r\n")
+        
+        // Body
+        result.extend_from_slice(&response.body)
+        
+        result
+    }
+    
+    // Handle client connection
+    fun handle_client(&self, mut stream: TcpStream) {
+        let mut buffer = [0; 4096]
+        
+        match stream.read(&mut buffer) {
+            Ok(size) => {
+                if size == 0 { return }
+                
+                // Parse request
+                let request = match Self::parse_request(&buffer[..size]) {
+                    Ok(req) => req,
+                    Err(_) => {
+                        let error_response = HttpResponse {
+                            status_code: 400,
+                            status_text: "Bad Request".to_string(),
+                            headers: HashMap::new(),
+                            body: b"Invalid HTTP request".to_vec(),
+                        }
+                        let response_bytes = Self::format_response(&error_response)
+                        let _ = stream.write_all(&response_bytes)
+                        return
+                    }
+                }
+                
+                // Apply middleware
+                let mut processed_request = request
+                for middleware_fn in &self.middleware {
+                    processed_request = middleware_fn(processed_request)
+                }
+                
+                // Route request
+                let response = if let Some(handler) = self.routes.get(&processed_request.path) {
+                    handler(processed_request)
+                } else {
+                    // 404 Not Found
+                    HttpResponse {
+                        status_code: 404,
+                        status_text: "Not Found".to_string(),
+                        headers: HashMap::new(),
+                        body: b"Page not found".to_vec(),
+                    }
+                }
+                
+                // Send response
+                let response_bytes = Self::format_response(&response)
+                match stream.write_all(&response_bytes) {
+                    Ok(_) => {
+                        // Update metrics
+                        *self.request_count.lock().unwrap() += 1
+                        *self.total_bytes_served.lock().unwrap() += response_bytes.len() as i64
+                    },
+                    Err(_) => {}
+                }
+            },
+            Err(_) => {}
+        }
+    }
+    
+    // Run server benchmark
+    fun run_benchmark(duration_seconds: u64) -> BenchmarkResult {
+        let mut server = WebServer::new(8080)
+        
+        // Setup routes
+        server.route("/".to_string(), |_req| {
+            HttpResponse {
+                status_code: 200,
+                status_text: "OK".to_string(),
+                headers: HashMap::from([
+                    ("Content-Type".to_string(), "text/html".to_string()),
+                ]),
+                body: b"<h1>Welcome to Seen Web Server</h1>".to_vec(),
+            }
+        })
+        
+        server.route("/api/users".to_string(), |_req| {
+            let json_data = r#"[
+                {"id": 1, "name": "Alice", "email": "alice@example.com"},
+                {"id": 2, "name": "Bob", "email": "bob@example.com"},
+                {"id": 3, "name": "Charlie", "email": "charlie@example.com"}
+            ]"#
+            
+            HttpResponse {
+                status_code: 200,
+                status_text: "OK".to_string(),
+                headers: HashMap::from([
+                    ("Content-Type".to_string(), "application/json".to_string()),
+                ]),
+                body: json_data.as_bytes().to_vec(),
+            }
+        })
+        
+        server.route("/api/data".to_string(), |req| {
+            // Simulate data processing
+            let mut result = 0u64
+            for byte in &req.body {
+                result = result.wrapping_add(*byte as u64)
+            }
+            
+            HttpResponse {
+                status_code: 200,
+                status_text: "OK".to_string(),
+                headers: HashMap::from([
+                    ("Content-Type".to_string(), "text/plain".to_string()),
+                ]),
+                body: format!("Processed: {}", result).into_bytes(),
+            }
+        })
+        
+        // Add simple logging middleware
+        server.use_middleware(|mut req| {
+            req.headers.insert("X-Request-ID".to_string(), 
+                             format!("{}", std::time::SystemTime::now().elapsed().as_nanos()))
+            req
+        })
+        
+        let start_time = Instant::now()
+        
+        // Start server in separate thread
+        let server_arc = Arc::new(server)
+        let server_handle = {
+            let server_clone = Arc::clone(&server_arc)
+            thread::spawn(move || {
+                let listener = TcpListener::bind(("127.0.0.1", server_clone.port)).unwrap()
+                listener.set_nonblocking(true).unwrap()
+                
+                while start_time.elapsed().as_secs() < duration_seconds {
+                    match listener.accept() {
+                        Ok((stream, _addr)) => {
+                            let server_clone2 = Arc::clone(&server_clone)
+                            thread::spawn(move || {
+                                server_clone2.handle_client(stream)
+                            })
+                        },
+                        Err(_) => {
+                            thread::sleep(std::time::Duration::from_millis(1))
+                        }
+                    }
+                }
+            })
+        }
+        
+        // Simulate client requests in parallel
+        let client_threads = 8
+        let requests_per_client = 10000
+        let mut client_handles = Vec::new()
+        
+        for _ in 0..client_threads {
+            let handle = thread::spawn(move || {
+                let mut successful_requests = 0
+                
+                for i in 0..requests_per_client {
+                    // Rotate through different endpoints
+                    let path = match i % 3 {
+                        0 => "/",
+                        1 => "/api/users",
+                        _ => "/api/data",
+                    }
+                    
+                    // Create HTTP request
+                    let request = format!(
+                        "GET {} HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: BenchmarkClient\r\n\r\n",
+                        path
+                    )
+                    
+                    // Try to connect and send request
+                    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:8080") {
+                        if stream.write_all(request.as_bytes()).is_ok() {
+                            let mut response_buffer = [0; 4096]
+                            if stream.read(&mut response_buffer).is_ok() {
+                                successful_requests += 1
+                            }
+                        }
+                    }
+                }
+                
+                successful_requests
+            })
+            
+            client_handles.push(handle)
+        }
+        
+        // Wait for clients to finish
+        let mut total_successful = 0
+        for handle in client_handles {
+            total_successful += handle.join().unwrap_or(0)
+        }
+        
+        // Wait for server thread
+        server_handle.join().unwrap()
+        
+        let elapsed = start_time.elapsed()
+        let requests_handled = *server_arc.request_count.lock().unwrap()
+        let bytes_served = *server_arc.total_bytes_served.lock().unwrap()
+        let requests_per_second = (requests_handled as f64) / elapsed.as_secs_f64()
+        
+        BenchmarkResult {
+            name: "web_server".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: 100 * 1024 * 1024, // Estimate 100MB for server + threads
+            operations_per_second: requests_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("requests={}, bytes_served={}, successful_client_requests={}", 
+                           requests_handled, bytes_served, total_successful),
+        }
+    }
+}
+
+// Benchmark runner for web server
+class WebServerBenchmark {
+    fun run_all() -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        // Basic web server test
+        results.push(WebServer::run_benchmark(10))
+        
+        // Additional benchmarks can be added here
+        
+        results
+    }
+}

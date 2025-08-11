@@ -1,0 +1,342 @@
+// Runtime Intrinsics - Core system functions for Seen programs
+// Provides timing, memory management, and system interfaces
+
+// High-precision timing functions
+fun GetCurrentTimeNanos() -> Int {
+    // Use RDTSC instruction for high-precision timing
+    let high: Int;
+    let low: Int;
+    
+    // Inline assembly for RDTSC
+    asm("rdtsc" : "=a" (low), "=d" (high));
+    
+    return (high << 32) | low;
+}
+
+fun GetMonotonicTimeNanos() -> Int {
+    // Use clock_gettime with CLOCK_MONOTONIC
+    let ts: TimeSpec;
+    syscall_clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+// Memory management functions
+fun AllocateMemory(size: Int) -> Ptr<Byte> {
+    // Use mmap for large allocations
+    if size > 4096 {
+        return syscall_mmap(null, size, PROT_READ | PROT_WRITE, 
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    } else {
+        // Use stack allocation for small sizes
+        return alloca(size);
+    }
+}
+
+fun DeallocateMemory(ptr: Ptr<Byte>, size: Int) {
+    if size > 4096 {
+        syscall_munmap(ptr, size);
+    }
+    // Stack allocations are automatically freed
+}
+
+fun ZeroMemory(ptr: Ptr<Byte>, size: Int) {
+    // Optimized memory zeroing using vectorized operations
+    if size >= 32 {
+        // Use AVX2 for large blocks
+        let chunks = size / 32;
+        let remainder = size % 32;
+        
+        for i in range(0, chunks) {
+            let aligned_ptr = ptr + (i * 32);
+            asm("vmovdqa %ymm0, (%0)" : : "r" (aligned_ptr));
+        }
+        
+        // Handle remainder
+        for i in range(chunks * 32, size) {
+            ptr[i] = 0;
+        }
+    } else {
+        // Simple loop for small blocks
+        for i in range(0, size) {
+            ptr[i] = 0;
+        }
+    }
+}
+
+fun CopyMemory(dest: Ptr<Byte>, src: Ptr<Byte>, size: Int) {
+    // Vectorized memory copy
+    if size >= 32 and IsAligned(dest, 32) and IsAligned(src, 32) {
+        let chunks = size / 32;
+        let remainder = size % 32;
+        
+        for i in range(0, chunks) {
+            let src_aligned = src + (i * 32);
+            let dest_aligned = dest + (i * 32);
+            
+            // Load 32 bytes with AVX2
+            asm("vmovdqa (%0), %ymm0" : : "r" (src_aligned));
+            asm("vmovdqa %ymm0, (%0)" : : "r" (dest_aligned));
+        }
+        
+        // Copy remainder
+        for i in range(chunks * 32, size) {
+            dest[i] = src[i];
+        }
+    } else {
+        // Unaligned copy
+        for i in range(0, size) {
+            dest[i] = src[i];
+        }
+    }
+}
+
+// System call wrappers
+fun syscall_clock_gettime(clockid: Int, tp: Ptr<TimeSpec>) -> Int {
+    let result: Int;
+    asm("mov $228, %%rax; mov %1, %%rdi; mov %2, %%rsi; syscall; mov %%rax, %0"
+        : "=r" (result)
+        : "r" (clockid), "r" (tp)
+        : "rax", "rdi", "rsi");
+    return result;
+}
+
+fun syscall_mmap(addr: Ptr<Byte>, length: Int, prot: Int, flags: Int, fd: Int, offset: Int) -> Ptr<Byte> {
+    let result: Ptr<Byte>;
+    asm("mov $9, %%rax; mov %1, %%rdi; mov %2, %%rsi; mov %3, %%rdx; mov %4, %%r10; mov %5, %%r8; mov %6, %%r9; syscall; mov %%rax, %0"
+        : "=r" (result)
+        : "r" (addr), "r" (length), "r" (prot), "r" (flags), "r" (fd), "r" (offset)
+        : "rax", "rdi", "rsi", "rdx", "r10", "r8", "r9");
+    return result;
+}
+
+fun syscall_munmap(addr: Ptr<Byte>, length: Int) -> Int {
+    let result: Int;
+    asm("mov $11, %%rax; mov %1, %%rdi; mov %2, %%rsi; syscall; mov %%rax, %0"
+        : "=r" (result)
+        : "r" (addr), "r" (length)
+        : "rax", "rdi", "rsi");
+    return result;
+}
+
+// I/O functions
+fun WriteToConsole(message: String) {
+    let length = message.length();
+    syscall_write(1, message.data(), length);
+}
+
+fun syscall_write(fd: Int, buf: Ptr<Byte>, count: Int) -> Int {
+    let result: Int;
+    asm("mov $1, %%rax; mov %1, %%rdi; mov %2, %%rsi; mov %3, %%rdx; syscall; mov %%rax, %0"
+        : "=r" (result)
+        : "r" (fd), "r" (buf), "r" (count)
+        : "rax", "rdi", "rsi", "rdx");
+    return result;
+}
+
+// Benchmark-specific functions
+fun RunBenchmark(name: String, iterations: Int, benchmarkFunc: Fun() -> Void) -> BenchmarkResult {
+    println("🚀 Running benchmark: " + name);
+    println("   Iterations: " + iterations.toString());
+    
+    // Warm up the CPU
+    for i in range(0, 1000) {
+        benchmarkFunc();
+    }
+    
+    // Clear CPU cache
+    ClearCPUCache();
+    
+    // Measure actual performance
+    let startTime = GetCurrentTimeNanos();
+    let startCycles = GetCPUCycles();
+    
+    for i in range(0, iterations) {
+        benchmarkFunc();
+    }
+    
+    let endTime = GetCurrentTimeNanos();
+    let endCycles = GetCPUCycles();
+    
+    let totalTime = endTime - startTime;
+    let totalCycles = endCycles - startCycles;
+    
+    let opsPerSecond = (iterations * 1000000000) / totalTime;
+    let cyclesPerOp = totalCycles / iterations;
+    
+    println("   ✅ Completed in " + (totalTime / 1000000).toString() + "ms");
+    println("   ⚡ Performance: " + opsPerSecond.toString() + " ops/sec");
+    println("   🔄 Cycles/op: " + cyclesPerOp.toString());
+    
+    return BenchmarkResult{
+        name: name,
+        iterations: iterations,
+        totalTimeNs: totalTime,
+        opsPerSecond: opsPerSecond,
+        cyclesPerOp: cyclesPerOp,
+        success: true
+    };
+}
+
+fun GetCPUCycles() -> Int {
+    let high: Int;
+    let low: Int;
+    asm("rdtsc" : "=a" (low), "=d" (high));
+    return (high << 32) | low;
+}
+
+fun ClearCPUCache() {
+    // Allocate and access a large buffer to clear cache
+    let cacheSize = 32 * 1024 * 1024; // 32MB
+    let buffer = AllocateMemory(cacheSize);
+    
+    // Touch every cache line
+    for i in range(0, cacheSize, 64) {
+        buffer[i] = i as Byte;
+    }
+    
+    // Flush cache lines
+    for i in range(0, cacheSize, 64) {
+        asm("clflush (%0)" : : "r" (buffer + i));
+    }
+    
+    DeallocateMemory(buffer, cacheSize);
+    
+    // Memory fence to ensure ordering
+    asm("mfence");
+}
+
+fun WarmupCPU() {
+    // Run some arithmetic to warm up the CPU
+    let dummy = 0;
+    for i in range(0, 100000) {
+        dummy = dummy + i * 2 - 1;
+    }
+    
+    // Prevent compiler from optimizing away
+    asm("" : : "r" (dummy));
+}
+
+// Arithmetic benchmark functions
+fun BenchmarkI32Addition() -> Void {
+    var sum = 0;
+    let a = 123456;
+    let b = 789012;
+    
+    // Unrolled loop for maximum performance
+    sum = sum + a + b;
+    sum = sum + a + b;
+    sum = sum + a + b;
+    sum = sum + a + b;
+    sum = sum + a + b;
+    sum = sum + a + b;
+    sum = sum + a + b;
+    sum = sum + a + b;
+    
+    // Prevent optimization
+    asm("" : : "r" (sum));
+}
+
+fun BenchmarkI32Multiplication() -> Void {
+    var result = 1;
+    let a = 12345;
+    let b = 67890;
+    
+    // Unrolled multiplication
+    result = result * a;
+    result = result * b;
+    result = result * a;
+    result = result * b;
+    result = result * a;
+    result = result * b;
+    result = result * a;
+    result = result * b;
+    
+    asm("" : : "r" (result));
+}
+
+fun BenchmarkF64Operations() -> Void {
+    var result = 1.0;
+    let a = 3.14159;
+    let b = 2.71828;
+    
+    // Mixed floating point operations
+    result = result * a + b;
+    result = result * a + b;
+    result = result * a + b;
+    result = result * a + b;
+    result = result * a + b;
+    result = result * a + b;
+    result = result * a + b;
+    result = result * a + b;
+    
+    asm("" : : "r" (result));
+}
+
+fun BenchmarkBitwiseOperations() -> Void {
+    var value = 0xFF00FF00;
+    let mask1 = 0x0F0F0F0F;
+    let mask2 = 0xF0F0F0F0;
+    
+    // Bitwise operations
+    value = value ^ mask1;
+    value = value | mask2;
+    value = value & mask1;
+    value = value << 1;
+    value = value >> 1;
+    value = value ^ mask2;
+    value = value | mask1;
+    value = value & mask2;
+    
+    asm("" : : "r" (value));
+}
+
+// Utility functions
+fun IsAligned(ptr: Ptr<Byte>, alignment: Int) -> Bool {
+    let addr = ptr as Int;
+    return (addr % alignment) == 0;
+}
+
+fun alloca(size: Int) -> Ptr<Byte> {
+    // Stack allocation - handled by compiler
+    asm("sub %0, %%rsp; mov %%rsp, %0" : "=r" (size) : "r" (size) : "rsp");
+    return size as Ptr<Byte>;
+}
+
+// Data structures
+struct TimeSpec {
+    var tv_sec: Int;   // seconds
+    var tv_nsec: Int;  // nanoseconds
+}
+
+struct BenchmarkResult {
+    var name: String;
+    var iterations: Int;
+    var totalTimeNs: Int;
+    var opsPerSecond: Int;
+    var cyclesPerOp: Int;
+    var success: Bool;
+}
+
+// Constants
+let CLOCK_MONOTONIC = 1;
+let PROT_READ = 1;
+let PROT_WRITE = 2;
+let MAP_PRIVATE = 2;
+let MAP_ANONYMOUS = 32;
+
+// Export all functions for use by generated LLVM IR
+export GetCurrentTimeNanos;
+export GetMonotonicTimeNanos;
+export AllocateMemory;
+export DeallocateMemory;
+export ZeroMemory;
+export CopyMemory;
+export WriteToConsole;
+export RunBenchmark;
+export GetCPUCycles;
+export ClearCPUCache;
+export WarmupCPU;
+export BenchmarkI32Addition;
+export BenchmarkI32Multiplication;
+export BenchmarkF64Operations;
+export BenchmarkBitwiseOperations;

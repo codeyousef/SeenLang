@@ -3606,3 +3606,9 @@ target-wsl/
 /performance_validation/scripts/analysis_results/
 /performance_validation/target/
 /performance_validation/real_world/compression/target/
+/benchmarks/data/
+/benchmarks/reports/
+/benchmarks/results/
+/benchmarks/competitors/rust/target/
+/benchmarks/seen_simple/target/
+/benchmarks/seen_benchmarks/target/

@@ -1,0 +1,275 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      benchmark_type:
+        description: 'Type of benchmark to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - microbenchmarks
+          - systems
+          - real_world
+          - validation
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    
+    strategy:
+      matrix:
+        benchmark_mode: [jit, aot]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Seen compiler
+        run: |
+          # Ensure Seen compiler is available
+          if [ ! -f "./target/release/seen" ]; then
+            echo "Building Seen compiler..."
+            cargo build --release --bin seen
+          fi
+          echo "$(pwd)/target/release" >> $GITHUB_PATH
+      
+      - name: Setup competitor toolchains
+        run: |
+          # Install Rust (latest stable)
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source $HOME/.cargo/env
+          
+          # Install C++ compiler
+          sudo apt-get update
+          sudo apt-get install -y g++ clang
+          
+          # Install Zig
+          wget https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz
+          tar xf zig-linux-x86_64-0.11.0.tar.xz
+          echo "$(pwd)/zig-linux-x86_64-0.11.0" >> $GITHUB_PATH
+      
+      - name: Install performance tools
+        run: |
+          sudo apt-get install -y linux-tools-common linux-tools-generic linux-tools-$(uname -r)
+          sudo apt-get install -y valgrind time
+          
+          # Enable perf for non-root users
+          echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
+      
+      - name: Build benchmark suite
+        run: |
+          echo "Building Seen benchmarks..."
+          seen build benchmarks/harness/runner.seen --release --mode ${{ matrix.benchmark_mode }}
+          
+          echo "Building competitor benchmarks..."
+          # Rust
+          cd benchmarks/competitors/rust
+          cargo build --release
+          cd ../../..
+          
+          # C++
+          cd benchmarks/competitors/cpp
+          g++ -O3 -march=native -std=c++20 arithmetic_bench.cpp -o arithmetic_bench
+          cd ../../..
+          
+          # Zig
+          cd benchmarks/competitors/zig
+          zig build-exe arithmetic_bench.zig -O ReleaseFast
+          cd ../../..
+      
+      - name: Run microbenchmarks
+        if: github.event.inputs.benchmark_type == 'microbenchmarks' || github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == ''
+        run: |
+          echo "Running microbenchmarks in ${{ matrix.benchmark_mode }} mode..."
+          ./benchmarks/harness/runner \
+            --category microbenchmarks \
+            --mode ${{ matrix.benchmark_mode }} \
+            --iterations 100 \
+            --output results/microbenchmarks_${{ matrix.benchmark_mode }}.json
+      
+      - name: Run system benchmarks
+        if: github.event.inputs.benchmark_type == 'systems' || github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == ''
+        run: |
+          echo "Running system benchmarks in ${{ matrix.benchmark_mode }} mode..."
+          ./benchmarks/harness/runner \
+            --category systems \
+            --mode ${{ matrix.benchmark_mode }} \
+            --iterations 100 \
+            --output results/systems_${{ matrix.benchmark_mode }}.json
+      
+      - name: Run real-world benchmarks
+        if: github.event.inputs.benchmark_type == 'real_world' || github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == ''
+        run: |
+          echo "Running real-world benchmarks in ${{ matrix.benchmark_mode }} mode..."
+          ./benchmarks/harness/runner \
+            --category real_world \
+            --mode ${{ matrix.benchmark_mode }} \
+            --iterations 50 \
+            --output results/real_world_${{ matrix.benchmark_mode }}.json
+      
+      - name: Run validation benchmarks
+        if: github.event.inputs.benchmark_type == 'validation' || github.event.inputs.benchmark_type == 'all' || github.event.inputs.benchmark_type == ''
+        run: |
+          echo "Validating performance claims..."
+          ./benchmarks/harness/runner \
+            --validate-claims \
+            --mode ${{ matrix.benchmark_mode }} \
+            --output results/validation_${{ matrix.benchmark_mode }}.json
+      
+      - name: Generate comprehensive report
+        run: |
+          echo "Generating benchmark report..."
+          ./benchmarks/harness/runner \
+            --generate-report \
+            --input-dir results \
+            --output-formats json,markdown,html \
+            --output-dir reports
+      
+      - name: Check for performance regressions
+        if: github.event_name == 'pull_request'
+        run: |
+          # Compare with baseline from main branch
+          git fetch origin main
+          git checkout origin/main -- results/baseline.json || echo "No baseline found"
+          
+          if [ -f results/baseline.json ]; then
+            ./benchmarks/harness/runner \
+              --compare results/baseline.json results/microbenchmarks_${{ matrix.benchmark_mode }}.json \
+              --regression-threshold 5.0 \
+              --output results/regression_report.json
+            
+            # Check if regression detected
+            if grep -q '"regression_detected": true' results/regression_report.json; then
+              echo "::error::Performance regression detected!"
+              cat results/regression_report.json
+              exit 1
+            fi
+          fi
+      
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results-${{ matrix.benchmark_mode }}
+          path: |
+            results/*.json
+            reports/*
+      
+      - name: Update baseline (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          cp results/microbenchmarks_${{ matrix.benchmark_mode }}.json results/baseline_${{ matrix.benchmark_mode }}.json
+          
+          # Commit baseline for future comparisons
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add results/baseline_*.json
+          git commit -m "Update performance baseline [skip ci]" || echo "No changes to baseline"
+          git push || echo "Could not push baseline"
+      
+      - name: Post results to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Read markdown report
+            const reportPath = path.join('reports', 'benchmark_report.md');
+            let report = '## 📊 Performance Benchmark Results\n\n';
+            
+            if (fs.existsSync(reportPath)) {
+              const fullReport = fs.readFileSync(reportPath, 'utf8');
+              // Truncate if too long for PR comment
+              if (fullReport.length > 60000) {
+                report += fullReport.substring(0, 60000) + '\n\n... (truncated)';
+              } else {
+                report += fullReport;
+              }
+            } else {
+              report += 'No benchmark report generated.';
+            }
+            
+            report += `\n\n**Mode:** ${{ matrix.benchmark_mode }}`;
+            report += `\n**Commit:** ${context.sha.substring(0, 7)}`;
+            
+            // Post or update comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Performance Benchmark Results')
+            );
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }
+  
+  benchmark-summary:
+    name: Benchmark Summary
+    needs: benchmark
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+      
+      - name: Generate summary dashboard
+        run: |
+          echo "# 📈 Performance Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Execution Modes Tested" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ JIT Mode" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ AOT Mode" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add performance metrics if available
+          if [ -f artifacts/benchmark-results-jit/reports/benchmark_report.md ]; then
+            echo "## JIT Performance Highlights" >> $GITHUB_STEP_SUMMARY
+            head -n 20 artifacts/benchmark-results-jit/reports/benchmark_report.md >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f artifacts/benchmark-results-aot/reports/benchmark_report.md ]; then
+            echo "## AOT Performance Highlights" >> $GITHUB_STEP_SUMMARY
+            head -n 20 artifacts/benchmark-results-aot/reports/benchmark_report.md >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Publish to GitHub Pages (optional)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          # This would publish benchmark results to GitHub Pages
+          # for a public performance dashboard
+          echo "Would publish to GitHub Pages here"

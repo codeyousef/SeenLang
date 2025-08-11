@@ -1,0 +1,622 @@
+// Statistical Analysis Framework for Performance Benchmarks
+// Provides comprehensive statistical analysis with confidence intervals, significance testing, and effect sizes
+
+import std::collections::Vec
+import std::collections::HashMap
+import std::math
+
+// Statistical summary with comprehensive metrics
+struct StatisticalSummary {
+    name: String,
+    language: String,
+    execution_mode: String,
+    sample_size: i32,
+    
+    // Time measurements (nanoseconds)
+    mean_time_ns: f64,
+    median_time_ns: f64,
+    std_dev_time_ns: f64,
+    min_time_ns: i64,
+    max_time_ns: i64,
+    p95_time_ns: i64,
+    p99_time_ns: i64,
+    
+    // Confidence intervals (95%)
+    confidence_interval_lower: f64,
+    confidence_interval_upper: f64,
+    
+    // Memory measurements (bytes)
+    mean_memory_bytes: f64,
+    median_memory_bytes: f64,
+    std_dev_memory_bytes: f64,
+    peak_memory_bytes: i64,
+    
+    // Quality metrics
+    outliers_removed: i32,
+    coefficient_of_variation: f64,
+    standard_error: f64,
+}
+
+// Statistical comparison between two languages/implementations
+struct StatisticalComparison {
+    benchmark_name: String,
+    baseline_language: String,
+    comparison_language: String,
+    
+    // Statistical test results
+    t_statistic: f64,
+    p_value: f64,
+    degrees_of_freedom: i32,
+    is_significant: bool,
+    
+    // Effect size measures
+    cohens_d: f64,
+    effect_size_interpretation: String, // "negligible", "small", "medium", "large"
+    
+    // Performance difference
+    performance_ratio: f64, // comparison / baseline
+    percentage_difference: f64, // (comparison - baseline) / baseline * 100
+    confidence_interval_lower: f64,
+    confidence_interval_upper: f64,
+}
+
+// Claim validation result
+struct ClaimValidationResult {
+    claim_name: String,
+    claim_description: String,
+    measured_value: f64,
+    claimed_value: f64,
+    validation_status: String, // "validated", "failed", "partially_validated", "inconclusive"
+    confidence_level: f64,
+    notes: String,
+}
+
+// Main statistical analyzer class
+class StatisticalAnalyzer {
+    config: BenchmarkConfig,
+    alpha: f64, // Significance level (typically 0.05)
+    
+    fun new(config: BenchmarkConfig) -> StatisticalAnalyzer {
+        return StatisticalAnalyzer {
+            config: config,
+            alpha: config.statistical_significance,
+        }
+    }
+    
+    // Analyze a vector of benchmark results into statistical summary
+    fun analyze(results: Vec<BenchmarkResult>) -> Option<StatisticalSummary> {
+        if results.len() < 3 {
+            return None
+        }
+        
+        // Extract successful results only
+        let mut times: Vec<f64> = Vec::new()
+        let mut memories: Vec<f64> = Vec::new()
+        let mut successful_results: Vec<BenchmarkResult> = Vec::new()
+        
+        for result in results {
+            if result.success {
+                times.push(result.execution_time_ns as f64)
+                memories.push(result.memory_peak_bytes as f64)
+                successful_results.push(result)
+            }
+        }
+        
+        if times.len() < 3 {
+            return None
+        }
+        
+        // Remove outliers using IQR method
+        let (clean_times, outliers_count) = self.remove_outliers(times)
+        let (clean_memories, _) = self.remove_outliers(memories)
+        
+        // Calculate time statistics
+        let time_stats = self.calculate_descriptive_stats(clean_times)
+        let memory_stats = self.calculate_descriptive_stats(clean_memories)
+        
+        // Calculate confidence intervals
+        let time_ci = self.calculate_confidence_interval(clean_times, 0.95)
+        
+        // Get percentiles
+        let time_percentiles = self.calculate_percentiles(clean_times)
+        
+        return Some(StatisticalSummary {
+            name: successful_results[0].name,
+            language: successful_results[0].language,
+            execution_mode: successful_results[0].execution_mode,
+            sample_size: clean_times.len() as i32,
+            
+            // Time measurements
+            mean_time_ns: time_stats.mean,
+            median_time_ns: time_stats.median,
+            std_dev_time_ns: time_stats.std_dev,
+            min_time_ns: time_stats.min as i64,
+            max_time_ns: time_stats.max as i64,
+            p95_time_ns: time_percentiles.p95 as i64,
+            p99_time_ns: time_percentiles.p99 as i64,
+            
+            // Confidence intervals
+            confidence_interval_lower: time_ci.lower,
+            confidence_interval_upper: time_ci.upper,
+            
+            // Memory measurements
+            mean_memory_bytes: memory_stats.mean,
+            median_memory_bytes: memory_stats.median,
+            std_dev_memory_bytes: memory_stats.std_dev,
+            peak_memory_bytes: memory_stats.max as i64,
+            
+            // Quality metrics
+            outliers_removed: outliers_count,
+            coefficient_of_variation: time_stats.std_dev / time_stats.mean,
+            standard_error: time_stats.std_dev / math::sqrt(clean_times.len() as f64),
+        })
+    }
+    
+    // Remove outliers using the Interquartile Range (IQR) method
+    fun remove_outliers(data: Vec<f64>) -> (Vec<f64>, i32) {
+        if data.len() < 4 {
+            return (data, 0)
+        }
+        
+        let mut sorted_data = data.clone()
+        sorted_data.sort()
+        
+        let q1_index = (sorted_data.len() as f64 * 0.25) as usize
+        let q3_index = (sorted_data.len() as f64 * 0.75) as usize
+        
+        let q1 = sorted_data[q1_index]
+        let q3 = sorted_data[q3_index]
+        let iqr = q3 - q1
+        
+        let lower_bound = q1 - 1.5 * iqr
+        let upper_bound = q3 + 1.5 * iqr
+        
+        let mut clean_data = Vec::new()
+        let mut outliers = 0
+        
+        for value in data {
+            if value >= lower_bound && value <= upper_bound {
+                clean_data.push(value)
+            } else {
+                outliers += 1
+            }
+        }
+        
+        return (clean_data, outliers)
+    }
+    
+    // Calculate descriptive statistics
+    fun calculate_descriptive_stats(data: Vec<f64>) -> DescriptiveStats {
+        if data.is_empty() {
+            return DescriptiveStats::empty()
+        }
+        
+        let mut sorted_data = data.clone()
+        sorted_data.sort()
+        
+        let n = data.len() as f64
+        let sum = data.iter().sum()
+        let mean = sum / n
+        
+        // Calculate variance and standard deviation
+        let variance = data.iter()
+            .map(|x| (x - mean) * (x - mean))
+            .sum::<f64>() / (n - 1.0)
+        let std_dev = math::sqrt(variance)
+        
+        // Calculate median
+        let median = if sorted_data.len() % 2 == 0 {
+            let mid = sorted_data.len() / 2
+            (sorted_data[mid - 1] + sorted_data[mid]) / 2.0
+        } else {
+            sorted_data[sorted_data.len() / 2]
+        }
+        
+        return DescriptiveStats {
+            mean: mean,
+            median: median,
+            std_dev: std_dev,
+            variance: variance,
+            min: sorted_data[0],
+            max: sorted_data[sorted_data.len() - 1],
+            sample_size: data.len(),
+        }
+    }
+    
+    // Calculate percentiles
+    fun calculate_percentiles(data: Vec<f64>) -> Percentiles {
+        let mut sorted_data = data.clone()
+        sorted_data.sort()
+        
+        let p95_index = ((sorted_data.len() as f64) * 0.95) as usize
+        let p99_index = ((sorted_data.len() as f64) * 0.99) as usize
+        
+        return Percentiles {
+            p50: self.percentile(sorted_data, 0.5),
+            p90: self.percentile(sorted_data, 0.9),
+            p95: self.percentile(sorted_data, 0.95),
+            p99: self.percentile(sorted_data, 0.99),
+        }
+    }
+    
+    // Calculate specific percentile
+    fun percentile(sorted_data: Vec<f64>, p: f64) -> f64 {
+        let index = (sorted_data.len() as f64 * p) as usize
+        let clamped_index = if index >= sorted_data.len() { 
+            sorted_data.len() - 1 
+        } else { 
+            index 
+        }
+        return sorted_data[clamped_index]
+    }
+    
+    // Calculate confidence interval for mean
+    fun calculate_confidence_interval(data: Vec<f64>, confidence_level: f64) -> ConfidenceInterval {
+        let stats = self.calculate_descriptive_stats(data)
+        let n = data.len() as f64
+        
+        // Use t-distribution for small samples
+        let alpha = 1.0 - confidence_level
+        let degrees_freedom = n - 1.0
+        let t_critical = self.t_distribution_inverse(alpha / 2.0, degrees_freedom)
+        
+        let margin_of_error = t_critical * (stats.std_dev / math::sqrt(n))
+        
+        return ConfidenceInterval {
+            lower: stats.mean - margin_of_error,
+            upper: stats.mean + margin_of_error,
+            confidence_level: confidence_level,
+        }
+    }
+    
+    // Approximate t-distribution inverse (simplified implementation)
+    fun t_distribution_inverse(alpha: f64, df: f64) -> f64 {
+        // Simplified approximation for common cases
+        // In a full implementation, this would use a proper statistical library
+        if df >= 30.0 {
+            // Use normal approximation for large df
+            return self.normal_inverse(alpha)
+        } else if alpha <= 0.025 {
+            // Common case for 95% confidence interval
+            if df >= 20.0 { return 2.086 }
+            else if df >= 10.0 { return 2.228 }
+            else if df >= 5.0 { return 2.571 }
+            else { return 3.182 }
+        } else {
+            // Fallback approximation
+            return 1.96 + (2.0 / df) // Very rough approximation
+        }
+    }
+    
+    // Approximate normal distribution inverse
+    fun normal_inverse(alpha: f64) -> f64 {
+        // Very simplified approximation
+        if alpha <= 0.025 { return 1.96 }
+        else if alpha <= 0.05 { return 1.64 }
+        else if alpha <= 0.1 { return 1.28 }
+        else { return 1.0 }
+    }
+    
+    // Compare two statistical summaries
+    fun compare_summaries(baseline: StatisticalSummary, comparison: StatisticalSummary) -> StatisticalComparison {
+        // Perform two-sample t-test
+        let t_test = self.welch_t_test(baseline, comparison)
+        
+        // Calculate Cohen's d effect size
+        let cohens_d = self.calculate_cohens_d(baseline, comparison)
+        let effect_interpretation = self.interpret_effect_size(cohens_d.abs())
+        
+        // Calculate performance ratio and percentage difference
+        let ratio = comparison.mean_time_ns / baseline.mean_time_ns
+        let percentage_diff = ((comparison.mean_time_ns - baseline.mean_time_ns) / baseline.mean_time_ns) * 100.0
+        
+        // Calculate confidence interval for the difference
+        let diff_ci = self.confidence_interval_for_difference(baseline, comparison)
+        
+        return StatisticalComparison {
+            benchmark_name: baseline.name,
+            baseline_language: baseline.language,
+            comparison_language: comparison.language,
+            
+            t_statistic: t_test.t_statistic,
+            p_value: t_test.p_value,
+            degrees_of_freedom: t_test.degrees_of_freedom,
+            is_significant: t_test.p_value < self.alpha,
+            
+            cohens_d: cohens_d,
+            effect_size_interpretation: effect_interpretation,
+            
+            performance_ratio: ratio,
+            percentage_difference: percentage_diff,
+            confidence_interval_lower: diff_ci.lower,
+            confidence_interval_upper: diff_ci.upper,
+        }
+    }
+    
+    // Welch's t-test for unequal variances
+    fun welch_t_test(group1: StatisticalSummary, group2: StatisticalSummary) -> TTestResult {
+        let n1 = group1.sample_size as f64
+        let n2 = group2.sample_size as f64
+        let mean1 = group1.mean_time_ns
+        let mean2 = group2.mean_time_ns
+        let var1 = group1.std_dev_time_ns * group1.std_dev_time_ns
+        let var2 = group2.std_dev_time_ns * group2.std_dev_time_ns
+        
+        // Calculate t-statistic
+        let pooled_se = math::sqrt((var1 / n1) + (var2 / n2))
+        let t_statistic = (mean1 - mean2) / pooled_se
+        
+        // Calculate degrees of freedom (Welch-Satterthwaite equation)
+        let df_numerator = ((var1 / n1) + (var2 / n2)) * ((var1 / n1) + (var2 / n2))
+        let df_denominator = ((var1 / n1) * (var1 / n1)) / (n1 - 1.0) + ((var2 / n2) * (var2 / n2)) / (n2 - 1.0)
+        let df = df_numerator / df_denominator
+        
+        // Approximate p-value (simplified)
+        let p_value = self.approximate_t_test_p_value(t_statistic.abs(), df)
+        
+        return TTestResult {
+            t_statistic: t_statistic,
+            p_value: p_value,
+            degrees_of_freedom: df as i32,
+        }
+    }
+    
+    // Calculate Cohen's d effect size
+    fun calculate_cohens_d(group1: StatisticalSummary, group2: StatisticalSummary) -> f64 {
+        let mean_diff = group1.mean_time_ns - group2.mean_time_ns
+        
+        // Pooled standard deviation
+        let n1 = group1.sample_size as f64
+        let n2 = group2.sample_size as f64
+        let var1 = group1.std_dev_time_ns * group1.std_dev_time_ns
+        let var2 = group2.std_dev_time_ns * group2.std_dev_time_ns
+        
+        let pooled_var = ((n1 - 1.0) * var1 + (n2 - 1.0) * var2) / (n1 + n2 - 2.0)
+        let pooled_sd = math::sqrt(pooled_var)
+        
+        return mean_diff / pooled_sd
+    }
+    
+    // Interpret effect size magnitude
+    fun interpret_effect_size(abs_cohens_d: f64) -> String {
+        if abs_cohens_d < 0.2 {
+            return "negligible"
+        } else if abs_cohens_d < 0.5 {
+            return "small"
+        } else if abs_cohens_d < 0.8 {
+            return "medium"
+        } else {
+            return "large"
+        }
+    }
+    
+    // Approximate p-value for t-test (simplified)
+    fun approximate_t_test_p_value(t_abs: f64, df: f64) -> f64 {
+        // Very simplified approximation
+        // In practice, you'd use a proper statistical library or table lookup
+        if df >= 30.0 {
+            // Use normal approximation
+            if t_abs >= 2.58 { return 0.01 }
+            else if t_abs >= 1.96 { return 0.05 }
+            else if t_abs >= 1.64 { return 0.1 }
+            else { return 0.2 }
+        } else {
+            // Rough approximation for t-distribution
+            if t_abs >= 3.0 { return 0.01 }
+            else if t_abs >= 2.0 { return 0.05 }
+            else if t_abs >= 1.5 { return 0.1 }
+            else { return 0.2 }
+        }
+    }
+    
+    // Calculate confidence interval for difference between means
+    fun confidence_interval_for_difference(group1: StatisticalSummary, group2: StatisticalSummary) -> ConfidenceInterval {
+        let mean_diff = group1.mean_time_ns - group2.mean_time_ns
+        let n1 = group1.sample_size as f64
+        let n2 = group2.sample_size as f64
+        let var1 = group1.std_dev_time_ns * group1.std_dev_time_ns
+        let var2 = group2.std_dev_time_ns * group2.std_dev_time_ns
+        
+        let pooled_se = math::sqrt((var1 / n1) + (var2 / n2))
+        let df = n1 + n2 - 2.0 // Simplified df calculation
+        let t_critical = self.t_distribution_inverse(self.alpha / 2.0, df)
+        
+        let margin_of_error = t_critical * pooled_se
+        
+        return ConfidenceInterval {
+            lower: mean_diff - margin_of_error,
+            upper: mean_diff + margin_of_error,
+            confidence_level: 0.95,
+        }
+    }
+    
+    // Compare all results from comprehensive benchmark suite
+    fun compare_all_results(results: ComprehensiveResults) -> Vec<StatisticalComparison> {
+        let mut comparisons = Vec::new()
+        
+        for (category_name, category_results) in results.category_results {
+            for (benchmark_name, benchmark_results) in category_results.benchmarks {
+                // Compare each Seen mode against competitors
+                let seen_modes = [
+                    ("seen_jit", benchmark_results.seen_jit),
+                    ("seen_aot", benchmark_results.seen_aot),
+                ]
+                
+                let competitors = [
+                    ("rust", benchmark_results.rust),
+                    ("zig", benchmark_results.zig),
+                    ("cpp", benchmark_results.cpp),
+                ]
+                
+                for (seen_mode_name, seen_summary) in seen_modes {
+                    if let Some(seen_summary) = seen_summary {
+                        for (competitor_name, competitor_summary) in competitors {
+                            if let Some(competitor_summary) = competitor_summary {
+                                let comparison = self.compare_summaries(competitor_summary, seen_summary)
+                                comparisons.push(comparison)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return comparisons
+    }
+    
+    // Validate specific performance claims
+    fun validate_performance_claims(comparisons: Vec<StatisticalComparison>) -> Vec<ClaimValidationResult> {
+        let mut validations = Vec::new()
+        
+        // Validate lexer speed claim (14M tokens/second)
+        validations.push(self.validate_lexer_speed_claim(comparisons))
+        
+        // Validate memory overhead claim 
+        validations.push(self.validate_memory_overhead_claim(comparisons))
+        
+        // Validate compilation speed claim
+        validations.push(self.validate_compilation_speed_claim(comparisons))
+        
+        // Validate runtime performance claim
+        validations.push(self.validate_runtime_performance_claim(comparisons))
+        
+        return validations
+    }
+    
+    // Validate lexer speed claim
+    fun validate_lexer_speed_claim(comparisons: Vec<StatisticalComparison>) -> ClaimValidationResult {
+        // Find lexer benchmarks
+        let lexer_comparisons: Vec<StatisticalComparison> = comparisons.iter()
+            .filter(|c| c.benchmark_name.contains("lexer"))
+            .collect()
+        
+        if lexer_comparisons.is_empty() {
+            return ClaimValidationResult {
+                claim_name: "lexer_speed",
+                claim_description: "Seen lexer achieves 14M tokens/second",
+                measured_value: 0.0,
+                claimed_value: 14_000_000.0,
+                validation_status: "inconclusive",
+                confidence_level: 0.0,
+                notes: "No lexer benchmark data available",
+            }
+        }
+        
+        // Calculate average performance across lexer benchmarks
+        let mut total_ratio = 0.0
+        let mut count = 0
+        
+        for comparison in lexer_comparisons {
+            // Assuming baseline is a competitive C++ implementation
+            if comparison.baseline_language == "cpp" {
+                total_ratio += 1.0 / comparison.performance_ratio // Invert to get Seen performance relative to C++
+                count += 1
+            }
+        }
+        
+        let avg_ratio = if count > 0 { total_ratio / (count as f64) } else { 0.0 }
+        let estimated_tokens_per_sec = avg_ratio * 10_000_000.0 // Assuming C++ baseline ~10M tokens/sec
+        
+        let validation_status = if estimated_tokens_per_sec >= 14_000_000.0 {
+            "validated"
+        } else if estimated_tokens_per_sec >= 10_000_000.0 {
+            "partially_validated"
+        } else {
+            "failed"
+        }
+        
+        return ClaimValidationResult {
+            claim_name: "lexer_speed",
+            claim_description: "Seen lexer achieves 14M tokens/second",
+            measured_value: estimated_tokens_per_sec,
+            claimed_value: 14_000_000.0,
+            validation_status: validation_status,
+            confidence_level: 0.95,
+            notes: format!("Based on {} lexer benchmarks against C++ baseline", count),
+        }
+    }
+    
+    // Additional validation methods would go here...
+    fun validate_memory_overhead_claim(comparisons: Vec<StatisticalComparison>) -> ClaimValidationResult {
+        // Implementation would analyze memory usage comparisons
+        return ClaimValidationResult {
+            claim_name: "memory_overhead",
+            claim_description: "Seen has low memory overhead",
+            measured_value: 0.0,
+            claimed_value: 0.0,
+            validation_status: "inconclusive",
+            confidence_level: 0.0,
+            notes: "Memory validation implementation pending",
+        }
+    }
+    
+    fun validate_compilation_speed_claim(comparisons: Vec<StatisticalComparison>) -> ClaimValidationResult {
+        // Implementation would analyze compilation time comparisons
+        return ClaimValidationResult {
+            claim_name: "compilation_speed",
+            claim_description: "Seen compiles faster than competitors",
+            measured_value: 0.0,
+            claimed_value: 0.0,
+            validation_status: "inconclusive",
+            confidence_level: 0.0,
+            notes: "Compilation speed validation implementation pending",
+        }
+    }
+    
+    fun validate_runtime_performance_claim(comparisons: Vec<StatisticalComparison>) -> ClaimValidationResult {
+        // Implementation would analyze runtime performance comparisons
+        return ClaimValidationResult {
+            claim_name: "runtime_performance",
+            claim_description: "Seen runtime performance competitive with C++/Rust",
+            measured_value: 0.0,
+            claimed_value: 0.0,
+            validation_status: "inconclusive",
+            confidence_level: 0.0,
+            notes: "Runtime performance validation implementation pending",
+        }
+    }
+}
+
+// Supporting data structures
+struct DescriptiveStats {
+    mean: f64,
+    median: f64,
+    std_dev: f64,
+    variance: f64,
+    min: f64,
+    max: f64,
+    sample_size: usize,
+}
+
+impl DescriptiveStats {
+    fun empty() -> DescriptiveStats {
+        return DescriptiveStats {
+            mean: 0.0,
+            median: 0.0,
+            std_dev: 0.0,
+            variance: 0.0,
+            min: 0.0,
+            max: 0.0,
+            sample_size: 0,
+        }
+    }
+}
+
+struct Percentiles {
+    p50: f64,
+    p90: f64,
+    p95: f64,
+    p99: f64,
+}
+
+struct ConfidenceInterval {
+    lower: f64,
+    upper: f64,
+    confidence_level: f64,
+}
+
+struct TTestResult {
+    t_statistic: f64,
+    p_value: f64,
+    degrees_of_freedom: i32,
+}

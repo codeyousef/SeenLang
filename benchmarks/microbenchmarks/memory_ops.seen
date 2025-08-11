@@ -1,0 +1,701 @@
+// Memory Operations Microbenchmarks
+// Tests memory allocation, deallocation, copying, and access patterns
+
+import std::time::Instant
+import std::collections::Vec
+import std::ptr
+import std::mem
+
+// Memory benchmark configuration
+struct MemoryBenchmarkConfig {
+    iterations: i32,
+    allocation_sizes: Vec<usize>,
+    test_patterns: Vec<String>, // "sequential", "random", "strided"
+    include_large_allocations: bool,
+    include_fragmentation_tests: bool,
+}
+
+// Memory allocation benchmark
+class MemoryBenchmarks {
+    config: MemoryBenchmarkConfig,
+    
+    fun new(config: MemoryBenchmarkConfig) -> MemoryBenchmarks {
+        return MemoryBenchmarks { config: config }
+    }
+    
+    // Run all memory benchmarks
+    fun run_all() -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        // Basic allocation/deallocation benchmarks
+        results.push(self.benchmark_small_allocations())
+        results.push(self.benchmark_medium_allocations())
+        results.push(self.benchmark_large_allocations())
+        
+        // Memory access pattern benchmarks
+        results.push(self.benchmark_sequential_access())
+        results.push(self.benchmark_random_access())
+        results.push(self.benchmark_strided_access())
+        
+        // Memory copy benchmarks
+        results.push(self.benchmark_memcpy_small())
+        results.push(self.benchmark_memcpy_large())
+        results.push(self.benchmark_memory_set())
+        
+        // Vector operation benchmarks
+        results.push(self.benchmark_vector_push())
+        results.push(self.benchmark_vector_resize())
+        results.push(self.benchmark_vector_iteration())
+        
+        // Advanced memory patterns
+        if self.config.include_fragmentation_tests {
+            results.push(self.benchmark_fragmentation_resistance())
+        }
+        
+        if self.config.include_large_allocations {
+            results.push(self.benchmark_huge_allocations())
+        }
+        
+        return results
+    }
+    
+    // Small allocation benchmark (1-1024 bytes)
+    fun benchmark_small_allocations() -> BenchmarkResult {
+        let allocation_count = 10000
+        let max_size = 1024
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut allocations = Vec::with_capacity(allocation_count)
+            
+            // Allocate many small blocks
+            for i in 0..allocation_count {
+                let size = (i % max_size) + 1
+                let mut vec = Vec::with_capacity(size)
+                vec.resize(size, i as u8)
+                allocations.push(vec)
+            }
+            
+            // Deallocate by dropping the vector
+            drop(allocations)
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_allocations = (self.config.iterations as i64) * (allocation_count as i64)
+        let allocs_per_second = (total_allocations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "small_allocations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_peak_memory(allocation_count, max_size / 2),
+            operations_per_second: allocs_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("allocations={}, max_size={}", total_allocations, max_size),
+        }
+    }
+    
+    // Medium allocation benchmark (1KB-1MB)
+    fun benchmark_medium_allocations() -> BenchmarkResult {
+        let allocation_count = 1000
+        let sizes = [1024, 4096, 16384, 65536, 262144] // 1KB to 256KB
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut allocations = Vec::with_capacity(allocation_count)
+            
+            for i in 0..allocation_count {
+                let size = sizes[i % sizes.len()]
+                let mut vec = Vec::with_capacity(size)
+                vec.resize(size, (i % 256) as u8)
+                allocations.push(vec)
+            }
+            
+            drop(allocations)
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_allocations = (self.config.iterations as i64) * (allocation_count as i64)
+        let allocs_per_second = (total_allocations as f64) / elapsed.as_secs_f64()
+        
+        let avg_size = sizes.iter().sum::<usize>() / sizes.len()
+        
+        return BenchmarkResult {
+            name: "medium_allocations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_peak_memory(allocation_count, avg_size),
+            operations_per_second: allocs_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("allocations={}, avg_size={}", total_allocations, avg_size),
+        }
+    }
+    
+    // Large allocation benchmark (1MB+)
+    fun benchmark_large_allocations() -> BenchmarkResult {
+        if !self.config.include_large_allocations {
+            return self.create_skipped_result("large_allocations", "Large allocations disabled")
+        }
+        
+        let allocation_count = 100
+        let sizes = [1048576, 4194304, 16777216] // 1MB, 4MB, 16MB
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut allocations = Vec::with_capacity(allocation_count)
+            
+            for i in 0..allocation_count {
+                let size = sizes[i % sizes.len()]
+                let mut vec = Vec::with_capacity(size)
+                vec.resize(size, (i % 256) as u8)
+                allocations.push(vec)
+            }
+            
+            drop(allocations)
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_allocations = (self.config.iterations as i64) * (allocation_count as i64)
+        let allocs_per_second = (total_allocations as f64) / elapsed.as_secs_f64()
+        
+        let avg_size = sizes.iter().sum::<usize>() / sizes.len()
+        
+        return BenchmarkResult {
+            name: "large_allocations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_peak_memory(allocation_count, avg_size),
+            operations_per_second: allocs_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("allocations={}, avg_size={}", total_allocations, avg_size),
+        }
+    }
+    
+    // Sequential memory access benchmark
+    fun benchmark_sequential_access() -> BenchmarkResult {
+        let array_size = 1_000_000
+        let mut data = Vec::with_capacity(array_size)
+        data.resize(array_size, 0u64)
+        
+        // Initialize with sequential pattern
+        for i in 0..array_size {
+            data[i] = i as u64
+        }
+        
+        let start_time = Instant::now()
+        let mut sum = 0u64
+        
+        for _ in 0..self.config.iterations {
+            // Sequential read access
+            for i in 0..array_size {
+                sum = sum.wrapping_add(data[i])
+            }
+            
+            // Sequential write access
+            for i in 0..array_size {
+                data[i] = data[i].wrapping_add(1)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_accesses = (self.config.iterations as i64) * (array_size as i64) * 2 // read + write
+        let accesses_per_second = (total_accesses as f64) / elapsed.as_secs_f64()
+        
+        // Use sum to prevent optimization
+        let final_result = sum.wrapping_add(data[0])
+        
+        return BenchmarkResult {
+            name: "sequential_access".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (array_size * 8) as i64, // u64 array
+            operations_per_second: accesses_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("accesses={}, checksum={}", total_accesses, final_result),
+        }
+    }
+    
+    // Random memory access benchmark
+    fun benchmark_random_access() -> BenchmarkResult {
+        let array_size = 1_000_000
+        let mut data = Vec::with_capacity(array_size)
+        data.resize(array_size, 0u64)
+        
+        // Generate pseudo-random indices
+        let mut indices = Vec::with_capacity(array_size)
+        let mut rng_state = 0x123456789ABCDEFu64
+        
+        for _ in 0..array_size {
+            rng_state = rng_state.wrapping_mul(0x5DEECE66D).wrapping_add(0xB);
+            indices.push((rng_state as usize) % array_size)
+        }
+        
+        let start_time = Instant::now()
+        let mut sum = 0u64
+        
+        for _ in 0..self.config.iterations {
+            // Random read access
+            for &idx in &indices {
+                sum = sum.wrapping_add(data[idx])
+            }
+            
+            // Random write access
+            for &idx in &indices {
+                data[idx] = data[idx].wrapping_add(1)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_accesses = (self.config.iterations as i64) * (array_size as i64) * 2
+        let accesses_per_second = (total_accesses as f64) / elapsed.as_secs_f64()
+        
+        let final_result = sum.wrapping_add(data[indices[0]])
+        
+        return BenchmarkResult {
+            name: "random_access".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (array_size * 8 + array_size * 8) as i64, // data + indices
+            operations_per_second: accesses_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("accesses={}, checksum={}", total_accesses, final_result),
+        }
+    }
+    
+    // Strided memory access benchmark
+    fun benchmark_strided_access() -> BenchmarkResult {
+        let array_size = 1_000_000
+        let stride = 64 // Cache line size
+        let mut data = Vec::with_capacity(array_size)
+        data.resize(array_size, 0u64)
+        
+        let start_time = Instant::now()
+        let mut sum = 0u64
+        
+        for _ in 0..self.config.iterations {
+            // Strided access pattern
+            let mut idx = 0
+            while idx < array_size {
+                sum = sum.wrapping_add(data[idx])
+                data[idx] = data[idx].wrapping_add(1)
+                idx += stride
+                if idx >= array_size {
+                    idx = (idx % stride) + 1
+                    if idx >= stride { break }
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let accesses_per_iteration = (array_size + stride - 1) / stride
+        let total_accesses = (self.config.iterations as i64) * (accesses_per_iteration as i64) * 2
+        let accesses_per_second = (total_accesses as f64) / elapsed.as_secs_f64()
+        
+        let final_result = sum.wrapping_add(data[0])
+        
+        return BenchmarkResult {
+            name: "strided_access".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (array_size * 8) as i64,
+            operations_per_second: accesses_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("accesses={}, stride={}, checksum={}", total_accesses, stride, final_result),
+        }
+    }
+    
+    // Small memory copy benchmark
+    fun benchmark_memcpy_small() -> BenchmarkResult {
+        let copy_size = 1024 // 1KB
+        let copy_count = 100_000
+        
+        let mut src_data = Vec::with_capacity(copy_size)
+        let mut dst_data = Vec::with_capacity(copy_size)
+        src_data.resize(copy_size, 0xAB)
+        dst_data.resize(copy_size, 0)
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for _ in 0..copy_count {
+                // Manual copy to simulate memcpy
+                for i in 0..copy_size {
+                    dst_data[i] = src_data[i]
+                }
+                
+                // Modify source to prevent optimization
+                src_data[0] = src_data[0].wrapping_add(1)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_copies = (self.config.iterations as i64) * (copy_count as i64)
+        let total_bytes = total_copies * (copy_size as i64)
+        let bytes_per_second = (total_bytes as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "memcpy_small".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (copy_size * 2) as i64,
+            operations_per_second: bytes_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("copies={}, bytes={}, checksum={}", total_copies, total_bytes, dst_data[0]),
+        }
+    }
+    
+    // Large memory copy benchmark
+    fun benchmark_memcpy_large() -> BenchmarkResult {
+        let copy_size = 1_000_000 // 1MB
+        let copy_count = 100
+        
+        let mut src_data = Vec::with_capacity(copy_size)
+        let mut dst_data = Vec::with_capacity(copy_size)
+        src_data.resize(copy_size, 0xCD)
+        dst_data.resize(copy_size, 0)
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for _ in 0..copy_count {
+                // Clone entire vector (efficient copy)
+                dst_data.copy_from_slice(&src_data)
+                
+                // Modify source
+                src_data[0] = src_data[0].wrapping_add(1)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_copies = (self.config.iterations as i64) * (copy_count as i64)
+        let total_bytes = total_copies * (copy_size as i64)
+        let bytes_per_second = (total_bytes as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "memcpy_large".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (copy_size * 2) as i64,
+            operations_per_second: bytes_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("copies={}, bytes={}, checksum={}", total_copies, total_bytes, dst_data[0]),
+        }
+    }
+    
+    // Memory set benchmark
+    fun benchmark_memory_set() -> BenchmarkResult {
+        let buffer_size = 1_000_000
+        let set_count = 1000
+        let mut buffer = Vec::with_capacity(buffer_size)
+        buffer.resize(buffer_size, 0u8)
+        
+        let start_time = Instant::now()
+        
+        for iteration in 0..self.config.iterations {
+            for set_op in 0..set_count {
+                let fill_value = ((iteration + set_op) % 256) as u8
+                
+                // Set all bytes to fill_value
+                for byte in &mut buffer {
+                    *byte = fill_value
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_sets = (self.config.iterations as i64) * (set_count as i64)
+        let total_bytes = total_sets * (buffer_size as i64)
+        let bytes_per_second = (total_bytes as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "memory_set".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: buffer_size as i64,
+            operations_per_second: bytes_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("sets={}, bytes={}, final_value={}", total_sets, total_bytes, buffer[0]),
+        }
+    }
+    
+    // Vector push benchmark
+    fun benchmark_vector_push() -> BenchmarkResult {
+        let push_count = 100_000
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut vec = Vec::new()
+            
+            for i in 0..push_count {
+                vec.push(i)
+            }
+            
+            // Prevent optimization by using the vector
+            let checksum = vec.iter().sum::<i32>()
+            if checksum == 0 { panic!("Impossible") } // Never executed but prevents optimization
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_pushes = (self.config.iterations as i64) * (push_count as i64)
+        let pushes_per_second = (total_pushes as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "vector_push".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (push_count * mem::size_of::<i32>()) as i64,
+            operations_per_second: pushes_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("pushes={}", total_pushes),
+        }
+    }
+    
+    // Vector resize benchmark
+    fun benchmark_vector_resize() -> BenchmarkResult {
+        let initial_size = 1000
+        let target_sizes = [10000, 50000, 100000, 200000]
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut vec = Vec::with_capacity(initial_size)
+            vec.resize(initial_size, 42i32)
+            
+            for &target_size in &target_sizes {
+                vec.resize(target_size, 84i32)
+                vec.resize(initial_size, 126i32)
+            }
+            
+            // Use vector to prevent optimization
+            let sum = vec.iter().sum::<i32>();
+            if sum == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let resizes_per_iteration = target_sizes.len() * 2 // grow + shrink
+        let total_resizes = (self.config.iterations as i64) * (resizes_per_iteration as i64)
+        let resizes_per_second = (total_resizes as f64) / elapsed.as_secs_f64()
+        
+        let max_size = *target_sizes.iter().max().unwrap()
+        
+        return BenchmarkResult {
+            name: "vector_resize".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (max_size * mem::size_of::<i32>()) as i64,
+            operations_per_second: resizes_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("resizes={}, max_size={}", total_resizes, max_size),
+        }
+    }
+    
+    // Vector iteration benchmark
+    fun benchmark_vector_iteration() -> BenchmarkResult {
+        let vector_size = 1_000_000
+        let mut data = Vec::with_capacity(vector_size)
+        
+        for i in 0..vector_size {
+            data.push(i as i32)
+        }
+        
+        let start_time = Instant::now()
+        let mut sum = 0i64
+        
+        for _ in 0..self.config.iterations {
+            // Iterator-based iteration
+            for &value in &data {
+                sum = sum.wrapping_add(value as i64)
+            }
+            
+            // Index-based iteration
+            for i in 0..data.len() {
+                sum = sum.wrapping_add(data[i] as i64)
+            }
+            
+            // Mutable iteration
+            for value in &mut data {
+                *value = (*value).wrapping_add(1)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let iterations_per_benchmark = 3 // iterator, index, mutable
+        let total_iterations = (self.config.iterations as i64) * (vector_size as i64) * (iterations_per_benchmark as i64)
+        let iterations_per_second = (total_iterations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "vector_iteration".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (vector_size * mem::size_of::<i32>()) as i64,
+            operations_per_second: iterations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("iterations={}, checksum={}", total_iterations, sum),
+        }
+    }
+    
+    // Memory fragmentation resistance benchmark
+    fun benchmark_fragmentation_resistance() -> BenchmarkResult {
+        if !self.config.include_fragmentation_tests {
+            return self.create_skipped_result("fragmentation_resistance", "Fragmentation tests disabled")
+        }
+        
+        let allocation_cycles = 1000
+        let allocations_per_cycle = 100
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut all_allocations = Vec::new()
+            
+            for cycle in 0..allocation_cycles {
+                let mut cycle_allocations = Vec::new()
+                
+                // Allocate mixed sizes
+                for i in 0..allocations_per_cycle {
+                    let size = match i % 4 {
+                        0 => 64,    // Small
+                        1 => 256,   // Medium
+                        2 => 1024,  // Large
+                        _ => 32,    // Tiny
+                    }
+                    
+                    let mut allocation = Vec::with_capacity(size)
+                    allocation.resize(size, (cycle % 256) as u8)
+                    cycle_allocations.push(allocation)
+                }
+                
+                all_allocations.push(cycle_allocations)
+                
+                // Occasionally free some old allocations to create fragmentation
+                if cycle % 10 == 0 && all_allocations.len() > 5 {
+                    all_allocations.remove(all_allocations.len() / 2)
+                }
+            }
+            
+            // Use allocations to prevent optimization
+            let total_size: usize = all_allocations.iter()
+                .flat_map(|cycle| cycle.iter())
+                .map(|alloc| alloc.len())
+                .sum()
+            
+            if total_size == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_allocations = (self.config.iterations as i64) * 
+                              (allocation_cycles as i64) * 
+                              (allocations_per_cycle as i64)
+        let allocs_per_second = (total_allocations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "fragmentation_resistance".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_fragmentation_memory(allocation_cycles, allocations_per_cycle),
+            operations_per_second: allocs_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("allocations={}, cycles={}", total_allocations, allocation_cycles),
+        }
+    }
+    
+    // Huge allocation benchmark (for testing memory limits)
+    fun benchmark_huge_allocations() -> BenchmarkResult {
+        if !self.config.include_large_allocations {
+            return self.create_skipped_result("huge_allocations", "Large allocations disabled")
+        }
+        
+        let huge_size = 100_000_000 // 100MB
+        let allocation_count = 10
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut allocations = Vec::with_capacity(allocation_count)
+            
+            for i in 0..allocation_count {
+                let mut allocation = Vec::with_capacity(huge_size)
+                allocation.resize(huge_size, (i % 256) as u8)
+                allocations.push(allocation)
+            }
+            
+            // Use allocations
+            let checksum: u8 = allocations.iter()
+                .map(|alloc| alloc[0])
+                .fold(0, |acc, x| acc.wrapping_add(x))
+            
+            if checksum == 255 { panic!("Highly unlikely") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_allocations = (self.config.iterations as i64) * (allocation_count as i64)
+        let allocs_per_second = (total_allocations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "huge_allocations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: (huge_size as i64) * (allocation_count as i64),
+            operations_per_second: allocs_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("allocations={}, size_each={}MB", total_allocations, huge_size / 1_000_000),
+        }
+    }
+    
+    // Helper methods
+    fun estimate_peak_memory(count: usize, avg_size: usize) -> i64 {
+        (count * avg_size) as i64
+    }
+    
+    fun estimate_fragmentation_memory(cycles: i32, allocs_per_cycle: i32) -> i64 {
+        let avg_alloc_size = (64 + 256 + 1024 + 32) / 4 // Average of mixed sizes
+        let active_cycles = 5 // Estimate based on freeing pattern
+        (cycles as i64) * (allocs_per_cycle as i64) * (avg_alloc_size as i64) / (active_cycles as i64)
+    }
+    
+    fun create_skipped_result(benchmark_name: &str, reason: &str) -> BenchmarkResult {
+        return BenchmarkResult {
+            name: benchmark_name.to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: 0,
+            memory_peak_bytes: 0,
+            operations_per_second: 0.0,
+            success: false,
+            error_message: Some(format!("Skipped: {}", reason)),
+            metadata: "benchmark_skipped".to_string(),
+        }
+    }
+}

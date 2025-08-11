@@ -1,0 +1,1284 @@
+// Threading and Concurrency Benchmarks
+// Tests thread creation, synchronization, work stealing, and parallel algorithms
+
+import std::time::Instant
+import std::collections::Vec
+import std::thread
+import std::sync::{Arc, Mutex, RwLock, Condvar}
+import std::sync::atomic::{AtomicI64, AtomicBool, Ordering}
+import std::sync::mpsc
+
+// Threading benchmark configuration
+struct ThreadingBenchmarkConfig {
+    iterations: i32,
+    max_thread_count: usize,
+    work_size: usize,
+    test_contention: bool,
+    test_work_stealing: bool,
+    include_async: bool,
+}
+
+// Threading and concurrency benchmark suite
+class ThreadingBenchmarks {
+    config: ThreadingBenchmarkConfig,
+    
+    fun new(config: ThreadingBenchmarkConfig) -> ThreadingBenchmarks {
+        return ThreadingBenchmarks { config: config }
+    }
+    
+    // Run all threading benchmarks
+    fun run_all() -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        // Basic thread operations
+        results.push(self.benchmark_thread_creation())
+        results.push(self.benchmark_thread_spawn_join())
+        results.push(self.benchmark_thread_pool_simulation())
+        
+        // Synchronization primitives
+        results.push(self.benchmark_mutex_contention())
+        results.push(self.benchmark_rwlock_performance())
+        results.push(self.benchmark_atomic_operations())
+        results.push(self.benchmark_condition_variable())
+        
+        // Message passing
+        results.push(self.benchmark_channel_throughput())
+        results.push(self.benchmark_multiple_producer_consumer())
+        
+        // Parallel algorithms
+        results.push(self.benchmark_parallel_sum())
+        results.push(self.benchmark_parallel_map())
+        results.push(self.benchmark_parallel_reduce())
+        
+        // Work distribution
+        if self.config.test_work_stealing {
+            results.push(self.benchmark_work_stealing())
+        }
+        
+        // Lock-free data structures
+        results.push(self.benchmark_lock_free_queue())
+        results.push(self.benchmark_compare_and_swap())
+        
+        return results
+    }
+    
+    // Thread creation benchmark
+    fun benchmark_thread_creation() -> BenchmarkResult {
+        let thread_count = 1000
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut handles = Vec::with_capacity(thread_count)
+            
+            // Create threads that do minimal work
+            for i in 0..thread_count {
+                let handle = thread::spawn(move || {
+                    // Minimal computation to prevent optimization
+                    let result = i * 2 + 1
+                    result
+                })
+                handles.push(handle)
+            }
+            
+            // Join all threads
+            let mut total_result = 0i32
+            for handle in handles {
+                let result = handle.join().unwrap()
+                total_result += result
+            }
+            
+            // Prevent optimization
+            if total_result == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_threads = (self.config.iterations as i64) * (thread_count as i64)
+        let threads_per_second = (total_threads as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "thread_creation".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_count),
+            operations_per_second: threads_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("threads_created={}", total_threads),
+        }
+    }
+    
+    // Thread spawn and join benchmark
+    fun benchmark_thread_spawn_join() -> BenchmarkResult {
+        let concurrent_threads = 16
+        let work_per_thread = 10000
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut handles = Vec::with_capacity(concurrent_threads)
+            
+            for thread_id in 0..concurrent_threads {
+                let handle = thread::spawn(move || {
+                    let mut sum = 0i64
+                    // Do some CPU-bound work
+                    for i in 0..work_per_thread {
+                        sum = sum.wrapping_add((i + thread_id) as i64)
+                    }
+                    sum
+                })
+                handles.push(handle)
+            }
+            
+            // Collect results
+            let mut total_sum = 0i64
+            for handle in handles {
+                let result = handle.join().unwrap()
+                total_sum = total_sum.wrapping_add(result)
+            }
+            
+            if total_sum == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * 
+                              (concurrent_threads as i64) * 
+                              (work_per_thread as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "thread_spawn_join".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(concurrent_threads),
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, threads={}", total_operations, concurrent_threads),
+        }
+    }
+    
+    // Thread pool simulation benchmark
+    fun benchmark_thread_pool_simulation() -> BenchmarkResult {
+        let thread_pool_size = 8
+        let task_count = 10000
+        let work_per_task = 1000
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let (tx, rx) = mpsc::channel()
+            let rx = Arc::new(Mutex::new(rx))
+            
+            // Create worker threads
+            let mut workers = Vec::with_capacity(thread_pool_size)
+            let results = Arc::new(Mutex::new(Vec::new()))
+            
+            for worker_id in 0..thread_pool_size {
+                let rx_clone = Arc::clone(&rx)
+                let results_clone = Arc::clone(&results)
+                
+                let worker = thread::spawn(move || {
+                    loop {
+                        let task = {
+                            let receiver = rx_clone.lock().unwrap()
+                            receiver.try_recv()
+                        }
+                        
+                        match task {
+                            Ok(task_id) => {
+                                // Simulate work
+                                let mut sum = 0i64
+                                for i in 0..work_per_task {
+                                    sum = sum.wrapping_add((i + task_id + worker_id) as i64)
+                                }
+                                
+                                // Store result
+                                let mut results_guard = results_clone.lock().unwrap()
+                                results_guard.push(sum)
+                            },
+                            Err(_) => break, // Channel closed or no more tasks
+                        }
+                    }
+                })
+                workers.push(worker)
+            }
+            
+            // Submit tasks
+            for task_id in 0..task_count {
+                tx.send(task_id).unwrap()
+            }
+            drop(tx) // Close channel to signal completion
+            
+            // Wait for workers to complete
+            for worker in workers {
+                worker.join().unwrap()
+            }
+            
+            // Verify results
+            let final_results = results.lock().unwrap()
+            let result_count = final_results.len()
+            if result_count != task_count { panic!("Missing results") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_tasks = (self.config.iterations as i64) * (task_count as i64)
+        let tasks_per_second = (total_tasks as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "thread_pool_simulation".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_pool_size) + (task_count * 8) as i64,
+            operations_per_second: tasks_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("tasks={}, pool_size={}", total_tasks, thread_pool_size),
+        }
+    }
+    
+    // Mutex contention benchmark
+    fun benchmark_mutex_contention() -> BenchmarkResult {
+        let thread_count = 16
+        let operations_per_thread = 10000
+        let shared_counter = Arc::new(Mutex::new(0i64))
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut handles = Vec::with_capacity(thread_count)
+            
+            for _ in 0..thread_count {
+                let counter_clone = Arc::clone(&shared_counter)
+                
+                let handle = thread::spawn(move || {
+                    for _ in 0..operations_per_thread {
+                        let mut guard = counter_clone.lock().unwrap()
+                        *guard += 1
+                        // Do small amount of work while holding lock
+                        let temp = *guard * 2
+                        *guard = temp / 2
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion
+            for handle in handles {
+                handle.join().unwrap()
+            }
+            
+            // Verify final count
+            let final_count = *shared_counter.lock().unwrap()
+            let expected_count = (thread_count * operations_per_thread) as i64
+            if final_count != expected_count {
+                panic!("Race condition detected: expected {}, got {}", expected_count, final_count)
+            }
+            
+            // Reset counter for next iteration
+            *shared_counter.lock().unwrap() = 0
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * 
+                              (thread_count as i64) * 
+                              (operations_per_thread as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "mutex_contention".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_count) + 64, // Mutex overhead
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, threads={}", total_operations, thread_count),
+        }
+    }
+    
+    // RwLock performance benchmark
+    fun benchmark_rwlock_performance() -> BenchmarkResult {
+        let reader_count = 12
+        let writer_count = 4
+        let operations_per_thread = 5000
+        let shared_data = Arc::new(RwLock::new(vec![0i64; 1000]))
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut handles = Vec::with_capacity(reader_count + writer_count)
+            
+            // Create reader threads
+            for reader_id in 0..reader_count {
+                let data_clone = Arc::clone(&shared_data)
+                
+                let handle = thread::spawn(move || {
+                    let mut sum = 0i64
+                    for i in 0..operations_per_thread {
+                        let guard = data_clone.read().unwrap()
+                        let index = (i + reader_id) % guard.len()
+                        sum = sum.wrapping_add(guard[index])
+                    }
+                    sum
+                })
+                handles.push(handle)
+            }
+            
+            // Create writer threads
+            for writer_id in 0..writer_count {
+                let data_clone = Arc::clone(&shared_data)
+                
+                let handle = thread::spawn(move || {
+                    for i in 0..operations_per_thread {
+                        let mut guard = data_clone.write().unwrap()
+                        let index = (i + writer_id) % guard.len()
+                        guard[index] = guard[index].wrapping_add(1)
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion
+            for handle in handles {
+                handle.join().unwrap()
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * 
+                              ((reader_count + writer_count) as i64) * 
+                              (operations_per_thread as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "rwlock_performance".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(reader_count + writer_count) + 8000, // Data + lock
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, readers={}, writers={}", 
+                           total_operations, reader_count, writer_count),
+        }
+    }
+    
+    // Atomic operations benchmark
+    fun benchmark_atomic_operations() -> BenchmarkResult {
+        let thread_count = 16
+        let operations_per_thread = 100000
+        let atomic_counter = Arc::new(AtomicI64::new(0))
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut handles = Vec::with_capacity(thread_count)
+            
+            for _ in 0..thread_count {
+                let counter_clone = Arc::clone(&atomic_counter)
+                
+                let handle = thread::spawn(move || {
+                    for i in 0..operations_per_thread {
+                        // Mix of atomic operations
+                        match i % 4 {
+                            0 => { counter_clone.fetch_add(1, Ordering::Relaxed) }
+                            1 => { counter_clone.fetch_sub(1, Ordering::Relaxed) }
+                            2 => { counter_clone.load(Ordering::Acquire) }
+                            _ => { counter_clone.store(i as i64, Ordering::Release) }
+                        }
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            for handle in handles {
+                handle.join().unwrap()
+            }
+            
+            // Reset for next iteration
+            atomic_counter.store(0, Ordering::Relaxed)
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * 
+                              (thread_count as i64) * 
+                              (operations_per_thread as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "atomic_operations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_count) + 8, // Atomic counter
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, threads={}", total_operations, thread_count),
+        }
+    }
+    
+    // Condition variable benchmark
+    fun benchmark_condition_variable() -> BenchmarkResult {
+        let producer_count = 4
+        let consumer_count = 4
+        let items_per_producer = 10000
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let queue = Arc::new(Mutex::new(Vec::new()))
+            let not_empty = Arc::new(Condvar::new())
+            let not_full = Arc::new(Condvar::new())
+            let max_queue_size = 100
+            
+            let mut handles = Vec::with_capacity(producer_count + consumer_count)
+            let items_consumed = Arc::new(AtomicI64::new(0))
+            
+            // Create producer threads
+            for producer_id in 0..producer_count {
+                let queue_clone = Arc::clone(&queue)
+                let not_empty_clone = Arc::clone(&not_empty)
+                let not_full_clone = Arc::clone(&not_full)
+                
+                let handle = thread::spawn(move || {
+                    for item in 0..items_per_producer {
+                        let mut guard = queue_clone.lock().unwrap()
+                        
+                        // Wait for space in queue
+                        while guard.len() >= max_queue_size {
+                            guard = not_full_clone.wait(guard).unwrap()
+                        }
+                        
+                        guard.push(producer_id * items_per_producer + item)
+                        not_empty_clone.notify_one()
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            // Create consumer threads
+            let total_expected_items = producer_count * items_per_producer
+            
+            for _ in 0..consumer_count {
+                let queue_clone = Arc::clone(&queue)
+                let not_empty_clone = Arc::clone(&not_empty)
+                let not_full_clone = Arc::clone(&not_full)
+                let items_consumed_clone = Arc::clone(&items_consumed)
+                
+                let handle = thread::spawn(move || {
+                    loop {
+                        let mut guard = queue_clone.lock().unwrap()
+                        
+                        // Wait for items or completion
+                        while guard.is_empty() {
+                            guard = not_empty_clone.wait(guard).unwrap()
+                            
+                            // Check if we should exit
+                            if items_consumed_clone.load(Ordering::Relaxed) >= total_expected_items as i64 {
+                                return
+                            }
+                        }
+                        
+                        if let Some(_item) = guard.pop() {
+                            not_full_clone.notify_one()
+                            let consumed = items_consumed_clone.fetch_add(1, Ordering::Relaxed) + 1
+                            
+                            if consumed >= total_expected_items as i64 {
+                                not_empty_clone.notify_all() // Wake up other consumers to exit
+                                return
+                            }
+                        }
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for all threads to complete
+            for handle in handles {
+                handle.join().unwrap()
+            }
+            
+            // Verify all items were consumed
+            let final_consumed = items_consumed.load(Ordering::Relaxed)
+            if final_consumed != total_expected_items as i64 {
+                panic!("Items lost: expected {}, consumed {}", total_expected_items, final_consumed)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_items = (self.config.iterations as i64) * 
+                         (producer_count as i64) * 
+                         (items_per_producer as i64)
+        let items_per_second = (total_items as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "condition_variable".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(producer_count + consumer_count) + 1000,
+            operations_per_second: items_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("items={}, producers={}, consumers={}", 
+                           total_items, producer_count, consumer_count),
+        }
+    }
+    
+    // Channel throughput benchmark
+    fun benchmark_channel_throughput() -> BenchmarkResult {
+        let message_count = 1_000_000
+        let channel_count = 8
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut handles = Vec::new()
+            let mut senders = Vec::new()
+            let mut receivers = Vec::new()
+            
+            // Create channels
+            for _ in 0..channel_count {
+                let (tx, rx) = mpsc::channel()
+                senders.push(tx)
+                receivers.push(rx)
+            }
+            
+            // Create sender threads
+            for (channel_id, tx) in senders.into_iter().enumerate() {
+                let handle = thread::spawn(move || {
+                    let messages_per_channel = message_count / channel_count
+                    for i in 0..messages_per_channel {
+                        tx.send(channel_id * messages_per_channel + i).unwrap()
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            // Create receiver threads
+            for rx in receivers {
+                let handle = thread::spawn(move || {
+                    let mut count = 0i32
+                    let messages_per_channel = message_count / channel_count
+                    
+                    for _ in 0..messages_per_channel {
+                        let _message = rx.recv().unwrap()
+                        count += 1
+                    }
+                    count
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion and collect results
+            let mut total_messages = 0i32
+            for handle in handles {
+                let result = handle.join().unwrap()
+                total_messages += result
+            }
+            
+            if total_messages != message_count as i32 {
+                panic!("Message loss: expected {}, received {}", message_count, total_messages)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_messages = (self.config.iterations as i64) * (message_count as i64)
+        let messages_per_second = (total_messages as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "channel_throughput".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(channel_count * 2) + (message_count * 4) as i64,
+            operations_per_second: messages_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("messages={}, channels={}", total_messages, channel_count),
+        }
+    }
+    
+    // Multiple producer consumer benchmark
+    fun benchmark_multiple_producer_consumer() -> BenchmarkResult {
+        let producer_count = 8
+        let consumer_count = 8
+        let messages_per_producer = 50000
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let (tx, rx) = mpsc::channel()
+            let rx = Arc::new(Mutex::new(rx))
+            let mut handles = Vec::with_capacity(producer_count + consumer_count)
+            
+            // Create producers
+            for producer_id in 0..producer_count {
+                let tx_clone = tx.clone()
+                
+                let handle = thread::spawn(move || {
+                    for i in 0..messages_per_producer {
+                        let message = producer_id * messages_per_producer + i
+                        tx_clone.send(message).unwrap()
+                    }
+                })
+                handles.push(handle)
+            }
+            drop(tx) // Close sender
+            
+            // Create consumers
+            let total_expected = producer_count * messages_per_producer
+            let consumed_count = Arc::new(AtomicI64::new(0))
+            
+            for _ in 0..consumer_count {
+                let rx_clone = Arc::clone(&rx)
+                let consumed_clone = Arc::clone(&consumed_count)
+                
+                let handle = thread::spawn(move || {
+                    let mut local_count = 0i32
+                    
+                    loop {
+                        let message = {
+                            let receiver = rx_clone.lock().unwrap()
+                            receiver.try_recv()
+                        }
+                        
+                        match message {
+                            Ok(_msg) => {
+                                local_count += 1
+                                consumed_clone.fetch_add(1, Ordering::Relaxed)
+                            },
+                            Err(mpsc::TryRecvError::Disconnected) => break,
+                            Err(mpsc::TryRecvError::Empty) => {
+                                thread::yield_now()
+                                continue
+                            }
+                        }
+                    }
+                    local_count
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion
+            let mut total_consumed = 0i32
+            for handle in handles {
+                let result = handle.join().unwrap()
+                total_consumed += result
+            }
+            
+            if total_consumed != total_expected as i32 {
+                panic!("Message count mismatch: expected {}, consumed {}", total_expected, total_consumed)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_messages = (self.config.iterations as i64) * 
+                            (producer_count as i64) * 
+                            (messages_per_producer as i64)
+        let messages_per_second = (total_messages as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "multiple_producer_consumer".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(producer_count + consumer_count) + 
+                              (total_messages * 4) as i64 / self.config.iterations as i64,
+            operations_per_second: messages_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("messages={}, producers={}, consumers={}", 
+                           total_messages, producer_count, consumer_count),
+        }
+    }
+    
+    // Parallel sum benchmark
+    fun benchmark_parallel_sum() -> BenchmarkResult {
+        let data_size = 10_000_000
+        let thread_count = 8
+        
+        // Generate test data
+        let data: Vec<i64> = (0..data_size).map(|i| i as i64).collect()
+        let data = Arc::new(data)
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let chunk_size = data_size / thread_count
+            let mut handles = Vec::with_capacity(thread_count)
+            
+            for thread_id in 0..thread_count {
+                let data_clone = Arc::clone(&data)
+                
+                let handle = thread::spawn(move || {
+                    let start_idx = thread_id * chunk_size
+                    let end_idx = if thread_id == thread_count - 1 {
+                        data_size
+                    } else {
+                        (thread_id + 1) * chunk_size
+                    }
+                    
+                    let mut sum = 0i64
+                    for i in start_idx..end_idx {
+                        sum = sum.wrapping_add(data_clone[i])
+                    }
+                    sum
+                })
+                handles.push(handle)
+            }
+            
+            // Collect partial sums
+            let mut total_sum = 0i64
+            for handle in handles {
+                let partial_sum = handle.join().unwrap()
+                total_sum = total_sum.wrapping_add(partial_sum)
+            }
+            
+            // Verify result
+            let expected_sum = (data_size as i64 * (data_size as i64 - 1)) / 2
+            if total_sum != expected_sum {
+                panic!("Sum mismatch: expected {}, got {}", expected_sum, total_sum)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "parallel_sum".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_count) + (data_size * 8) as i64,
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}, threads={}", 
+                           total_operations, data_size, thread_count),
+        }
+    }
+    
+    // Parallel map benchmark
+    fun benchmark_parallel_map() -> BenchmarkResult {
+        let data_size = 1_000_000
+        let thread_count = 8
+        
+        let input_data: Vec<i32> = (0..data_size).collect()
+        let input_data = Arc::new(input_data)
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let output_data = Arc::new(Mutex::new(vec![0i32; data_size]))
+            let chunk_size = data_size / thread_count
+            let mut handles = Vec::with_capacity(thread_count)
+            
+            for thread_id in 0..thread_count {
+                let input_clone = Arc::clone(&input_data)
+                let output_clone = Arc::clone(&output_data)
+                
+                let handle = thread::spawn(move || {
+                    let start_idx = thread_id * chunk_size
+                    let end_idx = if thread_id == thread_count - 1 {
+                        data_size
+                    } else {
+                        (thread_id + 1) * chunk_size
+                    }
+                    
+                    // Process chunk
+                    let mut local_results = Vec::with_capacity(end_idx - start_idx)
+                    for i in start_idx..end_idx {
+                        // Apply transformation: square and add 1
+                        let transformed = input_clone[i] * input_clone[i] + 1
+                        local_results.push(transformed)
+                    }
+                    
+                    // Write back results
+                    let mut output_guard = output_clone.lock().unwrap()
+                    for (local_idx, &result) in local_results.iter().enumerate() {
+                        output_guard[start_idx + local_idx] = result
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion
+            for handle in handles {
+                handle.join().unwrap()
+            }
+            
+            // Verify results
+            let output_guard = output_data.lock().unwrap()
+            for i in 0..data_size.min(100) { // Check first 100 elements
+                let expected = input_data[i] * input_data[i] + 1
+                if output_guard[i] != expected {
+                    panic!("Map result mismatch at {}: expected {}, got {}", 
+                           i, expected, output_guard[i])
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "parallel_map".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_count) + (data_size * 8) as i64,
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}, threads={}", 
+                           total_operations, data_size, thread_count),
+        }
+    }
+    
+    // Parallel reduce benchmark
+    fun benchmark_parallel_reduce() -> BenchmarkResult {
+        let data_size = 5_000_000
+        let thread_count = 8
+        
+        let data: Vec<f64> = (0..data_size).map(|i| (i % 1000) as f64).collect()
+        let data = Arc::new(data)
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let chunk_size = data_size / thread_count
+            let mut handles = Vec::with_capacity(thread_count)
+            
+            // Parallel reduction: find maximum value
+            for thread_id in 0..thread_count {
+                let data_clone = Arc::clone(&data)
+                
+                let handle = thread::spawn(move || {
+                    let start_idx = thread_id * chunk_size
+                    let end_idx = if thread_id == thread_count - 1 {
+                        data_size
+                    } else {
+                        (thread_id + 1) * chunk_size
+                    }
+                    
+                    let mut local_max = f64::NEG_INFINITY
+                    for i in start_idx..end_idx {
+                        if data_clone[i] > local_max {
+                            local_max = data_clone[i]
+                        }
+                    }
+                    local_max
+                })
+                handles.push(handle)
+            }
+            
+            // Reduce partial results
+            let mut global_max = f64::NEG_INFINITY
+            for handle in handles {
+                let local_max = handle.join().unwrap()
+                if local_max > global_max {
+                    global_max = local_max
+                }
+            }
+            
+            // Verify result
+            let expected_max = 999.0f64 // Maximum value in the range 0..1000
+            if (global_max - expected_max).abs() > 1e-9 {
+                panic!("Reduce result incorrect: expected {}, got {}", expected_max, global_max)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "parallel_reduce".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_count) + (data_size * 8) as i64,
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}, threads={}", 
+                           total_operations, data_size, thread_count),
+        }
+    }
+    
+    // Work stealing simulation benchmark
+    fun benchmark_work_stealing() -> BenchmarkResult {
+        if !self.config.test_work_stealing {
+            return self.create_skipped_result("work_stealing", "Work stealing tests disabled")
+        }
+        
+        let worker_count = 8
+        let initial_tasks_per_worker = 1000
+        let task_work_amount = 100
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            // Create work queues for each worker
+            let work_queues: Vec<Arc<Mutex<Vec<i32>>>> = (0..worker_count)
+                .map(|worker_id| {
+                    let mut queue = Vec::new()
+                    // Initialize with tasks
+                    for task_id in 0..initial_tasks_per_worker {
+                        queue.push(worker_id * initial_tasks_per_worker + task_id)
+                    }
+                    Arc::new(Mutex::new(queue))
+                })
+                .collect()
+            
+            let mut handles = Vec::with_capacity(worker_count)
+            let completed_work = Arc::new(AtomicI64::new(0))
+            
+            // Create worker threads
+            for worker_id in 0..worker_count {
+                let queues_clone: Vec<Arc<Mutex<Vec<i32>>>> = work_queues.iter().cloned().collect()
+                let completed_clone = Arc::clone(&completed_work)
+                
+                let handle = thread::spawn(move || {
+                    let mut local_completed = 0i32
+                    
+                    loop {
+                        // Try to get work from own queue first
+                        let task = {
+                            let mut own_queue = queues_clone[worker_id].lock().unwrap()
+                            own_queue.pop()
+                        }
+                        
+                        let task = match task {
+                            Some(t) => t,
+                            None => {
+                                // Try to steal work from other queues
+                                let mut found_task = None
+                                for steal_from in 0..worker_count {
+                                    if steal_from != worker_id {
+                                        let mut other_queue = queues_clone[steal_from].lock().unwrap()
+                                        if !other_queue.is_empty() {
+                                            // Steal from the front (FIFO for load balancing)
+                                            found_task = Some(other_queue.remove(0))
+                                            break
+                                        }
+                                    }
+                                }
+                                
+                                match found_task {
+                                    Some(t) => t,
+                                    None => break, // No more work available
+                                }
+                            }
+                        }
+                        
+                        // Simulate work
+                        let mut work_result = 0i32
+                        for _ in 0..task_work_amount {
+                            work_result = work_result.wrapping_add(task)
+                        }
+                        
+                        local_completed += 1
+                        completed_clone.fetch_add(1, Ordering::Relaxed)
+                        
+                        // Prevent optimization
+                        if work_result == i32::MAX { panic!("Unlikely") }
+                    }
+                    
+                    local_completed
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion
+            let mut total_local_completed = 0i32
+            for handle in handles {
+                let local_count = handle.join().unwrap()
+                total_local_completed += local_count
+            }
+            
+            let total_tasks = worker_count * initial_tasks_per_worker
+            let global_completed = completed_work.load(Ordering::Relaxed) as i32
+            
+            if global_completed != total_tasks as i32 || total_local_completed != total_tasks as i32 {
+                panic!("Work stealing task count mismatch: expected {}, global {}, local {}", 
+                       total_tasks, global_completed, total_local_completed)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_tasks = (self.config.iterations as i64) * 
+                         (worker_count as i64) * 
+                         (initial_tasks_per_worker as i64)
+        let tasks_per_second = (total_tasks as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "work_stealing".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(worker_count) + 
+                              (total_tasks * 4) as i64 / self.config.iterations as i64,
+            operations_per_second: tasks_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("tasks={}, workers={}", total_tasks, worker_count),
+        }
+    }
+    
+    // Lock-free queue simulation
+    fun benchmark_lock_free_queue() -> BenchmarkResult {
+        // Simulate lock-free queue with atomic operations
+        let producer_count = 4
+        let consumer_count = 4
+        let items_per_producer = 50000
+        
+        // Simple lock-free queue simulation using atomics
+        struct LockFreeQueue {
+            data: Vec<AtomicI64>,
+            head: AtomicI64,
+            tail: AtomicI64,
+            capacity: usize,
+        }
+        
+        impl LockFreeQueue {
+            fn new(capacity: usize) -> Self {
+                let mut data = Vec::with_capacity(capacity)
+                for _ in 0..capacity {
+                    data.push(AtomicI64::new(-1)) // -1 indicates empty
+                }
+                
+                Self {
+                    data,
+                    head: AtomicI64::new(0),
+                    tail: AtomicI64::new(0),
+                    capacity,
+                }
+            }
+            
+            fn try_enqueue(&self, value: i64) -> bool {
+                let tail = self.tail.load(Ordering::Acquire)
+                let next_tail = (tail + 1) % self.capacity as i64
+                
+                if next_tail == self.head.load(Ordering::Acquire) {
+                    return false // Queue full
+                }
+                
+                // Try to set the value
+                let expected = -1
+                if self.data[tail as usize].compare_and_swap(expected, value, Ordering::AcqRel) == expected {
+                    self.tail.store(next_tail, Ordering::Release)
+                    true
+                } else {
+                    false
+                }
+            }
+            
+            fn try_dequeue(&self) -> Option<i64> {
+                let head = self.head.load(Ordering::Acquire)
+                if head == self.tail.load(Ordering::Acquire) {
+                    return None // Queue empty
+                }
+                
+                let value = self.data[head as usize].swap(-1, Ordering::AcqRel)
+                if value != -1 {
+                    let next_head = (head + 1) % self.capacity as i64
+                    self.head.store(next_head, Ordering::Release)
+                    Some(value)
+                } else {
+                    None
+                }
+            }
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let queue = Arc::new(LockFreeQueue::new(10000))
+            let mut handles = Vec::with_capacity(producer_count + consumer_count)
+            let total_items = producer_count * items_per_producer
+            let consumed_count = Arc::new(AtomicI64::new(0))
+            
+            // Create producers
+            for producer_id in 0..producer_count {
+                let queue_clone = Arc::clone(&queue)
+                
+                let handle = thread::spawn(move || {
+                    for i in 0..items_per_producer {
+                        let item = (producer_id * items_per_producer + i) as i64
+                        
+                        // Retry until successful
+                        while !queue_clone.try_enqueue(item) {
+                            thread::yield_now()
+                        }
+                    }
+                })
+                handles.push(handle)
+            }
+            
+            // Create consumers
+            for _ in 0..consumer_count {
+                let queue_clone = Arc::clone(&queue)
+                let consumed_clone = Arc::clone(&consumed_count)
+                
+                let handle = thread::spawn(move || {
+                    let mut local_consumed = 0i32
+                    
+                    loop {
+                        if let Some(_item) = queue_clone.try_dequeue() {
+                            local_consumed += 1
+                            let global_consumed = consumed_clone.fetch_add(1, Ordering::Relaxed) + 1
+                            
+                            if global_consumed >= total_items as i64 {
+                                break
+                            }
+                        } else {
+                            if consumed_clone.load(Ordering::Relaxed) >= total_items as i64 {
+                                break
+                            }
+                            thread::yield_now()
+                        }
+                    }
+                    local_consumed
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion
+            for handle in handles {
+                handle.join().unwrap()
+            }
+            
+            let final_consumed = consumed_count.load(Ordering::Relaxed);
+            if final_consumed != total_items as i64 {
+                panic!("Lock-free queue lost items: expected {}, consumed {}", 
+                       total_items, final_consumed)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * 
+                              (producer_count as i64) * 
+                              (items_per_producer as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "lock_free_queue".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(producer_count + consumer_count) + 80000,
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, producers={}, consumers={}", 
+                           total_operations, producer_count, consumer_count),
+        }
+    }
+    
+    // Compare and swap benchmark
+    fun benchmark_compare_and_swap() -> BenchmarkResult {
+        let thread_count = 16
+        let cas_operations_per_thread = 100000
+        let shared_value = Arc::new(AtomicI64::new(0))
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut handles = Vec::with_capacity(thread_count)
+            
+            for _ in 0..thread_count {
+                let value_clone = Arc::clone(&shared_value)
+                
+                let handle = thread::spawn(move || {
+                    let mut successful_cas = 0i32
+                    
+                    for _ in 0..cas_operations_per_thread {
+                        loop {
+                            let current = value_clone.load(Ordering::Acquire)
+                            let new_value = current.wrapping_add(1)
+                            
+                            if value_clone.compare_and_swap(current, new_value, Ordering::AcqRel) == current {
+                                successful_cas += 1
+                                break
+                            }
+                            // CAS failed, retry
+                        }
+                    }
+                    successful_cas
+                })
+                handles.push(handle)
+            }
+            
+            // Wait for completion
+            let mut total_successful = 0i32
+            for handle in handles {
+                let successful = handle.join().unwrap()
+                total_successful += successful
+            }
+            
+            // Verify final value
+            let expected_final = (thread_count * cas_operations_per_thread) as i64
+            let actual_final = shared_value.load(Ordering::Acquire)
+            
+            if actual_final != expected_final {
+                panic!("CAS final value mismatch: expected {}, got {}", expected_final, actual_final)
+            }
+            
+            if total_successful != expected_final as i32 {
+                panic!("CAS success count mismatch: expected {}, got {}", expected_final, total_successful)
+            }
+            
+            // Reset for next iteration
+            shared_value.store(0, Ordering::Relaxed)
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_cas_operations = (self.config.iterations as i64) * 
+                                  (thread_count as i64) * 
+                                  (cas_operations_per_thread as i64)
+        let cas_per_second = (total_cas_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "compare_and_swap".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_thread_memory(thread_count) + 8,
+            operations_per_second: cas_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("cas_operations={}, threads={}", total_cas_operations, thread_count),
+        }
+    }
+    
+    // Helper methods
+    fun estimate_thread_memory(thread_count: usize) -> i64 {
+        // Estimate stack size per thread + OS overhead
+        (thread_count as i64) * (2 * 1024 * 1024) // 2MB per thread stack
+    }
+    
+    fun create_skipped_result(benchmark_name: &str, reason: &str) -> BenchmarkResult {
+        return BenchmarkResult {
+            name: benchmark_name.to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: 0,
+            memory_peak_bytes: 0,
+            operations_per_second: 0.0,
+            success: false,
+            error_message: Some(format!("Skipped: {}", reason)),
+            metadata: "benchmark_skipped".to_string(),
+        }
+    }
+}

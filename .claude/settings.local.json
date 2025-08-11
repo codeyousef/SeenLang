@@ -984,7 +984,11 @@
       "Bash(gh workflow:*)",
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
-      "Bash(yq eval:*)"
+      "Bash(yq eval:*)",
+      "Bash(xxd:*)",
+      "Bash(./competitors/cpp/arithmetic_bench.exe)",
+      "Bash(../../target/release/seen.exe run:*)",
+      "Bash(../../target/release/seen.exe build)"
     ],
     "deny": []
   }

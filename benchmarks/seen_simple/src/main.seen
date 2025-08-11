@@ -1,0 +1,146 @@
+// Real Seen arithmetic benchmark - measures actual performance
+// Imports runtime intrinsics for high-precision timing
+
+use runtime::runtime_intrinsics::*;
+
+fun main() -> Int {
+    println("🚀 Seen Language - Real Performance Benchmarks");
+    println("   Measuring actual arithmetic performance");
+    println("");
+    
+    // Warm up CPU and clear caches for accurate measurements
+    WarmupCPU();
+    ClearCPUCache();
+    
+    // Run benchmarks with real measurements
+    let i32AddResult = measureI32Addition();
+    let i32MulResult = measureI32Multiplication();
+    let f64Result = measureF64Operations();
+    let bitwiseResult = measureBitwiseOperations();
+    
+    // Output results in expected format for parsing
+    println("=== Seen Arithmetic Benchmarks ===");
+    println("");
+    println("i32_addition: " + i32AddResult.toString() + " ops/sec");
+    println("i32_multiplication: " + i32MulResult.toString() + " ops/sec");
+    println("f64_operations: " + f64Result.toString() + " ops/sec");
+    println("bitwise_operations: " + bitwiseResult.toString() + " ops/sec");
+    
+    return 0;
+}
+
+fun measureI32Addition() -> Int {
+    let iterations = 100000000; // 100M operations for quick benchmark
+    
+    // Measure performance with high precision timing
+    let startTime = GetCurrentTimeNanos();
+    
+    var sum = 0;
+    let a = 123456;
+    let b = 789012;
+    
+    // Optimized loop with unrolling
+    for i in range(0, iterations / 8) {
+        sum = sum + a + b;
+        sum = sum + a + b;
+        sum = sum + a + b;
+        sum = sum + a + b;
+        sum = sum + a + b;
+        sum = sum + a + b;
+        sum = sum + a + b;
+        sum = sum + a + b;
+    }
+    
+    let endTime = GetCurrentTimeNanos();
+    let totalTime = endTime - startTime;
+    
+    // Prevent compiler optimization
+    asm("" : : "r" (sum));
+    
+    // Calculate ops/sec
+    return (iterations * 1000000000) / totalTime;
+}
+
+fun measureI32Multiplication() -> Int {
+    let iterations = 50000000; // 50M operations
+    
+    let startTime = GetCurrentTimeNanos();
+    
+    var result = 1;
+    let a = 12345;
+    let b = 67890;
+    
+    for i in range(0, iterations / 8) {
+        result = (result * a) % 1000000;
+        result = (result * b) % 1000000;
+        result = (result * a) % 1000000;
+        result = (result * b) % 1000000;
+        result = (result * a) % 1000000;
+        result = (result * b) % 1000000;
+        result = (result * a) % 1000000;
+        result = (result * b) % 1000000;
+    }
+    
+    let endTime = GetCurrentTimeNanos();
+    let totalTime = endTime - startTime;
+    
+    asm("" : : "r" (result));
+    
+    return (iterations * 1000000000) / totalTime;
+}
+
+fun measureF64Operations() -> Int {
+    let iterations = 80000000; // 80M operations
+    
+    let startTime = GetCurrentTimeNanos();
+    
+    var result = 1.0;
+    let a = 3.14159;
+    let b = 2.71828;
+    
+    for i in range(0, iterations / 8) {
+        result = result * a + b;
+        result = result * a + b;
+        result = result * a + b;
+        result = result * a + b;
+        result = result * a + b;
+        result = result * a + b;
+        result = result * a + b;
+        result = result * a + b;
+    }
+    
+    let endTime = GetCurrentTimeNanos();
+    let totalTime = endTime - startTime;
+    
+    asm("" : : "r" (result));
+    
+    return (iterations * 1000000000) / totalTime;
+}
+
+fun measureBitwiseOperations() -> Int {
+    let iterations = 200000000; // 200M operations
+    
+    let startTime = GetCurrentTimeNanos();
+    
+    var value = 0xFF00FF00;
+    let mask1 = 0x0F0F0F0F;
+    let mask2 = 0xF0F0F0F0;
+    
+    for i in range(0, iterations / 8) {
+        value = value ^ mask1;
+        value = value | mask2;
+        value = value & mask1;
+        value = value ^ mask2;
+        value = value | mask1;
+        value = value & mask2;
+        value = value ^ mask1;
+        value = value | mask2;
+    }
+    
+    let endTime = GetCurrentTimeNanos();
+    let totalTime = endTime - startTime;
+    
+    asm("" : : "r" (value));
+    
+    return (iterations * 1000000000) / totalTime;
+}

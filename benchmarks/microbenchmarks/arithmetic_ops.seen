@@ -1,0 +1,705 @@
+// Arithmetic Operations Microbenchmarks
+// Tests fundamental arithmetic operations performance across integer and floating-point types
+
+import std::time::Instant
+import std::collections::Vec
+
+// Benchmark configuration for arithmetic operations
+struct ArithmeticBenchmarkConfig {
+    iterations: i32,
+    data_size: i32,
+    include_division: bool,
+    include_modulo: bool,
+    include_bitwise: bool,
+}
+
+// Arithmetic benchmark runner
+class ArithmeticBenchmarks {
+    config: ArithmeticBenchmarkConfig,
+    
+    fun new(config: ArithmeticBenchmarkConfig) -> ArithmeticBenchmarks {
+        return ArithmeticBenchmarks { config: config }
+    }
+    
+    // Run all arithmetic benchmarks
+    fun run_all() -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        // Integer arithmetic benchmarks
+        results.push(self.benchmark_i32_addition())
+        results.push(self.benchmark_i32_multiplication())
+        results.push(self.benchmark_i32_division())
+        results.push(self.benchmark_i32_modulo())
+        
+        // 64-bit integer benchmarks
+        results.push(self.benchmark_i64_addition())
+        results.push(self.benchmark_i64_multiplication())
+        results.push(self.benchmark_i64_division())
+        
+        // Floating-point benchmarks
+        results.push(self.benchmark_f32_addition())
+        results.push(self.benchmark_f32_multiplication())
+        results.push(self.benchmark_f32_division())
+        results.push(self.benchmark_f64_operations())
+        
+        // Bitwise operation benchmarks
+        if self.config.include_bitwise {
+            results.push(self.benchmark_bitwise_operations())
+            results.push(self.benchmark_bit_shifts())
+        }
+        
+        // Mixed arithmetic benchmarks
+        results.push(self.benchmark_mixed_arithmetic())
+        results.push(self.benchmark_arithmetic_expressions())
+        
+        return results
+    }
+    
+    // 32-bit integer addition benchmark
+    fun benchmark_i32_addition() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        // Initialize test data
+        for i in 0..data_size {
+            vec_a.push(i)
+            vec_b.push(i * 2)
+            result_vec.push(0)
+        }
+        
+        let start_time = Instant::now()
+        
+        // Perform benchmark iterations
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] + vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        
+        // Calculate operations per second
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "i32_addition".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4), // 3 i32 vectors
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 32-bit integer multiplication benchmark
+    fun benchmark_i32_multiplication() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        // Initialize test data with smaller values to avoid overflow
+        for i in 0..data_size {
+            vec_a.push(i % 1000 + 1)
+            vec_b.push((i % 500) + 1)
+            result_vec.push(0)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] * vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "i32_multiplication".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4),
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 32-bit integer division benchmark
+    fun benchmark_i32_division() -> BenchmarkResult {
+        if !self.config.include_division {
+            return self.create_skipped_result("i32_division", "Division benchmarks disabled")
+        }
+        
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        // Initialize test data, avoiding division by zero
+        for i in 0..data_size {
+            vec_a.push(i * 1000 + 1000)
+            vec_b.push(i % 100 + 1) // Ensure divisor is never zero
+            result_vec.push(0)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] / vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "i32_division".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4),
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 32-bit integer modulo benchmark
+    fun benchmark_i32_modulo() -> BenchmarkResult {
+        if !self.config.include_modulo {
+            return self.create_skipped_result("i32_modulo", "Modulo benchmarks disabled")
+        }
+        
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i * 1000 + 1000)
+            vec_b.push(i % 97 + 3) // Prime-ish numbers to avoid patterns
+            result_vec.push(0)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] % vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "i32_modulo".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4),
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 64-bit integer addition benchmark
+    fun benchmark_i64_addition() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as i64 * 1_000_000)
+            vec_b.push(i as i64 * 2_000_000)
+            result_vec.push(0i64)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] + vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "i64_addition".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 8), // 3 i64 vectors
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 64-bit integer multiplication benchmark
+    fun benchmark_i64_multiplication() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as i64 * 1000 + 1)
+            vec_b.push(i as i64 % 1000 + 1)
+            result_vec.push(0i64)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] * vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "i64_multiplication".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 8),
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 64-bit integer division benchmark
+    fun benchmark_i64_division() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as i64 * 1_000_000 + 1_000_000)
+            vec_b.push(i as i64 % 1000 + 1)
+            result_vec.push(0i64)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] / vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "i64_division".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 8),
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 32-bit floating-point addition benchmark
+    fun benchmark_f32_addition() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as f32 * 0.001)
+            vec_b.push(i as f32 * 0.002)
+            result_vec.push(0.0f32)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] + vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "f32_addition".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4), // 3 f32 vectors
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 32-bit floating-point multiplication benchmark
+    fun benchmark_f32_multiplication() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as f32 * 0.01 + 0.1)
+            vec_b.push(i as f32 * 0.005 + 0.1)
+            result_vec.push(0.0f32)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] * vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "f32_multiplication".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4),
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 32-bit floating-point division benchmark
+    fun benchmark_f32_division() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as f32 * 10.0 + 10.0)
+            vec_b.push(i as f32 * 0.1 + 0.1) // Avoid division by small numbers
+            result_vec.push(0.0f32)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                result_vec[idx] = vec_a[idx] / vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64)
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "f32_division".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4),
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // 64-bit floating-point operations benchmark
+    fun benchmark_f64_operations() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as f64 * 0.001 + 0.001)
+            vec_b.push(i as f64 * 0.002 + 0.002)
+            result_vec.push(0.0f64)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                // Mixed operations: add, multiply, divide
+                let intermediate = vec_a[idx] + vec_b[idx]
+                let intermediate2 = intermediate * vec_a[idx]
+                result_vec[idx] = intermediate2 / vec_b[idx]
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64) * 3 // 3 ops per iteration
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "f64_mixed_operations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 8), // 3 f64 vectors
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // Bitwise operations benchmark
+    fun benchmark_bitwise_operations() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as u32)
+            vec_b.push((i as u32).wrapping_mul(0x9E3779B9)) // Distribute bits
+            result_vec.push(0u32)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                let a = vec_a[idx]
+                let b = vec_b[idx]
+                
+                // Mix of bitwise operations
+                let and_result = a & b
+                let or_result = and_result | a
+                let xor_result = or_result ^ b
+                result_vec[idx] = xor_result
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64) * 3 // 3 bitwise ops
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "bitwise_operations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 3 * 4), // 3 u32 vectors
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // Bit shift operations benchmark
+    fun benchmark_bit_shifts() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_data = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_data.push(i as u32 | 0x80000000) // Ensure high bit is set
+            result_vec.push(0u32)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                let data = vec_data[idx]
+                
+                // Mix of left and right shifts
+                let left_shift = data << 4
+                let right_shift = left_shift >> 6
+                let arith_shift = (data as i32) >> 3
+                result_vec[idx] = right_shift ^ (arith_shift as u32)
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64) * 3 // 3 shift ops
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "bit_shifts".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 2 * 4), // 2 u32 vectors
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // Mixed arithmetic operations benchmark
+    fun benchmark_mixed_arithmetic() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_i32 = Vec::with_capacity(data_size as usize)
+        let mut vec_f32 = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_i32.push(i)
+            vec_f32.push(i as f32 * 0.1)
+            result_vec.push(0.0f32)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                let int_val = vec_i32[idx] as f32
+                let float_val = vec_f32[idx]
+                
+                // Mixed integer-float arithmetic
+                let sum = int_val + float_val
+                let product = sum * 2.5
+                let quotient = product / (int_val + 1.0)
+                result_vec[idx] = quotient
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64) * 4 // 4 ops including cast
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "mixed_arithmetic".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 4 + 4 + 4), // i32 + f32 + f32
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // Complex arithmetic expressions benchmark
+    fun benchmark_arithmetic_expressions() -> BenchmarkResult {
+        let data_size = self.config.data_size
+        let mut vec_a = Vec::with_capacity(data_size as usize)
+        let mut vec_b = Vec::with_capacity(data_size as usize)
+        let mut vec_c = Vec::with_capacity(data_size as usize)
+        let mut result_vec = Vec::with_capacity(data_size as usize)
+        
+        for i in 0..data_size {
+            vec_a.push(i as f64 * 0.1 + 1.0)
+            vec_b.push(i as f64 * 0.2 + 2.0)
+            vec_c.push(i as f64 * 0.3 + 3.0)
+            result_vec.push(0.0f64)
+        }
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..data_size {
+                let idx = i as usize
+                let a = vec_a[idx]
+                let b = vec_b[idx]
+                let c = vec_c[idx]
+                
+                // Complex expression: (a + b) * c / (a - b + 1.0)
+                let numerator = (a + b) * c
+                let denominator = a - b + 1.0
+                result_vec[idx] = numerator / denominator
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (data_size as i64) * 5 // 5 arithmetic ops
+        let ops_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "complex_expressions".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_memory_usage(data_size, 4 * 8), // 4 f64 vectors
+            operations_per_second: ops_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, data_size={}", total_operations, data_size),
+        }
+    }
+    
+    // Helper methods
+    fun estimate_memory_usage(data_size: i32, bytes_per_element: i32) -> i64 {
+        (data_size as i64) * (bytes_per_element as i64)
+    }
+    
+    fun create_skipped_result(benchmark_name: &str, reason: &str) -> BenchmarkResult {
+        return BenchmarkResult {
+            name: benchmark_name.to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: 0,
+            memory_peak_bytes: 0,
+            operations_per_second: 0.0,
+            success: false,
+            error_message: Some(format!("Skipped: {}", reason)),
+            metadata: "benchmark_skipped".to_string(),
+        }
+    }
+}

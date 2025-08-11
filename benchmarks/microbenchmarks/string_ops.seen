@@ -1,0 +1,885 @@
+// String Operations Microbenchmarks  
+// Tests string creation, manipulation, searching, and processing performance
+
+import std::time::Instant
+import std::collections::Vec
+import std::string::String
+
+// String benchmark configuration
+struct StringBenchmarkConfig {
+    iterations: i32,
+    string_lengths: Vec<usize>, // Different string lengths to test
+    test_unicode: bool,
+    test_regex: bool,
+    include_large_strings: bool,
+}
+
+// String operations benchmark suite
+class StringBenchmarks {
+    config: StringBenchmarkConfig,
+    sample_text: String,
+    unicode_text: String,
+    
+    fun new(config: StringBenchmarkConfig) -> StringBenchmarks {
+        // Generate sample ASCII text
+        let sample_text = Self::generate_sample_text(1000)
+        
+        // Generate sample Unicode text
+        let unicode_text = "Hello 世界! Καλημέρα κόσμε! مرحبا بالعالم! 🌍🚀✨ Здравствуй мир! こんにちは世界！"
+            .repeat(20)
+        
+        return StringBenchmarks { 
+            config: config,
+            sample_text: sample_text,
+            unicode_text: unicode_text,
+        }
+    }
+    
+    // Run all string benchmarks
+    fun run_all() -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        // Basic string operations
+        results.push(self.benchmark_string_creation())
+        results.push(self.benchmark_string_concatenation())
+        results.push(self.benchmark_string_cloning())
+        
+        // String manipulation
+        results.push(self.benchmark_string_append())
+        results.push(self.benchmark_string_insert())
+        results.push(self.benchmark_string_replace())
+        
+        // String searching
+        results.push(self.benchmark_string_find())
+        results.push(self.benchmark_string_contains())
+        results.push(self.benchmark_string_starts_ends_with())
+        
+        // String parsing and processing
+        results.push(self.benchmark_string_split())
+        results.push(self.benchmark_string_trim())
+        results.push(self.benchmark_string_case_conversion())
+        
+        // Character operations
+        results.push(self.benchmark_char_iteration())
+        results.push(self.benchmark_char_counting())
+        
+        // Unicode-specific tests
+        if self.config.test_unicode {
+            results.push(self.benchmark_unicode_operations())
+            results.push(self.benchmark_unicode_normalization())
+        }
+        
+        // Pattern matching and formatting
+        results.push(self.benchmark_string_formatting())
+        results.push(self.benchmark_string_parsing())
+        
+        return results
+    }
+    
+    // String creation benchmark
+    fun benchmark_string_creation() -> BenchmarkResult {
+        let creation_count = 100_000
+        let base_string = "Hello, World!"
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut strings = Vec::with_capacity(creation_count)
+            
+            for i in 0..creation_count {
+                // Create strings in different ways
+                let s = match i % 4 {
+                    0 => String::new(),
+                    1 => String::from(base_string),
+                    2 => format!("String number {}", i),
+                    _ => base_string.to_string(),
+                }
+                strings.push(s)
+            }
+            
+            // Use strings to prevent optimization
+            let total_len: usize = strings.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_creations = (self.config.iterations as i64) * (creation_count as i64)
+        let creations_per_second = (total_creations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_creation".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(creation_count, base_string.len()),
+            operations_per_second: creations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("creations={}", total_creations),
+        }
+    }
+    
+    // String concatenation benchmark
+    fun benchmark_string_concatenation() -> BenchmarkResult {
+        let concat_count = 50_000
+        let base_strings = ["Hello", " ", "World", "!", " ", "How", " ", "are", " ", "you", "?"]
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut results = Vec::with_capacity(concat_count)
+            
+            for i in 0..concat_count {
+                let mut result = String::new()
+                
+                // Concatenate multiple strings
+                for j in 0..base_strings.len() {
+                    if i % 3 == 0 {
+                        // Using push_str
+                        result.push_str(base_strings[j])
+                    } else if i % 3 == 1 {
+                        // Using + operator (creates String::from when needed)
+                        result = result + base_strings[j]
+                    } else {
+                        // Using format! macro
+                        result = format!("{}{}", result, base_strings[j])
+                    }
+                }
+                
+                results.push(result)
+            }
+            
+            // Use results
+            let total_len: usize = results.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_concats = (self.config.iterations as i64) * (concat_count as i64)
+        let concats_per_second = (total_concats as f64) / elapsed.as_secs_f64()
+        
+        let expected_len = base_strings.iter().map(|s| s.len()).sum::<usize>()
+        
+        return BenchmarkResult {
+            name: "string_concatenation".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(concat_count, expected_len),
+            operations_per_second: concats_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("concatenations={}", total_concats),
+        }
+    }
+    
+    // String cloning benchmark
+    fun benchmark_string_cloning() -> BenchmarkResult {
+        let clone_count = 100_000
+        let original_string = self.sample_text.clone()
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut clones = Vec::with_capacity(clone_count)
+            
+            for _ in 0..clone_count {
+                let cloned = original_string.clone()
+                clones.push(cloned)
+            }
+            
+            // Use clones
+            let total_len: usize = clones.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_clones = (self.config.iterations as i64) * (clone_count as i64)
+        let clones_per_second = (total_clones as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_cloning".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(clone_count, original_string.len()),
+            operations_per_second: clones_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("clones={}, original_len={}", total_clones, original_string.len()),
+        }
+    }
+    
+    // String append benchmark
+    fun benchmark_string_append() -> BenchmarkResult {
+        let append_count = 10_000
+        let append_text = "APPEND"
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut strings = Vec::with_capacity(append_count)
+            
+            for i in 0..append_count {
+                let mut s = String::from("BASE")
+                
+                // Append multiple times
+                for _ in 0..(i % 10 + 1) {
+                    s.push_str(append_text)
+                    s.push('_')
+                }
+                
+                strings.push(s)
+            }
+            
+            // Use strings
+            let total_len: usize = strings.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_appends = (self.config.iterations as i64) * (append_count as i64)
+        let appends_per_second = (total_appends as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_append".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(append_count, 50), // Estimated average length
+            operations_per_second: appends_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("appends={}", total_appends),
+        }
+    }
+    
+    // String insert benchmark
+    fun benchmark_string_insert() -> BenchmarkResult {
+        let insert_count = 50_000
+        let base_string = "Hello World!"
+        let insert_text = "Beautiful "
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut results = Vec::with_capacity(insert_count)
+            
+            for i in 0..insert_count {
+                let mut s = String::from(base_string)
+                let insert_pos = i % (s.len() + 1) // Valid insertion position
+                
+                s.insert_str(insert_pos, insert_text)
+                results.push(s)
+            }
+            
+            let total_len: usize = results.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_inserts = (self.config.iterations as i64) * (insert_count as i64)
+        let inserts_per_second = (total_inserts as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_insert".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(insert_count, base_string.len() + insert_text.len()),
+            operations_per_second: inserts_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("inserts={}", total_inserts),
+        }
+    }
+    
+    // String replace benchmark
+    fun benchmark_string_replace() -> BenchmarkResult {
+        let replace_count = 10_000
+        let text_with_patterns = "The quick brown fox jumps over the lazy dog. The fox is quick. The dog is lazy."
+            .repeat(10)
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut results = Vec::with_capacity(replace_count)
+            
+            for i in 0..replace_count {
+                let mut text = text_with_patterns.clone()
+                
+                match i % 4 {
+                    0 => { text = text.replace("fox", "cat") }
+                    1 => { text = text.replace("dog", "elephant") }
+                    2 => { text = text.replace("the", "THE") }
+                    _ => { text = text.replace("quick", "slow") }
+                }
+                
+                results.push(text)
+            }
+            
+            let total_len: usize = results.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_replaces = (self.config.iterations as i64) * (replace_count as i64)
+        let replaces_per_second = (total_replaces as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_replace".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(replace_count, text_with_patterns.len()),
+            operations_per_second: replaces_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("replaces={}, text_len={}", total_replaces, text_with_patterns.len()),
+        }
+    }
+    
+    // String find benchmark
+    fun benchmark_string_find() -> BenchmarkResult {
+        let find_count = 100_000
+        let search_text = self.sample_text.clone()
+        let patterns = ["the", "and", "ing", "tion", "xyz"] // Last one won't be found
+        
+        let start_time = Instant::now()
+        let mut total_finds = 0i32
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..find_count {
+                let pattern = patterns[i % patterns.len()]
+                
+                if let Some(_pos) = search_text.find(pattern) {
+                    total_finds += 1
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_searches = (self.config.iterations as i64) * (find_count as i64)
+        let searches_per_second = (total_searches as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_find".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: search_text.len() as i64,
+            operations_per_second: searches_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("searches={}, finds={}, text_len={}", total_searches, total_finds, search_text.len()),
+        }
+    }
+    
+    // String contains benchmark
+    fun benchmark_string_contains() -> BenchmarkResult {
+        let contains_count = 100_000
+        let search_text = self.sample_text.clone()
+        let patterns = ["hello", "world", "test", "performance", "nonexistent"]
+        
+        let start_time = Instant::now()
+        let mut total_contains = 0i32
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..contains_count {
+                let pattern = patterns[i % patterns.len()]
+                
+                if search_text.contains(pattern) {
+                    total_contains += 1
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_checks = (self.config.iterations as i64) * (contains_count as i64)
+        let checks_per_second = (total_checks as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_contains".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: search_text.len() as i64,
+            operations_per_second: checks_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("checks={}, contains={}", total_checks, total_contains),
+        }
+    }
+    
+    // String starts_with/ends_with benchmark
+    fun benchmark_string_starts_ends_with() -> BenchmarkResult {
+        let check_count = 100_000
+        let test_strings = vec![
+            "Hello World!",
+            "Testing performance",
+            "Benchmark suite running",
+            "String operations test",
+            "Performance validation",
+        ]
+        let prefixes = ["Hello", "Test", "Bench", "String", "Perf"]
+        let suffixes = ["!", "ce", "ing", "test", "ion"]
+        
+        let start_time = Instant::now()
+        let mut total_matches = 0i32
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..check_count {
+                let text = test_strings[i % test_strings.len()]
+                let prefix = prefixes[i % prefixes.len()]
+                let suffix = suffixes[i % suffixes.len()]
+                
+                if text.starts_with(prefix) { total_matches += 1 }
+                if text.ends_with(suffix) { total_matches += 1 }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_checks = (self.config.iterations as i64) * (check_count as i64) * 2 // starts_with + ends_with
+        let checks_per_second = (total_checks as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_starts_ends_with".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: 500, // Estimate for test strings
+            operations_per_second: checks_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("checks={}, matches={}", total_checks, total_matches),
+        }
+    }
+    
+    // String split benchmark
+    fun benchmark_string_split() -> BenchmarkResult {
+        let split_count = 10_000
+        let split_text = "apple,banana,cherry,date,elderberry,fig,grape,honeydew,kiwi,lemon"
+            .repeat(10)
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut all_parts = Vec::with_capacity(split_count)
+            
+            for i in 0..split_count {
+                let delimiter = match i % 3 {
+                    0 => ",",
+                    1 => "e",
+                    _ => "a",
+                }
+                
+                let parts: Vec<&str> = split_text.split(delimiter).collect()
+                all_parts.push(parts)
+            }
+            
+            // Use results
+            let total_parts: usize = all_parts.iter().map(|parts| parts.len()).sum()
+            if total_parts == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_splits = (self.config.iterations as i64) * (split_count as i64)
+        let splits_per_second = (total_splits as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_split".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: split_text.len() as i64,
+            operations_per_second: splits_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("splits={}, text_len={}", total_splits, split_text.len()),
+        }
+    }
+    
+    // String trim benchmark
+    fun benchmark_string_trim() -> BenchmarkResult {
+        let trim_count = 100_000
+        let test_strings = vec![
+            "  hello world  ",
+            "\t\tperformance test\n\n",
+            "   string operations   ",
+            "\n  benchmark suite  \t",
+            "     clean text     ",
+        ]
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut trimmed_strings = Vec::with_capacity(trim_count)
+            
+            for i in 0..trim_count {
+                let original = test_strings[i % test_strings.len()]
+                let trimmed = original.trim().to_string()
+                trimmed_strings.push(trimmed)
+            }
+            
+            let total_len: usize = trimmed_strings.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_trims = (self.config.iterations as i64) * (trim_count as i64)
+        let trims_per_second = (total_trims as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_trim".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(trim_count, 20), // Average trimmed length
+            operations_per_second: trims_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("trims={}", total_trims),
+        }
+    }
+    
+    // String case conversion benchmark
+    fun benchmark_string_case_conversion() -> BenchmarkResult {
+        let conversion_count = 50_000
+        let test_text = "The Quick Brown Fox Jumps Over The Lazy Dog! 123 ABC xyz"
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut converted_strings = Vec::with_capacity(conversion_count * 2)
+            
+            for i in 0..conversion_count {
+                let upper = test_text.to_uppercase()
+                let lower = test_text.to_lowercase()
+                
+                converted_strings.push(upper)
+                converted_strings.push(lower)
+            }
+            
+            let total_len: usize = converted_strings.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_conversions = (self.config.iterations as i64) * (conversion_count as i64) * 2
+        let conversions_per_second = (total_conversions as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_case_conversion".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(conversion_count * 2, test_text.len()),
+            operations_per_second: conversions_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("conversions={}, text_len={}", total_conversions, test_text.len()),
+        }
+    }
+    
+    // Character iteration benchmark
+    fun benchmark_char_iteration() -> BenchmarkResult {
+        let iteration_count = 10_000
+        let text = self.sample_text.clone()
+        
+        let start_time = Instant::now()
+        let mut total_chars = 0i64
+        
+        for _ in 0..self.config.iterations {
+            for _ in 0..iteration_count {
+                // Iterate through characters
+                for _ch in text.chars() {
+                    total_chars += 1
+                }
+                
+                // Iterate through bytes
+                for _byte in text.bytes() {
+                    total_chars += 1
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_iterations = (self.config.iterations as i64) * (iteration_count as i64) * 2
+        let iterations_per_second = (total_iterations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "char_iteration".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: text.len() as i64,
+            operations_per_second: iterations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("iterations={}, total_chars={}", total_iterations, total_chars),
+        }
+    }
+    
+    // Character counting benchmark
+    fun benchmark_char_counting() -> BenchmarkResult {
+        let count_operations = 50_000
+        let text = self.sample_text.clone()
+        let target_chars = ['a', 'e', 'i', 'o', 'u', 't', 'n', 's']
+        
+        let start_time = Instant::now()
+        let mut total_count = 0i32
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..count_operations {
+                let target_char = target_chars[i % target_chars.len()]
+                
+                let count = text.chars()
+                    .filter(|&ch| ch.to_ascii_lowercase() == target_char)
+                    .count() as i32
+                
+                total_count += count
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_operations = (self.config.iterations as i64) * (count_operations as i64)
+        let operations_per_second = (total_operations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "char_counting".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: text.len() as i64,
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("operations={}, total_count={}", total_operations, total_count),
+        }
+    }
+    
+    // Unicode operations benchmark
+    fun benchmark_unicode_operations() -> BenchmarkResult {
+        if !self.config.test_unicode {
+            return self.create_skipped_result("unicode_operations", "Unicode tests disabled")
+        }
+        
+        let unicode_count = 10_000
+        let unicode_text = &self.unicode_text
+        
+        let start_time = Instant::now()
+        let mut total_operations = 0i32
+        
+        for _ in 0..self.config.iterations {
+            for _ in 0..unicode_count {
+                // Count Unicode characters (not bytes)
+                let char_count = unicode_text.chars().count()
+                total_operations += char_count as i32
+                
+                // Convert to different cases
+                let upper = unicode_text.to_uppercase()
+                let lower = unicode_text.to_lowercase()
+                
+                // Check for specific Unicode categories
+                let digit_count = unicode_text.chars()
+                    .filter(|ch| ch.is_digit(10))
+                    .count()
+                
+                let alpha_count = unicode_text.chars()
+                    .filter(|ch| ch.is_alphabetic())
+                    .count()
+                
+                total_operations += (digit_count + alpha_count) as i32
+                
+                // Prevent optimization
+                if upper.is_empty() || lower.is_empty() { panic!("Impossible") }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_benchmarks = (self.config.iterations as i64) * (unicode_count as i64)
+        let benchmarks_per_second = (total_benchmarks as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "unicode_operations".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: unicode_text.len() as i64,
+            operations_per_second: benchmarks_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("benchmarks={}, operations={}", total_benchmarks, total_operations),
+        }
+    }
+    
+    // Unicode normalization benchmark
+    fun benchmark_unicode_normalization() -> BenchmarkResult {
+        if !self.config.test_unicode {
+            return self.create_skipped_result("unicode_normalization", "Unicode tests disabled")
+        }
+        
+        let normalization_count = 10_000
+        // Text with combining characters and different representations
+        let unnormalized_text = "café́ naïve résumé" // Some chars may have combining diacritics
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut normalized_strings = Vec::with_capacity(normalization_count)
+            
+            for _ in 0..normalization_count {
+                // Simulate normalization by converting and processing
+                let processed = unnormalized_text.chars()
+                    .map(|ch| ch.to_lowercase().collect::<String>())
+                    .collect::<Vec<String>>()
+                    .join("")
+                
+                normalized_strings.push(processed)
+            }
+            
+            let total_len: usize = normalized_strings.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_normalizations = (self.config.iterations as i64) * (normalization_count as i64)
+        let normalizations_per_second = (total_normalizations as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "unicode_normalization".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(normalization_count, unnormalized_text.len()),
+            operations_per_second: normalizations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("normalizations={}", total_normalizations),
+        }
+    }
+    
+    // String formatting benchmark
+    fun benchmark_string_formatting() -> BenchmarkResult {
+        let format_count = 50_000
+        
+        let start_time = Instant::now()
+        
+        for _ in 0..self.config.iterations {
+            let mut formatted_strings = Vec::with_capacity(format_count)
+            
+            for i in 0..format_count {
+                let formatted = match i % 5 {
+                    0 => format!("Number: {}", i),
+                    1 => format!("Hex: {:x}, Oct: {:o}", i, i),
+                    2 => format!("Float: {:.2}", i as f32 / 10.0),
+                    3 => format!("Padded: {:08}", i),
+                    _ => format!("Item {}: {:.3}", i, i as f64 / 1000.0),
+                }
+                
+                formatted_strings.push(formatted)
+            }
+            
+            let total_len: usize = formatted_strings.iter().map(|s| s.len()).sum()
+            if total_len == 0 { panic!("Impossible") }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_formats = (self.config.iterations as i64) * (format_count as i64)
+        let formats_per_second = (total_formats as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_formatting".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: self.estimate_string_memory(format_count, 30), // Average formatted length
+            operations_per_second: formats_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("formats={}", total_formats),
+        }
+    }
+    
+    // String parsing benchmark
+    fun benchmark_string_parsing() -> BenchmarkResult {
+        let parse_count = 50_000
+        let number_strings = vec!["123", "456.789", "-42", "3.14159", "0", "999999"]
+        
+        let start_time = Instant::now()
+        let mut total_parsed = 0i32
+        
+        for _ in 0..self.config.iterations {
+            for i in 0..parse_count {
+                let number_str = number_strings[i % number_strings.len()]
+                
+                // Try parsing as different types
+                if let Ok(_int_val) = number_str.parse::<i32>() {
+                    total_parsed += 1
+                }
+                
+                if let Ok(_float_val) = number_str.parse::<f64>() {
+                    total_parsed += 1
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let total_parses = (self.config.iterations as i64) * (parse_count as i64) * 2 // int + float parsing
+        let parses_per_second = (total_parses as f64) / elapsed.as_secs_f64()
+        
+        return BenchmarkResult {
+            name: "string_parsing".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: 100, // Small amount for number strings
+            operations_per_second: parses_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("parses={}, successful={}", total_parses, total_parsed),
+        }
+    }
+    
+    // Helper methods
+    fun generate_sample_text(length: usize) -> String {
+        let words = [
+            "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog",
+            "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing",
+            "elit", "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore",
+            "performance", "benchmark", "testing", "string", "operations", "memory"
+        ]
+        
+        let mut result = String::new()
+        let mut word_index = 0
+        
+        while result.len() < length {
+            if !result.is_empty() {
+                result.push(' ')
+            }
+            result.push_str(words[word_index % words.len()])
+            word_index += 1
+        }
+        
+        result.truncate(length)
+        result
+    }
+    
+    fun estimate_string_memory(count: usize, avg_length: usize) -> i64 {
+        (count * (avg_length + 24)) as i64 // Include String header overhead
+    }
+    
+    fun create_skipped_result(benchmark_name: &str, reason: &str) -> BenchmarkResult {
+        return BenchmarkResult {
+            name: benchmark_name.to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: 0,
+            memory_peak_bytes: 0,
+            operations_per_second: 0.0,
+            success: false,
+            error_message: Some(format!("Skipped: {}", reason)),
+            metadata: "benchmark_skipped".to_string(),
+        }
+    }
+}

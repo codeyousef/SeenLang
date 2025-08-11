@@ -1,0 +1,110 @@
+// Seen Memory Benchmark
+// Tests memory allocation and access patterns
+
+fun benchmark_allocation(size: i32) -> f64 {
+    let iterations = 10000
+    let start = std::time::now()
+    
+    for i in 0..iterations {
+        let vec = Vec::with_capacity(size)
+        for j in 0..size {
+            vec.push(j)
+        }
+        // Vector deallocated here
+    }
+    
+    let elapsed = std::time::now() - start
+    let ops = iterations as f64
+    return ops / elapsed.as_secs_f64()
+}
+
+fun benchmark_sequential_access(size: i32) -> f64 {
+    let vec = Vec::new()
+    for i in 0..size {
+        vec.push(i)
+    }
+    
+    let iterations = 100000
+    let start = std::time::now()
+    let mut sum = 0
+    
+    for _ in 0..iterations {
+        for i in 0..size {
+            sum = sum + vec[i]
+        }
+    }
+    
+    let elapsed = std::time::now() - start
+    let ops = (iterations * size) as f64
+    return ops / elapsed.as_secs_f64()
+}
+
+fun benchmark_random_access(size: i32) -> f64 {
+    let vec = Vec::new()
+    for i in 0..size {
+        vec.push(i)
+    }
+    
+    let iterations = 100000
+    let start = std::time::now()
+    let mut sum = 0
+    
+    for i in 0..iterations {
+        let index = (i * 7919) % size  // Prime number for pseudo-random access
+        sum = sum + vec[index]
+    }
+    
+    let elapsed = std::time::now() - start
+    let ops = iterations as f64
+    return ops / elapsed.as_secs_f64()
+}
+
+fun main() {
+    let args = std::env::args()
+    let size = if args.len() > 1 {
+        args[1].parse_i32().unwrap_or(1000)
+    } else {
+        1000
+    }
+    
+    println("=== Seen Memory Benchmarks ===")
+    println("Array size: " + size.to_string())
+    println("")
+    
+    print("allocation: ")
+    let alloc_ops = benchmark_allocation(size)
+    println(alloc_ops.to_string() + " allocs/sec")
+    
+    print("sequential_access: ")
+    let seq_ops = benchmark_sequential_access(size)
+    println(format_ops_per_sec(seq_ops))
+    
+    print("random_access: ")
+    let rand_ops = benchmark_random_access(size)
+    println(format_ops_per_sec(rand_ops))
+    
+    if args.len() > 2 {
+        let output_file = args[2]
+        let json = "{
+  \"language\": \"Seen\",
+  \"array_size\": " + size.to_string() + ",
+  \"benchmarks\": {
+    \"allocation\": " + alloc_ops.to_string() + ",
+    \"sequential_access\": " + seq_ops.to_string() + ",
+    \"random_access\": " + rand_ops.to_string() + "
+  }
+}"
+        std::fs::write_string(output_file, json)
+        println("\nResults saved to: " + output_file)
+    }
+}
+
+fun format_ops_per_sec(ops: f64) -> String {
+    if ops > 1000000000.0 {
+        return (ops / 1000000000.0).to_string() + " billion ops/sec"
+    } else if ops > 1000000.0 {
+        return (ops / 1000000.0).to_string() + " million ops/sec"
+    } else {
+        return ops.to_string() + " ops/sec"
+    }
+}

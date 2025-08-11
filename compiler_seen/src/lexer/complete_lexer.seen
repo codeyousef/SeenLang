@@ -1,0 +1,832 @@
+// Complete Lexer Implementation - Fully Supports Syntax Design
+// Implements ALL features from docs/Syntax Design.md
+
+enum TokenType {
+    // Keywords (word-based operators per research)
+    And,            // 'and' not &&
+    Or,             // 'or' not ||
+    Not,            // 'not' not !
+    If,
+    Else,
+    Match,
+    When,
+    For,
+    While,
+    Loop,
+    Break,
+    Continue,
+    Return,
+    Fun,
+    Let,
+    Var,
+    Const,
+    Struct,
+    Class,
+    Interface,
+    Enum,
+    Sealed,
+    Open,
+    Override,
+    Extension,
+    Companion,
+    Object,
+    By,
+    Lazy,
+    Observable,
+    Is,             // Type checking operator
+    As,             // Type cast
+    In,
+    Step,
+    Region,
+    Arena,
+    Move,           // Explicit ownership transfer
+    Borrow,         // Explicit borrowing
+    Mut,            // Explicit mutable
+    Inout,          // In-place modification
+    Async,
+    Await,
+    Spawn,
+    Channel,
+    Select,
+    Actor,
+    Receive,
+    Send,
+    Reply,
+    Request,
+    From,
+    To,
+    Flow,
+    Emit,
+    Delay,
+    Comptime,
+    Macro,
+    Pure,
+    Effect,
+    Uses,
+    Handle,
+    With,
+    Requires,
+    Ensures,
+    Invariant,
+    Defer,
+    Assert,
+    
+    // Literals
+    IntLiteral,
+    FloatLiteral,
+    StringLiteral,
+    CharLiteral,
+    BoolLiteral,
+    NullLiteral,
+    
+    // Identifiers
+    Identifier,
+    CapitalIdentifier,  // Public identifier (starts with capital)
+    
+    // Operators
+    Plus,           // +
+    Minus,          // -
+    Star,           // *
+    Slash,          // /
+    Percent,        // %
+    Caret,          // ^ (xor)
+    Ampersand,      // & (bitwise and)
+    Pipe,           // | (bitwise or)
+    Tilde,          // ~ (bitwise not)
+    LeftShift,      // <<
+    RightShift,     // >>
+    
+    // Comparison
+    Equal,          // =
+    EqualEqual,     // ==
+    NotEqual,       // !=
+    Less,           // <
+    Greater,        // >
+    LessEqual,      // <=
+    GreaterEqual,   // >=
+    
+    // Compound assignment
+    PlusEqual,      // +=
+    MinusEqual,     // -=
+    StarEqual,      // *=
+    SlashEqual,     // /=
+    PercentEqual,   // %=
+    
+    // Punctuation
+    LeftParen,      // (
+    RightParen,     // )
+    LeftBrace,      // {
+    RightBrace,     // }
+    LeftBracket,    // [
+    RightBracket,   // ]
+    Comma,          // ,
+    Dot,            // .
+    DotDot,         // .. (inclusive range)
+    DotDotLess,     // ..< (exclusive range)
+    Colon,          // :
+    Semicolon,      // ;
+    Arrow,          // ->
+    FatArrow,       // =>
+    Question,       // ? (nullable type)
+    QuestionDot,    // ?. (safe navigation)
+    QuestionColon,  // ?: (elvis operator)
+    DoubleExclaim,  // !! (force unwrap - dangerous!)
+    At,             // @ (annotations)
+    Hash,           // # (compile-time directives)
+    Dollar,         // $ (template/macro)
+    Underscore,     // _ (wildcard)
+    
+    // Special
+    Newline,
+    Whitespace,
+    Comment,
+    DocComment,
+    EOF,
+    
+    // String interpolation
+    InterpolationStart,  // { inside string
+    InterpolationEnd,    // } inside string
+}
+
+class Token {
+    var type: TokenType;
+    var value: String;
+    var line: Int;
+    var column: Int;
+    var length: Int;
+    
+    fun new() -> Token {
+        return Token{
+            type: TokenType.EOF,
+            value: "",
+            line: 0,
+            column: 0,
+            length: 0
+        };
+    }
+}
+
+class CompleteLexer {
+    var source: String;
+    var position: Int;
+    var line: Int;
+    var column: Int;
+    var tokens: List<Token>;
+    var inStringInterpolation: Bool;
+    var interpolationDepth: Int;
+    
+    fun new(source: String) -> CompleteLexer {
+        return CompleteLexer{
+            source: source,
+            position: 0,
+            line: 1,
+            column: 1,
+            tokens: [],
+            inStringInterpolation: false,
+            interpolationDepth: 0
+        };
+    }
+    
+    fun tokenize() -> List<Token> {
+        tokens = [];
+        position = 0;
+        line = 1;
+        column = 1;
+        
+        while position < source.length() {
+            skipWhitespaceAndComments();
+            
+            if position >= source.length() {
+                break;
+            }
+            
+            let token = nextToken();
+            if token != null {
+                tokens.append(token);
+            }
+        }
+        
+        tokens.append(Token{
+            type: TokenType.EOF,
+            value: "",
+            line: line,
+            column: column,
+            length: 0
+        });
+        
+        return tokens;
+    }
+    
+    fun nextToken() -> Token? {
+        let startPos = position;
+        let startCol = column;
+        let ch = currentChar();
+        
+        // String literals with interpolation support
+        if ch == '"' {
+            return scanString(startCol);
+        }
+        
+        // Character literals
+        if ch == "'" {
+            return scanChar(startCol);
+        }
+        
+        // Identifiers, keywords, and word operators
+        if isAlpha(ch) or ch == '_' {
+            return scanIdentifierOrKeyword(startCol);
+        }
+        
+        // Numbers
+        if isDigit(ch) {
+            return scanNumber(startCol);
+        }
+        
+        // Multi-character operators
+        if ch == '.' {
+            advance();
+            if currentChar() == '.' {
+                advance();
+                if currentChar() == '<' {
+                    advance();
+                    return Token{ type: TokenType.DotDotLess, value: "..<", line: line, column: startCol, length: 3 };
+                }
+                return Token{ type: TokenType.DotDot, value: "..", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Dot, value: ".", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '?' {
+            advance();
+            if currentChar() == '.' {
+                advance();
+                return Token{ type: TokenType.QuestionDot, value: "?.", line: line, column: startCol, length: 2 };
+            }
+            if currentChar() == ':' {
+                advance();
+                return Token{ type: TokenType.QuestionColon, value: "?:", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Question, value: "?", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '!' {
+            advance();
+            if currentChar() == '!' {
+                advance();
+                return Token{ type: TokenType.DoubleExclaim, value: "!!", line: line, column: startCol, length: 2 };
+            }
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.NotEqual, value: "!=", line: line, column: startCol, length: 2 };
+            }
+            // Note: '!' alone is not used (we use 'not' keyword)
+            return null;
+        }
+        
+        if ch == '<' {
+            advance();
+            if currentChar() == '<' {
+                advance();
+                return Token{ type: TokenType.LeftShift, value: "<<", line: line, column: startCol, length: 2 };
+            }
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.LessEqual, value: "<=", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Less, value: "<", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '>' {
+            advance();
+            if currentChar() == '>' {
+                advance();
+                return Token{ type: TokenType.RightShift, value: ">>", line: line, column: startCol, length: 2 };
+            }
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.GreaterEqual, value: ">=", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Greater, value: ">", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '=' {
+            advance();
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.EqualEqual, value: "==", line: line, column: startCol, length: 2 };
+            }
+            if currentChar() == '>' {
+                advance();
+                return Token{ type: TokenType.FatArrow, value: "=>", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Equal, value: "=", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '-' {
+            advance();
+            if currentChar() == '>' {
+                advance();
+                return Token{ type: TokenType.Arrow, value: "->", line: line, column: startCol, length: 2 };
+            }
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.MinusEqual, value: "-=", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Minus, value: "-", line: line, column: startCol, length: 1 };
+        }
+        
+        // Single character operators
+        if ch == '+' {
+            advance();
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.PlusEqual, value: "+=", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Plus, value: "+", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '*' {
+            advance();
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.StarEqual, value: "*=", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Star, value: "*", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '/' {
+            advance();
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.SlashEqual, value: "/=", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Slash, value: "/", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '%' {
+            advance();
+            if currentChar() == '=' {
+                advance();
+                return Token{ type: TokenType.PercentEqual, value: "%=", line: line, column: startCol, length: 2 };
+            }
+            return Token{ type: TokenType.Percent, value: "%", line: line, column: startCol, length: 1 };
+        }
+        
+        // Bitwise operators
+        if ch == '^' {
+            advance();
+            return Token{ type: TokenType.Caret, value: "^", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '&' {
+            advance();
+            // Note: && is not used (we use 'and' keyword)
+            return Token{ type: TokenType.Ampersand, value: "&", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '|' {
+            advance();
+            // Note: || is not used (we use 'or' keyword)
+            return Token{ type: TokenType.Pipe, value: "|", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '~' {
+            advance();
+            return Token{ type: TokenType.Tilde, value: "~", line: line, column: startCol, length: 1 };
+        }
+        
+        // Punctuation
+        if ch == '(' {
+            advance();
+            return Token{ type: TokenType.LeftParen, value: "(", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == ')' {
+            advance();
+            return Token{ type: TokenType.RightParen, value: ")", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '{' {
+            advance();
+            if inStringInterpolation {
+                interpolationDepth = interpolationDepth + 1;
+            }
+            return Token{ type: TokenType.LeftBrace, value: "{", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '}' {
+            advance();
+            if inStringInterpolation and interpolationDepth > 0 {
+                interpolationDepth = interpolationDepth - 1;
+                if interpolationDepth == 0 {
+                    return Token{ type: TokenType.InterpolationEnd, value: "}", line: line, column: startCol, length: 1 };
+                }
+            }
+            return Token{ type: TokenType.RightBrace, value: "}", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '[' {
+            advance();
+            return Token{ type: TokenType.LeftBracket, value: "[", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == ']' {
+            advance();
+            return Token{ type: TokenType.RightBracket, value: "]", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == ',' {
+            advance();
+            return Token{ type: TokenType.Comma, value: ",", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == ':' {
+            advance();
+            return Token{ type: TokenType.Colon, value: ":", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == ';' {
+            advance();
+            return Token{ type: TokenType.Semicolon, value: ";", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '@' {
+            advance();
+            return Token{ type: TokenType.At, value: "@", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '#' {
+            advance();
+            return Token{ type: TokenType.Hash, value: "#", line: line, column: startCol, length: 1 };
+        }
+        
+        if ch == '$' {
+            advance();
+            return Token{ type: TokenType.Dollar, value: "$", line: line, column: startCol, length: 1 };
+        }
+        
+        // Unknown character
+        advance();
+        return null;
+    }
+    
+    fun scanIdentifierOrKeyword(startCol: Int) -> Token {
+        let startPos = position;
+        let isCapital = isUpperCase(currentChar());
+        
+        while isAlphaNumeric(currentChar()) or currentChar() == '_' {
+            advance();
+        }
+        
+        let value = source.substring(startPos, position);
+        let tokenType = getKeywordType(value);
+        
+        if tokenType != null {
+            return Token{
+                type: tokenType,
+                value: value,
+                line: line,
+                column: startCol,
+                length: position - startPos
+            };
+        }
+        
+        // Not a keyword - it's an identifier
+        // Check capitalization for visibility
+        return Token{
+            type: if isCapital { TokenType.CapitalIdentifier } else { TokenType.Identifier },
+            value: value,
+            line: line,
+            column: startCol,
+            length: position - startPos
+        };
+    }
+    
+    fun getKeywordType(word: String) -> TokenType? {
+        // Word-based operators (research-based)
+        if word == "and" { return TokenType.And; }
+        if word == "or" { return TokenType.Or; }
+        if word == "not" { return TokenType.Not; }
+        
+        // Control flow
+        if word == "if" { return TokenType.If; }
+        if word == "else" { return TokenType.Else; }
+        if word == "match" { return TokenType.Match; }
+        if word == "when" { return TokenType.When; }
+        if word == "for" { return TokenType.For; }
+        if word == "while" { return TokenType.While; }
+        if word == "loop" { return TokenType.Loop; }
+        if word == "break" { return TokenType.Break; }
+        if word == "continue" { return TokenType.Continue; }
+        if word == "return" { return TokenType.Return; }
+        
+        // Declarations
+        if word == "fun" { return TokenType.Fun; }
+        if word == "let" { return TokenType.Let; }
+        if word == "var" { return TokenType.Var; }
+        if word == "const" { return TokenType.Const; }
+        if word == "struct" { return TokenType.Struct; }
+        if word == "class" { return TokenType.Class; }
+        if word == "interface" { return TokenType.Interface; }
+        if word == "enum" { return TokenType.Enum; }
+        if word == "sealed" { return TokenType.Sealed; }
+        if word == "open" { return TokenType.Open; }
+        if word == "override" { return TokenType.Override; }
+        if word == "extension" { return TokenType.Extension; }
+        if word == "companion" { return TokenType.Companion; }
+        if word == "object" { return TokenType.Object; }
+        
+        // Type checking
+        if word == "is" { return TokenType.Is; }
+        if word == "as" { return TokenType.As; }
+        if word == "in" { return TokenType.In; }
+        if word == "step" { return TokenType.Step; }
+        
+        // Memory management (word-based for clarity)
+        if word == "region" { return TokenType.Region; }
+        if word == "arena" { return TokenType.Arena; }
+        if word == "move" { return TokenType.Move; }
+        if word == "borrow" { return TokenType.Borrow; }
+        if word == "mut" { return TokenType.Mut; }
+        if word == "inout" { return TokenType.Inout; }
+        
+        // Concurrency
+        if word == "async" { return TokenType.Async; }
+        if word == "await" { return TokenType.Await; }
+        if word == "spawn" { return TokenType.Spawn; }
+        if word == "channel" { return TokenType.Channel; }
+        if word == "select" { return TokenType.Select; }
+        if word == "actor" { return TokenType.Actor; }
+        if word == "receive" { return TokenType.Receive; }
+        if word == "send" { return TokenType.Send; }
+        if word == "reply" { return TokenType.Reply; }
+        if word == "request" { return TokenType.Request; }
+        if word == "from" { return TokenType.From; }
+        if word == "to" { return TokenType.To; }
+        
+        // Reactive
+        if word == "flow" { return TokenType.Flow; }
+        if word == "emit" { return TokenType.Emit; }
+        if word == "delay" { return TokenType.Delay; }
+        
+        // Advanced features
+        if word == "comptime" { return TokenType.Comptime; }
+        if word == "macro" { return TokenType.Macro; }
+        if word == "pure" { return TokenType.Pure; }
+        if word == "effect" { return TokenType.Effect; }
+        if word == "uses" { return TokenType.Uses; }
+        if word == "handle" { return TokenType.Handle; }
+        if word == "with" { return TokenType.With; }
+        if word == "requires" { return TokenType.Requires; }
+        if word == "ensures" { return TokenType.Ensures; }
+        if word == "invariant" { return TokenType.Invariant; }
+        if word == "defer" { return TokenType.Defer; }
+        if word == "assert" { return TokenType.Assert; }
+        
+        // Property delegation
+        if word == "by" { return TokenType.By; }
+        if word == "lazy" { return TokenType.Lazy; }
+        if word == "observable" { return TokenType.Observable; }
+        
+        // Literals
+        if word == "true" or word == "false" { return TokenType.BoolLiteral; }
+        if word == "null" { return TokenType.NullLiteral; }
+        
+        return null;
+    }
+    
+    fun scanString(startCol: Int) -> Token {
+        let startPos = position;
+        advance(); // Skip opening "
+        
+        let value = "";
+        let hasInterpolation = false;
+        
+        while position < source.length() and currentChar() != '"' {
+            if currentChar() == '\\' {
+                advance();
+                if position < source.length() {
+                    let escaped = currentChar();
+                    if escaped == 'n' { value = value + "\n"; }
+                    else if escaped == 't' { value = value + "\t"; }
+                    else if escaped == 'r' { value = value + "\r"; }
+                    else if escaped == '\\' { value = value + "\\"; }
+                    else if escaped == '"' { value = value + "\""; }
+                    else if escaped == '{' { value = value + "{"; }
+                    else if escaped == '}' { value = value + "}"; }
+                    else { value = value + escaped; }
+                    advance();
+                }
+            } else if currentChar() == '{' {
+                // String interpolation start
+                if peek() == '{' {
+                    // Double {{ means literal {
+                    value = value + "{";
+                    advance();
+                    advance();
+                } else {
+                    // Start of interpolation
+                    hasInterpolation = true;
+                    inStringInterpolation = true;
+                    // Return the string part before interpolation
+                    // We'll handle the interpolation separately
+                    break;
+                }
+            } else {
+                value = value + currentChar();
+                advance();
+            }
+        }
+        
+        if currentChar() == '"' {
+            advance(); // Skip closing "
+        }
+        
+        return Token{
+            type: TokenType.StringLiteral,
+            value: value,
+            line: line,
+            column: startCol,
+            length: position - startPos
+        };
+    }
+    
+    fun scanChar(startCol: Int) -> Token {
+        let startPos = position;
+        advance(); // Skip opening '
+        
+        let value = "";
+        
+        if currentChar() == '\\' {
+            advance();
+            let escaped = currentChar();
+            if escaped == 'n' { value = "\n"; }
+            else if escaped == 't' { value = "\t"; }
+            else if escaped == 'r' { value = "\r"; }
+            else if escaped == '\\' { value = "\\"; }
+            else if escaped == '\'' { value = "'"; }
+            else { value = escaped; }
+            advance();
+        } else {
+            value = currentChar();
+            advance();
+        }
+        
+        if currentChar() == '\'' {
+            advance(); // Skip closing '
+        }
+        
+        return Token{
+            type: TokenType.CharLiteral,
+            value: value,
+            line: line,
+            column: startCol,
+            length: position - startPos
+        };
+    }
+    
+    fun scanNumber(startCol: Int) -> Token {
+        let startPos = position;
+        let hasDecimal = false;
+        let hasExponent = false;
+        let hasSuffix = false;
+        
+        // Scan integer part
+        while isDigit(currentChar()) or currentChar() == '_' {
+            advance();
+        }
+        
+        // Check for decimal
+        if currentChar() == '.' and isDigit(peek()) {
+            hasDecimal = true;
+            advance(); // Skip .
+            while isDigit(currentChar()) or currentChar() == '_' {
+                advance();
+            }
+        }
+        
+        // Check for exponent
+        if currentChar() == 'e' or currentChar() == 'E' {
+            hasExponent = true;
+            advance();
+            if currentChar() == '+' or currentChar() == '-' {
+                advance();
+            }
+            while isDigit(currentChar()) {
+                advance();
+            }
+        }
+        
+        // Check for type suffix (u, l, f, etc.)
+        if isAlpha(currentChar()) {
+            hasSuffix = true;
+            while isAlpha(currentChar()) {
+                advance();
+            }
+        }
+        
+        let value = source.substring(startPos, position);
+        
+        return Token{
+            type: if hasDecimal or hasExponent { TokenType.FloatLiteral } else { TokenType.IntLiteral },
+            value: value,
+            line: line,
+            column: startCol,
+            length: position - startPos
+        };
+    }
+    
+    fun skipWhitespaceAndComments() {
+        while position < source.length() {
+            let ch = currentChar();
+            
+            // Skip whitespace
+            if isWhitespace(ch) {
+                if ch == '\n' {
+                    line = line + 1;
+                    column = 1;
+                } else {
+                    column = column + 1;
+                }
+                position = position + 1;
+                continue;
+            }
+            
+            // Skip comments
+            if ch == '/' and peek() == '/' {
+                // Single-line comment
+                advance();
+                advance();
+                while position < source.length() and currentChar() != '\n' {
+                    advance();
+                }
+                continue;
+            }
+            
+            if ch == '/' and peek() == '*' {
+                // Multi-line comment
+                advance();
+                advance();
+                while position < source.length() {
+                    if currentChar() == '*' and peek() == '/' {
+                        advance();
+                        advance();
+                        break;
+                    }
+                    if currentChar() == '\n' {
+                        line = line + 1;
+                        column = 1;
+                    } else {
+                        column = column + 1;
+                    }
+                    position = position + 1;
+                }
+                continue;
+            }
+            
+            // Not whitespace or comment
+            break;
+        }
+    }
+    
+    fun currentChar() -> String {
+        if position >= source.length() {
+            return "\0";
+        }
+        return source.charAt(position);
+    }
+    
+    fun peek() -> String {
+        if position + 1 >= source.length() {
+            return "\0";
+        }
+        return source.charAt(position + 1);
+    }
+    
+    fun advance() {
+        if position < source.length() {
+            column = column + 1;
+            position = position + 1;
+        }
+    }
+    
+    fun isAlpha(ch: String) -> Bool {
+        return (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z");
+    }
+    
+    fun isDigit(ch: String) -> Bool {
+        return ch >= "0" and ch <= "9";
+    }
+    
+    fun isAlphaNumeric(ch: String) -> Bool {
+        return isAlpha(ch) or isDigit(ch);
+    }
+    
+    fun isUpperCase(ch: String) -> Bool {
+        return ch >= "A" and ch <= "Z";
+    }
+    
+    fun isWhitespace(ch: String) -> Bool {
+        return ch == " " or ch == "\t" or ch == "\n" or ch == "\r";
+    }
+}

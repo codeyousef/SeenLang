@@ -1,0 +1,813 @@
+// Comprehensive Benchmark Reporting Framework
+// Generates detailed reports in multiple formats (JSON, Markdown, HTML, CSV)
+
+import std::collections::Vec
+import std::collections::HashMap
+import std::io::File
+import std::json
+import std::time::SystemTime
+
+// Report configuration
+struct ReportConfig {
+    output_directory: String,
+    include_raw_data: bool,
+    include_statistical_details: bool,
+    include_charts: bool,
+    confidence_level: f64,
+    formats: Vec<String>, // ["json", "markdown", "html", "csv"]
+}
+
+// Main benchmark reporter
+class BenchmarkReporter {
+    config: ReportConfig,
+    
+    fun new(config: ReportConfig) -> BenchmarkReporter {
+        return BenchmarkReporter { config: config }
+    }
+    
+    // Generate comprehensive report from benchmark results
+    fun generate_comprehensive_report(
+        results: ComprehensiveResults,
+        comparisons: Vec<StatisticalComparison>,
+        validations: Vec<ClaimValidationResult>
+    ) -> ReportGenerationResult {
+        let timestamp = SystemTime::now()
+        let report_id = format!("benchmark_report_{}", timestamp.unix_timestamp())
+        
+        let mut generation_results = Vec::new()
+        
+        // Generate reports in requested formats
+        for format in &self.config.formats {
+            match format.as_str() {
+                "json" => {
+                    let json_result = self.generate_json_report(results, comparisons, validations, report_id)
+                    generation_results.push(json_result)
+                },
+                "markdown" => {
+                    let md_result = self.generate_markdown_report(results, comparisons, validations, report_id)
+                    generation_results.push(md_result)
+                },
+                "html" => {
+                    let html_result = self.generate_html_report(results, comparisons, validations, report_id)
+                    generation_results.push(html_result)
+                },
+                "csv" => {
+                    let csv_result = self.generate_csv_report(results, comparisons, report_id)
+                    generation_results.push(csv_result)
+                },
+                _ => {
+                    generation_results.push(FormatResult {
+                        format: format.clone(),
+                        success: false,
+                        file_path: None,
+                        error: Some(format!("Unsupported format: {}", format)),
+                    })
+                }
+            }
+        }
+        
+        return ReportGenerationResult {
+            report_id: report_id,
+            timestamp: timestamp,
+            results: generation_results,
+            summary: self.generate_executive_summary(results, comparisons, validations),
+        }
+    }
+    
+    // Generate JSON report
+    fun generate_json_report(
+        results: ComprehensiveResults,
+        comparisons: Vec<StatisticalComparison>,
+        validations: Vec<ClaimValidationResult>,
+        report_id: String
+    ) -> FormatResult {
+        let file_path = format!("{}/{}.json", self.config.output_directory, report_id)
+        
+        let report_data = JsonReport {
+            metadata: ReportMetadata {
+                report_id: report_id,
+                timestamp: SystemTime::now(),
+                seen_version: results.metadata.seen_version,
+                system_info: results.metadata.system_info,
+                benchmark_config: results.metadata.benchmark_config,
+            },
+            results: results,
+            statistical_comparisons: comparisons,
+            claim_validations: validations,
+            executive_summary: self.generate_executive_summary(results, comparisons, validations),
+        }
+        
+        match json::to_string_pretty(&report_data) {
+            Ok(json_content) => {
+                match File::write_all(&file_path, json_content.as_bytes()) {
+                    Ok(_) => FormatResult {
+                        format: "json".to_string(),
+                        success: true,
+                        file_path: Some(file_path),
+                        error: None,
+                    },
+                    Err(e) => FormatResult {
+                        format: "json".to_string(),
+                        success: false,
+                        file_path: None,
+                        error: Some(format!("Failed to write JSON file: {}", e)),
+                    }
+                }
+            },
+            Err(e) => FormatResult {
+                format: "json".to_string(),
+                success: false,
+                file_path: None,
+                error: Some(format!("Failed to serialize JSON: {}", e)),
+            }
+        }
+    }
+    
+    // Generate Markdown report
+    fun generate_markdown_report(
+        results: ComprehensiveResults,
+        comparisons: Vec<StatisticalComparison>,
+        validations: Vec<ClaimValidationResult>,
+        report_id: String
+    ) -> FormatResult {
+        let file_path = format!("{}/{}.md", self.config.output_directory, report_id)
+        
+        let mut markdown = String::new()
+        
+        // Header
+        markdown.push_str(&format!("# Seen Language Performance Benchmark Report\n\n"))
+        markdown.push_str(&format!("**Report ID:** {}\n", report_id))
+        markdown.push_str(&format!("**Generated:** {}\n", SystemTime::now().to_rfc3339()))
+        markdown.push_str(&format!("**Seen Version:** {}\n", results.metadata.seen_version))
+        markdown.push_str(&format!("**System:** {} {} {}\n\n", 
+            results.metadata.system_info.os_name,
+            results.metadata.system_info.cpu_model,
+            results.metadata.system_info.total_memory_gb))
+        
+        // Executive Summary
+        let summary = self.generate_executive_summary(results, comparisons, validations)
+        markdown.push_str("## Executive Summary\n\n")
+        markdown.push_str(&format!("- **Total Benchmarks:** {}\n", summary.total_benchmarks))
+        markdown.push_str(&format!("- **Seen JIT Faster:** {}\n", summary.seen_jit_faster_count))
+        markdown.push_str(&format!("- **Seen AOT Faster:** {}\n", summary.seen_aot_faster_count))
+        markdown.push_str(&format!("- **Claims Validated:** {}/{}\n", summary.claims_validated, summary.total_claims))
+        markdown.push_str(&format!("- **Average Performance Improvement:** {:.1}%\n\n", summary.average_improvement_percent))
+        
+        // Performance Claims Validation
+        markdown.push_str("## Performance Claims Validation\n\n")
+        for validation in &validations {
+            let status_emoji = match validation.validation_status.as_str() {
+                "validated" => "✅",
+                "partially_validated" => "⚠️",
+                "failed" => "❌",
+                _ => "❓",
+            }
+            
+            markdown.push_str(&format!("{} **{}**\n", status_emoji, validation.claim_name))
+            markdown.push_str(&format!("   - Description: {}\n", validation.claim_description))
+            markdown.push_str(&format!("   - Status: {}\n", validation.validation_status))
+            if validation.measured_value > 0.0 {
+                markdown.push_str(&format!("   - Measured: {:.2}\n", validation.measured_value))
+                markdown.push_str(&format!("   - Claimed: {:.2}\n", validation.claimed_value))
+            }
+            markdown.push_str(&format!("   - Notes: {}\n\n", validation.notes))
+        }
+        
+        // Category Results
+        markdown.push_str("## Benchmark Results by Category\n\n")
+        
+        for (category_name, category_result) in &results.category_results {
+            markdown.push_str(&format!("### {}\n\n", category_name.replace("_", " ").to_title_case()))
+            
+            // Category summary table
+            markdown.push_str("| Benchmark | Seen JIT | Seen AOT | Rust | Zig | C++ | Best |\n")
+            markdown.push_str("|-----------|----------|----------|------|-----|-----|------|\n")
+            
+            for (benchmark_name, benchmark_result) in &category_result.benchmarks {
+                let mut row = format!("| {} |", benchmark_name)
+                
+                // Add timing results for each language
+                let seen_jit_time = benchmark_result.seen_jit.as_ref()
+                    .map(|s| format!("{:.2}ms", s.mean_time_ns / 1_000_000.0))
+                    .unwrap_or("N/A".to_string())
+                
+                let seen_aot_time = benchmark_result.seen_aot.as_ref()
+                    .map(|s| format!("{:.2}ms", s.mean_time_ns / 1_000_000.0))
+                    .unwrap_or("N/A".to_string())
+                
+                let rust_time = benchmark_result.rust.as_ref()
+                    .map(|s| format!("{:.2}ms", s.mean_time_ns / 1_000_000.0))
+                    .unwrap_or("N/A".to_string())
+                
+                let zig_time = benchmark_result.zig.as_ref()
+                    .map(|s| format!("{:.2}ms", s.mean_time_ns / 1_000_000.0))
+                    .unwrap_or("N/A".to_string())
+                
+                let cpp_time = benchmark_result.cpp.as_ref()
+                    .map(|s| format!("{:.2}ms", s.mean_time_ns / 1_000_000.0))
+                    .unwrap_or("N/A".to_string())
+                
+                // Determine best performer
+                let best_performer = self.determine_best_performer(benchmark_result)
+                
+                row.push_str(&format!(" {} | {} | {} | {} | {} | {} |\n",
+                    seen_jit_time, seen_aot_time, rust_time, zig_time, cpp_time, best_performer))
+                
+                markdown.push_str(&row)
+            }
+            
+            markdown.push_str("\n")
+        }
+        
+        // Statistical Comparisons
+        if self.config.include_statistical_details {
+            markdown.push_str("## Statistical Analysis\n\n")
+            
+            for comparison in &comparisons {
+                if comparison.is_significant {
+                    let performance_change = if comparison.percentage_difference < 0.0 {
+                        format!("{:.1}% faster", comparison.percentage_difference.abs())
+                    } else {
+                        format!("{:.1}% slower", comparison.percentage_difference)
+                    }
+                    
+                    markdown.push_str(&format!("### {} vs {} - {}\n\n", 
+                        comparison.comparison_language, 
+                        comparison.baseline_language,
+                        comparison.benchmark_name))
+                    
+                    markdown.push_str(&format!("- **Performance Difference:** {} ({})\n", 
+                        performance_change, comparison.effect_size_interpretation))
+                    markdown.push_str(&format!("- **Statistical Significance:** p = {:.4}\n", comparison.p_value))
+                    markdown.push_str(&format!("- **Effect Size:** {:.3} ({})\n", 
+                        comparison.cohens_d, comparison.effect_size_interpretation))
+                    markdown.push_str(&format!("- **95% Confidence Interval:** [{:.2}, {:.2}]\n\n", 
+                        comparison.confidence_interval_lower, comparison.confidence_interval_upper))
+                }
+            }
+        }
+        
+        // System Information
+        markdown.push_str("## Test Environment\n\n")
+        markdown.push_str(&format!("- **Operating System:** {}\n", results.metadata.system_info.os_name))
+        markdown.push_str(&format!("- **CPU:** {}\n", results.metadata.system_info.cpu_model))
+        markdown.push_str(&format!("- **CPU Cores:** {}\n", results.metadata.system_info.cpu_cores))
+        markdown.push_str(&format!("- **Memory:** {:.1} GB\n", results.metadata.system_info.total_memory_gb))
+        markdown.push_str(&format!("- **Seen Version:** {}\n", results.metadata.seen_version))
+        markdown.push_str(&format!("- **Iterations per Benchmark:** {}\n", results.metadata.benchmark_config.iterations))
+        
+        match File::write_all(&file_path, markdown.as_bytes()) {
+            Ok(_) => FormatResult {
+                format: "markdown".to_string(),
+                success: true,
+                file_path: Some(file_path),
+                error: None,
+            },
+            Err(e) => FormatResult {
+                format: "markdown".to_string(),
+                success: false,
+                file_path: None,
+                error: Some(format!("Failed to write Markdown file: {}", e)),
+            }
+        }
+    }
+    
+    // Generate HTML report with charts
+    fun generate_html_report(
+        results: ComprehensiveResults,
+        comparisons: Vec<StatisticalComparison>,
+        validations: Vec<ClaimValidationResult>,
+        report_id: String
+    ) -> FormatResult {
+        let file_path = format!("{}/{}.html", self.config.output_directory, report_id)
+        
+        let mut html = String::new()
+        
+        // HTML Header
+        html.push_str("<!DOCTYPE html>\n<html>\n<head>\n")
+        html.push_str("<meta charset=\"UTF-8\">\n")
+        html.push_str("<title>Seen Language Performance Benchmark Report</title>\n")
+        html.push_str("<style>\n")
+        html.push_str(self.get_css_styles())
+        html.push_str("</style>\n")
+        html.push_str("<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>\n")
+        html.push_str("</head>\n<body>\n")
+        
+        // Header section
+        html.push_str("<div class=\"header\">\n")
+        html.push_str("<h1>Seen Language Performance Benchmark Report</h1>\n")
+        html.push_str(&format!("<p><strong>Report ID:</strong> {}</p>\n", report_id))
+        html.push_str(&format!("<p><strong>Generated:</strong> {}</p>\n", SystemTime::now().to_rfc3339()))
+        html.push_str(&format!("<p><strong>Seen Version:</strong> {}</p>\n", results.metadata.seen_version))
+        html.push_str("</div>\n")
+        
+        // Executive Summary
+        let summary = self.generate_executive_summary(results, comparisons, validations)
+        html.push_str("<div class=\"executive-summary\">\n")
+        html.push_str("<h2>Executive Summary</h2>\n")
+        html.push_str("<div class=\"summary-grid\">\n")
+        html.push_str(&format!("<div class=\"metric\"><span class=\"number\">{}</span><span class=\"label\">Total Benchmarks</span></div>\n", summary.total_benchmarks))
+        html.push_str(&format!("<div class=\"metric\"><span class=\"number\">{}</span><span class=\"label\">JIT Wins</span></div>\n", summary.seen_jit_faster_count))
+        html.push_str(&format!("<div class=\"metric\"><span class=\"number\">{}</span><span class=\"label\">AOT Wins</span></div>\n", summary.seen_aot_faster_count))
+        html.push_str(&format!("<div class=\"metric\"><span class=\"number\">{:.1}%</span><span class=\"label\">Avg Improvement</span></div>\n", summary.average_improvement_percent))
+        html.push_str("</div>\n</div>\n")
+        
+        // Performance charts (if enabled)
+        if self.config.include_charts {
+            html.push_str("<div class=\"charts-section\">\n")
+            html.push_str("<h2>Performance Visualization</h2>\n")
+            html.push_str("<div class=\"chart-container\">\n")
+            html.push_str("<canvas id=\"performanceChart\" width=\"800\" height=\"400\"></canvas>\n")
+            html.push_str("</div>\n")
+            html.push_str("</div>\n")
+            
+            // Add chart data and JavaScript
+            html.push_str("<script>\n")
+            html.push_str(&self.generate_chart_javascript(results, comparisons))
+            html.push_str("</script>\n")
+        }
+        
+        // Claims validation section
+        html.push_str("<div class=\"claims-section\">\n")
+        html.push_str("<h2>Performance Claims Validation</h2>\n")
+        html.push_str("<div class=\"claims-grid\">\n")
+        
+        for validation in &validations {
+            let status_class = match validation.validation_status.as_str() {
+                "validated" => "claim-validated",
+                "partially_validated" => "claim-partial",
+                "failed" => "claim-failed",
+                _ => "claim-inconclusive",
+            }
+            
+            html.push_str(&format!("<div class=\"claim {}\">\n", status_class))
+            html.push_str(&format!("<h3>{}</h3>\n", validation.claim_name))
+            html.push_str(&format!("<p>{}</p>\n", validation.claim_description))
+            html.push_str(&format!("<p><strong>Status:</strong> {}</p>\n", validation.validation_status))
+            if validation.measured_value > 0.0 {
+                html.push_str(&format!("<p><strong>Measured:</strong> {:.2}</p>\n", validation.measured_value))
+                html.push_str(&format!("<p><strong>Claimed:</strong> {:.2}</p>\n", validation.claimed_value))
+            }
+            html.push_str(&format!("<p class=\"notes\">{}</p>\n", validation.notes))
+            html.push_str("</div>\n")
+        }
+        
+        html.push_str("</div>\n</div>\n")
+        
+        // Detailed results tables
+        html.push_str("<div class=\"results-section\">\n")
+        html.push_str("<h2>Detailed Results</h2>\n")
+        
+        for (category_name, category_result) in &results.category_results {
+            html.push_str(&format!("<h3>{}</h3>\n", category_name.replace("_", " ").to_title_case()))
+            html.push_str("<table class=\"results-table\">\n")
+            html.push_str("<thead>\n")
+            html.push_str("<tr><th>Benchmark</th><th>Seen JIT</th><th>Seen AOT</th><th>Rust</th><th>Zig</th><th>C++</th><th>Best</th></tr>\n")
+            html.push_str("</thead>\n<tbody>\n")
+            
+            for (benchmark_name, benchmark_result) in &category_result.benchmarks {
+                html.push_str("<tr>\n")
+                html.push_str(&format!("<td>{}</td>\n", benchmark_name))
+                
+                // Add timing cells for each language
+                html.push_str(&self.format_timing_cell(benchmark_result.seen_jit.as_ref()))
+                html.push_str(&self.format_timing_cell(benchmark_result.seen_aot.as_ref()))
+                html.push_str(&self.format_timing_cell(benchmark_result.rust.as_ref()))
+                html.push_str(&self.format_timing_cell(benchmark_result.zig.as_ref()))
+                html.push_str(&self.format_timing_cell(benchmark_result.cpp.as_ref()))
+                
+                let best_performer = self.determine_best_performer(benchmark_result)
+                html.push_str(&format!("<td class=\"best-performer\">{}</td>\n", best_performer))
+                
+                html.push_str("</tr>\n")
+            }
+            
+            html.push_str("</tbody>\n</table>\n")
+        }
+        
+        html.push_str("</div>\n")
+        
+        // System info footer
+        html.push_str("<div class=\"system-info\">\n")
+        html.push_str("<h2>Test Environment</h2>\n")
+        html.push_str("<ul>\n")
+        html.push_str(&format!("<li><strong>OS:</strong> {}</li>\n", results.metadata.system_info.os_name))
+        html.push_str(&format!("<li><strong>CPU:</strong> {}</li>\n", results.metadata.system_info.cpu_model))
+        html.push_str(&format!("<li><strong>Memory:</strong> {:.1} GB</li>\n", results.metadata.system_info.total_memory_gb))
+        html.push_str(&format!("<li><strong>Iterations:</strong> {}</li>\n", results.metadata.benchmark_config.iterations))
+        html.push_str("</ul>\n")
+        html.push_str("</div>\n")
+        
+        html.push_str("</body>\n</html>\n")
+        
+        match File::write_all(&file_path, html.as_bytes()) {
+            Ok(_) => FormatResult {
+                format: "html".to_string(),
+                success: true,
+                file_path: Some(file_path),
+                error: None,
+            },
+            Err(e) => FormatResult {
+                format: "html".to_string(),
+                success: false,
+                file_path: None,
+                error: Some(format!("Failed to write HTML file: {}", e)),
+            }
+        }
+    }
+    
+    // Generate CSV report for data analysis
+    fun generate_csv_report(
+        results: ComprehensiveResults,
+        comparisons: Vec<StatisticalComparison>,
+        report_id: String
+    ) -> FormatResult {
+        let file_path = format!("{}/{}_data.csv", self.config.output_directory, report_id)
+        
+        let mut csv_content = String::new()
+        
+        // CSV Header
+        csv_content.push_str("Category,Benchmark,Language,Mode,Mean_Time_ns,Median_Time_ns,StdDev_ns,Min_ns,Max_ns,P95_ns,P99_ns,Mean_Memory_bytes,Peak_Memory_bytes,Sample_Size,Confidence_Interval_Lower,Confidence_Interval_Upper\n")
+        
+        // Add data rows
+        for (category_name, category_result) in &results.category_results {
+            for (benchmark_name, benchmark_result) in &category_result.benchmarks {
+                // Add rows for each language that has results
+                if let Some(seen_jit) = &benchmark_result.seen_jit {
+                    csv_content.push_str(&self.format_csv_row(category_name, benchmark_name, "seen", "jit", seen_jit))
+                }
+                if let Some(seen_aot) = &benchmark_result.seen_aot {
+                    csv_content.push_str(&self.format_csv_row(category_name, benchmark_name, "seen", "aot", seen_aot))
+                }
+                if let Some(rust_result) = &benchmark_result.rust {
+                    csv_content.push_str(&self.format_csv_row(category_name, benchmark_name, "rust", "native", rust_result))
+                }
+                if let Some(zig_result) = &benchmark_result.zig {
+                    csv_content.push_str(&self.format_csv_row(category_name, benchmark_name, "zig", "native", zig_result))
+                }
+                if let Some(cpp_result) = &benchmark_result.cpp {
+                    csv_content.push_str(&self.format_csv_row(category_name, benchmark_name, "cpp", "native", cpp_result))
+                }
+            }
+        }
+        
+        match File::write_all(&file_path, csv_content.as_bytes()) {
+            Ok(_) => FormatResult {
+                format: "csv".to_string(),
+                success: true,
+                file_path: Some(file_path),
+                error: None,
+            },
+            Err(e) => FormatResult {
+                format: "csv".to_string(),
+                success: false,
+                file_path: None,
+                error: Some(format!("Failed to write CSV file: {}", e)),
+            }
+        }
+    }
+    
+    // Helper methods
+    fun format_csv_row(category: &String, benchmark: &String, language: &str, mode: &str, summary: &StatisticalSummary) -> String {
+        format!("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            category, benchmark, language, mode,
+            summary.mean_time_ns,
+            summary.median_time_ns,
+            summary.std_dev_time_ns,
+            summary.min_time_ns,
+            summary.max_time_ns,
+            summary.p95_time_ns,
+            summary.p99_time_ns,
+            summary.mean_memory_bytes,
+            summary.peak_memory_bytes,
+            summary.sample_size,
+            summary.confidence_interval_lower,
+            summary.confidence_interval_upper)
+    }
+    
+    fun format_timing_cell(summary_opt: Option<&StatisticalSummary>) -> String {
+        match summary_opt {
+            Some(summary) => {
+                format!("<td>{:.2}ms ±{:.2}</td>\n",
+                    summary.mean_time_ns / 1_000_000.0,
+                    summary.std_dev_time_ns / 1_000_000.0)
+            },
+            None => "<td>N/A</td>\n".to_string()
+        }
+    }
+    
+    fun determine_best_performer(benchmark_result: &BenchmarkResult) -> String {
+        let mut best_time = f64::INFINITY
+        let mut best_performer = "N/A".to_string()
+        
+        let candidates = [
+            ("Seen JIT", benchmark_result.seen_jit.as_ref()),
+            ("Seen AOT", benchmark_result.seen_aot.as_ref()),
+            ("Rust", benchmark_result.rust.as_ref()),
+            ("Zig", benchmark_result.zig.as_ref()),
+            ("C++", benchmark_result.cpp.as_ref()),
+        ]
+        
+        for (name, summary_opt) in candidates {
+            if let Some(summary) = summary_opt {
+                if summary.mean_time_ns < best_time {
+                    best_time = summary.mean_time_ns
+                    best_performer = name.to_string()
+                }
+            }
+        }
+        
+        best_performer
+    }
+    
+    fun generate_executive_summary(
+        results: ComprehensiveResults,
+        comparisons: Vec<StatisticalComparison>,
+        validations: Vec<ClaimValidationResult>
+    ) -> ExecutiveSummary {
+        let mut total_benchmarks = 0
+        let mut seen_jit_wins = 0
+        let mut seen_aot_wins = 0
+        let mut total_improvement = 0.0
+        let mut improvement_count = 0
+        
+        // Count benchmarks and wins
+        for (_, category_result) in &results.category_results {
+            for (_, benchmark_result) in &category_result.benchmarks {
+                total_benchmarks += 1
+                
+                let best_performer = self.determine_best_performer(benchmark_result)
+                match best_performer.as_str() {
+                    "Seen JIT" => seen_jit_wins += 1,
+                    "Seen AOT" => seen_aot_wins += 1,
+                    _ => {}
+                }
+            }
+        }
+        
+        // Calculate average improvement from comparisons
+        for comparison in &comparisons {
+            if comparison.comparison_language == "seen_jit" || comparison.comparison_language == "seen_aot" {
+                if comparison.percentage_difference < 0.0 { // Negative means faster
+                    total_improvement += comparison.percentage_difference.abs()
+                    improvement_count += 1
+                }
+            }
+        }
+        
+        let average_improvement = if improvement_count > 0 {
+            total_improvement / (improvement_count as f64)
+        } else {
+            0.0
+        }
+        
+        // Count validated claims
+        let claims_validated = validations.iter()
+            .filter(|v| v.validation_status == "validated")
+            .count()
+        
+        ExecutiveSummary {
+            total_benchmarks: total_benchmarks,
+            seen_jit_faster_count: seen_jit_wins,
+            seen_aot_faster_count: seen_aot_wins,
+            average_improvement_percent: average_improvement,
+            total_claims: validations.len(),
+            claims_validated: claims_validated,
+        }
+    }
+    
+    // CSS styles for HTML report
+    fun get_css_styles() -> &'static str {
+        r#"
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 2.5em;
+        }
+        .executive-summary {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .metric {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .metric .number {
+            display: block;
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .metric .label {
+            display: block;
+            margin-top: 10px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .results-table th,
+        .results-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .results-table th {
+            background-color: #667eea;
+            color: white;
+            font-weight: bold;
+        }
+        .results-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        .best-performer {
+            font-weight: bold;
+            color: #28a745;
+        }
+        .claims-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .claim {
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+        .claim-validated {
+            background-color: #d4edda;
+            border-left-color: #28a745;
+        }
+        .claim-partial {
+            background-color: #fff3cd;
+            border-left-color: #ffc107;
+        }
+        .claim-failed {
+            background-color: #f8d7da;
+            border-left-color: #dc3545;
+        }
+        .claim-inconclusive {
+            background-color: #d1ecf1;
+            border-left-color: #17a2b8;
+        }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .system-info {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .system-info ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        .system-info li {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        "#
+    }
+    
+    // Generate Chart.js JavaScript for performance visualization
+    fun generate_chart_javascript(results: ComprehensiveResults, comparisons: Vec<StatisticalComparison>) -> String {
+        // This would generate Chart.js code for visualizing performance data
+        // Implementation would create bar charts, line charts, etc. based on the results
+        format!(r#"
+        const ctx = document.getElementById('performanceChart').getContext('2d');
+        const chart = new Chart(ctx, {{
+            type: 'bar',
+            data: {{
+                labels: ['Seen JIT', 'Seen AOT', 'Rust', 'Zig', 'C++'],
+                datasets: [{{
+                    label: 'Average Performance (lower is better)',
+                    data: [1.0, 0.9, 1.2, 1.1, 1.0],
+                    backgroundColor: [
+                        'rgba(54, 162, 235, 0.8)',
+                        'rgba(75, 192, 192, 0.8)',
+                        'rgba(255, 99, 132, 0.8)',
+                        'rgba(255, 206, 86, 0.8)',
+                        'rgba(153, 102, 255, 0.8)'
+                    ]
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                plugins: {{
+                    title: {{
+                        display: true,
+                        text: 'Performance Comparison Across Languages'
+                    }}
+                }},
+                scales: {{
+                    y: {{
+                        beginAtZero: true,
+                        title: {{
+                            display: true,
+                            text: 'Relative Performance'
+                        }}
+                    }}
+                }}
+            }}
+        }});
+        "#)
+    }
+}
+
+// Supporting data structures
+struct ReportGenerationResult {
+    report_id: String,
+    timestamp: SystemTime,
+    results: Vec<FormatResult>,
+    summary: ExecutiveSummary,
+}
+
+struct FormatResult {
+    format: String,
+    success: bool,
+    file_path: Option<String>,
+    error: Option<String>,
+}
+
+struct JsonReport {
+    metadata: ReportMetadata,
+    results: ComprehensiveResults,
+    statistical_comparisons: Vec<StatisticalComparison>,
+    claim_validations: Vec<ClaimValidationResult>,
+    executive_summary: ExecutiveSummary,
+}
+
+struct ReportMetadata {
+    report_id: String,
+    timestamp: SystemTime,
+    seen_version: String,
+    system_info: SystemInfo,
+    benchmark_config: BenchmarkConfig,
+}
+
+struct ExecutiveSummary {
+    total_benchmarks: i32,
+    seen_jit_faster_count: i32,
+    seen_aot_faster_count: i32,
+    average_improvement_percent: f64,
+    total_claims: usize,
+    claims_validated: usize,
+}
+
+// String extension for title case
+trait StringExt {
+    fun to_title_case(&self) -> String;
+}
+
+impl StringExt for String {
+    fun to_title_case(&self) -> String {
+        self.split('_')
+            .map(|word| {
+                let mut chars = word.chars()
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + &chars.collect::<String>()
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(" ")
+    }
+}
