@@ -1,0 +1,380 @@
+// Integration Tests
+// End-to-end tests for the Seen compiler
+
+use testing::assert::*;
+use testing::runner::*;
+use main_compiler::CompileSeenProgram;
+
+// ============== HELLO WORLD TEST ==============
+
+fun test_compile_hello_world() {
+    let source = """
+    fun main() -> Int {
+        println("Hello, World!");
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_hello");
+    assertTrue(success, "Should compile hello world program");
+}
+
+// ============== FIBONACCI TEST ==============
+
+fun test_compile_fibonacci() {
+    let source = """
+    fun fibonacci(n: Int) -> Int {
+        if n <= 1 {
+            return n;
+        }
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+    
+    fun main() -> Int {
+        let result = fibonacci(10);
+        println("Fibonacci(10) = {result}");
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_fibonacci");
+    assertTrue(success, "Should compile recursive fibonacci");
+}
+
+// ============== FACTORIAL TEST ==============
+
+fun test_compile_factorial() {
+    let source = """
+    fun Factorial(n: Int) -> Int {
+        if n <= 0 or n == 1 {
+            return 1;
+        }
+        return n * Factorial(n - 1);
+    }
+    
+    fun main() -> Int {
+        for i in 1..10 {
+            let result = Factorial(i);
+            println("{i}! = {result}");
+        }
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_factorial");
+    assertTrue(success, "Should compile factorial with word operators and ranges");
+}
+
+// ============== NULLABLE TYPES TEST ==============
+
+fun test_compile_nullable_types() {
+    let source = """
+    struct User {
+        Name: String
+        Age: Int
+    }
+    
+    fun FindUser(id: Int) -> User? {
+        if id == 1 {
+            return User{ Name: "Alice", Age: 30 };
+        }
+        return null;
+    }
+    
+    fun main() -> Int {
+        let user = FindUser(1);
+        let name = user?.Name ?: "Unknown";
+        println("User: {name}");
+        
+        let missing = FindUser(999);
+        let missingName = missing?.Name ?: "Not found";
+        println("Missing user: {missingName}");
+        
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_nullable");
+    assertTrue(success, "Should compile nullable types with safe navigation");
+}
+
+// ============== COLLECTIONS TEST ==============
+
+fun test_compile_collections() {
+    let source = """
+    fun main() -> Int {
+        // Array literal
+        let numbers = [1, 2, 3, 4, 5];
+        
+        // Map literal
+        let ages = {"Alice": 30, "Bob": 25, "Charlie": 35};
+        
+        // Set literal
+        let unique = {1, 2, 3, 2, 1};
+        
+        // Iterate over array
+        for num in numbers {
+            println("Number: {num}");
+        }
+        
+        // Access map
+        let aliceAge = ages["Alice"];
+        println("Alice is {aliceAge} years old");
+        
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_collections");
+    assertTrue(success, "Should compile collection literals");
+}
+
+// ============== CLASS AND METHODS TEST ==============
+
+fun test_compile_classes() {
+    let source = """
+    class Calculator {
+        var total: Int;
+        
+        fun new() -> Calculator {
+            return Calculator{ total: 0 };
+        }
+        
+        fun Add(value: Int) {
+            total = total + value;
+        }
+        
+        fun GetTotal() -> Int {
+            return total;
+        }
+    }
+    
+    fun main() -> Int {
+        let calc = Calculator::new();
+        calc.Add(10);
+        calc.Add(20);
+        calc.Add(30);
+        
+        let result = calc.GetTotal();
+        println("Total: {result}");
+        
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_classes");
+    assertTrue(success, "Should compile classes with methods");
+}
+
+// ============== GENERIC FUNCTIONS TEST ==============
+
+fun test_compile_generics() {
+    let source = """
+    fun Identity<T>(value: T) -> T {
+        return value;
+    }
+    
+    fun Swap<T>(a: T, b: T) -> (T, T) {
+        return (b, a);
+    }
+    
+    fun main() -> Int {
+        let x = Identity(42);
+        let s = Identity("Hello");
+        
+        let (b, a) = Swap(10, 20);
+        println("Swapped: {b}, {a}");
+        
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_generics");
+    assertTrue(success, "Should compile generic functions");
+}
+
+// ============== ERROR HANDLING TEST ==============
+
+fun test_compile_error_handling() {
+    let source = """
+    enum Result<T, E> {
+        Success(value: T)
+        Failure(error: E)
+    }
+    
+    fun divide(a: Int, b: Int) -> Result<Int, String> {
+        if b == 0 {
+            return Result::Failure("Division by zero");
+        }
+        return Result::Success(a / b);
+    }
+    
+    fun main() -> Int {
+        let result = divide(10, 2);
+        
+        match result {
+            Success(value) -> println("Result: {value}")
+            Failure(error) -> println("Error: {error}")
+        }
+        
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_error_handling");
+    assertTrue(success, "Should compile error handling with Result type");
+}
+
+// ============== ASYNC/AWAIT TEST ==============
+
+fun test_compile_async() {
+    let source = """
+    async fun FetchData(url: String) -> String {
+        // Simulate async operation
+        await delay(100);
+        return "Data from {url}";
+    }
+    
+    async fun main() -> Int {
+        let data = await FetchData("https://api.example.com");
+        println("Fetched: {data}");
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_async");
+    assertTrue(success, "Should compile async/await syntax");
+}
+
+// ============== MEMORY MANAGEMENT TEST ==============
+
+fun test_compile_memory_management() {
+    let source = """
+    fun ProcessData(data: String) -> String {
+        // Automatic memory management
+        let processed = data + " [processed]";
+        return processed;
+    }
+    
+    fun main() -> Int {
+        let original = "Hello";
+        
+        // Move semantics
+        let moved = move original;
+        // original no longer accessible
+        
+        // Borrow semantics
+        let result = ProcessData(borrow moved);
+        // moved still accessible
+        
+        println("Result: {result}");
+        println("Original moved: {moved}");
+        
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_memory");
+    assertTrue(success, "Should compile memory management keywords");
+}
+
+// ============== COMPREHENSIVE TEST ==============
+
+fun test_compile_comprehensive() {
+    let source = """
+    // Test all major Seen features
+    
+    // Public class with capitalization
+    class Person {
+        Name: String          // Public field
+        age: Int             // Private field
+        
+        fun new(name: String, age: Int) -> Person {
+            return Person{ Name: name, age: age };
+        }
+        
+        fun GetAge() -> Int {  // Public method
+            return age;
+        }
+        
+        fun birthday() {       // Private method
+            age = age + 1;
+        }
+    }
+    
+    fun ProcessPeople(people: List<Person?>) -> Int {
+        var totalAge = 0;
+        
+        for person in people {
+            // Safe navigation with nullable
+            let age = person?.GetAge() ?: 0;
+            totalAge = totalAge + age;
+        }
+        
+        return totalAge;
+    }
+    
+    fun main() -> Int {
+        // Create people with various features
+        let alice = Person::new("Alice", 30);
+        let bob: Person? = Person::new("Bob", 25);
+        let charlie: Person? = null;
+        
+        // Collection literal
+        let people = [alice, bob, charlie];
+        
+        // Word operators
+        if alice.GetAge() > 20 and bob != null {
+            println("Adults found!");
+        }
+        
+        // String interpolation
+        println("Total people: {people.size()}");
+        
+        // Process with nullable handling
+        let totalAge = ProcessPeople(people);
+        println("Total age: {totalAge}");
+        
+        // Range operator
+        for i in 1..5 {
+            println("Count: {i}");
+        }
+        
+        // Everything is expression
+        let status = if totalAge > 50 { "senior group" } else { "young group" };
+        println("Status: {status}");
+        
+        return 0;
+    }
+    """;
+    
+    let success = CompileSeenProgram(source, "/tmp/test_comprehensive");
+    assertTrue(success, "Should compile comprehensive program with all features");
+}
+
+// ============== TEST SUITE SETUP ==============
+
+fun createIntegrationTestSuite() -> TestSuite {
+    let suite = TestSuite::new("Integration Tests");
+    
+    // Basic programs
+    suite.test("Compile Hello World", test_compile_hello_world);
+    suite.test("Compile Fibonacci", test_compile_fibonacci);
+    suite.test("Compile Factorial", test_compile_factorial);
+    
+    // Language features
+    suite.test("Compile Nullable Types", test_compile_nullable_types);
+    suite.test("Compile Collections", test_compile_collections);
+    suite.test("Compile Classes", test_compile_classes);
+    suite.test("Compile Generics", test_compile_generics);
+    
+    // Advanced features
+    suite.test("Compile Error Handling", test_compile_error_handling);
+    suite.test("Compile Async/Await", test_compile_async);
+    suite.test("Compile Memory Management", test_compile_memory_management);
+    
+    // Comprehensive test
+    suite.test("Compile Comprehensive Program", test_compile_comprehensive);
+    
+    return suite;
+}

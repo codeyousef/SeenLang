@@ -1,0 +1,74 @@
+// Test Runner for All Optimization Tests
+// Runs all test suites to verify implementation correctness
+
+use tests::egraph_optimization_test::runAllEGraphTests;
+use tests::ml_optimization_test::runAllMLOptimizationTests;
+use tests::superoptimization_test::runAllSuperoptimizationTests;
+
+fun main() {
+    println("🚀 Running All Optimization Test Suites\n");
+    println("=" * 60);
+    
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = [];
+    
+    // Run E-graph Optimization Tests
+    println("\n📊 E-GRAPH OPTIMIZATION TESTS");
+    println("-" * 40);
+    try {
+        runAllEGraphTests();
+        passedTests = passedTests + 1;
+        println("✅ E-graph tests: PASSED\n");
+    } catch (e) {
+        failedTests.append("E-graph tests: " + e.toString());
+        println("❌ E-graph tests: FAILED - " + e.toString() + "\n");
+    }
+    totalTests = totalTests + 1;
+    
+    // Run ML Optimization Tests
+    println("\n🧠 MACHINE LEARNING OPTIMIZATION TESTS");
+    println("-" * 40);
+    try {
+        runAllMLOptimizationTests();
+        passedTests = passedTests + 1;
+        println("✅ ML optimization tests: PASSED\n");
+    } catch (e) {
+        failedTests.append("ML optimization tests: " + e.toString());
+        println("❌ ML optimization tests: FAILED - " + e.toString() + "\n");
+    }
+    totalTests = totalTests + 1;
+    
+    // Run Superoptimization Tests
+    println("\n⚡ SUPEROPTIMIZATION ENGINE TESTS");
+    println("-" * 40);
+    try {
+        runAllSuperoptimizationTests();
+        passedTests = passedTests + 1;
+        println("✅ Superoptimization tests: PASSED\n");
+    } catch (e) {
+        failedTests.append("Superoptimization tests: " + e.toString());
+        println("❌ Superoptimization tests: FAILED - " + e.toString() + "\n");
+    }
+    totalTests = totalTests + 1;
+    
+    // Print summary
+    println("\n" + "=" * 60);
+    println("📈 TEST SUMMARY");
+    println("-" * 40);
+    println("Total test suites: " + totalTests.toString());
+    println("Passed: " + passedTests.toString());
+    println("Failed: " + (totalTests - passedTests).toString());
+    
+    if failedTests.size() > 0 {
+        println("\n❌ Failed tests:");
+        for failure in failedTests {
+            println("  - " + failure);
+        }
+        println("\n⚠️  TESTS FAILED - Please fix issues before proceeding");
+        return 1; // Exit with error code
+    } else {
+        println("\n🎉 ALL TESTS PASSED! Ready for production.");
+        return 0; // Exit successfully
+    }
+}
