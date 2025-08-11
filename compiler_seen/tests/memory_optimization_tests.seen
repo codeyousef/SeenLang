@@ -1,0 +1,511 @@
+// Advanced Memory Optimization Tests
+// Verify zero-overhead memory management
+
+use optimization::memory::memory_optimizer::MemoryOptimizer;
+use testing::assert::*;
+
+fun createMemoryOptimizationTestSuite() -> TestSuite {
+    let suite = TestSuite::new("Advanced Memory Optimization");
+    
+    suite.addTest(TestCase::new("Zero-overhead memory management", test_zero_overhead));
+    suite.addTest(TestCase::new("Better than manual malloc/free", test_better_than_malloc));
+    suite.addTest(TestCase::new("Cache-optimal layouts", test_cache_optimal));
+    suite.addTest(TestCase::new("NUMA-aware allocation", test_numa_aware));
+    suite.addTest(TestCase::new("Works with all architectures", test_all_architectures));
+    suite.addTest(TestCase::new("Pointer compression", test_pointer_compression));
+    suite.addTest(TestCase::new("Memory pooling", test_memory_pooling));
+    suite.addTest(TestCase::new("TLB optimization", test_tlb_optimization));
+    
+    return suite;
+}
+
+// Test: Zero-overhead memory management
+fun test_zero_overhead() {
+    let optimizer = MemoryOptimizer::new();
+    let source = createMemoryIntensiveSource();
+    
+    // Compile with memory optimization
+    let optimized = optimizer.Optimize(source.toIR());
+    
+    // Measure memory overhead
+    let overhead = measureMemoryOverhead(optimized);
+    
+    // Should have near-zero overhead
+    assertTrue(overhead < 0.01, "Memory overhead should be < 1%");
+    
+    // Verify no unnecessary allocations
+    let unnecessaryAllocs = findUnnecessaryAllocations(optimized);
+    assertEquals(0, unnecessaryAllocs.size, "Should have no unnecessary allocations");
+    
+    // Check memory is returned properly
+    let leaks = detectMemoryLeaks(optimized);
+    assertEquals(0, leaks.size, "Should have no memory leaks");
+}
+
+// Test: Better than manual malloc/free
+fun test_better_than_malloc() {
+    let optimizer = MemoryOptimizer::new();
+    
+    // Test various allocation patterns
+    let patterns = [
+        "frequent_small",     // Many small allocations
+        "infrequent_large",   // Few large allocations
+        "mixed_sizes",        // Mixed allocation sizes
+        "short_lived",        // Temporary allocations
+        "long_lived"          // Persistent allocations
+    ];
+    
+    for pattern in patterns {
+        let source = createAllocationPattern(pattern);
+        
+        // Compare with manual malloc/free
+        let manual = compileWithMalloc(source);
+        let optimized = optimizer.Optimize(source.toIR());
+        
+        let manualPerf = benchmark(manual);
+        let optimizedPerf = benchmark(optimized);
+        
+        // Should be faster than malloc/free
+        assertTrue(
+            optimizedPerf.time < manualPerf.time,
+            "Should be faster than malloc for {pattern}"
+        );
+        
+        // Should use less memory
+        assertTrue(
+            optimizedPerf.memory < manualPerf.memory,
+            "Should use less memory than malloc for {pattern}"
+        );
+    }
+}
+
+// Test: Cache-optimal layouts
+fun test_cache_optimal() {
+    let optimizer = MemoryOptimizer::new();
+    
+    // Create struct with hot and cold fields
+    let source = Source::fromString("""
+        struct User {
+            // Hot fields (frequently accessed)
+            id: Int;           // 8 bytes
+            active: Bool;      // 1 byte
+            score: Float;      // 8 bytes
+            
+            // Cold fields (rarely accessed)
+            created: Timestamp;     // 8 bytes
+            metadata: String;       // 16 bytes
+            history: List<Event>;   // 24 bytes
+        }
+        
+        fun processUsers(users: List<User>) {
+            for user in users {
+                // Hot path - access hot fields frequently
+                for i in 0..1000 {
+                    if user.active {
+                        user.score = user.score + compute(user.id);
+                    }
+                }
+                
+                // Cold path - rarely access cold fields
+                if random() < 0.01 {
+                    updateMetadata(user.metadata);
+                }
+            }
+        }
+    """);
+    
+    let ir = source.toIR();
+    let optimized = optimizer.Optimize(ir);
+    
+    // Check struct layout optimization
+    let userStruct = optimized.findStruct("User");
+    
+    // Hot fields should be grouped together
+    let hotFields = userStruct.fields.take(3);
+    let hotSize = hotFields.sum { it.size };
+    assertTrue(hotSize <= 64, "Hot fields should fit in cache line");
+    
+    // Should be properly aligned
+    for field in hotFields {
+        assertTrue(
+            field.offset % field.alignment == 0,
+            "Field {field.name} should be properly aligned"
+        );
+    }
+    
+    // Check for structure splitting
+    if optimized.hasStruct("User_hot") {
+        let hotStruct = optimized.findStruct("User_hot");
+        assertTrue(hotStruct.size <= 64, "Hot struct should fit in cache line");
+    }
+    
+    // Verify cache miss reduction
+    let cacheMisses = simulateCacheMisses(optimized);
+    let baselineMisses = simulateCacheMisses(ir);
+    
+    assertTrue(
+        cacheMisses < baselineMisses * 0.5,
+        "Should reduce cache misses by at least 50%"
+    );
+}
+
+// Test: NUMA-aware allocation
+fun test_numa_aware() {
+    let optimizer = MemoryOptimizer::new();
+    
+    // Create multi-threaded workload
+    let source = Source::fromString("""
+        fun parallel_compute() {
+            let data = allocate_large(1_000_000);
+            
+            parallel_for(0..num_threads()) { thread_id ->
+                let start = thread_id * chunk_size();
+                let end = (thread_id + 1) * chunk_size();
+                
+                for i in start..end {
+                    data[i] = compute(i);
+                }
+            }
+        }
+    """);
+    
+    let ir = source.toIR();
+    let optimized = optimizer.Optimize(ir);
+    
+    // Check NUMA optimization
+    if isNUMASystem() {
+        // Verify allocations are NUMA-aware
+        let allocations = optimized.findAllocations();
+        
+        for alloc in allocations {
+            if alloc.size > 4096 {  // Large allocations
+                assertTrue(
+                    alloc.hasFlag(AllocFlag::NUMA_LOCAL),
+                    "Large allocation should be NUMA-local"
+                );
+                
+                assertNotNull(
+                    alloc.numaNode,
+                    "Should specify NUMA node"
+                );
+            }
+        }
+        
+        // Check for memory migration hints
+        let migrations = optimized.findMigrationHints();
+        assertTrue(migrations.size > 0, "Should have migration hints for NUMA");
+    }
+    
+    // Performance should improve on NUMA systems
+    if isNUMASystem() {
+        let baseline = compileWithoutNUMA(source);
+        let optimizedBinary = compile(optimized);
+        
+        let baselinePerf = benchmarkNUMA(baseline);
+        let optimizedPerf = benchmarkNUMA(optimizedBinary);
+        
+        assertTrue(
+            optimizedPerf < baselinePerf * 0.8,
+            "Should improve NUMA performance by 20%"
+        );
+    }
+}
+
+// Test: Works with all architectures
+fun test_all_architectures() {
+    let optimizer = MemoryOptimizer::new();
+    let source = createMemoryIntensiveSource();
+    
+    let architectures = [
+        "x86_64",
+        "arm64", 
+        "riscv64",
+        "wasm32"
+    ];
+    
+    for arch in architectures {
+        source.setTargetArchitecture(arch);
+        let ir = source.toIR();
+        let optimized = optimizer.Optimize(ir);
+        
+        // Verify architecture-specific optimizations
+        if arch == "x86_64" {
+            // Check for x86-specific prefetch instructions
+            let prefetches = optimized.findInstructions("prefetchnta");
+            assertTrue(prefetches.size > 0, "Should use x86 prefetch");
+            
+            // Check for huge pages
+            let hugePages = optimized.findHugePageAllocs();
+            assertTrue(hugePages.size > 0, "Should use huge pages on x86");
+        } else if arch == "arm64" {
+            // Check for ARM-specific optimizations
+            let prefetches = optimized.findInstructions("prfm");
+            assertTrue(prefetches.size > 0, "Should use ARM prefetch");
+            
+            // Check for cache maintenance operations
+            let dcOperations = optimized.findInstructions("dc");
+            assertTrue(dcOperations.size > 0, "Should use data cache ops");
+        } else if arch == "riscv64" {
+            // Check for RISC-V optimizations
+            let prefetches = optimized.findInstructions("prefetch.r");
+            assertTrue(prefetches.size > 0, "Should use RISC-V prefetch");
+        } else if arch == "wasm32" {
+            // Check for WASM memory optimizations
+            let memory = optimized.findMemorySection();
+            assertTrue(memory.isOptimized, "Should optimize WASM memory");
+        }
+        
+        // All architectures should have optimized memory access
+        assertTrue(
+            optimized.hasMemoryOptimizations(),
+            "Should have memory optimizations for {arch}"
+        );
+    }
+}
+
+// Test: Pointer compression
+fun test_pointer_compression() {
+    let optimizer = MemoryOptimizer::new();
+    
+    // Create code with many pointers
+    let source = Source::fromString("""
+        struct Node {
+            value: Int;
+            left: Node?;
+            right: Node?;
+            parent: Node?;
+        }
+        
+        fun buildTree(size: Int) -> Node {
+            let nodes = List<Node>::withCapacity(size);
+            // Build large tree structure
+            for i in 0..size {
+                nodes.append(Node{ value: i });
+            }
+            // Connect nodes...
+            return nodes[0];
+        }
+    """);
+    
+    let ir = source.toIR();
+    let optimized = optimizer.Optimize(ir);
+    
+    // Check pointer compression
+    let nodeStruct = optimized.findStruct("Node");
+    
+    // Pointers should be compressed to 32-bit offsets
+    for field in nodeStruct.fields {
+        if field.type.isPointer() {
+            assertTrue(
+                field.compressed,
+                "Pointer field {field.name} should be compressed"
+            );
+            assertEquals(4, field.size, "Compressed pointer should be 32-bit");
+        }
+    }
+    
+    // Check decompression at use sites
+    let dereferences = optimized.findDereferences();
+    for deref in dereferences {
+        if deref.operand.isCompressed() {
+            assertTrue(
+                deref.hasDecompression(),
+                "Should decompress before dereference"
+            );
+        }
+    }
+    
+    // Memory usage should decrease
+    let originalSize = calculateMemoryUsage(ir);
+    let optimizedSize = calculateMemoryUsage(optimized);
+    
+    assertTrue(
+        optimizedSize < originalSize * 0.75,
+        "Should reduce memory by 25% with pointer compression"
+    );
+}
+
+// Test: Memory pooling
+fun test_memory_pooling() {
+    let optimizer = MemoryOptimizer::new();
+    
+    // Create code with frequent allocations
+    let source = Source::fromString("""
+        fun processRequests(requests: List<Request>) {
+            for request in requests {
+                // Frequent small allocations
+                let buffer = allocate(1024);
+                processBuffer(buffer);
+                free(buffer);
+                
+                let result = allocate(256);
+                computeResult(result);
+                free(result);
+            }
+        }
+    """);
+    
+    let ir = source.toIR();
+    let optimized = optimizer.Optimize(ir);
+    
+    // Check for memory pools
+    let pools = optimized.findMemoryPools();
+    assertTrue(pools.size >= 2, "Should create memory pools");
+    
+    // Check pool configuration
+    for pool in pools {
+        assertTrue(pool.size > 0, "Pool should have size");
+        assertTrue(pool.initialCapacity > 0, "Pool should have initial capacity");
+    }
+    
+    // Allocations should use pools
+    let allocations = optimized.findAllocations();
+    let pooledAllocs = allocations.filter { it.usesPool };
+    
+    assertTrue(
+        pooledAllocs.size > allocations.size * 0.8,
+        "Most allocations should use pools"
+    );
+    
+    // Performance should improve
+    let baseline = compileWithMalloc(source);
+    let optimizedBinary = compile(optimized);
+    
+    let baselinePerf = benchmark(baseline);
+    let optimizedPerf = benchmark(optimizedBinary);
+    
+    assertTrue(
+        optimizedPerf.time < baselinePerf.time * 0.5,
+        "Should be 2x faster with memory pooling"
+    );
+}
+
+// Test: TLB optimization
+fun test_tlb_optimization() {
+    let optimizer = MemoryOptimizer::new();
+    
+    // Create code with large memory footprint
+    let source = Source::fromString("""
+        fun processLargeData() {
+            // Large allocation
+            let bigData = allocate(100_000_000);  // 100MB
+            
+            // Many small allocations
+            let smallBuffers = [];
+            for i in 0..10000 {
+                smallBuffers.append(allocate(256));
+            }
+            
+            // Process data...
+        }
+    """);
+    
+    let ir = source.toIR();
+    let optimized = optimizer.Optimize(ir);
+    
+    // Check for huge pages
+    let largeAllocs = optimized.findAllocations().filter { it.size >= 2_097_152 };
+    for alloc in largeAllocs {
+        assertTrue(
+            alloc.hasFlag(AllocFlag::HUGE_PAGE),
+            "Large allocation should use huge pages"
+        );
+    }
+    
+    // Small allocations should be batched
+    let smallAllocs = optimized.findAllocations().filter { it.size < 4096 };
+    let batchedAllocs = smallAllocs.filter { it.isBatched };
+    
+    assertTrue(
+        batchedAllocs.size > smallAllocs.size * 0.5,
+        "Small allocations should be batched"
+    );
+    
+    // TLB misses should decrease
+    let tlbMisses = simulateTLBMisses(optimized);
+    let baselineMisses = simulateTLBMisses(ir);
+    
+    assertTrue(
+        tlbMisses < baselineMisses * 0.3,
+        "Should reduce TLB misses by 70%"
+    );
+}
+
+// Helper functions
+
+fun createMemoryIntensiveSource() -> Source {
+    return Source::fromString("""
+        fun matrixMultiply(A: Matrix, B: Matrix) -> Matrix {
+            let C = Matrix::zeros(A.rows, B.cols);
+            for i in 0..A.rows {
+                for j in 0..B.cols {
+                    for k in 0..A.cols {
+                        C[i][j] = C[i][j] + A[i][k] * B[k][j];
+                    }
+                }
+            }
+            return C;
+        }
+    """);
+}
+
+fun createAllocationPattern(pattern: String) -> Source {
+    return Source::fromString("""
+        fun test_{pattern}() {
+            // Pattern-specific allocation code
+        }
+    """);
+}
+
+fun measureMemoryOverhead(ir: Module) -> Float {
+    let usefulMemory = calculateUsefulMemory(ir);
+    let totalMemory = calculateTotalMemory(ir);
+    return (totalMemory - usefulMemory) / totalMemory;
+}
+
+fun findUnnecessaryAllocations(ir: Module) -> List<Allocation> {
+    return ir.allocations.filter { not it.isUsed() };
+}
+
+fun detectMemoryLeaks(ir: Module) -> List<MemoryLeak> {
+    // Simple leak detection
+    let allocated = Set::new();
+    let freed = Set::new();
+    
+    for alloc in ir.allocations {
+        allocated.add(alloc.id);
+    }
+    
+    for free in ir.deallocations {
+        freed.add(free.id);
+    }
+    
+    let leaked = allocated.difference(freed);
+    return leaked.map { MemoryLeak{ id: it } };
+}
+
+fun isNUMASystem() -> Bool {
+    return System::getCPUCount() > 8 and System::hasNUMA();
+}
+
+fun simulateCacheMisses(ir: Module) -> Int {
+    // Simple cache simulation
+    return 1000;  // Placeholder
+}
+
+fun simulateTLBMisses(ir: Module) -> Int {
+    // Simple TLB simulation
+    return 100;  // Placeholder
+}
+
+fun calculateMemoryUsage(ir: Module) -> Int {
+    return ir.structs.sum { it.size * it.instanceCount };
+}
+
+fun calculateUsefulMemory(ir: Module) -> Int {
+    return ir.structs.sum { it.usefulSize * it.instanceCount };
+}
+
+fun calculateTotalMemory(ir: Module) -> Int {
+    return ir.structs.sum { it.totalSize * it.instanceCount };
+}

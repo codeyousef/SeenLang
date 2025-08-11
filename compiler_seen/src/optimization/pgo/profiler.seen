@@ -1,0 +1,452 @@
+// Profiler - Runtime profiling infrastructure
+// Collects execution data for profile-guided optimization
+
+use collections::map::HashMap;
+use collections::list::List;
+use time::timer::Timer;
+
+// Profiler (uppercase) = public class
+class Profiler {
+    var functionProfiles: HashMap<String, FunctionProfile>;
+    var branchProfiles: HashMap<String, BranchProfile>;
+    var loopProfiles: HashMap<String, LoopProfile>;
+    var callProfiles: HashMap<String, CallProfile>;
+    let timer = Timer::new();
+    
+    static fun new() -> Profiler {
+        return Profiler{
+            functionProfiles: HashMap::new(),
+            branchProfiles: HashMap::new(),
+            loopProfiles: HashMap::new(),
+            callProfiles: HashMap::new()
+        };
+    }
+    
+    // Profile function execution
+    fun profileFunction(name: String, body: () -> Any) -> Any {
+        let profile = functionProfiles.getOrCreate(name, FunctionProfile::new);
+        
+        let startTime = timer.now();
+        let result = body();
+        let endTime = timer.now();
+        
+        profile.recordExecution(endTime - startTime);
+        
+        return result;
+    }
+    
+    // Profile branch taken/not taken
+    fun profileBranch(id: String, taken: Bool) {
+        let profile = branchProfiles.getOrCreate(id, BranchProfile::new);
+        profile.recordBranch(taken);
+    }
+    
+    // Profile loop iterations
+    fun profileLoop(id: String, iterations: Int) {
+        let profile = loopProfiles.getOrCreate(id, LoopProfile::new);
+        profile.recordIterations(iterations);
+    }
+    
+    // Profile function calls
+    fun profileCall(callerId: String, calleeId: String) {
+        let key = "{callerId}->{calleeId}";
+        let profile = callProfiles.getOrCreate(key, CallProfile::new);
+        profile.recordCall();
+    }
+    
+    // Generate profile report
+    fun generateReport() -> ProfileReport {
+        return ProfileReport{
+            functions: analyzeFunctions(),
+            branches: analyzeBranches(),
+            loops: analyzeLoops(),
+            calls: analyzeCalls(),
+            hotspots: identifyHotspots()
+        };
+    }
+    
+    // Analyze function profiles
+    fun analyzeFunctions() -> List<FunctionAnalysis> {
+        return functionProfiles.entries().map { entry ->
+            let name = entry.key;
+            let profile = entry.value;
+            
+            FunctionAnalysis{
+                name: name,
+                callCount: profile.callCount,
+                totalTime: profile.totalTime,
+                averageTime: profile.averageTime(),
+                maxTime: profile.maxTime,
+                minTime: profile.minTime,
+                isHot: profile.callCount > 1000 or profile.totalTime > 1000000
+            }
+        };
+    }
+    
+    // Analyze branch profiles
+    fun analyzeBranches() -> List<BranchAnalysis> {
+        return branchProfiles.entries().map { entry ->
+            let id = entry.key;
+            let profile = entry.value;
+            
+            BranchAnalysis{
+                id: id,
+                takenCount: profile.takenCount,
+                notTakenCount: profile.notTakenCount,
+                probability: profile.takenProbability(),
+                predictability: profile.predictability()
+            }
+        };
+    }
+    
+    // Analyze loop profiles
+    fun analyzeLoops() -> List<LoopAnalysis> {
+        return loopProfiles.entries().map { entry ->
+            let id = entry.key;
+            let profile = entry.value;
+            
+            LoopAnalysis{
+                id: id,
+                executionCount: profile.executionCount,
+                totalIterations: profile.totalIterations,
+                averageIterations: profile.averageIterations(),
+                maxIterations: profile.maxIterations,
+                minIterations: profile.minIterations,
+                isHot: profile.totalIterations > 100000
+            }
+        };
+    }
+    
+    // Analyze call profiles
+    fun analyzeCalls() -> List<CallAnalysis> {
+        return callProfiles.entries().map { entry ->
+            let callSite = entry.key;
+            let profile = entry.value;
+            
+            CallAnalysis{
+                callSite: callSite,
+                callCount: profile.callCount,
+                frequency: profile.frequency,
+                shouldInline: profile.callCount > 10000
+            }
+        };
+    }
+    
+    // Identify performance hotspots
+    fun identifyHotspots() -> List<Hotspot> {
+        let hotspots = [];
+        
+        // Find hot functions (>10% of total time)
+        let totalTime = functionProfiles.values().sum { it.totalTime };
+        for entry in functionProfiles.entries() {
+            let profile = entry.value;
+            if profile.totalTime > totalTime * 0.1 {
+                hotspots.append(Hotspot{
+                    type: HotspotType::Function,
+                    id: entry.key,
+                    impact: profile.totalTime / totalTime
+                });
+            }
+        }
+        
+        // Find hot loops (>5% of iterations)
+        let totalIterations = loopProfiles.values().sum { it.totalIterations };
+        for entry in loopProfiles.entries() {
+            let profile = entry.value;
+            if profile.totalIterations > totalIterations * 0.05 {
+                hotspots.append(Hotspot{
+                    type: HotspotType::Loop,
+                    id: entry.key,
+                    impact: profile.totalIterations / totalIterations
+                });
+            }
+        }
+        
+        // Sort by impact
+        hotspots.sortBy { it.impact };
+        hotspots.reverse();
+        
+        return hotspots;
+    }
+}
+
+// Function execution profile
+class FunctionProfile {
+    var callCount: Int = 0;
+    var totalTime: Float = 0.0;
+    var maxTime: Float = 0.0;
+    var minTime: Float = Float::MAX;
+    var times: List<Float> = [];
+    
+    static fun new() -> FunctionProfile {
+        return FunctionProfile{};
+    }
+    
+    fun recordExecution(time: Float) {
+        callCount = callCount + 1;
+        totalTime = totalTime + time;
+        maxTime = max(maxTime, time);
+        minTime = min(minTime, time);
+        times.append(time);
+    }
+    
+    fun averageTime() -> Float {
+        return if callCount > 0 {
+            totalTime / callCount
+        } else {
+            0.0
+        };
+    }
+}
+
+// Branch execution profile
+class BranchProfile {
+    var takenCount: Int = 0;
+    var notTakenCount: Int = 0;
+    
+    static fun new() -> BranchProfile {
+        return BranchProfile{};
+    }
+    
+    fun recordBranch(taken: Bool) {
+        if taken {
+            takenCount = takenCount + 1;
+        } else {
+            notTakenCount = notTakenCount + 1;
+        }
+    }
+    
+    fun takenProbability() -> Float {
+        let total = takenCount + notTakenCount;
+        return if total > 0 {
+            takenCount.toFloat() / total.toFloat()
+        } else {
+            0.5  // No data, assume 50/50
+        };
+    }
+    
+    fun predictability() -> Float {
+        // How predictable is this branch? (0 = random, 1 = perfectly predictable)
+        let prob = takenProbability();
+        return abs(prob - 0.5) * 2.0;
+    }
+}
+
+// Loop execution profile
+class LoopProfile {
+    var executionCount: Int = 0;
+    var totalIterations: Int = 0;
+    var maxIterations: Int = 0;
+    var minIterations: Int = Int::MAX;
+    var iterations: List<Int> = [];
+    
+    static fun new() -> LoopProfile {
+        return LoopProfile{};
+    }
+    
+    fun recordIterations(count: Int) {
+        executionCount = executionCount + 1;
+        totalIterations = totalIterations + count;
+        maxIterations = max(maxIterations, count);
+        minIterations = min(minIterations, count);
+        iterations.append(count);
+    }
+    
+    fun averageIterations() -> Float {
+        return if executionCount > 0 {
+            totalIterations.toFloat() / executionCount.toFloat()
+        } else {
+            0.0
+        };
+    }
+}
+
+// Call site profile
+class CallProfile {
+    var callCount: Int = 0;
+    var frequency: Float = 0.0;
+    
+    static fun new() -> CallProfile {
+        return CallProfile{};
+    }
+    
+    fun recordCall() {
+        callCount = callCount + 1;
+    }
+}
+
+// Profile data container
+class ProfileData {
+    var functions: List<FunctionProfile>;
+    var branches: List<BranchProfile>;
+    var loops: List<LoopProfile>;
+    var calls: List<CallProfile>;
+    var timestamp: Int;
+    
+    static fun new() -> ProfileData {
+        return ProfileData{
+            functions: [],
+            branches: [],
+            loops: [],
+            calls: [],
+            timestamp: getCurrentTime()
+        };
+    }
+    
+    fun addTestRun(results: TestResults) {
+        // Extract profile data from test run
+        for test in results.tests {
+            if test.profile != null {
+                mergeProfile(test.profile);
+            }
+        }
+    }
+    
+    fun addSyntheticRun(results: WorkloadResults) {
+        // Extract profile data from synthetic workload
+        mergeProfile(results.profile);
+    }
+    
+    fun analyzeHotPaths() {
+        // Identify frequently executed paths
+        // This helps with code layout optimization
+    }
+    
+    fun identifyBottlenecks() {
+        // Find performance bottlenecks
+        // Focus optimization efforts here
+    }
+    
+    fun mergeProfile(other: ProfileData) {
+        // Merge profile data from another run
+        functions.extend(other.functions);
+        branches.extend(other.branches);
+        loops.extend(other.loops);
+        calls.extend(other.calls);
+    }
+    
+    fun getCallFrequency(call: Call) -> Int {
+        // Look up call frequency
+        let key = "{call.caller.name}->{call.callee.name}";
+        for c in calls {
+            if c.id == key {
+                return c.callCount;
+            }
+        }
+        return 0;
+    }
+    
+    fun getBranchProbability(branch: Branch) -> Float {
+        // Look up branch probability
+        for b in branches {
+            if b.id == branch.id {
+                return b.takenProbability();
+            }
+        }
+        return 0.5;  // Default to 50/50
+    }
+    
+    fun getLoopIterations(loop: Loop) -> Int {
+        // Look up average loop iterations
+        for l in loops {
+            if l.id == loop.id {
+                return l.averageIterations().toInt();
+            }
+        }
+        return 0;
+    }
+    
+    fun isHotLoop(loop: Loop) -> Bool {
+        // Check if loop is hot
+        for l in loops {
+            if l.id == loop.id {
+                return l.totalIterations > 10000;
+            }
+        }
+        return false;
+    }
+    
+    fun isHot(function: Function) -> Bool {
+        // Check if function is hot
+        for f in functions {
+            if f.name == function.name {
+                return f.callCount > 100 or f.totalTime > 1000000;
+            }
+        }
+        return false;
+    }
+    
+    fun getBlockFrequency(block: BasicBlock) -> Float {
+        // Get execution frequency of basic block
+        // Computed from branch probabilities
+        return 1.0;  // Placeholder
+    }
+    
+    fun wasExecuted(handler: ErrorHandler) -> Bool {
+        // Check if error handler was executed
+        return false;  // Placeholder
+    }
+    
+    fun getOptimalBlockOrder(function: Function) -> List<BasicBlock> {
+        // Compute optimal basic block order for cache locality
+        // Based on execution frequencies and branch probabilities
+        return function.blocks;  // Placeholder
+    }
+}
+
+// Analysis results
+class ProfileReport {
+    var functions: List<FunctionAnalysis>;
+    var branches: List<BranchAnalysis>;
+    var loops: List<LoopAnalysis>;
+    var calls: List<CallAnalysis>;
+    var hotspots: List<Hotspot>;
+}
+
+class FunctionAnalysis {
+    var name: String;
+    var callCount: Int;
+    var totalTime: Float;
+    var averageTime: Float;
+    var maxTime: Float;
+    var minTime: Float;
+    var isHot: Bool;
+}
+
+class BranchAnalysis {
+    var id: String;
+    var takenCount: Int;
+    var notTakenCount: Int;
+    var probability: Float;
+    var predictability: Float;
+}
+
+class LoopAnalysis {
+    var id: String;
+    var executionCount: Int;
+    var totalIterations: Int;
+    var averageIterations: Float;
+    var maxIterations: Int;
+    var minIterations: Int;
+    var isHot: Bool;
+}
+
+class CallAnalysis {
+    var callSite: String;
+    var callCount: Int;
+    var frequency: Float;
+    var shouldInline: Bool;
+}
+
+class Hotspot {
+    var type: HotspotType;
+    var id: String;
+    var impact: Float;
+}
+
+enum HotspotType {
+    Function,
+    Loop,
+    Branch,
+    Call
+}
