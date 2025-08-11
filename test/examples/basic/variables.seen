@@ -1,0 +1,14 @@
+// Variable declaration and usage examples
+fun main() {
+    // Immutable variables (default)
+    let name = "Seen Language"
+    let version = "1.0.0-alpha"
+    
+    // Numbers and booleans
+    let number = 123
+    let flag = true
+    
+    println("Language: " + name)
+    println("Version: " + version)
+    println("All tests completed!")
+}

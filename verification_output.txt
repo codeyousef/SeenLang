@@ -1,8 +1,0 @@
-
-[0;36m======================================================[0m
-[0;36m     Seen Language Self-hosting Verification         [0m
-[0;36m======================================================[0m
-
-Verifying Step 14: Self-hosting Compiler Implementation
-
-[0;34m[INFO][0m Checking self-hosted compiler file structure...

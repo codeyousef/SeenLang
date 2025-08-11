@@ -979,7 +979,8 @@
       "Bash(./target/native/debug/seen_compiler:*)",
       "Bash(/home/yousef/Development/SeenLang/compiler_seen/run_tests.sh)",
       "Bash(/home/yousef/Development/SeenLang/compiler_seen/run_optimization_tests.sh:*)",
-      "Bash(/home/yousef/Development/SeenLang/compiler_seen/run_all_tests.sh)"
+      "Bash(/home/yousef/Development/SeenLang/compiler_seen/run_all_tests.sh)",
+      "Bash(CARGO_TARGET_DIR=target-wsl cargo build --release --target x86_64-pc-windows-gnu --bin seen)"
     ],
     "deny": []
   }

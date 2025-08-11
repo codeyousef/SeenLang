@@ -1,9 +1,0 @@
-// Test error handling and recovery
-
-fun main() {
-    // Syntax error: missing closing parenthesis
-    println("Hello"
-    
-    // This should still be parseable after error recovery
-    let x = 42
-}

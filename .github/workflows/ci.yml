@@ -7,34 +7,33 @@ on:
     branches: [ main ]
 
 env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+  SEEN_BUILD_PARALLEL: true
+  SEEN_OPTIMIZATION_LEVEL: debug
 
 jobs:
   # Check code formatting
   fmt:
-    name: Rustfmt
+    name: Seen Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/seen-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./target-wsl/debug/seen
       - name: Check formatting
-        run: seen fmt --all -- --check
+        run: ./target-wsl/debug/seen format --check
 
-  # Lint code with clippy
-  clippy:
-    name: Clippy
+  # Static analysis with Seen
+  check:
+    name: Seen Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/seen-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Run clippy
-        run: seen clippy --all-targets --all-features -- -D warnings
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./target-wsl/debug/seen
+      - name: Run static analysis
+        run: ./target-wsl/debug/seen check --all
 
   # Run tests on multiple platforms
   test:
@@ -42,40 +41,23 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta, nightly]
-        exclude:
-          # Only test nightly on Linux to save CI time
-          - os: windows-latest
-            rust: nightly
-          - os: macos-latest
-            rust: nightly
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/seen-toolchain@master
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./target-wsl/debug/seen
+      - uses: actions/cache@v3
         with:
-          toolchain: ${{ matrix.rust }}
-      - uses: Swatinem/rust-cache@v2
-      - name: Install LLVM (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
-      - name: Install LLVM (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install llvm@14
-          echo "LLVM_SYS_140_PREFIX=$(brew --prefix llvm@14)" >> $GITHUB_ENV
-      - name: Install LLVM (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install llvm --version=14.0.6
-          echo "LLVM_SYS_140_PREFIX=C:\Program Files\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+          path: |
+            ./target
+            ./compiler_seen/target
+          key: ${{ runner.os }}-seen-test-${{ hashFiles('**/Seen.toml') }}
+      # Seen compiler has built-in LLVM support - no external installation needed
       - name: Run tests
-        run: seen test --all --verbose
-        continue-on-error: ${{ matrix.rust == 'nightly' }}
-      - name: Run ignored tests
-        run: seen test --all --verbose -- --ignored
+        run: ./target-wsl/debug/seen test --all --verbose
+      - name: Run integration tests
+        run: ./target-wsl/debug/seen test --integration --verbose
         continue-on-error: true
 
   # Run benchmarks
@@ -84,14 +66,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/seen-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install LLVM
+      - name: Setup Seen compiler
         run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
+          chmod +x ./target-wsl/debug/seen
       - name: Run benchmarks
-        run: seen bench --all
+        run: ./target-wsl/debug/seen benchmark --all
 
   # Check documentation
   doc:
@@ -99,12 +78,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/seen-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./target-wsl/debug/seen
       - name: Check documentation
-        run: seen doc --all --no-deps --document-private-items
-        env:
-          RUSTDOCFLAGS: -D warnings
+        run: ./target-wsl/debug/seen doc --all
 
   # Code coverage with tarpaulin
   coverage:
@@ -173,21 +151,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Install LLVM (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-14 llvm-14-dev libclang-14-dev
-      - name: Install LLVM (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install llvm@14
-          echo "LLVM_SYS_140_PREFIX=$(brew --prefix llvm@14)" >> $GITHUB_ENV
-      - name: Install LLVM (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install llvm --version=14.0.6
-          echo "LLVM_SYS_140_PREFIX=C:\Program Files\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+      # Seen compiler has built-in LLVM support - no external installation needed
       - name: Build release binary
         run: seen build --release --target ${{ matrix.target }}
       - name: Upload artifacts

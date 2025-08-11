@@ -1,8 +1,0 @@
-fun test(x: String) {
-    println(x)
-}
-
-fun main() {
-    let msg = "hello"
-    test(move msg)
-}

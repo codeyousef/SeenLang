@@ -2,9 +2,9 @@
 // Executes all test suites and reports results
 
 use testing::runner::*;
-use tests::compiler_tests::createCompilerTestSuite;
-use tests::feature_tests::createFeatureTestSuite;
-use tests::integration_tests::createIntegrationTestSuite;
+use test::unit::compiler::compiler_tests::createCompilerTestSuite;
+use test::unit::language::feature_tests::createFeatureTestSuite;
+use test::integration::compilation::integration_tests::createIntegrationTestSuite;
 
 fun main() -> Int {
     println("🚀 SEEN COMPILER TEST SUITE");

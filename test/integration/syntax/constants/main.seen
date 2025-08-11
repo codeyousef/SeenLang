@@ -1,0 +1,9 @@
+// Welcome to Seen!
+// This is your main function - the entry point of your program.
+
+const pi = 3.14159
+
+fun main() {
+    println("Hello, World!")
+    println("Pi is a constant")
+}

@@ -1,0 +1,8 @@
+// Basic Hello World example
+fun main() {
+    println("Hello, World!")
+    println("Welcome to the Seen programming language!")
+    
+    let message = "Seen is fast, safe, and expressive"
+    println(message)
+}
