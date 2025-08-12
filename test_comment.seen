@@ -1,0 +1,4 @@
+// This is a comment
+fun test(): Int {
+    42
+}

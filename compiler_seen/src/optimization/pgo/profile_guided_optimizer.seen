@@ -1,15 +1,15 @@
 // Profile-Guided Optimization (PGO) Engine
 // Automatic profiling and optimization in release builds
 
-use optimization::base::OptimizationPass;
-use ir::function::Function;
-use ir::module::Module;
-use profiling::profiler::Profiler;
-use profiling::profile_data::ProfileData;
+use optimization::base::OptimizationPass
+use ir::function::Function
+use ir::module::Module
+use profiling::profiler::Profiler
+use profiling::profile_data::ProfileData
 
 // ProfileGuidedOptimizer (uppercase) = public class
 class ProfileGuidedOptimizer : OptimizationPass {
-    let profiler = Profiler::new();
+    let profiler = Profiler::new()
     var profileData: ProfileData? = null;  // nullable for initial compilation
     let threshold = 0.8;  // 80% confidence threshold
     
@@ -19,43 +19,43 @@ class ProfileGuidedOptimizer : OptimizationPass {
             compileWithPGO(source)
         } else {
             compileNormal(source)
-        };
+        }
     }
     
     // Main PGO compilation pipeline
     fun compileWithPGO(source: Source) -> Binary {
-        println("🎯 Starting Profile-Guided Optimization...");
+        println("🎯 Starting Profile-Guided Optimization...")
         
         // Step 1: Compile with instrumentation
-        let instrumented = compileWithInstrumentation(source);
+        let instrumented = compileWithInstrumentation(source)
         
         // Step 2: Generate or load profile data
         let profile = if existingProfileData(source) {
-            println("  ✓ Loading existing profile data");
+            println("  ✓ Loading existing profile data")
             loadProfile(source)
         } else {
-            println("  ⚡ Generating profile from test suite");
+            println("  ⚡ Generating profile from test suite")
             generateProfile(instrumented, source)
-        };
+        }
         
         // Step 3: Optimize with profile data
-        println("  🔧 Recompiling with profile data...");
-        let optimized = optimizeWithProfile(source, profile);
+        println("  🔧 Recompiling with profile data...")
+        let optimized = optimizeWithProfile(source, profile)
         
         // Step 4: Validate improvement
-        let improvement = measureImprovement(instrumented, optimized);
-        println("  📈 Performance improvement: {improvement}%");
+        let improvement = measureImprovement(instrumented, optimized)
+        println("  📈 Performance improvement: {improvement}%")
         
-        return optimized;
+        return optimized
     }
     
     // Compile with profiling instrumentation
     fun compileWithInstrumentation(source: Source) -> Binary {
-        let ir = source.toIR();
+        let ir = source.toIR()
         
         // Add profiling hooks
         for function in ir.functions {
-            instrumentFunction(function);
+            instrumentFunction(function)
         }
         
         // Compile instrumented IR
@@ -65,46 +65,46 @@ class ProfileGuidedOptimizer : OptimizationPass {
                 optimization: OptLevel::O1,  // Light optimization
                 profileGenerate: true
             }
-        );
+        )
     }
     
     // Generate profile from test execution
     fun generateProfile(binary: Binary, source: Source) -> ProfileData {
-        let profile = ProfileData::new();
+        let profile = ProfileData::new()
         
         // Use test suite if available
         if source.hasTests() {
-            println("    Running test suite for profiling...");
-            let testResults = binary.runTests();
-            profile.addTestRun(testResults);
+            println("    Running test suite for profiling...")
+            let testResults = binary.runTests()
+            profile.addTestRun(testResults)
         }
         
         // Add synthetic workload
-        println("    Generating synthetic workload...");
-        let synthetic = generateSyntheticWorkload(source);
-        let syntheticResults = binary.run(synthetic);
-        profile.addSyntheticRun(syntheticResults);
+        println("    Generating synthetic workload...")
+        let synthetic = generateSyntheticWorkload(source)
+        let syntheticResults = binary.run(synthetic)
+        profile.addSyntheticRun(syntheticResults)
         
         // Analyze hot paths
-        profile.analyzeHotPaths();
-        profile.identifyBottlenecks();
+        profile.analyzeHotPaths()
+        profile.identifyBottlenecks()
         
         // Save for future use
-        profile.save(source.profilePath());
+        profile.save(source.profilePath())
         
-        return profile;
+        return profile
     }
     
     // Optimize using profile data
     fun optimizeWithProfile(source: Source, profile: ProfileData) -> Binary {
-        let ir = source.toIR();
+        let ir = source.toIR()
         
         // Apply profile-guided optimizations
-        applyInliningDecisions(ir, profile);
-        applyBranchPrediction(ir, profile);
-        applyLoopOptimizations(ir, profile);
-        applyCodeLayout(ir, profile);
-        applyColdCodeElimination(ir, profile);
+        applyInliningDecisions(ir, profile)
+        applyBranchPrediction(ir, profile)
+        applyLoopOptimizations(ir, profile)
+        applyCodeLayout(ir, profile)
+        applyColdCodeElimination(ir, profile)
         
         // Compile optimized IR
         return ir.compile(
@@ -114,23 +114,23 @@ class ProfileGuidedOptimizer : OptimizationPass {
                 lto: true,  // Link-time optimization
                 vectorize: true
             }
-        );
+        )
     }
     
     // Inlining based on call frequency
     fun applyInliningDecisions(ir: Module, profile: ProfileData) {
         for function in ir.functions {
             for call in function.calls {
-                let frequency = profile.getCallFrequency(call);
-                let calleeSize = call.callee.instructionCount;
+                let frequency = profile.getCallFrequency(call)
+                let calleeSize = call.callee.instructionCount
                 
                 // Aggressive inlining for hot calls
                 if frequency > 1000 and calleeSize < 100 {
-                    call.markForInlining();
+                    call.markForInlining()
                 }
                 // Conservative for cold paths
                 else if frequency < 10 {
-                    call.preventInlining();
+                    call.preventInlining()
                 }
             }
         }
@@ -140,18 +140,18 @@ class ProfileGuidedOptimizer : OptimizationPass {
     fun applyBranchPrediction(ir: Module, profile: ProfileData) {
         for function in ir.functions {
             for branch in function.branches {
-                let takenProbability = profile.getBranchProbability(branch);
+                let takenProbability = profile.getBranchProbability(branch)
                 
                 // Add prediction hints
                 if takenProbability > 0.9 {
-                    branch.hint = BranchHint::Likely;
+                    branch.hint = BranchHint::Likely
                 } else if takenProbability < 0.1 {
-                    branch.hint = BranchHint::Unlikely;
+                    branch.hint = BranchHint::Unlikely
                 }
                 
                 // Reorder basic blocks for better prediction
                 if takenProbability > 0.7 {
-                    function.moveBlockAfter(branch.takenBlock, branch.block);
+                    function.moveBlockAfter(branch.takenBlock, branch.block)
                 }
             }
         }
@@ -161,16 +161,16 @@ class ProfileGuidedOptimizer : OptimizationPass {
     fun applyLoopOptimizations(ir: Module, profile: ProfileData) {
         for function in ir.functions {
             for loop in function.loops {
-                let iterations = profile.getLoopIterations(loop);
-                let isHot = profile.isHotLoop(loop);
+                let iterations = profile.getLoopIterations(loop)
+                let isHot = profile.isHotLoop(loop)
                 
                 // Unroll small hot loops
                 if isHot and iterations < 16 and iterations > 0 {
-                    loop.unroll(iterations);
+                    loop.unroll(iterations)
                 }
                 // Vectorize large hot loops
                 else if isHot and iterations > 100 {
-                    loop.vectorize();
+                    loop.vectorize()
                 }
                 // Strip mine for cache optimization
                 else if isHot and iterations > 1000 {
@@ -183,16 +183,16 @@ class ProfileGuidedOptimizer : OptimizationPass {
     // Code layout optimization
     fun applyCodeLayout(ir: Module, profile: ProfileData) {
         // Group hot functions together
-        let hotFunctions = ir.functions.filter { profile.isHot(it) };
-        let coldFunctions = ir.functions.filter { not profile.isHot(it) };
+        let hotFunctions = ir.functions.filter { profile.isHot(it) }
+        let coldFunctions = ir.functions.filter { not profile.isHot(it) }
         
         // Reorder for better cache locality
-        ir.functions = hotFunctions + coldFunctions;
+        ir.functions = hotFunctions + coldFunctions
         
         // Within functions, reorder blocks
         for function in ir.functions {
-            let blockOrder = profile.getOptimalBlockOrder(function);
-            function.reorderBlocks(blockOrder);
+            let blockOrder = profile.getOptimalBlockOrder(function)
+            function.reorderBlocks(blockOrder)
         }
     }
     
@@ -200,20 +200,20 @@ class ProfileGuidedOptimizer : OptimizationPass {
     fun applyColdCodeElimination(ir: Module, profile: ProfileData) {
         for function in ir.functions {
             if not profile.isHot(function) {
-                continue;
+                continue
             }
             
             // Outline cold blocks
             for block in function.blocks {
                 if profile.getBlockFrequency(block) < 0.01 {
-                    function.outlineBlock(block);
+                    function.outlineBlock(block)
                 }
             }
             
             // Move error handling out of hot path
             for handler in function.errorHandlers {
                 if not profile.wasExecuted(handler) {
-                    function.outlineErrorHandler(handler);
+                    function.outlineErrorHandler(handler)
                 }
             }
         }
@@ -221,100 +221,100 @@ class ProfileGuidedOptimizer : OptimizationPass {
     
     // Generate synthetic workload for profiling
     fun generateSyntheticWorkload(source: Source) -> Workload {
-        let workload = Workload::new();
+        let workload = Workload::new()
         
         // Analyze source structure
-        let analysis = source.analyze();
+        let analysis = source.analyze()
         
         // Generate representative inputs
         if analysis.hasNumericCode {
-            workload.add(NumericWorkload::fibonacci(40));
-            workload.add(NumericWorkload::primes(10000));
+            workload.add(NumericWorkload::fibonacci(40))
+            workload.add(NumericWorkload::primes(10000))
         }
         
         if analysis.hasStringCode {
-            workload.add(StringWorkload::parsing(1000));
-            workload.add(StringWorkload::formatting(1000));
+            workload.add(StringWorkload::parsing(1000))
+            workload.add(StringWorkload::formatting(1000))
         }
         
         if analysis.hasCollections {
-            workload.add(CollectionWorkload::sorting(10000));
-            workload.add(CollectionWorkload::searching(10000));
+            workload.add(CollectionWorkload::sorting(10000))
+            workload.add(CollectionWorkload::searching(10000))
         }
         
         if analysis.hasIO {
-            workload.add(IOWorkload::fileOperations(100));
+            workload.add(IOWorkload::fileOperations(100))
         }
         
-        return workload;
+        return workload
     }
     
     // Instrument function for profiling
     fun instrumentFunction(function: Function) {
         // Add entry counter
-        function.addEntryProbe(CounterProbe::new());
+        function.addEntryProbe(CounterProbe::new())
         
         // Add branch profiling
         for branch in function.branches {
-            branch.addProbe(BranchProbe::new());
+            branch.addProbe(BranchProbe::new())
         }
         
         // Add loop profiling
         for loop in function.loops {
-            loop.addProbe(LoopProbe::new());
+            loop.addProbe(LoopProbe::new())
         }
         
         // Add call site profiling
         for call in function.calls {
-            call.addProbe(CallProbe::new());
+            call.addProbe(CallProbe::new())
         }
     }
     
     // Check for existing profile data
     fun existingProfileData(source: Source) -> Bool {
-        let profilePath = source.profilePath();
+        let profilePath = source.profilePath()
         return FileSystem::exists(profilePath) and 
-               not isProfileStale(profilePath, source);
+               not isProfileStale(profilePath, source)
     }
     
     // Check if profile is outdated
     fun isProfileStale(profilePath: String, source: Source) -> Bool {
-        let profileTime = FileSystem::modificationTime(profilePath);
-        let sourceTime = source.lastModified();
-        return sourceTime > profileTime;
+        let profileTime = FileSystem::modificationTime(profilePath)
+        let sourceTime = source.lastModified()
+        return sourceTime > profileTime
     }
     
     // Load saved profile
     fun loadProfile(source: Source) -> ProfileData {
-        let path = source.profilePath();
-        return ProfileData::load(path);
+        let path = source.profilePath()
+        return ProfileData::load(path)
     }
     
     // Measure performance improvement
     fun measureImprovement(original: Binary, optimized: Binary) -> Float {
         // Run micro-benchmarks
-        let originalTime = benchmark(original);
-        let optimizedTime = benchmark(optimized);
+        let originalTime = benchmark(original)
+        let optimizedTime = benchmark(optimized)
         
-        let improvement = ((originalTime - optimizedTime) / originalTime) * 100.0;
-        return improvement;
+        let improvement = ((originalTime - optimizedTime) / originalTime) * 100.0
+        return improvement
     }
     
     // Run benchmarks
     fun benchmark(binary: Binary) -> Float {
-        let times = [];
+        let times = []
         
         // Run multiple iterations for stability
         for i in 0..10 {
-            let start = getCurrentTime();
-            binary.runBenchmark();
-            let end = getCurrentTime();
-            times.append(end - start);
+            let start = getCurrentTime()
+            binary.runBenchmark()
+            let end = getCurrentTime()
+            times.append(end - start)
         }
         
         // Return median time
-        times.sort();
-        return times[5];
+        times.sort()
+        return times[5]
     }
 }
 
@@ -333,14 +333,14 @@ extension ProfileData {
                     loops: f.loops
                 }
             }
-        };
+        }
         
-        FileSystem::writeJson(path, data);
+        FileSystem::writeJson(path, data)
     }
     
     static fun load(path: String) -> ProfileData {
-        let data = FileSystem::readJson(path);
-        return ProfileData::fromFormat(data);
+        let data = FileSystem::readJson(path)
+        return ProfileData::fromFormat(data)
     }
 }
 
@@ -352,12 +352,12 @@ enum CompilationMode {
 }
 
 class CompileFlags {
-    var instrumentation: Bool;
-    var optimization: OptLevel;
-    var profileGenerate: Bool;
-    var profileUse: ProfileData?;
-    var lto: Bool;
-    var vectorize: Bool;
+    var instrumentation: Bool
+    var optimization: OptLevel
+    var profileGenerate: Bool
+    var profileUse: ProfileData?
+    var lto: Bool
+    var vectorize: Bool
 }
 
 enum OptLevel {
@@ -376,13 +376,13 @@ enum BranchHint {
 }
 
 class Workload {
-    var tasks: List<WorkloadTask>;
+    var tasks: List<WorkloadTask>
     
     static fun new() -> Workload {
-        return Workload{ tasks: [] };
+        return Workload{ tasks: [] }
     }
     
     fun add(task: WorkloadTask) {
-        tasks.append(task);
+        tasks.append(task)
     }
 }

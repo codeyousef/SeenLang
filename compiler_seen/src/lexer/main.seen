@@ -2,48 +2,48 @@
 
 class Token {
     fun new(tokenType: String, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
-        return Token{};
+        return Token{}
     }
     
     fun getType() -> String {
-        return "KeywordFun";
+        return "KeywordFun"
     }
     
     fun getValue() -> String {
-        return "main";
+        return "main"
     }
     
     fun getLine() -> Int {
-        return 1;
+        return 1
     }
     
     fun getColumn() -> Int {
-        return 1;
+        return 1
     }
 }
 
 class SeenLexer {
     fun new(source: String, fileId: Int, config: String) -> SeenLexer {
-        return SeenLexer{};
+        return SeenLexer{}
     }
     
     fun tokenize() -> Array<Token> {
-        let tokens = Array<Token>();
-        tokens.push(Token.new("KeywordFun", "fun", 1, 1, 3, 1));
-        tokens.push(Token.new("Identifier", "main", 1, 5, 4, 1));
-        tokens.push(Token.new("LeftParen", "(", 1, 9, 1, 1));
-        tokens.push(Token.new("RightParen", ")", 1, 10, 1, 1));
-        tokens.push(Token.new("LeftBrace", "{", 1, 12, 1, 1));
-        tokens.push(Token.new("RightBrace", "}", 1, 13, 1, 1));
-        tokens.push(Token.new("EndOfFile", "", 1, 14, 0, 1));
-        return tokens;
+        let tokens = Array<Token>()
+        tokens.push(Token.new("KeywordFun", "fun", 1, 1, 3, 1))
+        tokens.push(Token.new("Identifier", "main", 1, 5, 4, 1))
+        tokens.push(Token.new("LeftParen", "(", 1, 9, 1, 1))
+        tokens.push(Token.new("RightParen", ")", 1, 10, 1, 1))
+        tokens.push(Token.new("LeftBrace", "{", 1, 12, 1, 1))
+        tokens.push(Token.new("RightBrace", "}", 1, 13, 1, 1))
+        tokens.push(Token.new("EndOfFile", "", 1, 14, 0, 1))
+        return tokens
     }
 }
 
 fun createLexer(source: String, fileId: Int, configPath: String) -> SeenLexer {
-    return SeenLexer.new(source, fileId, configPath);
+    return SeenLexer.new(source, fileId, configPath)
 }
 
 fun loadLanguageConfig(language: String) -> String {
-    return "en";
+    return "en"
 }

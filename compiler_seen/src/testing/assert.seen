@@ -2,10 +2,10 @@
 // Provides assertion functions for testing
 
 class TestResult {
-    var passed: Bool;
-    var testName: String;
-    var message: String;
-    var errorDetails: String;
+    var passed: Bool
+    var testName: String
+    var message: String
+    var errorDetails: String
     
     fun success(name: String) -> TestResult {
         return TestResult{
@@ -13,7 +13,7 @@ class TestResult {
             testName: name,
             message: "PASSED",
             errorDetails: ""
-        };
+        }
     }
     
     fun failure(name: String, msg: String, details: String) -> TestResult {
@@ -22,15 +22,15 @@ class TestResult {
             testName: name,
             message: msg,
             errorDetails: details
-        };
+        }
     }
 }
 
 class AssertionError {
-    var message: String;
-    var expected: String;
-    var actual: String;
-    var location: String;
+    var message: String
+    var expected: String
+    var actual: String
+    var location: String
     
     fun new(msg: String) -> AssertionError {
         return AssertionError{
@@ -38,7 +38,7 @@ class AssertionError {
             expected: "",
             actual: "",
             location: ""
-        };
+        }
     }
 }
 
@@ -46,143 +46,143 @@ class AssertionError {
 
 fun assert(condition: Bool, message: String) {
     if not condition {
-        println("❌ ASSERTION FAILED: {message}");
-        panic("Assertion failed: {message}");
+        println("❌ ASSERTION FAILED: {message}")
+        panic("Assertion failed: {message}")
     }
 }
 
 fun assertTrue(condition: Bool, message: String) {
     if not condition {
-        println("❌ ASSERTION FAILED: Expected true but got false");
-        println("   Message: {message}");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Expected true but got false")
+        println("   Message: {message}")
+        panic("Assertion failed")
     }
 }
 
 fun assertFalse(condition: Bool, message: String) {
     if condition {
-        println("❌ ASSERTION FAILED: Expected false but got true");
-        println("   Message: {message}");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Expected false but got true")
+        println("   Message: {message}")
+        panic("Assertion failed")
     }
 }
 
 fun assertEquals(expected: String, actual: String, message: String) {
     if expected != actual {
-        println("❌ ASSERTION FAILED: Values not equal");
-        println("   Message: {message}");
-        println("   Expected: '{expected}'");
-        println("   Actual:   '{actual}'");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Values not equal")
+        println("   Message: {message}")
+        println("   Expected: '{expected}'")
+        println("   Actual:   '{actual}'")
+        panic("Assertion failed")
     }
 }
 
 fun assertEqualsInt(expected: Int, actual: Int, message: String) {
     if expected != actual {
-        println("❌ ASSERTION FAILED: Values not equal");
-        println("   Message: {message}");
-        println("   Expected: {expected}");
-        println("   Actual:   {actual}");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Values not equal")
+        println("   Message: {message}")
+        println("   Expected: {expected}")
+        println("   Actual:   {actual}")
+        panic("Assertion failed")
     }
 }
 
 fun assertEqualsFloat(expected: Float, actual: Float, tolerance: Float, message: String) {
-    let diff = abs(expected - actual);
+    let diff = abs(expected - actual)
     if diff > tolerance {
-        println("❌ ASSERTION FAILED: Float values not equal within tolerance");
-        println("   Message: {message}");
-        println("   Expected: {expected}");
-        println("   Actual:   {actual}");
-        println("   Tolerance: {tolerance}");
-        println("   Difference: {diff}");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Float values not equal within tolerance")
+        println("   Message: {message}")
+        println("   Expected: {expected}")
+        println("   Actual:   {actual}")
+        println("   Tolerance: {tolerance}")
+        println("   Difference: {diff}")
+        panic("Assertion failed")
     }
 }
 
 fun assertNotEquals(expected: String, actual: String, message: String) {
     if expected == actual {
-        println("❌ ASSERTION FAILED: Values should not be equal");
-        println("   Message: {message}");
-        println("   Both values: '{expected}'");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Values should not be equal")
+        println("   Message: {message}")
+        println("   Both values: '{expected}'")
+        panic("Assertion failed")
     }
 }
 
 fun assertNull(value: Any?, message: String) {
     if value != null {
-        println("❌ ASSERTION FAILED: Expected null");
-        println("   Message: {message}");
-        println("   Actual: not null");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Expected null")
+        println("   Message: {message}")
+        println("   Actual: not null")
+        panic("Assertion failed")
     }
 }
 
 fun assertNotNull(value: Any?, message: String) {
     if value == null {
-        println("❌ ASSERTION FAILED: Expected non-null value");
-        println("   Message: {message}");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Expected non-null value")
+        println("   Message: {message}")
+        panic("Assertion failed")
     }
 }
 
 fun assertContains(haystack: String, needle: String, message: String) {
     if not haystack.contains(needle) {
-        println("❌ ASSERTION FAILED: String does not contain expected substring");
-        println("   Message: {message}");
-        println("   String: '{haystack}'");
-        println("   Expected to contain: '{needle}'");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: String does not contain expected substring")
+        println("   Message: {message}")
+        println("   String: '{haystack}'")
+        println("   Expected to contain: '{needle}'")
+        panic("Assertion failed")
     }
 }
 
 fun assertStartsWith(str: String, prefix: String, message: String) {
     if not str.startsWith(prefix) {
-        println("❌ ASSERTION FAILED: String does not start with expected prefix");
-        println("   Message: {message}");
-        println("   String: '{str}'");
-        println("   Expected prefix: '{prefix}'");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: String does not start with expected prefix")
+        println("   Message: {message}")
+        println("   String: '{str}'")
+        println("   Expected prefix: '{prefix}'")
+        panic("Assertion failed")
     }
 }
 
 fun assertEndsWith(str: String, suffix: String, message: String) {
     if not str.endsWith(suffix) {
-        println("❌ ASSERTION FAILED: String does not end with expected suffix");
-        println("   Message: {message}");
-        println("   String: '{str}'");
-        println("   Expected suffix: '{suffix}'");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: String does not end with expected suffix")
+        println("   Message: {message}")
+        println("   String: '{str}'")
+        println("   Expected suffix: '{suffix}'")
+        panic("Assertion failed")
     }
 }
 
 fun assertGreaterThan(value: Int, threshold: Int, message: String) {
     if value <= threshold {
-        println("❌ ASSERTION FAILED: Value not greater than threshold");
-        println("   Message: {message}");
-        println("   Value: {value}");
-        println("   Should be > {threshold}");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Value not greater than threshold")
+        println("   Message: {message}")
+        println("   Value: {value}")
+        println("   Should be > {threshold}")
+        panic("Assertion failed")
     }
 }
 
 fun assertLessThan(value: Int, threshold: Int, message: String) {
     if value >= threshold {
-        println("❌ ASSERTION FAILED: Value not less than threshold");
-        println("   Message: {message}");
-        println("   Value: {value}");
-        println("   Should be < {threshold}");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Value not less than threshold")
+        println("   Message: {message}")
+        println("   Value: {value}")
+        println("   Should be < {threshold}")
+        panic("Assertion failed")
     }
 }
 
 fun assertInRange(value: Int, min: Int, max: Int, message: String) {
     if value < min or value > max {
-        println("❌ ASSERTION FAILED: Value not in expected range");
-        println("   Message: {message}");
-        println("   Value: {value}");
-        println("   Expected range: [{min}, {max}]");
-        panic("Assertion failed");
+        println("❌ ASSERTION FAILED: Value not in expected range")
+        println("   Message: {message}")
+        println("   Value: {value}")
+        println("   Expected range: [{min}, {max}]")
+        panic("Assertion failed")
     }
 }
 
@@ -190,15 +190,15 @@ fun assertInRange(value: Int, min: Int, max: Int, message: String) {
 
 fun abs(value: Float) -> Float {
     if value < 0.0 {
-        return -value;
+        return -value
     }
-    return value;
+    return value
 }
 
 fun panic(message: String) {
     // Terminate test execution with error code
     // Throws exception to unwind stack and cleanup resources
-    println("!!! PANIC: {message} !!!");
-    throw TestPanicException(message);
-    exit(1);
+    println("!!! PANIC: {message} !!!")
+    throw TestPanicException(message)
+    exit(1)
 }

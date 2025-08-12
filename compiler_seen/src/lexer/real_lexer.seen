@@ -2,11 +2,11 @@
 // This is not a stub - it really works!
 
 class RealToken {
-    var type: String;
-    var value: String;
-    var line: Int;
-    var column: Int;
-    var length: Int;
+    var type: String
+    var value: String
+    var line: Int
+    var column: Int
+    var length: Int
     
     fun new(type: String, value: String, line: Int, column: Int, length: Int) -> RealToken {
         return RealToken{
@@ -15,16 +15,16 @@ class RealToken {
             line: line,
             column: column,
             length: length
-        };
+        }
     }
 }
 
 class RealLexer {
-    var source: String;
-    var position: Int;
-    var line: Int;
-    var column: Int;
-    var tokens: List<RealToken>;
+    var source: String
+    var position: Int
+    var line: Int
+    var column: Int
+    var tokens: List<RealToken>
     
     fun new(source: String) -> RealLexer {
         return RealLexer{
@@ -33,28 +33,28 @@ class RealLexer {
             line: 1,
             column: 1,
             tokens: []
-        };
+        }
     }
     
     fun tokenize() -> List<RealToken> {
-        tokens = [];
-        position = 0;
-        line = 1;
-        column = 1;
+        tokens = []
+        position = 0
+        line = 1
+        column = 1
         
         while position < source.length() {
-            skipWhitespaceAndComments();
+            skipWhitespaceAndComments()
             
             if position >= source.length() {
-                break;
+                break
             }
             
-            let startPos = position;
-            let startCol = column;
-            let token = nextToken();
+            let startPos = position
+            let startCol = column
+            let token = nextToken()
             
             if token != null {
-                tokens.append(token);
+                tokens.append(token)
             }
         }
         
@@ -65,182 +65,182 @@ class RealLexer {
             line: line,
             column: column,
             length: 0
-        });
+        })
         
-        return tokens;
+        return tokens
     }
     
     fun nextToken() -> RealToken? {
-        let startPos = position;
-        let startCol = column;
-        let ch = currentChar();
+        let startPos = position
+        let startCol = column
+        let ch = currentChar()
         
         // Identifiers and keywords
         if isAlpha(ch) {
-            return scanIdentifierOrKeyword(startCol);
+            return scanIdentifierOrKeyword(startCol)
         }
         
         // Numbers
         if isDigit(ch) {
-            return scanNumber(startCol);
+            return scanNumber(startCol)
         }
         
         // Strings
         if ch == '"' {
-            return scanString(startCol);
+            return scanString(startCol)
         }
         
         // Operators and punctuation
         if ch == '+' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "PlusEqual", value: "+=", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "PlusEqual", value: "+=", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Plus", value: "+", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Plus", value: "+", line: line, column: startCol, length: 1 }
         }
         
         if ch == '-' {
-            advance();
+            advance()
             if currentChar() == '>' {
-                advance();
-                return RealToken{ type: "Arrow", value: "->", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "Arrow", value: "->", line: line, column: startCol, length: 2 }
             }
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "MinusEqual", value: "-=", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "MinusEqual", value: "-=", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Minus", value: "-", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Minus", value: "-", line: line, column: startCol, length: 1 }
         }
         
         if ch == '*' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "StarEqual", value: "*=", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "StarEqual", value: "*=", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Star", value: "*", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Star", value: "*", line: line, column: startCol, length: 1 }
         }
         
         if ch == '/' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "SlashEqual", value: "/=", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "SlashEqual", value: "/=", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Slash", value: "/", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Slash", value: "/", line: line, column: startCol, length: 1 }
         }
         
         if ch == '=' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "EqualEqual", value: "==", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "EqualEqual", value: "==", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Equal", value: "=", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Equal", value: "=", line: line, column: startCol, length: 1 }
         }
         
         if ch == '!' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "NotEqual", value: "!=", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "NotEqual", value: "!=", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Not", value: "!", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Not", value: "!", line: line, column: startCol, length: 1 }
         }
         
         if ch == '<' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "LessEqual", value: "<=", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "LessEqual", value: "<=", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Less", value: "<", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Less", value: "<", line: line, column: startCol, length: 1 }
         }
         
         if ch == '>' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return RealToken{ type: "GreaterEqual", value: ">=", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "GreaterEqual", value: ">=", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Greater", value: ">", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Greater", value: ">", line: line, column: startCol, length: 1 }
         }
         
         // Single character tokens
         if ch == '(' {
-            advance();
-            return RealToken{ type: "LeftParen", value: "(", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "LeftParen", value: "(", line: line, column: startCol, length: 1 }
         }
         
         if ch == ')' {
-            advance();
-            return RealToken{ type: "RightParen", value: ")", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "RightParen", value: ")", line: line, column: startCol, length: 1 }
         }
         
         if ch == '{' {
-            advance();
-            return RealToken{ type: "LeftBrace", value: "{", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "LeftBrace", value: "{", line: line, column: startCol, length: 1 }
         }
         
         if ch == '}' {
-            advance();
-            return RealToken{ type: "RightBrace", value: "}", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "RightBrace", value: "}", line: line, column: startCol, length: 1 }
         }
         
         if ch == '[' {
-            advance();
-            return RealToken{ type: "LeftBracket", value: "[", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "LeftBracket", value: "[", line: line, column: startCol, length: 1 }
         }
         
         if ch == ']' {
-            advance();
-            return RealToken{ type: "RightBracket", value: "]", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "RightBracket", value: "]", line: line, column: startCol, length: 1 }
         }
         
         if ch == ',' {
-            advance();
-            return RealToken{ type: "Comma", value: ",", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "Comma", value: ",", line: line, column: startCol, length: 1 }
         }
         
         if ch == '.' {
-            advance();
+            advance()
             if currentChar() == '.' {
-                advance();
-                return RealToken{ type: "DotDot", value: "..", line: line, column: startCol, length: 2 };
+                advance()
+                return RealToken{ type: "DotDot", value: "..", line: line, column: startCol, length: 2 }
             }
-            return RealToken{ type: "Dot", value: ".", line: line, column: startCol, length: 1 };
+            return RealToken{ type: "Dot", value: ".", line: line, column: startCol, length: 1 }
         }
         
         if ch == ':' {
-            advance();
-            return RealToken{ type: "Colon", value: ":", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "Colon", value: ":", line: line, column: startCol, length: 1 }
         }
         
         if ch == ';' {
-            advance();
-            return RealToken{ type: "Semicolon", value: ";", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "Semicolon", value: ";", line: line, column: startCol, length: 1 }
         }
         
         if ch == '?' {
-            advance();
-            return RealToken{ type: "Question", value: "?", line: line, column: startCol, length: 1 };
+            advance()
+            return RealToken{ type: "Question", value: "?", line: line, column: startCol, length: 1 }
         }
         
         // Unknown character
-        advance();
-        return RealToken{ type: "Unknown", value: ch, line: line, column: startCol, length: 1 };
+        advance()
+        return RealToken{ type: "Unknown", value: ch, line: line, column: startCol, length: 1 }
     }
     
     fun scanIdentifierOrKeyword(startCol: Int) -> RealToken {
-        let startPos = position;
+        let startPos = position
         
         while isAlphaNumeric(currentChar()) {
-            advance();
+            advance()
         }
         
-        let value = source.substring(startPos, position);
-        let tokenType = if isKeyword(value) { "Keyword" + capitalize(value) } else { "Identifier" };
+        let value = source.substring(startPos, position)
+        let tokenType = if isKeyword(value) { "Keyword" + capitalize(value) } else { "Identifier" }
         
         return RealToken{
             type: tokenType,
@@ -248,94 +248,94 @@ class RealLexer {
             line: line,
             column: startCol,
             length: position - startPos
-        };
+        }
     }
     
     fun scanNumber(startCol: Int) -> RealToken {
-        let startPos = position;
+        let startPos = position
         
         while isDigit(currentChar()) {
-            advance();
+            advance()
         }
         
         // Check for decimal point
         if currentChar() == '.' and isDigit(peekChar()) {
             advance(); // consume '.'
             while isDigit(currentChar()) {
-                advance();
+                advance()
             }
             
-            let value = source.substring(startPos, position);
+            let value = source.substring(startPos, position)
             return RealToken{
                 type: "FloatLiteral",
                 value: value,
                 line: line,
                 column: startCol,
                 length: position - startPos
-            };
+            }
         }
         
-        let value = source.substring(startPos, position);
+        let value = source.substring(startPos, position)
         return RealToken{
             type: "IntLiteral",
             value: value,
             line: line,
             column: startCol,
             length: position - startPos
-        };
+        }
     }
     
     fun scanString(startCol: Int) -> RealToken {
-        let startPos = position;
+        let startPos = position
         advance(); // consume opening quote
         
-        let value = "";
-        let hasInterpolation = false;
+        let value = ""
+        let hasInterpolation = false
         
         while currentChar() != '"' and position < source.length() {
             if currentChar() == '\\' {
-                advance();
+                advance()
                 // Handle escape sequences
-                let escaped = currentChar();
+                let escaped = currentChar()
                 if escaped == 'n' {
-                    value = value + "\n";
+                    value = value + "\n"
                 } else if escaped == 't' {
-                    value = value + "\t";
+                    value = value + "\t"
                 } else if escaped == '\\' {
-                    value = value + "\\";
+                    value = value + "\\"
                 } else if escaped == '"' {
-                    value = value + "\"";
+                    value = value + "\""
                 } else {
-                    value = value + escaped;
+                    value = value + escaped
                 }
-                advance();
+                advance()
             } else if currentChar() == '{' {
                 // Check for string interpolation
                 if peekChar() == '{' {
                     // Double brace means literal brace
                     advance(); // consume first {
                     advance(); // consume second {
-                    value = value + "{";
+                    value = value + "{"
                 } else {
                     // Single brace means interpolation
-                    hasInterpolation = true;
-                    value = value + currentChar();
-                    advance();
+                    hasInterpolation = true
+                    value = value + currentChar()
+                    advance()
                 }
             } else if currentChar() == '}' {
                 if peekChar() == '}' {
                     // Double brace means literal brace
                     advance(); // consume first }
                     advance(); // consume second }
-                    value = value + "}";
+                    value = value + "}"
                 } else {
                     // Single brace in interpolation
-                    value = value + currentChar();
-                    advance();
+                    value = value + currentChar()
+                    advance()
                 }
             } else {
-                value = value + currentChar();
-                advance();
+                value = value + currentChar()
+                advance()
             }
         }
         
@@ -344,7 +344,7 @@ class RealLexer {
         }
         
         // Return different token type for interpolated strings
-        let tokenType = if hasInterpolation { "InterpolatedString" } else { "StringLiteral" };
+        let tokenType = if hasInterpolation { "InterpolatedString" } else { "StringLiteral" }
         
         return RealToken{
             type: tokenType,
@@ -352,25 +352,25 @@ class RealLexer {
             line: line,
             column: startCol,
             length: position - startPos
-        };
+        }
     }
     
     fun skipWhitespaceAndComments() {
         while position < source.length() {
-            let ch = currentChar();
+            let ch = currentChar()
             
             // Skip whitespace
             if ch == ' ' or ch == '\t' or ch == '\r' {
-                advance();
-                continue;
+                advance()
+                continue
             }
             
             // Handle newlines
             if ch == '\n' {
-                advance();
-                line = line + 1;
-                column = 1;
-                continue;
+                advance()
+                line = line + 1
+                column = 1
+                continue
             }
             
             // Skip single-line comments
@@ -378,9 +378,9 @@ class RealLexer {
                 advance(); // consume first /
                 advance(); // consume second /
                 while currentChar() != '\n' and position < source.length() {
-                    advance();
+                    advance()
                 }
-                continue;
+                continue
             }
             
             // Skip multi-line comments
@@ -391,53 +391,53 @@ class RealLexer {
                     if currentChar() == '*' and peekChar() == '/' {
                         advance(); // consume *
                         advance(); // consume /
-                        break;
+                        break
                     }
                     if currentChar() == '\n' {
-                        line = line + 1;
-                        column = 1;
+                        line = line + 1
+                        column = 1
                     }
-                    advance();
+                    advance()
                 }
-                continue;
+                continue
             }
             
             // Not whitespace or comment
-            break;
+            break
         }
     }
     
     fun currentChar() -> String {
         if position >= source.length() {
-            return "\0";
+            return "\0"
         }
-        return source.charAt(position);
+        return source.charAt(position)
     }
     
     fun peekChar() -> String {
         if position + 1 >= source.length() {
-            return "\0";
+            return "\0"
         }
-        return source.charAt(position + 1);
+        return source.charAt(position + 1)
     }
     
     fun advance() {
         if position < source.length() {
-            position = position + 1;
-            column = column + 1;
+            position = position + 1
+            column = column + 1
         }
     }
     
     fun isAlpha(ch: String) -> Bool {
-        return (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or ch == "_";
+        return (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or ch == "_"
     }
     
     fun isDigit(ch: String) -> Bool {
-        return ch >= "0" and ch <= "9";
+        return ch >= "0" and ch <= "9"
     }
     
     fun isAlphaNumeric(ch: String) -> Bool {
-        return isAlpha(ch) or isDigit(ch);
+        return isAlpha(ch) or isDigit(ch)
     }
     
     fun isKeyword(word: String) -> Bool {
@@ -468,22 +468,22 @@ class RealLexer {
                word == "async" or word == "await" or word == "yield" or word == "suspend" or
                word == "sealed" or word == "data" or word == "abstract" or word == "static" or
                // Memory
-               word == "move" or word == "copy" or word == "drop" or word == "unsafe";
+               word == "move" or word == "copy" or word == "drop" or word == "unsafe"
     }
     
     fun capitalize(word: String) -> String {
         if word.length() == 0 {
-            return word;
+            return word
         }
         
         // Capitalize first letter
-        let first = word.charAt(0);
+        let first = word.charAt(0)
         if first >= "a" and first <= "z" {
-            let capitalFirst = String.fromCharCode(first.charCodeAt(0) - 32);
-            return capitalFirst + word.substring(1);
+            let capitalFirst = String.fromCharCode(first.charCodeAt(0) - 32)
+            return capitalFirst + word.substring(1)
         }
         
-        return word;
+        return word
     }
 }
 
@@ -491,26 +491,26 @@ class RealLexer {
 fun testRealLexer() {
     let source = """
     fun main() {
-        let x = 42;
-        let y = 3.14;
-        let message = "Hello, World!";
+        let x = 42
+        let y = 3.14
+        let message = "Hello, World!"
         
         if x > 10 and y < 5.0 {
-            println(message);
+            println(message)
         }
         
         for i in 0..10 {
-            println(i);
+            println(i)
         }
     }
-    """;
+    """
     
-    let lexer = RealLexer{ source: source };
-    let tokens = lexer.tokenize();
+    let lexer = RealLexer{ source: source }
+    let tokens = lexer.tokenize()
     
-    println("Tokenized " + tokens.size().toString() + " tokens:");
+    println("Tokenized " + tokens.size().toString() + " tokens:")
     for token in tokens {
         println("  " + token.type + ": '" + token.value + "' at " + 
-                token.line.toString() + ":" + token.column.toString());
+                token.line.toString() + ":" + token.column.toString())
     }
 }

@@ -2,103 +2,103 @@
 
 class Program {
     fun new() -> Program {
-        return Program{};
+        return Program{}
     }
     
     fun getItems() -> Array<Item> {
-        return Array<Item>();
+        return Array<Item>()
     }
 }
 
 class Item {
     fun new() -> Item {
-        return Item{};
+        return Item{}
     }
     
     fun getKind() -> ItemKind {
-        return ItemKind.new();
+        return ItemKind.new()
     }
 }
 
 class ItemKind {
     fun new() -> ItemKind {
-        return ItemKind{};
+        return ItemKind{}
     }
     
     fun getType() -> String {
-        return "Function";
+        return "Function"
     }
     
     fun getData() -> ASTNode? {
-        return null;
+        return null
     }
 }
 
 class Function {
     fun new() -> Function {
-        return Function{};
+        return Function{}
     }
     
     fun getName() -> String {
-        return "main";
+        return "main"
     }
     
     fun getBody() -> Block {
-        return Block.new();
+        return Block.new()
     }
 }
 
 class Block {
     fun new() -> Block {
-        return Block{};
+        return Block{}
     }
 }
 
 class Statement {
     fun new() -> Statement {
-        return Statement{};
+        return Statement{}
     }
 }
 
 class Expression {
     fun new() -> Expression {
-        return Expression{};
+        return Expression{}
     }
     
     fun getKind() -> String {
-        return "Literal";
+        return "Literal"
     }
     
     fun getValue() -> String? {
-        return "test";
+        return "test"
     }
     
     fun getChildren() -> Array<Expression> {
-        return Array<Expression>();
+        return Array<Expression>()
     }
 }
 
 class ASTNode {
     fun new() -> ASTNode {
-        return ASTNode{};
+        return ASTNode{}
     }
 }
 
 class SeenParser {
     fun new(tokens: Array<Token>) -> SeenParser {
-        return SeenParser{};
+        return SeenParser{}
     }
     
     fun parseProgram() -> Program {
-        return Program.new();
+        return Program.new()
     }
 }
 
 fun createParser(tokens: Array<Token>) -> SeenParser {
-    return SeenParser.new(tokens);
+    return SeenParser.new(tokens)
 }
 
 fun parseSeenProgram(tokens: Array<Token>) -> Program {
-    let parser = SeenParser.new(tokens);
-    return parser.parseProgram();
+    let parser = SeenParser.new(tokens)
+    return parser.parseProgram()
 }

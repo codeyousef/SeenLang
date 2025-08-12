@@ -2,6 +2,6 @@
 
 class Diagnostics {
     fun new() -> Diagnostics {
-        println("Creating Diagnostics");
+        println("Creating Diagnostics")
     }
 }

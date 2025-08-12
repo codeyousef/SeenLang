@@ -11,6 +11,7 @@ seen_parser = { path = "../seen_parser" }
 seen_typechecker = { path = "../seen_typechecker" }
 seen_interpreter = { path = "../seen_interpreter" }
 seen_ir = { path = "../seen_ir" }
+seen_lsp = { path = "../seen_lsp" }
 
 # For CLI argument parsing
 clap = { workspace = true }
@@ -32,6 +33,9 @@ serde = { workspace = true }
 
 # For terminal coloring
 colored = { workspace = true }
+
+# For async runtime (needed for LSP)
+tokio = { version = "1", features = ["rt", "macros"] }
 [dev-dependencies]
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }

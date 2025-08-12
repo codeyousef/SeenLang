@@ -2,19 +2,19 @@
 // SAT/SMT-based superoptimization for finding optimal instruction sequences
 
 // Core superoptimization components
-use superoptimizer::Superoptimizer;
-use z3_solver::Z3Solver;
-use program_synthesis::ProgramSynthesizer;
+use superoptimizer::Superoptimizer
+use z3_solver::Z3Solver
+use program_synthesis::ProgramSynthesizer
 
 // Export main superoptimization interface
-pub use superoptimizer::Superoptimizer;
+pub use superoptimizer::Superoptimizer
 
 // Supporting types and data structures
 pub use superoptimizer::{
     Specification,
     Dependency,
     MemoryAccess
-};
+}
 
 pub use z3_solver::{
     Z3Solver,
@@ -26,7 +26,7 @@ pub use z3_solver::{
     BoolVariable,
     EnumVariable,
     BitVectorVariable
-};
+}
 
 pub use program_synthesis::{
     ProgramSynthesizer,
@@ -36,39 +36,39 @@ pub use program_synthesis::{
     ProgramOutput,
     SynthesisResult,
     InstructionSet
-};
+}
 
 // Superoptimization engine interface
 fun createSuperoptimizer() -> Superoptimizer {
-    return Superoptimizer{};
+    return Superoptimizer{}
 }
 
 // Program synthesis interface  
 fun createProgramSynthesizer() -> ProgramSynthesizer {
-    return ProgramSynthesizer{};
+    return ProgramSynthesizer{}
 }
 
 // SMT solver interface
 fun createZ3Solver() -> Z3Solver {
-    return Z3Solver{};
+    return Z3Solver{}
 }
 
 // Utility functions for superoptimization
 
 fun optimizeFunction(function: Function) -> Function? {
-    let superoptimizer = createSuperoptimizer();
-    return superoptimizer.superoptimize(function);
+    let superoptimizer = createSuperoptimizer()
+    return superoptimizer.superoptimize(function)
 }
 
 fun synthesizeOptimalCode(spec: ProgramSpecification) -> Function? {
-    let synthesizer = createProgramSynthesizer();
-    let result = synthesizer.synthesize(spec);
+    let synthesizer = createProgramSynthesizer()
+    let result = synthesizer.synthesize(spec)
     
     if result != null {
-        return result.program;
+        return result.program
     }
     
-    return null;
+    return null
 }
 
 // Integration with existing optimization pipeline
@@ -76,38 +76,38 @@ fun integrateWithEGraphs(egraphOptimizer: EGraphOptimizer, superoptimizer: Super
     return CombinedOptimizer{
         egraph: egraphOptimizer,
         superopt: superoptimizer
-    };
+    }
 }
 
 class CombinedOptimizer {
-    var egraph: EGraphOptimizer;
-    var superopt: Superoptimizer;
+    var egraph: EGraphOptimizer
+    var superopt: Superoptimizer
     
     fun new() -> CombinedOptimizer {
         return CombinedOptimizer{
             egraph: EGraphOptimizer{},
             superopt: Superoptimizer{}
-        };
+        }
     }
     
     fun Optimize(ir: IR) -> IR? {
-        println("🔥 Combined E-graph + Superoptimization");
+        println("🔥 Combined E-graph + Superoptimization")
         
         // First apply E-graph optimization
-        let egraphResult = egraph.Optimize(ir);
+        let egraphResult = egraph.Optimize(ir)
         if egraphResult == null {
-            return null;
+            return null
         }
         
         // Then apply superoptimization to critical functions
-        let optimizedFunctions = [];
+        let optimizedFunctions = []
         
         for function in egraphResult.functions {
             if isCriticalFunction(function) {
-                let superoptResult = superopt.superoptimize(function);
-                optimizedFunctions.append(superoptResult);
+                let superoptResult = superopt.superoptimize(function)
+                optimizedFunctions.append(superoptResult)
             } else {
-                optimizedFunctions.append(function);
+                optimizedFunctions.append(function)
             }
         }
         
@@ -115,11 +115,11 @@ class CombinedOptimizer {
             functions: optimizedFunctions,
             globals: egraphResult.globals,
             metadata: egraphResult.metadata
-        };
+        }
     }
     
     fun isCriticalFunction(function: Function) -> Bool {
         // Mark functions as critical if they're small enough for superoptimization
-        return function.instructions.size() <= 20;
+        return function.instructions.size() <= 20
     }
 }

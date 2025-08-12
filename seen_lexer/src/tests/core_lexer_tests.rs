@@ -190,7 +190,7 @@ mod basic_tokenization_tests {
 
     #[test]
     fn test_tokenize_punctuation() {
-        let mut lexer = create_test_lexer("( ) { } [ ] , ; : ->");
+        let mut lexer = create_test_lexer("( ) { } [ ] , : ->");
         
         let expected_tokens = vec![
             TokenType::LeftParen,
@@ -200,7 +200,6 @@ mod basic_tokenization_tests {
             TokenType::LeftBracket,
             TokenType::RightBracket,
             TokenType::Comma,
-            TokenType::Semicolon,
             TokenType::Colon,
             TokenType::Arrow,
         ];

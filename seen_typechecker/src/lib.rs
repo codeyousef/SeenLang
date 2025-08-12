@@ -86,6 +86,8 @@ pub struct Parameter {
 mod tests {
     use super::*;
     
+    mod smart_casting_simple;
+    
     #[test]
     fn test_type_check_result_creation() {
         let result = TypeCheckResult::new();

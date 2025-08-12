@@ -1,34 +1,34 @@
 // Main Test Runner
 // Executes all test suites and reports results
 
-use testing::runner::*;
-use test::unit::compiler::compiler_tests::createCompilerTestSuite;
-use test::unit::language::feature_tests::createFeatureTestSuite;
-use test::integration::compilation::integration_tests::createIntegrationTestSuite;
+use testing::runner::*
+use test::unit::compiler::compiler_tests::createCompilerTestSuite
+use test::unit::language::feature_tests::createFeatureTestSuite
+use test::integration::compilation::integration_tests::createIntegrationTestSuite
 
 fun main() -> Int {
-    println("🚀 SEEN COMPILER TEST SUITE");
-    println("=" * 70);
-    println("Running all tests to verify compiler functionality");
-    println("=" * 70);
+    println("🚀 SEEN COMPILER TEST SUITE")
+    println("=" * 70)
+    println("Running all tests to verify compiler functionality")
+    println("=" * 70)
     
-    let testSuites = [];
+    let testSuites = []
     
     // Add all test suites
-    testSuites.append(createCompilerTestSuite());
-    testSuites.append(createFeatureTestSuite());
-    testSuites.append(createIntegrationTestSuite());
+    testSuites.append(createCompilerTestSuite())
+    testSuites.append(createFeatureTestSuite())
+    testSuites.append(createIntegrationTestSuite())
     
     // Run all tests
-    let exitCode = runTests(testSuites);
+    let exitCode = runTests(testSuites)
     
     if exitCode == 0 {
-        println("\n🎉 SUCCESS! All tests passed!");
-        println("The Seen compiler is working correctly.");
+        println("\n🎉 SUCCESS! All tests passed!")
+        println("The Seen compiler is working correctly.")
     } else {
-        println("\n❌ FAILURE! Some tests failed.");
-        println("Please fix the issues before proceeding.");
+        println("\n❌ FAILURE! Some tests failed.")
+        println("Please fix the issues before proceeding.")
     }
     
-    return exitCode;
+    return exitCode
 }

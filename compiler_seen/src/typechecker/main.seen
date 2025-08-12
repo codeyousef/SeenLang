@@ -2,29 +2,29 @@
 
 class SeenType {
     fun new() -> SeenType {
-        return SeenType{};
+        return SeenType{}
     }
     
     fun getName() -> String {
-        return "Int";
+        return "Int"
     }
 }
 
 class SeenTypeChecker {
     fun new() -> SeenTypeChecker {
-        return SeenTypeChecker{};
+        return SeenTypeChecker{}
     }
     
     fun checkProgram(program: Program) -> Program {
-        return program;
+        return program
     }
 }
 
 fun createTypeChecker() -> SeenTypeChecker {
-    return SeenTypeChecker.new();
+    return SeenTypeChecker.new()
 }
 
 fun typeCheckProgram(program: Program) -> Program {
-    let checker = createTypeChecker();
-    return checker.checkProgram(program);
+    let checker = createTypeChecker()
+    return checker.checkProgram(program)
 }

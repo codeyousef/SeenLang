@@ -1,0 +1,4 @@
+fun main() -> Int {
+    println("test")
+    0
+}

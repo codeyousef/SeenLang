@@ -2,88 +2,88 @@
 // Simplified test execution for bootstrap compiler
 
 fun main() {
-    println("🚀 Running Optimization Tests (Bootstrap Mode)\n");
+    println("🚀 Running Optimization Tests (Bootstrap Mode)\n")
     
     // Since bootstrap compiler has limitations, we'll run basic verification
-    println("Testing E-graph Optimization...");
-    testEGraphBasic();
+    println("Testing E-graph Optimization...")
+    testEGraphBasic()
     
-    println("\nTesting ML Optimization...");
-    testMLBasic();
+    println("\nTesting ML Optimization...")
+    testMLBasic()
     
-    println("\nTesting Superoptimization...");
-    testSuperoptBasic();
+    println("\nTesting Superoptimization...")
+    testSuperoptBasic()
     
-    println("\n✅ All basic tests completed successfully!");
+    println("\n✅ All basic tests completed successfully!")
 }
 
 fun testEGraphBasic() {
     // Basic E-graph test
-    let egraph = EGraph{};
-    let term = Term{ op: "add", args: ["x", "0"] };
-    let id = egraph.add(term);
+    let egraph = EGraph{}
+    let term = Term{ op: "add", args: ["x", "0"] }
+    let id = egraph.add(term)
     
     if id > 0 {
-        println("  ✓ E-graph add operation works");
+        println("  ✓ E-graph add operation works")
     } else {
-        println("  ✗ E-graph add operation failed");
+        println("  ✗ E-graph add operation failed")
     }
     
-    let rules = [RewriteRule{ pattern: "(+ ?a 0)", replacement: "?a" }];
-    let saturated = egraph.saturate(rules, 100);
+    let rules = [RewriteRule{ pattern: "(+ ?a 0)", replacement: "?a" }]
+    let saturated = egraph.saturate(rules, 100)
     
     if saturated {
-        println("  ✓ E-graph saturation works");
+        println("  ✓ E-graph saturation works")
     } else {
-        println("  ✗ E-graph saturation failed");
+        println("  ✗ E-graph saturation failed")
     }
 }
 
 fun testMLBasic() {
     // Basic ML optimization test
-    let mlOptimizer = MLOptimizer{};
-    let ir = IR{ functions: [] };
+    let mlOptimizer = MLOptimizer{}
+    let ir = IR{ functions: [] }
     
-    let features = mlOptimizer.extractFeatures(ir);
+    let features = mlOptimizer.extractFeatures(ir)
     if features != null {
-        println("  ✓ ML feature extraction works");
+        println("  ✓ ML feature extraction works")
     } else {
-        println("  ✗ ML feature extraction failed");
+        println("  ✗ ML feature extraction failed")
     }
     
-    let trainingSize = mlOptimizer.getTrainingDataSize();
+    let trainingSize = mlOptimizer.getTrainingDataSize()
     if trainingSize >= 0 {
-        println("  ✓ ML training data management works");
+        println("  ✓ ML training data management works")
     } else {
-        println("  ✗ ML training data management failed");
+        println("  ✗ ML training data management failed")
     }
 }
 
 fun testSuperoptBasic() {
     // Basic superoptimization test
-    let superoptimizer = Superoptimizer{};
+    let superoptimizer = Superoptimizer{}
     let function = Function{
         name: "test_function",
         instructions: [
             Instruction{ op: "mul", args: ["x", "2"] },
             Instruction{ op: "mul", args: ["x", "2"] }
         ]
-    };
-    
-    // Just verify the superoptimizer can be created and called
-    let result = superoptimizer.superoptimize(function);
-    if result != null {
-        println("  ✓ Superoptimizer execution works");
-    } else {
-        println("  ✗ Superoptimizer execution failed");
     }
     
-    let solver = Z3Solver{};
-    let intVar = solver.createIntVariable("test_var");
-    if intVar != null {
-        println("  ✓ Z3 solver interface works");
+    // Just verify the superoptimizer can be created and called
+    let result = superoptimizer.superoptimize(function)
+    if result != null {
+        println("  ✓ Superoptimizer execution works")
     } else {
-        println("  ✗ Z3 solver interface failed");
+        println("  ✗ Superoptimizer execution failed")
+    }
+    
+    let solver = Z3Solver{}
+    let intVar = solver.createIntVariable("test_var")
+    if intVar != null {
+        println("  ✓ Z3 solver interface works")
+    } else {
+        println("  ✗ Z3 solver interface failed")
     }
 }
 
@@ -95,14 +95,14 @@ class EGraph {
 }
 
 class Term {
-    var op: String = "";
-    var args: List<String> = [];
+    var op: String = ""
+    var args: List<String> = []
     fun new() -> Term { return Term{}; }
 }
 
 class RewriteRule {
-    var pattern: String = "";
-    var replacement: String = "";
+    var pattern: String = ""
+    var replacement: String = ""
     fun new() -> RewriteRule { return RewriteRule{}; }
 }
 
@@ -117,19 +117,19 @@ class Features {
 }
 
 class IR {
-    var functions: List<Function> = [];
+    var functions: List<Function> = []
     fun new() -> IR { return IR{}; }
 }
 
 class Function {
-    var name: String = "";
-    var instructions: List<Instruction> = [];
+    var name: String = ""
+    var instructions: List<Instruction> = []
     fun new() -> Function { return Function{}; }
 }
 
 class Instruction {
-    var op: String = "";
-    var args: List<String> = [];
+    var op: String = ""
+    var args: List<String> = []
     fun new() -> Instruction { return Instruction{}; }
 }
 

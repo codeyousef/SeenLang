@@ -3,36 +3,36 @@
 
 // Base node for all AST nodes
 class ASTNode {
-    var line: Int;
-    var column: Int;
+    var line: Int
+    var column: Int
     
     fun new() -> ASTNode {
         return ASTNode{
             line: 0,
             column: 0
-        };
+        }
     }
 }
 
 // Program root node
 class ProgramNode {
-    var items: List<ItemNode>;
+    var items: List<ItemNode>
     
     fun new() -> ProgramNode {
         return ProgramNode{
             items: []
-        };
+        }
     }
 }
 
 // Top-level item (function, class, struct, etc.)
 class ItemNode {
     var itemType: String; // "Function", "Class", "Struct", "Enum", "Import"
-    var name: String;
+    var name: String
     var visibility: String; // "public" or "private"
-    var function: FunctionNode?;
-    var classNode: ClassNode?;
-    var structNode: StructNode?;
+    var function: FunctionNode?
+    var classNode: ClassNode?
+    var structNode: StructNode?
     
     fun new() -> ItemNode {
         return ItemNode{
@@ -42,18 +42,18 @@ class ItemNode {
             function: null,
             classNode: null,
             structNode: null
-        };
+        }
     }
 }
 
 // Function definition
 class FunctionNode {
-    var name: String;
-    var params: List<ParamNode>;
-    var returnType: TypeNode?;
-    var body: BlockNode;
-    var isAsync: Bool;
-    var isInline: Bool;
+    var name: String
+    var params: List<ParamNode>
+    var returnType: TypeNode?
+    var body: BlockNode
+    var isAsync: Bool
+    var isInline: Bool
     
     fun new() -> FunctionNode {
         return FunctionNode{
@@ -63,16 +63,16 @@ class FunctionNode {
             body: BlockNode{},
             isAsync: false,
             isInline: false
-        };
+        }
     }
 }
 
 // Function parameter
 class ParamNode {
-    var name: String;
-    var paramType: TypeNode;
-    var isMutable: Bool;
-    var defaultValue: ExpressionNode?;
+    var name: String
+    var paramType: TypeNode
+    var isMutable: Bool
+    var defaultValue: ExpressionNode?
     
     fun new() -> ParamNode {
         return ParamNode{
@@ -80,17 +80,17 @@ class ParamNode {
             paramType: TypeNode{},
             isMutable: false,
             defaultValue: null
-        };
+        }
     }
 }
 
 // Type reference
 class TypeNode {
-    var typeName: String;
-    var isNullable: Bool;
-    var typeParams: List<TypeNode>;
-    var isArray: Bool;
-    var arraySize: Int?;
+    var typeName: String
+    var isNullable: Bool
+    var typeParams: List<TypeNode>
+    var isArray: Bool
+    var arraySize: Int?
     
     fun new() -> TypeNode {
         return TypeNode{
@@ -99,41 +99,41 @@ class TypeNode {
             typeParams: [],
             isArray: false,
             arraySize: null
-        };
+        }
     }
 }
 
 // Statement block
 class BlockNode {
-    var statements: List<StatementNode>;
+    var statements: List<StatementNode>
     
     fun new() -> BlockNode {
         return BlockNode{
             statements: []
-        };
+        }
     }
 }
 
 // Statement types
 class StatementNode {
     var stmtType: String; // "Let", "Var", "Return", "If", "While", "For", "Expression", "Block", "Match", "Loop", "Break", "Continue", "Defer", "Assert", "Region", "Arena", "Handle"
-    var letStmt: LetStatement?;
-    var varStmt: VarStatement?;
-    var returnStmt: ReturnStatement?;
-    var ifStmt: IfStatement?;
-    var whileStmt: WhileStatement?;
-    var forStmt: ForStatement?;
-    var exprStmt: ExpressionStatement?;
-    var blockStmt: BlockNode?;
-    var matchStmt: MatchStatement?;
-    var loopStmt: LoopStatement?;
-    var breakStmt: BreakStatement?;
-    var continueStmt: ContinueStatement?;
-    var deferStmt: DeferStatement?;
-    var assertStmt: AssertStatement?;
-    var regionStmt: RegionStatement?;
-    var arenaStmt: ArenaStatement?;
-    var handleStmt: HandleStatement?;
+    var letStmt: LetStatement?
+    var varStmt: VarStatement?
+    var returnStmt: ReturnStatement?
+    var ifStmt: IfStatement?
+    var whileStmt: WhileStatement?
+    var forStmt: ForStatement?
+    var exprStmt: ExpressionStatement?
+    var blockStmt: BlockNode?
+    var matchStmt: MatchStatement?
+    var loopStmt: LoopStatement?
+    var breakStmt: BreakStatement?
+    var continueStmt: ContinueStatement?
+    var deferStmt: DeferStatement?
+    var assertStmt: AssertStatement?
+    var regionStmt: RegionStatement?
+    var arenaStmt: ArenaStatement?
+    var handleStmt: HandleStatement?
     
     fun new() -> StatementNode {
         return StatementNode{
@@ -146,127 +146,127 @@ class StatementNode {
             forStmt: null,
             exprStmt: null,
             blockStmt: null
-        };
+        }
     }
 }
 
 // Let statement (immutable binding)
 class LetStatement {
-    var name: String;
-    var varType: TypeNode?;
-    var value: ExpressionNode;
+    var name: String
+    var varType: TypeNode?
+    var value: ExpressionNode
     
     fun new() -> LetStatement {
         return LetStatement{
             name: "",
             varType: null,
             value: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Var statement (mutable binding)
 class VarStatement {
-    var name: String;
-    var varType: TypeNode?;
-    var value: ExpressionNode?;
+    var name: String
+    var varType: TypeNode?
+    var value: ExpressionNode?
     
     fun new() -> VarStatement {
         return VarStatement{
             name: "",
             varType: null,
             value: null
-        };
+        }
     }
 }
 
 // Return statement
 class ReturnStatement {
-    var value: ExpressionNode?;
+    var value: ExpressionNode?
     
     fun new() -> ReturnStatement {
         return ReturnStatement{
             value: null
-        };
+        }
     }
 }
 
 // If statement
 class IfStatement {
-    var condition: ExpressionNode;
-    var thenBranch: BlockNode;
-    var elseBranch: BlockNode?;
+    var condition: ExpressionNode
+    var thenBranch: BlockNode
+    var elseBranch: BlockNode?
     
     fun new() -> IfStatement {
         return IfStatement{
             condition: ExpressionNode{},
             thenBranch: BlockNode{},
             elseBranch: null
-        };
+        }
     }
 }
 
 // While loop
 class WhileStatement {
-    var condition: ExpressionNode;
-    var body: BlockNode;
+    var condition: ExpressionNode
+    var body: BlockNode
     
     fun new() -> WhileStatement {
         return WhileStatement{
             condition: ExpressionNode{},
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // For loop
 class ForStatement {
-    var variable: String;
-    var iterable: ExpressionNode;
-    var body: BlockNode;
+    var variable: String
+    var iterable: ExpressionNode
+    var body: BlockNode
     
     fun new() -> ForStatement {
         return ForStatement{
             variable: "",
             iterable: ExpressionNode{},
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // Expression statement
 class ExpressionStatement {
-    var expr: ExpressionNode;
+    var expr: ExpressionNode
     
     fun new() -> ExpressionStatement {
         return ExpressionStatement{
             expr: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Expression types
 class ExpressionNode {
     var exprType: String; // "Literal", "Identifier", "Binary", "Unary", "Call", "Member", "Index", "Cast", "If", "Match", "Range", "Lambda", "Await", "Spawn", "Select", "StringInterpolation"
-    var literal: LiteralNode?;
-    var identifier: IdentifierNode?;
-    var binary: BinaryNode?;
-    var unary: UnaryNode?;
-    var call: CallNode?;
-    var member: MemberNode?;
-    var index: IndexNode?;
-    var cast: CastNode?;
-    var ifExpr: IfExpressionNode?;
-    var matchExpr: MatchExpressionNode?;
-    var rangeExpr: RangeNode?;
-    var lambda: LambdaNode?;
-    var awaitExpr: AwaitNode?;
-    var spawnExpr: SpawnNode?;
-    var selectExpr: SelectNode?;
-    var stringInterp: StringInterpolationNode?;
-    var isExpr: IsExpressionNode?;
-    var elvisExpr: ElvisNode?;
-    var forceUnwrap: ForceUnwrapNode?;
+    var literal: LiteralNode?
+    var identifier: IdentifierNode?
+    var binary: BinaryNode?
+    var unary: UnaryNode?
+    var call: CallNode?
+    var member: MemberNode?
+    var index: IndexNode?
+    var cast: CastNode?
+    var ifExpr: IfExpressionNode?
+    var matchExpr: MatchExpressionNode?
+    var rangeExpr: RangeNode?
+    var lambda: LambdaNode?
+    var awaitExpr: AwaitNode?
+    var spawnExpr: SpawnNode?
+    var selectExpr: SelectNode?
+    var stringInterp: StringInterpolationNode?
+    var isExpr: IsExpressionNode?
+    var elvisExpr: ElvisNode?
+    var forceUnwrap: ForceUnwrapNode?
     
     fun new() -> ExpressionNode {
         return ExpressionNode{
@@ -280,17 +280,17 @@ class ExpressionNode {
             index: null,
             cast: null,
             ifExpr: null
-        };
+        }
     }
 }
 
 // Literal values
 class LiteralNode {
     var literalType: String; // "Int", "Float", "String", "Bool", "Null"
-    var intValue: Int?;
-    var floatValue: Float?;
-    var stringValue: String?;
-    var boolValue: Bool?;
+    var intValue: Int?
+    var floatValue: Float?
+    var stringValue: String?
+    var boolValue: Bool?
     
     fun new() -> LiteralNode {
         return LiteralNode{
@@ -299,66 +299,66 @@ class LiteralNode {
             floatValue: null,
             stringValue: null,
             boolValue: null
-        };
+        }
     }
 }
 
 // Identifier reference
 class IdentifierNode {
-    var name: String;
+    var name: String
     
     fun new() -> IdentifierNode {
         return IdentifierNode{
             name: ""
-        };
+        }
     }
 }
 
 // Binary operation
 class BinaryNode {
-    var left: ExpressionNode;
+    var left: ExpressionNode
     var operator: String; // "+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">=", "and", "or", "^", "&", "|", "<<", ">>", "is", "as", "in"
-    var right: ExpressionNode;
+    var right: ExpressionNode
     
     fun new() -> BinaryNode {
         return BinaryNode{
             left: ExpressionNode{},
             operator: "",
             right: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Unary operation
 class UnaryNode {
     var operator: String; // "-", "not", "~", "move", "borrow", "mut"
-    var operand: ExpressionNode;
+    var operand: ExpressionNode
     
     fun new() -> UnaryNode {
         return UnaryNode{
             operator: "",
             operand: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Function call
 class CallNode {
-    var function: ExpressionNode;
-    var arguments: List<ExpressionNode>;
+    var function: ExpressionNode
+    var arguments: List<ExpressionNode>
     
     fun new() -> CallNode {
         return CallNode{
             function: ExpressionNode{},
             arguments: []
-        };
+        }
     }
 }
 
 // Member access
 class MemberNode {
-    var object: ExpressionNode;
-    var member: String;
+    var object: ExpressionNode
+    var member: String
     var isSafe: Bool; // ?. operator
     
     fun new() -> MemberNode {
@@ -366,27 +366,27 @@ class MemberNode {
             object: ExpressionNode{},
             member: "",
             isSafe: false
-        };
+        }
     }
 }
 
 // Array/index access
 class IndexNode {
-    var object: ExpressionNode;
-    var index: ExpressionNode;
+    var object: ExpressionNode
+    var index: ExpressionNode
     
     fun new() -> IndexNode {
         return IndexNode{
             object: ExpressionNode{},
             index: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Type cast
 class CastNode {
-    var expr: ExpressionNode;
-    var targetType: TypeNode;
+    var expr: ExpressionNode
+    var targetType: TypeNode
     var isForced: Bool; // as! vs as?
     
     fun new() -> CastNode {
@@ -394,34 +394,34 @@ class CastNode {
             expr: ExpressionNode{},
             targetType: TypeNode{},
             isForced: false
-        };
+        }
     }
 }
 
 // If expression (ternary)
 class IfExpressionNode {
-    var condition: ExpressionNode;
-    var thenExpr: ExpressionNode;
-    var elseExpr: ExpressionNode;
+    var condition: ExpressionNode
+    var thenExpr: ExpressionNode
+    var elseExpr: ExpressionNode
     
     fun new() -> IfExpressionNode {
         return IfExpressionNode{
             condition: ExpressionNode{},
             thenExpr: ExpressionNode{},
             elseExpr: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Class definition
 class ClassNode {
-    var name: String;
-    var superClass: String?;
-    var interfaces: List<String>;
-    var fields: List<FieldNode>;
-    var methods: List<FunctionNode>;
-    var isData: Bool;
-    var isSealed: Bool;
+    var name: String
+    var superClass: String?
+    var interfaces: List<String>
+    var fields: List<FieldNode>
+    var methods: List<FunctionNode>
+    var isData: Bool
+    var isSealed: Bool
     
     fun new() -> ClassNode {
         return ClassNode{
@@ -432,30 +432,30 @@ class ClassNode {
             methods: [],
             isData: false,
             isSealed: false
-        };
+        }
     }
 }
 
 // Struct definition
 class StructNode {
-    var name: String;
-    var fields: List<FieldNode>;
+    var name: String
+    var fields: List<FieldNode>
     
     fun new() -> StructNode {
         return StructNode{
             name: "",
             fields: []
-        };
+        }
     }
 }
 
 // Field definition
 class FieldNode {
-    var name: String;
-    var fieldType: TypeNode;
-    var isMutable: Bool;
-    var defaultValue: ExpressionNode?;
-    var visibility: String;
+    var name: String
+    var fieldType: TypeNode
+    var isMutable: Bool
+    var defaultValue: ExpressionNode?
+    var visibility: String
     
     fun new() -> FieldNode {
         return FieldNode{
@@ -464,7 +464,7 @@ class FieldNode {
             isMutable: false,
             defaultValue: null,
             visibility: "private"
-        };
+        }
     }
 }
 
@@ -472,54 +472,54 @@ class FieldNode {
 
 // Match expression (pattern matching)
 class MatchExpressionNode {
-    var expr: ExpressionNode;
-    var arms: List<MatchArm>;
+    var expr: ExpressionNode
+    var arms: List<MatchArm>
     
     fun new() -> MatchExpressionNode {
         return MatchExpressionNode{
             expr: ExpressionNode{},
             arms: []
-        };
+        }
     }
 }
 
 // Match statement
 class MatchStatement {
-    var expr: ExpressionNode;
-    var arms: List<MatchArm>;
+    var expr: ExpressionNode
+    var arms: List<MatchArm>
     
     fun new() -> MatchStatement {
         return MatchStatement{
             expr: ExpressionNode{},
             arms: []
-        };
+        }
     }
 }
 
 // Match arm with optional guard
 class MatchArm {
-    var pattern: PatternNode;
+    var pattern: PatternNode
     var guard: ExpressionNode?;  // Optional 'if' guard
-    var body: ExpressionNode;
+    var body: ExpressionNode
     
     fun new() -> MatchArm {
         return MatchArm{
             pattern: PatternNode{},
             guard: null,
             body: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Pattern for pattern matching
 class PatternNode {
     var patternType: String; // "Literal", "Identifier", "Wildcard", "Range", "Struct", "Enum", "Array"
-    var literal: LiteralNode?;
-    var identifier: String?;
-    var rangePattern: RangePatternNode?;
-    var structPattern: StructPatternNode?;
-    var enumPattern: EnumPatternNode?;
-    var arrayPattern: ArrayPatternNode?;
+    var literal: LiteralNode?
+    var identifier: String?
+    var rangePattern: RangePatternNode?
+    var structPattern: StructPatternNode?
+    var enumPattern: EnumPatternNode?
+    var arrayPattern: ArrayPatternNode?
     
     fun new() -> PatternNode {
         return PatternNode{
@@ -530,83 +530,83 @@ class PatternNode {
             structPattern: null,
             enumPattern: null,
             arrayPattern: null
-        };
+        }
     }
 }
 
 // Range pattern (1..10)
 class RangePatternNode {
-    var start: ExpressionNode?;
-    var end: ExpressionNode?;
-    var isInclusive: Bool;
+    var start: ExpressionNode?
+    var end: ExpressionNode?
+    var isInclusive: Bool
     
     fun new() -> RangePatternNode {
         return RangePatternNode{
             start: null,
             end: null,
             isInclusive: true
-        };
+        }
     }
 }
 
 // Struct pattern for destructuring
 class StructPatternNode {
-    var typeName: String;
-    var fields: List<FieldPattern>;
+    var typeName: String
+    var fields: List<FieldPattern>
     
     fun new() -> StructPatternNode {
         return StructPatternNode{
             typeName: "",
             fields: []
-        };
+        }
     }
 }
 
 // Field pattern
 class FieldPattern {
-    var name: String;
-    var pattern: PatternNode?;
+    var name: String
+    var pattern: PatternNode?
     
     fun new() -> FieldPattern {
         return FieldPattern{
             name: "",
             pattern: null
-        };
+        }
     }
 }
 
 // Enum pattern
 class EnumPatternNode {
-    var typeName: String;
-    var variant: String;
-    var fields: List<PatternNode>;
+    var typeName: String
+    var variant: String
+    var fields: List<PatternNode>
     
     fun new() -> EnumPatternNode {
         return EnumPatternNode{
             typeName: "",
             variant: "",
             fields: []
-        };
+        }
     }
 }
 
 // Array pattern
 class ArrayPatternNode {
-    var patterns: List<PatternNode>;
+    var patterns: List<PatternNode>
     
     fun new() -> ArrayPatternNode {
         return ArrayPatternNode{
             patterns: []
-        };
+        }
     }
 }
 
 // Range expression (1..10 or 1..<10)
 class RangeNode {
-    var start: ExpressionNode?;
-    var end: ExpressionNode?;
-    var isInclusive: Bool;
-    var step: ExpressionNode?;
+    var start: ExpressionNode?
+    var end: ExpressionNode?
+    var isInclusive: Bool
+    var step: ExpressionNode?
     
     fun new() -> RangeNode {
         return RangeNode{
@@ -614,313 +614,313 @@ class RangeNode {
             end: null,
             isInclusive: true,
             step: null
-        };
+        }
     }
 }
 
 // Lambda expression
 class LambdaNode {
-    var params: List<String>;
-    var body: ExpressionNode;
-    var isAsync: Bool;
+    var params: List<String>
+    var body: ExpressionNode
+    var isAsync: Bool
     
     fun new() -> LambdaNode {
         return LambdaNode{
             params: [],
             body: ExpressionNode{},
             isAsync: false
-        };
+        }
     }
 }
 
 // Await expression
 class AwaitNode {
-    var expr: ExpressionNode;
+    var expr: ExpressionNode
     
     fun new() -> AwaitNode {
         return AwaitNode{
             expr: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Spawn expression
 class SpawnNode {
-    var expr: ExpressionNode;
-    var isActor: Bool;
+    var expr: ExpressionNode
+    var isActor: Bool
     
     fun new() -> SpawnNode {
         return SpawnNode{
             expr: ExpressionNode{},
             isActor: false
-        };
+        }
     }
 }
 
 // Select expression (for channels)
 class SelectNode {
-    var branches: List<SelectBranch>;
-    var timeoutBranch: SelectTimeoutBranch?;
+    var branches: List<SelectBranch>
+    var timeoutBranch: SelectTimeoutBranch?
     
     fun new() -> SelectNode {
         return SelectNode{
             branches: [],
             timeoutBranch: null
-        };
+        }
     }
 }
 
 // Select branch
 class SelectBranch {
-    var channel: ExpressionNode;
-    var variable: String;
-    var body: BlockNode;
+    var channel: ExpressionNode
+    var variable: String
+    var body: BlockNode
     
     fun new() -> SelectBranch {
         return SelectBranch{
             channel: ExpressionNode{},
             variable: "",
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // Select timeout branch
 class SelectTimeoutBranch {
-    var duration: ExpressionNode;
-    var body: BlockNode;
+    var duration: ExpressionNode
+    var body: BlockNode
     
     fun new() -> SelectTimeoutBranch {
         return SelectTimeoutBranch{
             duration: ExpressionNode{},
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // String interpolation
 class StringInterpolationNode {
-    var parts: List<StringPart>;
+    var parts: List<StringPart>
     
     fun new() -> StringInterpolationNode {
         return StringInterpolationNode{
             parts: []
-        };
+        }
     }
 }
 
 // String part (literal or interpolated expression)
 class StringPart {
-    var isLiteral: Bool;
-    var literal: String?;
-    var expr: ExpressionNode?;
+    var isLiteral: Bool
+    var literal: String?
+    var expr: ExpressionNode?
     
     fun new() -> StringPart {
         return StringPart{
             isLiteral: true,
             literal: "",
             expr: null
-        };
+        }
     }
 }
 
 // Type checking expression (value is Type)
 class IsExpressionNode {
-    var expr: ExpressionNode;
-    var typeNode: TypeNode;
+    var expr: ExpressionNode
+    var typeNode: TypeNode
     
     fun new() -> IsExpressionNode {
         return IsExpressionNode{
             expr: ExpressionNode{},
             typeNode: TypeNode{}
-        };
+        }
     }
 }
 
 // Elvis operator (?:)
 class ElvisNode {
-    var nullable: ExpressionNode;
-    var defaultValue: ExpressionNode;
+    var nullable: ExpressionNode
+    var defaultValue: ExpressionNode
     
     fun new() -> ElvisNode {
         return ElvisNode{
             nullable: ExpressionNode{},
             defaultValue: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Force unwrap (!!)
 class ForceUnwrapNode {
-    var expr: ExpressionNode;
+    var expr: ExpressionNode
     
     fun new() -> ForceUnwrapNode {
         return ForceUnwrapNode{
             expr: ExpressionNode{}
-        };
+        }
     }
 }
 
 // Loop statement (with optional return value)
 class LoopStatement {
-    var body: BlockNode;
-    var label: String?;
+    var body: BlockNode
+    var label: String?
     
     fun new() -> LoopStatement {
         return LoopStatement{
             body: BlockNode{},
             label: null
-        };
+        }
     }
 }
 
 // Break statement (can return value)
 class BreakStatement {
-    var value: ExpressionNode?;
-    var label: String?;
+    var value: ExpressionNode?
+    var label: String?
     
     fun new() -> BreakStatement {
         return BreakStatement{
             value: null,
             label: null
-        };
+        }
     }
 }
 
 // Continue statement
 class ContinueStatement {
-    var label: String?;
+    var label: String?
     
     fun new() -> ContinueStatement {
         return ContinueStatement{
             label: null
-        };
+        }
     }
 }
 
 // Defer statement
 class DeferStatement {
-    var body: BlockNode;
+    var body: BlockNode
     
     fun new() -> DeferStatement {
         return DeferStatement{
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // Assert statement
 class AssertStatement {
-    var condition: ExpressionNode;
-    var message: ExpressionNode?;
+    var condition: ExpressionNode
+    var message: ExpressionNode?
     
     fun new() -> AssertStatement {
         return AssertStatement{
             condition: ExpressionNode{},
             message: null
-        };
+        }
     }
 }
 
 // Region statement (memory management)
 class RegionStatement {
-    var name: String?;
-    var body: BlockNode;
+    var name: String?
+    var body: BlockNode
     
     fun new() -> RegionStatement {
         return RegionStatement{
             name: null,
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // Arena statement (bulk allocation)
 class ArenaStatement {
-    var body: BlockNode;
+    var body: BlockNode
     
     fun new() -> ArenaStatement {
         return ArenaStatement{
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // Handle statement (effect handling)
 class HandleStatement {
-    var body: BlockNode;
-    var effectName: String;
-    var handlers: List<EffectHandler>;
+    var body: BlockNode
+    var effectName: String
+    var handlers: List<EffectHandler>
     
     fun new() -> HandleStatement {
         return HandleStatement{
             body: BlockNode{},
             effectName: "",
             handlers: []
-        };
+        }
     }
 }
 
 // Effect handler
 class EffectHandler {
-    var name: String;
-    var params: List<ParamNode>;
-    var body: BlockNode;
+    var name: String
+    var params: List<ParamNode>
+    var body: BlockNode
     
     fun new() -> EffectHandler {
         return EffectHandler{
             name: "",
             params: [],
             body: BlockNode{}
-        };
+        }
     }
 }
 
 // Annotation (decorators)
 class AnnotationNode {
-    var name: String;
-    var arguments: List<ExpressionNode>;
+    var name: String
+    var arguments: List<ExpressionNode>
     
     fun new() -> AnnotationNode {
         return AnnotationNode{
             name: "",
             arguments: []
-        };
+        }
     }
 }
 
 // Extension methods
 class ExtensionNode {
-    var targetType: TypeNode;
-    var methods: List<FunctionNode>;
+    var targetType: TypeNode
+    var methods: List<FunctionNode>
     
     fun new() -> ExtensionNode {
         return ExtensionNode{
             targetType: TypeNode{},
             methods: []
-        };
+        }
     }
 }
 
 // Companion object
 class CompanionNode {
-    var fields: List<FieldNode>;
-    var methods: List<FunctionNode>;
+    var fields: List<FieldNode>
+    var methods: List<FunctionNode>
     
     fun new() -> CompanionNode {
         return CompanionNode{
             fields: [],
             methods: []
-        };
+        }
     }
 }
 
 // Interface definition
 class InterfaceNode {
-    var name: String;
-    var typeParams: List<TypeParam>;
-    var methods: List<InterfaceMethod>;
-    var visibility: String;
+    var name: String
+    var typeParams: List<TypeParam>
+    var methods: List<InterfaceMethod>
+    var visibility: String
     
     fun new() -> InterfaceNode {
         return InterfaceNode{
@@ -928,17 +928,17 @@ class InterfaceNode {
             typeParams: [],
             methods: [],
             visibility: "private"
-        };
+        }
     }
 }
 
 // Interface method signature
 class InterfaceMethod {
-    var name: String;
-    var params: List<ParamNode>;
-    var returnType: TypeNode?;
-    var isDefault: Bool;
-    var defaultImpl: BlockNode?;
+    var name: String
+    var params: List<ParamNode>
+    var returnType: TypeNode?
+    var isDefault: Bool
+    var defaultImpl: BlockNode?
     
     fun new() -> InterfaceMethod {
         return InterfaceMethod{
@@ -947,14 +947,14 @@ class InterfaceMethod {
             returnType: null,
             isDefault: false,
             defaultImpl: null
-        };
+        }
     }
 }
 
 // Type parameter for generics
 class TypeParam {
-    var name: String;
-    var constraints: List<String>;
+    var name: String
+    var constraints: List<String>
     var variance: String; // "in", "out", or ""
     
     fun new() -> TypeParam {
@@ -962,16 +962,16 @@ class TypeParam {
             name: "",
             constraints: [],
             variance: ""
-        };
+        }
     }
 }
 
 // Actor definition
 class ActorNode {
-    var name: String;
-    var state: List<FieldNode>;
-    var receivers: List<ReceiverNode>;
-    var visibility: String;
+    var name: String
+    var state: List<FieldNode>
+    var receivers: List<ReceiverNode>
+    var visibility: String
     
     fun new() -> ActorNode {
         return ActorNode{
@@ -979,16 +979,16 @@ class ActorNode {
             state: [],
             receivers: [],
             visibility: "private"
-        };
+        }
     }
 }
 
 // Actor receiver
 class ReceiverNode {
-    var messageType: TypeNode;
-    var params: List<ParamNode>;
-    var body: BlockNode;
-    var replyType: TypeNode?;
+    var messageType: TypeNode
+    var params: List<ParamNode>
+    var body: BlockNode
+    var replyType: TypeNode?
     
     fun new() -> ReceiverNode {
         return ReceiverNode{
@@ -996,79 +996,79 @@ class ReceiverNode {
             params: [],
             body: BlockNode{},
             replyType: null
-        };
+        }
     }
 }
 
 // Effect definition
 class EffectNode {
-    var name: String;
-    var operations: List<EffectOperation>;
+    var name: String
+    var operations: List<EffectOperation>
     
     fun new() -> EffectNode {
         return EffectNode{
             name: "",
             operations: []
-        };
+        }
     }
 }
 
 // Effect operation
 class EffectOperation {
-    var name: String;
-    var params: List<ParamNode>;
-    var returnType: TypeNode?;
+    var name: String
+    var params: List<ParamNode>
+    var returnType: TypeNode?
     
     fun new() -> EffectOperation {
         return EffectOperation{
             name: "",
             params: [],
             returnType: null
-        };
+        }
     }
 }
 
 // Contract (requires/ensures)
 class ContractNode {
-    var requires: List<ExpressionNode>;
-    var ensures: List<ExpressionNode>;
-    var invariants: List<ExpressionNode>;
+    var requires: List<ExpressionNode>
+    var ensures: List<ExpressionNode>
+    var invariants: List<ExpressionNode>
     
     fun new() -> ContractNode {
         return ContractNode{
             requires: [],
             ensures: [],
             invariants: []
-        };
+        }
     }
 }
 
 // Data class (automatic equals, hashcode, etc.)
 class DataClassNode {
-    var name: String;
-    var fields: List<FieldNode>;
-    var visibility: String;
+    var name: String
+    var fields: List<FieldNode>
+    var visibility: String
     
     fun new() -> DataClassNode {
         return DataClassNode{
             name: "",
             fields: [],
             visibility: "private"
-        };
+        }
     }
 }
 
 // Sealed class (exhaustive matching)
 class SealedClassNode {
-    var name: String;
-    var subclasses: List<ClassNode>;
-    var visibility: String;
+    var name: String
+    var subclasses: List<ClassNode>
+    var visibility: String
     
     fun new() -> SealedClassNode {
         return SealedClassNode{
             name: "",
             subclasses: [],
             visibility: "private"
-        };
+        }
     }
 }

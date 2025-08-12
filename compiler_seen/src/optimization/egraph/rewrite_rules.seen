@@ -2,20 +2,20 @@
 
 class RewriteRule {
     fun new(pattern: String, replacement: String, name: String) -> RewriteRule {
-        return RewriteRule{};
+        return RewriteRule{}
     }
     
     fun getName() -> String {
-        return "commutativity";
+        return "commutativity"
     }
 }
 
 class RewriteRuleEngine {
     fun new() -> RewriteRuleEngine {
-        return RewriteRuleEngine{};
+        return RewriteRuleEngine{}
     }
     
     fun loadStandardRules() -> List<RewriteRule> {
-        return [];
+        return []
     }
 }

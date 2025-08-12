@@ -9,7 +9,7 @@ use crate::{TypeCheckResult, FunctionSignature, Parameter};
 
 /// Type checking environment
 #[derive(Debug, Clone)]
-struct Environment {
+pub struct Environment {
     /// Variables in scope with their types
     variables: HashMap<String, Type>,
     /// Functions in scope with their signatures  
@@ -18,6 +18,8 @@ struct Environment {
     types: HashMap<String, Type>,
     /// Parent environment for nested scopes
     parent: Option<Box<Environment>>,
+    /// Smart cast information - variables that are smart-cast to non-nullable
+    smart_casts: HashMap<String, Type>,
 }
 
 impl Environment {
@@ -28,6 +30,7 @@ impl Environment {
             functions: HashMap::new(),
             types: HashMap::new(),
             parent: None,
+            smart_casts: HashMap::new(),
         }
     }
 
@@ -38,53 +41,75 @@ impl Environment {
             functions: HashMap::new(),
             types: HashMap::new(),
             parent: Some(Box::new(parent)),
+            smart_casts: HashMap::new(),
         }
     }
 
     /// Define a variable in this environment
-    fn define_variable(&mut self, name: String, var_type: Type) {
+    pub fn define_variable(&mut self, name: String, var_type: Type) {
         self.variables.insert(name, var_type);
     }
 
     /// Define a function in this environment
-    fn define_function(&mut self, name: String, signature: FunctionSignature) {
+    pub fn define_function(&mut self, name: String, signature: FunctionSignature) {
         self.functions.insert(name, signature);
     }
 
-    /// Look up a variable type, checking parent environments
-    fn get_variable(&self, name: &str) -> Option<&Type> {
-        self.variables.get(name)
+    /// Look up a variable type, checking smart casts first, then parent environments
+    pub fn get_variable(&self, name: &str) -> Option<&Type> {
+        // Check smart casts first (they take precedence)
+        self.smart_casts.get(name)
+            .or_else(|| self.variables.get(name))
             .or_else(|| self.parent.as_ref().and_then(|p| p.get_variable(name)))
     }
 
     /// Look up a function signature, checking parent environments
-    fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
+    pub fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
         self.functions.get(name)
             .or_else(|| self.parent.as_ref().and_then(|p| p.get_function(name)))
     }
 
     /// Check if a variable is defined in this scope only
-    fn has_variable(&self, name: &str) -> bool {
+    pub fn has_variable(&self, name: &str) -> bool {
         self.variables.contains_key(name)
     }
 
     /// Check if a function is defined in this scope only
-    fn has_function(&self, name: &str) -> bool {
+    pub fn has_function(&self, name: &str) -> bool {
         self.functions.contains_key(name)
     }
 
     /// Define a type in this environment
-    fn define_type(&mut self, name: String, type_def: Type) {
+    pub fn define_type(&mut self, name: String, type_def: Type) {
         self.types.insert(name, type_def);
+    }
+
+    /// Add a smart cast for a variable (makes nullable var non-nullable in this scope)
+    pub fn add_smart_cast(&mut self, name: String, smart_cast_type: Type) {
+        self.smart_casts.insert(name, smart_cast_type);
+    }
+
+    /// Remove a smart cast for a variable
+    fn remove_smart_cast(&mut self, name: &str) {
+        self.smart_casts.remove(name);
+    }
+
+    /// Create a child environment that inherits smart casts
+    fn with_smart_casts(&self) -> Environment {
+        let mut child = Environment::new();
+        child.parent = Some(Box::new(self.clone()));
+        // Inherit smart casts from parent
+        child.smart_casts = self.smart_casts.clone();
+        child
     }
 }
 
 /// Main type checker
 pub struct TypeChecker {
     /// Current environment
-    env: Environment,
+    pub env: Environment,
     /// Type checking result
-    result: TypeCheckResult,
+    pub result: TypeCheckResult,
     /// Current function return type (for return type checking)
     current_function_return_type: Option<Type>,
 }
@@ -134,7 +159,7 @@ impl TypeChecker {
     }
 
     /// Type check an expression and return its type
-    fn check_expression(&mut self, expression: &Expression) -> Type {
+    pub fn check_expression(&mut self, expression: &Expression) -> Type {
         match expression {
             // Literals
             Expression::IntegerLiteral { .. } => Type::Int,
@@ -417,8 +442,8 @@ impl TypeChecker {
         }
     }
 
-    /// Type check if expression
-    fn check_if_expression(&mut self, condition: &Expression, then_branch: &Expression, else_branch: Option<&Expression>, pos: Position) -> Type {
+    /// Type check if expression with smart casting support
+    pub fn check_if_expression(&mut self, condition: &Expression, then_branch: &Expression, else_branch: Option<&Expression>, pos: Position) -> Type {
         let condition_type = self.check_expression(condition);
         if !condition_type.is_assignable_to(&Type::Bool) {
             self.result.add_error(TypeError::TypeMismatch {
@@ -428,9 +453,24 @@ impl TypeChecker {
             });
         }
 
-        let then_type = self.check_expression(then_branch);
+        // Analyze condition for smart casting opportunities
+        let smart_casts = self.analyze_condition_for_smart_casts(condition);
+        
+        // Type check then branch with smart casts applied
+        let then_type = {
+            let old_env = self.env.clone();
+            // Apply smart casts for then branch
+            for (var_name, cast_type) in &smart_casts {
+                self.env.add_smart_cast(var_name.clone(), cast_type.clone());
+            }
+            let then_type = self.check_expression(then_branch);
+            // Restore original environment for else branch
+            self.env = old_env;
+            then_type
+        };
         
         if let Some(else_expr) = else_branch {
+            // Type check else branch without smart casts (original types)
             let else_type = self.check_expression(else_expr);
             if then_type.is_assignable_to(&else_type) {
                 else_type
@@ -449,6 +489,56 @@ impl TypeChecker {
                 Type::Nullable(Box::new(then_type))
             }
         }
+    }
+
+    /// Analyze a condition expression for smart casting opportunities
+    /// Returns a map of variable names to their smart-cast types
+    fn analyze_condition_for_smart_casts(&mut self, condition: &Expression) -> HashMap<String, Type> {
+        let mut smart_casts = HashMap::new();
+        
+        match condition {
+            // Handle: if variable != null
+            Expression::BinaryOp { left, op: BinaryOperator::NotEqual, right, .. } => {
+                if let (Expression::Identifier { name, .. }, Expression::NullLiteral { .. }) = (left.as_ref(), right.as_ref()) {
+                    if let Some(var_type) = self.env.get_variable(name).cloned() {
+                        if let Type::Nullable(inner_type) = var_type {
+                            smart_casts.insert(name.clone(), *inner_type);
+                        }
+                    }
+                } else if let (Expression::NullLiteral { .. }, Expression::Identifier { name, .. }) = (left.as_ref(), right.as_ref()) {
+                    if let Some(var_type) = self.env.get_variable(name).cloned() {
+                        if let Type::Nullable(inner_type) = var_type {
+                            smart_casts.insert(name.clone(), *inner_type);
+                        }
+                    }
+                }
+            }
+            
+            // Handle: if variable (implicit null check for Bool?)
+            Expression::Identifier { name, .. } => {
+                if let Some(var_type) = self.env.get_variable(name).cloned() {
+                    if let Type::Nullable(inner_type) = var_type {
+                        if matches!(inner_type.as_ref(), Type::Bool) {
+                            smart_casts.insert(name.clone(), *inner_type);
+                        }
+                    }
+                }
+            }
+            
+            // Handle compound conditions with 'and': if x != null and y != null
+            Expression::BinaryOp { left, op: BinaryOperator::And, right, .. } => {
+                let left_casts = self.analyze_condition_for_smart_casts(left);
+                let right_casts = self.analyze_condition_for_smart_casts(right);
+                smart_casts.extend(left_casts);
+                smart_casts.extend(right_casts);
+            }
+            
+            _ => {
+                // Other condition types don't provide smart casting opportunities
+            }
+        }
+        
+        smart_casts
     }
 
     /// Type check block expression

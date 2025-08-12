@@ -12,26 +12,26 @@
 // Main public interface
 class EGraphOptimizer {
     fun new() -> EGraphOptimizer {
-        return EGraphOptimizer{};
+        return EGraphOptimizer{}
     }
     
     fun Optimize(program: IR) -> IR? {
-        let optimizer = EGraphOptimizer{};
-        return optimizer.Optimize(program);
+        let optimizer = EGraphOptimizer{}
+        return optimizer.Optimize(program)
     }
     
     fun OptimizeForTarget(program: IR, target: String) -> IR? {
-        let optimizer = EGraphOptimizer{};
-        return optimizer.OptimizeForTarget(program, target);
+        let optimizer = EGraphOptimizer{}
+        return optimizer.OptimizeForTarget(program, target)
     }
 }
 
 // Example usage:
-// let optimizer = EGraphOptimizer{};
-// let optimizedIR = optimizer.Optimize(myIR);
+// let optimizer = EGraphOptimizer{}
+// let optimizedIR = optimizer.Optimize(myIR)
 // 
 // Target-specific:
-// let x86OptimizedIR = optimizer.OptimizeForTarget(myIR, "x86_64");
+// let x86OptimizedIR = optimizer.OptimizeForTarget(myIR, "x86_64")
 
 // This implementation includes:
 // ✅ Complete E-graph data structure with memo tables

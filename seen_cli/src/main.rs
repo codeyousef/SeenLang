@@ -66,6 +66,13 @@ enum Commands {
         #[arg(value_name = "PATH")]
         path: Option<PathBuf>,
     },
+    
+    /// Run Language Server Protocol server
+    Lsp {
+        /// Enable verbose logging
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -121,6 +128,17 @@ fn main() -> anyhow::Result<()> {
             // Run test suite
             run_tests(&path.map(|p| p.to_string_lossy().to_string()));
             std::process::exit(1)
+        }
+        
+        Commands::Lsp { verbose } => {
+            if verbose {
+                std::env::set_var("RUST_LOG", "debug");
+            }
+            // Run the LSP server
+            tokio::runtime::Runtime::new()?.block_on(async {
+                seen_lsp::run_server().await;
+            });
+            Ok(())
         }
     }
 }

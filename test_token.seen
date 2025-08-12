@@ -1,0 +1,8 @@
+compiler_seen/src/lexer/token.seen
+// Token Utilities for Self-hosted Lexer
+
+class TokenUtils {
+    fun new() -> TokenUtils {
+        return TokenUtils{}
+    }
+}

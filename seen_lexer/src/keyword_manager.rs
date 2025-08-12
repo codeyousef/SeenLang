@@ -127,10 +127,62 @@ pub enum KeywordType {
 
 impl KeywordManager {
     pub fn new() -> Self {
-        Self {
+        let mut manager = Self {
             languages: Arc::new(RwLock::new(HashMap::new())),
             current_language: Arc::new(RwLock::new("en".to_string())),
             fallback_language: "en".to_string(),
+        };
+        
+        // Load default English keywords
+        if let Err(e) = manager.load_from_toml("en") {
+            // If we can't load from file, use hardcoded defaults for bootstrapping
+            // This is temporary until we have a proper language file loading mechanism
+            let default_keywords = Self::get_default_keywords();
+            let _ = manager.load_from_toml_data(default_keywords, "en");
+        }
+        
+        manager
+    }
+    
+    /// Get default English keywords for bootstrapping
+    fn get_default_keywords() -> TomlLanguageFile {
+        let mut keywords = IndexMap::new();
+        
+        // Essential keywords for bootstrapping
+        keywords.insert("fun".to_string(), "KeywordFun".to_string());
+        keywords.insert("if".to_string(), "KeywordIf".to_string());
+        keywords.insert("else".to_string(), "KeywordElse".to_string());
+        keywords.insert("while".to_string(), "KeywordWhile".to_string());
+        keywords.insert("for".to_string(), "KeywordFor".to_string());
+        keywords.insert("in".to_string(), "KeywordIn".to_string());
+        keywords.insert("match".to_string(), "KeywordMatch".to_string());
+        keywords.insert("break".to_string(), "KeywordBreak".to_string());
+        keywords.insert("continue".to_string(), "KeywordContinue".to_string());
+        keywords.insert("return".to_string(), "KeywordReturn".to_string());
+        keywords.insert("let".to_string(), "KeywordLet".to_string());
+        keywords.insert("mut".to_string(), "KeywordMut".to_string());
+        keywords.insert("const".to_string(), "KeywordConst".to_string());
+        keywords.insert("struct".to_string(), "KeywordStruct".to_string());
+        keywords.insert("enum".to_string(), "KeywordEnum".to_string());
+        keywords.insert("trait".to_string(), "KeywordTrait".to_string());
+        keywords.insert("impl".to_string(), "KeywordImpl".to_string());
+        keywords.insert("type".to_string(), "KeywordType".to_string());
+        keywords.insert("true".to_string(), "KeywordTrue".to_string());
+        keywords.insert("false".to_string(), "KeywordFalse".to_string());
+        keywords.insert("null".to_string(), "KeywordNull".to_string());
+        keywords.insert("async".to_string(), "KeywordAsync".to_string());
+        keywords.insert("await".to_string(), "KeywordAwait".to_string());
+        keywords.insert("and".to_string(), "KeywordAnd".to_string());
+        keywords.insert("or".to_string(), "KeywordOr".to_string());
+        keywords.insert("not".to_string(), "KeywordNot".to_string());
+        keywords.insert("move".to_string(), "KeywordMove".to_string());
+        keywords.insert("borrow".to_string(), "KeywordBorrow".to_string());
+        
+        TomlLanguageFile {
+            name: "English".to_string(),
+            description: "Default English keywords for bootstrapping".to_string(),
+            keywords,
+            operators: None,
         }
     }
     

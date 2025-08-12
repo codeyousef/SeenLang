@@ -1,46 +1,46 @@
 // Release Automation & Continuous Updates
 // Automated installer and IDE updates for each feature
 
-use tools::installer::Installer;
-use tools::vscode::VSCodeExtension;
-use tools::documentation::DocumentationGenerator;
-use config::language_loader::LanguageLoader;
+use tools::installer::Installer
+use tools::vscode::VSCodeExtension
+use tools::documentation::DocumentationGenerator
+use config::language_loader::LanguageLoader
 
 // ReleaseAutomation (uppercase) = public class
 class ReleaseAutomation {
-    let installer = Installer::new();
-    let vscodeExt = VSCodeExtension::new();
-    let docGen = DocumentationGenerator::new();
-    let langLoader = LanguageLoader::new();
+    let installer = Installer::new()
+    let vscodeExt = VSCodeExtension::new()
+    let docGen = DocumentationGenerator::new()
+    let langLoader = LanguageLoader::new()
     
     // OnNewFeature (uppercase) = public method
     fun OnNewFeature(feature: Feature) {
-        println("🚀 Automating release for feature: {feature.name}");
+        println("🚀 Automating release for feature: {feature.name}")
         
         // Step 1: Update language TOML files
-        updateLanguageFiles(feature);
+        updateLanguageFiles(feature)
         
         // Step 2: Update VSCode extension
-        updateVSCodeExtension(feature);
+        updateVSCodeExtension(feature)
         
         // Step 3: Update installer
-        updateInstaller(feature);
+        updateInstaller(feature)
         
         // Step 4: Update documentation
-        updateDocumentation(feature);
+        updateDocumentation(feature)
         
         // Step 5: Run verification tests
-        runVerificationTests();
+        runVerificationTests()
         
         // Step 6: Create release
-        createRelease(feature);
+        createRelease(feature)
         
-        println("  ✅ Release automation complete");
+        println("  ✅ Release automation complete")
     }
     
     // Update all language TOML files
     fun updateLanguageFiles(feature: Feature) {
-        println("  📝 Updating language TOML files...");
+        println("  📝 Updating language TOML files...")
         
         let languages = [
             "en",  // English
@@ -53,179 +53,179 @@ class ReleaseAutomation {
             "ru",  // Russian
             "hi",  // Hindi
             "pt"   // Portuguese
-        ];
+        ]
         
         for lang in languages {
-            updateSingleLanguageFile(lang, feature);
+            updateSingleLanguageFile(lang, feature)
         }
         
         // Verify all languages have same keywords
-        verifyLanguageConsistency();
+        verifyLanguageConsistency()
     }
     
     fun updateSingleLanguageFile(lang: String, feature: Feature) {
-        let path = "compiler_bootstrap/languages/{lang}.toml";
-        let toml = langLoader.loadLanguageFile(path);
+        let path = "compiler_bootstrap/languages/{lang}.toml"
+        let toml = langLoader.loadLanguageFile(path)
         
         // Add new keywords from feature
         for keyword in feature.newKeywords {
             if keyword.translations.hasKey(lang) {
-                toml.keywords[keyword.id] = keyword.translations[lang];
-                println("    ✓ Added '{keyword.id}' = '{keyword.translations[lang]}' to {lang}.toml");
+                toml.keywords[keyword.id] = keyword.translations[lang]
+                println("    ✓ Added '{keyword.id}' = '{keyword.translations[lang]}' to {lang}.toml")
             } else {
                 // Use English as fallback
-                toml.keywords[keyword.id] = keyword.translations["en"];
-                println("    ⚠ Using English fallback for '{keyword.id}' in {lang}.toml");
+                toml.keywords[keyword.id] = keyword.translations["en"]
+                println("    ⚠ Using English fallback for '{keyword.id}' in {lang}.toml")
             }
         }
         
         // Add new operators
         for op in feature.newOperators {
             if op.translations.hasKey(lang) {
-                toml.operators[op.symbol] = op.translations[lang];
+                toml.operators[op.symbol] = op.translations[lang]
             }
         }
         
         // Add new built-in functions
         for builtin in feature.newBuiltins {
             if builtin.translations.hasKey(lang) {
-                toml.builtins[builtin.name] = builtin.translations[lang];
+                toml.builtins[builtin.name] = builtin.translations[lang]
             }
         }
         
         // Save updated TOML
-        langLoader.saveLanguageFile(path, toml);
+        langLoader.saveLanguageFile(path, toml)
     }
     
     // Update VSCode extension
     fun updateVSCodeExtension(feature: Feature) {
-        println("  🎨 Updating VSCode extension...");
+        println("  🎨 Updating VSCode extension...")
         
         // Update syntax highlighting
-        vscodeExt.updateSyntaxFile(feature.syntaxRules);
+        vscodeExt.updateSyntaxFile(feature.syntaxRules)
         
         // Update language configuration
-        vscodeExt.updateLanguageConfig(feature.languageConfig);
+        vscodeExt.updateLanguageConfig(feature.languageConfig)
         
         // Update snippets
-        vscodeExt.updateSnippets(feature.codeSnippets);
+        vscodeExt.updateSnippets(feature.codeSnippets)
         
         // Update semantic highlighting
-        vscodeExt.updateSemanticTokens(feature.semanticRules);
+        vscodeExt.updateSemanticTokens(feature.semanticRules)
         
         // Update auto-completion
-        vscodeExt.updateCompletions(feature.completions);
+        vscodeExt.updateCompletions(feature.completions)
         
         // Increment version
-        vscodeExt.incrementVersion();
+        vscodeExt.incrementVersion()
         
         // Build and package extension
-        vscodeExt.buildExtension();
+        vscodeExt.buildExtension()
         
-        println("    ✓ VSCode extension updated to v{vscodeExt.version}");
+        println("    ✓ VSCode extension updated to v{vscodeExt.version}")
     }
     
     // Update installer
     fun updateInstaller(feature: Feature) {
-        println("  📦 Updating installer...");
+        println("  📦 Updating installer...")
         
         // Add new binaries
         for binary in feature.binaries {
-            installer.addBinary(binary);
+            installer.addBinary(binary)
         }
         
         // Add new libraries
         for library in feature.libraries {
-            installer.addLibrary(library);
+            installer.addLibrary(library)
         }
         
         // Update system requirements
-        installer.updateRequirements(feature.requirements);
+        installer.updateRequirements(feature.requirements)
         
         // Update environment variables
-        installer.updateEnvironment(feature.environment);
+        installer.updateEnvironment(feature.environment)
         
         // Update PATH modifications
-        installer.updatePath(feature.pathChanges);
+        installer.updatePath(feature.pathChanges)
         
         // Create platform-specific installers
-        let platforms = ["windows", "macos", "linux-x64", "linux-arm64"];
+        let platforms = ["windows", "macos", "linux-x64", "linux-arm64"]
         for platform in platforms {
-            installer.buildForPlatform(platform);
-            println("    ✓ Built installer for {platform}");
+            installer.buildForPlatform(platform)
+            println("    ✓ Built installer for {platform}")
         }
         
         // Create universal installer
-        installer.buildUniversal();
+        installer.buildUniversal()
         
-        println("    ✓ All installers updated");
+        println("    ✓ All installers updated")
     }
     
     // Update documentation
     fun updateDocumentation(feature: Feature) {
-        println("  📚 Updating documentation...");
+        println("  📚 Updating documentation...")
         
         // Update language reference
-        docGen.updateLanguageReference(feature.languageChanges);
+        docGen.updateLanguageReference(feature.languageChanges)
         
         // Update API documentation
-        docGen.updateAPIDocumentation(feature.apiChanges);
+        docGen.updateAPIDocumentation(feature.apiChanges)
         
         // Update examples
-        docGen.updateExamples(feature.examples);
+        docGen.updateExamples(feature.examples)
         
         // Update tutorials
-        docGen.updateTutorials(feature.tutorialChanges);
+        docGen.updateTutorials(feature.tutorialChanges)
         
         // Update migration guide
-        docGen.updateMigrationGuide(feature.breaking Changes);
+        docGen.updateMigrationGuide(feature.breaking Changes)
         
         // Generate new pages
         for page in feature.newDocPages {
-            docGen.generatePage(page);
+            docGen.generatePage(page)
         }
         
         // Build documentation site
-        docGen.buildSite();
+        docGen.buildSite()
         
-        println("    ✓ Documentation updated and built");
+        println("    ✓ Documentation updated and built")
     }
     
     // Run verification tests
     fun runVerificationTests() {
-        println("  🧪 Running verification tests...");
+        println("  🧪 Running verification tests...")
         
         // Verify no hardcoded keywords
-        verifyNoHardcodedKeywords();
+        verifyNoHardcodedKeywords()
         
         // Verify TOML completeness
-        verifyTOMLCompleteness();
+        verifyTOMLCompleteness()
         
         // Verify all languages parse correctly
-        verifyLanguageParsing();
+        verifyLanguageParsing()
         
         // Verify installer works
-        verifyInstallerFunctionality();
+        verifyInstallerFunctionality()
         
         // Verify VSCode extension loads
-        verifyVSCodeExtension();
+        verifyVSCodeExtension()
         
-        println("    ✅ All verification tests passed");
+        println("    ✅ All verification tests passed")
     }
     
     fun verifyNoHardcodedKeywords() {
-        println("    🔍 Scanning for hardcoded keywords...");
+        println("    🔍 Scanning for hardcoded keywords...")
         
-        let sourceFiles = FileSystem::findAll("**/*.seen");
+        let sourceFiles = FileSystem::findAll("**/*.seen")
         let forbiddenKeywords = [
             "\"fun\"", "\"class\"", "\"if\"", "\"for\"", "\"while\"",
             "\"let\"", "\"var\"", "\"return\"", "\"import\"", "\"use\""
-        ];
+        ]
         
-        let violations = [];
+        let violations = []
         
         for file in sourceFiles {
-            let content = FileSystem::read(file);
+            let content = FileSystem::read(file)
             
             for keyword in forbiddenKeywords {
                 if content.contains(keyword) {
@@ -233,37 +233,37 @@ class ReleaseAutomation {
                         file: file,
                         keyword: keyword,
                         line: findLineNumber(content, keyword)
-                    });
+                    })
                 }
             }
         }
         
         if violations.size > 0 {
-            println("    ❌ Found hardcoded keywords:");
+            println("    ❌ Found hardcoded keywords:")
             for violation in violations {
-                println("      {violation.file}:{violation.line} - {violation.keyword}");
+                println("      {violation.file}:{violation.line} - {violation.keyword}")
             }
-            panic("Hardcoded keywords detected - use language TOML files");
+            panic("Hardcoded keywords detected - use language TOML files")
         } else {
-            println("    ✓ No hardcoded keywords found");
+            println("    ✓ No hardcoded keywords found")
         }
     }
     
     fun verifyTOMLCompleteness() {
-        println("    📋 Verifying TOML completeness...");
+        println("    📋 Verifying TOML completeness...")
         
-        let languages = getAllLanguageFiles();
-        let englishToml = langLoader.loadLanguageFile("compiler_bootstrap/languages/en.toml");
+        let languages = getAllLanguageFiles()
+        let englishToml = langLoader.loadLanguageFile("compiler_bootstrap/languages/en.toml")
         
         for langFile in languages {
             if langFile == "en.toml" { continue; }
             
-            let toml = langLoader.loadLanguageFile("compiler_bootstrap/languages/{langFile}");
+            let toml = langLoader.loadLanguageFile("compiler_bootstrap/languages/{langFile}")
             
             // Check all English keywords are translated
             for (key, value) in englishToml.keywords {
                 if not toml.keywords.hasKey(key) {
-                    println("    ⚠ Missing keyword '{key}' in {langFile}");
+                    println("    ⚠ Missing keyword '{key}' in {langFile}")
                     toml.keywords[key] = value;  // Use English as fallback
                 }
             }
@@ -271,100 +271,100 @@ class ReleaseAutomation {
             // Check operators
             for (key, value) in englishToml.operators {
                 if not toml.operators.hasKey(key) {
-                    println("    ⚠ Missing operator '{key}' in {langFile}");
-                    toml.operators[key] = value;
+                    println("    ⚠ Missing operator '{key}' in {langFile}")
+                    toml.operators[key] = value
                 }
             }
             
             // Save updated file
-            langLoader.saveLanguageFile("compiler_bootstrap/languages/{langFile}", toml);
+            langLoader.saveLanguageFile("compiler_bootstrap/languages/{langFile}", toml)
         }
         
-        println("    ✓ All language files complete");
+        println("    ✓ All language files complete")
     }
     
     fun verifyLanguageParsing() {
-        println("    🌐 Verifying language parsing...");
+        println("    🌐 Verifying language parsing...")
         
         let testProgram = """
         fun main() -> Int {
-            let x = 42;
+            let x = 42
             if x > 0 {
-                return x * 2;
+                return x * 2
             }
-            return 0;
+            return 0
         }
-        """;
+        """
         
-        let languages = ["en", "ar", "es", "zh", "fr"];
+        let languages = ["en", "ar", "es", "zh", "fr"]
         
         for lang in languages {
-            langLoader.setLanguage(lang);
-            let ast = langLoader.parse(testProgram);
+            langLoader.setLanguage(lang)
+            let ast = langLoader.parse(testProgram)
             
-            assertTrue(ast != null, "Should parse in {lang}");
-            assertTrue(ast.isValid(), "Should produce valid AST in {lang}");
+            assertTrue(ast != null, "Should parse in {lang}")
+            assertTrue(ast.isValid(), "Should produce valid AST in {lang}")
             
-            println("    ✓ Parsing works for {lang}");
+            println("    ✓ Parsing works for {lang}")
         }
     }
     
     fun verifyInstallerFunctionality() {
-        println("    📦 Verifying installer...");
+        println("    📦 Verifying installer...")
         
         // Test installer creation
-        let testInstaller = installer.createTestInstaller();
-        assertTrue(testInstaller.isValid(), "Installer should be valid");
+        let testInstaller = installer.createTestInstaller()
+        assertTrue(testInstaller.isValid(), "Installer should be valid")
         
         // Test installation process (in sandbox)
-        let sandbox = Sandbox::create();
-        let result = testInstaller.installTo(sandbox);
-        assertTrue(result.success, "Installation should succeed");
+        let sandbox = Sandbox::create()
+        let result = testInstaller.installTo(sandbox)
+        assertTrue(result.success, "Installation should succeed")
         
         // Test binary execution
-        let seenBinary = sandbox.findBinary("seen");
-        assertNotNull(seenBinary, "Should install 'seen' binary");
+        let seenBinary = sandbox.findBinary("seen")
+        assertNotNull(seenBinary, "Should install 'seen' binary")
         
-        let helpOutput = seenBinary.run("--help");
-        assertTrue(helpOutput.contains("Seen Compiler"), "Binary should work");
+        let helpOutput = seenBinary.run("--help")
+        assertTrue(helpOutput.contains("Seen Compiler"), "Binary should work")
         
-        sandbox.cleanup();
-        println("    ✓ Installer functionality verified");
+        sandbox.cleanup()
+        println("    ✓ Installer functionality verified")
     }
     
     fun verifyVSCodeExtension() {
-        println("    🎨 Verifying VSCode extension...");
+        println("    🎨 Verifying VSCode extension...")
         
         // Test extension packaging
-        let extension = vscodeExt.package();
-        assertTrue(extension.isValid(), "Extension package should be valid");
+        let extension = vscodeExt.package()
+        assertTrue(extension.isValid(), "Extension package should be valid")
         
         // Test syntax highlighting rules
-        let syntaxRules = extension.getSyntaxRules();
-        assertTrue(syntaxRules.size > 0, "Should have syntax rules");
+        let syntaxRules = extension.getSyntaxRules()
+        assertTrue(syntaxRules.size > 0, "Should have syntax rules")
         
         // Test language configuration
-        let langConfig = extension.getLanguageConfig();
-        assertTrue(langConfig.isValid(), "Language config should be valid");
+        let langConfig = extension.getLanguageConfig()
+        assertTrue(langConfig.isValid(), "Language config should be valid")
         
-        println("    ✓ VSCode extension verified");
+        println("    ✓ VSCode extension verified")
     }
     
     // Create release
     fun createRelease(feature: Feature) {
-        println("  🚀 Creating release...");
+        println("  🚀 Creating release...")
         
-        let version = calculateNextVersion(feature);
-        let releaseNotes = generateReleaseNotes(feature);
+        let version = calculateNextVersion(feature)
+        let releaseNotes = generateReleaseNotes(feature)
         
         // Create git tag
-        GitRepository::createTag(version, releaseNotes);
+        GitRepository::createTag(version, releaseNotes)
         
         // Build release assets
-        let assets = [];
-        assets.extend(installer.getAllInstallers());
-        assets.extend(vscodeExt.getExtensionPackages());
-        assets.extend(docGen.getDocumentationArchive());
+        let assets = []
+        assets.extend(installer.getAllInstallers())
+        assets.extend(vscodeExt.getExtensionPackages())
+        assets.extend(docGen.getDocumentationArchive())
         
         // Upload to GitHub Releases
         let release = GitHubAPI::createRelease(Release{
@@ -373,15 +373,15 @@ class ReleaseAutomation {
             notes: releaseNotes,
             assets: assets,
             prerelease: feature.isExperimental
-        });
+        })
         
         // Update package managers
-        updatePackageManagers(release);
+        updatePackageManagers(release)
         
         // Notify users
-        notifyUsers(release);
+        notifyUsers(release)
         
-        println("  ✅ Release v{version} created successfully");
+        println("  ✅ Release v{version} created successfully")
     }
     
     fun generateReleaseNotes(feature: Feature) -> String {
@@ -410,82 +410,82 @@ class ReleaseAutomation {
         - [Linux DEB](link)
         - [Linux RPM](link)
         - [VSCode Extension](link)
-        """;
+        """
     }
     
     // Helper functions
     fun getAllLanguageFiles() -> List<String> {
-        let langDir = "compiler_bootstrap/languages/";
+        let langDir = "compiler_bootstrap/languages/"
         return FileSystem::listFiles(langDir)
                   .filter { it.endsWith(".toml") }
-                  .map { it.getName() };
+                  .map { it.getName() }
     }
     
     fun findLineNumber(content: String, search: String) -> Int {
-        let lines = content.split("\\n");
+        let lines = content.split("\\n")
         for i, line in lines.enumerate() {
             if line.contains(search) {
-                return i + 1;
+                return i + 1
             }
         }
-        return -1;
+        return -1
     }
     
     fun calculateNextVersion(feature: Feature) -> String {
-        let currentVersion = GitRepository::getLatestTag();
+        let currentVersion = GitRepository::getLatestTag()
         return if feature.isBreaking {
             incrementMajor(currentVersion)
         } else if feature.isNewFeature {
             incrementMinor(currentVersion)
         } else {
             incrementPatch(currentVersion)
-        };
+        }
     }
 }
 
 // Supporting types
 class Feature {
-    var name: String;
-    var description: String;
-    var newKeywords: List<Keyword>;
-    var newOperators: List<Operator>;
-    var newBuiltins: List<Builtin>;
-    var syntaxRules: List<SyntaxRule>;
-    var languageConfig: LanguageConfig;
-    var codeSnippets: List<Snippet>;
-    var semanticRules: List<SemanticRule>;
-    var completions: List<Completion>;
-    var binaries: List<Binary>;
-    var libraries: List<Library>;
-    var requirements: Requirements;
-    var environment: Map<String, String>;
-    var pathChanges: List<String>;
-    var languageChanges: List<LanguageChange>;
-    var apiChanges: List<APIChange>;
-    var examples: List<Example>;
-    var tutorialChanges: List<TutorialChange>;
-    var breakingChanges: List<BreakingChange>;
-    var newDocPages: List<DocumentationPage>;
-    var newFeatures: List<String>;
-    var bugFixes: List<String>;
-    var improvements: List<String>;
-    var isExperimental: Bool;
-    var isBreaking: Bool;
-    var isNewFeature: Bool;
+    var name: String
+    var description: String
+    var newKeywords: List<Keyword>
+    var newOperators: List<Operator>
+    var newBuiltins: List<Builtin>
+    var syntaxRules: List<SyntaxRule>
+    var languageConfig: LanguageConfig
+    var codeSnippets: List<Snippet>
+    var semanticRules: List<SemanticRule>
+    var completions: List<Completion>
+    var binaries: List<Binary>
+    var libraries: List<Library>
+    var requirements: Requirements
+    var environment: Map<String, String>
+    var pathChanges: List<String>
+    var languageChanges: List<LanguageChange>
+    var apiChanges: List<APIChange>
+    var examples: List<Example>
+    var tutorialChanges: List<TutorialChange>
+    var breakingChanges: List<BreakingChange>
+    var newDocPages: List<DocumentationPage>
+    var newFeatures: List<String>
+    var bugFixes: List<String>
+    var improvements: List<String>
+    var isExperimental: Bool
+    var isBreaking: Bool
+    var isNewFeature: Bool
 }
 
 class Keyword {
-    var id: String;
-    var translations: Map<String, String>;
+    var id: String
+    var translations: Map<String, String>
 }
 
 class Operator {
-    var symbol: String;
-    var translations: Map<String, String>;
+    var symbol: String
+    var translations: Map<String, String>
 }
 
 class Violation {
-    var file: String;
-    var keyword: String;
-    var line: Int;
+    var file: String
+    var keyword: String
+    var line: Int
 }

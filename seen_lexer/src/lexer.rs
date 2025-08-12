@@ -189,8 +189,9 @@ impl Lexer {
                 Ok(Token::new(TokenType::Comma, ",".to_string(), start_pos))
             }
             Some(';') => {
+                // Seen doesn't use semicolons - treat as unexpected character
                 self.advance();
-                Ok(Token::new(TokenType::Semicolon, ";".to_string(), start_pos))
+                Err(LexerError::UnexpectedCharacter { character: ';', position: start_pos })
             }
             Some(':') => {
                 self.advance();
@@ -276,9 +277,45 @@ impl Lexer {
         while let Some(ch) = self.current_char {
             if ch.is_whitespace() && ch != '\n' {
                 self.advance();
+            } else if ch == '/' && self.peek() == Some('/') {
+                // Skip line comment
+                self.skip_line_comment();
+            } else if ch == '/' && self.peek() == Some('*') {
+                // Skip block comment
+                self.skip_block_comment();
             } else {
                 break;
             }
+        }
+    }
+    
+    fn skip_line_comment(&mut self) {
+        // Skip //
+        self.advance();
+        self.advance();
+        
+        // Skip until end of line or file
+        while let Some(ch) = self.current_char {
+            if ch == '\n' {
+                break;
+            }
+            self.advance();
+        }
+    }
+    
+    fn skip_block_comment(&mut self) {
+        // Skip /*
+        self.advance();
+        self.advance();
+        
+        // Skip until */
+        while let Some(ch) = self.current_char {
+            if ch == '*' && self.peek() == Some('/') {
+                self.advance(); // skip *
+                self.advance(); // skip /
+                break;
+            }
+            self.advance();
         }
     }
     

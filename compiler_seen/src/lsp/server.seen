@@ -1,33 +1,33 @@
 // Seen Language Server Protocol Implementation
 // Full LSP support with all Alpha optimization features
 
-use lexer::SeenLexer;
-use parser::SeenParser;
-use typechecker::SeenTypeChecker;
-use optimization::egraph::EGraphOptimizer;
-use optimization::ml::MLOptimizer;
-use optimization::superopt::Superoptimizer;
-use optimization::pgo::ProfileGuidedOptimizer;
-use optimization::memory::MemoryOptimizer;
-use optimization::arch::ArchitectureOptimizer;
+use lexer::SeenLexer
+use parser::SeenParser
+use typechecker::SeenTypeChecker
+use optimization::egraph::EGraphOptimizer
+use optimization::ml::MLOptimizer
+use optimization::superopt::Superoptimizer
+use optimization::pgo::ProfileGuidedOptimizer
+use optimization::memory::MemoryOptimizer
+use optimization::arch::ArchitectureOptimizer
 
 class SeenLspServer {
-    let lexer = SeenLexer::new();
-    let parser = SeenParser::new();
-    let typeChecker = SeenTypeChecker::new();
-    let egraphOptimizer = EGraphOptimizer::new();
-    let mlOptimizer = MLOptimizer::new();
-    let superoptimizer = Superoptimizer::new();
-    let pgoOptimizer = ProfileGuidedOptimizer::new();
-    let memoryOptimizer = MemoryOptimizer::new();
-    let archOptimizer = ArchitectureOptimizer::new();
+    let lexer = SeenLexer::new()
+    let parser = SeenParser::new()
+    let typeChecker = SeenTypeChecker::new()
+    let egraphOptimizer = EGraphOptimizer::new()
+    let mlOptimizer = MLOptimizer::new()
+    let superoptimizer = Superoptimizer::new()
+    let pgoOptimizer = ProfileGuidedOptimizer::new()
+    let memoryOptimizer = MemoryOptimizer::new()
+    let archOptimizer = ArchitectureOptimizer::new()
     
-    var documents = Map<String, Document>();
-    var diagnostics = Map<String, List<Diagnostic>>();
+    var documents = Map<String, Document>()
+    var diagnostics = Map<String, List<Diagnostic>>()
     
     fun new() -> SeenLspServer {
-        println("🚀 Starting Seen LSP Server with revolutionary optimization support");
-        return SeenLspServer{};
+        println("🚀 Starting Seen LSP Server with revolutionary optimization support")
+        return SeenLspServer{}
     }
     
     // LSP Methods
@@ -118,187 +118,187 @@ class SeenLspServer {
                 name: "Seen Language Server",
                 version: "1.0.0-alpha"
             }
-        };
+        }
     }
     
     fun didOpen(params: DidOpenTextDocumentParams) {
-        let uri = params.textDocument.uri;
-        let content = params.textDocument.text;
+        let uri = params.textDocument.uri
+        let content = params.textDocument.text
         
         documents[uri] = Document{
             uri: uri,
             content: content,
             version: params.textDocument.version
-        };
+        }
         
         // Analyze document with full optimization pipeline
-        analyzDocument(uri, content);
+        analyzDocument(uri, content)
     }
     
     fun didChange(params: DidChangeTextDocumentParams) {
-        let uri = params.textDocument.uri;
-        let version = params.textDocument.version;
+        let uri = params.textDocument.uri
+        let version = params.textDocument.version
         
         // Apply changes
         if documents.hasKey(uri) {
-            var doc = documents[uri];
+            var doc = documents[uri]
             for change in params.contentChanges {
                 doc.content = change.text; // Full document sync
             }
-            doc.version = version;
-            documents[uri] = doc;
+            doc.version = version
+            documents[uri] = doc
             
             // Re-analyze with optimizations
-            analyzDocument(uri, doc.content);
+            analyzDocument(uri, doc.content)
         }
     }
     
     fun completion(params: CompletionParams) -> CompletionList {
-        let uri = params.textDocument.uri;
-        let position = params.position;
+        let uri = params.textDocument.uri
+        let position = params.position
         
         if not documents.hasKey(uri) {
-            return CompletionList{ isIncomplete: false, items: [] };
+            return CompletionList{ isIncomplete: false, items: [] }
         }
         
-        let doc = documents[uri];
-        let completions = generateCompletions(doc.content, position);
+        let doc = documents[uri]
+        let completions = generateCompletions(doc.content, position)
         
         return CompletionList{
             isIncomplete: false,
             items: completions
-        };
+        }
     }
     
     fun hover(params: HoverParams) -> Hover? {
-        let uri = params.textDocument.uri;
-        let position = params.position;
+        let uri = params.textDocument.uri
+        let position = params.position
         
         if not documents.hasKey(uri) {
-            return null;
+            return null
         }
         
-        let doc = documents[uri];
-        return generateHover(doc.content, position);
+        let doc = documents[uri]
+        return generateHover(doc.content, position)
     }
     
     fun definition(params: DefinitionParams) -> List<Location> {
-        let uri = params.textDocument.uri;
-        let position = params.position;
+        let uri = params.textDocument.uri
+        let position = params.position
         
         if not documents.hasKey(uri) {
-            return [];
+            return []
         }
         
-        let doc = documents[uri];
-        return findDefinitions(doc.content, position);
+        let doc = documents[uri]
+        return findDefinitions(doc.content, position)
     }
     
     fun codeAction(params: CodeActionParams) -> List<CodeAction> {
-        let uri = params.textDocument.uri;
-        let range = params.range;
-        let context = params.context;
+        let uri = params.textDocument.uri
+        let range = params.range
+        let context = params.context
         
         if not documents.hasKey(uri) {
-            return [];
+            return []
         }
         
-        let doc = documents[uri];
-        let actions = [];
+        let doc = documents[uri]
+        let actions = []
         
         // Add optimization suggestions
-        actions.extend(generateOptimizationActions(doc.content, range));
+        actions.extend(generateOptimizationActions(doc.content, range))
         
         // Add quick fixes for diagnostics
         for diagnostic in context.diagnostics {
-            actions.extend(generateQuickFixes(diagnostic));
+            actions.extend(generateQuickFixes(diagnostic))
         }
         
-        return actions;
+        return actions
     }
     
     // Analysis Functions
     fun analyzDocument(uri: String, content: String) {
-        let diagnostics = [];
+        let diagnostics = []
         
         // Lexical analysis
-        let tokens = lexer.tokenize(content);
+        let tokens = lexer.tokenize(content)
         if lexer.hasErrors() {
-            diagnostics.extend(lexer.getDiagnostics());
+            diagnostics.extend(lexer.getDiagnostics())
         }
         
         // Parsing
-        let ast = parser.parse(tokens);
+        let ast = parser.parse(tokens)
         if parser.hasErrors() {
-            diagnostics.extend(parser.getDiagnostics());
+            diagnostics.extend(parser.getDiagnostics())
         }
         
         // Type checking
-        let typeResult = typeChecker.check(ast);
+        let typeResult = typeChecker.check(ast)
         if typeChecker.hasErrors() {
-            diagnostics.extend(typeChecker.getDiagnostics());
+            diagnostics.extend(typeChecker.getDiagnostics())
         }
         
         // Optimization analysis (warnings/suggestions)
         if ast != null {
-            diagnostics.extend(analyzeOptimizations(ast));
+            diagnostics.extend(analyzeOptimizations(ast))
         }
         
-        self.diagnostics[uri] = diagnostics;
-        publishDiagnostics(uri, diagnostics);
+        self.diagnostics[uri] = diagnostics
+        publishDiagnostics(uri, diagnostics)
     }
     
     fun analyzeOptimizations(ast: AST) -> List<Diagnostic> {
-        let suggestions = [];
+        let suggestions = []
         
         // E-graph optimization suggestions
-        let egraphSuggestions = egraphOptimizer.analyzePotential(ast);
-        suggestions.extend(egraphSuggestions);
+        let egraphSuggestions = egraphOptimizer.analyzePotential(ast)
+        suggestions.extend(egraphSuggestions)
         
         // ML optimization insights
-        let mlSuggestions = mlOptimizer.analyzePotential(ast);
-        suggestions.extend(mlSuggestions);
+        let mlSuggestions = mlOptimizer.analyzePotential(ast)
+        suggestions.extend(mlSuggestions)
         
         // Memory optimization suggestions
-        let memorySuggestions = memoryOptimizer.analyzePotential(ast);
-        suggestions.extend(memorySuggestions);
+        let memorySuggestions = memoryOptimizer.analyzePotential(ast)
+        suggestions.extend(memorySuggestions)
         
         // Architecture-specific suggestions
-        let archSuggestions = archOptimizer.analyzePotential(ast);
-        suggestions.extend(archSuggestions);
+        let archSuggestions = archOptimizer.analyzePotential(ast)
+        suggestions.extend(archSuggestions)
         
-        return suggestions;
+        return suggestions
     }
     
     fun generateCompletions(content: String, position: Position) -> List<CompletionItem> {
-        let completions = [];
+        let completions = []
         
         // Basic language completions
-        completions.extend(getKeywordCompletions());
-        completions.extend(getBuiltinCompletions());
-        completions.extend(getSnippetCompletions());
+        completions.extend(getKeywordCompletions())
+        completions.extend(getBuiltinCompletions())
+        completions.extend(getSnippetCompletions())
         
         // Context-aware completions
-        let context = analyzeContext(content, position);
+        let context = analyzeContext(content, position)
         if context.inClass {
-            completions.extend(getClassMemberCompletions());
+            completions.extend(getClassMemberCompletions())
         }
         if context.inFunction {
-            completions.extend(getFunctionCompletions());
+            completions.extend(getFunctionCompletions())
         }
         
-        return completions;
+        return completions
     }
     
     fun generateHover(content: String, position: Position) -> Hover? {
-        let symbol = getSymbolAt(content, position);
+        let symbol = getSymbolAt(content, position)
         if symbol == null {
-            return null;
+            return null
         }
         
-        let documentation = getSymbolDocumentation(symbol);
-        let typeInfo = getSymbolType(symbol);
-        let optimizationInfo = getOptimizationInfo(symbol);
+        let documentation = getSymbolDocumentation(symbol)
+        let typeInfo = getSymbolType(symbol)
+        let optimizationInfo = getOptimizationInfo(symbol)
         
         let hoverContent = """**{symbol.name}**
 
@@ -310,48 +310,48 @@ class SeenLspServer {
 
 **Optimization Info:**
 {optimizationInfo}
-        """;
+        """
         
         return Hover{
             contents: MarkupContent{
                 kind: MarkupKind::Markdown,
                 value: hoverContent
             }
-        };
+        }
     }
     
     fun generateOptimizationActions(content: String, range: Range) -> List<CodeAction> {
-        let actions = [];
+        let actions = []
         
         // Suggest performance optimizations
         actions.append(CodeAction{
             title: "🚀 Apply E-graph Optimizations",
             kind: CodeActionKind::Refactor,
             isPreferred: true
-        });
+        })
         
         actions.append(CodeAction{
             title: "🧠 Enable ML Optimizations",
             kind: CodeActionKind::Refactor
-        });
+        })
         
         actions.append(CodeAction{
             title: "⚡ Apply Superoptimizations",
             kind: CodeActionKind::Refactor
-        });
+        })
         
         actions.append(CodeAction{
             title: "🎯 Enable Profile-Guided Optimization",
             kind: CodeActionKind::SourceOrganizeImports
-        });
+        })
         
-        return actions;
+        return actions
     }
     
     // Helper functions for completions and hover
     fun getKeywordCompletions() -> List<CompletionItem> {
         // Load from TOML language files
-        return LanguageLoader::getKeywordCompletions();
+        return LanguageLoader::getKeywordCompletions()
     }
     
     fun publishDiagnostics(uri: String, diagnostics: List<Diagnostic>) {
@@ -359,6 +359,6 @@ class SeenLspServer {
         sendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
             uri: uri,
             diagnostics: diagnostics
-        });
+        })
     }
 }

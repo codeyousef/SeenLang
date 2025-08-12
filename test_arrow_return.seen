@@ -1,0 +1,4 @@
+// Test arrow return type syntax
+fun main() -> Int {
+    42
+}

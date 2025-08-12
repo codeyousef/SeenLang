@@ -2,6 +2,6 @@
 
 class ErrorManager {
     fun new() -> ErrorManager {
-        return ErrorManager {};
+        return ErrorManager {}
     }
 }

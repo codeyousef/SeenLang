@@ -2,37 +2,37 @@
 // Continuous learning system for compiler optimizations
 
 class MLTrainingSystem {
-    var model: MLModel;
-    var trainingData: List<TrainingRecord> = [];
-    var abTester: ABTester;
-    var regressionDetector: RegressionDetector;
-    var performanceBaseline: Float = 0.0;
+    var model: MLModel
+    var trainingData: List<TrainingRecord> = []
+    var abTester: ABTester
+    var regressionDetector: RegressionDetector
+    var performanceBaseline: Float = 0.0
     
     fun new() -> MLTrainingSystem {
         return MLTrainingSystem{
             model: MLModel{},
             abTester: ABTester{},
             regressionDetector: RegressionDetector{}
-        };
+        }
     }
     
     // Initialize training system with baseline performance
     fun initialize() -> Bool {
-        println("🚀 Initializing ML training system");
+        println("🚀 Initializing ML training system")
         
-        model = MLModel{}.loadTrainedModel("seen-opt-v3.model");
-        performanceBaseline = measureBaselinePerformance();
+        model = MLModel{}.loadTrainedModel("seen-opt-v3.model")
+        performanceBaseline = measureBaselinePerformance()
         
-        println("Baseline performance: " + performanceBaseline.toString());
-        return true;
+        println("Baseline performance: " + performanceBaseline.toString())
+        return true
     }
     
     // Learn from every compilation
     fun learnFromCompilation(sourceIR: IR, optimizedIR: IR, performance: Float) {
-        println("📚 Learning from compilation with performance: " + performance.toString());
+        println("📚 Learning from compilation with performance: " + performance.toString())
         
         // Extract training features
-        let features = extractCompilationFeatures(sourceIR, optimizedIR);
+        let features = extractCompilationFeatures(sourceIR, optimizedIR)
         
         // Create training record
         let record = TrainingRecord{
@@ -41,53 +41,53 @@ class MLTrainingSystem {
             performance: performance,
             timestamp: getCurrentTimestamp(),
             features: features
-        };
+        }
         
         // Add to training dataset
-        trainingData.append(record);
+        trainingData.append(record)
         
         // Update model incrementally
-        model.addTrainingData(sourceIR, optimizedIR, performance);
+        model.addTrainingData(sourceIR, optimizedIR, performance)
         
         // Check for performance improvement
         if performance > performanceBaseline * 1.05 {
             println("✅ Performance improvement detected: " + 
-                   ((performance - performanceBaseline) / performanceBaseline * 100.0).toString() + "%");
-            performanceBaseline = performance;
+                   ((performance - performanceBaseline) / performanceBaseline * 100.0).toString() + "%")
+            performanceBaseline = performance
         }
     }
     
     // Run A/B tests on optimization strategies
     fun runABTest(ir: IR, strategies: List<String>) -> ABTestResult {
-        println("🧪 Running A/B test with strategies: " + strategies.toString());
+        println("🧪 Running A/B test with strategies: " + strategies.toString())
         
-        let results = [];
+        let results = []
         
         for strategy in strategies {
-            let optimizedIR = applyOptimizationStrategy(ir, strategy);
-            let performance = measurePerformance(optimizedIR);
+            let optimizedIR = applyOptimizationStrategy(ir, strategy)
+            let performance = measurePerformance(optimizedIR)
             
             let result = StrategyResult{
                 strategy: strategy,
                 performance: performance,
                 ir: optimizedIR
-            };
+            }
             
-            results.append(result);
+            results.append(result)
         }
         
         // Find best strategy
-        let bestResult = findBestStrategy(results);
+        let bestResult = findBestStrategy(results)
         
         let abResult = ABTestResult{
             winner: bestResult.strategy,
             improvement: (bestResult.performance - performanceBaseline) / performanceBaseline * 100.0
-        };
+        }
         
         // Learn from A/B test results
-        learnFromABTest(abResult, results);
+        learnFromABTest(abResult, results)
         
-        return abResult;
+        return abResult
     }
     
     // Detect performance regressions
@@ -97,35 +97,35 @@ class MLTrainingSystem {
         }
         
         // Get recent performance measurements
-        let recentPerformance = getRecentAveragePerformance(10);
+        let recentPerformance = getRecentAveragePerformance(10)
         let regressionThreshold = performanceBaseline * 0.95; // 5% regression threshold
         
         if recentPerformance < regressionThreshold {
-            println("⚠️ Performance regression detected!");
+            println("⚠️ Performance regression detected!")
             println("Recent: " + recentPerformance.toString() + 
-                   ", Baseline: " + performanceBaseline.toString());
-            return true;
+                   ", Baseline: " + performanceBaseline.toString())
+            return true
         }
         
-        return false;
+        return false
     }
     
     // Rollback to last known good model state
     fun rollbackToLastGoodState() {
-        println("🔄 Rolling back to last good model state");
+        println("🔄 Rolling back to last good model state")
         
         // Find last good training record
-        let lastGoodRecord = findLastGoodTrainingRecord();
+        let lastGoodRecord = findLastGoodTrainingRecord()
         
         if lastGoodRecord != null {
             // Restore model state from that record
-            model = recreateModelFromRecord(lastGoodRecord);
-            performanceBaseline = lastGoodRecord.performance;
+            model = recreateModelFromRecord(lastGoodRecord)
+            performanceBaseline = lastGoodRecord.performance
             
             println("✅ Rollback successful, restored to performance: " + 
-                   performanceBaseline.toString());
+                   performanceBaseline.toString())
         } else {
-            println("❌ No good state found for rollback");
+            println("❌ No good state found for rollback")
         }
     }
     
@@ -135,54 +135,54 @@ class MLTrainingSystem {
             return model.accuracy; // Not enough data for batch training
         }
         
-        println("🎓 Performing batch training on " + trainingData.size().toString() + " records");
+        println("🎓 Performing batch training on " + trainingData.size().toString() + " records")
         
-        let trainingSet = prepareTrainingSet(trainingData);
-        let validationSet = prepareValidationSet(trainingData);
+        let trainingSet = prepareTrainingSet(trainingData)
+        let validationSet = prepareValidationSet(trainingData)
         
         // Train model
-        let newModel = trainNewModel(trainingSet);
+        let newModel = trainNewModel(trainingSet)
         
         // Validate performance
-        let accuracy = validateModel(newModel, validationSet);
+        let accuracy = validateModel(newModel, validationSet)
         
         if accuracy > model.accuracy {
-            println("✅ New model better: " + accuracy.toString() + " vs " + model.accuracy.toString());
-            model = newModel;
-            return accuracy;
+            println("✅ New model better: " + accuracy.toString() + " vs " + model.accuracy.toString())
+            model = newModel
+            return accuracy
         } else {
-            println("❌ New model worse, keeping current model");
-            return model.accuracy;
+            println("❌ New model worse, keeping current model")
+            return model.accuracy
         }
     }
     
     // Export training data for offline analysis
     fun exportTrainingData(filename: String) -> Bool {
-        println("📁 Exporting training data to: " + filename);
+        println("📁 Exporting training data to: " + filename)
         
         // Write training data to file in binary format
-        let file = File.open(filename, "wb");
-        file.write(serialize(trainingData));
-        file.close();
-        println("Exported " + trainingData.size().toString() + " training records");
+        let file = File.open(filename, "wb")
+        file.write(serialize(trainingData))
+        file.close()
+        println("Exported " + trainingData.size().toString() + " training records")
         
-        return true;
+        return true
     }
     
     // Import external training data
     fun importTrainingData(filename: String) -> Bool {
-        println("📥 Importing training data from: " + filename);
+        println("📥 Importing training data from: " + filename)
         
         // Read training data from file
-        let file = File.open(filename, "rb");
-        let data = deserialize(file.readAll());
-        file.close();
-        let importedRecords = data.size();
-        trainingData.append(data);
+        let file = File.open(filename, "rb")
+        let data = deserialize(file.readAll())
+        file.close()
+        let importedRecords = data.size()
+        trainingData.append(data)
         
-        println("Imported " + importedRecords.toString() + " training records");
+        println("Imported " + importedRecords.toString() + " training records")
         
-        return true;
+        return true
     }
     
     // Helper methods for training operations
@@ -190,8 +190,8 @@ class MLTrainingSystem {
     fun measureBaselinePerformance() -> Float {
         // Measure performance on standard benchmark
         // Measure performance on standard benchmark suite
-        let benchmark = StandardBenchmark();
-        return benchmark.run().getAveragePerformance();
+        let benchmark = StandardBenchmark()
+        return benchmark.run().getAveragePerformance()
     }
     
     fun extractCompilationFeatures(source: IR, optimized: IR) -> List<Float> {
@@ -200,179 +200,179 @@ class MLTrainingSystem {
             optimized.getFunctionCount().toFloat(),
             measureOptimizationRatio(source, optimized),
             0.5, 0.8, 0.3, 0.9, 0.6 // Additional features
-        ];
+        ]
     }
     
     fun measureOptimizationRatio(source: IR, optimized: IR) -> Float {
-        let sourceSize = source.getTotalInstructions().toFloat();
-        let optimizedSize = optimized.getTotalInstructions().toFloat();
-        return optimizedSize / sourceSize;
+        let sourceSize = source.getTotalInstructions().toFloat()
+        let optimizedSize = optimized.getTotalInstructions().toFloat()
+        return optimizedSize / sourceSize
     }
     
     fun getCurrentTimestamp() -> Int {
         // Get current Unix timestamp in seconds
-        return SystemTime.now().asUnixSeconds();
+        return SystemTime.now().asUnixSeconds()
     }
     
     fun applyOptimizationStrategy(ir: IR, strategy: String) -> IR {
-        println("Applying strategy: " + strategy);
+        println("Applying strategy: " + strategy)
         // Apply selected optimization strategy
-        let optimizer = StrategyOptimizer(strategy);
-        return optimizer.optimize(ir);
+        let optimizer = StrategyOptimizer(strategy)
+        return optimizer.optimize(ir)
     }
     
     fun measurePerformance(ir: IR) -> Float {
         // Simulate performance measurement
-        return 95.0 + (ir.getFunctionCount().toFloat() * 0.5);
+        return 95.0 + (ir.getFunctionCount().toFloat() * 0.5)
     }
     
     fun findBestStrategy(results: List<StrategyResult>) -> StrategyResult {
         // Find strategy with best performance
-        let best = results[0];
+        let best = results[0]
         
         for result in results {
             if result.performance > best.performance {
-                best = result;
+                best = result
             }
         }
         
-        return best;
+        return best
     }
     
     fun learnFromABTest(result: ABTestResult, strategies: List<StrategyResult>) {
-        println("Learning from A/B test winner: " + result.winner);
+        println("Learning from A/B test winner: " + result.winner)
         
         // Update model with A/B test insights
         for strategy in strategies {
-            let features = [strategy.performance / 100.0, 0.5, 0.8];
-            let label = if strategy.strategy == result.winner { 1.0 } else { 0.0 };
+            let features = [strategy.performance / 100.0, 0.5, 0.8]
+            let label = if strategy.strategy == result.winner { 1.0 } else { 0.0 }
             // Update model weights using gradient descent
-            model.updateWeights(features, label, learningRate);
+            model.updateWeights(features, label, learningRate)
         }
     }
     
     fun getRecentAveragePerformance(count: Int) -> Float {
         if trainingData.size() < count {
-            return performanceBaseline;
+            return performanceBaseline
         }
         
-        let sum = 0.0;
-        let start = trainingData.size() - count;
+        let sum = 0.0
+        let start = trainingData.size() - count
         
         for i in range(start, trainingData.size()) {
-            sum = sum + trainingData[i].performance;
+            sum = sum + trainingData[i].performance
         }
         
-        return sum / count.toFloat();
+        return sum / count.toFloat()
     }
     
     fun findLastGoodTrainingRecord() -> TrainingRecord? {
         // Find most recent record with good performance
-        let threshold = performanceBaseline * 0.98;
+        let threshold = performanceBaseline * 0.98
         
         for i in range(trainingData.size() - 1, -1) {
             if trainingData[i].performance >= threshold {
-                return trainingData[i];
+                return trainingData[i]
             }
         }
         
-        return null;
+        return null
     }
     
     fun recreateModelFromRecord(record: TrainingRecord) -> MLModel {
         // Recreate model state from training record
-        let restoredModel = MLModel{};
-        restoredModel.accuracy = record.performance / 100.0;
-        return restoredModel;
+        let restoredModel = MLModel{}
+        restoredModel.accuracy = record.performance / 100.0
+        return restoredModel
     }
     
     fun prepareTrainingSet(data: List<TrainingRecord>) -> List<TrainingExample> {
-        let trainingSet = [];
-        let trainSize = (data.size() * 0.8).toInt();
+        let trainingSet = []
+        let trainSize = (data.size() * 0.8).toInt()
         
         for i in range(0, trainSize) {
             let example = TrainingExample{
                 features: data[i].features,
                 label: if data[i].performance > performanceBaseline { "good" } else { "bad" }
-            };
-            trainingSet.append(example);
+            }
+            trainingSet.append(example)
         }
         
-        return trainingSet;
+        return trainingSet
     }
     
     fun prepareValidationSet(data: List<TrainingRecord>) -> List<TrainingExample> {
-        let validationSet = [];
-        let trainSize = (data.size() * 0.8).toInt();
+        let validationSet = []
+        let trainSize = (data.size() * 0.8).toInt()
         
         for i in range(trainSize, data.size()) {
             let example = TrainingExample{
                 features: data[i].features,
                 label: if data[i].performance > performanceBaseline { "good" } else { "bad" }
-            };
-            validationSet.append(example);
+            }
+            validationSet.append(example)
         }
         
-        return validationSet;
+        return validationSet
     }
     
     fun trainNewModel(trainingSet: List<TrainingExample>) -> MLModel {
-        println("Training new model on " + trainingSet.size().toString() + " examples");
+        println("Training new model on " + trainingSet.size().toString() + " examples")
         
-        let newModel = MLModel{};
+        let newModel = MLModel{}
         newModel.accuracy = 0.85; // Simplified for bootstrap
         
-        return newModel;
+        return newModel
     }
     
     fun validateModel(model: MLModel, validationSet: List<TrainingExample>) -> Float {
-        let correctPredictions = 0;
+        let correctPredictions = 0
         
         for example in validationSet {
-            let prediction = model.predict(example.features);
-            let predictedLabel = if prediction > 0.5 { "good" } else { "bad" };
+            let prediction = model.predict(example.features)
+            let predictedLabel = if prediction > 0.5 { "good" } else { "bad" }
             
             if predictedLabel == example.label {
-                correctPredictions = correctPredictions + 1;
+                correctPredictions = correctPredictions + 1
             }
         }
         
-        return correctPredictions.toFloat() / validationSet.size().toFloat();
+        return correctPredictions.toFloat() / validationSet.size().toFloat()
     }
 }
 
 // Supporting classes for training system
 
 class TrainingRecord {
-    var input: IR;
-    var output: IR;
-    var performance: Float = 0.0;
-    var timestamp: Int = 0;
-    var features: List<Float> = [];
+    var input: IR
+    var output: IR
+    var performance: Float = 0.0
+    var timestamp: Int = 0
+    var features: List<Float> = []
     
     fun new() -> TrainingRecord {
         return TrainingRecord{
             input: IR{},
             output: IR{}
-        };
+        }
     }
 }
 
 class StrategyResult {
-    var strategy: String = "";
-    var performance: Float = 0.0;
-    var ir: IR;
+    var strategy: String = ""
+    var performance: Float = 0.0
+    var ir: IR
     
     fun new() -> StrategyResult {
         return StrategyResult{
             ir: IR{}
-        };
+        }
     }
 }
 
 class ABTester {
     fun new() -> ABTester {
-        return ABTester{};
+        return ABTester{}
     }
     
     fun designExperiment(strategies: List<String>) -> ABExperiment {
@@ -380,40 +380,40 @@ class ABTester {
             strategies: strategies,
             sampleSize: 1000,
             confidenceLevel: 0.95
-        };
+        }
     }
 }
 
 class RegressionDetector {
     fun new() -> RegressionDetector {
-        return RegressionDetector{};
+        return RegressionDetector{}
     }
     
     fun detectAnomaly(recent: List<Float>, baseline: Float) -> Bool {
-        let average = computeAverage(recent);
-        return average < baseline * 0.95;
+        let average = computeAverage(recent)
+        return average < baseline * 0.95
     }
     
     fun computeAverage(values: List<Float>) -> Float {
         if values.size() == 0 {
-            return 0.0;
+            return 0.0
         }
         
-        let sum = 0.0;
+        let sum = 0.0
         for value in values {
-            sum = sum + value;
+            sum = sum + value
         }
         
-        return sum / values.size().toFloat();
+        return sum / values.size().toFloat()
     }
 }
 
 class ABExperiment {
-    var strategies: List<String> = [];
-    var sampleSize: Int = 0;
-    var confidenceLevel: Float = 0.0;
+    var strategies: List<String> = []
+    var sampleSize: Int = 0
+    var confidenceLevel: Float = 0.0
     
     fun new() -> ABExperiment {
-        return ABExperiment{};
+        return ABExperiment{}
     }
 }

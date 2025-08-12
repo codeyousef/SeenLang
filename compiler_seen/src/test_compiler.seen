@@ -1,22 +1,22 @@
 // Test program to verify the compiler works with Seen syntax
 
-use lexer::real_lexer::RealLexer;
-use parser::real_parser::RealParser;
-use main_compiler::RealTypeChecker;
-use codegen::real_codegen::RealCodeGenerator;
+use lexer::real_lexer::RealLexer
+use parser::real_parser::RealParser
+use main_compiler::RealTypeChecker
+use codegen::real_codegen::RealCodeGenerator
 
 fun TestCompilerWithSeenSyntax() {
-    println("=== Testing Compiler with Full Seen Syntax ===\n");
+    println("=== Testing Compiler with Full Seen Syntax ===\n")
     
     // Test code that uses all Seen features
     let testCode = """
     // Test capitalization-based visibility
     fun Calculate(x: Int, y: Int) -> Int {    // Public function
-        return add(x, y);
+        return add(x, y)
     }
     
     fun add(a: Int, b: Int) -> Int {          // Private function
-        return a + b;
+        return a + b
     }
     
     // Test nullable types and safe navigation
@@ -24,14 +24,14 @@ fun TestCompilerWithSeenSyntax() {
         let user: User? = FindUser(id);       // Nullable type
         
         // Safe navigation and elvis operator
-        let name = user?.Name ?: "Unknown";
+        let name = user?.Name ?: "Unknown"
         
         // Word operators
         if user != null and user.Age >= 18 {
             return "Adult: {name}";            // String interpolation
         }
         
-        return "Minor or Unknown";
+        return "Minor or Unknown"
     }
     
     // Test ranges and for loops
@@ -39,16 +39,16 @@ fun TestCompilerWithSeenSyntax() {
         var sum = 0;                           // Mutable with var
         
         for i in start..end {                  // Range operator
-            sum = sum + i;
+            sum = sum + i
         }
         
-        return sum;
+        return sum
     }
     
     // Main entry point
     fun main() -> Int {
-        let result = Calculate(10, 20);
-        println("Result: {result}");
+        let result = Calculate(10, 20)
+        println("Result: {result}")
         
         // Test immutable vs mutable
         let constant = 42;                     // Immutable by default
@@ -57,120 +57,120 @@ fun TestCompilerWithSeenSyntax() {
         variable = variable + 1;               // OK to modify
         
         // Test collections
-        let numbers = [1, 2, 3, 4, 5];
-        let map = {"name": "Alice", "age": "30"};
+        let numbers = [1, 2, 3, 4, 5]
+        let map = {"name": "Alice", "age": "30"}
         
-        return 0;
+        return 0
     }
-    """;
+    """
     
     // Step 1: Tokenize
-    println("Step 1: Tokenizing...");
-    let lexer = RealLexer{ source: testCode };
-    let tokens = lexer.tokenize();
+    println("Step 1: Tokenizing...")
+    let lexer = RealLexer{ source: testCode }
+    let tokens = lexer.tokenize()
     
-    println("  ✓ Generated {tokens.size()} tokens");
+    println("  ✓ Generated {tokens.size()} tokens")
     
     // Show first few tokens
-    println("\n  First 10 tokens:");
+    println("\n  First 10 tokens:")
     for i in 0..min(10, tokens.size()) {
-        let token = tokens[i];
-        println("    {token.type}: '{token.value}'");
+        let token = tokens[i]
+        println("    {token.type}: '{token.value}'")
     }
     
     // Step 2: Parse
-    println("\nStep 2: Parsing...");
-    let parser = RealParser{ tokens: tokens };
-    let ast = parser.parse();
+    println("\nStep 2: Parsing...")
+    let parser = RealParser{ tokens: tokens }
+    let ast = parser.parse()
     
-    println("  ✓ Built AST with {ast.items.size()} top-level items");
+    println("  ✓ Built AST with {ast.items.size()} top-level items")
     
     // Show parsed items
-    println("\n  Parsed items:");
+    println("\n  Parsed items:")
     for item in ast.items {
-        let visibility = if isCapitalized(item.name) { "public" } else { "private" };
-        println("    {item.itemType} {item.name} ({visibility})");
+        let visibility = if isCapitalized(item.name) { "public" } else { "private" }
+        println("    {item.itemType} {item.name} ({visibility})")
     }
     
     // Step 3: Type Check
-    println("\nStep 3: Type Checking...");
-    let typeChecker = RealTypeChecker{};
-    let typeResult = typeChecker.check(ast);
+    println("\nStep 3: Type Checking...")
+    let typeChecker = RealTypeChecker{}
+    let typeResult = typeChecker.check(ast)
     
     if typeResult.isValid {
-        println("  ✓ Type checking passed");
+        println("  ✓ Type checking passed")
     } else {
-        println("  ✗ Type checking failed:");
+        println("  ✗ Type checking failed:")
         for error in typeResult.errors {
-            println("    - {error}");
+            println("    - {error}")
         }
     }
     
     // Step 4: Code Generation
-    println("\nStep 4: Generating LLVM IR...");
-    let codegen = RealCodeGenerator{};
-    let llvmIR = codegen.generate(ast);
+    println("\nStep 4: Generating LLVM IR...")
+    let codegen = RealCodeGenerator{}
+    let llvmIR = codegen.generate(ast)
     
     if llvmIR != "" {
-        println("  ✓ Generated {countLines(llvmIR)} lines of LLVM IR");
+        println("  ✓ Generated {countLines(llvmIR)} lines of LLVM IR")
         
         // Show first few lines
-        println("\n  First 10 lines of LLVM IR:");
-        let lines = splitLines(llvmIR);
+        println("\n  First 10 lines of LLVM IR:")
+        let lines = splitLines(llvmIR)
         for i in 0..min(10, lines.size()) {
-            println("    {lines[i]}");
+            println("    {lines[i]}")
         }
     } else {
-        println("  ✗ No LLVM IR generated");
+        println("  ✗ No LLVM IR generated")
     }
     
-    println("\n=== Compilation Test Complete ===");
+    println("\n=== Compilation Test Complete ===")
 }
 
 fun isCapitalized(name: String) -> Bool {
     if name.length() == 0 {
-        return false;
+        return false
     }
-    let first = name.charAt(0);
-    return first >= 'A' and first <= 'Z';
+    let first = name.charAt(0)
+    return first >= 'A' and first <= 'Z'
 }
 
 fun min(a: Int, b: Int) -> Int {
-    return if a < b { a } else { b };
+    return if a < b { a } else { b }
 }
 
 fun countLines(text: String) -> Int {
-    let count = 1;
+    let count = 1
     for ch in text {
         if ch == '\n' {
-            count = count + 1;
+            count = count + 1
         }
     }
-    return count;
+    return count
 }
 
 fun splitLines(text: String) -> List<String> {
-    let lines = [];
-    let current = "";
+    let lines = []
+    let current = ""
     
     for ch in text {
         if ch == '\n' {
-            lines.append(current);
-            current = "";
+            lines.append(current)
+            current = ""
         } else {
-            current = current + ch;
+            current = current + ch
         }
     }
     
     if current != "" {
-        lines.append(current);
+        lines.append(current)
     }
     
-    return lines;
+    return lines
 }
 
 // Run the test
 fun main() {
-    TestCompilerWithSeenSyntax();
-    return 0;
+    TestCompilerWithSeenSyntax()
+    return 0
 }

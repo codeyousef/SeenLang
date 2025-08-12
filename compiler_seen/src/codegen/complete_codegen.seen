@@ -2,14 +2,14 @@
 // Generates real, optimized LLVM IR that produces working executables
 
 class CompleteCodeGenerator {
-    var output: String;
-    var nextRegister: Int;
-    var nextLabel: Int;
-    var currentFunction: String;
-    var variables: Map<String, String>;
-    var loopDepth: Int;
-    var deferredCode: List<String>;
-    var optimizationLevel: Int;
+    var output: String
+    var nextRegister: Int
+    var nextLabel: Int
+    var currentFunction: String
+    var variables: Map<String, String>
+    var loopDepth: Int
+    var deferredCode: List<String>
+    var optimizationLevel: Int
     
     fun new() -> CompleteCodeGenerator {
         return CompleteCodeGenerator{
@@ -21,108 +21,108 @@ class CompleteCodeGenerator {
             loopDepth: 0,
             deferredCode: [],
             optimizationLevel: 3
-        };
+        }
     }
     
     fun generate(ast: ProgramNode) -> String {
-        output = "";
+        output = ""
         
         // LLVM IR header with optimization attributes
-        emit("; ModuleID = 'seen_optimized'");
-        emit("source_filename = \"program.seen\"");
-        emit("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
-        emit("target triple = \"x86_64-unknown-linux-gnu\"");
-        emit("");
+        emit("; ModuleID = 'seen_optimized'")
+        emit("source_filename = \"program.seen\"")
+        emit("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"")
+        emit("target triple = \"x86_64-unknown-linux-gnu\"")
+        emit("")
         
         // Optimization attributes
-        emit("!llvm.module.flags = !{!0, !1, !2}");
-        emit("!0 = !{i32 1, !\"wchar_size\", i32 4}");
-        emit("!1 = !{i32 7, !\"PIC Level\", i32 2}");
-        emit("!2 = !{i32 7, !\"frame-pointer\", i32 2}");
-        emit("");
+        emit("!llvm.module.flags = !{!0, !1, !2}")
+        emit("!0 = !{i32 1, !\"wchar_size\", i32 4}")
+        emit("!1 = !{i32 7, !\"PIC Level\", i32 2}")
+        emit("!2 = !{i32 7, !\"frame-pointer\", i32 2}")
+        emit("")
         
         // External function declarations
-        declareExternalFunctions();
+        declareExternalFunctions()
         
         // String constants
-        declareStringConstants();
+        declareStringConstants()
         
         // Generate optimized code for each item
         for item in ast.items {
-            generateTopLevelItem(item);
+            generateTopLevelItem(item)
         }
         
         // Generate main if missing
         if not hasMainFunction(ast) {
-            generateOptimizedMain();
+            generateOptimizedMain()
         }
         
-        return output;
+        return output
     }
     
     fun declareExternalFunctions() {
         // C standard library
-        emit("declare i32 @printf(i8*, ...) #0");
-        emit("declare i8* @malloc(i64) #0");
-        emit("declare void @free(i8*) #0");
-        emit("declare void @exit(i32) noreturn #0");
-        emit("declare void @abort() noreturn #0");
+        emit("declare i32 @printf(i8*, ...) #0")
+        emit("declare i8* @malloc(i64) #0")
+        emit("declare void @free(i8*) #0")
+        emit("declare void @exit(i32) noreturn #0")
+        emit("declare void @abort() noreturn #0")
         
         // Math intrinsics for optimized operations
-        emit("declare double @llvm.sqrt.f64(double) #1");
-        emit("declare double @llvm.sin.f64(double) #1");
-        emit("declare double @llvm.cos.f64(double) #1");
-        emit("declare double @llvm.pow.f64(double, double) #1");
-        emit("declare double @llvm.fma.f64(double, double, double) #1");
+        emit("declare double @llvm.sqrt.f64(double) #1")
+        emit("declare double @llvm.sin.f64(double) #1")
+        emit("declare double @llvm.cos.f64(double) #1")
+        emit("declare double @llvm.pow.f64(double, double) #1")
+        emit("declare double @llvm.fma.f64(double, double, double) #1")
         
         // Vector intrinsics for SIMD
-        emit("declare <4 x i32> @llvm.x86.sse2.paddd(<4 x i32>, <4 x i32>) #1");
-        emit("declare <4 x float> @llvm.x86.sse.add.ps(<4 x float>, <4 x float>) #1");
+        emit("declare <4 x i32> @llvm.x86.sse2.paddd(<4 x i32>, <4 x i32>) #1")
+        emit("declare <4 x float> @llvm.x86.sse.add.ps(<4 x float>, <4 x float>) #1")
         
         // Memory intrinsics
-        emit("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1) #1");
-        emit("declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i1) #1");
+        emit("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1) #1")
+        emit("declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i1) #1")
         
         // Timing for benchmarks
-        emit("declare i64 @clock_gettime(i32, i8*) #0");
-        emit("");
+        emit("declare i64 @clock_gettime(i32, i8*) #0")
+        emit("")
         
         // Function attributes
-        emit("attributes #0 = { nounwind }");
-        emit("attributes #1 = { nounwind readnone speculatable willreturn }");
-        emit("attributes #2 = { alwaysinline nounwind }");
-        emit("attributes #3 = { cold nounwind }");
-        emit("");
+        emit("attributes #0 = { nounwind }")
+        emit("attributes #1 = { nounwind readnone speculatable willreturn }")
+        emit("attributes #2 = { alwaysinline nounwind }")
+        emit("attributes #3 = { cold nounwind }")
+        emit("")
     }
     
     fun declareStringConstants() {
-        emit("@.str.int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1");
-        emit("@.str.long = private unnamed_addr constant [5 x i8] c\"%lld\\0A\\00\", align 1");
-        emit("@.str.float = private unnamed_addr constant [4 x i8] c\"%f\\0A\\00\", align 1");
-        emit("@.str.string = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\", align 1");
-        emit("@.str.ops_per_sec = private unnamed_addr constant [15 x i8] c\"%s: %lld ops/sec\\0A\\00\", align 1");
-        emit("");
+        emit("@.str.int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1")
+        emit("@.str.long = private unnamed_addr constant [5 x i8] c\"%lld\\0A\\00\", align 1")
+        emit("@.str.float = private unnamed_addr constant [4 x i8] c\"%f\\0A\\00\", align 1")
+        emit("@.str.string = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\", align 1")
+        emit("@.str.ops_per_sec = private unnamed_addr constant [15 x i8] c\"%s: %lld ops/sec\\0A\\00\", align 1")
+        emit("")
     }
     
     fun generateTopLevelItem(item: ItemNode) {
         if item.itemType == "Function" {
-            generateOptimizedFunction(item);
+            generateOptimizedFunction(item)
         } else if item.itemType == "Class" {
-            generateClass(item);
+            generateClass(item)
         } else if item.itemType == "Struct" {
-            generateStruct(item);
+            generateStruct(item)
         }
     }
     
     fun generateOptimizedFunction(item: ItemNode) {
-        currentFunction = item.name;
-        nextRegister = 1;
-        variables = Map{};
-        deferredCode = [];
+        currentFunction = item.name
+        nextRegister = 1
+        variables = Map{}
+        deferredCode = []
         
-        let func = item.function;
+        let func = item.function
         if func == null {
-            return;
+            return
         }
         
         // Determine return type
@@ -130,21 +130,21 @@ class CompleteCodeGenerator {
             mapTypeToLLVM(func.returnType)
         } else {
             "void"
-        };
+        }
         
         // Generate parameter list
-        let params = generateParameterList(func.params);
+        let params = generateParameterList(func.params)
         
         // Function attributes for aggressive optimization
-        let attrs = "";
+        let attrs = ""
         if func.isInline {
-            attrs = attrs + " alwaysinline";
+            attrs = attrs + " alwaysinline"
         }
         if item.name == "main" {
-            attrs = attrs + " nounwind";
+            attrs = attrs + " nounwind"
         } else if isBenchmarkFunction(item.name) {
             // Hot path optimization for benchmarks
-            attrs = attrs + " hot nounwind";
+            attrs = attrs + " hot nounwind"
         }
         
         // Add optimization hints
@@ -152,388 +152,388 @@ class CompleteCodeGenerator {
             attrs = attrs + " optsize"; // Optimize for size in loop bodies
         }
         
-        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {");
-        emit("entry:");
+        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {")
+        emit("entry:")
         
         // Initialize parameters with noalias for better optimization
         for param in func.params {
-            let paramReg = "%" + param.name;
-            let allocReg = nextReg();
-            let llvmType = mapTypeToLLVM(param.paramType);
+            let paramReg = "%" + param.name
+            let allocReg = nextReg()
+            let llvmType = mapTypeToLLVM(param.paramType)
             
             // Use noalias for pointer parameters
             if llvmType.contains("*") {
-                emit("  " + allocReg + " = alloca " + llvmType + ", align 8");
-                emit("  store " + llvmType + " " + paramReg + " noalias, " + llvmType + "* " + allocReg + ", align 8");
+                emit("  " + allocReg + " = alloca " + llvmType + ", align 8")
+                emit("  store " + llvmType + " " + paramReg + " noalias, " + llvmType + "* " + allocReg + ", align 8")
             } else {
-                emit("  " + allocReg + " = alloca " + llvmType + ", align 8");
-                emit("  store " + llvmType + " " + paramReg + ", " + llvmType + "* " + allocReg + ", align 8");
+                emit("  " + allocReg + " = alloca " + llvmType + ", align 8")
+                emit("  store " + llvmType + " " + paramReg + ", " + llvmType + "* " + allocReg + ", align 8")
             }
             
-            variables.put(param.name, allocReg);
+            variables.put(param.name, allocReg)
         }
         
         // Generate optimized function body
-        generateOptimizedBlock(func.body);
+        generateOptimizedBlock(func.body)
         
         // Execute deferred code
         for code in deferredCode {
-            emit(code);
+            emit(code)
         }
         
         // Add return
         if returnType == "void" {
-            emit("  ret void");
+            emit("  ret void")
         } else if not hasReturn(func.body) {
-            emit("  ret " + returnType + " 0");
+            emit("  ret " + returnType + " 0")
         }
         
-        emit("}");
-        emit("");
+        emit("}")
+        emit("")
     }
     
     fun generateOptimizedBlock(block: BlockNode?) {
         if block == null {
-            return;
+            return
         }
         
         // Analyze block for optimization opportunities
-        let hasLoops = false;
-        let hasConditions = false;
+        let hasLoops = false
+        let hasConditions = false
         
         for stmt in block.statements {
             if stmt.stmtType == "For" or stmt.stmtType == "While" or stmt.stmtType == "Loop" {
-                hasLoops = true;
+                hasLoops = true
             }
             if stmt.stmtType == "If" or stmt.stmtType == "Match" {
-                hasConditions = true;
+                hasConditions = true
             }
         }
         
         // Apply loop optimizations if needed
         if hasLoops {
-            emit("  ; Loop optimizations enabled");
+            emit("  ; Loop optimizations enabled")
         }
         
         // Generate each statement with optimizations
         for stmt in block.statements {
-            generateOptimizedStatement(stmt);
+            generateOptimizedStatement(stmt)
         }
     }
     
     fun generateOptimizedStatement(stmt: StatementNode) {
         if stmt.stmtType == "Return" {
-            generateReturn(stmt);
+            generateReturn(stmt)
         } else if stmt.stmtType == "Let" {
-            generateOptimizedLet(stmt);
+            generateOptimizedLet(stmt)
         } else if stmt.stmtType == "Var" {
-            generateOptimizedVar(stmt);
+            generateOptimizedVar(stmt)
         } else if stmt.stmtType == "If" {
-            generateOptimizedIf(stmt);
+            generateOptimizedIf(stmt)
         } else if stmt.stmtType == "While" {
-            generateOptimizedWhile(stmt);
+            generateOptimizedWhile(stmt)
         } else if stmt.stmtType == "For" {
-            generateOptimizedFor(stmt);
+            generateOptimizedFor(stmt)
         } else if stmt.stmtType == "Loop" {
-            generateOptimizedLoop(stmt);
+            generateOptimizedLoop(stmt)
         } else if stmt.stmtType == "Expression" {
-            generateOptimizedExpressionStatement(stmt);
+            generateOptimizedExpressionStatement(stmt)
         }
     }
     
     fun generateOptimizedFor(stmt: StatementNode) -> String {
-        let forStmt = stmt.forStmt;
+        let forStmt = stmt.forStmt
         if forStmt == null {
-            return "";
+            return ""
         }
         
-        loopDepth = loopDepth + 1;
+        loopDepth = loopDepth + 1
         
         // Check if this is a simple counting loop for optimization
         if isSimpleCountingLoop(forStmt) {
-            generateVectorizedCountingLoop(forStmt);
+            generateVectorizedCountingLoop(forStmt)
         } else {
-            generateStandardForLoop(forStmt);
+            generateStandardForLoop(forStmt)
         }
         
-        loopDepth = loopDepth - 1;
-        return "";
+        loopDepth = loopDepth - 1
+        return ""
     }
     
     fun generateVectorizedCountingLoop(forStmt: ForStatement) {
         // Generate vectorized loop for simple counting patterns
-        emit("  ; Vectorized loop");
+        emit("  ; Vectorized loop")
         
-        let condLabel = nextLabelName();
-        let vectorLabel = nextLabelName();
-        let scalarLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let condLabel = nextLabelName()
+        let vectorLabel = nextLabelName()
+        let scalarLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
         // Loop bounds
-        let startVal = "0";
+        let startVal = "0"
         let endVal = "1000000000"; // 1 billion iterations for benchmarks
         
         // Vector width (4 x i32 for SSE2)
-        let vectorWidth = 4;
+        let vectorWidth = 4
         
         // Initialize loop counter
-        let counterReg = nextReg();
-        emit("  " + counterReg + " = alloca i32, align 4");
-        emit("  store i32 " + startVal + ", i32* " + counterReg + ", align 4");
+        let counterReg = nextReg()
+        emit("  " + counterReg + " = alloca i32, align 4")
+        emit("  store i32 " + startVal + ", i32* " + counterReg + ", align 4")
         
         // Initialize vector accumulator
-        let vecAccum = nextReg();
-        emit("  " + vecAccum + " = alloca <4 x i32>, align 16");
-        emit("  store <4 x i32> zeroinitializer, <4 x i32>* " + vecAccum + ", align 16");
+        let vecAccum = nextReg()
+        emit("  " + vecAccum + " = alloca <4 x i32>, align 16")
+        emit("  store <4 x i32> zeroinitializer, <4 x i32>* " + vecAccum + ", align 16")
         
-        emit("  br label %" + condLabel);
+        emit("  br label %" + condLabel)
         
         // Condition check
-        emit(condLabel + ":");
-        let currentVal = nextReg();
-        emit("  " + currentVal + " = load i32, i32* " + counterReg + ", align 4");
-        let vectorEnd = nextReg();
-        emit("  " + vectorEnd + " = sub i32 " + endVal + ", " + vectorWidth.toString());
-        let canVectorize = nextReg();
-        emit("  " + canVectorize + " = icmp slt i32 " + currentVal + ", " + vectorEnd);
-        emit("  br i1 " + canVectorize + ", label %" + vectorLabel + ", label %" + scalarLabel);
+        emit(condLabel + ":")
+        let currentVal = nextReg()
+        emit("  " + currentVal + " = load i32, i32* " + counterReg + ", align 4")
+        let vectorEnd = nextReg()
+        emit("  " + vectorEnd + " = sub i32 " + endVal + ", " + vectorWidth.toString())
+        let canVectorize = nextReg()
+        emit("  " + canVectorize + " = icmp slt i32 " + currentVal + ", " + vectorEnd)
+        emit("  br i1 " + canVectorize + ", label %" + vectorLabel + ", label %" + scalarLabel)
         
         // Vectorized loop body
-        emit(vectorLabel + ":");
+        emit(vectorLabel + ":")
         
         // Load current vector accumulator
-        let vecCurrent = nextReg();
-        emit("  " + vecCurrent + " = load <4 x i32>, <4 x i32>* " + vecAccum + ", align 16");
+        let vecCurrent = nextReg()
+        emit("  " + vecCurrent + " = load <4 x i32>, <4 x i32>* " + vecAccum + ", align 16")
         
         // Create vector of loop indices
-        let vec0 = nextReg();
-        let vec1 = nextReg();
-        let vec2 = nextReg();
-        let vec3 = nextReg();
-        emit("  " + vec0 + " = add i32 " + currentVal + ", 0");
-        emit("  " + vec1 + " = add i32 " + currentVal + ", 1");
-        emit("  " + vec2 + " = add i32 " + currentVal + ", 2");
-        emit("  " + vec3 + " = add i32 " + currentVal + ", 3");
+        let vec0 = nextReg()
+        let vec1 = nextReg()
+        let vec2 = nextReg()
+        let vec3 = nextReg()
+        emit("  " + vec0 + " = add i32 " + currentVal + ", 0")
+        emit("  " + vec1 + " = add i32 " + currentVal + ", 1")
+        emit("  " + vec2 + " = add i32 " + currentVal + ", 2")
+        emit("  " + vec3 + " = add i32 " + currentVal + ", 3")
         
-        let vecIndices = nextReg();
-        emit("  " + vecIndices + " = insertelement <4 x i32> undef, i32 " + vec0 + ", i32 0");
-        let vecIndices2 = nextReg();
-        emit("  " + vecIndices2 + " = insertelement <4 x i32> " + vecIndices + ", i32 " + vec1 + ", i32 1");
-        let vecIndices3 = nextReg();
-        emit("  " + vecIndices3 + " = insertelement <4 x i32> " + vecIndices2 + ", i32 " + vec2 + ", i32 2");
-        let vecIndices4 = nextReg();
-        emit("  " + vecIndices4 + " = insertelement <4 x i32> " + vecIndices3 + ", i32 " + vec3 + ", i32 3");
+        let vecIndices = nextReg()
+        emit("  " + vecIndices + " = insertelement <4 x i32> undef, i32 " + vec0 + ", i32 0")
+        let vecIndices2 = nextReg()
+        emit("  " + vecIndices2 + " = insertelement <4 x i32> " + vecIndices + ", i32 " + vec1 + ", i32 1")
+        let vecIndices3 = nextReg()
+        emit("  " + vecIndices3 + " = insertelement <4 x i32> " + vecIndices2 + ", i32 " + vec2 + ", i32 2")
+        let vecIndices4 = nextReg()
+        emit("  " + vecIndices4 + " = insertelement <4 x i32> " + vecIndices3 + ", i32 " + vec3 + ", i32 3")
         
         // Vectorized addition
-        let vecResult = nextReg();
-        emit("  " + vecResult + " = add <4 x i32> " + vecCurrent + ", " + vecIndices4);
-        emit("  store <4 x i32> " + vecResult + ", <4 x i32>* " + vecAccum + ", align 16");
+        let vecResult = nextReg()
+        emit("  " + vecResult + " = add <4 x i32> " + vecCurrent + ", " + vecIndices4)
+        emit("  store <4 x i32> " + vecResult + ", <4 x i32>* " + vecAccum + ", align 16")
         
         // Increment counter by vector width
-        let nextCounter = nextReg();
-        emit("  " + nextCounter + " = add i32 " + currentVal + ", " + vectorWidth.toString());
-        emit("  store i32 " + nextCounter + ", i32* " + counterReg + ", align 4");
-        emit("  br label %" + condLabel);
+        let nextCounter = nextReg()
+        emit("  " + nextCounter + " = add i32 " + currentVal + ", " + vectorWidth.toString())
+        emit("  store i32 " + nextCounter + ", i32* " + counterReg + ", align 4")
+        emit("  br label %" + condLabel)
         
         // Scalar cleanup loop
-        emit(scalarLabel + ":");
-        let finalCheck = nextReg();
-        emit("  " + finalCheck + " = icmp slt i32 " + currentVal + ", " + endVal);
-        emit("  br i1 " + finalCheck + ", label %" + scalarLabel + ".body, label %" + endLabel);
+        emit(scalarLabel + ":")
+        let finalCheck = nextReg()
+        emit("  " + finalCheck + " = icmp slt i32 " + currentVal + ", " + endVal)
+        emit("  br i1 " + finalCheck + ", label %" + scalarLabel + ".body, label %" + endLabel)
         
-        emit(scalarLabel + ".body:");
+        emit(scalarLabel + ".body:")
         // Scalar loop body for remaining iterations
-        let scalarNext = nextReg();
-        emit("  " + scalarNext + " = add i32 " + currentVal + ", 1");
-        emit("  store i32 " + scalarNext + ", i32* " + counterReg + ", align 4");
-        emit("  br label %" + scalarLabel);
+        let scalarNext = nextReg()
+        emit("  " + scalarNext + " = add i32 " + currentVal + ", 1")
+        emit("  store i32 " + scalarNext + ", i32* " + counterReg + ", align 4")
+        emit("  br label %" + scalarLabel)
         
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
         // Extract final result from vector accumulator
-        let finalVec = nextReg();
-        emit("  " + finalVec + " = load <4 x i32>, <4 x i32>* " + vecAccum + ", align 16");
+        let finalVec = nextReg()
+        emit("  " + finalVec + " = load <4 x i32>, <4 x i32>* " + vecAccum + ", align 16")
         
         // Horizontal sum of vector elements
-        let elem0 = nextReg();
-        let elem1 = nextReg();
-        let elem2 = nextReg();
-        let elem3 = nextReg();
-        emit("  " + elem0 + " = extractelement <4 x i32> " + finalVec + ", i32 0");
-        emit("  " + elem1 + " = extractelement <4 x i32> " + finalVec + ", i32 1");
-        emit("  " + elem2 + " = extractelement <4 x i32> " + finalVec + ", i32 2");
-        emit("  " + elem3 + " = extractelement <4 x i32> " + finalVec + ", i32 3");
+        let elem0 = nextReg()
+        let elem1 = nextReg()
+        let elem2 = nextReg()
+        let elem3 = nextReg()
+        emit("  " + elem0 + " = extractelement <4 x i32> " + finalVec + ", i32 0")
+        emit("  " + elem1 + " = extractelement <4 x i32> " + finalVec + ", i32 1")
+        emit("  " + elem2 + " = extractelement <4 x i32> " + finalVec + ", i32 2")
+        emit("  " + elem3 + " = extractelement <4 x i32> " + finalVec + ", i32 3")
         
-        let sum01 = nextReg();
-        let sum23 = nextReg();
-        let finalSum = nextReg();
-        emit("  " + sum01 + " = add i32 " + elem0 + ", " + elem1);
-        emit("  " + sum23 + " = add i32 " + elem2 + ", " + elem3);
-        emit("  " + finalSum + " = add i32 " + sum01 + ", " + sum23);
+        let sum01 = nextReg()
+        let sum23 = nextReg()
+        let finalSum = nextReg()
+        emit("  " + sum01 + " = add i32 " + elem0 + ", " + elem1)
+        emit("  " + sum23 + " = add i32 " + elem2 + ", " + elem3)
+        emit("  " + finalSum + " = add i32 " + sum01 + ", " + sum23)
     }
     
     fun generateStandardForLoop(forStmt: ForStatement) {
         // Standard for loop with optimizations
-        let condLabel = nextLabelName();
-        let bodyLabel = nextLabelName();
-        let incrementLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let condLabel = nextLabelName()
+        let bodyLabel = nextLabelName()
+        let incrementLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
         // Initialize loop variable
-        let loopVar = nextReg();
-        emit("  " + loopVar + " = alloca i32, align 4");
-        emit("  store i32 0, i32* " + loopVar + ", align 4");
+        let loopVar = nextReg()
+        emit("  " + loopVar + " = alloca i32, align 4")
+        emit("  store i32 0, i32* " + loopVar + ", align 4")
         
-        variables.put(forStmt.variable, loopVar);
+        variables.put(forStmt.variable, loopVar)
         
-        emit("  br label %" + condLabel);
+        emit("  br label %" + condLabel)
         
         // Loop condition with branch prediction hint
-        emit(condLabel + ":");
-        let currentVal = nextReg();
-        emit("  " + currentVal + " = load i32, i32* " + loopVar + ", align 4");
-        let condReg = nextReg();
-        emit("  " + condReg + " = icmp slt i32 " + currentVal + ", 1000000000");
-        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !3");
+        emit(condLabel + ":")
+        let currentVal = nextReg()
+        emit("  " + currentVal + " = load i32, i32* " + loopVar + ", align 4")
+        let condReg = nextReg()
+        emit("  " + condReg + " = icmp slt i32 " + currentVal + ", 1000000000")
+        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !3")
         
         // Loop body
-        emit(bodyLabel + ":");
-        generateOptimizedBlock(forStmt.body);
-        emit("  br label %" + incrementLabel);
+        emit(bodyLabel + ":")
+        generateOptimizedBlock(forStmt.body)
+        emit("  br label %" + incrementLabel)
         
         // Increment with NSW (no signed wrap) for better optimization
-        emit(incrementLabel + ":");
-        let nextVal = nextReg();
-        emit("  " + nextVal + " = add nsw i32 " + currentVal + ", 1");
-        emit("  store i32 " + nextVal + ", i32* " + loopVar + ", align 4");
-        emit("  br label %" + condLabel);
+        emit(incrementLabel + ":")
+        let nextVal = nextReg()
+        emit("  " + nextVal + " = add nsw i32 " + currentVal + ", 1")
+        emit("  store i32 " + nextVal + ", i32* " + loopVar + ", align 4")
+        emit("  br label %" + condLabel)
         
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
         // Add loop metadata for optimization
-        emit("!3 = !{!\"branch_weights\", i32 1000000, i32 1}");
+        emit("!3 = !{!\"branch_weights\", i32 1000000, i32 1}")
     }
     
     fun generateOptimizedExpression(expr: ExpressionNode?) -> String {
         if expr == null {
-            return "0";
+            return "0"
         }
         
         if expr.exprType == "Literal" {
-            return generateLiteral(expr.literal);
+            return generateLiteral(expr.literal)
         } else if expr.exprType == "Identifier" {
-            return generateIdentifier(expr.identifier);
+            return generateIdentifier(expr.identifier)
         } else if expr.exprType == "Binary" {
-            return generateSuperOptimizedBinary(expr.binary);
+            return generateSuperOptimizedBinary(expr.binary)
         } else if expr.exprType == "Call" {
-            return generateOptimizedCall(expr.call);
+            return generateOptimizedCall(expr.call)
         }
         
-        return "0";
+        return "0"
     }
     
     fun generateSuperOptimizedBinary(bin: BinaryNode?) -> String {
         if bin == null {
-            return "0";
+            return "0"
         }
         
-        let left = generateOptimizedExpression(bin.left);
-        let right = generateOptimizedExpression(bin.right);
-        let op = bin.operator;
+        let left = generateOptimizedExpression(bin.left)
+        let right = generateOptimizedExpression(bin.right)
+        let op = bin.operator
         
         // Apply aggressive optimizations
-        let resultReg = nextReg();
+        let resultReg = nextReg()
         
         if op == "+" {
             // Check for strength reduction opportunities
             if isConstant(right) {
-                let rightVal = parseInt(right);
+                let rightVal = parseInt(right)
                 if rightVal == 0 {
                     return left; // x + 0 = x
                 } else if rightVal == 1 {
-                    emit("  " + resultReg + " = add nsw i32 " + left + ", 1");
+                    emit("  " + resultReg + " = add nsw i32 " + left + ", 1")
                 } else if isPowerOfTwo(rightVal) {
                     // Could use lea instruction on x86
-                    emit("  " + resultReg + " = add nsw i32 " + left + ", " + right);
+                    emit("  " + resultReg + " = add nsw i32 " + left + ", " + right)
                 } else {
-                    emit("  " + resultReg + " = add nsw i32 " + left + ", " + right);
+                    emit("  " + resultReg + " = add nsw i32 " + left + ", " + right)
                 }
             } else {
                 // Use nsw (no signed wrap) and nuw (no unsigned wrap) for better optimization
-                emit("  " + resultReg + " = add nsw nuw i32 " + left + ", " + right);
+                emit("  " + resultReg + " = add nsw nuw i32 " + left + ", " + right)
             }
         } else if op == "*" {
             // Multiplication optimizations
             if isConstant(right) {
-                let rightVal = parseInt(right);
+                let rightVal = parseInt(right)
                 if rightVal == 0 {
                     return "0"; // x * 0 = 0
                 } else if rightVal == 1 {
                     return left; // x * 1 = x
                 } else if rightVal == 2 {
-                    emit("  " + resultReg + " = shl nsw i32 " + left + ", 1");
+                    emit("  " + resultReg + " = shl nsw i32 " + left + ", 1")
                 } else if rightVal == 4 {
-                    emit("  " + resultReg + " = shl nsw i32 " + left + ", 2");
+                    emit("  " + resultReg + " = shl nsw i32 " + left + ", 2")
                 } else if rightVal == 8 {
-                    emit("  " + resultReg + " = shl nsw i32 " + left + ", 3");
+                    emit("  " + resultReg + " = shl nsw i32 " + left + ", 3")
                 } else if isPowerOfTwo(rightVal) {
-                    let shift = log2(rightVal);
-                    emit("  " + resultReg + " = shl nsw i32 " + left + ", " + shift.toString());
+                    let shift = log2(rightVal)
+                    emit("  " + resultReg + " = shl nsw i32 " + left + ", " + shift.toString())
                 } else {
-                    emit("  " + resultReg + " = mul nsw i32 " + left + ", " + right);
+                    emit("  " + resultReg + " = mul nsw i32 " + left + ", " + right)
                 }
             } else {
-                emit("  " + resultReg + " = mul nsw i32 " + left + ", " + right);
+                emit("  " + resultReg + " = mul nsw i32 " + left + ", " + right)
             }
         } else if op == "/" {
             // Division optimizations
             if isConstant(right) {
-                let rightVal = parseInt(right);
+                let rightVal = parseInt(right)
                 if rightVal == 1 {
                     return left; // x / 1 = x
                 } else if rightVal == 2 {
-                    emit("  " + resultReg + " = ashr exact i32 " + left + ", 1");
+                    emit("  " + resultReg + " = ashr exact i32 " + left + ", 1")
                 } else if isPowerOfTwo(rightVal) {
-                    let shift = log2(rightVal);
-                    emit("  " + resultReg + " = ashr exact i32 " + left + ", " + shift.toString());
+                    let shift = log2(rightVal)
+                    emit("  " + resultReg + " = ashr exact i32 " + left + ", " + shift.toString())
                 } else {
                     // Use exact flag for better optimization
-                    emit("  " + resultReg + " = sdiv exact i32 " + left + ", " + right);
+                    emit("  " + resultReg + " = sdiv exact i32 " + left + ", " + right)
                 }
             } else {
-                emit("  " + resultReg + " = sdiv i32 " + left + ", " + right);
+                emit("  " + resultReg + " = sdiv i32 " + left + ", " + right)
             }
         } else if op == "&" {
             // Bitwise AND optimizations
             if isConstant(right) {
-                let rightVal = parseInt(right);
+                let rightVal = parseInt(right)
                 if rightVal == 0 {
                     return "0"; // x & 0 = 0
                 } else if rightVal == -1 {
                     return left; // x & -1 = x
                 } else {
-                    emit("  " + resultReg + " = and i32 " + left + ", " + right);
+                    emit("  " + resultReg + " = and i32 " + left + ", " + right)
                 }
             } else if left == right {
                 return left; // x & x = x
             } else {
-                emit("  " + resultReg + " = and i32 " + left + ", " + right);
+                emit("  " + resultReg + " = and i32 " + left + ", " + right)
             }
         } else if op == "|" {
             // Bitwise OR optimizations
             if isConstant(right) {
-                let rightVal = parseInt(right);
+                let rightVal = parseInt(right)
                 if rightVal == 0 {
                     return left; // x | 0 = x
                 } else if rightVal == -1 {
                     return "-1"; // x | -1 = -1
                 } else {
-                    emit("  " + resultReg + " = or i32 " + left + ", " + right);
+                    emit("  " + resultReg + " = or i32 " + left + ", " + right)
                 }
             } else if left == right {
                 return left; // x | x = x
             } else {
-                emit("  " + resultReg + " = or i32 " + left + ", " + right);
+                emit("  " + resultReg + " = or i32 " + left + ", " + right)
             }
         } else if op == "^" {
             // XOR optimizations
@@ -542,314 +542,314 @@ class CompleteCodeGenerator {
             } else if isConstant(right) and parseInt(right) == 0 {
                 return left; // x ^ 0 = x
             } else {
-                emit("  " + resultReg + " = xor i32 " + left + ", " + right);
+                emit("  " + resultReg + " = xor i32 " + left + ", " + right)
             }
         } else if op == "<<" {
-            emit("  " + resultReg + " = shl nsw i32 " + left + ", " + right);
+            emit("  " + resultReg + " = shl nsw i32 " + left + ", " + right)
         } else if op == ">>" {
-            emit("  " + resultReg + " = ashr exact i32 " + left + ", " + right);
+            emit("  " + resultReg + " = ashr exact i32 " + left + ", " + right)
         } else {
             // Comparison operations
             if op == "==" {
-                emit("  " + resultReg + " = icmp eq i32 " + left + ", " + right);
+                emit("  " + resultReg + " = icmp eq i32 " + left + ", " + right)
             } else if op == "!=" {
-                emit("  " + resultReg + " = icmp ne i32 " + left + ", " + right);
+                emit("  " + resultReg + " = icmp ne i32 " + left + ", " + right)
             } else if op == "<" {
-                emit("  " + resultReg + " = icmp slt i32 " + left + ", " + right);
+                emit("  " + resultReg + " = icmp slt i32 " + left + ", " + right)
             } else if op == ">" {
-                emit("  " + resultReg + " = icmp sgt i32 " + left + ", " + right);
+                emit("  " + resultReg + " = icmp sgt i32 " + left + ", " + right)
             } else if op == "<=" {
-                emit("  " + resultReg + " = icmp sle i32 " + left + ", " + right);
+                emit("  " + resultReg + " = icmp sle i32 " + left + ", " + right)
             } else if op == ">=" {
-                emit("  " + resultReg + " = icmp sge i32 " + left + ", " + right);
+                emit("  " + resultReg + " = icmp sge i32 " + left + ", " + right)
             }
         }
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateOptimizedCall(call: CallNode?) -> String {
         if call == null {
-            return "0";
+            return "0"
         }
         
         // Get function name
-        let funcName = "";
+        let funcName = ""
         if call.function.exprType == "Identifier" {
-            funcName = call.function.identifier.name;
+            funcName = call.function.identifier.name
         }
         
         // Generate arguments
-        let args: List<String> = [];
+        let args: List<String> = []
         for arg in call.arguments {
-            args.append(generateOptimizedExpression(arg));
+            args.append(generateOptimizedExpression(arg))
         }
         
         // Check for intrinsic functions
         if funcName == "getTimeNanos" {
-            return generateTimeNanos();
+            return generateTimeNanos()
         } else if funcName == "println" {
-            generatePrintln(args);
-            return "0";
+            generatePrintln(args)
+            return "0"
         }
         
         // Regular function call with tail call optimization if possible
-        let resultReg = nextReg();
-        let argList = "";
+        let resultReg = nextReg()
+        let argList = ""
         for i in range(0, args.size()) {
             if i > 0 {
-                argList = argList + ", ";
+                argList = argList + ", "
             }
-            argList = argList + "i32 " + args[i];
+            argList = argList + "i32 " + args[i]
         }
         
         // Use tail call if this is the last statement
-        let tailCall = if currentFunction != "main" { "tail " } else { "" };
-        emit("  " + resultReg + " = " + tailCall + "call i32 @" + funcName + "(" + argList + ")");
+        let tailCall = if currentFunction != "main" { "tail " } else { "" }
+        emit("  " + resultReg + " = " + tailCall + "call i32 @" + funcName + "(" + argList + ")")
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateTimeNanos() -> String {
         // Generate high-precision timing code
-        let timespecReg = nextReg();
-        let secReg = nextReg();
-        let nsecReg = nextReg();
-        let secI64 = nextReg();
-        let nsecI64 = nextReg();
-        let billion = nextReg();
-        let totalNsec = nextReg();
-        let result = nextReg();
+        let timespecReg = nextReg()
+        let secReg = nextReg()
+        let nsecReg = nextReg()
+        let secI64 = nextReg()
+        let nsecI64 = nextReg()
+        let billion = nextReg()
+        let totalNsec = nextReg()
+        let result = nextReg()
         
         // Allocate timespec struct
-        emit("  " + timespecReg + " = alloca { i64, i64 }, align 8");
+        emit("  " + timespecReg + " = alloca { i64, i64 }, align 8")
         
         // Call clock_gettime(CLOCK_MONOTONIC=1, timespec*)
-        let timespecPtr = nextReg();
-        emit("  " + timespecPtr + " = bitcast { i64, i64 }* " + timespecReg + " to i8*");
-        emit("  call i32 @clock_gettime(i32 1, i8* " + timespecPtr + ")");
+        let timespecPtr = nextReg()
+        emit("  " + timespecPtr + " = bitcast { i64, i64 }* " + timespecReg + " to i8*")
+        emit("  call i32 @clock_gettime(i32 1, i8* " + timespecPtr + ")")
         
         // Extract seconds and nanoseconds
-        let secPtr = nextReg();
-        let nsecPtr = nextReg();
-        emit("  " + secPtr + " = getelementptr { i64, i64 }, { i64, i64 }* " + timespecReg + ", i32 0, i32 0");
-        emit("  " + nsecPtr + " = getelementptr { i64, i64 }, { i64, i64 }* " + timespecReg + ", i32 0, i32 1");
-        emit("  " + secI64 + " = load i64, i64* " + secPtr + ", align 8");
-        emit("  " + nsecI64 + " = load i64, i64* " + nsecPtr + ", align 8");
+        let secPtr = nextReg()
+        let nsecPtr = nextReg()
+        emit("  " + secPtr + " = getelementptr { i64, i64 }, { i64, i64 }* " + timespecReg + ", i32 0, i32 0")
+        emit("  " + nsecPtr + " = getelementptr { i64, i64 }, { i64, i64 }* " + timespecReg + ", i32 0, i32 1")
+        emit("  " + secI64 + " = load i64, i64* " + secPtr + ", align 8")
+        emit("  " + nsecI64 + " = load i64, i64* " + nsecPtr + ", align 8")
         
         // Convert to total nanoseconds
-        emit("  " + billion + " = mul i64 " + secI64 + ", 1000000000");
-        emit("  " + totalNsec + " = add i64 " + billion + ", " + nsecI64);
+        emit("  " + billion + " = mul i64 " + secI64 + ", 1000000000")
+        emit("  " + totalNsec + " = add i64 " + billion + ", " + nsecI64)
         
-        return totalNsec;
+        return totalNsec
     }
     
     fun generatePrintln(args: List<String>) {
         if args.size() == 0 {
-            return;
+            return
         }
         
         // Optimized println
-        let value = args[0];
-        let formatStr = "@.str.int";
+        let value = args[0]
+        let formatStr = "@.str.int"
         
-        let reg = nextReg();
-        emit("  " + reg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* " + formatStr + ", i64 0, i64 0), i32 " + value + ")");
+        let reg = nextReg()
+        emit("  " + reg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* " + formatStr + ", i64 0, i64 0), i32 " + value + ")")
     }
     
     fun generateOptimizedMain() {
-        emit("; Optimized main function for benchmarks");
-        emit("define i32 @main() #0 {");
-        emit("entry:");
+        emit("; Optimized main function for benchmarks")
+        emit("define i32 @main() #0 {")
+        emit("entry:")
         
         // Call benchmark functions
-        emit("  call void @run_benchmarks()");
-        emit("  ret i32 0");
-        emit("}");
-        emit("");
+        emit("  call void @run_benchmarks()")
+        emit("  ret i32 0")
+        emit("}")
+        emit("")
         
         // Generate benchmark runner
-        generateBenchmarkRunner();
+        generateBenchmarkRunner()
     }
     
     fun generateBenchmarkRunner() {
-        emit("define void @run_benchmarks() #0 {");
-        emit("entry:");
+        emit("define void @run_benchmarks() #0 {")
+        emit("entry:")
         
         // Generate each benchmark
-        generateI32AdditionBenchmark();
-        generateI32MultiplicationBenchmark();
-        generateF64OperationsBenchmark();
-        generateBitwiseOperationsBenchmark();
+        generateI32AdditionBenchmark()
+        generateI32MultiplicationBenchmark()
+        generateF64OperationsBenchmark()
+        generateBitwiseOperationsBenchmark()
         
-        emit("  ret void");
-        emit("}");
-        emit("");
+        emit("  ret void")
+        emit("}")
+        emit("")
     }
     
     fun generateI32AdditionBenchmark() {
-        emit("  ; i32 addition benchmark");
+        emit("  ; i32 addition benchmark")
         
-        let iterations = "1000000000";
-        let startTime = generateTimeNanos();
+        let iterations = "1000000000"
+        let startTime = generateTimeNanos()
         
         // Vectorized addition loop
-        let sum = nextReg();
-        emit("  " + sum + " = alloca <4 x i32>, align 16");
-        emit("  store <4 x i32> zeroinitializer, <4 x i32>* " + sum + ", align 16");
+        let sum = nextReg()
+        emit("  " + sum + " = alloca <4 x i32>, align 16")
+        emit("  store <4 x i32> zeroinitializer, <4 x i32>* " + sum + ", align 16")
         
-        let counter = nextReg();
-        emit("  " + counter + " = alloca i32, align 4");
-        emit("  store i32 0, i32* " + counter + ", align 4");
+        let counter = nextReg()
+        emit("  " + counter + " = alloca i32, align 4")
+        emit("  store i32 0, i32* " + counter + ", align 4")
         
-        let loopLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let loopLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
-        emit("  br label %" + loopLabel);
-        emit(loopLabel + ":");
+        emit("  br label %" + loopLabel)
+        emit(loopLabel + ":")
         
-        let currentCounter = nextReg();
-        emit("  " + currentCounter + " = load i32, i32* " + counter + ", align 4");
-        let cond = nextReg();
-        emit("  " + cond + " = icmp slt i32 " + currentCounter + ", " + iterations);
-        emit("  br i1 " + cond + ", label %" + loopLabel + ".body, label %" + endLabel);
+        let currentCounter = nextReg()
+        emit("  " + currentCounter + " = load i32, i32* " + counter + ", align 4")
+        let cond = nextReg()
+        emit("  " + cond + " = icmp slt i32 " + currentCounter + ", " + iterations)
+        emit("  br i1 " + cond + ", label %" + loopLabel + ".body, label %" + endLabel)
         
-        emit(loopLabel + ".body:");
+        emit(loopLabel + ".body:")
         
         // Vectorized operations
-        let vecSum = nextReg();
-        emit("  " + vecSum + " = load <4 x i32>, <4 x i32>* " + sum + ", align 16");
-        let vecAdd = nextReg();
-        emit("  " + vecAdd + " = add <4 x i32> " + vecSum + ", <i32 1, i32 2, i32 3, i32 4>");
-        emit("  store <4 x i32> " + vecAdd + ", <4 x i32>* " + sum + ", align 16");
+        let vecSum = nextReg()
+        emit("  " + vecSum + " = load <4 x i32>, <4 x i32>* " + sum + ", align 16")
+        let vecAdd = nextReg()
+        emit("  " + vecAdd + " = add <4 x i32> " + vecSum + ", <i32 1, i32 2, i32 3, i32 4>")
+        emit("  store <4 x i32> " + vecAdd + ", <4 x i32>* " + sum + ", align 16")
         
-        let nextCounter = nextReg();
-        emit("  " + nextCounter + " = add nsw i32 " + currentCounter + ", 4");
-        emit("  store i32 " + nextCounter + ", i32* " + counter + ", align 4");
-        emit("  br label %" + loopLabel);
+        let nextCounter = nextReg()
+        emit("  " + nextCounter + " = add nsw i32 " + currentCounter + ", 4")
+        emit("  store i32 " + nextCounter + ", i32* " + counter + ", align 4")
+        emit("  br label %" + loopLabel)
         
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
-        let endTime = generateTimeNanos();
-        let elapsed = nextReg();
-        emit("  " + elapsed + " = sub i64 " + endTime + ", " + startTime);
+        let endTime = generateTimeNanos()
+        let elapsed = nextReg()
+        emit("  " + elapsed + " = sub i64 " + endTime + ", " + startTime)
         
         // Calculate ops/sec
-        let opsPerSec = nextReg();
-        emit("  " + opsPerSec + " = udiv i64 " + iterations + "000000000, " + elapsed);
+        let opsPerSec = nextReg()
+        emit("  " + opsPerSec + " = udiv i64 " + iterations + "000000000, " + elapsed)
         
         // Print result
-        let namePtr = nextReg();
-        emit("  " + namePtr + " = getelementptr [13 x i8], [13 x i8]* @.str.i32_add, i64 0, i64 0");
-        let printReg = nextReg();
-        emit("  " + printReg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([15 x i8], [15 x i8]* @.str.ops_per_sec, i64 0, i64 0), i8* " + namePtr + ", i64 " + opsPerSec + ")");
+        let namePtr = nextReg()
+        emit("  " + namePtr + " = getelementptr [13 x i8], [13 x i8]* @.str.i32_add, i64 0, i64 0")
+        let printReg = nextReg()
+        emit("  " + printReg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([15 x i8], [15 x i8]* @.str.ops_per_sec, i64 0, i64 0), i8* " + namePtr + ", i64 " + opsPerSec + ")")
     }
     
     fun generateI32MultiplicationBenchmark() {
-        emit("  ; i32 multiplication benchmark");
+        emit("  ; i32 multiplication benchmark")
         // Similar structure but with multiplication
         // Optimized with shift operations for powers of 2
     }
     
     fun generateF64OperationsBenchmark() {
-        emit("  ; f64 operations benchmark");
+        emit("  ; f64 operations benchmark")
         // Use FMA (Fused Multiply-Add) instructions for better performance
     }
     
     fun generateBitwiseOperationsBenchmark() {
-        emit("  ; bitwise operations benchmark");
+        emit("  ; bitwise operations benchmark")
         // Heavily optimized with constant folding and strength reduction
     }
     
     // Helper functions
     
     fun emit(line: String) {
-        output = output + line + "\n";
+        output = output + line + "\n"
     }
     
     fun nextReg() -> String {
-        let reg = "%r" + nextRegister.toString();
-        nextRegister = nextRegister + 1;
-        return reg;
+        let reg = "%r" + nextRegister.toString()
+        nextRegister = nextRegister + 1
+        return reg
     }
     
     fun nextLabelName() -> String {
-        let label = "L" + nextLabel.toString();
-        nextLabel = nextLabel + 1;
-        return label;
+        let label = "L" + nextLabel.toString()
+        nextLabel = nextLabel + 1
+        return label
     }
     
     fun isConstant(value: String) -> Bool {
         if value.length() == 0 {
-            return false;
+            return false
         }
-        let first = value.charAt(0);
-        return (first >= "0" and first <= "9") or first == "-";
+        let first = value.charAt(0)
+        return (first >= "0" and first <= "9") or first == "-"
     }
     
     fun parseInt(str: String) -> Int {
         // Simple integer parsing
-        let result = 0;
-        let negative = false;
-        let start = 0;
+        let result = 0
+        let negative = false
+        let start = 0
         
         if str.charAt(0) == "-" {
-            negative = true;
-            start = 1;
+            negative = true
+            start = 1
         }
         
         for i in range(start, str.length()) {
-            let ch = str.charAt(i);
+            let ch = str.charAt(i)
             if ch >= "0" and ch <= "9" {
-                result = result * 10 + (ch.toInt() - 48);
+                result = result * 10 + (ch.toInt() - 48)
             }
         }
         
-        return if negative { -result } else { result };
+        return if negative { -result } else { result }
     }
     
     fun isPowerOfTwo(n: Int) -> Bool {
-        return n > 0 and (n & (n - 1)) == 0;
+        return n > 0 and (n & (n - 1)) == 0
     }
     
     fun log2(n: Int) -> Int {
-        let result = 0;
-        let value = n;
+        let result = 0
+        let value = n
         while value > 1 {
-            value = value >> 1;
-            result = result + 1;
+            value = value >> 1
+            result = result + 1
         }
-        return result;
+        return result
     }
     
     fun isBenchmarkFunction(name: String) -> Bool {
-        return name.contains("benchmark") or name.contains("bench") or name.contains("perf");
+        return name.contains("benchmark") or name.contains("bench") or name.contains("perf")
     }
     
     fun containsLoop(block: BlockNode?) -> Bool {
         if block == null {
-            return false;
+            return false
         }
         
         for stmt in block.statements {
             if stmt.stmtType == "For" or stmt.stmtType == "While" or stmt.stmtType == "Loop" {
-                return true;
+                return true
             }
         }
-        return false;
+        return false
     }
     
     fun hasReturn(block: BlockNode?) -> Bool {
         if block == null {
-            return false;
+            return false
         }
         
         for stmt in block.statements {
             if stmt.stmtType == "Return" {
-                return true;
+                return true
             }
         }
-        return false;
+        return false
     }
     
     fun isSimpleCountingLoop(forStmt: ForStatement) -> Bool {
@@ -861,228 +861,228 @@ class CompleteCodeGenerator {
     fun hasMainFunction(ast: ProgramNode) -> Bool {
         for item in ast.items {
             if item.itemType == "Function" and item.name == "main" {
-                return true;
+                return true
             }
         }
-        return false;
+        return false
     }
     
     fun generateClass(item: ItemNode) {
         // Generate LLVM struct for class
-        emit("; Class " + item.name);
-        emit("%class." + item.name + " = type { i8* }");
-        emit("");
+        emit("; Class " + item.name)
+        emit("%class." + item.name + " = type { i8* }")
+        emit("")
     }
     
     fun generateStruct(item: ItemNode) {
         // Generate LLVM struct
-        emit("; Struct " + item.name);
-        emit("%struct." + item.name + " = type { i32 }");
-        emit("");
+        emit("; Struct " + item.name)
+        emit("%struct." + item.name + " = type { i32 }")
+        emit("")
     }
     
     fun generateParameterList(params: List<ParamNode>) -> String {
-        let result = "";
+        let result = ""
         for i in range(0, params.size()) {
             if i > 0 {
-                result = result + ", ";
+                result = result + ", "
             }
-            let llvmType = mapTypeToLLVM(params[i].paramType);
-            result = result + llvmType + " %" + params[i].name;
+            let llvmType = mapTypeToLLVM(params[i].paramType)
+            result = result + llvmType + " %" + params[i].name
         }
-        return result;
+        return result
     }
     
     fun mapTypeToLLVM(typeNode: TypeNode?) -> String {
         if typeNode == null {
-            return "i32";
+            return "i32"
         }
         
-        let baseType = typeNode.typeName;
+        let baseType = typeNode.typeName
         
         if baseType == "i32" or baseType == "Int" {
-            return "i32";
+            return "i32"
         } else if baseType == "i64" or baseType == "Long" {
-            return "i64";
+            return "i64"
         } else if baseType == "f32" or baseType == "Float" {
-            return "float";
+            return "float"
         } else if baseType == "f64" or baseType == "Double" {
-            return "double";
+            return "double"
         } else if baseType == "Bool" {
-            return "i1";
+            return "i1"
         } else if baseType == "String" {
-            return "i8*";
+            return "i8*"
         } else if baseType == "void" or baseType == "Void" {
-            return "void";
+            return "void"
         }
         
-        return "i32";
+        return "i32"
     }
     
     fun generateReturn(stmt: StatementNode) {
-        let retStmt = stmt.returnStmt;
+        let retStmt = stmt.returnStmt
         if retStmt != null and retStmt.value != null {
-            let valueReg = generateOptimizedExpression(retStmt.value);
-            emit("  ret i32 " + valueReg);
+            let valueReg = generateOptimizedExpression(retStmt.value)
+            emit("  ret i32 " + valueReg)
         } else {
-            emit("  ret void");
+            emit("  ret void")
         }
     }
     
     fun generateOptimizedLet(stmt: StatementNode) {
-        let letStmt = stmt.letStmt;
+        let letStmt = stmt.letStmt
         if letStmt == null {
-            return;
+            return
         }
         
-        let reg = nextReg();
-        let typeStr = if letStmt.varType != null { mapTypeToLLVM(letStmt.varType) } else { "i32" };
+        let reg = nextReg()
+        let typeStr = if letStmt.varType != null { mapTypeToLLVM(letStmt.varType) } else { "i32" }
         
         // Use noalias for better optimization
-        emit("  " + reg + " = alloca " + typeStr + ", align 8");
+        emit("  " + reg + " = alloca " + typeStr + ", align 8")
         
-        let valueReg = generateOptimizedExpression(letStmt.value);
-        emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8");
+        let valueReg = generateOptimizedExpression(letStmt.value)
+        emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8")
         
-        variables.put(letStmt.name, reg);
+        variables.put(letStmt.name, reg)
     }
     
     fun generateOptimizedVar(stmt: StatementNode) {
-        let varStmt = stmt.varStmt;
+        let varStmt = stmt.varStmt
         if varStmt == null {
-            return;
+            return
         }
         
-        let reg = nextReg();
-        let typeStr = if varStmt.varType != null { mapTypeToLLVM(varStmt.varType) } else { "i32" };
+        let reg = nextReg()
+        let typeStr = if varStmt.varType != null { mapTypeToLLVM(varStmt.varType) } else { "i32" }
         
-        emit("  " + reg + " = alloca " + typeStr + ", align 8");
+        emit("  " + reg + " = alloca " + typeStr + ", align 8")
         
         if varStmt.value != null {
-            let valueReg = generateOptimizedExpression(varStmt.value);
-            emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8");
+            let valueReg = generateOptimizedExpression(varStmt.value)
+            emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8")
         }
         
-        variables.put(varStmt.name, reg);
+        variables.put(varStmt.name, reg)
     }
     
     fun generateOptimizedIf(stmt: StatementNode) {
-        let ifStmt = stmt.ifStmt;
+        let ifStmt = stmt.ifStmt
         if ifStmt == null {
-            return;
+            return
         }
         
-        let condReg = generateOptimizedExpression(ifStmt.condition);
-        let thenLabel = nextLabelName();
-        let elseLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let condReg = generateOptimizedExpression(ifStmt.condition)
+        let thenLabel = nextLabelName()
+        let elseLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
         // Add branch prediction metadata
-        emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel + ", !prof !4");
+        emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel + ", !prof !4")
         
-        emit(thenLabel + ":");
-        generateOptimizedBlock(ifStmt.thenBranch);
-        emit("  br label %" + endLabel);
+        emit(thenLabel + ":")
+        generateOptimizedBlock(ifStmt.thenBranch)
+        emit("  br label %" + endLabel)
         
-        emit(elseLabel + ":");
+        emit(elseLabel + ":")
         if ifStmt.elseBranch != null {
-            generateOptimizedBlock(ifStmt.elseBranch);
+            generateOptimizedBlock(ifStmt.elseBranch)
         }
-        emit("  br label %" + endLabel);
+        emit("  br label %" + endLabel)
         
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
         // Branch prediction metadata (assume then branch is more likely)
-        emit("!4 = !{!\"branch_weights\", i32 2, i32 1}");
+        emit("!4 = !{!\"branch_weights\", i32 2, i32 1}")
     }
     
     fun generateOptimizedWhile(stmt: StatementNode) {
-        let whileStmt = stmt.whileStmt;
+        let whileStmt = stmt.whileStmt
         if whileStmt == null {
-            return;
+            return
         }
         
-        loopDepth = loopDepth + 1;
+        loopDepth = loopDepth + 1
         
-        let condLabel = nextLabelName();
-        let bodyLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let condLabel = nextLabelName()
+        let bodyLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
-        emit("  br label %" + condLabel);
+        emit("  br label %" + condLabel)
         
-        emit(condLabel + ":");
-        let condReg = generateOptimizedExpression(whileStmt.condition);
-        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !5");
+        emit(condLabel + ":")
+        let condReg = generateOptimizedExpression(whileStmt.condition)
+        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !5")
         
-        emit(bodyLabel + ":");
-        generateOptimizedBlock(whileStmt.body);
-        emit("  br label %" + condLabel);
+        emit(bodyLabel + ":")
+        generateOptimizedBlock(whileStmt.body)
+        emit("  br label %" + condLabel)
         
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
         // Loop branch prediction (assume loop continues)
-        emit("!5 = !{!\"branch_weights\", i32 100, i32 1}");
+        emit("!5 = !{!\"branch_weights\", i32 100, i32 1}")
         
-        loopDepth = loopDepth - 1;
+        loopDepth = loopDepth - 1
     }
     
     fun generateOptimizedLoop(stmt: StatementNode) {
-        let loopStmt = stmt.loopStmt;
+        let loopStmt = stmt.loopStmt
         if loopStmt == null {
-            return;
+            return
         }
         
-        loopDepth = loopDepth + 1;
+        loopDepth = loopDepth + 1
         
-        let loopLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let loopLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
-        emit("  br label %" + loopLabel);
-        emit(loopLabel + ":");
+        emit("  br label %" + loopLabel)
+        emit(loopLabel + ":")
         
-        generateOptimizedBlock(loopStmt.body);
+        generateOptimizedBlock(loopStmt.body)
         
-        emit("  br label %" + loopLabel);
-        emit(endLabel + ":");
+        emit("  br label %" + loopLabel)
+        emit(endLabel + ":")
         
-        loopDepth = loopDepth - 1;
+        loopDepth = loopDepth - 1
     }
     
     fun generateOptimizedExpressionStatement(stmt: StatementNode) {
-        let exprStmt = stmt.exprStmt;
+        let exprStmt = stmt.exprStmt
         if exprStmt != null {
-            generateOptimizedExpression(exprStmt.expr);
+            generateOptimizedExpression(exprStmt.expr)
         }
     }
     
     fun generateLiteral(lit: LiteralNode?) -> String {
         if lit == null {
-            return "0";
+            return "0"
         }
         
         if lit.literalType == "Int" {
-            return lit.intValue.toString();
+            return lit.intValue.toString()
         } else if lit.literalType == "Float" {
-            return lit.floatValue.toString();
+            return lit.floatValue.toString()
         } else if lit.literalType == "Bool" {
-            return if lit.boolValue { "1" } else { "0" };
+            return if lit.boolValue { "1" } else { "0" }
         }
         
-        return "0";
+        return "0"
     }
     
     fun generateIdentifier(id: IdentifierNode?) -> String {
         if id == null {
-            return "0";
+            return "0"
         }
         
-        let varReg = variables.get(id.name);
+        let varReg = variables.get(id.name)
         if varReg != null {
-            let loadReg = nextReg();
-            emit("  " + loadReg + " = load i32, i32* " + varReg + ", align 4");
-            return loadReg;
+            let loadReg = nextReg()
+            emit("  " + loadReg + " = load i32, i32* " + varReg + ", align 4")
+            return loadReg
         }
         
-        return "0";
+        return "0"
     }
 }

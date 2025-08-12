@@ -124,7 +124,7 @@ enum TokenType {
     DotDot,         // .. (inclusive range)
     DotDotLess,     // ..< (exclusive range)
     Colon,          // :
-    Semicolon,      // ;
+    Semicolon,      // 
     Arrow,          // ->
     FatArrow,       // =>
     Question,       // ? (nullable type)
@@ -149,11 +149,11 @@ enum TokenType {
 }
 
 class Token {
-    var type: TokenType;
-    var value: String;
-    var line: Int;
-    var column: Int;
-    var length: Int;
+    var type: TokenType
+    var value: String
+    var line: Int
+    var column: Int
+    var length: Int
     
     fun new() -> Token {
         return Token{
@@ -162,18 +162,18 @@ class Token {
             line: 0,
             column: 0,
             length: 0
-        };
+        }
     }
 }
 
 class CompleteLexer {
-    var source: String;
-    var position: Int;
-    var line: Int;
-    var column: Int;
-    var tokens: List<Token>;
-    var inStringInterpolation: Bool;
-    var interpolationDepth: Int;
+    var source: String
+    var position: Int
+    var line: Int
+    var column: Int
+    var tokens: List<Token>
+    var inStringInterpolation: Bool
+    var interpolationDepth: Int
     
     fun new(source: String) -> CompleteLexer {
         return CompleteLexer{
@@ -184,25 +184,25 @@ class CompleteLexer {
             tokens: [],
             inStringInterpolation: false,
             interpolationDepth: 0
-        };
+        }
     }
     
     fun tokenize() -> List<Token> {
-        tokens = [];
-        position = 0;
-        line = 1;
-        column = 1;
+        tokens = []
+        position = 0
+        line = 1
+        column = 1
         
         while position < source.length() {
-            skipWhitespaceAndComments();
+            skipWhitespaceAndComments()
             
             if position >= source.length() {
-                break;
+                break
             }
             
-            let token = nextToken();
+            let token = nextToken()
             if token != null {
-                tokens.append(token);
+                tokens.append(token)
             }
         }
         
@@ -212,274 +212,274 @@ class CompleteLexer {
             line: line,
             column: column,
             length: 0
-        });
+        })
         
-        return tokens;
+        return tokens
     }
     
     fun nextToken() -> Token? {
-        let startPos = position;
-        let startCol = column;
-        let ch = currentChar();
+        let startPos = position
+        let startCol = column
+        let ch = currentChar()
         
         // String literals with interpolation support
         if ch == '"' {
-            return scanString(startCol);
+            return scanString(startCol)
         }
         
         // Character literals
         if ch == "'" {
-            return scanChar(startCol);
+            return scanChar(startCol)
         }
         
         // Identifiers, keywords, and word operators
         if isAlpha(ch) or ch == '_' {
-            return scanIdentifierOrKeyword(startCol);
+            return scanIdentifierOrKeyword(startCol)
         }
         
         // Numbers
         if isDigit(ch) {
-            return scanNumber(startCol);
+            return scanNumber(startCol)
         }
         
         // Multi-character operators
         if ch == '.' {
-            advance();
+            advance()
             if currentChar() == '.' {
-                advance();
+                advance()
                 if currentChar() == '<' {
-                    advance();
-                    return Token{ type: TokenType.DotDotLess, value: "..<", line: line, column: startCol, length: 3 };
+                    advance()
+                    return Token{ type: TokenType.DotDotLess, value: "..<", line: line, column: startCol, length: 3 }
                 }
-                return Token{ type: TokenType.DotDot, value: "..", line: line, column: startCol, length: 2 };
+                return Token{ type: TokenType.DotDot, value: "..", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Dot, value: ".", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Dot, value: ".", line: line, column: startCol, length: 1 }
         }
         
         if ch == '?' {
-            advance();
+            advance()
             if currentChar() == '.' {
-                advance();
-                return Token{ type: TokenType.QuestionDot, value: "?.", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.QuestionDot, value: "?.", line: line, column: startCol, length: 2 }
             }
             if currentChar() == ':' {
-                advance();
-                return Token{ type: TokenType.QuestionColon, value: "?:", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.QuestionColon, value: "?:", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Question, value: "?", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Question, value: "?", line: line, column: startCol, length: 1 }
         }
         
         if ch == '!' {
-            advance();
+            advance()
             if currentChar() == '!' {
-                advance();
-                return Token{ type: TokenType.DoubleExclaim, value: "!!", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.DoubleExclaim, value: "!!", line: line, column: startCol, length: 2 }
             }
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.NotEqual, value: "!=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.NotEqual, value: "!=", line: line, column: startCol, length: 2 }
             }
             // Note: '!' alone is not used (we use 'not' keyword)
-            return null;
+            return null
         }
         
         if ch == '<' {
-            advance();
+            advance()
             if currentChar() == '<' {
-                advance();
-                return Token{ type: TokenType.LeftShift, value: "<<", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.LeftShift, value: "<<", line: line, column: startCol, length: 2 }
             }
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.LessEqual, value: "<=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.LessEqual, value: "<=", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Less, value: "<", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Less, value: "<", line: line, column: startCol, length: 1 }
         }
         
         if ch == '>' {
-            advance();
+            advance()
             if currentChar() == '>' {
-                advance();
-                return Token{ type: TokenType.RightShift, value: ">>", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.RightShift, value: ">>", line: line, column: startCol, length: 2 }
             }
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.GreaterEqual, value: ">=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.GreaterEqual, value: ">=", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Greater, value: ">", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Greater, value: ">", line: line, column: startCol, length: 1 }
         }
         
         if ch == '=' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.EqualEqual, value: "==", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.EqualEqual, value: "==", line: line, column: startCol, length: 2 }
             }
             if currentChar() == '>' {
-                advance();
-                return Token{ type: TokenType.FatArrow, value: "=>", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.FatArrow, value: "=>", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Equal, value: "=", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Equal, value: "=", line: line, column: startCol, length: 1 }
         }
         
         if ch == '-' {
-            advance();
+            advance()
             if currentChar() == '>' {
-                advance();
-                return Token{ type: TokenType.Arrow, value: "->", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.Arrow, value: "->", line: line, column: startCol, length: 2 }
             }
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.MinusEqual, value: "-=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.MinusEqual, value: "-=", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Minus, value: "-", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Minus, value: "-", line: line, column: startCol, length: 1 }
         }
         
         // Single character operators
         if ch == '+' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.PlusEqual, value: "+=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.PlusEqual, value: "+=", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Plus, value: "+", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Plus, value: "+", line: line, column: startCol, length: 1 }
         }
         
         if ch == '*' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.StarEqual, value: "*=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.StarEqual, value: "*=", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Star, value: "*", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Star, value: "*", line: line, column: startCol, length: 1 }
         }
         
         if ch == '/' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.SlashEqual, value: "/=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.SlashEqual, value: "/=", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Slash, value: "/", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Slash, value: "/", line: line, column: startCol, length: 1 }
         }
         
         if ch == '%' {
-            advance();
+            advance()
             if currentChar() == '=' {
-                advance();
-                return Token{ type: TokenType.PercentEqual, value: "%=", line: line, column: startCol, length: 2 };
+                advance()
+                return Token{ type: TokenType.PercentEqual, value: "%=", line: line, column: startCol, length: 2 }
             }
-            return Token{ type: TokenType.Percent, value: "%", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Percent, value: "%", line: line, column: startCol, length: 1 }
         }
         
         // Bitwise operators
         if ch == '^' {
-            advance();
-            return Token{ type: TokenType.Caret, value: "^", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.Caret, value: "^", line: line, column: startCol, length: 1 }
         }
         
         if ch == '&' {
-            advance();
+            advance()
             // Note: && is not used (we use 'and' keyword)
-            return Token{ type: TokenType.Ampersand, value: "&", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Ampersand, value: "&", line: line, column: startCol, length: 1 }
         }
         
         if ch == '|' {
-            advance();
+            advance()
             // Note: || is not used (we use 'or' keyword)
-            return Token{ type: TokenType.Pipe, value: "|", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.Pipe, value: "|", line: line, column: startCol, length: 1 }
         }
         
         if ch == '~' {
-            advance();
-            return Token{ type: TokenType.Tilde, value: "~", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.Tilde, value: "~", line: line, column: startCol, length: 1 }
         }
         
         // Punctuation
         if ch == '(' {
-            advance();
-            return Token{ type: TokenType.LeftParen, value: "(", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.LeftParen, value: "(", line: line, column: startCol, length: 1 }
         }
         
         if ch == ')' {
-            advance();
-            return Token{ type: TokenType.RightParen, value: ")", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.RightParen, value: ")", line: line, column: startCol, length: 1 }
         }
         
         if ch == '{' {
-            advance();
+            advance()
             if inStringInterpolation {
-                interpolationDepth = interpolationDepth + 1;
+                interpolationDepth = interpolationDepth + 1
             }
-            return Token{ type: TokenType.LeftBrace, value: "{", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.LeftBrace, value: "{", line: line, column: startCol, length: 1 }
         }
         
         if ch == '}' {
-            advance();
+            advance()
             if inStringInterpolation and interpolationDepth > 0 {
-                interpolationDepth = interpolationDepth - 1;
+                interpolationDepth = interpolationDepth - 1
                 if interpolationDepth == 0 {
-                    return Token{ type: TokenType.InterpolationEnd, value: "}", line: line, column: startCol, length: 1 };
+                    return Token{ type: TokenType.InterpolationEnd, value: "}", line: line, column: startCol, length: 1 }
                 }
             }
-            return Token{ type: TokenType.RightBrace, value: "}", line: line, column: startCol, length: 1 };
+            return Token{ type: TokenType.RightBrace, value: "}", line: line, column: startCol, length: 1 }
         }
         
         if ch == '[' {
-            advance();
-            return Token{ type: TokenType.LeftBracket, value: "[", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.LeftBracket, value: "[", line: line, column: startCol, length: 1 }
         }
         
         if ch == ']' {
-            advance();
-            return Token{ type: TokenType.RightBracket, value: "]", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.RightBracket, value: "]", line: line, column: startCol, length: 1 }
         }
         
         if ch == ',' {
-            advance();
-            return Token{ type: TokenType.Comma, value: ",", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.Comma, value: ",", line: line, column: startCol, length: 1 }
         }
         
         if ch == ':' {
-            advance();
-            return Token{ type: TokenType.Colon, value: ":", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.Colon, value: ":", line: line, column: startCol, length: 1 }
         }
         
         if ch == ';' {
-            advance();
-            return Token{ type: TokenType.Semicolon, value: ";", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.Semicolon, value: ";", line: line, column: startCol, length: 1 }
         }
         
         if ch == '@' {
-            advance();
-            return Token{ type: TokenType.At, value: "@", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.At, value: "@", line: line, column: startCol, length: 1 }
         }
         
         if ch == '#' {
-            advance();
-            return Token{ type: TokenType.Hash, value: "#", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.Hash, value: "#", line: line, column: startCol, length: 1 }
         }
         
         if ch == '$' {
-            advance();
-            return Token{ type: TokenType.Dollar, value: "$", line: line, column: startCol, length: 1 };
+            advance()
+            return Token{ type: TokenType.Dollar, value: "$", line: line, column: startCol, length: 1 }
         }
         
         // Unknown character
-        advance();
-        return null;
+        advance()
+        return null
     }
     
     fun scanIdentifierOrKeyword(startCol: Int) -> Token {
-        let startPos = position;
-        let isCapital = isUpperCase(currentChar());
+        let startPos = position
+        let isCapital = isUpperCase(currentChar())
         
         while isAlphaNumeric(currentChar()) or currentChar() == '_' {
-            advance();
+            advance()
         }
         
-        let value = source.substring(startPos, position);
-        let tokenType = getKeywordType(value);
+        let value = source.substring(startPos, position)
+        let tokenType = getKeywordType(value)
         
         if tokenType != null {
             return Token{
@@ -488,7 +488,7 @@ class CompleteLexer {
                 line: line,
                 column: startCol,
                 length: position - startPos
-            };
+            }
         }
         
         // Not a keyword - it's an identifier
@@ -499,7 +499,7 @@ class CompleteLexer {
             line: line,
             column: startCol,
             length: position - startPos
-        };
+        }
     }
     
     fun getKeywordType(word: String) -> TokenType? {
@@ -592,21 +592,21 @@ class CompleteLexer {
         if word == "true" or word == "false" { return TokenType.BoolLiteral; }
         if word == "null" { return TokenType.NullLiteral; }
         
-        return null;
+        return null
     }
     
     fun scanString(startCol: Int) -> Token {
-        let startPos = position;
+        let startPos = position
         advance(); // Skip opening "
         
-        let value = "";
-        let hasInterpolation = false;
+        let value = ""
+        let hasInterpolation = false
         
         while position < source.length() and currentChar() != '"' {
             if currentChar() == '\\' {
-                advance();
+                advance()
                 if position < source.length() {
-                    let escaped = currentChar();
+                    let escaped = currentChar()
                     if escaped == 'n' { value = value + "\n"; }
                     else if escaped == 't' { value = value + "\t"; }
                     else if escaped == 'r' { value = value + "\r"; }
@@ -615,26 +615,26 @@ class CompleteLexer {
                     else if escaped == '{' { value = value + "{"; }
                     else if escaped == '}' { value = value + "}"; }
                     else { value = value + escaped; }
-                    advance();
+                    advance()
                 }
             } else if currentChar() == '{' {
                 // String interpolation start
                 if peek() == '{' {
                     // Double {{ means literal {
-                    value = value + "{";
-                    advance();
-                    advance();
+                    value = value + "{"
+                    advance()
+                    advance()
                 } else {
                     // Start of interpolation
-                    hasInterpolation = true;
-                    inStringInterpolation = true;
+                    hasInterpolation = true
+                    inStringInterpolation = true
                     // Return the string part before interpolation
                     // We'll handle the interpolation separately
-                    break;
+                    break
                 }
             } else {
-                value = value + currentChar();
-                advance();
+                value = value + currentChar()
+                advance()
             }
         }
         
@@ -648,28 +648,28 @@ class CompleteLexer {
             line: line,
             column: startCol,
             length: position - startPos
-        };
+        }
     }
     
     fun scanChar(startCol: Int) -> Token {
-        let startPos = position;
+        let startPos = position
         advance(); // Skip opening '
         
-        let value = "";
+        let value = ""
         
         if currentChar() == '\\' {
-            advance();
-            let escaped = currentChar();
+            advance()
+            let escaped = currentChar()
             if escaped == 'n' { value = "\n"; }
             else if escaped == 't' { value = "\t"; }
             else if escaped == 'r' { value = "\r"; }
             else if escaped == '\\' { value = "\\"; }
             else if escaped == '\'' { value = "'"; }
             else { value = escaped; }
-            advance();
+            advance()
         } else {
-            value = currentChar();
-            advance();
+            value = currentChar()
+            advance()
         }
         
         if currentChar() == '\'' {
@@ -682,50 +682,50 @@ class CompleteLexer {
             line: line,
             column: startCol,
             length: position - startPos
-        };
+        }
     }
     
     fun scanNumber(startCol: Int) -> Token {
-        let startPos = position;
-        let hasDecimal = false;
-        let hasExponent = false;
-        let hasSuffix = false;
+        let startPos = position
+        let hasDecimal = false
+        let hasExponent = false
+        let hasSuffix = false
         
         // Scan integer part
         while isDigit(currentChar()) or currentChar() == '_' {
-            advance();
+            advance()
         }
         
         // Check for decimal
         if currentChar() == '.' and isDigit(peek()) {
-            hasDecimal = true;
+            hasDecimal = true
             advance(); // Skip .
             while isDigit(currentChar()) or currentChar() == '_' {
-                advance();
+                advance()
             }
         }
         
         // Check for exponent
         if currentChar() == 'e' or currentChar() == 'E' {
-            hasExponent = true;
-            advance();
+            hasExponent = true
+            advance()
             if currentChar() == '+' or currentChar() == '-' {
-                advance();
+                advance()
             }
             while isDigit(currentChar()) {
-                advance();
+                advance()
             }
         }
         
         // Check for type suffix (u, l, f, etc.)
         if isAlpha(currentChar()) {
-            hasSuffix = true;
+            hasSuffix = true
             while isAlpha(currentChar()) {
-                advance();
+                advance()
             }
         }
         
-        let value = source.substring(startPos, position);
+        let value = source.substring(startPos, position)
         
         return Token{
             type: if hasDecimal or hasExponent { TokenType.FloatLiteral } else { TokenType.IntLiteral },
@@ -733,100 +733,100 @@ class CompleteLexer {
             line: line,
             column: startCol,
             length: position - startPos
-        };
+        }
     }
     
     fun skipWhitespaceAndComments() {
         while position < source.length() {
-            let ch = currentChar();
+            let ch = currentChar()
             
             // Skip whitespace
             if isWhitespace(ch) {
                 if ch == '\n' {
-                    line = line + 1;
-                    column = 1;
+                    line = line + 1
+                    column = 1
                 } else {
-                    column = column + 1;
+                    column = column + 1
                 }
-                position = position + 1;
-                continue;
+                position = position + 1
+                continue
             }
             
             // Skip comments
             if ch == '/' and peek() == '/' {
                 // Single-line comment
-                advance();
-                advance();
+                advance()
+                advance()
                 while position < source.length() and currentChar() != '\n' {
-                    advance();
+                    advance()
                 }
-                continue;
+                continue
             }
             
             if ch == '/' and peek() == '*' {
                 // Multi-line comment
-                advance();
-                advance();
+                advance()
+                advance()
                 while position < source.length() {
                     if currentChar() == '*' and peek() == '/' {
-                        advance();
-                        advance();
-                        break;
+                        advance()
+                        advance()
+                        break
                     }
                     if currentChar() == '\n' {
-                        line = line + 1;
-                        column = 1;
+                        line = line + 1
+                        column = 1
                     } else {
-                        column = column + 1;
+                        column = column + 1
                     }
-                    position = position + 1;
+                    position = position + 1
                 }
-                continue;
+                continue
             }
             
             // Not whitespace or comment
-            break;
+            break
         }
     }
     
     fun currentChar() -> String {
         if position >= source.length() {
-            return "\0";
+            return "\0"
         }
-        return source.charAt(position);
+        return source.charAt(position)
     }
     
     fun peek() -> String {
         if position + 1 >= source.length() {
-            return "\0";
+            return "\0"
         }
-        return source.charAt(position + 1);
+        return source.charAt(position + 1)
     }
     
     fun advance() {
         if position < source.length() {
-            column = column + 1;
-            position = position + 1;
+            column = column + 1
+            position = position + 1
         }
     }
     
     fun isAlpha(ch: String) -> Bool {
-        return (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z");
+        return (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z")
     }
     
     fun isDigit(ch: String) -> Bool {
-        return ch >= "0" and ch <= "9";
+        return ch >= "0" and ch <= "9"
     }
     
     fun isAlphaNumeric(ch: String) -> Bool {
-        return isAlpha(ch) or isDigit(ch);
+        return isAlpha(ch) or isDigit(ch)
     }
     
     fun isUpperCase(ch: String) -> Bool {
-        return ch >= "A" and ch <= "Z";
+        return ch >= "A" and ch <= "Z"
     }
     
     fun isWhitespace(ch: String) -> Bool {
-        return ch == " " or ch == "\t" or ch == "\n" or ch == "\r";
+        return ch == " " or ch == "\t" or ch == "\n" or ch == "\r"
     }
 }

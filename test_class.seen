@@ -1,0 +1,5 @@
+class TokenUtils {
+    fun new() -> TokenUtils {
+        return TokenUtils{}
+    }
+}

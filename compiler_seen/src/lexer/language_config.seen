@@ -2,6 +2,6 @@
 
 class LanguageConfig {
     fun new() -> LanguageConfig {
-        println("Creating LanguageConfig");
+        println("Creating LanguageConfig")
     }
 }

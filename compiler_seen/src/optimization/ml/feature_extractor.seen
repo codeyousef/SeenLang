@@ -3,7 +3,7 @@
 
 class FeatureExtractor {
     fun new() -> FeatureExtractor {
-        return FeatureExtractor{};
+        return FeatureExtractor{}
     }
     
     // Extract features from a function call for inlining decisions
@@ -19,7 +19,7 @@ class FeatureExtractor {
             callDepth: measureCallDepth(call),
             hasExceptions: checkForExceptions(call),
             memoryUsage: estimateMemoryUsage(call)
-        };
+        }
     }
     
     // Extract features from basic blocks for instruction scheduling
@@ -33,7 +33,7 @@ class FeatureExtractor {
             criticalPath: findCriticalPath(block),
             parallelism: measureParallelism(block),
             registerPressure: estimateRegisterPressure(block)
-        };
+        }
     }
     
     // Extract global program features
@@ -47,7 +47,7 @@ class FeatureExtractor {
             hotSpots: identifyHotSpots(ir),
             dataFlowComplexity: analyzeDataFlow(ir),
             controlFlowComplexity: analyzeControlFlow(ir)
-        };
+        }
     }
     
     // Helper methods for feature extraction
@@ -148,97 +148,97 @@ class FeatureExtractor {
 // Feature classes for different optimization contexts
 
 class CallFeatures {
-    var calleeSize: Int = 0;
-    var callSiteHeat: Float = 0.0;
-    var parameterCount: Int = 0;
-    var isRecursive: Bool = false;
-    var isInLoop: Bool = false;
-    var returnTypeComplexity: Int = 0;
-    var argumentTypes: List<String> = [];
-    var callDepth: Int = 0;
-    var hasExceptions: Bool = false;
-    var memoryUsage: Int = 0;
+    var calleeSize: Int = 0
+    var callSiteHeat: Float = 0.0
+    var parameterCount: Int = 0
+    var isRecursive: Bool = false
+    var isInLoop: Bool = false
+    var returnTypeComplexity: Int = 0
+    var argumentTypes: List<String> = []
+    var callDepth: Int = 0
+    var hasExceptions: Bool = false
+    var memoryUsage: Int = 0
     
     fun new() -> CallFeatures {
-        return CallFeatures{};
+        return CallFeatures{}
     }
     
     fun toFeatureVector() -> List<Float> {
-        let vector = [];
-        vector.append(calleeSize.toFloat());
-        vector.append(callSiteHeat);
-        vector.append(parameterCount.toFloat());
-        vector.append(if isRecursive { 1.0 } else { 0.0 });
-        vector.append(if isInLoop { 1.0 } else { 0.0 });
-        vector.append(returnTypeComplexity.toFloat());
-        vector.append(argumentTypes.size().toFloat());
-        vector.append(callDepth.toFloat());
-        vector.append(if hasExceptions { 1.0 } else { 0.0 });
-        vector.append(memoryUsage.toFloat() / 1024.0);
-        return vector;
+        let vector = []
+        vector.append(calleeSize.toFloat())
+        vector.append(callSiteHeat)
+        vector.append(parameterCount.toFloat())
+        vector.append(if isRecursive { 1.0 } else { 0.0 })
+        vector.append(if isInLoop { 1.0 } else { 0.0 })
+        vector.append(returnTypeComplexity.toFloat())
+        vector.append(argumentTypes.size().toFloat())
+        vector.append(callDepth.toFloat())
+        vector.append(if hasExceptions { 1.0 } else { 0.0 })
+        vector.append(memoryUsage.toFloat() / 1024.0)
+        return vector
     }
 }
 
 class BlockFeatures {
-    var instructionCount: Int = 0;
-    var branchCount: Int = 0;
-    var memoryOps: Int = 0;
-    var arithmeticOps: Int = 0;
-    var dependencies: Int = 0;
-    var criticalPath: Int = 0;
-    var parallelism: Float = 0.0;
-    var registerPressure: Int = 0;
+    var instructionCount: Int = 0
+    var branchCount: Int = 0
+    var memoryOps: Int = 0
+    var arithmeticOps: Int = 0
+    var dependencies: Int = 0
+    var criticalPath: Int = 0
+    var parallelism: Float = 0.0
+    var registerPressure: Int = 0
     
     fun new() -> BlockFeatures {
-        return BlockFeatures{};
+        return BlockFeatures{}
     }
     
     fun toFeatureVector() -> List<Float> {
-        let vector = [];
-        vector.append(instructionCount.toFloat());
-        vector.append(branchCount.toFloat());
-        vector.append(memoryOps.toFloat());
-        vector.append(arithmeticOps.toFloat());
-        vector.append(dependencies.toFloat());
-        vector.append(criticalPath.toFloat());
-        vector.append(parallelism);
-        vector.append(registerPressure.toFloat());
-        return vector;
+        let vector = []
+        vector.append(instructionCount.toFloat())
+        vector.append(branchCount.toFloat())
+        vector.append(memoryOps.toFloat())
+        vector.append(arithmeticOps.toFloat())
+        vector.append(dependencies.toFloat())
+        vector.append(criticalPath.toFloat())
+        vector.append(parallelism)
+        vector.append(registerPressure.toFloat())
+        return vector
     }
 }
 
 class ProgramFeatures {
-    var functionCount: Int = 0;
-    var totalInstructions: Int = 0;
-    var loopNestingDepth: Int = 0;
-    var callGraphComplexity: Float = 0.0;
-    var memoryFootprint: Int = 0;
-    var hotSpots: List<String> = [];
-    var dataFlowComplexity: Float = 0.0;
-    var controlFlowComplexity: Float = 0.0;
+    var functionCount: Int = 0
+    var totalInstructions: Int = 0
+    var loopNestingDepth: Int = 0
+    var callGraphComplexity: Float = 0.0
+    var memoryFootprint: Int = 0
+    var hotSpots: List<String> = []
+    var dataFlowComplexity: Float = 0.0
+    var controlFlowComplexity: Float = 0.0
     
     fun new() -> ProgramFeatures {
-        return ProgramFeatures{};
+        return ProgramFeatures{}
     }
     
     fun toFeatureVector() -> List<Float> {
-        let vector = [];
-        vector.append(functionCount.toFloat());
-        vector.append(totalInstructions.toFloat() / 1000.0);
-        vector.append(loopNestingDepth.toFloat());
-        vector.append(callGraphComplexity);
-        vector.append(memoryFootprint.toFloat() / 4096.0);
-        vector.append(hotSpots.size().toFloat());
-        vector.append(dataFlowComplexity);
-        vector.append(controlFlowComplexity);
-        return vector;
+        let vector = []
+        vector.append(functionCount.toFloat())
+        vector.append(totalInstructions.toFloat() / 1000.0)
+        vector.append(loopNestingDepth.toFloat())
+        vector.append(callGraphComplexity)
+        vector.append(memoryFootprint.toFloat() / 4096.0)
+        vector.append(hotSpots.size().toFloat())
+        vector.append(dataFlowComplexity)
+        vector.append(controlFlowComplexity)
+        return vector
     }
 }
 
 // Basic block class for feature extraction
 class BasicBlock {
     fun new() -> BasicBlock {
-        return BasicBlock{};
+        return BasicBlock{}
     }
     
     fun getInstructionCount() -> Int {

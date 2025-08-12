@@ -2,7 +2,7 @@
 
 class CostModel {
     fun new() -> CostModel {
-        return CostModel{};
+        return CostModel{}
     }
     
     fun calculateCost(term: Term) -> Float {

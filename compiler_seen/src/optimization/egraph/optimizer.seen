@@ -2,10 +2,10 @@
 // Achieves superior performance through equality saturation
 
 class EGraphOptimizer {
-    var egraph: EGraph;
-    var rules: List<RewriteRule>;
-    var costModel: CostModel;
-    var iterationLimit: Int;
+    var egraph: EGraph
+    var rules: List<RewriteRule>
+    var costModel: CostModel
+    var iterationLimit: Int
     
     fun new() -> EGraphOptimizer {
         return EGraphOptimizer{
@@ -13,64 +13,64 @@ class EGraphOptimizer {
             rules: createOptimizationRules(),
             costModel: CostModel{},
             iterationLimit: 100
-        };
+        }
     }
     
     fun Optimize(program: IR) -> IR {
-        println("🔥 E-graph optimization - Equality Saturation");
+        println("🔥 E-graph optimization - Equality Saturation")
         
         // Convert IR to e-graph representation
-        let rootId = addToEGraph(program);
+        let rootId = addToEGraph(program)
         
         // Run equality saturation
-        let iterations = 0;
-        let changed = true;
+        let iterations = 0
+        let changed = true
         
         while changed and iterations < iterationLimit {
-            changed = false;
+            changed = false
             
             // Apply all rewrite rules
             for rule in rules {
                 if applyRule(rule) {
-                    changed = true;
+                    changed = true
                 }
             }
             
             // Rebuild congruence closure
-            egraph.rebuild();
+            egraph.rebuild()
             
-            iterations = iterations + 1;
+            iterations = iterations + 1
         }
         
-        println("   Applied " + iterations.toString() + " optimization iterations");
+        println("   Applied " + iterations.toString() + " optimization iterations")
         
         // Extract optimal program using cost model
-        let optimized = extractBest(rootId);
+        let optimized = extractBest(rootId)
         
         // Calculate improvement
-        let originalCost = costModel.calculate(program);
-        let optimizedCost = costModel.calculate(optimized);
-        let improvement = ((originalCost - optimizedCost) * 100) / originalCost;
+        let originalCost = costModel.calculate(program)
+        let optimizedCost = costModel.calculate(optimized)
+        let improvement = ((originalCost - optimizedCost) * 100) / originalCost
         
-        println("   Cost reduction: " + improvement.toString() + "%");
+        println("   Cost reduction: " + improvement.toString() + "%")
         
-        return optimized;
+        return optimized
     }
     
     fun optimizeAST(ast: TypedAST) -> TypedAST? {
         // Convert AST to IR for optimization
-        let ir = astToIR(ast);
+        let ir = astToIR(ast)
         
         // Apply e-graph optimization
-        let optimizedIR = Optimize(ir);
+        let optimizedIR = Optimize(ir)
         
         // Convert back to AST
-        let optimizedAST = irToAST(optimizedIR);
-        return optimizedAST;
+        let optimizedAST = irToAST(optimizedIR)
+        return optimizedAST
     }
     
     fun getAppliedRules() -> Int {
-        return rules.size();
+        return rules.size()
     }
     
     fun getImprovementPercent() -> Int {
@@ -83,7 +83,7 @@ class EGraphOptimizer {
             opcode: "program",
             operands: [],
             type: "void"
-        };
+        }
     }
     
     fun irToAST(ir: IR) -> TypedAST {
@@ -92,139 +92,139 @@ class EGraphOptimizer {
             ast: ProgramNode{},
             isValid: true,
             errors: ""
-        };
+        }
     }
     
     fun addToEGraph(ir: IR) -> EClassId {
         // Add IR nodes to e-graph
-        let id = egraph.add(ir);
-        return id;
+        let id = egraph.add(ir)
+        return id
     }
     
     fun applyRule(rule: RewriteRule) -> Bool {
         // Pattern match and apply rewrite rule
-        let matches = egraph.findMatches(rule.pattern);
+        let matches = egraph.findMatches(rule.pattern)
         
         if matches.size() == 0 {
-            return false;
+            return false
         }
         
         for match in matches {
-            let rewritten = rule.rewrite(match);
-            egraph.union(match.id, rewritten);
+            let rewritten = rule.rewrite(match)
+            egraph.union(match.id, rewritten)
         }
         
-        return true;
+        return true
     }
     
     fun extractBest(rootId: EClassId) -> IR {
         // Extract optimal program from e-class
-        return egraph.extractMinCost(rootId, costModel);
+        return egraph.extractMinCost(rootId, costModel)
     }
     
     fun createOptimizationRules() -> List<RewriteRule> {
-        let rules: List<RewriteRule> = [];
+        let rules: List<RewriteRule> = []
         
         // Arithmetic optimizations
         rules.append(RewriteRule{ 
             name: "add_zero",
             pattern: "x + 0",
             replacement: "x"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "mul_one",
             pattern: "x * 1", 
             replacement: "x"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "mul_two_to_shift",
             pattern: "x * 2",
             replacement: "x << 1"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "div_two_to_shift",
             pattern: "x / 2",
             replacement: "x >> 1"
-        });
+        })
         
         // Strength reduction
         rules.append(RewriteRule{
             name: "mul_power_of_two",
             pattern: "x * (2^n)",
             replacement: "x << n"
-        });
+        })
         
         // Algebraic optimizations
         rules.append(RewriteRule{
             name: "distribute_mul",
             pattern: "x * (y + z)",
             replacement: "(x * y) + (x * z)"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "factor_common",
             pattern: "(x * y) + (x * z)",
             replacement: "x * (y + z)"
-        });
+        })
         
         // Boolean optimizations
         rules.append(RewriteRule{
             name: "and_true",
             pattern: "x and true",
             replacement: "x"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "or_false",
             pattern: "x or false",
             replacement: "x"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "demorgan",
             pattern: "not (x and y)",
             replacement: "(not x) or (not y)"
-        });
+        })
         
         // Loop optimizations
         rules.append(RewriteRule{
             name: "loop_invariant_hoist",
             pattern: "for i { ... constant_expr ... }",
             replacement: "let c = constant_expr; for i { ... c ... }"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "loop_unroll_small",
             pattern: "for i in 0..4 { body }",
             replacement: "body[0]; body[1]; body[2]; body[3]"
-        });
+        })
         
         // Memory optimizations
         rules.append(RewriteRule{
             name: "dead_store_elimination",
             pattern: "x = a; x = b",
             replacement: "x = b"
-        });
+        })
         
         rules.append(RewriteRule{
             name: "common_subexpression",
             pattern: "... expr ... expr ...",
             replacement: "let tmp = expr; ... tmp ... tmp ..."
-        });
+        })
         
-        return rules;
+        return rules
     }
 }
 
 // E-graph data structure
 class EGraph {
-    var classes: Map<EClassId, EClass>;
-    var unionFind: UnionFind;
-    var hashcons: Map<ENode, EClassId>;
-    var nextId: Int;
+    var classes: Map<EClassId, EClass>
+    var unionFind: UnionFind
+    var hashcons: Map<ENode, EClassId>
+    var nextId: Int
     
     fun new() -> EGraph {
         return EGraph{
@@ -232,90 +232,90 @@ class EGraph {
             unionFind: UnionFind{},
             hashcons: Map{},
             nextId: 0
-        };
+        }
     }
     
     fun add(ir: IR) -> EClassId {
-        let enode = irToENode(ir);
+        let enode = irToENode(ir)
         
         // Check if already exists
-        let existing = hashcons.get(enode);
+        let existing = hashcons.get(enode)
         if existing != null {
-            return existing;
+            return existing
         }
         
         // Create new e-class
-        let id = EClassId{ id: nextId };
-        nextId = nextId + 1;
+        let id = EClassId{ id: nextId }
+        nextId = nextId + 1
         
         let eclass = EClass{
             id: id,
             nodes: [enode],
             parents: []
-        };
+        }
         
-        classes.put(id, eclass);
-        hashcons.put(enode, id);
-        unionFind.makeSet(id);
+        classes.put(id, eclass)
+        hashcons.put(enode, id)
+        unionFind.makeSet(id)
         
-        return id;
+        return id
     }
     
     fun union(id1: EClassId, id2: EClassId) {
-        let root1 = unionFind.find(id1);
-        let root2 = unionFind.find(id2);
+        let root1 = unionFind.find(id1)
+        let root2 = unionFind.find(id2)
         
         if root1.id == root2.id {
-            return;
+            return
         }
         
         // Merge e-classes
-        let class1 = classes.get(root1);
-        let class2 = classes.get(root2);
+        let class1 = classes.get(root1)
+        let class2 = classes.get(root2)
         
         // Combine nodes
         for node in class2.nodes {
-            class1.nodes.append(node);
+            class1.nodes.append(node)
         }
         
         // Update parents
         for parent in class2.parents {
-            class1.parents.append(parent);
+            class1.parents.append(parent)
         }
         
         // Update union-find
-        unionFind.union(root1, root2);
+        unionFind.union(root1, root2)
         
         // Remove old class
-        classes.remove(root2);
+        classes.remove(root2)
     }
     
     fun rebuild() {
         // Rebuild congruence closure
-        let worklist: List<EClassId> = [];
+        let worklist: List<EClassId> = []
         
         // Add all classes to worklist
         for entry in classes {
-            worklist.append(entry.key);
+            worklist.append(entry.key)
         }
         
         while worklist.size() > 0 {
-            let id = worklist.removeFirst();
-            let eclass = classes.get(id);
+            let id = worklist.removeFirst()
+            let eclass = classes.get(id)
             
             // Check for congruent nodes
             for node in eclass.nodes {
-                let canonical = canonicalize(node);
-                let existing = hashcons.get(canonical);
+                let canonical = canonicalize(node)
+                let existing = hashcons.get(canonical)
                 
                 if existing != null and existing.id != id.id {
                     // Found congruent nodes - merge
-                    union(id, existing);
+                    union(id, existing)
                     
                     // Add parents to worklist
                     for parent in eclass.parents {
                         if not worklist.contains(parent) {
-                            worklist.append(parent);
+                            worklist.append(parent)
                         }
                     }
                 }
@@ -324,11 +324,11 @@ class EGraph {
     }
     
     fun findMatches(pattern: String) -> List<Match> {
-        let matches: List<Match> = [];
+        let matches: List<Match> = []
         
         // Pattern matching across all e-classes
         for entry in classes {
-            let eclass = entry.value;
+            let eclass = entry.value
             
             for node in eclass.nodes {
                 if matchesPattern(node, pattern) {
@@ -336,44 +336,44 @@ class EGraph {
                         id: eclass.id,
                         node: node,
                         bindings: extractBindings(node, pattern)
-                    });
+                    })
                 }
             }
         }
         
-        return matches;
+        return matches
     }
     
     fun extractMinCost(rootId: EClassId, costModel: CostModel) -> IR {
         // Dynamic programming to extract minimum cost program
-        let memo: Map<EClassId, IR> = Map{};
-        return extractMinCostRec(rootId, costModel, memo);
+        let memo: Map<EClassId, IR> = Map{}
+        return extractMinCostRec(rootId, costModel, memo)
     }
     
     fun extractMinCostRec(id: EClassId, costModel: CostModel, memo: Map<EClassId, IR>) -> IR {
         // Check memo
-        let cached = memo.get(id);
+        let cached = memo.get(id)
         if cached != null {
-            return cached;
+            return cached
         }
         
-        let eclass = classes.get(unionFind.find(id));
-        let bestCost = 999999999;
-        let bestIR: IR? = null;
+        let eclass = classes.get(unionFind.find(id))
+        let bestCost = 999999999
+        let bestIR: IR? = null
         
         // Try each node in the e-class
         for node in eclass.nodes {
-            let ir = eNodeToIR(node);
-            let cost = costModel.calculate(ir);
+            let ir = eNodeToIR(node)
+            let cost = costModel.calculate(ir)
             
             if cost < bestCost {
-                bestCost = cost;
-                bestIR = ir;
+                bestCost = cost
+                bestIR = ir
             }
         }
         
-        memo.put(id, bestIR);
-        return bestIR;
+        memo.put(id, bestIR)
+        return bestIR
     }
     
     fun irToENode(ir: IR) -> ENode {
@@ -381,7 +381,7 @@ class EGraph {
         return ENode{
             op: ir.opcode,
             args: ir.operands
-        };
+        }
     }
     
     fun eNodeToIR(node: ENode) -> IR {
@@ -389,7 +389,7 @@ class EGraph {
         return IR{
             opcode: node.op,
             operands: node.args
-        };
+        }
     }
     
     fun canonicalize(node: ENode) -> ENode {
@@ -397,13 +397,13 @@ class EGraph {
         let canonical = ENode{
             op: node.op,
             args: []
-        };
-        
-        for arg in node.args {
-            canonical.args.append(unionFind.find(arg).toString());
         }
         
-        return canonical;
+        for arg in node.args {
+            canonical.args.append(unionFind.find(arg).toString())
+        }
+        
+        return canonical
     }
     
     fun matchesPattern(node: ENode, pattern: String) -> Bool {
@@ -414,74 +414,74 @@ class EGraph {
     
     fun extractBindings(node: ENode, pattern: String) -> Map<String, String> {
         // Extract variable bindings from pattern match
-        return Map{};
+        return Map{}
     }
 }
 
 // E-class identifier
 class EClassId {
-    var id: Int;
+    var id: Int
     
     fun new() -> EClassId {
-        return EClassId{ id: 0 };
+        return EClassId{ id: 0 }
     }
 }
 
 // E-class containing equivalent expressions
 class EClass {
-    var id: EClassId;
-    var nodes: List<ENode>;
-    var parents: List<EClassId>;
+    var id: EClassId
+    var nodes: List<ENode>
+    var parents: List<EClassId>
     
     fun new() -> EClass {
         return EClass{
             id: EClassId{},
             nodes: [],
             parents: []
-        };
+        }
     }
 }
 
 // E-node representing an operation
 class ENode {
-    var op: String;
-    var args: List<String>;
+    var op: String
+    var args: List<String>
     
     fun new() -> ENode {
         return ENode{
             op: "",
             args: []
-        };
+        }
     }
 }
 
 // Pattern match result
 class Match {
-    var id: EClassId;
-    var node: ENode;
-    var bindings: Map<String, String>;
+    var id: EClassId
+    var node: ENode
+    var bindings: Map<String, String>
     
     fun new() -> Match {
         return Match{
             id: EClassId{},
             node: ENode{},
             bindings: Map{}
-        };
+        }
     }
 }
 
 // Rewrite rule
 class RewriteRule {
-    var name: String;
-    var pattern: String;
-    var replacement: String;
+    var name: String
+    var pattern: String
+    var replacement: String
     
     fun new() -> RewriteRule {
         return RewriteRule{
             name: "",
             pattern: "",
             replacement: ""
-        };
+        }
     }
     
     fun rewrite(match: Match) -> EClassId {
@@ -489,35 +489,35 @@ class RewriteRule {
         let newNode = ENode{
             op: replacement.split(" ")[0],
             args: []
-        };
+        }
         
         // Substitute bindings
         for binding in match.bindings {
-            newNode.args.append(binding.value);
+            newNode.args.append(binding.value)
         }
         
         // Add to e-graph
-        return EGraph{}.add(IR{ opcode: newNode.op, operands: newNode.args });
+        return EGraph{}.add(IR{ opcode: newNode.op, operands: newNode.args })
     }
 }
 
 // Cost model for expression selection
 class CostModel {
     fun new() -> CostModel {
-        return CostModel{};
+        return CostModel{}
     }
     
     fun calculate(ir: IR) -> Int {
         // Calculate cost of IR operation
-        let baseCost = getOpCost(ir.opcode);
-        let totalCost = baseCost;
+        let baseCost = getOpCost(ir.opcode)
+        let totalCost = baseCost
         
         // Add costs of operands
         for operand in ir.operands {
             totalCost = totalCost + 1; // Simplified
         }
         
-        return totalCost;
+        return totalCost
     }
     
     fun getOpCost(op: String) -> Int {
@@ -536,67 +536,67 @@ class CostModel {
 
 // Union-Find data structure for e-class management
 class UnionFind {
-    var parent: Map<EClassId, EClassId>;
-    var rank: Map<EClassId, Int>;
+    var parent: Map<EClassId, EClassId>
+    var rank: Map<EClassId, Int>
     
     fun new() -> UnionFind {
         return UnionFind{
             parent: Map{},
             rank: Map{}
-        };
+        }
     }
     
     fun makeSet(id: EClassId) {
-        parent.put(id, id);
-        rank.put(id, 0);
+        parent.put(id, id)
+        rank.put(id, 0)
     }
     
     fun find(id: EClassId) -> EClassId {
-        let p = parent.get(id);
+        let p = parent.get(id)
         if p == null or p.id == id.id {
-            return id;
+            return id
         }
         
         // Path compression
-        let root = find(p);
-        parent.put(id, root);
-        return root;
+        let root = find(p)
+        parent.put(id, root)
+        return root
     }
     
     fun union(id1: EClassId, id2: EClassId) {
-        let root1 = find(id1);
-        let root2 = find(id2);
+        let root1 = find(id1)
+        let root2 = find(id2)
         
         if root1.id == root2.id {
-            return;
+            return
         }
         
         // Union by rank
-        let rank1 = rank.get(root1);
-        let rank2 = rank.get(root2);
+        let rank1 = rank.get(root1)
+        let rank2 = rank.get(root2)
         
         if rank1 < rank2 {
-            parent.put(root1, root2);
+            parent.put(root1, root2)
         } else if rank1 > rank2 {
-            parent.put(root2, root1);
+            parent.put(root2, root1)
         } else {
-            parent.put(root2, root1);
-            rank.put(root1, rank1 + 1);
+            parent.put(root2, root1)
+            rank.put(root1, rank1 + 1)
         }
     }
 }
 
 // IR representation
 class IR {
-    var opcode: String;
-    var operands: List<String>;
-    var type: String;
+    var opcode: String
+    var operands: List<String>
+    var type: String
     
     fun new() -> IR {
         return IR{
             opcode: "",
             operands: [],
             type: "i32"
-        };
+        }
     }
 }

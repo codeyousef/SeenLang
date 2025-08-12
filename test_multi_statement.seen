@@ -1,0 +1,5 @@
+fun main() -> Int {
+    println("test1")
+    println("test2")
+    42
+}

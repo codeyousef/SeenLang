@@ -2,126 +2,126 @@
 // Generates optimal code sequences using constraint solving
 
 class ProgramSynthesizer {
-    var solver: Z3Solver;
-    var instructionSet: InstructionSet;
-    var maxSynthesisLength: Int = 20;
+    var solver: Z3Solver
+    var instructionSet: InstructionSet
+    var maxSynthesisLength: Int = 20
     
     fun new() -> ProgramSynthesizer {
         return ProgramSynthesizer{
             solver: Z3Solver{},
             instructionSet: InstructionSet{},
             maxSynthesisLength: 20
-        };
+        }
     }
     
     // Synthesize optimal program given specification
     fun synthesize(spec: ProgramSpecification) -> SynthesisResult? {
-        println("🔬 Synthesizing optimal program for: " + spec.name);
+        println("🔬 Synthesizing optimal program for: " + spec.name)
         
         // Try synthesis with increasing length bounds
         for length in range(1, maxSynthesisLength + 1) {
-            println("  Attempting synthesis with length " + length.toString());
+            println("  Attempting synthesis with length " + length.toString())
             
-            let result = synthesizeWithLength(spec, length);
+            let result = synthesizeWithLength(spec, length)
             if result != null {
-                println("  ✅ Synthesis successful with " + length.toString() + " instructions");
-                return result;
+                println("  ✅ Synthesis successful with " + length.toString() + " instructions")
+                return result
             }
         }
         
-        println("  ❌ Synthesis failed - no solution found");
-        return null;
+        println("  ❌ Synthesis failed - no solution found")
+        return null
     }
     
     // Synthesize program with specific length constraint
     fun synthesizeWithLength(spec: ProgramSpecification, length: Int) -> SynthesisResult? {
         // Create SMT variables for the program
-        let program = createProgramVariables(length);
+        let program = createProgramVariables(length)
         
         // Encode synthesis constraints
-        let constraints = encodeSynthesisConstraints(spec, program);
+        let constraints = encodeSynthesisConstraints(spec, program)
         
         // Create SMT formula
-        let formula = Formula{};
-        formula.addConstraints(constraints);
+        let formula = Formula{}
+        formula.addConstraints(constraints)
         
         // Solve the constraint system
         if solver.solve(formula) {
-            let model = solver.getModel();
-            let synthesizedProgram = decodeProgramFromModel(model, length);
+            let model = solver.getModel()
+            let synthesizedProgram = decodeProgramFromModel(model, length)
             
             return SynthesisResult{
                 program: synthesizedProgram,
                 length: length,
                 cost: calculateProgramCost(synthesizedProgram),
                 synthesisTime: getCurrentTimeMs()
-            };
+            }
         }
         
-        return null;
+        return null
     }
     
     // Create SMT variables representing a program of given length
     fun createProgramVariables(length: Int) -> ProgramVariables {
-        println("    🔢 Creating program variables for length " + length.toString());
+        println("    🔢 Creating program variables for length " + length.toString())
         
-        let instructions = [];
-        let operands = [];
+        let instructions = []
+        let operands = []
         
         for i in range(0, length) {
             // Instruction opcode variable
-            let opcodeVar = solver.createEnumVariable("instr_" + i.toString());
+            let opcodeVar = solver.createEnumVariable("instr_" + i.toString())
             
             // Operand variables (up to 3 operands per instruction)
-            let instrOperands = [];
+            let instrOperands = []
             for j in range(0, 3) {
-                let operandVar = solver.createIntVariable("op_" + i.toString() + "_" + j.toString());
-                instrOperands.append(operandVar);
+                let operandVar = solver.createIntVariable("op_" + i.toString() + "_" + j.toString())
+                instrOperands.append(operandVar)
             }
             
             instructions.append(InstructionVariable{
                 index: i,
                 opcodeVar: opcodeVar,
                 operandVars: instrOperands
-            });
+            })
             
-            operands.append(instrOperands);
+            operands.append(instrOperands)
         }
         
         return ProgramVariables{
             instructions: instructions,
             operands: operands,
             length: length
-        };
+        }
     }
     
     // Encode all synthesis constraints
     fun encodeSynthesisConstraints(spec: ProgramSpecification, program: ProgramVariables) -> List<Constraint> {
-        let allConstraints = [];
+        let allConstraints = []
         
         // Well-formedness constraints
-        let wellFormed = encodeWellFormednessConstraints(program);
-        allConstraints = allConstraints.concat(wellFormed);
+        let wellFormed = encodeWellFormednessConstraints(program)
+        allConstraints = allConstraints.concat(wellFormed)
         
         // Functional correctness constraints  
-        let correctness = encodeCorrectnessConstraints(spec, program);
-        allConstraints = allConstraints.concat(correctness);
+        let correctness = encodeCorrectnessConstraints(spec, program)
+        allConstraints = allConstraints.concat(correctness)
         
         // Resource constraints
-        let resources = encodeResourceConstraints(program);
-        allConstraints = allConstraints.concat(resources);
+        let resources = encodeResourceConstraints(program)
+        allConstraints = allConstraints.concat(resources)
         
         // Optimization objectives
-        let optimization = encodeOptimizationObjectives(program);
-        allConstraints = allConstraints.concat(optimization);
+        let optimization = encodeOptimizationObjectives(program)
+        allConstraints = allConstraints.concat(optimization)
         
-        println("    ⚖️ Generated " + allConstraints.size().toString() + " synthesis constraints");
-        return allConstraints;
+        println("    ⚖️ Generated " + allConstraints.size().toString() + " synthesis constraints")
+        return allConstraints
     }
     
     // Ensure program is syntactically valid
     fun encodeWellFormednessConstraints(program: ProgramVariables) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         for instruction in program.instructions {
             // Each instruction must be a valid opcode
@@ -130,101 +130,101 @@ class ProgramSynthesizer {
                 instruction.opcodeVar,
                 "in",
                 instructionSet.getValidOpcodes()
-            );
-            constraints.append(validOpcode);
+            )
+            constraints.append(validOpcode)
             
             // Operands must be valid for the instruction type
             for j in range(0, instruction.operandVars.size()) {
                 let operandConstraint = encodeOperandConstraint(
                     instruction.index, j, instruction.opcodeVar, instruction.operandVars[j]
-                );
-                constraints.append(operandConstraint);
+                )
+                constraints.append(operandConstraint)
             }
         }
         
         // Data flow constraints (def-use relationships)
-        let dataFlowConstraints = encodeDataFlowConstraints(program);
-        constraints = constraints.concat(dataFlowConstraints);
+        let dataFlowConstraints = encodeDataFlowConstraints(program)
+        constraints = constraints.concat(dataFlowConstraints)
         
-        return constraints;
+        return constraints
     }
     
     // Ensure program satisfies functional specification
     fun encodeCorrectnessConstraints(spec: ProgramSpecification, program: ProgramVariables) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // For each test case in specification
         for testCase in spec.testCases {
-            let execConstraints = encodeTestCaseExecution(program, testCase);
-            constraints = constraints.concat(execConstraints);
+            let execConstraints = encodeTestCaseExecution(program, testCase)
+            constraints = constraints.concat(execConstraints)
         }
         
-        return constraints;
+        return constraints
     }
     
     // Encode execution of program on specific test case
     fun encodeTestCaseExecution(program: ProgramVariables, testCase: TestCase) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Create variables for program state at each step
-        let states = createExecutionStateVariables(program.length + 1, testCase);
+        let states = createExecutionStateVariables(program.length + 1, testCase)
         
         // Initial state matches test input
-        let initialConstraints = encodeInitialState(states[0], testCase.input);
-        constraints = constraints.concat(initialConstraints);
+        let initialConstraints = encodeInitialState(states[0], testCase.input)
+        constraints = constraints.concat(initialConstraints)
         
         // Each instruction transforms state correctly
         for i in range(0, program.length) {
             let transitionConstraints = encodeStateTransition(
                 program.instructions[i], states[i], states[i + 1]
-            );
-            constraints = constraints.concat(transitionConstraints);
+            )
+            constraints = constraints.concat(transitionConstraints)
         }
         
         // Final state matches expected output
-        let finalConstraints = encodeFinalState(states[program.length], testCase.expectedOutput);
-        constraints = constraints.concat(finalConstraints);
+        let finalConstraints = encodeFinalState(states[program.length], testCase.expectedOutput)
+        constraints = constraints.concat(finalConstraints)
         
-        return constraints;
+        return constraints
     }
     
     // Encode resource usage constraints
     fun encodeResourceConstraints(program: ProgramVariables) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Register usage constraints
-        let maxRegisters = 32;
-        let registerConstraints = encodeRegisterUsage(program, maxRegisters);
-        constraints = constraints.concat(registerConstraints);
+        let maxRegisters = 32
+        let registerConstraints = encodeRegisterUsage(program, maxRegisters)
+        constraints = constraints.concat(registerConstraints)
         
         // Memory access constraints
-        let memoryConstraints = encodeMemoryAccess(program);
-        constraints = constraints.concat(memoryConstraints);
+        let memoryConstraints = encodeMemoryAccess(program)
+        constraints = constraints.concat(memoryConstraints)
         
-        return constraints;
+        return constraints
     }
     
     // Encode optimization objectives (minimize cost, cycles, etc.)
     fun encodeOptimizationObjectives(program: ProgramVariables) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Calculate total program cost
-        let totalCost = solver.createIntVariable("total_program_cost");
-        let costSum = calculateCostSum(program);
+        let totalCost = solver.createIntVariable("total_program_cost")
+        let costSum = calculateCostSum(program)
         
         let costDefinition = solver.createConstraint(
             "cost_definition",
             totalCost,
             "=",
             costSum
-        );
-        constraints.append(costDefinition);
+        )
+        constraints.append(costDefinition)
         
         // Minimize total cost
-        let minimizeObjective = solver.minimize(totalCost);
-        constraints.append(minimizeObjective);
+        let minimizeObjective = solver.minimize(totalCost)
+        constraints.append(minimizeObjective)
         
-        return constraints;
+        return constraints
     }
     
     // Helper methods for constraint encoding
@@ -238,25 +238,25 @@ class ProgramSynthesizer {
             operandVar,
             ">=",
             0
-        );
+        )
     }
     
     fun encodeDataFlowConstraints(program: ProgramVariables) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Ensure variables are defined before use
         for i in range(0, program.length) {
             for j in range(i + 1, program.length) {
                 let defUseConstraint = encodeDefUseRelation(
                     program.instructions[i], program.instructions[j]
-                );
+                )
                 if defUseConstraint != null {
-                    constraints.append(defUseConstraint);
+                    constraints.append(defUseConstraint)
                 }
             }
         }
         
-        return constraints;
+        return constraints
     }
     
     fun encodeDefUseRelation(defInstr: InstructionVariable, useInstr: InstructionVariable) -> Constraint? {
@@ -267,7 +267,7 @@ class ProgramSynthesizer {
     }
     
     fun createExecutionStateVariables(numStates: Int, testCase: TestCase) -> List<ExecutionState> {
-        let states = [];
+        let states = []
         
         for i in range(0, numStates) {
             let state = ExecutionState{
@@ -275,49 +275,49 @@ class ProgramSynthesizer {
                 registers: createRegisterVariables(i),
                 memory: createMemoryVariables(i),
                 flags: createFlagVariables(i)
-            };
-            states.append(state);
+            }
+            states.append(state)
         }
         
-        return states;
+        return states
     }
     
     fun createRegisterVariables(step: Int) -> List<IntVariable> {
-        let registers = [];
+        let registers = []
         
         for i in range(0, 8) { // 8 registers for simplicity
-            let regVar = solver.createIntVariable("reg_" + i.toString() + "_step_" + step.toString());
-            registers.append(regVar);
+            let regVar = solver.createIntVariable("reg_" + i.toString() + "_step_" + step.toString())
+            registers.append(regVar)
         }
         
-        return registers;
+        return registers
     }
     
     fun createMemoryVariables(step: Int) -> List<IntVariable> {
-        let memory = [];
+        let memory = []
         
         for i in range(0, 16) { // 16 memory locations for simplicity  
-            let memVar = solver.createIntVariable("mem_" + i.toString() + "_step_" + step.toString());
-            memory.append(memVar);
+            let memVar = solver.createIntVariable("mem_" + i.toString() + "_step_" + step.toString())
+            memory.append(memVar)
         }
         
-        return memory;
+        return memory
     }
     
     fun createFlagVariables(step: Int) -> List<BoolVariable> {
-        let flags = [];
+        let flags = []
         
         // Common flags: zero, carry, overflow, sign
-        flags.append(solver.createBoolVariable("zero_flag_step_" + step.toString()));
-        flags.append(solver.createBoolVariable("carry_flag_step_" + step.toString()));
-        flags.append(solver.createBoolVariable("overflow_flag_step_" + step.toString()));
-        flags.append(solver.createBoolVariable("sign_flag_step_" + step.toString()));
+        flags.append(solver.createBoolVariable("zero_flag_step_" + step.toString()))
+        flags.append(solver.createBoolVariable("carry_flag_step_" + step.toString()))
+        flags.append(solver.createBoolVariable("overflow_flag_step_" + step.toString()))
+        flags.append(solver.createBoolVariable("sign_flag_step_" + step.toString()))
         
-        return flags;
+        return flags
     }
     
     fun encodeInitialState(state: ExecutionState, input: ProgramInput) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Set initial register values
         for i in range(0, min(state.registers.size(), input.registers.size())) {
@@ -326,8 +326,8 @@ class ProgramSynthesizer {
                 state.registers[i],
                 "=",
                 input.registers[i]
-            );
-            constraints.append(initConstraint);
+            )
+            constraints.append(initConstraint)
         }
         
         // Set initial memory values
@@ -337,24 +337,24 @@ class ProgramSynthesizer {
                 state.memory[i],
                 "=",
                 input.memory[i]
-            );
-            constraints.append(initConstraint);
+            )
+            constraints.append(initConstraint)
         }
         
-        return constraints;
+        return constraints
     }
     
     fun encodeStateTransition(instruction: InstructionVariable, beforeState: ExecutionState, afterState: ExecutionState) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Simplified state transition encoding for bootstrap
         // In production, would have detailed instruction semantics
         
         // For now, just ensure states are different (indicating progress)
-        let progressConstraint = encodeProgressConstraint(beforeState, afterState);
-        constraints.append(progressConstraint);
+        let progressConstraint = encodeProgressConstraint(beforeState, afterState)
+        constraints.append(progressConstraint)
         
-        return constraints;
+        return constraints
     }
     
     fun encodeProgressConstraint(before: ExecutionState, after: ExecutionState) -> Constraint {
@@ -364,11 +364,11 @@ class ProgramSynthesizer {
             before.registers[0],
             "!=",
             after.registers[0]
-        );
+        )
     }
     
     fun encodeFinalState(state: ExecutionState, expectedOutput: ProgramOutput) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Final register values must match expected output
         for i in range(0, min(state.registers.size(), expectedOutput.registers.size())) {
@@ -377,15 +377,15 @@ class ProgramSynthesizer {
                 state.registers[i],
                 "=",
                 expectedOutput.registers[i]
-            );
-            constraints.append(finalConstraint);
+            )
+            constraints.append(finalConstraint)
         }
         
-        return constraints;
+        return constraints
     }
     
     fun encodeRegisterUsage(program: ProgramVariables, maxRegisters: Int) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Each operand that references a register must be within bounds
         for instruction in program.instructions {
@@ -395,16 +395,16 @@ class ProgramSynthesizer {
                     operand,
                     "<=",
                     maxRegisters
-                );
-                constraints.append(registerBound);
+                )
+                constraints.append(registerBound)
             }
         }
         
-        return constraints;
+        return constraints
     }
     
     fun encodeMemoryAccess(program: ProgramVariables) -> List<Constraint> {
-        let constraints = [];
+        let constraints = []
         
         // Memory addresses must be valid with full address space validation
         for instruction in program.instructions {
@@ -414,70 +414,70 @@ class ProgramSynthesizer {
                     operand,
                     ">=",
                     0
-                );
-                constraints.append(memoryBound);
+                )
+                constraints.append(memoryBound)
             }
         }
         
-        return constraints;
+        return constraints
     }
     
     fun calculateCostSum(program: ProgramVariables) -> IntVariable {
-        let costVars = [];
+        let costVars = []
         
         for instruction in program.instructions {
-            let instrCost = getInstructionCostVariable(instruction.opcodeVar);
-            costVars.append(instrCost);
+            let instrCost = getInstructionCostVariable(instruction.opcodeVar)
+            costVars.append(instrCost)
         }
         
-        return solver.sum(costVars);
+        return solver.sum(costVars)
     }
     
     fun getInstructionCostVariable(opcodeVar: EnumVariable) -> IntVariable {
         // Create cost variable based on instruction type
-        let costVar = solver.createIntVariable("cost_" + opcodeVar.name);
+        let costVar = solver.createIntVariable("cost_" + opcodeVar.name)
         
         // Full instruction cost model with cycle-accurate timing
         // Includes cache effects and pipeline behavior
         
-        return costVar;
+        return costVar
     }
     
     // Decode synthesized program from SMT model
     fun decodeProgramFromModel(model: SMTModel, length: Int) -> Function {
-        let instructions = [];
+        let instructions = []
         
         for i in range(0, length) {
-            let opcode = model.getEnumValue("instr_" + i.toString());
-            let operands = [];
+            let opcode = model.getEnumValue("instr_" + i.toString())
+            let operands = []
             
-            let operandCount = getRequiredOperandCount(opcode);
+            let operandCount = getRequiredOperandCount(opcode)
             for j in range(0, operandCount) {
-                let operandValue = model.getIntValue("op_" + i.toString() + "_" + j.toString());
-                operands.append(decodeOperandValue(operandValue));
+                let operandValue = model.getIntValue("op_" + i.toString() + "_" + j.toString())
+                operands.append(decodeOperandValue(operandValue))
             }
             
             let instruction = Instruction{
                 op: opcode,
                 args: operands
-            };
-            instructions.append(instruction);
+            }
+            instructions.append(instruction)
         }
         
         return Function{
             name: "synthesized_optimal",
             instructions: instructions
-        };
+        }
     }
     
     fun calculateProgramCost(function: Function) -> Float {
-        let totalCost = 0.0;
+        let totalCost = 0.0
         
         for instruction in function.instructions {
-            totalCost = totalCost + getInstructionCost(instruction.op);
+            totalCost = totalCost + getInstructionCost(instruction.op)
         }
         
-        return totalCost;
+        return totalCost
     }
     
     fun getRequiredOperandCount(opcode: String) -> Int {
@@ -506,7 +506,7 @@ class ProgramSynthesizer {
     }
     
     fun min(a: Int, b: Int) -> Int {
-        return if a < b { a } else { b };
+        return if a < b { a } else { b }
     }
     
     fun getCurrentTimeMs() -> Int {
@@ -517,131 +517,131 @@ class ProgramSynthesizer {
 // Supporting classes for program synthesis
 
 class ProgramSpecification {
-    var name: String = "";
-    var testCases: List<TestCase> = [];
-    var inputType: String = "";
-    var outputType: String = "";
-    var resourceLimits: ResourceLimits;
+    var name: String = ""
+    var testCases: List<TestCase> = []
+    var inputType: String = ""
+    var outputType: String = ""
+    var resourceLimits: ResourceLimits
     
     fun new() -> ProgramSpecification {
         return ProgramSpecification{
             resourceLimits: ResourceLimits{}
-        };
+        }
     }
 }
 
 class TestCase {
-    var input: ProgramInput;
-    var expectedOutput: ProgramOutput;
-    var weight: Float = 1.0;
+    var input: ProgramInput
+    var expectedOutput: ProgramOutput
+    var weight: Float = 1.0
     
     fun new() -> TestCase {
         return TestCase{
             input: ProgramInput{},
             expectedOutput: ProgramOutput{}
-        };
+        }
     }
 }
 
 class ProgramInput {
-    var registers: List<Int> = [];
-    var memory: List<Int> = [];
-    var flags: List<Bool> = [];
+    var registers: List<Int> = []
+    var memory: List<Int> = []
+    var flags: List<Bool> = []
     
     fun new() -> ProgramInput {
-        return ProgramInput{};
+        return ProgramInput{}
     }
 }
 
 class ProgramOutput {
-    var registers: List<Int> = [];
-    var memory: List<Int> = [];
-    var flags: List<Bool> = [];
-    var returnValue: Int = 0;
+    var registers: List<Int> = []
+    var memory: List<Int> = []
+    var flags: List<Bool> = []
+    var returnValue: Int = 0
     
     fun new() -> ProgramOutput {
-        return ProgramOutput{};
+        return ProgramOutput{}
     }
 }
 
 class ResourceLimits {
-    var maxInstructions: Int = 20;
-    var maxRegisters: Int = 32;
-    var maxMemory: Int = 1024;
-    var maxCycles: Int = 100;
+    var maxInstructions: Int = 20
+    var maxRegisters: Int = 32
+    var maxMemory: Int = 1024
+    var maxCycles: Int = 100
     
     fun new() -> ResourceLimits {
-        return ResourceLimits{};
+        return ResourceLimits{}
     }
 }
 
 class ProgramVariables {
-    var instructions: List<InstructionVariable> = [];
-    var operands: List<List<IntVariable>> = [];
-    var length: Int = 0;
+    var instructions: List<InstructionVariable> = []
+    var operands: List<List<IntVariable>> = []
+    var length: Int = 0
     
     fun new() -> ProgramVariables {
-        return ProgramVariables{};
+        return ProgramVariables{}
     }
 }
 
 class InstructionVariable {
-    var index: Int = 0;
-    var opcodeVar: EnumVariable;
-    var operandVars: List<IntVariable> = [];
+    var index: Int = 0
+    var opcodeVar: EnumVariable
+    var operandVars: List<IntVariable> = []
     
     fun new() -> InstructionVariable {
         return InstructionVariable{
             opcodeVar: EnumVariable{}
-        };
+        }
     }
 }
 
 class ExecutionState {
-    var step: Int = 0;
-    var registers: List<IntVariable> = [];
-    var memory: List<IntVariable> = [];
-    var flags: List<BoolVariable> = [];
+    var step: Int = 0
+    var registers: List<IntVariable> = []
+    var memory: List<IntVariable> = []
+    var flags: List<BoolVariable> = []
     
     fun new() -> ExecutionState {
-        return ExecutionState{};
+        return ExecutionState{}
     }
 }
 
 class SynthesisResult {
-    var program: Function;
-    var length: Int = 0;
-    var cost: Float = 0.0;
-    var synthesisTime: Int = 0;
-    var verified: Bool = false;
+    var program: Function
+    var length: Int = 0
+    var cost: Float = 0.0
+    var synthesisTime: Int = 0
+    var verified: Bool = false
     
     fun new() -> SynthesisResult {
         return SynthesisResult{
             program: Function{}
-        };
+        }
     }
 }
 
 class InstructionSet {
-    var opcodes: List<String> = [];
+    var opcodes: List<String> = []
     
     fun new() -> InstructionSet {
         return InstructionSet{
             opcodes: ["add", "sub", "mul", "div", "shl", "shr", "and", "or", "xor",
                      "load", "store", "mov", "cmp", "jmp", "je", "jne", "nop"]
-        };
+        }
     }
     
     fun getValidOpcodes() -> List<String> {
-        return opcodes;
+        return opcodes
     }
     
     fun isValidOpcode(opcode: String) -> Bool {
         for validOpcode in opcodes {
             if opcode == validOpcode {
-                return true;
+                return true
             }
         }
-        return false;
+        return false
     }
 }

@@ -2,10 +2,10 @@
 // This is not a stub - it produces real LLVM IR!
 
 class RealCodeGenerator {
-    var output: String;
-    var nextRegister: Int;
-    var nextLabel: Int;
-    var currentFunction: String;
+    var output: String
+    var nextRegister: Int
+    var nextLabel: Int
+    var currentFunction: String
     var variables: Map<String, String>; // variable name -> LLVM register
     
     fun new() -> RealCodeGenerator {
@@ -15,65 +15,65 @@ class RealCodeGenerator {
             nextLabel: 0,
             currentFunction: "",
             variables: Map{}
-        };
+        }
     }
     
     fun generate(ast: ProgramNode) -> String {
-        output = "";
+        output = ""
         
         // LLVM IR header
-        emit("; ModuleID = 'seen_program'");
-        emit("source_filename = \"program.seen\"");
-        emit("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
-        emit("target triple = \"x86_64-unknown-linux-gnu\"");
-        emit("");
+        emit("; ModuleID = 'seen_program'")
+        emit("source_filename = \"program.seen\"")
+        emit("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"")
+        emit("target triple = \"x86_64-unknown-linux-gnu\"")
+        emit("")
         
         // External function declarations (runtime library)
-        emit("declare i32 @printf(i8*, ...)");
-        emit("declare i8* @malloc(i64)");
-        emit("declare void @free(i8*)");
-        emit("declare void @exit(i32)");
-        emit("");
+        emit("declare i32 @printf(i8*, ...)")
+        emit("declare i8* @malloc(i64)")
+        emit("declare void @free(i8*)")
+        emit("declare void @exit(i32)")
+        emit("")
         
         // String constants for printing
-        emit("@.str.int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1");
-        emit("@.str.float = private unnamed_addr constant [4 x i8] c\"%f\\0A\\00\", align 1");
-        emit("@.str.string = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\", align 1");
-        emit("");
+        emit("@.str.int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1")
+        emit("@.str.float = private unnamed_addr constant [4 x i8] c\"%f\\0A\\00\", align 1")
+        emit("@.str.string = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\", align 1")
+        emit("")
         
         // Generate code for each top-level item
         for item in ast.items {
             if item.itemType == "Function" {
-                generateFunction(item);
+                generateFunction(item)
             } else if item.itemType == "Class" {
-                generateClass(item);
+                generateClass(item)
             }
         }
         
         // If no main function exists, create one
         if not hasMainFunction(ast) {
-            generateDefaultMain();
+            generateDefaultMain()
         }
         
-        return output;
+        return output
     }
     
     fun generateFunction(item: ItemNode) {
-        currentFunction = item.name;
-        nextRegister = 1;
-        variables = Map{};
+        currentFunction = item.name
+        nextRegister = 1
+        variables = Map{}
         
         // Get the actual function node
-        let func = item.function;
+        let func = item.function
         if func == null {
             // Fallback for missing function data
-            emit("; Warning: No function data for " + item.name);
-            emit("define i32 @" + item.name + "() {");
-            emit("entry:");
-            emit("  ret i32 0");
-            emit("}");
-            emit("");
-            return;
+            emit("; Warning: No function data for " + item.name)
+            emit("define i32 @" + item.name + "() {")
+            emit("entry:")
+            emit("  ret i32 0")
+            emit("}")
+            emit("")
+            return
         }
         
         // Determine return type
@@ -81,170 +81,170 @@ class RealCodeGenerator {
             mapTypeToLLVM(func.returnType)
         } else {
             "void"
-        };
+        }
         
         // Generate parameter list
-        let params = generateParameterList(func.params);
+        let params = generateParameterList(func.params)
         
         // Function attributes for optimization
-        let attrs = "";
+        let attrs = ""
         if func.isInline {
-            attrs = attrs + " alwaysinline";
+            attrs = attrs + " alwaysinline"
         }
         if item.name == "main" {
-            attrs = attrs + " nounwind";
+            attrs = attrs + " nounwind"
         }
         
-        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {");
-        emit("entry:");
+        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {")
+        emit("entry:")
         
         // Initialize parameters as local variables
         for param in func.params {
-            let paramReg = "%" + param.name;
-            let allocReg = nextReg();
-            let llvmType = mapTypeToLLVM(param.paramType);
-            emit("  " + allocReg + " = alloca " + llvmType + ", align 8");
-            emit("  store " + llvmType + " " + paramReg + ", " + llvmType + "* " + allocReg + ", align 8");
-            variables.put(param.name, allocReg);
+            let paramReg = "%" + param.name
+            let allocReg = nextReg()
+            let llvmType = mapTypeToLLVM(param.paramType)
+            emit("  " + allocReg + " = alloca " + llvmType + ", align 8")
+            emit("  store " + llvmType + " " + paramReg + ", " + llvmType + "* " + allocReg + ", align 8")
+            variables.put(param.name, allocReg)
         }
         
         // Generate function body
-        generateBlock(func.body);
+        generateBlock(func.body)
         
         // Add default return if needed
         if returnType == "void" {
-            emit("  ret void");
+            emit("  ret void")
         } else if returnType == "i32" {
-            emit("  ; Default return");
-            emit("  ret i32 0");
+            emit("  ; Default return")
+            emit("  ret i32 0")
         }
         
-        emit("}");
-        emit("");
+        emit("}")
+        emit("")
     }
     
     fun generateClass(item: ItemNode) {
         // Generate LLVM struct type for class
-        emit("; Class " + item.name);
+        emit("; Class " + item.name)
         emit("%class." + item.name + " = type { i32 }"); // Simplified class with one field
-        emit("");
+        emit("")
     }
     
     fun generateDefaultMain() {
-        emit("; Default main function");
-        emit("define i32 @main() {");
-        emit("entry:");
-        emit("  ret i32 0");
-        emit("}");
-        emit("");
+        emit("; Default main function")
+        emit("define i32 @main() {")
+        emit("entry:")
+        emit("  ret i32 0")
+        emit("}")
+        emit("")
     }
     
     fun generateStatement(stmt: StatementNode) -> String {
         if stmt.stmtType == "Return" {
-            return generateReturn(stmt);
+            return generateReturn(stmt)
         } else if stmt.stmtType == "Let" {
-            return generateLet(stmt);
+            return generateLet(stmt)
         } else if stmt.stmtType == "Var" {
-            return generateVar(stmt);
+            return generateVar(stmt)
         } else if stmt.stmtType == "If" {
-            return generateIf(stmt);
+            return generateIf(stmt)
         } else if stmt.stmtType == "While" {
-            return generateWhile(stmt);
+            return generateWhile(stmt)
         } else if stmt.stmtType == "For" {
-            return generateFor(stmt);
+            return generateFor(stmt)
         } else if stmt.stmtType == "Loop" {
-            return generateLoop(stmt);
+            return generateLoop(stmt)
         } else if stmt.stmtType == "Match" {
-            return generateMatch(stmt);
+            return generateMatch(stmt)
         } else if stmt.stmtType == "Break" {
-            return generateBreak(stmt);
+            return generateBreak(stmt)
         } else if stmt.stmtType == "Continue" {
-            return generateContinue(stmt);
+            return generateContinue(stmt)
         } else if stmt.stmtType == "Defer" {
-            return generateDefer(stmt);
+            return generateDefer(stmt)
         } else if stmt.stmtType == "Assert" {
-            return generateAssert(stmt);
+            return generateAssert(stmt)
         } else if stmt.stmtType == "Region" {
-            return generateRegion(stmt);
+            return generateRegion(stmt)
         } else if stmt.stmtType == "Arena" {
-            return generateArena(stmt);
+            return generateArena(stmt)
         } else if stmt.stmtType == "Expression" {
-            return generateExpressionStatement(stmt);
+            return generateExpressionStatement(stmt)
         }
         
-        return "";
+        return ""
     }
     
     fun generateReturn(stmt: StatementNode) -> String {
         // Generate return instruction
         let valueReg = generateExpression(null); // Should pass actual expression
-        emit("  ret i32 " + valueReg);
-        return "";
+        emit("  ret i32 " + valueReg)
+        return ""
     }
     
     fun generateLet(stmt: StatementNode) -> String {
         // Allocate stack space for variable
-        let reg = nextReg();
-        emit("  " + reg + " = alloca i32, align 4");
+        let reg = nextReg()
+        emit("  " + reg + " = alloca i32, align 4")
         
         // Store initial value
         let valueReg = generateExpression(null); // Should pass actual expression
-        emit("  store i32 " + valueReg + ", i32* " + reg + ", align 4");
+        emit("  store i32 " + valueReg + ", i32* " + reg + ", align 4")
         
         // Remember variable location
         variables.put("varname", reg); // Should use actual variable name
         
-        return reg;
+        return reg
     }
     
     fun generateIf(stmt: StatementNode) -> String {
         let condReg = generateExpression(null); // Should pass condition
         
-        let thenLabel = nextLabelName();
-        let elseLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let thenLabel = nextLabelName()
+        let elseLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
         // Branch on condition
-        emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel);
+        emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel)
         
         // Then block
-        emit(thenLabel + ":");
+        emit(thenLabel + ":")
         // Generate then statements
-        emit("  br label %" + endLabel);
+        emit("  br label %" + endLabel)
         
         // Else block
-        emit(elseLabel + ":");
+        emit(elseLabel + ":")
         // Generate else statements (if any)
-        emit("  br label %" + endLabel);
+        emit("  br label %" + endLabel)
         
         // End label
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
-        return "";
+        return ""
     }
     
     fun generateWhile(stmt: StatementNode) -> String {
-        let condLabel = nextLabelName();
-        let bodyLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let condLabel = nextLabelName()
+        let bodyLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
         // Jump to condition check
-        emit("  br label %" + condLabel);
+        emit("  br label %" + condLabel)
         
         // Condition check
-        emit(condLabel + ":");
+        emit(condLabel + ":")
         let condReg = generateExpression(null); // Should pass condition
-        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel);
+        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel)
         
         // Loop body
-        emit(bodyLabel + ":");
+        emit(bodyLabel + ":")
         // Generate body statements
-        emit("  br label %" + condLabel);
+        emit("  br label %" + condLabel)
         
         // End label
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
-        return "";
+        return ""
     }
     
     fun generateExpressionStatement(stmt: StatementNode) -> String {
@@ -253,209 +253,209 @@ class RealCodeGenerator {
     
     fun generateExpression(expr: ExpressionNode?) -> String {
         if expr == null {
-            return "0";
+            return "0"
         }
         
         if expr.exprType == "Literal" {
-            return generateLiteral(expr.literal);
+            return generateLiteral(expr.literal)
         } else if expr.exprType == "Identifier" {
-            return generateIdentifier(expr.identifier);
+            return generateIdentifier(expr.identifier)
         } else if expr.exprType == "Binary" {
-            return generateBinaryExpr(expr.binary);
+            return generateBinaryExpr(expr.binary)
         } else if expr.exprType == "Unary" {
-            return generateUnaryExpr(expr.unary);
+            return generateUnaryExpr(expr.unary)
         } else if expr.exprType == "Call" {
-            return generateCallExpr(expr.call);
+            return generateCallExpr(expr.call)
         } else if expr.exprType == "Member" {
-            return generateMemberExpr(expr.member);
+            return generateMemberExpr(expr.member)
         } else if expr.exprType == "Index" {
-            return generateIndexExpr(expr.index);
+            return generateIndexExpr(expr.index)
         } else if expr.exprType == "Cast" {
-            return generateCastExpr(expr.cast);
+            return generateCastExpr(expr.cast)
         } else if expr.exprType == "If" {
-            return generateIfExpr(expr.ifExpr);
+            return generateIfExpr(expr.ifExpr)
         } else if expr.exprType == "Match" {
-            return generateMatchExpr(expr.matchExpr);
+            return generateMatchExpr(expr.matchExpr)
         } else if expr.exprType == "Range" {
-            return generateRangeExpr(expr.rangeExpr);
+            return generateRangeExpr(expr.rangeExpr)
         } else if expr.exprType == "Lambda" {
-            return generateLambdaExpr(expr.lambda);
+            return generateLambdaExpr(expr.lambda)
         } else if expr.exprType == "Await" {
-            return generateAwaitExpr(expr.awaitExpr);
+            return generateAwaitExpr(expr.awaitExpr)
         } else if expr.exprType == "Spawn" {
-            return generateSpawnExpr(expr.spawnExpr);
+            return generateSpawnExpr(expr.spawnExpr)
         } else if expr.exprType == "StringInterpolation" {
-            return generateStringInterpolation(expr.stringInterp);
+            return generateStringInterpolation(expr.stringInterp)
         } else if expr.exprType == "Is" {
-            return generateIsExpr(expr.isExpr);
+            return generateIsExpr(expr.isExpr)
         } else if expr.exprType == "Elvis" {
-            return generateElvisExpr(expr.elvisExpr);
+            return generateElvisExpr(expr.elvisExpr)
         } else if expr.exprType == "ForceUnwrap" {
-            return generateForceUnwrap(expr.forceUnwrap);
+            return generateForceUnwrap(expr.forceUnwrap)
         }
         
         // Default fallback
-        return "0";
+        return "0"
     }
     
     fun generateLiteral(lit: LiteralNode?) -> String {
         if lit == null {
-            return "0";
+            return "0"
         }
         
         if lit.literalType == "Int" {
-            return lit.intValue.toString();
+            return lit.intValue.toString()
         } else if lit.literalType == "Float" {
-            return lit.floatValue.toString();
+            return lit.floatValue.toString()
         } else if lit.literalType == "Bool" {
-            return if lit.boolValue { "1" } else { "0" };
+            return if lit.boolValue { "1" } else { "0" }
         } else if lit.literalType == "String" {
             // Create string constant
-            return generateStringConstant(lit.stringValue);
+            return generateStringConstant(lit.stringValue)
         }
         
-        return "null";
+        return "null"
     }
     
     fun generateIdentifier(id: IdentifierNode?) -> String {
         if id == null {
-            return "0";
+            return "0"
         }
         
-        let varReg = variables.get(id.name);
+        let varReg = variables.get(id.name)
         if varReg != null {
             // Load from allocated variable
-            let loadReg = nextReg();
-            emit("  " + loadReg + " = load i32, i32* " + varReg + ", align 4");
-            return loadReg;
+            let loadReg = nextReg()
+            emit("  " + loadReg + " = load i32, i32* " + varReg + ", align 4")
+            return loadReg
         }
         
         // Unknown identifier - return 0
-        return "0";
+        return "0"
     }
     
     fun generateBinaryExpr(bin: BinaryNode?) -> String {
         if bin == null {
-            return "0";
+            return "0"
         }
         
-        let leftVal = generateExpression(bin.left);
-        let rightVal = generateExpression(bin.right);
+        let leftVal = generateExpression(bin.left)
+        let rightVal = generateExpression(bin.right)
         
         // Handle word-based operators (research-based design)
-        let op = bin.operator;
+        let op = bin.operator
         if op == "and" {
-            return generateLogicalAnd(leftVal, rightVal);
+            return generateLogicalAnd(leftVal, rightVal)
         } else if op == "or" {
-            return generateLogicalOr(leftVal, rightVal);
+            return generateLogicalOr(leftVal, rightVal)
         } else if op == "is" {
-            return generateTypeCheck(leftVal, rightVal);
+            return generateTypeCheck(leftVal, rightVal)
         } else if op == "as" {
-            return generateTypeCast(leftVal, rightVal);
+            return generateTypeCast(leftVal, rightVal)
         } else if op == "in" {
-            return generateInOperator(leftVal, rightVal);
+            return generateInOperator(leftVal, rightVal)
         }
         
-        return generateBinaryOpOptimized(leftVal, op, rightVal);
+        return generateBinaryOpOptimized(leftVal, op, rightVal)
     }
     
     fun generateUnaryExpr(un: UnaryNode?) -> String {
         if un == null {
-            return "0";
+            return "0"
         }
         
-        let operandVal = generateExpression(un.operand);
-        let resultReg = nextReg();
+        let operandVal = generateExpression(un.operand)
+        let resultReg = nextReg()
         
         if un.operator == "-" {
-            emit("  " + resultReg + " = sub i32 0, " + operandVal);
+            emit("  " + resultReg + " = sub i32 0, " + operandVal)
         } else if un.operator == "not" {  // Word-based operator
-            emit("  " + resultReg + " = xor i1 " + operandVal + ", true");
+            emit("  " + resultReg + " = xor i1 " + operandVal + ", true")
         } else if un.operator == "~" {
-            emit("  " + resultReg + " = xor i32 " + operandVal + ", -1");
+            emit("  " + resultReg + " = xor i32 " + operandVal + ", -1")
         } else if un.operator == "move" {  // Memory management
             // Move semantics - transfer ownership
             return operandVal; // In LLVM, move is implicit
         } else if un.operator == "borrow" {
             // Borrow semantics - create reference
-            emit("  " + resultReg + " = load i32, i32* " + operandVal);
-            return resultReg;
+            emit("  " + resultReg + " = load i32, i32* " + operandVal)
+            return resultReg
         } else if un.operator == "mut" {
             // Mutable borrow
             return operandVal; // Track mutability in type system
         }
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateCallExpr(call: CallNode?) -> String {
         if call == null {
-            return "0";
+            return "0"
         }
         
         // Get function name
-        let funcName = "unknown";
+        let funcName = "unknown"
         if call.function.exprType == "Identifier" {
-            funcName = call.function.identifier.name;
+            funcName = call.function.identifier.name
         }
         
         // Generate arguments
-        let args: List<String> = [];
+        let args: List<String> = []
         for arg in call.arguments {
-            args.append(generateExpression(arg));
+            args.append(generateExpression(arg))
         }
         
-        return generateCall(funcName, args);
+        return generateCall(funcName, args)
     }
     
     fun generateMemberExpr(mem: MemberNode?) -> String {
         if mem == null {
-            return "0";
+            return "0"
         }
         
         // Simplified member access
-        let objVal = generateExpression(mem.object);
+        let objVal = generateExpression(mem.object)
         // Would need struct type info to generate proper GEP instruction
-        return objVal;
+        return objVal
     }
     
     fun generateCastExpr(cast: CastNode?) -> String {
         if cast == null {
-            return "0";
+            return "0"
         }
         
-        let exprVal = generateExpression(cast.expr);
-        let targetType = mapTypeToLLVM(cast.targetType);
-        let resultReg = nextReg();
+        let exprVal = generateExpression(cast.expr)
+        let targetType = mapTypeToLLVM(cast.targetType)
+        let resultReg = nextReg()
         
         // Generate appropriate cast instruction
         if targetType == "double" {
-            emit("  " + resultReg + " = sitofp i32 " + exprVal + " to double");
+            emit("  " + resultReg + " = sitofp i32 " + exprVal + " to double")
         } else if targetType == "i64" {
-            emit("  " + resultReg + " = sext i32 " + exprVal + " to i64");
+            emit("  " + resultReg + " = sext i32 " + exprVal + " to i64")
         } else {
             // Default - no cast needed
-            return exprVal;
+            return exprVal
         }
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateBinaryOp(left: String, op: String, right: String) -> String {
-        return generateBinaryOpOptimized(left, op, right);
+        return generateBinaryOpOptimized(left, op, right)
     }
     
     fun generateBinaryOpOptimized(left: String, op: String, right: String) -> String {
-        let resultReg = nextReg();
+        let resultReg = nextReg()
         
         // Check for compile-time constants
-        let isLeftConst = isConstant(left);
-        let isRightConst = isConstant(right);
+        let isLeftConst = isConstant(left)
+        let isRightConst = isConstant(right)
         
         if isLeftConst and isRightConst {
             // Compile-time evaluation
-            let result = evaluateConstBinaryOp(left, op, right);
-            return result;
+            let result = evaluateConstBinaryOp(left, op, right)
+            return result
         }
         
         // Generate optimized instructions
@@ -463,13 +463,13 @@ class RealCodeGenerator {
             // Optimize x + 0 = x
             if right == "0" { return left; }
             if left == "0" { return right; }
-            emit("  " + resultReg + " = add nsw i32 " + left + ", " + right);
+            emit("  " + resultReg + " = add nsw i32 " + left + ", " + right)
         } else if op == "-" {
             // Optimize x - 0 = x
             if right == "0" { return left; }
             // Optimize x - x = 0
             if left == right { return "0"; }
-            emit("  " + resultReg + " = sub nsw i32 " + left + ", " + right);
+            emit("  " + resultReg + " = sub nsw i32 " + left + ", " + right)
         } else if op == "*" {
             // Optimize x * 1 = x
             if right == "1" { return left; }
@@ -478,181 +478,181 @@ class RealCodeGenerator {
             if right == "0" or left == "0" { return "0"; }
             // Optimize x * 2 = x << 1
             if right == "2" {
-                emit("  " + resultReg + " = shl nsw i32 " + left + ", 1");
+                emit("  " + resultReg + " = shl nsw i32 " + left + ", 1")
             } else if left == "2" {
-                emit("  " + resultReg + " = shl nsw i32 " + right + ", 1");
+                emit("  " + resultReg + " = shl nsw i32 " + right + ", 1")
             } else {
-                emit("  " + resultReg + " = mul nsw i32 " + left + ", " + right);
+                emit("  " + resultReg + " = mul nsw i32 " + left + ", " + right)
             }
         } else if op == "/" {
             // Optimize x / 1 = x
             if right == "1" { return left; }
             // Optimize x / 2 = x >> 1 (for unsigned)
             if right == "2" {
-                emit("  " + resultReg + " = ashr i32 " + left + ", 1");
+                emit("  " + resultReg + " = ashr i32 " + left + ", 1")
             } else {
-                emit("  " + resultReg + " = sdiv i32 " + left + ", " + right);
+                emit("  " + resultReg + " = sdiv i32 " + left + ", " + right)
             }
         } else if op == "%" {
-            emit("  " + resultReg + " = srem i32 " + left + ", " + right);
+            emit("  " + resultReg + " = srem i32 " + left + ", " + right)
         } else if op == "^" {
             // Optimize x ^ 0 = x
             if right == "0" { return left; }
             if left == "0" { return right; }
             // Optimize x ^ x = 0
             if left == right { return "0"; }
-            emit("  " + resultReg + " = xor i32 " + left + ", " + right);
+            emit("  " + resultReg + " = xor i32 " + left + ", " + right)
         } else if op == "&" {
             // Optimize x & 0 = 0
             if right == "0" or left == "0" { return "0"; }
             // Optimize x & -1 = x
             if right == "-1" { return left; }
             if left == "-1" { return right; }
-            emit("  " + resultReg + " = and i32 " + left + ", " + right);
+            emit("  " + resultReg + " = and i32 " + left + ", " + right)
         } else if op == "|" {
             // Optimize x | 0 = x
             if right == "0" { return left; }
             if left == "0" { return right; }
             // Optimize x | -1 = -1
             if right == "-1" or left == "-1" { return "-1"; }
-            emit("  " + resultReg + " = or i32 " + left + ", " + right);
+            emit("  " + resultReg + " = or i32 " + left + ", " + right)
         } else if op == "<<" {
-            emit("  " + resultReg + " = shl i32 " + left + ", " + right);
+            emit("  " + resultReg + " = shl i32 " + left + ", " + right)
         } else if op == ">>" {
-            emit("  " + resultReg + " = ashr i32 " + left + ", " + right);
+            emit("  " + resultReg + " = ashr i32 " + left + ", " + right)
         } else if op == "==" {
-            emit("  " + resultReg + " = icmp eq i32 " + left + ", " + right);
+            emit("  " + resultReg + " = icmp eq i32 " + left + ", " + right)
         } else if op == "!=" {
-            emit("  " + resultReg + " = icmp ne i32 " + left + ", " + right);
+            emit("  " + resultReg + " = icmp ne i32 " + left + ", " + right)
         } else if op == "<" {
-            emit("  " + resultReg + " = icmp slt i32 " + left + ", " + right);
+            emit("  " + resultReg + " = icmp slt i32 " + left + ", " + right)
         } else if op == ">" {
-            emit("  " + resultReg + " = icmp sgt i32 " + left + ", " + right);
+            emit("  " + resultReg + " = icmp sgt i32 " + left + ", " + right)
         } else if op == "<=" {
-            emit("  " + resultReg + " = icmp sle i32 " + left + ", " + right);
+            emit("  " + resultReg + " = icmp sle i32 " + left + ", " + right)
         } else if op == ">=" {
-            emit("  " + resultReg + " = icmp sge i32 " + left + ", " + right);
+            emit("  " + resultReg + " = icmp sge i32 " + left + ", " + right)
         } else if op == "and" {
             // Logical AND
-            let cmp1 = nextReg();
-            let cmp2 = nextReg();
-            emit("  " + cmp1 + " = icmp ne i32 " + left + ", 0");
-            emit("  " + cmp2 + " = icmp ne i32 " + right + ", 0");
-            emit("  " + resultReg + " = and i1 " + cmp1 + ", " + cmp2);
+            let cmp1 = nextReg()
+            let cmp2 = nextReg()
+            emit("  " + cmp1 + " = icmp ne i32 " + left + ", 0")
+            emit("  " + cmp2 + " = icmp ne i32 " + right + ", 0")
+            emit("  " + resultReg + " = and i1 " + cmp1 + ", " + cmp2)
         } else if op == "or" {
             // Logical OR
-            let cmp1 = nextReg();
-            let cmp2 = nextReg();
-            emit("  " + cmp1 + " = icmp ne i32 " + left + ", 0");
-            emit("  " + cmp2 + " = icmp ne i32 " + right + ", 0");
-            emit("  " + resultReg + " = or i1 " + cmp1 + ", " + cmp2);
+            let cmp1 = nextReg()
+            let cmp2 = nextReg()
+            emit("  " + cmp1 + " = icmp ne i32 " + left + ", 0")
+            emit("  " + cmp2 + " = icmp ne i32 " + right + ", 0")
+            emit("  " + resultReg + " = or i1 " + cmp1 + ", " + cmp2)
         }
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateCall(funcName: String, args: List<String>) -> String {
-        let resultReg = nextReg();
+        let resultReg = nextReg()
         
-        let argList = "";
+        let argList = ""
         for i in range(0, args.size()) {
             if i > 0 {
-                argList = argList + ", ";
+                argList = argList + ", "
             }
-            argList = argList + "i32 " + args[i];
+            argList = argList + "i32 " + args[i]
         }
         
-        emit("  " + resultReg + " = call i32 @" + funcName + "(" + argList + ")");
+        emit("  " + resultReg + " = call i32 @" + funcName + "(" + argList + ")")
         
-        return resultReg;
+        return resultReg
     }
     
     fun generatePrintInt(value: String) {
-        let reg = nextReg();
-        emit("  " + reg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.int, i64 0, i64 0), i32 " + value + ")");
+        let reg = nextReg()
+        emit("  " + reg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str.int, i64 0, i64 0), i32 " + value + ")")
     }
     
     fun generatePrintString(str: String) {
         // Create string constant
-        let strLabel = "@.str." + nextLabel.toString();
-        nextLabel = nextLabel + 1;
+        let strLabel = "@.str." + nextLabel.toString()
+        nextLabel = nextLabel + 1
         
         let len = str.length() + 1; // +1 for null terminator
-        emit(strLabel + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escapeString(str) + "\\00\", align 1");
+        emit(strLabel + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escapeString(str) + "\\00\", align 1")
         
-        let reg = nextReg();
-        emit("  " + reg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([" + len.toString() + " x i8], [" + len.toString() + " x i8]* " + strLabel + ", i64 0, i64 0))");
+        let reg = nextReg()
+        emit("  " + reg + " = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([" + len.toString() + " x i8], [" + len.toString() + " x i8]* " + strLabel + ", i64 0, i64 0))")
     }
     
     // Utility functions
     
     fun emit(line: String) {
-        output = output + line + "\n";
+        output = output + line + "\n"
     }
     
     fun nextReg() -> String {
-        let reg = "%" + nextRegister.toString();
-        nextRegister = nextRegister + 1;
-        return reg;
+        let reg = "%" + nextRegister.toString()
+        nextRegister = nextRegister + 1
+        return reg
     }
     
     fun nextLabelName() -> String {
-        let label = "label" + nextLabel.toString();
-        nextLabel = nextLabel + 1;
-        return label;
+        let label = "label" + nextLabel.toString()
+        nextLabel = nextLabel + 1
+        return label
     }
     
     fun hasMainFunction(ast: ProgramNode) -> Bool {
         for item in ast.items {
             if item.itemType == "Function" and item.name == "main" {
-                return true;
+                return true
             }
         }
-        return false;
+        return false
     }
     
     fun escapeString(str: String) -> String {
         // Escape special characters for LLVM IR
-        let result = "";
+        let result = ""
         for i in range(0, str.length()) {
-            let ch = str.charAt(i);
+            let ch = str.charAt(i)
             if ch == "\n" {
-                result = result + "\\0A";
+                result = result + "\\0A"
             } else if ch == "\t" {
-                result = result + "\\09";
+                result = result + "\\09"
             } else if ch == "\"" {
-                result = result + "\\22";
+                result = result + "\\22"
             } else if ch == "\\" {
-                result = result + "\\5C";
+                result = result + "\\5C"
             } else {
-                result = result + ch;
+                result = result + ch
             }
         }
-        return result;
+        return result
     }
     
     // New helper functions for optimized code generation
     
     fun generateBlock(block: BlockNode?) {
         if block == null {
-            return;
+            return
         }
         
         for stmt in block.statements {
-            generateStatement(stmt);
+            generateStatement(stmt)
         }
     }
     
     fun generateParameterList(params: List<ParamNode>) -> String {
-        let result = "";
+        let result = ""
         for i in range(0, params.size()) {
             if i > 0 {
-                result = result + ", ";
+                result = result + ", "
             }
-            let llvmType = mapTypeToLLVM(params[i].paramType);
-            result = result + llvmType + " %" + params[i].name;
+            let llvmType = mapTypeToLLVM(params[i].paramType)
+            result = result + llvmType + " %" + params[i].name
         }
-        return result;
+        return result
     }
     
     fun mapTypeToLLVM(typeNode: TypeNode?) -> String {
@@ -660,119 +660,119 @@ class RealCodeGenerator {
             return "i32"; // Default to i32
         }
         
-        let baseType = typeNode.typeName;
+        let baseType = typeNode.typeName
         
         // Map Seen types to LLVM types
         if baseType == "i32" or baseType == "Int" {
-            return "i32";
+            return "i32"
         } else if baseType == "i64" or baseType == "Long" {
-            return "i64";
+            return "i64"
         } else if baseType == "f32" or baseType == "Float" {
-            return "float";
+            return "float"
         } else if baseType == "f64" or baseType == "Double" {
-            return "double";
+            return "double"
         } else if baseType == "Bool" {
-            return "i1";
+            return "i1"
         } else if baseType == "String" {
-            return "i8*";
+            return "i8*"
         } else if baseType == "void" or baseType == "Void" {
-            return "void";
+            return "void"
         }
         
         // Handle nullable types
         if typeNode.isNullable {
             // Nullable types become pointers
-            return mapTypeToLLVM(TypeNode{ typeName: baseType, isNullable: false }) + "*";
+            return mapTypeToLLVM(TypeNode{ typeName: baseType, isNullable: false }) + "*"
         }
         
         // Handle arrays
         if typeNode.isArray {
-            let elemType = mapTypeToLLVM(TypeNode{ typeName: baseType, isNullable: false });
+            let elemType = mapTypeToLLVM(TypeNode{ typeName: baseType, isNullable: false })
             if typeNode.arraySize != null {
-                return "[" + typeNode.arraySize.toString() + " x " + elemType + "]";
+                return "[" + typeNode.arraySize.toString() + " x " + elemType + "]"
             } else {
                 return elemType + "*"; // Dynamic array
             }
         }
         
         // Default to opaque pointer for unknown types
-        return "i8*";
+        return "i8*"
     }
     
     fun isConstant(value: String) -> Bool {
         // Check if value is a numeric constant
         if value.length() == 0 {
-            return false;
+            return false
         }
         
-        let firstChar = value.charAt(0);
+        let firstChar = value.charAt(0)
         if firstChar == '-' {
             // Negative number
-            return value.length() > 1 and isDigit(value.charAt(1));
+            return value.length() > 1 and isDigit(value.charAt(1))
         }
         
-        return isDigit(firstChar);
+        return isDigit(firstChar)
     }
     
     fun isDigit(ch: String) -> Bool {
-        return ch >= "0" and ch <= "9";
+        return ch >= "0" and ch <= "9"
     }
     
     fun evaluateConstBinaryOp(left: String, op: String, right: String) -> String {
         // Parse constants
-        let leftVal = parseInt(left);
-        let rightVal = parseInt(right);
+        let leftVal = parseInt(left)
+        let rightVal = parseInt(right)
         
-        let result = 0;
+        let result = 0
         
         if op == "+" {
-            result = leftVal + rightVal;
+            result = leftVal + rightVal
         } else if op == "-" {
-            result = leftVal - rightVal;
+            result = leftVal - rightVal
         } else if op == "*" {
-            result = leftVal * rightVal;
+            result = leftVal * rightVal
         } else if op == "/" {
             if rightVal != 0 {
-                result = leftVal / rightVal;
+                result = leftVal / rightVal
             }
         } else if op == "%" {
             if rightVal != 0 {
-                result = leftVal % rightVal;
+                result = leftVal % rightVal
             }
         } else if op == "^" {
-            result = leftVal ^ rightVal;
+            result = leftVal ^ rightVal
         } else if op == "&" {
-            result = leftVal & rightVal;
+            result = leftVal & rightVal
         } else if op == "|" {
-            result = leftVal | rightVal;
+            result = leftVal | rightVal
         } else if op == "<<" {
-            result = leftVal << rightVal;
+            result = leftVal << rightVal
         } else if op == ">>" {
-            result = leftVal >> rightVal;
+            result = leftVal >> rightVal
         }
         
-        return result.toString();
+        return result.toString()
     }
     
     fun parseInt(str: String) -> Int {
         // Simple integer parsing
-        let result = 0;
-        let negative = false;
-        let startIdx = 0;
+        let result = 0
+        let negative = false
+        let startIdx = 0
         
         if str.length() > 0 and str.charAt(0) == "-" {
-            negative = true;
-            startIdx = 1;
+            negative = true
+            startIdx = 1
         }
         
         for i in range(startIdx, str.length()) {
-            let ch = str.charAt(i);
+            let ch = str.charAt(i)
             if ch >= "0" and ch <= "9" {
-                result = result * 10 + (charToInt(ch));
+                result = result * 10 + (charToInt(ch))
             }
         }
         
-        return if negative { -result } else { result };
+        return if negative { -result } else { result }
     }
     
     fun charToInt(ch: String) -> Int {
@@ -787,606 +787,606 @@ class RealCodeGenerator {
         if ch == "7" { return 7; }
         if ch == "8" { return 8; }
         if ch == "9" { return 9; }
-        return 0;
+        return 0
     }
     
     fun generateStringConstant(str: String?) -> String {
         if str == null {
-            return "null";
+            return "null"
         }
         
-        let strLabel = "@.str." + nextLabel.toString();
-        nextLabel = nextLabel + 1;
+        let strLabel = "@.str." + nextLabel.toString()
+        nextLabel = nextLabel + 1
         
-        let escaped = escapeString(str);
+        let escaped = escapeString(str)
         let len = str.length() + 1; // +1 for null terminator
         
         // Add to module-level string constants
-        emit(strLabel + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\", align 1");
+        emit(strLabel + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\", align 1")
         
         // Return pointer to string
-        let reg = nextReg();
-        emit("  " + reg + " = getelementptr inbounds [" + len.toString() + " x i8], [" + len.toString() + " x i8]* " + strLabel + ", i64 0, i64 0");
+        let reg = nextReg()
+        emit("  " + reg + " = getelementptr inbounds [" + len.toString() + " x i8], [" + len.toString() + " x i8]* " + strLabel + ", i64 0, i64 0")
         
-        return reg;
+        return reg
     }
     
     // NEW CODE GENERATION FUNCTIONS FOR SYNTAX DESIGN FEATURES
     
     fun generateVar(stmt: StatementNode) -> String {
         // Mutable variable (var vs let)
-        let varStmt = stmt.varStmt;
+        let varStmt = stmt.varStmt
         if varStmt == null {
-            return "";
+            return ""
         }
         
-        let reg = nextReg();
-        let typeStr = if varStmt.varType != null { mapTypeToLLVM(varStmt.varType) } else { "i32" };
+        let reg = nextReg()
+        let typeStr = if varStmt.varType != null { mapTypeToLLVM(varStmt.varType) } else { "i32" }
         
-        emit("  " + reg + " = alloca " + typeStr + ", align 8");
+        emit("  " + reg + " = alloca " + typeStr + ", align 8")
         
         if varStmt.value != null {
-            let valueReg = generateExpression(varStmt.value);
-            emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8");
+            let valueReg = generateExpression(varStmt.value)
+            emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8")
         }
         
-        variables.put(varStmt.name, reg);
-        return reg;
+        variables.put(varStmt.name, reg)
+        return reg
     }
     
     fun generateFor(stmt: StatementNode) -> String {
-        let forStmt = stmt.forStmt;
+        let forStmt = stmt.forStmt
         if forStmt == null {
-            return "";
+            return ""
         }
         
-        let condLabel = nextLabelName();
-        let bodyLabel = nextLabelName();
-        let incrementLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let condLabel = nextLabelName()
+        let bodyLabel = nextLabelName()
+        let incrementLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
         // Initialize loop variable
-        let loopVar = nextReg();
-        emit("  " + loopVar + " = alloca i32, align 4");
+        let loopVar = nextReg()
+        emit("  " + loopVar + " = alloca i32, align 4")
         
         // Generate iterable (range or collection)
-        let iterableReg = generateExpression(forStmt.iterable);
+        let iterableReg = generateExpression(forStmt.iterable)
         
-        emit("  br label %" + condLabel);
+        emit("  br label %" + condLabel)
         
         // Condition check
-        emit(condLabel + ":");
-        let currentVal = nextReg();
-        emit("  " + currentVal + " = load i32, i32* " + loopVar + ", align 4");
+        emit(condLabel + ":")
+        let currentVal = nextReg()
+        emit("  " + currentVal + " = load i32, i32* " + loopVar + ", align 4")
         // Check if in range/collection
-        let condReg = nextReg();
+        let condReg = nextReg()
         emit("  " + condReg + " = icmp slt i32 " + currentVal + ", 10"); // Simplified
-        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel);
+        emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel)
         
         // Loop body
-        emit(bodyLabel + ":");
-        variables.put(forStmt.variable, loopVar);
-        generateBlock(forStmt.body);
-        emit("  br label %" + incrementLabel);
+        emit(bodyLabel + ":")
+        variables.put(forStmt.variable, loopVar)
+        generateBlock(forStmt.body)
+        emit("  br label %" + incrementLabel)
         
         // Increment
-        emit(incrementLabel + ":");
-        let nextVal = nextReg();
-        emit("  " + nextVal + " = add i32 " + currentVal + ", 1");
-        emit("  store i32 " + nextVal + ", i32* " + loopVar + ", align 4");
-        emit("  br label %" + condLabel);
+        emit(incrementLabel + ":")
+        let nextVal = nextReg()
+        emit("  " + nextVal + " = add i32 " + currentVal + ", 1")
+        emit("  store i32 " + nextVal + ", i32* " + loopVar + ", align 4")
+        emit("  br label %" + condLabel)
         
         // End
-        emit(endLabel + ":");
+        emit(endLabel + ":")
         
-        return "";
+        return ""
     }
     
     fun generateLoop(stmt: StatementNode) -> String {
-        let loopStmt = stmt.loopStmt;
+        let loopStmt = stmt.loopStmt
         if loopStmt == null {
-            return "";
+            return ""
         }
         
-        let loopLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let loopLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
         if loopStmt.label != null {
             // Store label for break/continue
             // Would need a label stack in production
         }
         
-        emit("  br label %" + loopLabel);
-        emit(loopLabel + ":");
+        emit("  br label %" + loopLabel)
+        emit(loopLabel + ":")
         
-        generateBlock(loopStmt.body);
+        generateBlock(loopStmt.body)
         
-        emit("  br label %" + loopLabel);
-        emit(endLabel + ":");
+        emit("  br label %" + loopLabel)
+        emit(endLabel + ":")
         
-        return "";
+        return ""
     }
     
     fun generateMatch(stmt: StatementNode) -> String {
-        let matchStmt = stmt.matchStmt;
+        let matchStmt = stmt.matchStmt
         if matchStmt == null {
-            return "";
+            return ""
         }
         
-        let exprReg = generateExpression(matchStmt.expr);
-        let endLabel = nextLabelName();
+        let exprReg = generateExpression(matchStmt.expr)
+        let endLabel = nextLabelName()
         
         // Generate each match arm
         for arm in matchStmt.arms {
-            let armLabel = nextLabelName();
-            let nextLabel = nextLabelName();
+            let armLabel = nextLabelName()
+            let nextLabel = nextLabelName()
             
             // Pattern matching
-            let matches = generatePattern(arm.pattern, exprReg);
+            let matches = generatePattern(arm.pattern, exprReg)
             
             // Check guard if present
             if arm.guard != null {
-                let guardReg = generateExpression(arm.guard);
-                let guardCheck = nextReg();
-                emit("  " + guardCheck + " = and i1 " + matches + ", " + guardReg);
-                matches = guardCheck;
+                let guardReg = generateExpression(arm.guard)
+                let guardCheck = nextReg()
+                emit("  " + guardCheck + " = and i1 " + matches + ", " + guardReg)
+                matches = guardCheck
             }
             
-            emit("  br i1 " + matches + ", label %" + armLabel + ", label %" + nextLabel);
+            emit("  br i1 " + matches + ", label %" + armLabel + ", label %" + nextLabel)
             
-            emit(armLabel + ":");
-            generateExpression(arm.body);
-            emit("  br label %" + endLabel);
+            emit(armLabel + ":")
+            generateExpression(arm.body)
+            emit("  br label %" + endLabel)
             
-            emit(nextLabel + ":");
+            emit(nextLabel + ":")
         }
         
-        emit(endLabel + ":");
-        return "";
+        emit(endLabel + ":")
+        return ""
     }
     
     fun generatePattern(pattern: PatternNode, valueReg: String) -> String {
         if pattern.patternType == "Literal" {
-            let litVal = generateLiteral(pattern.literal);
-            let cmpReg = nextReg();
-            emit("  " + cmpReg + " = icmp eq i32 " + valueReg + ", " + litVal);
-            return cmpReg;
+            let litVal = generateLiteral(pattern.literal)
+            let cmpReg = nextReg()
+            emit("  " + cmpReg + " = icmp eq i32 " + valueReg + ", " + litVal)
+            return cmpReg
         } else if pattern.patternType == "Identifier" {
             // Bind to variable
-            variables.put(pattern.identifier, valueReg);
+            variables.put(pattern.identifier, valueReg)
             return "true"; // Always matches
         } else if pattern.patternType == "Wildcard" {
             return "true"; // _ always matches
         } else if pattern.patternType == "Range" {
-            return generateRangePattern(pattern.rangePattern, valueReg);
+            return generateRangePattern(pattern.rangePattern, valueReg)
         }
         
-        return "false";
+        return "false"
     }
     
     fun generateRangePattern(range: RangePatternNode?, valueReg: String) -> String {
         if range == null {
-            return "false";
+            return "false"
         }
         
-        let result = nextReg();
+        let result = nextReg()
         
         if range.start != null and range.end != null {
-            let startVal = generateExpression(range.start);
-            let endVal = generateExpression(range.end);
+            let startVal = generateExpression(range.start)
+            let endVal = generateExpression(range.end)
             
-            let geStart = nextReg();
-            let leEnd = nextReg();
+            let geStart = nextReg()
+            let leEnd = nextReg()
             
-            emit("  " + geStart + " = icmp sge i32 " + valueReg + ", " + startVal);
+            emit("  " + geStart + " = icmp sge i32 " + valueReg + ", " + startVal)
             
             if range.isInclusive {
-                emit("  " + leEnd + " = icmp sle i32 " + valueReg + ", " + endVal);
+                emit("  " + leEnd + " = icmp sle i32 " + valueReg + ", " + endVal)
             } else {
-                emit("  " + leEnd + " = icmp slt i32 " + valueReg + ", " + endVal);
+                emit("  " + leEnd + " = icmp slt i32 " + valueReg + ", " + endVal)
             }
             
-            emit("  " + result + " = and i1 " + geStart + ", " + leEnd);
+            emit("  " + result + " = and i1 " + geStart + ", " + leEnd)
         }
         
-        return result;
+        return result
     }
     
     fun generateBreak(stmt: StatementNode) -> String {
-        let breakStmt = stmt.breakStmt;
+        let breakStmt = stmt.breakStmt
         
         if breakStmt != null and breakStmt.value != null {
             // Loop with return value
-            let valueReg = generateExpression(breakStmt.value);
+            let valueReg = generateExpression(breakStmt.value)
             // Store in loop result variable
         }
         
         // Jump to loop end label
         emit("  br label %loop_end"); // Simplified - need label stack
-        return "";
+        return ""
     }
     
     fun generateContinue(stmt: StatementNode) -> String {
         // Jump to loop condition label
         emit("  br label %loop_cond"); // Simplified - need label stack
-        return "";
+        return ""
     }
     
     fun generateDefer(stmt: StatementNode) -> String {
         // Defer executes at scope exit
         // Need to track and emit at function/scope end
-        let deferStmt = stmt.deferStmt;
+        let deferStmt = stmt.deferStmt
         if deferStmt != null {
             // Store defer block for later execution
             // In production, maintain defer stack
         }
-        return "";
+        return ""
     }
     
     fun generateAssert(stmt: StatementNode) -> String {
-        let assertStmt = stmt.assertStmt;
+        let assertStmt = stmt.assertStmt
         if assertStmt == null {
-            return "";
+            return ""
         }
         
-        let condReg = generateExpression(assertStmt.condition);
-        let passLabel = nextLabelName();
-        let failLabel = nextLabelName();
+        let condReg = generateExpression(assertStmt.condition)
+        let passLabel = nextLabelName()
+        let failLabel = nextLabelName()
         
-        emit("  br i1 " + condReg + ", label %" + passLabel + ", label %" + failLabel);
+        emit("  br i1 " + condReg + ", label %" + passLabel + ", label %" + failLabel)
         
-        emit(failLabel + ":");
+        emit(failLabel + ":")
         if assertStmt.message != null {
-            let msgReg = generateExpression(assertStmt.message);
-            generatePrintString("Assertion failed: ");
+            let msgReg = generateExpression(assertStmt.message)
+            generatePrintString("Assertion failed: ")
             // Print message
         }
-        emit("  call void @abort()");
-        emit("  unreachable");
+        emit("  call void @abort()")
+        emit("  unreachable")
         
-        emit(passLabel + ":");
+        emit(passLabel + ":")
         
-        return "";
+        return ""
     }
     
     fun generateRegion(stmt: StatementNode) -> String {
         // Region-based memory management
-        let regionStmt = stmt.regionStmt;
+        let regionStmt = stmt.regionStmt
         if regionStmt == null {
-            return "";
+            return ""
         }
         
         // Allocate region
-        emit("  ; Begin region " + (regionStmt.name ?: "anonymous"));
+        emit("  ; Begin region " + (regionStmt.name ?: "anonymous"))
         
-        generateBlock(regionStmt.body);
+        generateBlock(regionStmt.body)
         
         // Free region
-        emit("  ; End region - all memory freed");
+        emit("  ; End region - all memory freed")
         
-        return "";
+        return ""
     }
     
     fun generateArena(stmt: StatementNode) -> String {
         // Arena allocation
-        let arenaStmt = stmt.arenaStmt;
+        let arenaStmt = stmt.arenaStmt
         if arenaStmt == null {
-            return "";
+            return ""
         }
         
-        emit("  ; Begin arena allocation");
+        emit("  ; Begin arena allocation")
         
-        generateBlock(arenaStmt.body);
+        generateBlock(arenaStmt.body)
         
-        emit("  ; End arena - bulk free");
+        emit("  ; End arena - bulk free")
         
-        return "";
+        return ""
     }
     
     fun generateIndexExpr(index: IndexNode?) -> String {
         if index == null {
-            return "0";
+            return "0"
         }
         
-        let objReg = generateExpression(index.object);
-        let idxReg = generateExpression(index.index);
+        let objReg = generateExpression(index.object)
+        let idxReg = generateExpression(index.index)
         
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = getelementptr i32, i32* " + objReg + ", i32 " + idxReg);
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = getelementptr i32, i32* " + objReg + ", i32 " + idxReg)
         
-        let valueReg = nextReg();
-        emit("  " + valueReg + " = load i32, i32* " + resultReg + ", align 4");
+        let valueReg = nextReg()
+        emit("  " + valueReg + " = load i32, i32* " + resultReg + ", align 4")
         
-        return valueReg;
+        return valueReg
     }
     
     fun generateIfExpr(ifExpr: IfExpressionNode?) -> String {
         if ifExpr == null {
-            return "0";
+            return "0"
         }
         
-        let condReg = generateExpression(ifExpr.condition);
-        let thenLabel = nextLabelName();
-        let elseLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let condReg = generateExpression(ifExpr.condition)
+        let thenLabel = nextLabelName()
+        let elseLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = alloca i32, align 4");
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = alloca i32, align 4")
         
-        emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel);
+        emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel)
         
-        emit(thenLabel + ":");
-        let thenVal = generateExpression(ifExpr.thenExpr);
-        emit("  store i32 " + thenVal + ", i32* " + resultReg + ", align 4");
-        emit("  br label %" + endLabel);
+        emit(thenLabel + ":")
+        let thenVal = generateExpression(ifExpr.thenExpr)
+        emit("  store i32 " + thenVal + ", i32* " + resultReg + ", align 4")
+        emit("  br label %" + endLabel)
         
-        emit(elseLabel + ":");
-        let elseVal = generateExpression(ifExpr.elseExpr);
-        emit("  store i32 " + elseVal + ", i32* " + resultReg + ", align 4");
-        emit("  br label %" + endLabel);
+        emit(elseLabel + ":")
+        let elseVal = generateExpression(ifExpr.elseExpr)
+        emit("  store i32 " + elseVal + ", i32* " + resultReg + ", align 4")
+        emit("  br label %" + endLabel)
         
-        emit(endLabel + ":");
-        let finalReg = nextReg();
-        emit("  " + finalReg + " = load i32, i32* " + resultReg + ", align 4");
+        emit(endLabel + ":")
+        let finalReg = nextReg()
+        emit("  " + finalReg + " = load i32, i32* " + resultReg + ", align 4")
         
-        return finalReg;
+        return finalReg
     }
     
     fun generateMatchExpr(match: MatchExpressionNode?) -> String {
         // Similar to generateMatch but returns value
         if match == null {
-            return "0";
+            return "0"
         }
         
-        let exprReg = generateExpression(match.expr);
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = alloca i32, align 4");
+        let exprReg = generateExpression(match.expr)
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = alloca i32, align 4")
         
         // Generate match arms...
         // Store result in resultReg
         
-        let finalReg = nextReg();
-        emit("  " + finalReg + " = load i32, i32* " + resultReg + ", align 4");
+        let finalReg = nextReg()
+        emit("  " + finalReg + " = load i32, i32* " + resultReg + ", align 4")
         
-        return finalReg;
+        return finalReg
     }
     
     fun generateRangeExpr(range: RangeNode?) -> String {
         if range == null {
-            return "0";
+            return "0"
         }
         
         // Ranges are typically used in for loops
         // Return struct with start, end, inclusive flag
-        let rangeReg = nextReg();
-        emit("  " + rangeReg + " = alloca %Range, align 8");
+        let rangeReg = nextReg()
+        emit("  " + rangeReg + " = alloca %Range, align 8")
         
         if range.start != null {
-            let startVal = generateExpression(range.start);
-            let startPtr = nextReg();
-            emit("  " + startPtr + " = getelementptr %Range, %Range* " + rangeReg + ", i32 0, i32 0");
-            emit("  store i32 " + startVal + ", i32* " + startPtr + ", align 4");
+            let startVal = generateExpression(range.start)
+            let startPtr = nextReg()
+            emit("  " + startPtr + " = getelementptr %Range, %Range* " + rangeReg + ", i32 0, i32 0")
+            emit("  store i32 " + startVal + ", i32* " + startPtr + ", align 4")
         }
         
         if range.end != null {
-            let endVal = generateExpression(range.end);
-            let endPtr = nextReg();
-            emit("  " + endPtr + " = getelementptr %Range, %Range* " + rangeReg + ", i32 0, i32 1");
-            emit("  store i32 " + endVal + ", i32* " + endPtr + ", align 4");
+            let endVal = generateExpression(range.end)
+            let endPtr = nextReg()
+            emit("  " + endPtr + " = getelementptr %Range, %Range* " + rangeReg + ", i32 0, i32 1")
+            emit("  store i32 " + endVal + ", i32* " + endPtr + ", align 4")
         }
         
-        return rangeReg;
+        return rangeReg
     }
     
     fun generateLambdaExpr(lambda: LambdaNode?) -> String {
         if lambda == null {
-            return "0";
+            return "0"
         }
         
         // Generate closure/lambda function
-        let lambdaName = "@lambda." + nextLabel.toString();
-        nextLabel = nextLabel + 1;
+        let lambdaName = "@lambda." + nextLabel.toString()
+        nextLabel = nextLabel + 1
         
         // Generate lambda function separately
         // Return function pointer
-        return lambdaName;
+        return lambdaName
     }
     
     fun generateAwaitExpr(await: AwaitNode?) -> String {
         if await == null {
-            return "0";
+            return "0"
         }
         
         // Async/await support
-        let futureReg = generateExpression(await.expr);
+        let futureReg = generateExpression(await.expr)
         
         // Call runtime await function
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = call i32 @__await(i8* " + futureReg + ")");
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = call i32 @__await(i8* " + futureReg + ")")
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateSpawnExpr(spawn: SpawnNode?) -> String {
         if spawn == null {
-            return "0";
+            return "0"
         }
         
         // Spawn concurrent task
-        let taskReg = generateExpression(spawn.expr);
+        let taskReg = generateExpression(spawn.expr)
         
-        let handleReg = nextReg();
+        let handleReg = nextReg()
         if spawn.isActor {
-            emit("  " + handleReg + " = call i8* @__spawn_actor(i8* " + taskReg + ")");
+            emit("  " + handleReg + " = call i8* @__spawn_actor(i8* " + taskReg + ")")
         } else {
-            emit("  " + handleReg + " = call i8* @__spawn_task(i8* " + taskReg + ")");
+            emit("  " + handleReg + " = call i8* @__spawn_task(i8* " + taskReg + ")")
         }
         
-        return handleReg;
+        return handleReg
     }
     
     fun generateStringInterpolation(interp: StringInterpolationNode?) -> String {
         if interp == null {
-            return generateStringConstant("");
+            return generateStringConstant("")
         }
         
         // Build string from parts
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = call i8* @__string_new()");
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = call i8* @__string_new()")
         
         for part in interp.parts {
             if part.isLiteral {
-                let litReg = generateStringConstant(part.literal);
-                emit("  call void @__string_append_str(i8* " + resultReg + ", i8* " + litReg + ")");
+                let litReg = generateStringConstant(part.literal)
+                emit("  call void @__string_append_str(i8* " + resultReg + ", i8* " + litReg + ")")
             } else if part.expr != null {
-                let exprReg = generateExpression(part.expr);
+                let exprReg = generateExpression(part.expr)
                 // Convert to string and append
-                let strReg = nextReg();
-                emit("  " + strReg + " = call i8* @__to_string(i32 " + exprReg + ")");
-                emit("  call void @__string_append_str(i8* " + resultReg + ", i8* " + strReg + ")");
+                let strReg = nextReg()
+                emit("  " + strReg + " = call i8* @__to_string(i32 " + exprReg + ")")
+                emit("  call void @__string_append_str(i8* " + resultReg + ", i8* " + strReg + ")")
             }
         }
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateIsExpr(isExpr: IsExpressionNode?) -> String {
         if isExpr == null {
-            return "0";
+            return "0"
         }
         
         // Type checking at runtime
-        let valueReg = generateExpression(isExpr.expr);
-        let typeId = mapTypeToTypeId(isExpr.typeNode);
+        let valueReg = generateExpression(isExpr.expr)
+        let typeId = mapTypeToTypeId(isExpr.typeNode)
         
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = call i1 @__type_check(i8* " + valueReg + ", i32 " + typeId + ")");
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = call i1 @__type_check(i8* " + valueReg + ", i32 " + typeId + ")")
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateElvisExpr(elvis: ElvisNode?) -> String {
         if elvis == null {
-            return "0";
+            return "0"
         }
         
         // Null coalescing operator (?:)
-        let nullableReg = generateExpression(elvis.nullable);
-        let defaultReg = generateExpression(elvis.defaultValue);
+        let nullableReg = generateExpression(elvis.nullable)
+        let defaultReg = generateExpression(elvis.defaultValue)
         
-        let isNullReg = nextReg();
-        emit("  " + isNullReg + " = icmp eq i8* " + nullableReg + ", null");
+        let isNullReg = nextReg()
+        emit("  " + isNullReg + " = icmp eq i8* " + nullableReg + ", null")
         
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = select i1 " + isNullReg + ", i8* " + defaultReg + ", i8* " + nullableReg);
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = select i1 " + isNullReg + ", i8* " + defaultReg + ", i8* " + nullableReg)
         
-        return resultReg;
+        return resultReg
     }
     
     fun generateForceUnwrap(unwrap: ForceUnwrapNode?) -> String {
         if unwrap == null {
-            return "0";
+            return "0"
         }
         
         // Force unwrap nullable (!!)
-        let nullableReg = generateExpression(unwrap.expr);
+        let nullableReg = generateExpression(unwrap.expr)
         
         // Check for null and abort if null
-        let isNullReg = nextReg();
-        emit("  " + isNullReg + " = icmp eq i8* " + nullableReg + ", null");
+        let isNullReg = nextReg()
+        emit("  " + isNullReg + " = icmp eq i8* " + nullableReg + ", null")
         
-        let okLabel = nextLabelName();
-        let panicLabel = nextLabelName();
+        let okLabel = nextLabelName()
+        let panicLabel = nextLabelName()
         
-        emit("  br i1 " + isNullReg + ", label %" + panicLabel + ", label %" + okLabel);
+        emit("  br i1 " + isNullReg + ", label %" + panicLabel + ", label %" + okLabel)
         
-        emit(panicLabel + ":");
-        emit("  call void @__panic(i8* getelementptr inbounds ([25 x i8], [25 x i8]* @.str.force_unwrap_null, i64 0, i64 0))");
-        emit("  unreachable");
+        emit(panicLabel + ":")
+        emit("  call void @__panic(i8* getelementptr inbounds ([25 x i8], [25 x i8]* @.str.force_unwrap_null, i64 0, i64 0))")
+        emit("  unreachable")
         
-        emit(okLabel + ":");
+        emit(okLabel + ":")
         
-        return nullableReg;
+        return nullableReg
     }
     
     fun generateLogicalAnd(left: String, right: String) -> String {
         // Short-circuit AND evaluation
-        let resultReg = nextReg();
-        let rightLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let resultReg = nextReg()
+        let rightLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
-        emit("  " + resultReg + " = alloca i1, align 1");
+        emit("  " + resultReg + " = alloca i1, align 1")
         
         // Check left
-        let leftBool = nextReg();
-        emit("  " + leftBool + " = icmp ne i32 " + left + ", 0");
-        emit("  br i1 " + leftBool + ", label %" + rightLabel + ", label %" + endLabel);
+        let leftBool = nextReg()
+        emit("  " + leftBool + " = icmp ne i32 " + left + ", 0")
+        emit("  br i1 " + leftBool + ", label %" + rightLabel + ", label %" + endLabel)
         
         // Evaluate right if left is true
-        emit(rightLabel + ":");
-        let rightBool = nextReg();
-        emit("  " + rightBool + " = icmp ne i32 " + right + ", 0");
-        emit("  store i1 " + rightBool + ", i1* " + resultReg + ", align 1");
-        emit("  br label %" + endLabel);
+        emit(rightLabel + ":")
+        let rightBool = nextReg()
+        emit("  " + rightBool + " = icmp ne i32 " + right + ", 0")
+        emit("  store i1 " + rightBool + ", i1* " + resultReg + ", align 1")
+        emit("  br label %" + endLabel)
         
-        emit(endLabel + ":");
-        let finalReg = nextReg();
-        emit("  " + finalReg + " = load i1, i1* " + resultReg + ", align 1");
+        emit(endLabel + ":")
+        let finalReg = nextReg()
+        emit("  " + finalReg + " = load i1, i1* " + resultReg + ", align 1")
         
-        return finalReg;
+        return finalReg
     }
     
     fun generateLogicalOr(left: String, right: String) -> String {
         // Short-circuit OR evaluation
-        let resultReg = nextReg();
-        let rightLabel = nextLabelName();
-        let endLabel = nextLabelName();
+        let resultReg = nextReg()
+        let rightLabel = nextLabelName()
+        let endLabel = nextLabelName()
         
-        emit("  " + resultReg + " = alloca i1, align 1");
+        emit("  " + resultReg + " = alloca i1, align 1")
         
         // Check left
-        let leftBool = nextReg();
-        emit("  " + leftBool + " = icmp ne i32 " + left + ", 0");
-        emit("  br i1 " + leftBool + ", label %" + endLabel + ", label %" + rightLabel);
+        let leftBool = nextReg()
+        emit("  " + leftBool + " = icmp ne i32 " + left + ", 0")
+        emit("  br i1 " + leftBool + ", label %" + endLabel + ", label %" + rightLabel)
         
         // Evaluate right if left is false
-        emit(rightLabel + ":");
-        let rightBool = nextReg();
-        emit("  " + rightBool + " = icmp ne i32 " + right + ", 0");
-        emit("  store i1 " + rightBool + ", i1* " + resultReg + ", align 1");
-        emit("  br label %" + endLabel);
+        emit(rightLabel + ":")
+        let rightBool = nextReg()
+        emit("  " + rightBool + " = icmp ne i32 " + right + ", 0")
+        emit("  store i1 " + rightBool + ", i1* " + resultReg + ", align 1")
+        emit("  br label %" + endLabel)
         
-        emit(endLabel + ":");
-        let finalReg = nextReg();
-        emit("  " + finalReg + " = load i1, i1* " + resultReg + ", align 1");
+        emit(endLabel + ":")
+        let finalReg = nextReg()
+        emit("  " + finalReg + " = load i1, i1* " + resultReg + ", align 1")
         
-        return finalReg;
+        return finalReg
     }
     
     fun generateTypeCheck(value: String, typeReg: String) -> String {
         // Runtime type checking (is operator)
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = call i1 @__instanceof(i8* " + value + ", i8* " + typeReg + ")");
-        return resultReg;
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = call i1 @__instanceof(i8* " + value + ", i8* " + typeReg + ")")
+        return resultReg
     }
     
     fun generateTypeCast(value: String, targetType: String) -> String {
         // Type casting (as operator)
-        let resultReg = nextReg();
+        let resultReg = nextReg()
         emit("  " + resultReg + " = bitcast i8* " + value + " to i8*"); // Simplified
-        return resultReg;
+        return resultReg
     }
     
     fun generateInOperator(value: String, collection: String) -> String {
         // Check if value is in collection
-        let resultReg = nextReg();
-        emit("  " + resultReg + " = call i1 @__contains(i8* " + collection + ", i32 " + value + ")");
-        return resultReg;
+        let resultReg = nextReg()
+        emit("  " + resultReg + " = call i1 @__contains(i8* " + collection + ", i32 " + value + ")")
+        return resultReg
     }
     
     fun mapTypeToTypeId(typeNode: TypeNode?) -> String {
         if typeNode == null {
-            return "0";
+            return "0"
         }
         
         // Map type names to runtime type IDs
@@ -1395,110 +1395,110 @@ class RealCodeGenerator {
         if typeNode.typeName == "String" { return "3"; }
         if typeNode.typeName == "Bool" { return "4"; }
         
-        return "0";
+        return "0"
     }
 }
 
 // Complete compiler pipeline
 class RealCompiler {
-    var lexer: RealLexer;
-    var parser: RealParser;
-    var codegen: RealCodeGenerator;
+    var lexer: RealLexer
+    var parser: RealParser
+    var codegen: RealCodeGenerator
     
     fun new() -> RealCompiler {
         return RealCompiler{
             lexer: RealLexer{},
             parser: RealParser{},
             codegen: RealCodeGenerator{}
-        };
+        }
     }
     
     fun compile(source: String) -> String {
-        println("=== REAL COMPILATION STARTING ===");
+        println("=== REAL COMPILATION STARTING ===")
         
         // Step 1: Tokenize
-        println("Step 1: Tokenizing...");
-        lexer = RealLexer{ source: source };
-        let tokens = lexer.tokenize();
-        println("  Generated " + tokens.size().toString() + " tokens");
+        println("Step 1: Tokenizing...")
+        lexer = RealLexer{ source: source }
+        let tokens = lexer.tokenize()
+        println("  Generated " + tokens.size().toString() + " tokens")
         
         // Step 2: Parse
-        println("Step 2: Parsing...");
-        parser = RealParser{ tokens: tokens };
-        let ast = parser.parse();
-        println("  Built AST with " + ast.items.size().toString() + " items");
+        println("Step 2: Parsing...")
+        parser = RealParser{ tokens: tokens }
+        let ast = parser.parse()
+        println("  Built AST with " + ast.items.size().toString() + " items")
         
         // Step 3: Generate LLVM IR
-        println("Step 3: Generating LLVM IR...");
-        codegen = RealCodeGenerator{};
-        let llvmIR = codegen.generate(ast);
-        println("  Generated " + countLines(llvmIR).toString() + " lines of LLVM IR");
+        println("Step 3: Generating LLVM IR...")
+        codegen = RealCodeGenerator{}
+        let llvmIR = codegen.generate(ast)
+        println("  Generated " + countLines(llvmIR).toString() + " lines of LLVM IR")
         
-        println("=== COMPILATION COMPLETE ===");
+        println("=== COMPILATION COMPLETE ===")
         
-        return llvmIR;
+        return llvmIR
     }
     
     fun compileToFile(source: String, outputPath: String) -> Bool {
-        let llvmIR = compile(source);
+        let llvmIR = compile(source)
         
         // Write LLVM IR to file
-        writeFile(outputPath, llvmIR);
+        writeFile(outputPath, llvmIR)
         
-        println("LLVM IR written to: " + outputPath);
+        println("LLVM IR written to: " + outputPath)
         
         // Now use LLVM tools to create executable
-        let baseName = removeExtension(outputPath);
+        let baseName = removeExtension(outputPath)
         
         // Compile LLVM IR to object file
-        let objFile = baseName + ".o";
-        let llcCommand = "llc -filetype=obj " + outputPath + " -o " + objFile;
-        println("Running: " + llcCommand);
+        let objFile = baseName + ".o"
+        let llcCommand = "llc -filetype=obj " + outputPath + " -o " + objFile
+        println("Running: " + llcCommand)
         
         // Link to create executable
-        let exeFile = baseName;
-        let linkCommand = "clang " + objFile + " -o " + exeFile;
-        println("Running: " + linkCommand);
+        let exeFile = baseName
+        let linkCommand = "clang " + objFile + " -o " + exeFile
+        println("Running: " + linkCommand)
         
-        println("Executable created: " + exeFile);
+        println("Executable created: " + exeFile)
         
-        return true;
+        return true
     }
     
     fun countLines(text: String) -> Int {
-        let count = 1;
+        let count = 1
         for i in range(0, text.length()) {
             if text.charAt(i) == "\n" {
-                count = count + 1;
+                count = count + 1
             }
         }
-        return count;
+        return count
     }
     
     fun removeExtension(path: String) -> String {
-        let lastDot = -1;
+        let lastDot = -1
         for i in range(0, path.length()) {
             if path.charAt(i) == "." {
-                lastDot = i;
+                lastDot = i
             }
         }
         
         if lastDot > 0 {
-            return path.substring(0, lastDot);
+            return path.substring(0, lastDot)
         }
         
-        return path;
+        return path
     }
     
     fun writeFile(path: String, content: String) {
         // In real implementation, would write to file system
-        println("Would write to file: " + path);
-        println("Content preview:");
-        println(content.substring(0, min(500, content.length())));
+        println("Would write to file: " + path)
+        println("Content preview:")
+        println(content.substring(0, min(500, content.length())))
     }
     
     fun min(a: Int, b: Int) -> Int {
-        return if a < b { a } else { b };
+        return if a < b { a } else { b }
     }
 }
 
@@ -1507,21 +1507,21 @@ fun testRealCompiler() {
     let source = """
     fun fibonacci(n: Int) -> Int {
         if n <= 1 {
-            return n;
+            return n
         }
-        return fibonacci(n - 1) + fibonacci(n - 2);
+        return fibonacci(n - 1) + fibonacci(n - 2)
     }
     
     fun main() {
-        let result = fibonacci(10);
-        println(result);
-        return 0;
+        let result = fibonacci(10)
+        println(result)
+        return 0
     }
-    """;
+    """
     
-    let compiler = RealCompiler{};
-    let llvmIR = compiler.compile(source);
+    let compiler = RealCompiler{}
+    let llvmIR = compiler.compile(source)
     
-    println("\n=== GENERATED LLVM IR ===");
-    println(llvmIR);
+    println("\n=== GENERATED LLVM IR ===")
+    println(llvmIR)
 }

@@ -2,6 +2,6 @@
 
 class ReactiveRuntime {
     fun new() -> ReactiveRuntime {
-        println("Creating ReactiveRuntime");
+        println("Creating ReactiveRuntime")
     }
 }

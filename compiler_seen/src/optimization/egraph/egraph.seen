@@ -2,7 +2,7 @@
 
 class EGraph {
     fun new() -> EGraph {
-        return EGraph{};
+        return EGraph{}
     }
     
     fun add(term: Term) -> EClassId {

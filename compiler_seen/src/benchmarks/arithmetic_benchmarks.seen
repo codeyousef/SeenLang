@@ -1,242 +1,242 @@
 // Real Arithmetic Benchmarks - Actual performance measurements
 // Replaces hardcoded benchmark results with real measurements
 
-use runtime::runtime_intrinsics::*;
+use runtime::runtime_intrinsics::*
 
 fun main() -> Int {
-    println("🚀 Seen Language - Real Arithmetic Benchmarks");
-    println("   Measuring actual performance with high-precision timing");
-    println("");
+    println("🚀 Seen Language - Real Arithmetic Benchmarks")
+    println("   Measuring actual performance with high-precision timing")
+    println("")
     
     // Warm up CPU and clear caches
-    WarmupCPU();
-    ClearCPUCache();
+    WarmupCPU()
+    ClearCPUCache()
     
     // Run comprehensive benchmark suite
-    let results: List<BenchmarkResult> = [];
+    let results: List<BenchmarkResult> = []
     
     // Integer arithmetic benchmarks
-    results.append(runI32AdditionBenchmark());
-    results.append(runI32MultiplicationBenchmark());
-    results.append(runI32DivisionBenchmark());
+    results.append(runI32AdditionBenchmark())
+    results.append(runI32MultiplicationBenchmark())
+    results.append(runI32DivisionBenchmark())
     
     // Floating point benchmarks
-    results.append(runF64AdditionBenchmark());
-    results.append(runF64MultiplicationBenchmark());
-    results.append(runF64DivisionBenchmark());
+    results.append(runF64AdditionBenchmark())
+    results.append(runF64MultiplicationBenchmark())
+    results.append(runF64DivisionBenchmark())
     
     // Bitwise operation benchmarks
-    results.append(runBitwiseOperationsBenchmark());
-    results.append(runBitshiftBenchmark());
+    results.append(runBitwiseOperationsBenchmark())
+    results.append(runBitshiftBenchmark())
     
     // Vector/SIMD benchmarks
-    results.append(runVectorAdditionBenchmark());
-    results.append(runVectorMultiplicationBenchmark());
+    results.append(runVectorAdditionBenchmark())
+    results.append(runVectorMultiplicationBenchmark())
     
     // Report results in expected format
-    printBenchmarkResults(results);
+    printBenchmarkResults(results)
     
-    return 0;
+    return 0
 }
 
 fun runI32AdditionBenchmark() -> BenchmarkResult {
     let iterations = 1000000000; // 1 billion operations
     
     return RunBenchmark("I32 Addition", iterations, fun() {
-        var sum = 0;
-        let a = 123456;
-        let b = 789012;
-        let c = 456789;
-        let d = 987654;
+        var sum = 0
+        let a = 123456
+        let b = 789012
+        let c = 456789
+        let d = 987654
         
         // Unroll 16x for maximum performance
         for i in range(0, 1000000) {
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
         }
         
         // Prevent compiler optimization
-        asm("" : : "r" (sum));
-    });
+        asm("" : : "r" (sum))
+    })
 }
 
 fun runI32MultiplicationBenchmark() -> BenchmarkResult {
     let iterations = 500000000; // 500 million operations
     
     return RunBenchmark("I32 Multiplication", iterations, fun() {
-        var result = 1;
-        let a = 12345;
-        let b = 67890;
-        let c = 54321;
-        let d = 98765;
+        var result = 1
+        let a = 12345
+        let b = 67890
+        let c = 54321
+        let d = 98765
         
         for i in range(0, 500000) {
-            result = (result * a) % 1000000;
-            result = (result * b) % 1000000;
-            result = (result * c) % 1000000;
-            result = (result * d) % 1000000;
-            result = (result * a) % 1000000;
-            result = (result * b) % 1000000;
-            result = (result * c) % 1000000;
-            result = (result * d) % 1000000;
+            result = (result * a) % 1000000
+            result = (result * b) % 1000000
+            result = (result * c) % 1000000
+            result = (result * d) % 1000000
+            result = (result * a) % 1000000
+            result = (result * b) % 1000000
+            result = (result * c) % 1000000
+            result = (result * d) % 1000000
         }
         
-        asm("" : : "r" (result));
-    });
+        asm("" : : "r" (result))
+    })
 }
 
 fun runI32DivisionBenchmark() -> BenchmarkResult {
     let iterations = 100000000; // 100 million operations
     
     return RunBenchmark("I32 Division", iterations, fun() {
-        var result = 1000000000;
-        let divisors = [7, 11, 13, 17, 19, 23, 29, 31];
+        var result = 1000000000
+        let divisors = [7, 11, 13, 17, 19, 23, 29, 31]
         
         for i in range(0, 12500000) {
             for divisor in divisors {
-                result = result / divisor;
+                result = result / divisor
                 if result < 1000 {
-                    result = result + 1000000;
+                    result = result + 1000000
                 }
             }
         }
         
-        asm("" : : "r" (result));
-    });
+        asm("" : : "r" (result))
+    })
 }
 
 fun runF64AdditionBenchmark() -> BenchmarkResult {
     let iterations = 1000000000; // 1 billion operations
     
     return RunBenchmark("F64 Addition", iterations, fun() {
-        var sum = 0.0;
-        let a = 3.14159265359;
-        let b = 2.71828182846;
-        let c = 1.41421356237;
-        let d = 1.61803398875;
+        var sum = 0.0
+        let a = 3.14159265359
+        let b = 2.71828182846
+        let c = 1.41421356237
+        let d = 1.61803398875
         
         for i in range(0, 1000000) {
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
-            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d;
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
+            sum = sum + a; sum = sum + b; sum = sum + c; sum = sum + d
         }
         
-        asm("" : : "r" (sum));
-    });
+        asm("" : : "r" (sum))
+    })
 }
 
 fun runF64MultiplicationBenchmark() -> BenchmarkResult {
     let iterations = 800000000; // 800 million operations
     
     return RunBenchmark("F64 Multiplication", iterations, fun() {
-        var result = 1.0;
-        let factors = [1.1, 0.9, 1.05, 0.95, 1.02, 0.98, 1.01, 0.99];
+        var result = 1.0
+        let factors = [1.1, 0.9, 1.05, 0.95, 1.02, 0.98, 1.01, 0.99]
         
         for i in range(0, 100000) {
             for factor in factors {
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
-                result = result * factor;
+                result = result * factor
+                result = result * factor
+                result = result * factor
+                result = result * factor
+                result = result * factor
+                result = result * factor
+                result = result * factor
+                result = result * factor
+                result = result * factor
+                result = result * factor
                 
                 // Keep result in reasonable range
                 if result > 1000.0 {
-                    result = result / 1000.0;
+                    result = result / 1000.0
                 }
                 if result < 0.001 {
-                    result = result * 1000.0;
+                    result = result * 1000.0
                 }
             }
         }
         
-        asm("" : : "r" (result));
-    });
+        asm("" : : "r" (result))
+    })
 }
 
 fun runF64DivisionBenchmark() -> BenchmarkResult {
     let iterations = 200000000; // 200 million operations
     
     return RunBenchmark("F64 Division", iterations, fun() {
-        var result = 1000000.0;
-        let divisors = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8];
+        var result = 1000000.0
+        let divisors = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
         
         for i in range(0, 25000000) {
             for divisor in divisors {
-                result = result / divisor;
+                result = result / divisor
                 if result < 1.0 {
-                    result = result * 1000000.0;
+                    result = result * 1000000.0
                 }
             }
         }
         
-        asm("" : : "r" (result));
-    });
+        asm("" : : "r" (result))
+    })
 }
 
 fun runBitwiseOperationsBenchmark() -> BenchmarkResult {
     let iterations = 2000000000; // 2 billion operations
     
     return RunBenchmark("Bitwise Operations", iterations, fun() {
-        var value = 0x12345678;
-        let mask1 = 0x0F0F0F0F;
-        let mask2 = 0xF0F0F0F0;
-        let mask3 = 0x33333333;
-        let mask4 = 0xCCCCCCCC;
+        var value = 0x12345678
+        let mask1 = 0x0F0F0F0F
+        let mask2 = 0xF0F0F0F0
+        let mask3 = 0x33333333
+        let mask4 = 0xCCCCCCCC
         
         for i in range(0, 1000000) {
             // 20 operations per iteration = 2B total
-            value = value ^ mask1; value = value | mask2;
-            value = value & mask3; value = value ^ mask4;
-            value = value | mask1; value = value & mask2;
-            value = value ^ mask3; value = value | mask4;
-            value = value & mask1; value = value ^ mask2;
-            value = value | mask3; value = value & mask4;
-            value = value ^ mask1; value = value | mask2;
-            value = value & mask3; value = value ^ mask4;
-            value = value | mask1; value = value & mask2;
-            value = value ^ mask3; value = value | mask4;
+            value = value ^ mask1; value = value | mask2
+            value = value & mask3; value = value ^ mask4
+            value = value | mask1; value = value & mask2
+            value = value ^ mask3; value = value | mask4
+            value = value & mask1; value = value ^ mask2
+            value = value | mask3; value = value & mask4
+            value = value ^ mask1; value = value | mask2
+            value = value & mask3; value = value ^ mask4
+            value = value | mask1; value = value & mask2
+            value = value ^ mask3; value = value | mask4
         }
         
-        asm("" : : "r" (value));
-    });
+        asm("" : : "r" (value))
+    })
 }
 
 fun runBitshiftBenchmark() -> BenchmarkResult {
     let iterations = 1500000000; // 1.5 billion operations
     
     return RunBenchmark("Bitshift Operations", iterations, fun() {
-        var value = 0x80000000;
-        let shifts = [1, 2, 3, 4, 5, 6, 7, 8];
+        var value = 0x80000000
+        let shifts = [1, 2, 3, 4, 5, 6, 7, 8]
         
         for i in range(0, 15000000) {
             for shift in shifts {
-                value = value << shift;
-                value = value >> shift;
-                value = value << (shift + 1);
-                value = value >> (shift + 1);
-                value = value << shift;
-                value = value >> shift;
-                value = value << (shift + 2);
-                value = value >> (shift + 2);
+                value = value << shift
+                value = value >> shift
+                value = value << (shift + 1)
+                value = value >> (shift + 1)
+                value = value << shift
+                value = value >> shift
+                value = value << (shift + 2)
+                value = value >> (shift + 2)
                 
                 // Prevent overflow
                 if value == 0 {
-                    value = 0x80000000;
+                    value = 0x80000000
                 }
             }
         }
         
-        asm("" : : "r" (value));
-    });
+        asm("" : : "r" (value))
+    })
 }
 
 fun runVectorAdditionBenchmark() -> BenchmarkResult {
@@ -244,133 +244,133 @@ fun runVectorAdditionBenchmark() -> BenchmarkResult {
     
     return RunBenchmark("Vector Addition (SIMD)", iterations, fun() {
         // Allocate aligned arrays for SIMD
-        let size = 1000000;
-        let a = AllocateAlignedArray(size, 32);
-        let b = AllocateAlignedArray(size, 32);
-        let c = AllocateAlignedArray(size, 32);
+        let size = 1000000
+        let a = AllocateAlignedArray(size, 32)
+        let b = AllocateAlignedArray(size, 32)
+        let c = AllocateAlignedArray(size, 32)
         
         // Initialize arrays
         for i in range(0, size) {
-            a[i] = i as f32;
-            b[i] = (size - i) as f32;
+            a[i] = i as f32
+            b[i] = (size - i) as f32
         }
         
         // Vectorized addition: c[i] = a[i] + b[i]
         for iteration in range(0, 200) {
-            vectorAddF32(a, b, c, size);
+            vectorAddF32(a, b, c, size)
         }
         
         // Prevent optimization
-        asm("" : : "r" (c[0]));
+        asm("" : : "r" (c[0]))
         
-        DeallocateMemory(a as Ptr<Byte>, size * 4);
-        DeallocateMemory(b as Ptr<Byte>, size * 4);
-        DeallocateMemory(c as Ptr<Byte>, size * 4);
-    });
+        DeallocateMemory(a as Ptr<Byte>, size * 4)
+        DeallocateMemory(b as Ptr<Byte>, size * 4)
+        DeallocateMemory(c as Ptr<Byte>, size * 4)
+    })
 }
 
 fun runVectorMultiplicationBenchmark() -> BenchmarkResult {
     let iterations = 600000000; // 600 million operations
     
     return RunBenchmark("Vector Multiplication (SIMD)", iterations, fun() {
-        let size = 1000000;
-        let a = AllocateAlignedArray(size, 32);
-        let b = AllocateAlignedArray(size, 32);
-        let c = AllocateAlignedArray(size, 32);
+        let size = 1000000
+        let a = AllocateAlignedArray(size, 32)
+        let b = AllocateAlignedArray(size, 32)
+        let c = AllocateAlignedArray(size, 32)
         
         // Initialize with small values to prevent overflow
         for i in range(0, size) {
-            a[i] = (1.0 + (i % 100) as f32 * 0.01);
-            b[i] = (1.0 + ((size - i) % 100) as f32 * 0.01);
+            a[i] = (1.0 + (i % 100) as f32 * 0.01)
+            b[i] = (1.0 + ((size - i) % 100) as f32 * 0.01)
         }
         
         // Vectorized multiplication: c[i] = a[i] * b[i]
         for iteration in range(0, 150) {
-            vectorMulF32(a, b, c, size);
+            vectorMulF32(a, b, c, size)
         }
         
-        asm("" : : "r" (c[0]));
+        asm("" : : "r" (c[0]))
         
-        DeallocateMemory(a as Ptr<Byte>, size * 4);
-        DeallocateMemory(b as Ptr<Byte>, size * 4);
-        DeallocateMemory(c as Ptr<Byte>, size * 4);
-    });
+        DeallocateMemory(a as Ptr<Byte>, size * 4)
+        DeallocateMemory(b as Ptr<Byte>, size * 4)
+        DeallocateMemory(c as Ptr<Byte>, size * 4)
+    })
 }
 
 fun AllocateAlignedArray(size: Int, alignment: Int) -> Ptr<f32> {
     let bytes = size * 4; // 4 bytes per f32
-    let ptr = AllocateMemory(bytes + alignment);
+    let ptr = AllocateMemory(bytes + alignment)
     
     // Align to requested boundary
-    let addr = ptr as Int;
-    let aligned = (addr + alignment - 1) & !(alignment - 1);
-    return aligned as Ptr<f32>;
+    let addr = ptr as Int
+    let aligned = (addr + alignment - 1) & !(alignment - 1)
+    return aligned as Ptr<f32>
 }
 
 fun vectorAddF32(a: Ptr<f32>, b: Ptr<f32>, c: Ptr<f32>, size: Int) {
     // AVX2 vectorized addition (8 f32 per operation)
-    let chunks = size / 8;
-    let remainder = size % 8;
+    let chunks = size / 8
+    let remainder = size % 8
     
     for i in range(0, chunks) {
-        let offset = i * 8;
+        let offset = i * 8
         
         // Load 8 floats from each array
-        asm("vmovps (%0), %%ymm0" : : "r" (a + offset));
-        asm("vmovps (%0), %%ymm1" : : "r" (b + offset));
+        asm("vmovps (%0), %%ymm0" : : "r" (a + offset))
+        asm("vmovps (%0), %%ymm1" : : "r" (b + offset))
         
         // Add vectors
-        asm("vaddps %%ymm1, %%ymm0, %%ymm2");
+        asm("vaddps %%ymm1, %%ymm0, %%ymm2")
         
         // Store result
-        asm("vmovps %%ymm2, (%0)" : : "r" (c + offset));
+        asm("vmovps %%ymm2, (%0)" : : "r" (c + offset))
     }
     
     // Handle remainder
     for i in range(chunks * 8, size) {
-        c[i] = a[i] + b[i];
+        c[i] = a[i] + b[i]
     }
 }
 
 fun vectorMulF32(a: Ptr<f32>, b: Ptr<f32>, c: Ptr<f32>, size: Int) {
     // AVX2 vectorized multiplication
-    let chunks = size / 8;
+    let chunks = size / 8
     
     for i in range(0, chunks) {
-        let offset = i * 8;
+        let offset = i * 8
         
-        asm("vmovps (%0), %%ymm0" : : "r" (a + offset));
-        asm("vmovps (%0), %%ymm1" : : "r" (b + offset));
-        asm("vmulps %%ymm1, %%ymm0, %%ymm2");
-        asm("vmovps %%ymm2, (%0)" : : "r" (c + offset));
+        asm("vmovps (%0), %%ymm0" : : "r" (a + offset))
+        asm("vmovps (%0), %%ymm1" : : "r" (b + offset))
+        asm("vmulps %%ymm1, %%ymm0, %%ymm2")
+        asm("vmovps %%ymm2, (%0)" : : "r" (c + offset))
     }
     
     // Handle remainder
     for i in range(chunks * 8, size) {
-        c[i] = a[i] * b[i];
+        c[i] = a[i] * b[i]
     }
 }
 
 fun printBenchmarkResults(results: List<BenchmarkResult>) {
-    println("=== Seen Arithmetic Benchmarks ===");
-    println("");
+    println("=== Seen Arithmetic Benchmarks ===")
+    println("")
     
     for result in results {
         if result.success {
             // Format for compatibility with benchmark parser
-            let name = formatBenchmarkName(result.name);
-            println(name + ": " + result.opsPerSecond.toString() + " ops/sec");
+            let name = formatBenchmarkName(result.name)
+            println(name + ": " + result.opsPerSecond.toString() + " ops/sec")
         }
     }
     
-    println("");
-    println("📊 Detailed Results:");
+    println("")
+    println("📊 Detailed Results:")
     for result in results {
         if result.success {
-            println("   " + result.name + ":");
-            println("     Performance: " + result.opsPerSecond.toString() + " ops/sec");
-            println("     Time: " + (result.totalTimeNs / 1000000).toString() + "ms");
-            println("     Cycles/op: " + result.cyclesPerOp.toString());
+            println("   " + result.name + ":")
+            println("     Performance: " + result.opsPerSecond.toString() + " ops/sec")
+            println("     Time: " + (result.totalTimeNs / 1000000).toString() + "ms")
+            println("     Cycles/op: " + result.cyclesPerOp.toString())
         }
     }
 }
@@ -388,5 +388,5 @@ fun formatBenchmarkName(name: String) -> String {
     if name == "Vector Addition (SIMD)" { return "vector_addition_simd"; }
     if name == "Vector Multiplication (SIMD)" { return "vector_multiplication_simd"; }
     
-    return name.toLowerCase().replace(" ", "_");
+    return name.toLowerCase().replace(" ", "_")
 }

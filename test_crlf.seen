@@ -1,0 +1,1 @@
+fun test() -> Int {\r\n    println("test")\r\n    42\r\n}

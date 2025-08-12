@@ -2,6 +2,6 @@
 
 class ErrorTypes {
     fun new() -> ErrorTypes {
-        println("Creating ErrorTypes");
+        println("Creating ErrorTypes")
     }
 }

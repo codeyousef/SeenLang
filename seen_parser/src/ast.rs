@@ -181,6 +181,65 @@ pub enum Expression {
         value: Box<Expression>,
         pos: Position,
     },
+    
+    // Class definition
+    Class {
+        name: String,
+        superclass: Option<String>,
+        fields: Vec<Field>,
+        methods: Vec<Expression>, // Function expressions
+        pos: Position,
+    },
+    
+    // Struct definition
+    Struct {
+        name: String,
+        fields: Vec<Field>,
+        pos: Position,
+    },
+    
+    // Enum definition
+    Enum {
+        name: String,
+        variants: Vec<EnumVariant>,
+        pos: Position,
+    },
+    
+    // Trait definition
+    Trait {
+        name: String,
+        methods: Vec<TraitMethod>,
+        pos: Position,
+    },
+    
+    // Implementation block
+    Impl {
+        trait_name: Option<String>, // None for inherent impl
+        type_name: String,
+        methods: Vec<Expression>, // Function expressions
+        pos: Position,
+    },
+    
+    // Import/use statement
+    Import {
+        path: Vec<String>,
+        alias: Option<String>,
+        pos: Position,
+    },
+    
+    // Module definition
+    Module {
+        name: String,
+        body: Vec<Expression>,
+        pos: Position,
+    },
+    
+    // Type alias
+    TypeAlias {
+        name: String,
+        target: Type,
+        pos: Position,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -247,6 +306,30 @@ pub struct InterpolationPart {
 pub enum InterpolationKind {
     Text(String),
     Expression(Box<Expression>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Field {
+    pub name: String,
+    pub type_annotation: Type,
+    pub is_public: bool,
+    pub is_mutable: bool,
+    pub default_value: Option<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumVariant {
+    pub name: String,
+    pub fields: Option<Vec<Field>>, // None for simple variant, Some for tuple/struct variant
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraitMethod {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub return_type: Option<Type>,
+    pub has_default_impl: bool,
+    pub body: Option<Expression>, // None for abstract, Some for default impl
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

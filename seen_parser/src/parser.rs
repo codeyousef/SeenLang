@@ -47,15 +47,555 @@ impl Parser {
         let mut expressions = Vec::new();
         
         while !self.is_at_end() {
-            expressions.push(self.parse_expression()?);
+            // Skip any newlines at the top level
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
             
-            // Optional semicolons between top-level expressions
-            if self.check(&TokenType::Semicolon) {
+            // Check again if we're at the end after skipping newlines
+            if self.is_at_end() {
+                break;
+            }
+            
+            // Parse top-level items (functions, statements, expressions)
+            expressions.push(self.parse_top_level_item()?);
+            
+            // Optional semicolons or newlines between top-level expressions
+            while self.check(&TokenType::Newline) {
                 self.advance();
             }
         }
         
         Ok(Program { expressions })
+    }
+    
+    /// Parse a top-level item (function, statement, or expression)
+    fn parse_top_level_item(&mut self) -> ParseResult<Expression> {
+        // Check for function definitions
+        if self.check_keyword(KeywordType::KeywordFun) {
+            return self.parse_function();
+        }
+        
+        // Check for async functions
+        if self.check_keyword(KeywordType::KeywordAsync) {
+            return self.parse_async_function();
+        }
+        
+        // Check for class definitions
+        if self.check_keyword(KeywordType::KeywordClass) {
+            return self.parse_class_definition();
+        }
+        
+        // Check for struct definitions
+        if self.check_keyword(KeywordType::KeywordStruct) {
+            return self.parse_struct_definition();
+        }
+        
+        // Check for enum definitions
+        if self.check_keyword(KeywordType::KeywordEnum) {
+            return self.parse_enum_definition();
+        }
+        
+        // Check for trait definitions
+        if self.check_keyword(KeywordType::KeywordTrait) {
+            return self.parse_trait_definition();
+        }
+        
+        // Check for impl blocks
+        if self.check_keyword(KeywordType::KeywordImpl) {
+            return self.parse_impl_block();
+        }
+        
+        // Check for type aliases
+        if self.check_keyword(KeywordType::KeywordType) {
+            return self.parse_type_alias();
+        }
+        
+        // Check for module definitions
+        if self.check_keyword(KeywordType::KeywordModule) {
+            return self.parse_module_definition();
+        }
+        
+        // Check for import/use statements
+        if self.check_keyword(KeywordType::KeywordImport) || self.check_keyword(KeywordType::KeywordUse) {
+            return self.parse_import();
+        }
+        
+        // Otherwise, parse as an expression
+        self.parse_expression()
+    }
+    
+    /// Parse class definition
+    fn parse_class_definition(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'class'
+        
+        let name = self.expect_identifier()?;
+        
+        // Check for superclass
+        let superclass = if self.check(&TokenType::Colon) {
+            self.advance();
+            Some(self.expect_identifier()?)
+        } else {
+            None
+        };
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Check for field or method
+            if self.check_keyword(KeywordType::KeywordFun) {
+                // It's a method
+                methods.push(self.parse_function()?);
+            } else if self.check_keyword(KeywordType::KeywordLet) || 
+                      self.check_keyword(KeywordType::KeywordVar) ||
+                      self.check_keyword(KeywordType::KeywordVal) {
+                // It's a field
+                fields.push(self.parse_field()?);
+            } else if matches!(self.current.token_type, TokenType::PublicIdentifier(_)) || 
+                      matches!(self.current.token_type, TokenType::PrivateIdentifier(_)) {
+                // Could be a field without let/var
+                fields.push(self.parse_field()?);
+            } else {
+                return Err(ParseError::UnexpectedToken {
+                    found: self.current.token_type.clone(),
+                    expected: "field or method".to_string(),
+                    pos: self.current.position.clone(),
+                });
+            }
+            
+            // Skip optional semicolons or newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::Class {
+            name,
+            superclass,
+            fields,
+            methods,
+            pos,
+        })
+    }
+    
+    /// Parse a field definition
+    fn parse_field(&mut self) -> ParseResult<Field> {
+        let is_mutable = if self.check_keyword(KeywordType::KeywordVar) {
+            self.advance();
+            true
+        } else if self.check_keyword(KeywordType::KeywordLet) || 
+                  self.check_keyword(KeywordType::KeywordVal) {
+            self.advance();
+            false
+        } else {
+            false // No keyword, default to immutable
+        };
+        
+        let name = self.expect_identifier()?;
+        
+        // Type annotation is required for fields
+        self.expect(&TokenType::Colon)?;
+        let type_annotation = self.parse_type()?;
+        
+        // Check for default value
+        let default_value = if self.check(&TokenType::Assign) {
+            self.advance();
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        
+        // Determine visibility based on name capitalization
+        let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
+        
+        Ok(Field {
+            name,
+            type_annotation,
+            is_public,
+            is_mutable,
+            default_value,
+        })
+    }
+    
+    /// Parse struct definition
+    fn parse_struct_definition(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'struct'
+        
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut fields = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            fields.push(self.parse_field()?);
+            
+            // Optional comma or newline
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::Struct {
+            name,
+            fields,
+            pos,
+        })
+    }
+    
+    /// Parse enum definition
+    fn parse_enum_definition(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'enum'
+        
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut variants = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            let variant_name = self.expect_identifier()?;
+            
+            // Check for variant fields
+            let fields = if self.check(&TokenType::LeftParen) {
+                self.advance();
+                let mut variant_fields = Vec::new();
+                
+                while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+                    variant_fields.push(self.parse_field()?);
+                    
+                    if !self.check(&TokenType::RightParen) {
+                        self.expect(&TokenType::Comma)?;
+                    }
+                }
+                
+                self.expect(&TokenType::RightParen)?;
+                Some(variant_fields)
+            } else if self.check(&TokenType::LeftBrace) {
+                self.advance();
+                let mut variant_fields = Vec::new();
+                
+                while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+                    variant_fields.push(self.parse_field()?);
+                    
+                    if self.check(&TokenType::Comma) {
+                        self.advance();
+                    }
+                }
+                
+                self.expect(&TokenType::RightBrace)?;
+                Some(variant_fields)
+            } else {
+                None
+            };
+            
+            variants.push(EnumVariant {
+                name: variant_name,
+                fields,
+            });
+            
+            // Optional comma or newline
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::Enum {
+            name,
+            variants,
+            pos,
+        })
+    }
+    
+    /// Parse import/use statement
+    fn parse_import(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'import' or 'use'
+        
+        let mut path = Vec::new();
+        
+        // Parse the import path
+        loop {
+            let segment = self.expect_identifier()?;
+            path.push(segment);
+            
+            if self.check(&TokenType::Dot) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        
+        // Check for alias
+        let alias = if self.check_keyword(KeywordType::KeywordAs) {
+            self.advance();
+            Some(self.expect_identifier()?)
+        } else {
+            None
+        };
+        
+        Ok(Expression::Import {
+            path,
+            alias,
+            pos,
+        })
+    }
+    
+    /// Parse trait definition
+    fn parse_trait_definition(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'trait'
+        
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut methods = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Parse trait method
+            if self.check_keyword(KeywordType::KeywordFun) {
+                self.advance(); // consume 'fun'
+                
+                let method_name = self.expect_identifier()?;
+                
+                self.expect(&TokenType::LeftParen)?;
+                let params = self.parse_parameters()?;
+                self.expect(&TokenType::RightParen)?;
+                
+                let return_type = if self.check(&TokenType::Arrow) || self.check(&TokenType::Colon) {
+                    self.advance();
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                
+                // Check for default implementation
+                let (has_default_impl, body) = if self.check(&TokenType::LeftBrace) {
+                    self.expect(&TokenType::LeftBrace)?;
+                    let body_expr = self.parse_block_body()?;
+                    self.expect(&TokenType::RightBrace)?;
+                    (true, Some(body_expr))
+                } else {
+                    (false, None)
+                };
+                
+                methods.push(TraitMethod {
+                    name: method_name,
+                    params,
+                    return_type,
+                    has_default_impl,
+                    body,
+                });
+            } else {
+                return Err(ParseError::UnexpectedToken {
+                    found: self.current.token_type.clone(),
+                    expected: "trait method".to_string(),
+                    pos: self.current.position.clone(),
+                });
+            }
+            
+            // Skip optional semicolons or newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::Trait {
+            name,
+            methods,
+            pos,
+        })
+    }
+    
+    /// Parse impl block
+    fn parse_impl_block(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'impl'
+        
+        // Check if this is a trait impl or inherent impl
+        let first_name = self.expect_identifier()?;
+        
+        let (trait_name, type_name) = if self.check_keyword(KeywordType::KeywordFor) {
+            // Trait impl: impl TraitName for TypeName
+            self.advance(); // consume 'for'
+            let type_name = self.expect_identifier()?;
+            (Some(first_name), type_name)
+        } else {
+            // Inherent impl: impl TypeName
+            (None, first_name)
+        };
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut methods = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Parse method implementation
+            if self.check_keyword(KeywordType::KeywordFun) {
+                methods.push(self.parse_function()?);
+            } else {
+                return Err(ParseError::UnexpectedToken {
+                    found: self.current.token_type.clone(),
+                    expected: "method implementation".to_string(),
+                    pos: self.current.position.clone(),
+                });
+            }
+            
+            // Skip optional semicolons or newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::Impl {
+            trait_name,
+            type_name,
+            methods,
+            pos,
+        })
+    }
+    
+    /// Parse type alias
+    fn parse_type_alias(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'type'
+        
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::Assign)?;
+        
+        let target = self.parse_type()?;
+        
+        Ok(Expression::TypeAlias {
+            name,
+            target,
+            pos,
+        })
+    }
+    
+    /// Parse module definition
+    fn parse_module_definition(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'module'
+        
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut body = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            body.push(self.parse_top_level_item()?);
+            
+            // Skip optional semicolons or newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::Module {
+            name,
+            body,
+            pos,
+        })
+    }
+    
+    /// Skip a block (helper for placeholders)
+    fn skip_block(&mut self) {
+        if !self.check(&TokenType::LeftBrace) {
+            return;
+        }
+        
+        self.advance(); // consume '{'
+        let mut depth = 1;
+        
+        while !self.is_at_end() && depth > 0 {
+            if self.check(&TokenType::LeftBrace) {
+                depth += 1;
+            } else if self.check(&TokenType::RightBrace) {
+                depth -= 1;
+            }
+            self.advance();
+        }
     }
     
     /// Parse any expression
@@ -823,11 +1363,40 @@ impl Parser {
         
         let name = self.expect_identifier()?;
         
+        // Parse generic parameters if present
+        let _generic_params = if self.check(&TokenType::Less) {
+            self.advance(); // consume '<'
+            let mut generics = Vec::new();
+            
+            while !self.check(&TokenType::Greater) && !self.is_at_end() {
+                generics.push(self.expect_identifier()?);
+                
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                } else if !self.check(&TokenType::Greater) {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "comma or >".to_string(),
+                        found: self.current.token_type.clone(),
+                        pos: self.current.position.clone(),
+                    });
+                }
+            }
+            
+            self.expect(&TokenType::Greater)?;
+            generics
+        } else {
+            Vec::new()
+        };
+        
         self.expect(&TokenType::LeftParen)?;
         let params = self.parse_parameters()?;
         self.expect(&TokenType::RightParen)?;
         
-        let return_type = if self.check(&TokenType::Colon) {
+        let return_type = if self.check(&TokenType::Arrow) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else if self.check(&TokenType::Colon) {
+            // Support both : and -> for backward compatibility
             self.advance();
             Some(self.parse_type()?)
         } else {
@@ -868,7 +1437,11 @@ impl Parser {
         let params = self.parse_parameters()?;
         self.expect(&TokenType::RightParen)?;
         
-        let return_type = if self.check(&TokenType::Colon) {
+        let return_type = if self.check(&TokenType::Arrow) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else if self.check(&TokenType::Colon) {
+            // Support both : and -> for backward compatibility
             self.advance();
             Some(self.parse_type()?)
         } else {
@@ -1001,9 +1574,22 @@ impl Parser {
         let mut expressions = Vec::new();
         
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip any leading newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            // Check if we've reached the end after skipping newlines
+            if self.check(&TokenType::RightBrace) || self.is_at_end() {
+                break;
+            }
+            
             expressions.push(self.parse_expression()?);
-            // Seen doesn't use semicolons - statements are separated by newlines
-            // The lexer handles this by treating newlines as whitespace
+            
+            // Handle statement terminators (semicolons and newlines)
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
         }
         
         if expressions.is_empty() {
@@ -1183,6 +1769,29 @@ impl Parser {
     /// Parse type annotation
     fn parse_type(&mut self) -> ParseResult<Type> {
         let base = self.expect_identifier()?;
+        
+        // Parse generic parameters
+        let mut generics = Vec::new();
+        if self.check(&TokenType::Less) {
+            self.advance(); // consume '<'
+            
+            while !self.check(&TokenType::Greater) && !self.is_at_end() {
+                generics.push(self.parse_type()?);
+                
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                } else if !self.check(&TokenType::Greater) {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "comma or >".to_string(),
+                        found: self.current.token_type.clone(),
+                        pos: self.current.position.clone(),
+                    });
+                }
+            }
+            
+            self.expect(&TokenType::Greater)?;
+        }
+        
         let is_nullable = if self.check(&TokenType::Question) {
             self.advance();
             true
@@ -1190,12 +1799,10 @@ impl Parser {
             false
         };
         
-        // Generic parameters parsed when generics system is implemented
-        
         Ok(Type {
             name: base,
             is_nullable,
-            generics: Vec::new(),
+            generics,
         })
     }
     
@@ -1312,6 +1919,11 @@ impl Parser {
     
     fn is_at_end(&self) -> bool {
         matches!(self.current.token_type, TokenType::EOF)
+    }
+    
+    fn peek_next(&self) -> Option<&TokenType> {
+        // For now, simple implementation
+        None
     }
     
     fn is_end_of_expression(&self) -> bool {

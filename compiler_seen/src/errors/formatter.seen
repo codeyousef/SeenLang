@@ -2,6 +2,6 @@
 
 class ErrorFormatter {
     fun new() -> ErrorFormatter {
-        println("Creating ErrorFormatter");
+        println("Creating ErrorFormatter")
     }
 }
