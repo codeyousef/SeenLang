@@ -4,8 +4,8 @@
 //! Unicode character handling, position tracking, and error reporting.
 
 use crate::{
-    Lexer, Token, TokenType, KeywordManager, Position, LexerError, LexerResult,
-    InterpolationPart, InterpolationKind
+    Lexer, TokenType, KeywordManager, Position, LexerError,
+    keyword_manager::KeywordType
 };
 use std::sync::Arc;
 
@@ -131,11 +131,11 @@ mod basic_tokenization_tests {
         let mut lexer = create_test_lexer("true false");
         
         let token1 = lexer.next_token().unwrap();
-        assert_eq!(token1.token_type, TokenType::True);
+        assert_eq!(token1.token_type, TokenType::BoolLiteral(true));
         assert_eq!(token1.lexeme, "true");
         
         let token2 = lexer.next_token().unwrap();
-        assert_eq!(token2.token_type, TokenType::False);
+        assert_eq!(token2.token_type, TokenType::BoolLiteral(false));
         assert_eq!(token2.lexeme, "false");
     }
 
@@ -216,16 +216,16 @@ mod basic_tokenization_tests {
         let mut lexer = create_test_lexer("fun if else and or not move borrow inout is");
         
         let expected_tokens = vec![
-            TokenType::Fun,
-            TokenType::If,
-            TokenType::Else,
-            TokenType::LogicalAnd,
-            TokenType::LogicalOr,
-            TokenType::LogicalNot,
-            TokenType::Move,
-            TokenType::Borrow,
-            TokenType::Inout,
-            TokenType::Is,
+            TokenType::Keyword(KeywordType::KeywordFun),
+            TokenType::Keyword(KeywordType::KeywordIf),
+            TokenType::Keyword(KeywordType::KeywordElse),
+            TokenType::Keyword(KeywordType::KeywordAnd),
+            TokenType::Keyword(KeywordType::KeywordOr),
+            TokenType::Keyword(KeywordType::KeywordNot),
+            TokenType::Keyword(KeywordType::KeywordMove),
+            TokenType::Keyword(KeywordType::KeywordBorrow),
+            TokenType::Keyword(KeywordType::KeywordInout),
+            TokenType::Keyword(KeywordType::KeywordIs),
         ];
         
         for expected_token in expected_tokens {
@@ -518,12 +518,12 @@ mod dynamic_keyword_integration_tests {
         let mut lexer = create_test_lexer_with_language("fun if else and or not", "en");
         
         let expected_tokens = vec![
-            TokenType::Fun,
-            TokenType::If,
-            TokenType::Else,
-            TokenType::LogicalAnd,
-            TokenType::LogicalOr,
-            TokenType::LogicalNot,
+            TokenType::Keyword(KeywordType::KeywordFun),
+            TokenType::Keyword(KeywordType::KeywordIf),
+            TokenType::Keyword(KeywordType::KeywordElse),
+            TokenType::Keyword(KeywordType::KeywordAnd),
+            TokenType::Keyword(KeywordType::KeywordOr),
+            TokenType::Keyword(KeywordType::KeywordNot),
         ];
         
         for expected_token in expected_tokens {
@@ -538,12 +538,12 @@ mod dynamic_keyword_integration_tests {
         let mut lexer = create_test_lexer_with_language("دالة إذا وإلا و أو ليس", "ar");
         
         let expected_tokens = vec![
-            TokenType::Fun,
-            TokenType::If,
-            TokenType::Else,
-            TokenType::LogicalAnd,
-            TokenType::LogicalOr,
-            TokenType::LogicalNot,
+            TokenType::Keyword(KeywordType::KeywordFun),
+            TokenType::Keyword(KeywordType::KeywordIf),
+            TokenType::Keyword(KeywordType::KeywordElse),
+            TokenType::Keyword(KeywordType::KeywordAnd),
+            TokenType::Keyword(KeywordType::KeywordOr),
+            TokenType::Keyword(KeywordType::KeywordNot),
         ];
         
         for expected_token in expected_tokens {
@@ -562,7 +562,7 @@ mod dynamic_keyword_integration_tests {
         
         // Test that lexer uses keyword manager correctly
         let fun_keyword = keyword_manager.get_keyword_text(&crate::keyword_manager::KeywordType::KeywordFun).unwrap();
-        assert_eq!(lexer.check_keyword(&fun_keyword), Some(TokenType::Fun));
+        assert_eq!(lexer.check_keyword(&fun_keyword), Some(TokenType::Keyword(KeywordType::KeywordFun)));
         
         // Test non-keyword
         assert_eq!(lexer.check_keyword("not_a_keyword"), None);
@@ -608,7 +608,7 @@ mod whitespace_handling_tests {
         let mut lexer = create_test_lexer("   \t  fun   \t  main  \n  ");
         
         let token1 = lexer.next_token().unwrap();
-        assert_eq!(token1.token_type, TokenType::Fun);
+        assert_eq!(token1.token_type, TokenType::Keyword(KeywordType::KeywordFun));
         assert_eq!(token1.position.column, 7); // After whitespace
         
         let token2 = lexer.next_token().unwrap();

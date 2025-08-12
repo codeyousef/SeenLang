@@ -6,10 +6,12 @@
 pub mod parser;
 pub mod ast;
 pub mod error;
+pub mod position;
 
 pub use parser::Parser;
 pub use ast::*;
 pub use error::{ParseError, ParseResult};
+pub use position::Position;
 
 #[cfg(test)]
 mod tests {

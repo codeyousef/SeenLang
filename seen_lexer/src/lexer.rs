@@ -85,10 +85,8 @@ impl Lexer {
                     self.advance();
                     Ok(Token::new(TokenType::Equal, "==".to_string(), start_pos))
                 } else {
-                    return Err(LexerError::UnexpectedCharacter {
-                        character: '=',
-                        position: start_pos,
-                    });
+                    self.advance();
+                    Ok(Token::new(TokenType::Assign, "=".to_string(), start_pos))
                 }
             }
             Some('!') => {
@@ -208,11 +206,6 @@ impl Lexer {
         }
     }
     
-    pub fn tokenize_string_interpolation(&mut self) -> LexerResult<Vec<InterpolationPart>> {
-        // Implementation will follow TDD methodology
-        todo!("Implementation follows TDD - tests first")
-    }
-    
     pub fn handle_unicode(&mut self) -> LexerResult<char> {
         match self.current_char {
             Some(ch) => {
@@ -240,74 +233,15 @@ impl Lexer {
     }
     
     pub fn check_keyword(&self, text: &str) -> Option<TokenType> {
-        // Use dynamic keyword lookup instead of hardcoded keywords
+        // Use dynamic keyword lookup - NO HARDCODING!
         if let Some(keyword_type) = self.keyword_manager.is_keyword(text) {
-            // Convert KeywordType to TokenType
-            Some(match keyword_type {
-                KeywordType::KeywordFun => TokenType::Fun,
-                KeywordType::KeywordIf => TokenType::If,
-                KeywordType::KeywordElse => TokenType::Else,
-                KeywordType::KeywordWhile => TokenType::While,
-                KeywordType::KeywordFor => TokenType::For,
-                KeywordType::KeywordIn => TokenType::In,
-                KeywordType::KeywordMatch => TokenType::Match,
-                KeywordType::KeywordBreak => TokenType::Break,
-                KeywordType::KeywordContinue => TokenType::Continue,
-                KeywordType::KeywordReturn => TokenType::Return,
-                KeywordType::KeywordWhen => TokenType::When,
-                KeywordType::KeywordLet => TokenType::Let,
-                KeywordType::KeywordMut => TokenType::Mut,
-                KeywordType::KeywordConst => TokenType::Const,
-                KeywordType::KeywordStatic => TokenType::Static,
-                KeywordType::KeywordVal => TokenType::Val,
-                KeywordType::KeywordVar => TokenType::Var,
-                KeywordType::KeywordStruct => TokenType::Struct,
-                KeywordType::KeywordEnum => TokenType::Enum,
-                KeywordType::KeywordTrait => TokenType::Trait,
-                KeywordType::KeywordImpl => TokenType::Impl,
-                KeywordType::KeywordType => TokenType::Type,
-                KeywordType::KeywordClass => TokenType::Class,
-                KeywordType::KeywordData => TokenType::Data,
-                KeywordType::KeywordSealed => TokenType::Sealed,
-                KeywordType::KeywordObject => TokenType::Object,
-                KeywordType::KeywordInterface => TokenType::Interface,
-                KeywordType::KeywordModule => TokenType::Module,
-                KeywordType::KeywordImport => TokenType::Import,
-                KeywordType::KeywordUse => TokenType::Use,
-                KeywordType::KeywordTrue => TokenType::True,
-                KeywordType::KeywordFalse => TokenType::False,
-                KeywordType::KeywordNull => TokenType::Null,
-                KeywordType::KeywordIs => TokenType::Is,
-                KeywordType::KeywordAs => TokenType::As,
-                KeywordType::KeywordBy => TokenType::By,
-                KeywordType::KeywordSuspend => TokenType::Suspend,
-                KeywordType::KeywordAwait => TokenType::Await,
-                KeywordType::KeywordLaunch => TokenType::Launch,
-                KeywordType::KeywordFlow => TokenType::Flow,
-                KeywordType::KeywordTry => TokenType::Try,
-                KeywordType::KeywordCatch => TokenType::Catch,
-                KeywordType::KeywordFinally => TokenType::Finally,
-                KeywordType::KeywordThrow => TokenType::Throw,
-                KeywordType::KeywordInline => TokenType::Inline,
-                KeywordType::KeywordReified => TokenType::Reified,
-                KeywordType::KeywordCrossinline => TokenType::Crossinline,
-                KeywordType::KeywordNoinline => TokenType::Noinline,
-                KeywordType::KeywordOperator => TokenType::Operator,
-                KeywordType::KeywordInfix => TokenType::Infix,
-                KeywordType::KeywordTailrec => TokenType::Tailrec,
-                KeywordType::KeywordOpen => TokenType::Open,
-                KeywordType::KeywordFinal => TokenType::Final,
-                KeywordType::KeywordAbstract => TokenType::Abstract,
-                KeywordType::KeywordOverride => TokenType::Override,
-                KeywordType::KeywordLateinit => TokenType::Lateinit,
-                KeywordType::KeywordCompanion => TokenType::Companion,
-                KeywordType::KeywordAnd => TokenType::LogicalAnd,
-                KeywordType::KeywordOr => TokenType::LogicalOr,
-                KeywordType::KeywordNot => TokenType::LogicalNot,
-                KeywordType::KeywordMove => TokenType::Move,
-                KeywordType::KeywordBorrow => TokenType::Borrow,
-                KeywordType::KeywordInout => TokenType::Inout,
-            })
+            // Special handling for boolean literals
+            match keyword_type {
+                KeywordType::KeywordTrue => Some(TokenType::BoolLiteral(true)),
+                KeywordType::KeywordFalse => Some(TokenType::BoolLiteral(false)),
+                // All other keywords use the dynamic Keyword variant
+                _ => Some(TokenType::Keyword(keyword_type))
+            }
         } else {
             None
         }
@@ -426,7 +360,9 @@ impl Lexer {
     
     fn read_string_literal(&mut self) -> LexerResult<Token> {
         let start_pos = self.pos_tracker;
-        let mut string_value = String::new();
+        let mut parts = Vec::new();
+        let mut current_text = String::new();
+        let mut has_interpolation = false;
         let mut lexeme = String::new();
         
         // Skip opening quote
@@ -435,36 +371,104 @@ impl Lexer {
         
         while let Some(ch) = self.current_char {
             if ch == '"' {
+                // End of string
                 lexeme.push('"');
                 self.advance();
-                return Ok(Token::new(TokenType::StringLiteral(string_value), lexeme, start_pos));
+                
+                if has_interpolation {
+                    // Add any remaining text
+                    if !current_text.is_empty() || parts.is_empty() {
+                        parts.push(InterpolationPart {
+                            kind: InterpolationKind::Text(current_text.clone()),
+                            content: current_text,
+                            position: self.pos_tracker,
+                        });
+                    }
+                    return Ok(Token::new(TokenType::InterpolatedString(parts), lexeme, start_pos));
+                } else {
+                    return Ok(Token::new(TokenType::StringLiteral(current_text), lexeme, start_pos));
+                }
+            } else if ch == '{' {
+                // Check for escaped brace or interpolation
+                self.advance();
+                if self.current_char == Some('{') {
+                    // Escaped opening brace
+                    current_text.push('{');
+                    lexeme.push_str("{{");
+                    self.advance();
+                } else {
+                    // Start of interpolation
+                    has_interpolation = true;
+                    
+                    // Save current text part if any
+                    if !current_text.is_empty() {
+                        parts.push(InterpolationPart {
+                            kind: InterpolationKind::Text(current_text.clone()),
+                            content: current_text.clone(),
+                            position: self.pos_tracker,
+                        });
+                        current_text.clear();
+                    }
+                    
+                    // Read the interpolated expression
+                    let expr_pos = self.pos_tracker;
+                    let expr = self.read_interpolation_expression()?;
+                    
+                    if expr.is_empty() {
+                        return Err(LexerError::InvalidInterpolation {
+                            position: expr_pos,
+                            message: "Empty interpolation expression".to_string(),
+                        });
+                    }
+                    
+                    parts.push(InterpolationPart {
+                        kind: InterpolationKind::Expression(expr.clone()),
+                        content: expr,
+                        position: expr_pos,
+                    });
+                    
+                    lexeme.push_str(&format!("{{...}}"));
+                }
+            } else if ch == '}' {
+                // Check for escaped closing brace
+                self.advance();
+                if self.current_char == Some('}') {
+                    // Escaped closing brace
+                    current_text.push('}');
+                    lexeme.push_str("}}");
+                    self.advance();
+                } else {
+                    // Single closing brace in string
+                    current_text.push('}');
+                    lexeme.push('}');
+                }
             } else if ch == '\\' {
                 lexeme.push('\\');
                 self.advance();
                 
                 match self.current_char {
                     Some('n') => {
-                        string_value.push('\n');
+                        current_text.push('\n');
                         lexeme.push('n');
                         self.advance();
                     }
                     Some('t') => {
-                        string_value.push('\t');
+                        current_text.push('\t');
                         lexeme.push('t');
                         self.advance();
                     }
                     Some('r') => {
-                        string_value.push('\r');
+                        current_text.push('\r');
                         lexeme.push('r');
                         self.advance();
                     }
                     Some('\\') => {
-                        string_value.push('\\');
+                        current_text.push('\\');
                         lexeme.push('\\');
                         self.advance();
                     }
                     Some('"') => {
-                        string_value.push('"');
+                        current_text.push('"');
                         lexeme.push('"');
                         self.advance();
                     }
@@ -472,9 +476,9 @@ impl Lexer {
                         lexeme.push('u');
                         self.advance();
                         let unicode_char = self.read_unicode_escape()?;
-                        string_value.push(unicode_char);
+                        current_text.push(unicode_char);
                     }
-                    Some(escape_char) => {
+                    Some(_escape_char) => {
                         return Err(LexerError::InvalidUnicodeEscape {
                             position: self.pos_tracker,
                         });
@@ -486,7 +490,7 @@ impl Lexer {
                     }
                 }
             } else {
-                string_value.push(ch);
+                current_text.push(ch);
                 lexeme.push(ch);
                 self.advance();
             }
@@ -494,6 +498,66 @@ impl Lexer {
         
         Err(LexerError::UnterminatedString {
             position: start_pos,
+        })
+    }
+    
+    fn read_interpolation_expression(&mut self) -> LexerResult<String> {
+        let mut expr = String::new();
+        let mut brace_depth = 1; // We're already inside one '{'
+        
+        while let Some(ch) = self.current_char {
+            if ch == '{' {
+                brace_depth += 1;
+                expr.push(ch);
+                self.advance();
+            } else if ch == '}' {
+                brace_depth -= 1;
+                if brace_depth == 0 {
+                    // End of interpolation
+                    self.advance();
+                    return Ok(expr);
+                } else {
+                    expr.push(ch);
+                    self.advance();
+                }
+            } else if ch == '"' {
+                // Handle strings within interpolation
+                expr.push(ch);
+                self.advance();
+                self.read_string_in_interpolation(&mut expr)?;
+            } else {
+                expr.push(ch);
+                self.advance();
+            }
+        }
+        
+        Err(LexerError::UnterminatedString {
+            position: self.pos_tracker,
+        })
+    }
+    
+    fn read_string_in_interpolation(&mut self, expr: &mut String) -> LexerResult<()> {
+        // Read a string literal within an interpolation expression
+        while let Some(ch) = self.current_char {
+            if ch == '"' {
+                expr.push(ch);
+                self.advance();
+                return Ok(());
+            } else if ch == '\\' {
+                expr.push(ch);
+                self.advance();
+                if let Some(next) = self.current_char {
+                    expr.push(next);
+                    self.advance();
+                }
+            } else {
+                expr.push(ch);
+                self.advance();
+            }
+        }
+        
+        Err(LexerError::UnterminatedString {
+            position: self.pos_tracker,
         })
     }
     
@@ -672,11 +736,11 @@ mod tests {
         let or_keyword = keyword_manager.get_logical_or();
         let not_keyword = keyword_manager.get_logical_not();
         
-        assert_eq!(lexer.check_keyword(&fun_keyword), Some(TokenType::Fun));
-        assert_eq!(lexer.check_keyword(&if_keyword), Some(TokenType::If));
-        assert_eq!(lexer.check_keyword(&and_keyword), Some(TokenType::LogicalAnd));
-        assert_eq!(lexer.check_keyword(&or_keyword), Some(TokenType::LogicalOr));
-        assert_eq!(lexer.check_keyword(&not_keyword), Some(TokenType::LogicalNot));
+        assert_eq!(lexer.check_keyword(&fun_keyword), Some(TokenType::Keyword(KeywordType::KeywordFun)));
+        assert_eq!(lexer.check_keyword(&if_keyword), Some(TokenType::Keyword(KeywordType::KeywordIf)));
+        assert_eq!(lexer.check_keyword(&and_keyword), Some(TokenType::Keyword(KeywordType::KeywordAnd)));
+        assert_eq!(lexer.check_keyword(&or_keyword), Some(TokenType::Keyword(KeywordType::KeywordOr)));
+        assert_eq!(lexer.check_keyword(&not_keyword), Some(TokenType::Keyword(KeywordType::KeywordNot)));
         
         // Test non-keywords
         assert_eq!(lexer.check_keyword("variable_name"), None);
@@ -696,7 +760,7 @@ mod tests {
         let en_fun_keyword = keyword_manager.get_keyword_text(&KeywordType::KeywordFun).unwrap();
         let ar_fun_keyword = "دالة"; // This will be loaded from Arabic TOML
         
-        assert_eq!(lexer_en.check_keyword(&en_fun_keyword), Some(TokenType::Fun));
+        assert_eq!(lexer_en.check_keyword(&en_fun_keyword), Some(TokenType::Keyword(KeywordType::KeywordFun)));
         assert_eq!(lexer_en.check_keyword(ar_fun_keyword), None); // Arabic should not work in English mode
         
         // Test Arabic
@@ -705,7 +769,7 @@ mod tests {
         
         let ar_fun_keyword_dynamic = keyword_manager.get_keyword_text(&KeywordType::KeywordFun).unwrap();
         
-        assert_eq!(lexer_ar.check_keyword(&ar_fun_keyword_dynamic), Some(TokenType::Fun));
+        assert_eq!(lexer_ar.check_keyword(&ar_fun_keyword_dynamic), Some(TokenType::Keyword(KeywordType::KeywordFun)));
         assert_eq!(lexer_ar.check_keyword(&en_fun_keyword), None); // English should not work in Arabic mode
     }
     

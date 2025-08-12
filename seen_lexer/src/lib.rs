@@ -29,4 +29,6 @@ mod tests {
     mod hardcoded_keyword_scanner;
     mod keyword_validation_integration;
     mod core_lexer_tests;
+    mod string_interpolation_tests;
+    mod nullable_operators_tests;
 }

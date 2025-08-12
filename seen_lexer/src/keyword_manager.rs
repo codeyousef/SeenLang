@@ -34,7 +34,7 @@ pub struct KeywordManager {
     fallback_language: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum KeywordType {
     // Control flow
     KeywordFun,

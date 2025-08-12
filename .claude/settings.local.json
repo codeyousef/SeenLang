@@ -32,6 +32,7 @@
       "Bash(git config:*)",
       "Bash(mkdir:*)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo check -p seen_parser)",
+      "Bash(CARGO_TARGET_DIR=*)",
       "Bash(git restore:*)",
       "Bash(CARGO_TARGET_DIR=/tmp/seenlang_target cargo check -p seen_parser)",
       "Bash(CARGO_TARGET_DIR=/tmp/seenlang_target cargo test -p seen_parser)",

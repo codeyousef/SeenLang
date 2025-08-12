@@ -19,6 +19,9 @@ pub enum LexerError {
     #[error("Invalid Unicode escape sequence at {position}")]
     InvalidUnicodeEscape { position: Position },
     
+    #[error("Invalid string interpolation at {position}: {message}")]
+    InvalidInterpolation { position: Position, message: String },
+    
     #[error("Keyword file not found: {language}")]
     KeywordFileNotFound { language: String },
     

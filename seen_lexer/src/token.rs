@@ -26,35 +26,8 @@ pub enum TokenType {
     PrivateIdentifier(String),
     
     // Keywords (dynamically loaded from TOML)
-    // Control flow
-    Fun, If, Else, While, For, In, Match, Break, Continue, Return, When,
-    
-    // Variable declarations
-    Let, Mut, Const, Static, Val, Var,
-    
-    // Type definitions
-    Struct, Enum, Trait, Impl, Type, Class, Data, Sealed, Object, Interface,
-    
-    // Module system
-    Module, Import, Use,
-    
-    // Literals
-    True, False, Null,
-    
-    // Type checking
-    Is, As, By,
-    
-    // Async/Coroutines
-    Suspend, Await, Launch, Flow,
-    
-    // Error handling
-    Try, Catch, Finally, Throw,
-    
-    // Function modifiers
-    Inline, Reified, Crossinline, Noinline, Operator, Infix, Tailrec,
-    
-    // Class modifiers
-    Open, Final, Abstract, Override, Lateinit, Companion,
+    // Single variant for all keywords - no hardcoding!
+    Keyword(crate::keyword_manager::KeywordType),
     
     // Logical operators (research-based)
     LogicalAnd, LogicalOr, LogicalNot,
@@ -64,6 +37,11 @@ pub enum TokenType {
     
     // Mathematical operators
     Plus, Minus, Multiply, Divide, Modulo,
+    
+    // Assignment operators
+    Assign,             // =
+    
+    // Comparison operators
     Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
     
     // Nullable operators
