@@ -55,6 +55,7 @@ description = "Arabic keyword set for the Seen programming language - مجموع
 "بواسطة" = "KeywordBy"         # by
 
 # Async/Coroutines - غير متزامن
+"غير_متزامن" = "KeywordAsync"   # async
 "علق" = "KeywordSuspend"       # suspend
 "انتظر" = "KeywordAwait"       # await
 "شغل" = "KeywordLaunch"        # launch

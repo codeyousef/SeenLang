@@ -41,6 +41,7 @@ description = "German keyword set for the Seen programming language - Deutsche S
 "ist" = "KeywordIs"
 "als" = "KeywordAs"
 "durch" = "KeywordBy"
+"asynchron" = "KeywordAsync"
 "aussetzen" = "KeywordSuspend"
 "warten" = "KeywordAwait"
 "starten" = "KeywordLaunch"

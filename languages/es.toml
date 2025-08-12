@@ -54,6 +54,7 @@ description = "Spanish keyword set for the Seen programming language - Conjunto 
 "por" = "KeywordBy"             # by
 
 # Async/Coroutines - Asíncrono/Corrutinas
+"asíncrono" = "KeywordAsync"    # async
 "suspender" = "KeywordSuspend"  # suspend
 "esperar" = "KeywordAwait"      # await
 "lanzar" = "KeywordLaunch"      # launch

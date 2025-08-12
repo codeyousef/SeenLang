@@ -324,7 +324,7 @@ mod integration_tests {
         let token = lexer.next_token().unwrap();
         match token.token_type {
             TokenType::InterpolatedString(parts) => {
-                assert_eq!(parts.len(), 7);
+                assert_eq!(parts.len(), 6);
                 
                 assert_eq!(parts[0].kind, InterpolationKind::Text("User: ".to_string()));
                 assert_eq!(parts[1].kind, InterpolationKind::Expression("user.name".to_string()));
@@ -332,7 +332,7 @@ mod integration_tests {
                 assert_eq!(parts[3].kind, InterpolationKind::Expression("user.age".to_string()));
                 assert_eq!(parts[4].kind, InterpolationKind::Text(", Status: {active}, Lambda: ".to_string()));
                 assert_eq!(parts[5].kind, InterpolationKind::Expression("list.map({ x -> x * 2 })".to_string()));
-                assert_eq!(parts[6].kind, InterpolationKind::Text("".to_string())); // Empty at end
+                // No empty text part at end when string ends with expression
             }
             _ => panic!("Expected InterpolatedString with all features"),
         }

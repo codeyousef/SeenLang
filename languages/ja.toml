@@ -41,6 +41,7 @@ description = "Japanese keyword set for the Seen programming language - Seen プ
 "である" = "KeywordIs"
 "として" = "KeywordAs"
 "によって" = "KeywordBy"
+"非同期" = "KeywordAsync"
 "中断" = "KeywordSuspend"
 "待つ" = "KeywordAwait"
 "起動" = "KeywordLaunch"

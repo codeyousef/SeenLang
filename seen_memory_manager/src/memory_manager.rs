@@ -528,29 +528,50 @@ mod tests {
     fn test_program_analysis() {
         let mut manager = MemoryManager::new();
         
-        // Create a simple program: let x = 42
+        // Create a program that accesses variables multiple times to trigger borrow optimizations
         let program = Program {
             expressions: vec![
                 Expression::Let {
-                    name: "x".to_string(),
+                    name: "data".to_string(),
                     type_annotation: None,
-                    value: Box::new(Expression::IntegerLiteral {
-                        value: 42,
-                        pos: Position::new(1, 9, 8),
+                    value: Box::new(Expression::StringLiteral {
+                        value: "large_data_string".to_string(),
+                        pos: Position::new(1, 14, 13),
                     }),
                     is_mutable: false,
                     pos: Position::new(1, 1, 0),
+                },
+                // Multiple accesses to trigger borrow optimization
+                Expression::Identifier {
+                    name: "data".to_string(),
+                    is_public: false,
+                    pos: Position::new(2, 1, 30),
+                },
+                Expression::Identifier {
+                    name: "data".to_string(),
+                    is_public: false,
+                    pos: Position::new(3, 1, 40),
+                },
+                Expression::Identifier {
+                    name: "data".to_string(),
+                    is_public: false,
+                    pos: Position::new(4, 1, 50),
+                },
+                Expression::Identifier {
+                    name: "data".to_string(),
+                    is_public: false,
+                    pos: Position::new(5, 1, 60),
                 }
             ],
         };
         
         let result = manager.analyze_program(&program);
         
-        // Should have ownership info for variable x
-        assert!(result.ownership_info.variables.contains_key("x"));
+        // Should have ownership info for variable data
+        assert!(result.ownership_info.variables.contains_key("data"));
         
-        // Should have region allocation for variable x
-        assert!(result.region_manager.is_allocated("x"));
+        // Should have region allocation for variable data
+        assert!(result.region_manager.is_allocated("data"));
         
         // Should have some optimizations suggested
         assert!(!result.optimizations.is_empty());

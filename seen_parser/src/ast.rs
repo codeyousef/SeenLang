@@ -219,6 +219,7 @@ pub enum Pattern {
     Wildcard,
     Range { start: Expression, end: Expression, inclusive: bool },
     Struct { name: String, fields: Vec<(String, Pattern)> },
+    Constructor { name: String, patterns: Vec<Pattern> },
     Array(Vec<Pattern>),
 }
 

@@ -41,6 +41,7 @@ description = "Hindi keyword set for the Seen programming language - सीन �
 "है" = "KeywordIs"
 "के_रूप_में" = "KeywordAs"
 "द्वारा" = "KeywordBy"
+"अतुल्यकालिक" = "KeywordAsync"
 "निलंबित" = "KeywordSuspend"
 "प्रतीक्षा" = "KeywordAwait"
 "लॉन्च" = "KeywordLaunch"

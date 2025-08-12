@@ -41,6 +41,7 @@ description = "Portuguese keyword set for the Seen programming language - Conjun
 "é" = "KeywordIs"
 "como" = "KeywordAs"
 "por" = "KeywordBy"
+"assíncrono" = "KeywordAsync"
 "suspender" = "KeywordSuspend"
 "aguardar" = "KeywordAwait"
 "lançar" = "KeywordLaunch"

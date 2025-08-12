@@ -17,11 +17,23 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(mut lexer: Lexer) -> Self {
-        let current = lexer.next_token().unwrap_or(Token {
+        let mut current = lexer.next_token().unwrap_or(Token {
             token_type: TokenType::EOF,
             lexeme: String::new(),
             position: Position::new(0, 0, 0),
         });
+        
+        // Skip initial newlines
+        while matches!(current.token_type, TokenType::Newline) {
+            current = lexer.next_token().unwrap_or(Token {
+                token_type: TokenType::EOF,
+                lexeme: String::new(),
+                position: Position::new(0, 0, 0),
+            });
+            if matches!(current.token_type, TokenType::EOF) {
+                break;
+            }
+        }
         
         Self {
             lexer,
@@ -267,6 +279,20 @@ impl Parser {
         
         loop {
             match &self.current.token_type {
+                TokenType::LeftBrace => {
+                    // Check if this is a struct literal (only for type identifiers)
+                    if let Expression::Identifier { name, is_public, pos } = &expr {
+                        // Type names start with uppercase, so check if this is a type
+                        if *is_public || name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                            let struct_name = name.clone();
+                            let struct_expr = self.parse_struct_literal(struct_name)?;
+                            expr = struct_expr;
+                            continue;
+                        }
+                    }
+                    // Not a struct literal, so stop parsing postfix
+                    break;
+                }
                 TokenType::LeftParen => {
                     let pos = self.current.position.clone();
                     self.advance();
@@ -331,7 +357,7 @@ impl Parser {
         if self.check_keyword(KeywordType::KeywordAwait) {
             let pos = self.current.position.clone();
             self.advance();
-            let expr = self.parse_primary()?;
+            let expr = self.parse_unary()?; // Call next level down to avoid recursion
             return Ok(Expression::Await {
                 expr: Box::new(expr),
                 pos,
@@ -369,14 +395,10 @@ impl Parser {
         }
         
         // Boolean literals
-        if self.check_keyword(KeywordType::KeywordTrue) {
+        if let TokenType::BoolLiteral(value) = &self.current.token_type {
+            let value = *value;
             self.advance();
-            return Ok(Expression::BooleanLiteral { value: true, pos });
-        }
-        
-        if self.check_keyword(KeywordType::KeywordFalse) {
-            self.advance();
-            return Ok(Expression::BooleanLiteral { value: false, pos });
+            return Ok(Expression::BooleanLiteral { value, pos });
         }
         
         // Null literal
@@ -415,6 +437,7 @@ impl Parser {
             return self.parse_return();
         }
         
+        
         // Variable declarations
         if self.check_keyword(KeywordType::KeywordLet) {
             return self.parse_let();
@@ -429,10 +452,10 @@ impl Parser {
             return self.parse_function();
         }
         
-        // Async functions require lexer support for async/await keywords
-        // if self.check_keyword(KeywordType::KeywordAsync) {
-        //     return self.parse_async_function();
-        // }
+        // Async functions
+        if self.check_keyword(KeywordType::KeywordAsync) {
+            return self.parse_async_function();
+        }
         
         // Blocks and parentheses
         if self.check(&TokenType::LeftBrace) {
@@ -456,17 +479,11 @@ impl Parser {
             return self.parse_array();
         }
         
-        // Identifiers (could be struct literals)
+        // Identifiers
         if let TokenType::PublicIdentifier(name) = &self.current.token_type {
             let name = name.clone();
             let is_public = true;
             self.advance();
-            
-            // Check for struct literal
-            if self.check(&TokenType::LeftBrace) {
-                return self.parse_struct_literal(name);
-            }
-            
             return Ok(Expression::Identifier { name, is_public, pos });
         }
         
@@ -474,12 +491,22 @@ impl Parser {
             let name = name.clone();
             let is_public = false;
             self.advance();
-            
-            // Check for struct literal
-            if self.check(&TokenType::LeftBrace) {
-                return self.parse_struct_literal(name);
-            }
-            
+            return Ok(Expression::Identifier { name, is_public, pos });
+        }
+        
+        // Keywords used as identifiers in expressions
+        if let TokenType::Keyword(keyword) = &self.current.token_type {
+            let name = match keyword {
+                KeywordType::KeywordData => "data".to_string(),
+                // Add other keywords as needed
+                _ => return Err(ParseError::UnexpectedToken {
+                    found: self.current.token_type.clone(),
+                    expected: "identifier".to_string(),
+                    pos: self.current.position.clone(),
+                }),
+            };
+            let is_public = false; // Keywords used as identifiers are treated as private
+            self.advance();
             return Ok(Expression::Identifier { name, is_public, pos });
         }
         
@@ -543,7 +570,7 @@ impl Parser {
             
             arms.push(MatchArm {
                 pattern,
-                guard: guard.map(|g| *Box::new(g)),
+                guard,
                 body,
             });
             
@@ -585,31 +612,58 @@ impl Parser {
             return Ok(Pattern::Literal(start));
         }
         
-        // Identifier or struct pattern
+        // Identifier or struct pattern (including keywords used as identifiers)
         match &self.current.token_type {
             TokenType::PublicIdentifier(name) | TokenType::PrivateIdentifier(name) => {
                 let name = name.clone();
                 self.advance();
-            
-            if self.check(&TokenType::LeftBrace) {
-                self.advance();
-                let mut fields = Vec::new();
                 
-                while !self.check(&TokenType::RightBrace) {
-                    let field_name = self.expect_identifier()?;
-                    self.expect(&TokenType::Colon)?;
-                    let field_pattern = self.parse_pattern()?;
-                    fields.push((field_name, field_pattern));
+                if self.check(&TokenType::LeftBrace) {
+                    // Struct pattern: Name { field: pattern, ... }
+                    self.advance();
+                    let mut fields = Vec::new();
                     
-                    if !self.check(&TokenType::RightBrace) {
-                        self.expect(&TokenType::Comma)?;
+                    while !self.check(&TokenType::RightBrace) {
+                        let field_name = self.expect_identifier()?;
+                        self.expect(&TokenType::Colon)?;
+                        let field_pattern = self.parse_pattern()?;
+                        fields.push((field_name, field_pattern));
+                        
+                        if !self.check(&TokenType::RightBrace) {
+                            self.expect(&TokenType::Comma)?;
+                        }
                     }
+                    
+                    self.expect(&TokenType::RightBrace)?;
+                    return Ok(Pattern::Struct { name, fields });
+                } else if self.check(&TokenType::LeftParen) {
+                    // Constructor pattern: Name(pattern1, pattern2, ...)
+                    self.advance();
+                    let mut patterns = Vec::new();
+                    
+                    while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+                        let pattern = self.parse_pattern()?;
+                        patterns.push(pattern);
+                        
+                        if !self.check(&TokenType::RightParen) {
+                            self.expect(&TokenType::Comma)?;
+                        }
+                    }
+                    
+                    self.expect(&TokenType::RightParen)?;
+                    return Ok(Pattern::Constructor { name, patterns });
                 }
                 
-                self.expect(&TokenType::RightBrace)?;
-                return Ok(Pattern::Struct { name, fields });
+                return Ok(Pattern::Identifier(name));
             }
-            
+            // Keywords can also be used as pattern identifiers
+            TokenType::Keyword(keyword) => {
+                let name = match keyword {
+                    KeywordType::KeywordData => "data".to_string(),
+                    // Add other keywords as needed for pattern matching
+                    _ => format!("{:?}", keyword), // Fallback to debug representation
+                };
+                self.advance();
                 return Ok(Pattern::Identifier(name));
             }
             _ => {}
@@ -839,7 +893,15 @@ impl Parser {
     /// Parse lambda expression
     fn parse_lambda(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
-        self.expect(&TokenType::LeftBrace)?;
+        // We should be at the { token when this is called
+        if !self.check(&TokenType::LeftBrace) {
+            return Err(ParseError::UnexpectedToken {
+                found: self.current.token_type.clone(),
+                expected: "'{' for lambda".to_string(),
+                pos: self.current.position.clone(),
+            });
+        }
+        self.advance(); // consume '{'
         
         let params = if self.check(&TokenType::LeftParen) {
             // Typed parameters: { (x: Int, y: Int) -> ... }
@@ -869,19 +931,50 @@ impl Parser {
         
         self.expect(&TokenType::Arrow)?;
         
-        let return_type = if self.check_identifier_value("in") {
+        // Look for return type syntax: Type followed by 'in' keyword  
+        let return_type = if matches!(self.current.token_type, TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_)) {
+            // Use simple lookahead to check for return type pattern without consuming tokens
+            let mut lookahead_pos = 0;
+            
+            // Skip the type identifier(s) - could be complex like HashMap<String, Int>
+            if self.is_type_at_lookahead(lookahead_pos) {
+                // Find where the type ends by looking for 'in' keyword
+                let mut found_in = false;
+                for i in 1..10 { // Look ahead up to 10 tokens
+                    match self.peek_ahead(i) {
+                        Some(token) if matches!(token.token_type, TokenType::Keyword(KeywordType::KeywordIn)) => {
+                            found_in = true;
+                            break;
+                        }
+                        Some(_) => continue,
+                        None => break,
+                    }
+                }
+                
+                if found_in {
+                    // Parse return type and consume 'in'
+                    let type_annotation = self.parse_type()?;
+                    self.expect_keyword(KeywordType::KeywordIn)?;
+                    Some(type_annotation)
+                } else {
+                    // No 'in' found, this is lambda body
+                    None
+                }
+            } else {
+                // Not a valid type, this is lambda body
+                None
+            }
+        } else if self.check_keyword(KeywordType::KeywordIn) {
+            // No return type, just 'in' keyword
             self.advance();
-            // Type comes before 'in'
-            None // Return type parsed when full lambda syntax is implemented
+            None
         } else {
+            // No return type, no 'in' keyword (simple lambda)
             None
         };
         
-        let body = if self.check(&TokenType::LeftBrace) {
-            self.parse_block()?
-        } else {
-            self.parse_expression()?
-        };
+        // Parse lambda body which can be multiple statements until the closing brace
+        let body = self.parse_lambda_body()?;
         
         self.expect(&TokenType::RightBrace)?;
         
@@ -909,11 +1002,8 @@ impl Parser {
         
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
             expressions.push(self.parse_expression()?);
-            
-            // Optional semicolon
-            if self.check(&TokenType::Semicolon) {
-                self.advance();
-            }
+            // Seen doesn't use semicolons - statements are separated by newlines
+            // The lexer handles this by treating newlines as whitespace
         }
         
         if expressions.is_empty() {
@@ -974,14 +1064,46 @@ impl Parser {
     /// Parse interpolated string
     fn parse_interpolated_string(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
-        let parts = Vec::new();
         
-        // The lexer should have already tokenized the interpolated string
-        // We need to collect the interpolation parts
+        // Extract the parts from the lexer's InterpolatedString token
+        let parts = if let TokenType::InterpolatedString(lexer_parts) = &self.current.token_type {
+            // Convert lexer InterpolationPart to parser InterpolationPart
+            lexer_parts.iter().map(|lexer_part| {
+                match &lexer_part.kind {
+                    seen_lexer::InterpolationKind::Text(text) => {
+                        InterpolationPart {
+                            kind: InterpolationKind::Text(text.clone()),
+                            pos: lexer_part.position.clone(),
+                        }
+                    }
+                    seen_lexer::InterpolationKind::Expression(expr_str) => {
+                        // For now, store the expression as a string literal
+                        // Later we could parse it into an actual Expression
+                        InterpolationPart {
+                            kind: InterpolationKind::Expression(Box::new(
+                                Expression::StringLiteral {
+                                    value: expr_str.clone(),
+                                    pos: lexer_part.position.clone(),
+                                }
+                            )),
+                            pos: lexer_part.position.clone(),
+                        }
+                    }
+                    seen_lexer::InterpolationKind::LiteralBrace => {
+                        // Treat literal braces as text
+                        InterpolationPart {
+                            kind: InterpolationKind::Text("{".to_string()),
+                            pos: lexer_part.position.clone(),
+                        }
+                    }
+                }
+            }).collect()
+        } else {
+            Vec::new()
+        };
+        
         self.advance(); // consume the interpolated string token
         
-        // For now, return a simple string literal
-        // String interpolation requires lexer support for embedded expressions
         Ok(Expression::InterpolatedString { parts, pos })
     }
     
@@ -1105,15 +1227,27 @@ impl Parser {
     
     fn advance(&mut self) {
         if !self.is_at_end() {
-            self.current = if let Some(token) = self.peek_buffer.pop_front() {
-                token
-            } else {
-                self.lexer.next_token().unwrap_or(Token {
-                    token_type: TokenType::EOF,
-                    lexeme: String::new(),
-                    position: self.current.position.clone(),
-                })
-            };
+            loop {
+                self.current = if let Some(token) = self.peek_buffer.pop_front() {
+                    token
+                } else {
+                    self.lexer.next_token().unwrap_or(Token {
+                        token_type: TokenType::EOF,
+                        lexeme: String::new(),
+                        position: self.current.position.clone(),
+                    })
+                };
+                
+                // Skip newline tokens automatically
+                if !matches!(self.current.token_type, TokenType::Newline) {
+                    break;
+                }
+                
+                // If we hit EOF, don't continue the loop
+                if matches!(self.current.token_type, TokenType::EOF) {
+                    break;
+                }
+            }
         }
     }
     
@@ -1183,72 +1317,119 @@ impl Parser {
     fn is_end_of_expression(&self) -> bool {
         matches!(
             self.current.token_type,
-            TokenType::Semicolon | TokenType::RightBrace | TokenType::RightParen | TokenType::EOF
+            TokenType::RightBrace | TokenType::RightParen | TokenType::EOF
         )
     }
     
     fn is_lambda(&mut self) -> bool {
         // Look ahead to determine if this is a lambda
-        // Lambda: { x -> ... } or { (x: Type) -> ... }
-        let mut peek_count = 0;
-        let mut tokens = Vec::new();
+        // Lambda: { x -> ... } or { (x: Type) -> ... } or { (x, y) -> ... }
+        // Blocks don't have arrow operators
         
-        // Collect tokens to check
-        while peek_count < 5 && !self.is_at_end() {
-            let token = if peek_count == 0 {
-                self.current.clone()
-            } else {
-                let t = self.lexer.next_token().unwrap_or(Token {
-                    token_type: TokenType::EOF,
-                    lexeme: String::new(),
-                    position: self.current.position.clone(),
-                });
-                tokens.push(t.clone());
-                t
-            };
-            
-            if matches!(token.token_type, TokenType::Arrow) {
-                // Put tokens back
-                for t in tokens.into_iter().rev() {
-                    self.peek_buffer.push_back(t);
+        if !self.check(&TokenType::LeftBrace) {
+            return false;
+        }
+        
+        // Simple approach: save current state and look ahead without corrupting state
+        // We'll use the existing peek_buffer mechanism
+        let mut lookahead_tokens = Vec::new();
+        
+        // Look ahead to find arrow token within reasonable distance  
+        for _ in 0..15 {
+            // Get next token but save it for restoration
+            if let Ok(token) = self.lexer.next_token() {
+                match &token.token_type {
+                    TokenType::Arrow => {
+                        // Found arrow - put all tokens back and return true
+                        lookahead_tokens.push(token);
+                        for t in lookahead_tokens.into_iter().rev() {
+                            self.peek_buffer.push_front(t);
+                        }
+                        return true;
+                    }
+                    TokenType::RightBrace | TokenType::EOF => {
+                        // No arrow before closing - put tokens back and return false
+                        lookahead_tokens.push(token);
+                        for t in lookahead_tokens.into_iter().rev() {
+                            self.peek_buffer.push_front(t);
+                        }
+                        return false;
+                    }
+                    _ => {
+                        lookahead_tokens.push(token);
+                    }
                 }
-                return true;
+            } else {
+                break;
             }
-            
-            peek_count += 1;
         }
         
-        // Put tokens back
-        for t in tokens.into_iter().rev() {
-            self.peek_buffer.push_back(t);
+        // Put all tokens back - no arrow found
+        for token in lookahead_tokens.into_iter().rev() {
+            self.peek_buffer.push_front(token);
         }
+        
         false
     }
     
+    fn parse_lambda_body(&mut self) -> ParseResult<Expression> {
+        // Parse statements until we reach the closing brace
+        let mut expressions = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            let expr = self.parse_expression()?;
+            expressions.push(expr);
+        }
+        
+        // If there's only one expression, return it directly
+        // If there are multiple, wrap in a block
+        match expressions.len() {
+            0 => Err(ParseError::UnexpectedToken {
+                found: self.current.token_type.clone(),
+                expected: "expression".to_string(),
+                pos: self.current.position.clone(),
+            }),
+            1 => Ok(expressions.into_iter().next().unwrap()),
+            _ => Ok(Expression::Block {
+                expressions,
+                pos: self.current.position.clone(),
+            }),
+        }
+    }
+    
     fn is_receiver_syntax(&mut self) -> bool {
-        // Check if this is receiver syntax: (name: Type) or (name: inout Type)
-        // Need to look ahead
-        // Check for receiver syntax with lookahead
-        let fun_keyword = self.lexer.get_keyword_text(&KeywordType::KeywordFun);
-        if let Some(fun_text) = fun_keyword {
-            if self.current.lexeme == fun_text {
-                // Look ahead to check for method syntax
-            let saved_current = self.current.clone();
-            let saved_peek = self.peek_buffer.clone();
-            self.advance();
-                if self.current.token_type == TokenType::LeftParen {
-                    // Could be a method - check for receiver
-                    // Restore parser state
-                    self.current = saved_current;
-                    self.peek_buffer = saved_peek;
-                    return true;
-                }
-                // Restore parser state
-                self.current = saved_current;
-                self.peek_buffer = saved_peek;
+        // Simple heuristic: if we see ( followed by identifier : identifier ), it's likely a receiver
+        if !self.check(&TokenType::LeftParen) {
+            return false;
+        }
+        
+        // For now, if we see a LeftParen right after 'fun', assume it's receiver syntax
+        // This is a simple heuristic that avoids complex lookahead
+        true
+    }
+    
+    /// Look ahead at token at position i (0 = current token, 1 = next token, etc.)
+    fn peek_ahead(&mut self, distance: usize) -> Option<Token> {
+        if distance == 0 {
+            return Some(self.current.clone());
+        }
+        
+        // Fill peek buffer as needed
+        while self.peek_buffer.len() < distance {
+            if let Ok(token) = self.lexer.next_token() {
+                self.peek_buffer.push_back(token);
+            } else {
+                return None; // EOF
             }
         }
-        false
+        
+        self.peek_buffer.get(distance - 1).cloned()
+    }
+    
+    /// Check if the token at given lookahead position could be a type
+    fn is_type_at_lookahead(&mut self, _distance: usize) -> bool {
+        // For now, simple check - any identifier can be a type
+        matches!(self.current.token_type, TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_))
     }
     
     fn match_equality_op(&self) -> Option<BinaryOperator> {

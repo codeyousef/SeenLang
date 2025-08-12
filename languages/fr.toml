@@ -54,6 +54,7 @@ description = "French keyword set for the Seen programming language - Ensemble d
 "par" = "KeywordBy"             # by
 
 # Async/Coroutines - Asynchrone/Coroutines
+"asynchrone" = "KeywordAsync"   # async
 "suspendre" = "KeywordSuspend"  # suspend
 "attendre" = "KeywordAwait"     # await
 "lancer" = "KeywordLaunch"      # launch

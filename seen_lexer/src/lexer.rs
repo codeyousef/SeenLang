@@ -405,10 +405,8 @@ impl Lexer {
                 self.advance();
                 
                 if has_interpolation {
-                    // Add any remaining text if there is any, or if we need to maintain proper structure
-                    // (e.g., when string ends immediately after an interpolation)
-                    if !current_text.is_empty() || parts.is_empty() || 
-                       (parts.len() % 2 == 0) { // Odd number of parts means we ended on text, even means we ended on expression
+                    // Add any remaining text only if there is actual text content
+                    if !current_text.is_empty() {
                         
                         // Adjust position for text positioning
                         let mut final_text_pos = text_start_pos;

@@ -14,10 +14,12 @@
 //!
 //! ## Example Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use seen_memory_manager::{MemoryManager, MemoryManagerConfig};
-//! use seen_parser::ast::Program;
+//! use seen_parser::ast::{Program, Expression};
+//! use seen_lexer::Position;
 //!
+//! let program = Program { expressions: vec![] }; // Your AST here
 //! let mut manager = MemoryManager::new();
 //! let result = manager.analyze_program(&program);
 //!

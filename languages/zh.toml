@@ -54,6 +54,7 @@ description = "Chinese keyword set for the Seen programming language - Seen编�
 "通过" = "KeywordBy"            # by
 
 # Async/Coroutines - 异步/协程
+"异步" = "KeywordAsync"         # async
 "挂起" = "KeywordSuspend"       # suspend
 "等待" = "KeywordAwait"         # await
 "启动" = "KeywordLaunch"        # launch

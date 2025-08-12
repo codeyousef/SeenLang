@@ -5,8 +5,10 @@ use seen_lexer::{Lexer, KeywordManager};
 use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
-    let keyword_manager = Arc::new(KeywordManager::new());
-    let lexer = Lexer::new(input.to_string(), keyword_manager);
+    let mut keyword_manager = KeywordManager::new();
+    keyword_manager.load_from_toml("en").unwrap();
+    keyword_manager.switch_language("en").unwrap();
+    let lexer = Lexer::new(input.to_string(), Arc::new(keyword_manager));
     let mut parser = Parser::new(lexer);
     parser.parse_expression()
 }

@@ -85,6 +85,7 @@ pub enum KeywordType {
     KeywordBy,
     
     // Async/Coroutines
+    KeywordAsync,
     KeywordSuspend,
     KeywordAwait,
     KeywordLaunch,
@@ -210,6 +211,7 @@ impl KeywordManager {
             "KeywordIs" => Ok(KeywordType::KeywordIs),
             "KeywordAs" => Ok(KeywordType::KeywordAs),
             "KeywordBy" => Ok(KeywordType::KeywordBy),
+            "KeywordAsync" => Ok(KeywordType::KeywordAsync),
             "KeywordSuspend" => Ok(KeywordType::KeywordSuspend),
             "KeywordAwait" => Ok(KeywordType::KeywordAwait),
             "KeywordLaunch" => Ok(KeywordType::KeywordLaunch),

@@ -41,6 +41,7 @@ description = "Russian keyword set for the Seen programming language - Набо�
 "является" = "KeywordIs"
 "как" = "KeywordAs"
 "через" = "KeywordBy"
+"асинхронный" = "KeywordAsync"
 "приостановить" = "KeywordSuspend"
 "ждать" = "KeywordAwait"
 "запустить" = "KeywordLaunch"

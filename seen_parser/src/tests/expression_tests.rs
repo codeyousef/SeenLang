@@ -5,8 +5,10 @@ use seen_lexer::{Lexer, KeywordManager};
 use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
-    let keyword_manager = Arc::new(KeywordManager::new());
-    let lexer = Lexer::new(input.to_string(), keyword_manager);
+    let mut keyword_manager = KeywordManager::new();
+    keyword_manager.load_from_toml("en").unwrap();
+    keyword_manager.switch_language("en").unwrap();
+    let lexer = Lexer::new(input.to_string(), Arc::new(keyword_manager));
     let mut parser = Parser::new(lexer);
     parser.parse_expression()
 }
@@ -46,7 +48,22 @@ fn test_parse_string_literal() {
 
 #[test]
 fn test_parse_boolean_true() {
-    let expr = parse_expression("true").unwrap();
+    let expr = parse_expression("true");
+    if let Err(e) = &expr {
+        eprintln!("Parse error: {:?}", e);
+        // Try to debug what tokens the lexer produces
+        let mut keyword_manager = KeywordManager::new();
+        if let Err(load_err) = keyword_manager.load_from_toml("en") {
+            eprintln!("Failed to load keywords: {:?}", load_err);
+        } else {
+            keyword_manager.switch_language("en").unwrap();
+            let mut lexer = Lexer::new("true".to_string(), Arc::new(keyword_manager));
+            if let Ok(token) = lexer.next_token() {
+                eprintln!("Token for 'true': {:?}", token);
+            }
+        }
+    }
+    let expr = expr.unwrap();
     match expr {
         Expression::BooleanLiteral { value, .. } => {
             assert_eq!(value, true);
@@ -148,8 +165,19 @@ fn test_parse_struct_literal() {
 
 #[test]
 fn test_parse_block_expression() {
-    let expr = parse_expression("{ let x = 10; x + 5 }").unwrap();
+    // Test simple single-expression block
+    let expr = parse_expression("{ 42 }").unwrap();
     match expr {
+        Expression::IntegerLiteral { value, .. } => {
+            assert_eq!(value, 42);
+        }
+        _ => panic!("Expected integer literal (blocks with single expression return that expression)"),
+    }
+    
+    // Test multi-expression block
+    // Seen doesn't use semicolons - statements are separated by newlines
+    let expr2 = parse_expression("{ let x = 10 \n x + 5 }").unwrap();
+    match expr2 {
         Expression::Block { expressions, .. } => {
             assert_eq!(expressions.len(), 2);
         }
