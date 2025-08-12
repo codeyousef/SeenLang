@@ -270,8 +270,9 @@ impl MemoryManager {
         result.type_info = self.type_checker.check_program(program);
         
         // Convert type errors to memory errors
-        for type_error in result.type_info.get_errors() {
-            result.add_error(MemoryError::Type(type_error.clone()));
+        let type_errors: Vec<_> = result.type_info.get_errors().iter().cloned().collect();
+        for type_error in type_errors {
+            result.add_error(MemoryError::Type(type_error));
         }
         
         // Step 2: Ownership analysis
@@ -328,35 +329,52 @@ impl MemoryManager {
     /// Check for potential memory leaks
     fn check_memory_leaks(&self, result: &mut MemoryAnalysisResult) {
         // Variables that are allocated but never used might indicate leaks
-        for (var_name, var_info) in &result.ownership_info.variables {
-            if var_info.accessed_at.is_empty() && matches!(var_info.mode, OwnershipMode::Own) {
-                if let Some(region_id) = result.region_manager.find_variable_region(var_name) {
-                    result.add_error(MemoryError::MemoryLeak {
-                        variable: var_name.clone(),
-                        region: region_id,
-                        position: var_info.declared_at,
-                    });
-                }
+        let variables_to_check: Vec<_> = result.ownership_info.variables.iter()
+            .filter(|(_, var_info)| var_info.accessed_at.is_empty() && matches!(var_info.mode, OwnershipMode::Own))
+            .map(|(name, info)| (name.clone(), info.declared_at))
+            .collect();
+            
+        for (var_name, declared_at) in variables_to_check {
+            if let Some(region_id) = result.region_manager.find_variable_region(&var_name) {
+                result.add_error(MemoryError::MemoryLeak {
+                    variable: var_name,
+                    region: region_id,
+                    position: declared_at,
+                });
             }
         }
     }
     
     /// Check for use-after-free issues
     fn check_use_after_free(&self, result: &mut MemoryAnalysisResult) {
-        for (var_name, var_info) in &result.ownership_info.variables {
-            if let Some(moved_at) = var_info.moved_at {
-                // Check if variable is accessed after being moved
-                for &access_pos in &var_info.accessed_at {
-                    if access_pos.line > moved_at.line || 
-                       (access_pos.line == moved_at.line && access_pos.column > moved_at.column) {
-                        result.add_error(MemoryError::UseAfterFree {
-                            variable: var_name.clone(),
-                            freed_at: moved_at,
-                            used_at: access_pos,
-                        });
+        let use_after_free_errors: Vec<_> = result.ownership_info.variables.iter()
+            .filter_map(|(var_name, var_info)| {
+                if let Some(moved_at) = var_info.moved_at {
+                    let invalid_accesses: Vec<_> = var_info.accessed_at.iter()
+                        .filter(|&&access_pos| {
+                            access_pos.line > moved_at.line || 
+                            (access_pos.line == moved_at.line && access_pos.column > moved_at.column)
+                        })
+                        .map(|&access_pos| (var_name.clone(), moved_at, access_pos))
+                        .collect();
+                    if !invalid_accesses.is_empty() {
+                        Some(invalid_accesses)
+                    } else {
+                        None
                     }
+                } else {
+                    None
                 }
-            }
+            })
+            .flatten()
+            .collect();
+            
+        for (var_name, freed_at, used_at) in use_after_free_errors {
+            result.add_error(MemoryError::UseAfterFree {
+                variable: var_name,
+                freed_at,
+                used_at,
+            });
         }
     }
     
@@ -397,45 +415,49 @@ impl MemoryManager {
     
     /// Suggest copy optimizations for small types
     fn suggest_copy_optimizations(&self, result: &mut MemoryAnalysisResult) {
-        for (var_name, var_info) in &result.ownership_info.variables {
-            if matches!(var_info.mode, OwnershipMode::Move) {
-                // Check if variable type is small enough to benefit from copying
-                // Type size determined from type system integration
-                result.add_optimization(MemoryOptimization::PreferCopy {
-                    variable: var_name.clone(),
-                    position: var_info.declared_at,
-                    reason: "Type is small and frequently accessed".to_string(),
-                });
-            }
+        let copy_candidates: Vec<_> = result.ownership_info.variables.iter()
+            .filter(|(_, var_info)| matches!(var_info.mode, OwnershipMode::Move))
+            .map(|(name, info)| (name.clone(), info.declared_at))
+            .collect();
+            
+        for (var_name, declared_at) in copy_candidates {
+            result.add_optimization(MemoryOptimization::PreferCopy {
+                variable: var_name,
+                position: declared_at,
+                reason: "Type is small and frequently accessed".to_string(),
+            });
         }
     }
     
     /// Suggest move optimizations for large types
     fn suggest_move_optimizations(&self, result: &mut MemoryAnalysisResult) {
-        for (var_name, var_info) in &result.ownership_info.variables {
-            if matches!(var_info.mode, OwnershipMode::Copy) {
-                // Check if variable type is large enough to benefit from moving
-                // Type size determined from type system integration
-                result.add_optimization(MemoryOptimization::PreferMove {
-                    variable: var_name.clone(),
-                    position: var_info.declared_at,
-                    reason: "Type is large and used only once".to_string(),
-                });
-            }
+        let move_candidates: Vec<_> = result.ownership_info.variables.iter()
+            .filter(|(_, var_info)| matches!(var_info.mode, OwnershipMode::Copy))
+            .map(|(name, info)| (name.clone(), info.declared_at))
+            .collect();
+            
+        for (var_name, declared_at) in move_candidates {
+            result.add_optimization(MemoryOptimization::PreferMove {
+                variable: var_name,
+                position: declared_at,
+                reason: "Type is large and used only once".to_string(),
+            });
         }
     }
     
     /// Suggest borrowing optimizations
     fn suggest_borrow_optimizations(&self, result: &mut MemoryAnalysisResult) {
-        for (var_name, var_info) in &result.ownership_info.variables {
-            if matches!(var_info.mode, OwnershipMode::Own) && var_info.accessed_at.len() > 3 {
-                // Variable is accessed many times, borrowing might be better
-                result.add_optimization(MemoryOptimization::PreferBorrow {
-                    variable: var_name.clone(),
-                    position: var_info.declared_at,
-                    reason: "Variable accessed multiple times, borrowing reduces allocations".to_string(),
-                });
-            }
+        let borrow_candidates: Vec<_> = result.ownership_info.variables.iter()
+            .filter(|(_, var_info)| matches!(var_info.mode, OwnershipMode::Own) && var_info.accessed_at.len() > 3)
+            .map(|(name, info)| (name.clone(), info.declared_at))
+            .collect();
+            
+        for (var_name, declared_at) in borrow_candidates {
+            result.add_optimization(MemoryOptimization::PreferBorrow {
+                variable: var_name,
+                position: declared_at,
+                reason: "Variable accessed multiple times, borrowing reduces allocations".to_string(),
+            });
         }
     }
     

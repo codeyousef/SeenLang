@@ -41,7 +41,7 @@ pub struct VariableOwnership {
 }
 
 /// Tracks ownership information for all variables in a scope
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct OwnershipInfo {
     /// Map of variable names to their ownership information
     pub variables: HashMap<String, VariableOwnership>,

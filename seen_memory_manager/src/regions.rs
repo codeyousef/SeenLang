@@ -105,7 +105,7 @@ impl RegionManager {
             global_id,
             "global".to_string(),
             None,
-            Position::new(0, 0),
+            Position::new(0, 0, 0),
         ));
         
         let mut region_stack = VecDeque::new();
@@ -179,7 +179,7 @@ impl RegionManager {
                 return Err(RegionError::RegionInactive {
                     region_id,
                     variable,
-                    position: Position::new(0, 0), // Position tracked from allocation site
+                    position: Position::new(0, 0, 0), // Position tracked from allocation site
                 });
             }
             region.add_allocation(variable);
@@ -187,7 +187,7 @@ impl RegionManager {
         } else {
             Err(RegionError::RegionNotFound {
                 region_id,
-                position: Position::new(0, 0), // Position tracked from allocation site
+                position: Position::new(0, 0, 0), // Position tracked from allocation site
             })
         }
     }
