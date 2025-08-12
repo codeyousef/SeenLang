@@ -1,11 +1,12 @@
 //! Tests for function and lambda parsing
 
-use crate::{Parser, Expression, Parameter, Receiver, ParseResult};
+use crate::{Parser, Expression, ParseResult};
 use seen_lexer::{Lexer, KeywordManager};
+use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
-    let keyword_manager = KeywordManager::new("en").unwrap();
-    let lexer = Lexer::new(input, keyword_manager);
+    let keyword_manager = Arc::new(KeywordManager::new());
+    let lexer = Lexer::new(input.to_string(), keyword_manager);
     let mut parser = Parser::new(lexer);
     parser.parse_expression()
 }
@@ -139,7 +140,7 @@ fn test_parse_lambda_with_block_body() {
     
     match expr {
         Expression::Lambda { body, .. } => {
-            match &**body {
+            match body.as_ref() {
                 Expression::Block { expressions, .. } => {
                     assert!(expressions.len() > 1);
                 }
@@ -156,7 +157,7 @@ fn test_parse_function_call() {
     
     match expr {
         Expression::Call { callee, args, .. } => {
-            match &**callee {
+            match callee.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "calculate"),
                 _ => panic!("Expected identifier as callee"),
             }
@@ -172,7 +173,7 @@ fn test_parse_method_call() {
     
     match expr {
         Expression::Call { callee, args, .. } => {
-            match &**callee {
+            match callee.as_ref() {
                 Expression::MemberAccess { member, .. } => {
                     assert_eq!(member, "getName");
                 }
@@ -192,7 +193,7 @@ fn test_parse_chained_calls() {
         Expression::Call { callee, args, .. } => {
             // The outermost call should be sum()
             assert_eq!(args.len(), 0);
-            match &**callee {
+            match callee.as_ref() {
                 Expression::MemberAccess { member, .. } => {
                     assert_eq!(member, "sum");
                 }
@@ -209,7 +210,7 @@ fn test_parse_await_expression() {
     
     match expr {
         Expression::Await { expr, .. } => {
-            match &**expr {
+            match expr.as_ref() {
                 Expression::Call { .. } => {
                     // Success
                 }

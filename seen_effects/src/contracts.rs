@@ -1014,10 +1014,11 @@ mod tests {
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "b".to_string(),
+                is_public: false,
                 pos: Position::new(1, 10, 0),
             }),
-            right: Box::new(Expression::Literal {
-                value: AsyncValue::Integer(0),
+            right: Box::new(Expression::IntegerLiteral {
+                value: 0,
                 pos: Position::new(1, 15, 0),
             }),
             op: BinaryOperator::NotEqual,
@@ -1044,10 +1045,12 @@ mod tests {
             left: Box::new(Expression::BinaryOp {
                 left: Box::new(Expression::Identifier {
                     name: "result".to_string(),
+                    is_public: false,
                     pos: Position::new(1, 10, 0),
                 }),
                 right: Box::new(Expression::Identifier {
                     name: "b".to_string(),
+                    is_public: false,
                     pos: Position::new(1, 19, 0),
                 }),
                 op: BinaryOperator::Multiply,
@@ -1055,6 +1058,7 @@ mod tests {
             }),
             right: Box::new(Expression::Identifier {
                 name: "a".to_string(),
+                is_public: false,
                 pos: Position::new(1, 24, 0),
             }),
             op: BinaryOperator::Equal,
@@ -1094,10 +1098,11 @@ mod tests {
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "b".to_string(),
+                is_public: false,
                 pos: Position::new(1, 10, 0),
             }),
-            right: Box::new(Expression::Literal {
-                value: AsyncValue::Integer(0),
+            right: Box::new(Expression::IntegerLiteral {
+                value: 0,
                 pos: Position::new(1, 15, 0),
             }),
             op: BinaryOperator::NotEqual,
@@ -1143,10 +1148,12 @@ mod tests {
             left: Box::new(Expression::BinaryOp {
                 left: Box::new(Expression::Identifier {
                     name: "result".to_string(),
+                    is_public: false,
                     pos: Position::new(1, 10, 0),
                 }),
                 right: Box::new(Expression::Identifier {
                     name: "b".to_string(),
+                    is_public: false,
                     pos: Position::new(1, 19, 0),
                 }),
                 op: BinaryOperator::Multiply,
@@ -1154,6 +1161,7 @@ mod tests {
             }),
             right: Box::new(Expression::Identifier {
                 name: "a".to_string(),
+                is_public: false,
                 pos: Position::new(1, 24, 0),
             }),
             op: BinaryOperator::Equal,
@@ -1202,10 +1210,11 @@ mod tests {
         let pre_condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "b".to_string(),
+                is_public: false,
                 pos: Position::new(1, 10, 0),
             }),
-            right: Box::new(Expression::Literal {
-                value: AsyncValue::Integer(0),
+            right: Box::new(Expression::IntegerLiteral {
+                value: 0,
                 pos: Position::new(1, 15, 0),
             }),
             op: BinaryOperator::NotEqual,
@@ -1223,10 +1232,12 @@ mod tests {
             left: Box::new(Expression::BinaryOp {
                 left: Box::new(Expression::Identifier {
                     name: "result".to_string(),
+                    is_public: false,
                     pos: Position::new(1, 10, 0),
                 }),
                 right: Box::new(Expression::Identifier {
                     name: "b".to_string(),
+                    is_public: false,
                     pos: Position::new(1, 19, 0),
                 }),
                 op: BinaryOperator::Multiply,
@@ -1234,6 +1245,7 @@ mod tests {
             }),
             right: Box::new(Expression::Identifier {
                 name: "a".to_string(),
+                is_public: false,
                 pos: Position::new(1, 24, 0),
             }),
             op: BinaryOperator::Equal,
@@ -1277,13 +1289,14 @@ mod tests {
         let expr = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "x".to_string(),
+                is_public: false,
                 pos: Position::new(1, 1, 0),
             }),
-            right: Box::new(Expression::Literal {
-                value: AsyncValue::Integer(5),
+            right: Box::new(Expression::IntegerLiteral {
+                value: 5,
                 pos: Position::new(1, 5, 0),
             }),
-            op: BinaryOperator::GreaterThan,
+            op: BinaryOperator::Greater,
             pos: Position::new(1, 3, 0),
         };
         

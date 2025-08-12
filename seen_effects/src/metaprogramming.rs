@@ -817,8 +817,8 @@ mod tests {
     fn test_comptime_execution() {
         let mut system = MetaprogrammingSystem::new();
         
-        let expression = Expression::Literal {
-            value: AsyncValue::Integer(42),
+        let expression = Expression::IntegerLiteral {
+            value: 42,
             pos: Position::new(1, 1, 0),
         };
         
@@ -846,6 +846,7 @@ mod tests {
             }],
             body: Expression::Identifier {
                 name: "x".to_string(),
+                is_public: false,
                 pos: Position::new(1, 1, 0),
             },
             hygiene: MacroHygiene {

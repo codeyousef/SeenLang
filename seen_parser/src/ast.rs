@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn test_ast_creation() {
         let program = Program {
-            expressions: vec![Expression::Placeholder],
+            expressions: vec![Expression::IntegerLiteral { value: 42, pos: Position::new(1, 1, 0) }],
         };
         assert_eq!(program.expressions.len(), 1);
     }

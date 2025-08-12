@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn test_region_creation() {
         let mut manager = RegionManager::new();
-        let pos = Position::new(1, 1);
+        let pos = Position::new(1, 1, 0);
         
         let region_id = manager.create_region("test_region".to_string(), pos);
         
@@ -550,7 +550,7 @@ mod tests {
         let mut manager = RegionManager::new();
         let global = manager.current_region();
         
-        let pos = Position::new(1, 1);
+        let pos = Position::new(1, 1, 0);
         let region1 = manager.create_region("region1".to_string(), pos);
         manager.enter_region(region1);
         
@@ -583,10 +583,10 @@ mod tests {
                     type_annotation: None,
                     value: Box::new(Expression::IntegerLiteral {
                         value: 42,
-                        pos: Position::new(1, 9),
+                        pos: Position::new(1, 9, 8),
                     }),
                     is_mutable: false,
-                    pos: Position::new(1, 1),
+                    pos: Position::new(1, 1, 0),
                 }
             ],
         };
@@ -612,13 +612,13 @@ mod tests {
                             type_annotation: None,
                             value: Box::new(Expression::IntegerLiteral {
                                 value: 10,
-                                pos: Position::new(2, 5),
+                                pos: Position::new(2, 5, 4),
                             }),
                             is_mutable: false,
-                            pos: Position::new(2, 1),
+                            pos: Position::new(2, 1, 0),
                         }
                     ],
-                    pos: Position::new(1, 1),
+                    pos: Position::new(1, 1, 0),
                 }
             ],
         };

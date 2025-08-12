@@ -283,11 +283,33 @@ impl Lexer {
     }
     
     fn is_identifier_start(&self, ch: char) -> bool {
-        ch.is_alphabetic() || ch == '_' || ch.is_numeric() == false && ch.is_alphanumeric()
+        // Unicode-aware identifier start:
+        // - Letters (including Unicode letters)
+        // - Underscore
+        // - Unicode characters that aren't operators, punctuation, or whitespace
+        ch.is_alphabetic() || ch == '_' || 
+        (!ch.is_ascii() && !ch.is_numeric() && !ch.is_whitespace() && 
+         !self.is_operator_char(ch) && !self.is_punctuation_char(ch))
     }
     
     fn is_identifier_continue(&self, ch: char) -> bool {
-        ch.is_alphanumeric() || ch == '_'
+        // Unicode-aware identifier continuation:
+        // - Letters and digits (including Unicode)
+        // - Underscore
+        // - Unicode marks (combining characters)
+        ch.is_alphanumeric() || ch == '_' || 
+        (!ch.is_ascii() && !ch.is_whitespace() && 
+         !self.is_operator_char(ch) && !self.is_punctuation_char(ch))
+    }
+    
+    fn is_operator_char(&self, ch: char) -> bool {
+        // Check if character is an operator that we handle explicitly
+        matches!(ch, '+' | '-' | '*' | '/' | '%' | '=' | '!' | '<' | '>' | '?' | '.' | ':')
+    }
+    
+    fn is_punctuation_char(&self, ch: char) -> bool {
+        // Check if character is punctuation that we handle explicitly
+        matches!(ch, '(' | ')' | '{' | '}' | '[' | ']' | ',' | ';' | '"' | '\'' | '\\')
     }
     
     fn read_number(&mut self) -> LexerResult<Token> {
@@ -320,6 +342,14 @@ impl Lexer {
                 } else {
                     break;
                 }
+            }
+            
+            // Check for additional decimal points (invalid)
+            if self.current_char == Some('.') {
+                return Err(LexerError::InvalidNumber {
+                    position: start_pos,
+                    message: "Number contains multiple decimal points".to_string(),
+                });
             }
         }
         
@@ -366,6 +396,7 @@ impl Lexer {
         // Skip opening quote
         lexeme.push('"');
         self.advance();
+        let mut text_start_pos = self.pos_tracker; // Position after opening quote
         
         while let Some(ch) = self.current_char {
             if ch == '"' {
@@ -374,12 +405,26 @@ impl Lexer {
                 self.advance();
                 
                 if has_interpolation {
-                    // Add any remaining text
-                    if !current_text.is_empty() || parts.is_empty() {
+                    // Add any remaining text if there is any, or if we need to maintain proper structure
+                    // (e.g., when string ends immediately after an interpolation)
+                    if !current_text.is_empty() || parts.is_empty() || 
+                       (parts.len() % 2 == 0) { // Odd number of parts means we ended on text, even means we ended on expression
+                        
+                        // Adjust position for text positioning
+                        let mut final_text_pos = text_start_pos;
+                        if current_text.starts_with('\n') && current_text.len() > 1 {
+                            // Text starts with newline - position should be after the newline for meaningful content
+                            final_text_pos.line += 1;
+                            final_text_pos.column = 1;
+                        } else if !current_text.starts_with('\n') && text_start_pos.column > 1 && !parts.is_empty() {
+                            // Single-line text after interpolation - adjust to closing brace position
+                            final_text_pos.column -= 1;
+                        }
+                        
                         parts.push(InterpolationPart {
                             kind: InterpolationKind::Text(current_text.clone()),
                             content: current_text,
-                            position: self.pos_tracker,
+                            position: final_text_pos,
                         });
                     }
                     return Ok(Token::new(TokenType::InterpolatedString(parts), lexeme, start_pos));
@@ -388,6 +433,7 @@ impl Lexer {
                 }
             } else if ch == '{' {
                 // Check for escaped brace or interpolation
+                let brace_pos = self.pos_tracker; // Position of the '{'
                 self.advance();
                 if self.current_char == Some('{') {
                     // Escaped opening brace
@@ -400,21 +446,31 @@ impl Lexer {
                     
                     // Save current text part if any
                     if !current_text.is_empty() {
+                        // Adjust position for text positioning
+                        let mut final_text_pos = text_start_pos;
+                        if current_text.starts_with('\n') && current_text.len() > 1 {
+                            // Text starts with newline - position should be after the newline for meaningful content
+                            final_text_pos.line += 1;
+                            final_text_pos.column = 1;
+                        } else if !current_text.starts_with('\n') && text_start_pos.column > 1 && !parts.is_empty() {
+                            // Single-line text after interpolation - adjust to closing brace position
+                            final_text_pos.column -= 1;
+                        }
+                        
                         parts.push(InterpolationPart {
                             kind: InterpolationKind::Text(current_text.clone()),
                             content: current_text.clone(),
-                            position: self.pos_tracker,
+                            position: final_text_pos,
                         });
                         current_text.clear();
                     }
                     
                     // Read the interpolated expression
-                    let expr_pos = self.pos_tracker;
                     let expr = self.read_interpolation_expression()?;
                     
                     if expr.is_empty() {
                         return Err(LexerError::InvalidInterpolation {
-                            position: expr_pos,
+                            position: brace_pos,
                             message: "Empty interpolation expression".to_string(),
                         });
                     }
@@ -422,8 +478,12 @@ impl Lexer {
                     parts.push(InterpolationPart {
                         kind: InterpolationKind::Expression(expr.clone()),
                         content: expr,
-                        position: expr_pos,
+                        position: brace_pos,
                     });
+                    
+                    // Update text start position for next text part
+                    // Position should be where the text content begins (after closing brace)
+                    text_start_pos = self.pos_tracker;
                     
                     lexeme.push_str(&format!("{{...}}"));
                 }
@@ -511,7 +571,7 @@ impl Lexer {
             } else if ch == '}' {
                 brace_depth -= 1;
                 if brace_depth == 0 {
-                    // End of interpolation
+                    // End of interpolation - advance past the closing '}'
                     self.advance();
                     return Ok(expr);
                 } else {
@@ -702,6 +762,11 @@ impl Lexer {
             let token_type = self.classify_identifier(&identifier);
             Ok(Token::new(token_type, identifier, start_pos))
         }
+    }
+    
+    /// Get the keyword text for a specific keyword type in the current language
+    pub fn get_keyword_text(&self, keyword_type: &KeywordType) -> Option<String> {
+        self.keyword_manager.get_keyword_text(keyword_type)
     }
 }
 

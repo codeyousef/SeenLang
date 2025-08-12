@@ -77,10 +77,10 @@ mod tests {
                     type_annotation: None,
                     value: Box::new(Expression::IntegerLiteral {
                         value: 42,
-                        pos: Position::new(1, 9),
+                        pos: Position::new(1, 9, 8),
                     }),
                     is_mutable: false,
-                    pos: Position::new(1, 1),
+                    pos: Position::new(1, 1, 0),
                 }
             ],
         };

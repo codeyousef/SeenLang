@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn test_parse_error() {
         let error = ParseError::UnexpectedEof {
-            pos: Position::new(1, 1),
+            pos: Position::new(1, 1, 0),
         };
         assert!(error.to_string().contains("Unexpected end of file"));
     }

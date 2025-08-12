@@ -432,9 +432,10 @@ impl KeywordManager {
 
 impl Clone for KeywordManager {
     fn clone(&self) -> Self {
+        let current_lang = self.current_language.read().unwrap().clone();
         Self {
             languages: Arc::clone(&self.languages),
-            current_language: Arc::clone(&self.current_language),
+            current_language: Arc::new(RwLock::new(current_lang)),
             fallback_language: self.fallback_language.clone(),
         }
     }

@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn test_variable_declaration() {
         let mut info = OwnershipInfo::new();
-        let pos = Position::new(1, 1);
+        let pos = Position::new(1, 1, 0);
         
         info.declare_variable("x".to_string(), OwnershipMode::Own, pos, false);
         
@@ -405,11 +405,11 @@ mod tests {
     #[test]
     fn test_variable_access() {
         let mut info = OwnershipInfo::new();
-        let pos = Position::new(1, 1);
+        let pos = Position::new(1, 1, 0);
         
         info.declare_variable("x".to_string(), OwnershipMode::Own, pos, false);
         
-        let access_result = info.access_variable("x", Position::new(2, 1));
+        let access_result = info.access_variable("x", Position::new(2, 1, 0));
         assert!(access_result.is_ok());
         assert_eq!(info.variables["x"].accessed_at.len(), 1);
     }
@@ -417,12 +417,12 @@ mod tests {
     #[test]
     fn test_use_after_move() {
         let mut info = OwnershipInfo::new();
-        let pos = Position::new(1, 1);
+        let pos = Position::new(1, 1, 0);
         
         info.declare_variable("x".to_string(), OwnershipMode::Own, pos, false);
-        info.move_variable("x", Position::new(2, 1)).unwrap();
+        info.move_variable("x", Position::new(2, 1, 0)).unwrap();
         
-        let access_result = info.access_variable("x", Position::new(3, 1));
+        let access_result = info.access_variable("x", Position::new(3, 1, 0));
         assert!(access_result.is_err());
         
         if let Err(OwnershipError::UseAfterMove { variable, .. }) = access_result {
@@ -444,10 +444,10 @@ mod tests {
                     type_annotation: None,
                     value: Box::new(Expression::IntegerLiteral {
                         value: 42,
-                        pos: Position::new(1, 9),
+                        pos: Position::new(1, 9, 8),
                     }),
                     is_mutable: false,
-                    pos: Position::new(1, 1),
+                    pos: Position::new(1, 1, 0),
                 }
             ],
         };

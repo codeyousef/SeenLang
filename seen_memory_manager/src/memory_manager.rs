@@ -517,7 +517,7 @@ mod tests {
         result.add_error(MemoryError::MemoryLeak {
             variable: "x".to_string(),
             region: crate::regions::RegionId::new(1),
-            position: Position::new(1, 1),
+            position: Position::new(1, 1, 0),
         });
         
         assert!(result.has_errors());
@@ -536,10 +536,10 @@ mod tests {
                     type_annotation: None,
                     value: Box::new(Expression::IntegerLiteral {
                         value: 42,
-                        pos: Position::new(1, 9),
+                        pos: Position::new(1, 9, 8),
                     }),
                     is_mutable: false,
-                    pos: Position::new(1, 1),
+                    pos: Position::new(1, 1, 0),
                 }
             ],
         };

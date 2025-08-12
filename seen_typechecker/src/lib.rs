@@ -100,7 +100,7 @@ mod tests {
         assert!(!result.has_errors());
         
         let error = TypeError::InferenceFailed { 
-            position: seen_lexer::token::Position::new(1, 1) 
+            position: seen_lexer::position::Position::new(1, 1, 0) 
         };
         result.add_error(error);
         

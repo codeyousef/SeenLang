@@ -76,12 +76,14 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Compile { input, output, opt_level } => {
             println!("Compiling {} with optimization level {}", input.display(), opt_level);
-            if let Some(output) = output {
-                println!("Output: {}", output.display());
+            if let Some(ref output_file) = output {
+                println!("Output: {}", output_file.display());
             }
             // Implementation will follow TDD methodology
             // Compile source files to executable
-            compile_files(&[output.to_string_lossy().to_string()]);
+            if let Some(output_path) = output {
+                compile_files(&[output_path.to_string_lossy().to_string()]);
+            }
             std::process::exit(1)
         }
         
@@ -110,14 +112,14 @@ fn main() -> anyhow::Result<()> {
         }
         
         Commands::Test { path } => {
-            if let Some(path) = path {
-                println!("Running tests in {}", path.display());
+            if let Some(ref test_path) = path {
+                println!("Running tests in {}", test_path.display());
             } else {
                 println!("Running all tests");
             }
             // Implementation will follow TDD methodology
             // Run test suite
-            run_tests(&filter);
+            run_tests(&path.map(|p| p.to_string_lossy().to_string()));
             std::process::exit(1)
         }
     }

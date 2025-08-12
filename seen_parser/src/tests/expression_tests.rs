@@ -1,11 +1,12 @@
 //! Tests for basic expression parsing
 
-use crate::{Parser, Expression, Position, ParseResult};
+use crate::{Parser, Expression, ParseResult};
 use seen_lexer::{Lexer, KeywordManager};
+use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
-    let keyword_manager = KeywordManager::new("en").unwrap();
-    let lexer = Lexer::new(input, keyword_manager);
+    let keyword_manager = Arc::new(KeywordManager::new());
+    let lexer = Lexer::new(input.to_string(), keyword_manager);
     let mut parser = Parser::new(lexer);
     parser.parse_expression()
 }

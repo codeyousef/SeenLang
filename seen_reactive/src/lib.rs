@@ -12,7 +12,7 @@ pub mod properties;
 pub mod flow;
 
 // Re-export main types for convenience
-pub use observable::{Observable, ObservableOperators, ObservableFactory};
+pub use observable::{Observable, ObservableFactory};
 pub use properties::{ReactiveProperty, ComputedProperty, ReactivePropertyManager};
 pub use flow::{Flow, FlowFactory, FlowCollector};
 
@@ -120,7 +120,7 @@ impl ReactiveRuntime {
     /// Create an observable from vector
     pub fn create_observable_from_vec<T>(&mut self, values: Vec<T>) -> Observable<T>
     where
-        T: Send + 'static,
+        T: Clone + Send + 'static,
     {
         let observable = self.observable_factory.from_vec(values);
         self.stats.total_observables_created += 1;
@@ -271,10 +271,12 @@ pub mod syntax {
             left: Box::new(seen_parser::ast::Expression::Identifier {
                 name: "Username".to_string(),
                 pos: Position::new(3, 1, 0),
+                is_public: false,
             }),
             right: Box::new(seen_parser::ast::Expression::Identifier {
                 name: "Email".to_string(),
                 pos: Position::new(3, 20, 0),
+                is_public: false,
             }),
             op: seen_parser::ast::BinaryOperator::And,
             pos: Position::new(3, 10, 0),

@@ -2,10 +2,11 @@
 
 use crate::{Parser, Expression, BinaryOperator, UnaryOperator, ParseResult};
 use seen_lexer::{Lexer, KeywordManager};
+use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
-    let keyword_manager = KeywordManager::new("en").unwrap();
-    let lexer = Lexer::new(input, keyword_manager);
+    let keyword_manager = Arc::new(KeywordManager::new());
+    let lexer = Lexer::new(input.to_string(), keyword_manager);
     let mut parser = Parser::new(lexer);
     parser.parse_expression()
 }
@@ -16,11 +17,11 @@ fn test_parse_binary_addition() {
     match expr {
         Expression::BinaryOp { left, op, right, .. } => {
             assert_eq!(op, BinaryOperator::Add);
-            match &**left {
+            match left.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 10),
                 _ => panic!("Expected integer literal"),
             }
-            match &**right {
+            match right.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 20),
                 _ => panic!("Expected integer literal"),
             }
@@ -36,7 +37,7 @@ fn test_parse_binary_precedence() {
         Expression::BinaryOp { op, right, .. } => {
             assert_eq!(op, BinaryOperator::Add);
             // Right side should be 3 * 4
-            match &**right {
+            match right.as_ref() {
                 Expression::BinaryOp { op, .. } => {
                     assert_eq!(*op, BinaryOperator::Multiply);
                 }
@@ -108,7 +109,7 @@ fn test_parse_unary_negation() {
     match expr {
         Expression::UnaryOp { op, operand, .. } => {
             assert_eq!(op, UnaryOperator::Negate);
-            match &**operand {
+            match operand.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 42),
                 _ => panic!("Expected integer literal"),
             }
@@ -134,11 +135,11 @@ fn test_parse_elvis_operator() {
     let expr = parse_expression("userName ?: \"Guest\"").unwrap();
     match expr {
         Expression::Elvis { nullable, default, .. } => {
-            match &**nullable {
+            match nullable.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "userName"),
                 _ => panic!("Expected identifier"),
             }
-            match &**default {
+            match default.as_ref() {
                 Expression::StringLiteral { value, .. } => assert_eq!(value, "Guest"),
                 _ => panic!("Expected string literal"),
             }
@@ -152,7 +153,7 @@ fn test_parse_force_unwrap() {
     let expr = parse_expression("maybeValue!!").unwrap();
     match expr {
         Expression::ForceUnwrap { nullable, .. } => {
-            match &**nullable {
+            match nullable.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "maybeValue"),
                 _ => panic!("Expected identifier"),
             }
@@ -167,7 +168,7 @@ fn test_parse_chained_nullable_operators() {
     match expr {
         Expression::Elvis { nullable, .. } => {
             // The nullable part should be a chain of safe navigations
-            match &**nullable {
+            match nullable.as_ref() {
                 Expression::MemberAccess { is_safe, .. } => {
                     assert!(is_safe);
                 }
@@ -184,11 +185,11 @@ fn test_parse_inclusive_range() {
     match expr {
         Expression::BinaryOp { op, left, right, .. } => {
             assert_eq!(op, BinaryOperator::InclusiveRange);
-            match &**left {
+            match left.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 1),
                 _ => panic!("Expected integer literal"),
             }
-            match &**right {
+            match right.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 10),
                 _ => panic!("Expected integer literal"),
             }
@@ -203,11 +204,11 @@ fn test_parse_exclusive_range() {
     match expr {
         Expression::BinaryOp { op, left, right, .. } => {
             assert_eq!(op, BinaryOperator::ExclusiveRange);
-            match &**left {
+            match left.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 0),
                 _ => panic!("Expected integer literal"),
             }
-            match &**right {
+            match right.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 10),
                 _ => panic!("Expected integer literal"),
             }
@@ -221,11 +222,11 @@ fn test_parse_assignment() {
     let expr = parse_expression("x = 42").unwrap();
     match expr {
         Expression::Assignment { target, value, .. } => {
-            match &**target {
+            match target.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "x"),
                 _ => panic!("Expected identifier as target"),
             }
-            match &**value {
+            match value.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 42),
                 _ => panic!("Expected integer literal"),
             }
@@ -242,7 +243,7 @@ fn test_parse_let_binding() {
             assert_eq!(name, "x");
             assert!(!is_mutable);
             assert!(type_annotation.is_none());
-            match &**value {
+            match value.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 10),
                 _ => panic!("Expected integer literal"),
             }

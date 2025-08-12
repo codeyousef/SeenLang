@@ -2,10 +2,11 @@
 
 use crate::{Parser, Expression, Pattern, ParseResult};
 use seen_lexer::{Lexer, KeywordManager};
+use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
-    let keyword_manager = KeywordManager::new("en").unwrap();
-    let lexer = Lexer::new(input, keyword_manager);
+    let keyword_manager = Arc::new(KeywordManager::new());
+    let lexer = Lexer::new(input.to_string(), keyword_manager);
     let mut parser = Parser::new(lexer);
     parser.parse_expression()
 }
@@ -17,7 +18,7 @@ fn test_parse_if_expression_returns_value() {
         Expression::If { condition, then_branch, else_branch, .. } => {
             assert!(else_branch.is_some());
             // Verify both branches are expressions
-            match &**then_branch {
+            match then_branch.as_ref() {
                 Expression::StringLiteral { value, .. } => assert_eq!(value, "big"),
                 _ => panic!("Expected string literal in then branch"),
             }
@@ -43,7 +44,7 @@ fn test_parse_if_with_word_operators() {
     match expr {
         Expression::If { condition, .. } => {
             // Should parse 'and' as a binary operator
-            match &**condition {
+            match condition.as_ref() {
                 Expression::BinaryOp { .. } => {
                     // Success
                 }
@@ -116,7 +117,7 @@ fn test_parse_while_loop() {
     match expr {
         Expression::While { condition, body, .. } => {
             // Verify condition is a comparison
-            match &**condition {
+            match condition.as_ref() {
                 Expression::BinaryOp { .. } => {
                     // Success
                 }
@@ -133,7 +134,7 @@ fn test_parse_for_loop() {
     match expr {
         Expression::For { variable, iterable, body, .. } => {
             assert_eq!(variable, "item");
-            match &**iterable {
+            match iterable.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "items"),
                 _ => panic!("Expected identifier as iterable"),
             }

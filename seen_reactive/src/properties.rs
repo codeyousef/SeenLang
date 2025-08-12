@@ -93,7 +93,6 @@ pub struct PropertyMetadata {
 }
 
 /// Observer of property changes
-#[derive(Debug)]
 pub struct Observer {
     /// Unique observer identifier
     pub id: ObserverId,
@@ -103,6 +102,16 @@ pub struct Observer {
     pub metadata: ObserverMetadata,
     /// Whether observer is active
     pub is_active: bool,
+}
+
+impl std::fmt::Debug for Observer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Observer")
+            .field("id", &self.id)
+            .field("metadata", &self.metadata)
+            .field("is_active", &self.is_active)
+            .finish()
+    }
 }
 
 /// Unique identifier for observers
@@ -236,7 +245,12 @@ impl ReactiveProperty {
         is_mutable: bool,
         position: Position,
     ) -> Self {
-        let id = PropertyId::new(rand::random());
+        let id = PropertyId::new(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64
+        );
         let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
         
         Self {
@@ -318,7 +332,12 @@ impl ReactiveProperty {
     where
         F: Fn(&PropertyChange) -> AsyncResult + Send + Sync + 'static,
     {
-        let observer_id = ObserverId::new(rand::random());
+        let observer_id = ObserverId::new(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64
+        );
         
         let observer = Observer {
             id: observer_id,
@@ -373,7 +392,7 @@ impl ReactiveProperty {
     /// Check if a value is compatible with the property type
     fn is_value_compatible(&self, value: &AsyncValue) -> bool {
         // Type checking using runtime type information
-        match (&self.property_type.name.as_str(), value) {
+        match (self.property_type.name.as_str(), value) {
             ("Int", AsyncValue::Integer(_)) => true,
             ("Float", AsyncValue::Float(_)) => true,
             ("String", AsyncValue::String(_)) => true,
@@ -407,7 +426,12 @@ impl ComputedProperty {
         property_type: Type,
         position: Position,
     ) -> Self {
-        let id = PropertyId::new(rand::random());
+        let id = PropertyId::new(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64
+        );
         let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
         
         Self {
@@ -443,8 +467,11 @@ impl ComputedProperty {
     pub fn recompute(&mut self, property_manager: &ReactivePropertyManager) -> Result<(), AsyncError> {
         let start_time = Instant::now();
         
+        // Extract computation reference before borrowing self mutably
+        let computation = self.computation.clone();
+        
         // Execute computation expression
-        let result = self.execute_computation(&self.computation, property_manager)?;
+        let result = self.execute_computation(&computation, property_manager)?;
         
         // Update cache
         self.cached_value = Some(result.clone());
@@ -631,10 +658,16 @@ impl ReactivePropertyManager {
     
     /// Process the update queue
     pub fn process_update_queue(&mut self) -> Result<(), AsyncError> {
+        // Process one item at a time to avoid borrowing conflicts
         while let Some(property_id) = self.update_queue.pop() {
-            if let Some(computed) = self.computed_properties.get_mut(&property_id) {
-                computed.invalidate_cache();
-                computed.recompute(self)?;
+            if self.computed_properties.contains_key(&property_id) {
+                // Extract the computed property temporarily
+                if let Some(mut computed) = self.computed_properties.remove(&property_id) {
+                    computed.invalidate_cache();
+                    computed.recompute(self)?;
+                    // Put it back
+                    self.computed_properties.insert(property_id, computed);
+                }
             }
         }
         Ok(())

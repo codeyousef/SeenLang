@@ -1229,21 +1229,24 @@ impl Parser {
         // Check if this is receiver syntax: (name: Type) or (name: inout Type)
         // Need to look ahead
         // Check for receiver syntax with lookahead
-        if self.current.lexeme == "fun" {
-            // Look ahead to check for method syntax
+        let fun_keyword = self.lexer.get_keyword_text(&KeywordType::KeywordFun);
+        if let Some(fun_text) = fun_keyword {
+            if self.current.lexeme == fun_text {
+                // Look ahead to check for method syntax
             let saved_current = self.current.clone();
             let saved_peek = self.peek_buffer.clone();
             self.advance();
-            if self.current.token_type == TokenType::LeftParen {
-                // Could be a method - check for receiver
+                if self.current.token_type == TokenType::LeftParen {
+                    // Could be a method - check for receiver
+                    // Restore parser state
+                    self.current = saved_current;
+                    self.peek_buffer = saved_peek;
+                    return true;
+                }
                 // Restore parser state
                 self.current = saved_current;
                 self.peek_buffer = saved_peek;
-                return true;
             }
-            // Restore parser state
-            self.current = saved_current;
-            self.peek_buffer = saved_peek;
         }
         false
     }
@@ -1290,8 +1293,8 @@ mod tests {
     use seen_lexer::KeywordManager;
     
     fn create_parser(input: &str) -> Parser {
-        let keyword_manager = KeywordManager::new("en").unwrap();
-        let lexer = Lexer::new(input, keyword_manager);
+        let keyword_manager = std::sync::Arc::new(KeywordManager::new());
+        let lexer = Lexer::new(input.to_string(), keyword_manager);
         Parser::new(lexer)
     }
     
