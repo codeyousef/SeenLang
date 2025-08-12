@@ -196,8 +196,9 @@ fun abs(value: Float) -> Float {
 }
 
 fun panic(message: String) {
-    // In real implementation, this would terminate the test
-    // For now, we'll use a special marker
+    // Terminate test execution with error code
+    // Throws exception to unwind stack and cleanup resources
     println("!!! PANIC: {message} !!!");
-    // Would call: exit(1);
+    throw TestPanicException(message);
+    exit(1);
 }

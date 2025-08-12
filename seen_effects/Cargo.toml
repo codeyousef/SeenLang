@@ -1,8 +1,8 @@
 [package]
-name = "seen_concurrency"
+name = "seen_effects"
 version = "0.1.0"
 edition = "2021"
-description = "Concurrency and async features for Seen"
+description = "Algebraic effects and contracts system for Seen Language"
 
 [dependencies]
 anyhow = { workspace = true }
@@ -10,8 +10,11 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 seen_lexer = { path = "../seen_lexer" }
 seen_parser = { path = "../seen_parser" }
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
 rand = "0.8"
 
 [dev-dependencies]
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }
+tokio-test = "0.4"

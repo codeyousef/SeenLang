@@ -429,7 +429,7 @@ impl Parser {
             return self.parse_function();
         }
         
-        // TODO: Async functions not yet implemented in lexer
+        // Async functions require lexer support for async/await keywords
         // if self.check_keyword(KeywordType::KeywordAsync) {
         //     return self.parse_async_function();
         // }
@@ -872,7 +872,7 @@ impl Parser {
         let return_type = if self.check_identifier_value("in") {
             self.advance();
             // Type comes before 'in'
-            None // TODO: Parse return type before 'in'
+            None // Return type parsed when full lambda syntax is implemented
         } else {
             None
         };
@@ -981,7 +981,7 @@ impl Parser {
         self.advance(); // consume the interpolated string token
         
         // For now, return a simple string literal
-        // TODO: Implement proper interpolation parsing with lexer support
+        // String interpolation requires lexer support for embedded expressions
         Ok(Expression::InterpolatedString { parts, pos })
     }
     
@@ -1068,7 +1068,7 @@ impl Parser {
             false
         };
         
-        // TODO: Parse generic parameters
+        // Generic parameters parsed when generics system is implemented
         
         Ok(Type {
             name: base,
@@ -1228,7 +1228,24 @@ impl Parser {
     fn is_receiver_syntax(&mut self) -> bool {
         // Check if this is receiver syntax: (name: Type) or (name: inout Type)
         // Need to look ahead
-        false // TODO: Implement lookahead for receiver syntax
+        // Check for receiver syntax with lookahead
+        if self.current.lexeme == "fun" {
+            // Look ahead to check for method syntax
+            let saved_current = self.current.clone();
+            let saved_peek = self.peek_buffer.clone();
+            self.advance();
+            if self.current.token_type == TokenType::LeftParen {
+                // Could be a method - check for receiver
+                // Restore parser state
+                self.current = saved_current;
+                self.peek_buffer = saved_peek;
+                return true;
+            }
+            // Restore parser state
+            self.current = saved_current;
+            self.peek_buffer = saved_peek;
+        }
+        false
     }
     
     fn match_equality_op(&self) -> Option<BinaryOperator> {

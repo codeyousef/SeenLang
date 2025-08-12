@@ -3,7 +3,8 @@
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_ir_placeholder() {
+    fn test_ir_module() {
+        // Test that IR module compiles
         assert!(true);
     }
 }

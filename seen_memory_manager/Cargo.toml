@@ -11,6 +11,8 @@ serde = { workspace = true }
 indexmap = { workspace = true }
 hashbrown = { workspace = true }
 seen_parser = { path = "../seen_parser" }
+seen_lexer = { path = "../seen_lexer" }
+seen_typechecker = { path = "../seen_typechecker" }
 
 [dev-dependencies]
 proptest = { workspace = true }

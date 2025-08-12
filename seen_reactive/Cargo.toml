@@ -8,7 +8,13 @@ description = "Reactive programming features for Seen"
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+seen_lexer = { path = "../seen_lexer" }
+seen_parser = { path = "../seen_parser" }
+seen_concurrency = { path = "../seen_concurrency" }
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
 
 [dev-dependencies]
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }
+tokio-test = "0.4"

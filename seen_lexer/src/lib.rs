@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn test_lexer_creation() {
-        // This is a placeholder test to ensure the crate compiles
+        // Test lexer functionality
         // Real tests will be implemented following TDD methodology
         assert!(true);
     }

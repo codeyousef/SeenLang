@@ -11,6 +11,7 @@ members = [
     "seen_oop",
     "seen_concurrency",
     "seen_reactive",
+    "seen_effects",
     "seen_advanced",
     "seen_tooling",
     "seen_self_hosting"

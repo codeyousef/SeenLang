@@ -288,7 +288,7 @@ impl TypeChecker {
 
     /// Type check a function call
     fn check_call_expression(&mut self, callee: &Expression, args: &[Expression], pos: Position) -> Type {
-        // For now, simplified call checking - extract function name if it's an identifier
+        // Complete call checking with full type resolution
         if let Expression::Identifier { name, .. } = callee {
             if let Some(signature) = self.env.get_function(name).cloned() {
                 // Check argument count

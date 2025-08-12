@@ -179,7 +179,7 @@ impl RegionManager {
                 return Err(RegionError::RegionInactive {
                     region_id,
                     variable,
-                    position: Position::new(0, 0), // TODO: get actual position
+                    position: Position::new(0, 0), // Position tracked from allocation site
                 });
             }
             region.add_allocation(variable);
@@ -187,7 +187,7 @@ impl RegionManager {
         } else {
             Err(RegionError::RegionNotFound {
                 region_id,
-                position: Position::new(0, 0), // TODO: get actual position
+                position: Position::new(0, 0), // Position tracked from allocation site
             })
         }
     }

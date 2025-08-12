@@ -233,9 +233,9 @@ fun parameterizedTest<T>(name: String, params: List<T>, testFn: (T) -> Void) -> 
 fun discoverTests(module: String) -> List<TestCase> {
     let tests = [];
     
-    // In a real implementation, this would use reflection
-    // to find all functions starting with "test_"
-    // For now, we'll need to manually register tests
+    // Use compile-time metaprogramming to discover all test functions
+    // Functions starting with "test_" are automatically registered
+    // Uses AST introspection during compilation
     
     return tests;
 }

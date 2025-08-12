@@ -160,8 +160,10 @@ class MLTrainingSystem {
     fun exportTrainingData(filename: String) -> Bool {
         println("📁 Exporting training data to: " + filename);
         
-        // In a real implementation, would write to file
-        // For bootstrap, just log the export
+        // Write training data to file in binary format
+        let file = File.open(filename, "wb");
+        file.write(serialize(trainingData));
+        file.close();
         println("Exported " + trainingData.size().toString() + " training records");
         
         return true;
@@ -171,9 +173,12 @@ class MLTrainingSystem {
     fun importTrainingData(filename: String) -> Bool {
         println("📥 Importing training data from: " + filename);
         
-        // In a real implementation, would read from file
-        // For bootstrap, simulate import
-        let importedRecords = 50;
+        // Read training data from file
+        let file = File.open(filename, "rb");
+        let data = deserialize(file.readAll());
+        file.close();
+        let importedRecords = data.size();
+        trainingData.append(data);
         
         println("Imported " + importedRecords.toString() + " training records");
         
@@ -184,7 +189,9 @@ class MLTrainingSystem {
     
     fun measureBaselinePerformance() -> Float {
         // Measure performance on standard benchmark
-        return 100.0; // Simplified for bootstrap
+        // Measure performance on standard benchmark suite
+        let benchmark = StandardBenchmark();
+        return benchmark.run().getAveragePerformance();
     }
     
     fun extractCompilationFeatures(source: IR, optimized: IR) -> List<Float> {
@@ -203,12 +210,15 @@ class MLTrainingSystem {
     }
     
     fun getCurrentTimestamp() -> Int {
-        return 1691750400; // Simplified timestamp for bootstrap
+        // Get current Unix timestamp in seconds
+        return SystemTime.now().asUnixSeconds();
     }
     
     fun applyOptimizationStrategy(ir: IR, strategy: String) -> IR {
         println("Applying strategy: " + strategy);
-        return ir; // Simplified for bootstrap
+        // Apply selected optimization strategy
+        let optimizer = StrategyOptimizer(strategy);
+        return optimizer.optimize(ir);
     }
     
     fun measurePerformance(ir: IR) -> Float {
@@ -236,7 +246,8 @@ class MLTrainingSystem {
         for strategy in strategies {
             let features = [strategy.performance / 100.0, 0.5, 0.8];
             let label = if strategy.strategy == result.winner { 1.0 } else { 0.0 };
-            // In real implementation, would update model weights
+            // Update model weights using gradient descent
+            model.updateWeights(features, label, learningRate);
         }
     }
     

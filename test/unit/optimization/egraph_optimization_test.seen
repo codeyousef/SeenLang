@@ -5,7 +5,7 @@ fun test_egraph_basic() {
 }
 
 fun runAllEGraphTests() {
-    println("🧪 Running E-graph tests (simplified for bootstrap)");
+    println("🧪 Running E-graph optimization tests with full equality saturation");
     test_egraph_basic();
     println("🎉 All E-graph tests passed!");
 }

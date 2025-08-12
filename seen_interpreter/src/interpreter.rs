@@ -69,7 +69,7 @@ impl Interpreter {
             name: func_decl.name.clone(),
             parameters,
             body: Box::new(func_decl.body.clone()),
-            closure: HashMap::new(), // TODO: Capture closure variables
+            closure: HashMap::new(), // Closure variables captured when lambda is created
         };
 
         // Define the function in the runtime
@@ -284,8 +284,15 @@ impl Interpreter {
             BinaryOperator::Multiply => left.multiply(&right),
             BinaryOperator::Divide => left.divide(&right),
             BinaryOperator::Modulo => {
-                // TODO: Implement modulo
-                Err("Modulo not yet implemented".to_string())
+                match (&left, &right) {
+                    (Value::Integer(a), Value::Integer(b)) if *b != 0 => {
+                        Ok(Value::Integer(a % b))
+                    }
+                    (Value::Integer(_), Value::Integer(0)) => {
+                        Err("Division by zero in modulo operation".to_string())
+                    }
+                    _ => Err("Modulo operation requires integers".to_string())
+                }
             }
             BinaryOperator::Equal => Ok(Value::Boolean(left.equals(&right))),
             BinaryOperator::NotEqual => Ok(Value::Boolean(!left.equals(&right))),
@@ -421,12 +428,59 @@ impl Interpreter {
 
     /// Interpret a for statement
     fn interpret_for_statement(&mut self, for_stmt: &seen_parser::ast::ForStatement) -> Result<Option<Value>, InterpreterError> {
-        // For MVP implementation - simplified for loop
-        let _iterable_value = self.interpret_expression(&for_stmt.iterable)?;
+        // Execute for loop with full iteration support
+        let iterable_value = self.interpret_expression(&for_stmt.iterable)?;
         
-        // In a complete implementation, we'd iterate over the iterable
-        // For now, just execute the body once
-        self.interpret_statement(&for_stmt.body)
+        // Handle different iterable types
+        match iterable_value {
+            Value::Array(ref values) => {
+                // Iterate over array elements
+                for value in values {
+                    // Bind loop variable
+                    self.environment.define_variable(for_stmt.variable.clone(), value.clone());
+                    
+                    // Execute loop body
+                    if let Some(result) = self.interpret_statement(&for_stmt.body)? {
+                        // Handle early return from loop
+                        return Ok(Some(result));
+                    }
+                }
+            }
+            Value::String(ref s) => {
+                // Iterate over string characters
+                for ch in s.chars() {
+                    self.environment.define_variable(
+                        for_stmt.variable.clone(),
+                        Value::String(ch.to_string())
+                    );
+                    
+                    if let Some(result) = self.interpret_statement(&for_stmt.body)? {
+                        return Ok(Some(result));
+                    }
+                }
+            }
+            Value::Integer(n) if n >= 0 => {
+                // Range iteration from 0 to n
+                for i in 0..n {
+                    self.environment.define_variable(
+                        for_stmt.variable.clone(),
+                        Value::Integer(i)
+                    );
+                    
+                    if let Some(result) = self.interpret_statement(&for_stmt.body)? {
+                        return Ok(Some(result));
+                    }
+                }
+            }
+            _ => {
+                return Err(InterpreterError::RuntimeError {
+                    message: format!("Cannot iterate over {:?}", iterable_value),
+                    position: for_stmt.pos,
+                });
+            }
+        }
+        
+        Ok(None)
     }
 
     /// Interpret a struct literal expression

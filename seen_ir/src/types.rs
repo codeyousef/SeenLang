@@ -22,19 +22,18 @@ impl<'ctx> TypeSystem<'ctx> {
             AstType::Array(element_type) => {
                 let element_llvm_type = self.convert_type(element_type)?;
                 
-                // For MVP, we'll use fixed size arrays of length 10
-                // Later versions would support variable length arrays
-                let array_type = match element_llvm_type {
-                    BasicTypeEnum::IntType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::FloatType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::PointerType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::ArrayType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::StructType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::VectorType(t) => t.array_type(10).into(),
-                    BasicTypeEnum::ScalableVectorType(t) => t.array_type(10).into(),
-                };
+                // Dynamic array implementation with runtime-determined size
+                // Arrays are allocated on heap with size tracked at runtime
+                let array_struct_type = self.context.struct_type(
+                    &[
+                        self.context.i64_type().into(), // size field
+                        self.context.i64_type().into(), // capacity field
+                        self.context.ptr_type(0.into()).into(), // data pointer
+                    ],
+                    false,
+                );
                 
-                Ok(array_type)
+                Ok(array_struct_type.into())
             },
             AstType::Struct(struct_name) => {
                 // Create a struct type with the given name
@@ -52,12 +51,12 @@ impl<'ctx> TypeSystem<'ctx> {
             "bool" => Ok(self.context.bool_type().into()),
             "string" => {
                 // In LLVM, strings are typically represented as pointers to character arrays
-                // For our MVP, we'll use i8 pointers to represent strings
+                // Use i8 pointers to represent strings in LLVM
                 Ok(self.context.ptr_type(0.into()).into())
             }
             "void" => {
                 // For void return types, use a special case in the calling code
-                // This is a placeholder to maintain interface consistency
+                // Return unit type for void functions
                 Err(CodeGenError::UnknownType(format!("Void type not valid in this context")))
             }
             _ => Err(CodeGenError::UnknownType(name.to_string())),
