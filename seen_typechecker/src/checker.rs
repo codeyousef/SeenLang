@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 use seen_parser::ast::*;
-use seen_lexer::token::Location;
+use seen_lexer::Position;
 use crate::types::Type;
-use crate::errors::{TypeError, type_mismatch, undefined_variable, undefined_function};
+use crate::errors::*;
 use crate::{TypeCheckResult, FunctionSignature, Parameter};
 
 /// Type checking environment
@@ -12,7 +12,7 @@ use crate::{TypeCheckResult, FunctionSignature, Parameter};
 struct Environment {
     /// Variables in scope with their types
     variables: HashMap<String, Type>,
-    /// Functions in scope with their signatures
+    /// Functions in scope with their signatures  
     functions: HashMap<String, FunctionSignature>,
     /// User-defined types in scope
     types: HashMap<String, Type>,
@@ -77,11 +77,6 @@ impl Environment {
     fn define_type(&mut self, name: String, type_def: Type) {
         self.types.insert(name, type_def);
     }
-
-    /// Check if a type is defined in this scope only
-    fn has_type(&self, name: &str) -> bool {
-        self.types.contains_key(name)
-    }
 }
 
 /// Main type checker
@@ -118,8 +113,8 @@ impl TypeChecker {
 
     /// Type check a program
     pub fn check_program(&mut self, program: &Program) -> TypeCheckResult {
-        for declaration in &program.declarations {
-            self.check_declaration(declaration);
+        for expression in &program.expressions {
+            self.check_expression(expression);
         }
 
         // Collect all variables and functions into the result
@@ -138,409 +133,130 @@ impl TypeChecker {
         }
     }
 
-    /// Type check a declaration
-    fn check_declaration(&mut self, declaration: &Declaration) {
-        match declaration {
-            Declaration::Function(func_decl) => {
-                self.check_function_declaration(func_decl);
-            }
-            Declaration::Variable(var_decl) => {
-                self.check_variable_declaration(var_decl);
-            }
-            Declaration::Struct(struct_decl) => {
-                self.check_struct_declaration(struct_decl);
-            }
-        }
-    }
-
-    /// Type check a variable declaration
-    fn check_variable_declaration(&mut self, var_decl: &VariableDeclaration) {
-        // Check for duplicate variable
-        if self.env.has_variable(&var_decl.name) {
-            self.result.add_error(TypeError::DuplicateVariable {
-                name: var_decl.name.clone(),
-                position: self.location_to_position(&var_decl.location),
-            });
-            return;
-        }
-
-        let var_type = match (&var_decl.var_type, &var_decl.initializer) {
-            // Type declared and value provided
-            (Some(declared), initializer) => {
-                let value_type = self.check_expression(initializer);
-                let declared_type = Type::from(declared);
-                
-                if !value_type.is_assignable_to(&declared_type) {
-                    self.result.add_error(type_mismatch(
-                        declared_type.clone(), 
-                        value_type, 
-                        self.location_to_position(&var_decl.location)
-                    ));
-                }
-                declared_type
-            }
-            // Only value provided (type inference)
-            (None, initializer) => {
-                let value_type = self.check_expression(initializer);
-                if matches!(value_type, Type::Unknown) {
-                    self.result.add_error(TypeError::InferenceFailed { 
-                        position: self.location_to_position(&var_decl.location) 
-                    });
-                    Type::Unknown
-                } else {
-                    value_type
-                }
-            }
-        };
-
-        self.env.define_variable(var_decl.name.clone(), var_type);
-    }
-
-    /// Type check a struct declaration
-    fn check_struct_declaration(&mut self, struct_decl: &seen_parser::ast::StructDeclaration) {
-        // Check for duplicate struct
-        if self.env.has_type(&struct_decl.name) {
-            self.result.add_error(TypeError::DuplicateType {
-                name: struct_decl.name.clone(),
-                position: self.location_to_position(&struct_decl.location),
-            });
-            return;
-        }
-
-        // Check each field
-        let mut field_names = std::collections::HashSet::new();
-        for field in &struct_decl.fields {
-            // Check for duplicate field names
-            if !field_names.insert(&field.name) {
-                self.result.add_error(TypeError::DuplicateField {
-                    struct_name: struct_decl.name.clone(),
-                    field_name: field.name.clone(),
-                    position: self.location_to_position(&field.location),
-                });
-            }
-            
-            // Verify field type exists
-            let field_type = Type::from(&field.field_type);
-            if matches!(field_type, Type::Unknown) {
-                self.result.add_error(TypeError::UnknownType {
-                    name: format!("{:?}", field.field_type),
-                    position: self.location_to_position(&field.location),
-                });
-            }
-        }
-
-        // Register the struct type in the environment
-        let struct_type = Type::Struct {
-            name: struct_decl.name.clone(),
-            fields: struct_decl.fields.iter().map(|f| {
-                (f.name.clone(), Type::from(&f.field_type))
-            }).collect(),
-        };
-        self.env.define_type(struct_decl.name.clone(), struct_type);
-    }
-
-    /// Type check a function declaration
-    fn check_function_declaration(&mut self, func_decl: &FunctionDeclaration) {
-        // Check for duplicate function
-        if self.env.has_function(&func_decl.name) {
-            self.result.add_error(TypeError::DuplicateFunction {
-                name: func_decl.name.clone(),
-                position: self.location_to_position(&func_decl.location),
-            });
-            return;
-        }
-
-        // Convert parameters
-        let param_types: Vec<Parameter> = func_decl.parameters.iter().map(|p| Parameter {
-            name: p.name.clone(),
-            param_type: Type::from(&p.param_type),
-        }).collect();
-
-        let return_type = func_decl.return_type.as_ref()
-            .map(Type::from)
-            .unwrap_or(Type::Unit);
-
-        // Create function signature
-        let signature = FunctionSignature {
-            name: func_decl.name.clone(),
-            parameters: param_types.clone(),
-            return_type: Some(return_type.clone()),
-        };
-
-        // Define function in current environment
-        self.env.define_function(func_decl.name.clone(), signature);
-
-        // Create new environment for function body
-        let old_env = self.env.clone();
-        self.env = Environment::with_parent(old_env);
-
-        // Add parameters to function environment
-        for param in &param_types {
-            self.env.define_variable(param.name.clone(), param.param_type.clone());
-        }
-
-        // Set current function return type
-        let old_return_type = std::mem::replace(&mut self.current_function_return_type, Some(return_type));
-
-        // Type check function body
-        self.check_block(&func_decl.body);
-
-        // Restore environment and return type
-        self.env = self.env.parent.as_ref().unwrap().as_ref().clone();
-        self.current_function_return_type = old_return_type;
-    }
-
-    /// Type check a statement
-    fn check_statement(&mut self, statement: &Statement) {
-        match statement {
-            Statement::Expression(expr_stmt) => {
-                self.check_expression(&expr_stmt.expression);
-            }
-            Statement::Block(block) => {
-                self.check_block(block);
-            }
-            Statement::Return(return_stmt) => {
-                self.check_return_statement(return_stmt);
-            }
-            Statement::If(if_stmt) => {
-                self.check_if_statement(if_stmt);
-            }
-            Statement::While(while_stmt) => {
-                self.check_while_statement(while_stmt);
-            }
-            Statement::Print(print_stmt) => {
-                self.check_print_statement(print_stmt);
-            }
-            Statement::DeclarationStatement(decl) => {
-                self.check_declaration(decl);
-            }
-            Statement::For(for_stmt) => {
-                self.check_for_statement(for_stmt);
-            }
-        }
-    }
-
-    /// Type check an if statement
-    fn check_if_statement(&mut self, if_stmt: &IfStatement) {
-        let condition_type = self.check_expression(&if_stmt.condition);
-        if !condition_type.is_assignable_to(&Type::Bool) {
-            self.result.add_error(type_mismatch(
-                Type::Bool, 
-                condition_type, 
-                self.location_to_position(&if_stmt.location)
-            ));
-        }
-
-        self.check_statement(&if_stmt.then_branch);
-        if let Some(else_branch) = &if_stmt.else_branch {
-            self.check_statement(else_branch);
-        }
-    }
-
-    /// Type check a while statement
-    fn check_while_statement(&mut self, while_stmt: &WhileStatement) {
-        let condition_type = self.check_expression(&while_stmt.condition);
-        if !condition_type.is_assignable_to(&Type::Bool) {
-            self.result.add_error(type_mismatch(
-                Type::Bool, 
-                condition_type, 
-                self.location_to_position(&while_stmt.location)
-            ));
-        }
-
-        self.check_statement(&while_stmt.body);
-    }
-
-    /// Type check a for statement
-    fn check_for_statement(&mut self, for_stmt: &seen_parser::ast::ForStatement) {
-        // Type check the iterable expression
-        let _iterable_type = self.check_expression(&for_stmt.iterable);
-        
-        // For MVP, accept any type as iterable (later we'd check for Array or Iterator traits)
-        
-        // Type check loop body
-        self.check_statement(&for_stmt.body);
-    }
-
-    /// Type check a return statement
-    fn check_return_statement(&mut self, return_stmt: &ReturnStatement) {
-        let return_type = if let Some(val) = &return_stmt.value {
-            self.check_expression(val)
-        } else {
-            Type::Unit
-        };
-
-        if let Some(expected_type) = &self.current_function_return_type {
-            if !return_type.is_assignable_to(expected_type) {
-                self.result.add_error(TypeError::ReturnTypeMismatch {
-                    expected: expected_type.clone(),
-                    actual: return_type,
-                    position: self.location_to_position(&return_stmt.location),
-                });
-            }
-        }
-    }
-
-    /// Type check a print statement
-    fn check_print_statement(&mut self, print_stmt: &PrintStatement) {
-        for arg in &print_stmt.arguments {
-            self.check_expression(arg);
-        }
-    }
-
-    /// Type check a block
-    fn check_block(&mut self, block: &Block) {
-        // Create new scope
-        let old_env = self.env.clone();
-        self.env = Environment::with_parent(old_env);
-
-        for statement in &block.statements {
-            self.check_statement(statement);
-        }
-
-        // Restore environment
-        self.env = self.env.parent.as_ref().unwrap().as_ref().clone();
-    }
-
     /// Type check an expression and return its type
     fn check_expression(&mut self, expression: &Expression) -> Type {
         match expression {
-            Expression::Literal(literal) => {
-                self.check_literal_expression(literal)
-            }
-            Expression::Identifier(ident) => {
-                if let Some(var_type) = self.env.get_variable(&ident.name) {
+            // Literals
+            Expression::IntegerLiteral { .. } => Type::Int,
+            Expression::FloatLiteral { .. } => Type::Float,
+            Expression::StringLiteral { .. } => Type::String,
+            Expression::BooleanLiteral { .. } => Type::Bool,
+            Expression::NullLiteral { .. } => Type::Nullable(Box::new(Type::Unknown)),
+            
+            // Identifiers
+            Expression::Identifier { name, pos, .. } => {
+                if let Some(var_type) = self.env.get_variable(name) {
                     var_type.clone()
                 } else {
-                    self.result.add_error(undefined_variable(
-                        ident.name.clone(), 
-                        self.location_to_position(&ident.location)
-                    ));
+                    self.result.add_error(undefined_variable(name.clone(), *pos));
                     Type::Unknown
                 }
             }
-            Expression::Binary(binary) => {
-                self.check_binary_expression(binary)
+            
+            // Binary operations
+            Expression::BinaryOp { left, op, right, pos } => {
+                self.check_binary_operation(left, op, right, *pos)
             }
-            Expression::Unary(unary) => {
-                self.check_unary_expression(unary)
+            
+            // Unary operations
+            Expression::UnaryOp { op, operand, pos } => {
+                self.check_unary_operation(op, operand, *pos)
             }
-            Expression::Call(call) => {
-                self.check_call_expression(call)
+            
+            // Function calls
+            Expression::Call { callee, args, pos } => {
+                self.check_call_expression(callee, args, *pos)
             }
-            Expression::Assignment(assignment) => {
-                self.check_assignment_expression(assignment)
+            
+            // Member access
+            Expression::MemberAccess { object, member, is_safe, pos } => {
+                self.check_member_access(object, member, *is_safe, *pos)
             }
-            Expression::Parenthesized(paren) => {
-                self.check_expression(&paren.expression)
+            
+            // Nullable operators
+            Expression::Elvis { nullable, default, pos } => {
+                self.check_elvis_operator(nullable, default, *pos)
             }
-            Expression::StructLiteral(struct_literal) => {
-                self.check_struct_literal_expression(struct_literal)
+            
+            Expression::ForceUnwrap { nullable, pos } => {
+                self.check_force_unwrap(nullable, *pos)
             }
-            Expression::FieldAccess(field_access) => {
-                self.check_field_access_expression(field_access)
+            
+            // Control flow
+            Expression::If { condition, then_branch, else_branch, pos } => {
+                self.check_if_expression(condition, then_branch, else_branch.as_deref(), *pos)
             }
-            Expression::ArrayLiteral(array_literal) => {
-                self.check_array_literal_expression(array_literal)
+            
+            // Blocks
+            Expression::Block { expressions, .. } => {
+                self.check_block_expression(expressions)
             }
-            Expression::Index(index) => {
-                self.check_index_expression(index)
+            
+            // Variable binding
+            Expression::Let { name, type_annotation, value, pos, .. } => {
+                self.check_let_expression(name, type_annotation, value, *pos)
             }
-            Expression::Range(range) => {
-                self.check_range_expression(range)
+            
+            // Collections
+            Expression::ArrayLiteral { elements, pos } => {
+                self.check_array_literal(elements, *pos)
             }
+            
+            Expression::StructLiteral { name, fields, pos } => {
+                self.check_struct_literal(name, fields, *pos)
+            }
+            
+            Expression::IndexAccess { object, index, pos } => {
+                self.check_index_access(object, index, *pos)
+            }
+            
+            // For now, treat other expression types as unknown
+            _ => Type::Unknown
         }
     }
 
-    /// Type check a literal expression
-    fn check_literal_expression(&self, literal: &LiteralExpression) -> Type {
-        match literal {
-            LiteralExpression::Number(num) => {
-                if num.is_float {
-                    Type::Float
-                } else {
-                    Type::Int
-                }
-            }
-            LiteralExpression::String(_) => Type::String,
-            LiteralExpression::Boolean(_) => Type::Bool,
-            LiteralExpression::Null(_) => Type::Optional(Box::new(Type::Unknown)),
+    /// Type check a binary operation
+    fn check_binary_operation(&mut self, left: &Expression, op: &BinaryOperator, right: &Expression, pos: Position) -> Type {
+        let left_type = self.check_expression(left);
+        let right_type = self.check_expression(right);
+
+        // Convert operator to string for type system
+        let op_str = match op {
+            BinaryOperator::Add => "+",
+            BinaryOperator::Subtract => "-", 
+            BinaryOperator::Multiply => "*",
+            BinaryOperator::Divide => "/",
+            BinaryOperator::Modulo => "%",
+            BinaryOperator::Equal => "==",
+            BinaryOperator::NotEqual => "!=",
+            BinaryOperator::Less => "<",
+            BinaryOperator::Greater => ">",
+            BinaryOperator::LessEqual => "<=",
+            BinaryOperator::GreaterEqual => ">=",
+            BinaryOperator::And => "and",
+            BinaryOperator::Or => "or",
+            BinaryOperator::InclusiveRange => "..",
+            BinaryOperator::ExclusiveRange => "..<",
+        };
+
+        if let Some(result_type) = left_type.binary_operation_result(op_str, &right_type) {
+            result_type
+        } else {
+            self.result.add_error(TypeError::InvalidOperation {
+                operation: op_str.to_string(),
+                left_type: left_type.clone(),
+                right_type: right_type.clone(),
+                position: pos,
+            });
+            Type::Unknown
         }
     }
 
-    /// Type check a binary expression
-    fn check_binary_expression(&mut self, binary: &BinaryExpression) -> Type {
-        let left_type = self.check_expression(&binary.left);
-        let right_type = self.check_expression(&binary.right);
+    /// Type check a unary operation
+    fn check_unary_operation(&mut self, op: &UnaryOperator, operand: &Expression, pos: Position) -> Type {
+        let operand_type = self.check_expression(operand);
 
-        match binary.operator {
-            BinaryOperator::Add | BinaryOperator::Subtract | 
-            BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo => {
-                if left_type.is_numeric() && right_type.is_numeric() {
-                    // Promote to Float if either operand is Float
-                    if matches!(left_type, Type::Float) || matches!(right_type, Type::Float) {
-                        Type::Float
-                    } else {
-                        Type::Int
-                    }
-                } else {
-                    self.result.add_error(TypeError::InvalidOperation {
-                        operation: format!("{:?}", binary.operator),
-                        left_type: left_type.clone(),
-                        right_type: right_type.clone(),
-                        position: self.location_to_position(&binary.location),
-                    });
-                    Type::Unknown
-                }
-            }
-            BinaryOperator::Equal | BinaryOperator::NotEqual => {
-                if left_type.is_assignable_to(&right_type) || right_type.is_assignable_to(&left_type) {
-                    Type::Bool
-                } else {
-                    self.result.add_error(TypeError::InvalidOperation {
-                        operation: format!("{:?}", binary.operator),
-                        left_type: left_type.clone(),
-                        right_type: right_type.clone(),
-                        position: self.location_to_position(&binary.location),
-                    });
-                    Type::Bool
-                }
-            }
-            BinaryOperator::LessThan | BinaryOperator::GreaterThan |
-            BinaryOperator::LessEqual | BinaryOperator::GreaterEqual => {
-                if left_type.is_numeric() && right_type.is_numeric() {
-                    Type::Bool
-                } else {
-                    self.result.add_error(TypeError::InvalidOperation {
-                        operation: format!("{:?}", binary.operator),
-                        left_type: left_type.clone(),
-                        right_type: right_type.clone(),
-                        position: self.location_to_position(&binary.location),
-                    });
-                    Type::Bool
-                }
-            }
-            BinaryOperator::And | BinaryOperator::Or => {
-                if left_type.is_assignable_to(&Type::Bool) && right_type.is_assignable_to(&Type::Bool) {
-                    Type::Bool
-                } else {
-                    self.result.add_error(TypeError::InvalidOperation {
-                        operation: format!("{:?}", binary.operator),
-                        left_type: left_type.clone(),
-                        right_type: right_type.clone(),
-                        position: self.location_to_position(&binary.location),
-                    });
-                    Type::Bool
-                }
-            }
-        }
-    }
-
-    /// Type check a unary expression
-    fn check_unary_expression(&mut self, unary: &UnaryExpression) -> Type {
-        let operand_type = self.check_expression(&unary.operand);
-
-        match unary.operator {
+        match op {
             UnaryOperator::Negate => {
                 if operand_type.is_numeric() {
                     operand_type
@@ -549,7 +265,7 @@ impl TypeChecker {
                         operation: "unary minus".to_string(),
                         left_type: operand_type.clone(),
                         right_type: Type::Unit,
-                        position: self.location_to_position(&unary.location),
+                        position: pos,
                     });
                     Type::Unknown
                 }
@@ -562,163 +278,272 @@ impl TypeChecker {
                         operation: "logical not".to_string(),
                         left_type: operand_type.clone(),
                         right_type: Type::Unit,
-                        position: self.location_to_position(&unary.location),
+                        position: pos,
                     });
                     Type::Bool
-                }
-            }
-            UnaryOperator::Plus => {
-                if operand_type.is_numeric() {
-                    operand_type
-                } else {
-                    self.result.add_error(TypeError::InvalidOperation {
-                        operation: "unary plus".to_string(),
-                        left_type: operand_type.clone(),
-                        right_type: Type::Unit,
-                        position: self.location_to_position(&unary.location),
-                    });
-                    Type::Unknown
                 }
             }
         }
     }
 
     /// Type check a function call
-    fn check_call_expression(&mut self, call: &CallExpression) -> Type {
-        let signature = self.env.get_function(&call.callee).cloned();
-        if let Some(signature) = signature {
-            // Check argument count
-            if call.arguments.len() != signature.parameters.len() {
-                self.result.add_error(TypeError::ArgumentCountMismatch {
-                    name: call.callee.clone(),
-                    expected: signature.parameters.len(),
-                    actual: call.arguments.len(),
-                    position: self.location_to_position(&call.location),
-                });
-                return signature.return_type.clone().unwrap_or(Type::Unit);
-            }
-
-            // Check argument types
-            for (arg, param) in call.arguments.iter().zip(&signature.parameters) {
-                let arg_type = self.check_expression(arg);
-                if !arg_type.is_assignable_to(&param.param_type) {
-                    self.result.add_error(type_mismatch(
-                        param.param_type.clone(), 
-                        arg_type, 
-                        self.expression_location(arg)
-                    ));
+    fn check_call_expression(&mut self, callee: &Expression, args: &[Expression], pos: Position) -> Type {
+        // For now, simplified call checking - extract function name if it's an identifier
+        if let Expression::Identifier { name, .. } = callee {
+            if let Some(signature) = self.env.get_function(name).cloned() {
+                // Check argument count
+                if args.len() != signature.parameters.len() {
+                    self.result.add_error(TypeError::ArgumentCountMismatch {
+                        name: name.clone(),
+                        expected: signature.parameters.len(),
+                        actual: args.len(),
+                        position: pos,
+                    });
+                    return signature.return_type.clone().unwrap_or(Type::Unit);
                 }
-            }
 
-            signature.return_type.clone().unwrap_or(Type::Unit)
+                // Check argument types
+                for (arg, param) in args.iter().zip(&signature.parameters) {
+                    let arg_type = self.check_expression(arg);
+                    if !arg_type.is_assignable_to(&param.param_type) {
+                        self.result.add_error(TypeError::TypeMismatch {
+                            expected: param.param_type.clone(),
+                            actual: arg_type,
+                            position: pos,
+                        });
+                    }
+                }
+
+                signature.return_type.clone().unwrap_or(Type::Unit)
+            } else {
+                self.result.add_error(TypeError::UndefinedFunction {
+                    name: name.clone(),
+                    position: pos,
+                });
+                Type::Unknown
+            }
         } else {
-            self.result.add_error(undefined_function(
-                call.callee.clone(), 
-                self.location_to_position(&call.location)
-            ));
+            // For complex callee expressions, just type check them and assume unknown return
+            self.check_expression(callee);
+            for arg in args {
+                self.check_expression(arg);
+            }
             Type::Unknown
         }
     }
 
-    /// Type check an assignment expression
-    fn check_assignment_expression(&mut self, assignment: &AssignmentExpression) -> Type {
-        // Check if variable exists
-        let target_type = self.env.get_variable(&assignment.name).cloned();
-        if let Some(target_type) = target_type {
-            let value_type = self.check_expression(&assignment.value);
-            if !value_type.is_assignable_to(&target_type) {
-                self.result.add_error(type_mismatch(
-                    target_type.clone(), 
-                    value_type, 
-                    self.location_to_position(&assignment.location)
-                ));
-            }
-            target_type
-        } else {
-            self.result.add_error(undefined_variable(
-                assignment.name.clone(), 
-                self.location_to_position(&assignment.location)
-            ));
-            Type::Unknown
-        }
-    }
-
-    /// Type check a struct literal expression
-    fn check_struct_literal_expression(&mut self, struct_literal: &seen_parser::ast::StructLiteralExpression) -> Type {
-        // Check if the struct type exists
-        let struct_name = &struct_literal.struct_name;
-        if let Some(struct_type) = self.env.types.get(struct_name).cloned() {
-            // Type check each field initialization
-            for field_init in &struct_literal.fields {
-                self.check_expression(&field_init.value);
-            }
-            struct_type
-        } else {
-            self.result.add_error(TypeError::UnknownType {
-                name: struct_name.clone(),
-                position: self.location_to_position(&struct_literal.location),
-            });
-            Type::Unknown
-        }
-    }
-
-    /// Type check a field access expression
-    fn check_field_access_expression(&mut self, field_access: &seen_parser::ast::FieldAccessExpression) -> Type {
-        let object_type = self.check_expression(&field_access.object);
-        match object_type {
+    /// Type check member access
+    fn check_member_access(&mut self, object: &Expression, member: &str, is_safe: bool, pos: Position) -> Type {
+        let object_type = self.check_expression(object);
+        
+        match &object_type {
             Type::Struct { fields, .. } => {
-                if let Some(field_type) = fields.get(&field_access.field) {
-                    field_type.clone()
+                if let Some(field_type) = fields.get(member) {
+                    if is_safe && object_type.is_nullable() {
+                        field_type.clone().nullable()
+                    } else {
+                        field_type.clone()
+                    }
                 } else {
                     self.result.add_error(TypeError::UnknownType {
-                        name: format!("field '{}' not found", field_access.field),
-                        position: self.location_to_position(&field_access.location),
+                        name: format!("field '{}' not found", member),
+                        position: pos,
                     });
                     Type::Unknown
                 }
             }
+            Type::Nullable(inner) if is_safe => {
+                // Safe navigation on nullable type
+                if let Type::Struct { fields, .. } = inner.as_ref() {
+                    if let Some(field_type) = fields.get(member) {
+                        field_type.clone().nullable()
+                    } else {
+                        Type::Unknown
+                    }
+                } else {
+                    Type::Unknown
+                }
+            }
             _ => {
-                self.result.add_error(TypeError::InvalidOperation {
-                    operation: "field access".to_string(),
-                    left_type: object_type,
-                    right_type: Type::String,
-                    position: self.location_to_position(&field_access.location),
-                });
+                if !is_safe {
+                    self.result.add_error(TypeError::InvalidOperation {
+                        operation: "field access".to_string(),
+                        left_type: object_type,
+                        right_type: Type::String,
+                        position: pos,
+                    });
+                }
                 Type::Unknown
             }
         }
     }
 
-    /// Type check an array literal expression
-    fn check_array_literal_expression(&mut self, array_literal: &seen_parser::ast::ArrayLiteralExpression) -> Type {
-        if array_literal.elements.is_empty() {
+    /// Type check Elvis operator
+    fn check_elvis_operator(&mut self, nullable: &Expression, default: &Expression, pos: Position) -> Type {
+        let nullable_type = self.check_expression(nullable);
+        let default_type = self.check_expression(default);
+
+        // Elvis operator unwraps nullable and provides default
+        match nullable_type {
+            Type::Nullable(inner) => {
+                if default_type.is_assignable_to(&inner) {
+                    *inner
+                } else {
+                    self.result.add_error(TypeError::TypeMismatch {
+                        expected: *inner,
+                        actual: default_type,
+                        position: pos,
+                    });
+                    Type::Unknown
+                }
+            }
+            _ => {
+                // Not nullable, return the original type
+                nullable_type
+            }
+        }
+    }
+
+    /// Type check force unwrap
+    fn check_force_unwrap(&mut self, nullable: &Expression, _pos: Position) -> Type {
+        let nullable_type = self.check_expression(nullable);
+
+        match nullable_type {
+            Type::Nullable(inner) => *inner,
+            _ => {
+                // Force unwrap on non-nullable is just the original type
+                nullable_type
+            }
+        }
+    }
+
+    /// Type check if expression
+    fn check_if_expression(&mut self, condition: &Expression, then_branch: &Expression, else_branch: Option<&Expression>, pos: Position) -> Type {
+        let condition_type = self.check_expression(condition);
+        if !condition_type.is_assignable_to(&Type::Bool) {
+            self.result.add_error(TypeError::TypeMismatch {
+                expected: Type::Bool,
+                actual: condition_type,
+                position: pos,
+            });
+        }
+
+        let then_type = self.check_expression(then_branch);
+        
+        if let Some(else_expr) = else_branch {
+            let else_type = self.check_expression(else_expr);
+            if then_type.is_assignable_to(&else_type) {
+                else_type
+            } else if else_type.is_assignable_to(&then_type) {
+                then_type
+            } else {
+                // Types don't match, return Union or Unknown
+                Type::Unknown
+            }
+        } else {
+            // If without else returns Unit if then branch also returns Unit
+            if matches!(then_type, Type::Unit) {
+                Type::Unit
+            } else {
+                // If with non-unit then branch but no else becomes Optional
+                Type::Nullable(Box::new(then_type))
+            }
+        }
+    }
+
+    /// Type check block expression
+    fn check_block_expression(&mut self, expressions: &[Expression]) -> Type {
+        if expressions.is_empty() {
+            return Type::Unit;
+        }
+
+        let mut result_type = Type::Unit;
+        for expr in expressions {
+            result_type = self.check_expression(expr);
+        }
+        result_type
+    }
+
+    /// Type check let expression
+    fn check_let_expression(&mut self, name: &str, type_annotation: &Option<seen_parser::ast::Type>, value: &Expression, pos: Position) -> Type {
+        let value_type = self.check_expression(value);
+        
+        let declared_type = if let Some(type_ann) = type_annotation {
+            let declared = Type::from(type_ann);
+            if !value_type.is_assignable_to(&declared) {
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: declared.clone(),
+                    actual: value_type,
+                    position: pos,
+                });
+            }
+            declared
+        } else {
+            value_type.clone()
+        };
+
+        // Check for duplicate variable
+        if self.env.has_variable(name) {
+            self.result.add_error(TypeError::DuplicateVariable {
+                name: name.to_string(),
+                position: pos,
+            });
+        } else {
+            self.env.define_variable(name.to_string(), declared_type.clone());
+        }
+
+        // Let expressions return the bound value
+        declared_type
+    }
+
+    /// Type check array literal
+    fn check_array_literal(&mut self, elements: &[Expression], pos: Position) -> Type {
+        if elements.is_empty() {
             return Type::Array(Box::new(Type::Unknown));
         }
 
-        let element_type = self.check_expression(&array_literal.elements[0]);
-        for element in &array_literal.elements[1..] {
+        let element_type = self.check_expression(&elements[0]);
+        for element in &elements[1..] {
             let elem_type = self.check_expression(element);
             if !elem_type.is_assignable_to(&element_type) {
-                self.result.add_error(type_mismatch(
-                    element_type.clone(),
-                    elem_type,
-                    self.location_to_position(&array_literal.location)
-                ));
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: element_type.clone(),
+                    actual: elem_type,
+                    position: pos,
+                });
             }
         }
 
         Type::Array(Box::new(element_type))
     }
 
-    /// Type check an index expression
-    fn check_index_expression(&mut self, index: &seen_parser::ast::IndexExpression) -> Type {
-        let array_type = self.check_expression(&index.object);
-        let index_type = self.check_expression(&index.index);
+    /// Type check struct literal
+    fn check_struct_literal(&mut self, name: &str, fields: &[(String, Expression)], pos: Position) -> Type {
+        // Check if the struct type exists
+        if let Some(struct_type) = self.env.types.get(name).cloned() {
+            // Type check each field initialization
+            for (_, value) in fields {
+                self.check_expression(value);
+            }
+            struct_type
+        } else {
+            self.result.add_error(TypeError::UnknownType {
+                name: name.to_string(),
+                position: pos,
+            });
+            Type::Unknown
+        }
+    }
+
+    /// Type check index access
+    fn check_index_access(&mut self, object: &Expression, index: &Expression, pos: Position) -> Type {
+        let array_type = self.check_expression(object);
+        let index_type = self.check_expression(index);
 
         if !index_type.is_assignable_to(&Type::Int) {
             self.result.add_error(TypeError::InvalidIndexType {
                 actual_type: index_type,
-                position: self.location_to_position(&index.location),
+                position: pos,
             });
         }
 
@@ -729,67 +554,11 @@ impl TypeChecker {
                     operation: "indexing".to_string(),
                     left_type: array_type,
                     right_type: Type::Int,
-                    position: self.location_to_position(&index.location),
+                    position: pos,
                 });
                 Type::Unknown
             }
         }
-    }
-
-    /// Type check a range expression
-    fn check_range_expression(&mut self, range: &seen_parser::ast::RangeExpression) -> Type {
-        let start_type = self.check_expression(&range.start);
-        if !start_type.is_assignable_to(&Type::Int) {
-            self.result.add_error(type_mismatch(
-                Type::Int,
-                start_type,
-                self.location_to_position(&range.location)
-            ));
-        }
-
-        let end_type = self.check_expression(&range.end);
-        if !end_type.is_assignable_to(&Type::Int) {
-            self.result.add_error(type_mismatch(
-                Type::Int,
-                end_type,
-                self.location_to_position(&range.location)
-            ));
-        }
-
-        // Range type - for now we'll use a simple representation
-        Type::Struct {
-            name: "Range".to_string(),
-            fields: std::collections::HashMap::new(),
-        }
-    }
-
-    /// Get the location of an expression
-    fn expression_location(&self, expr: &Expression) -> seen_lexer::token::Position {
-        let location = match expr {
-            Expression::Assignment(a) => &a.location,
-            Expression::Binary(b) => &b.location,
-            Expression::Unary(u) => &u.location,
-            Expression::Literal(l) => match l {
-                LiteralExpression::Number(n) => &n.location,
-                LiteralExpression::String(s) => &s.location,
-                LiteralExpression::Boolean(b) => &b.location,
-                LiteralExpression::Null(n) => &n.location,
-            },
-            Expression::Identifier(i) => &i.location,
-            Expression::Call(c) => &c.location,
-            Expression::Parenthesized(p) => &p.location,
-            Expression::StructLiteral(s) => &s.location,
-            Expression::FieldAccess(f) => &f.location,
-            Expression::ArrayLiteral(a) => &a.location,
-            Expression::Index(i) => &i.location,
-            Expression::Range(r) => &r.location,
-        };
-        self.location_to_position(location)
-    }
-
-    /// Convert Location to Position (for compatibility)
-    fn location_to_position(&self, location: &Location) -> seen_lexer::token::Position {
-        seen_lexer::token::Position::new(location.start.line, location.start.column)
     }
 }
 

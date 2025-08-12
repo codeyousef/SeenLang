@@ -9,6 +9,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 seen_parser = { path = "../seen_parser" }
+seen_lexer = { path = "../seen_lexer" }
 
 [dev-dependencies]
 proptest = { workspace = true }

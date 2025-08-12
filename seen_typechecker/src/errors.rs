@@ -1,7 +1,7 @@
 //! Type checking error definitions
 
 use thiserror::Error;
-use seen_lexer::token::Position;
+use seen_lexer::Position;
 use crate::types::Type;
 
 /// Errors that can occur during type checking
