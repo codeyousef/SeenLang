@@ -154,10 +154,8 @@ impl Lexer {
                         Ok(Token::new(TokenType::InclusiveRange, "..".to_string(), start_pos))
                     }
                 } else {
-                    return Err(LexerError::UnexpectedCharacter {
-                        character: '.',
-                        position: start_pos,
-                    });
+                    self.advance();
+                    Ok(Token::new(TokenType::Dot, ".".to_string(), start_pos))
                 }
             }
             

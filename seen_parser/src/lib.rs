@@ -6,21 +6,11 @@
 pub mod parser;
 pub mod ast;
 pub mod error;
-pub mod position;
 
 pub use parser::Parser;
 pub use ast::*;
 pub use error::{ParseError, ParseResult};
-pub use position::Position;
+pub use seen_lexer::Position;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parser_creation() {
-        // This is a placeholder test to ensure the crate compiles
-        // Real tests will be implemented following TDD methodology
-        assert!(true);
-    }
-}
+mod tests;

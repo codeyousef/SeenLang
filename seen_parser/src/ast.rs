@@ -4,7 +4,7 @@
 //! There are NO statements - even declarations return values.
 
 use serde::{Deserialize, Serialize};
-use crate::position::Position;
+use seen_lexer::Position;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Program {
