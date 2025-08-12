@@ -1,0 +1,14 @@
+[package]
+name = "seen_ir"
+version = "0.1.0"
+edition = "2021"
+description = "Intermediate representation for the Seen programming language"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }

@@ -1,0 +1,131 @@
+# French language configuration for the Seen programming language
+# Configuration française pour le langage de programmation Seen
+
+name = "French"
+description = "French keyword set for the Seen programming language - Ensemble de mots-clés français pour le langage de programmation Seen"
+
+[keywords]
+# Control flow - Contrôle de flux
+"fonction" = "KeywordFun"       # function
+"si" = "KeywordIf"              # if
+"sinon" = "KeywordElse"         # else
+"tant_que" = "KeywordWhile"     # while
+"pour" = "KeywordFor"           # for
+"dans" = "KeywordIn"            # in
+"correspondre" = "KeywordMatch" # match
+"casser" = "KeywordBreak"       # break
+"continuer" = "KeywordContinue" # continue
+"retourner" = "KeywordReturn"   # return
+"quand" = "KeywordWhen"         # when
+
+# Variable declarations - Déclarations de variables
+"soit" = "KeywordLet"           # let
+"valeur" = "KeywordVal"         # val
+"variable" = "KeywordVar"       # var
+"mutable" = "KeywordMut"        # mutable
+"constante" = "KeywordConst"    # const
+"statique" = "KeywordStatic"    # static
+
+# Type definitions - Définitions de types
+"structure" = "KeywordStruct"   # struct
+"énumération" = "KeywordEnum"   # enum
+"trait" = "KeywordTrait"        # trait
+"implémenter" = "KeywordImpl"   # impl
+"type" = "KeywordType"          # type
+"classe" = "KeywordClass"       # class
+"données" = "KeywordData"       # data
+"scellé" = "KeywordSealed"      # sealed
+"objet" = "KeywordObject"       # object
+"interface" = "KeywordInterface" # interface
+
+# Module system - Système de modules
+"module" = "KeywordModule"      # module
+"importer" = "KeywordImport"    # import
+"utiliser" = "KeywordUse"       # use
+
+# Literals - Littéraux
+"vrai" = "KeywordTrue"          # true
+"faux" = "KeywordFalse"         # false
+"nul" = "KeywordNull"           # null
+
+# Type checking - Vérification de type
+"est" = "KeywordIs"             # is
+"comme" = "KeywordAs"           # as
+"par" = "KeywordBy"             # by
+
+# Async/Coroutines - Asynchrone/Coroutines
+"suspendre" = "KeywordSuspend"  # suspend
+"attendre" = "KeywordAwait"     # await
+"lancer" = "KeywordLaunch"      # launch
+"flux" = "KeywordFlow"          # flow
+
+# Error handling - Gestion d'erreurs
+"essayer" = "KeywordTry"        # try
+"attraper" = "KeywordCatch"     # catch
+"finalement" = "KeywordFinally" # finally
+"lancer_erreur" = "KeywordThrow" # throw
+
+# Function modifiers - Modificateurs de fonction
+"en_ligne" = "KeywordInline"    # inline
+"réifié" = "KeywordReified"     # reified
+"ligne_croisée" = "KeywordCrossinline" # crossinline
+"sans_ligne" = "KeywordNoinline" # noinline
+"opérateur" = "KeywordOperator" # operator
+"infixe" = "KeywordInfix"       # infix
+"récursion_terminale" = "KeywordTailrec" # tailrec
+
+# Class modifiers - Modificateurs de classe
+"ouvert" = "KeywordOpen"        # open
+"final" = "KeywordFinal"        # final
+"abstrait" = "KeywordAbstract"  # abstract
+"remplacer" = "KeywordOverride" # override
+"init_tardif" = "KeywordLateinit" # lateinit
+"compagnon" = "KeywordCompanion" # companion
+
+# Logical operators - Opérateurs logiques
+"et" = "KeywordAnd"             # and
+"ou" = "KeywordOr"              # or
+"non" = "KeywordNot"            # not
+
+# Memory management - Gestion mémoire
+"déplacer" = "KeywordMove"      # move
+"emprunter" = "KeywordBorrow"   # borrow
+"sur_place" = "KeywordInout"    # inout
+
+[operators]
+"+" = "Plus"
+"-" = "Minus"
+"*" = "Multiply"
+"/" = "Divide"
+"%" = "Modulo"
+"=" = "Assign"
+"+=" = "PlusAssign"
+"-=" = "MinusAssign"
+"*=" = "MultiplyAssign"
+"/=" = "DivideAssign"
+"%=" = "ModuloAssign"
+"==" = "Equal"
+"!=" = "NotEqual"
+"<" = "Less"
+"<=" = "LessEqual"
+">" = "Greater"
+">=" = "GreaterEqual"
+"&" = "BitwiseAnd"
+"|" = "BitwiseOr"
+"^" = "BitwiseXor"
+"~" = "BitwiseNot"
+"<<" = "LeftShift"
+">>" = "RightShift"
+"->" = "Arrow"
+"=>" = "FatArrow"
+"?" = "Question"
+"." = "Dot"
+".." = "DotDot"
+"..." = "TripleDot"
+"..<" = "DotDotLess"
+"::" = "DoubleColon"
+"?." = "QuestionDot"
+"?:" = "Elvis"
+"!!" = "BangBang"
+"_" = "Underscore"
+"@" = "At"

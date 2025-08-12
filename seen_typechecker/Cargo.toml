@@ -1,0 +1,15 @@
+[package]
+name = "seen_typechecker"
+version = "0.1.0"
+edition = "2021"
+description = "Type checker for the Seen programming language"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+seen_parser = { path = "../seen_parser" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }

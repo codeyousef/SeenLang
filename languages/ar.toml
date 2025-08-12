@@ -42,6 +42,7 @@ description = "Arabic keyword set for the Seen programming language - مجموع
 # Module system - نظام الوحدات
 "وحدة" = "KeywordModule"       # module
 "استورد" = "KeywordImport"     # import
+"استخدم" = "KeywordUse"        # use
 
 # Literals - القيم الحرفية
 "صحيح" = "KeywordTrue"         # true

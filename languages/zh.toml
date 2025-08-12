@@ -1,0 +1,131 @@
+# Chinese language configuration for the Seen programming language
+# Seen编程语言的中文关键字配置
+
+name = "Chinese"
+description = "Chinese keyword set for the Seen programming language - Seen编程语言的中文关键字集"
+
+[keywords]
+# Control flow - 控制流
+"函数" = "KeywordFun"           # function
+"如果" = "KeywordIf"            # if
+"否则" = "KeywordElse"          # else
+"当" = "KeywordWhile"           # while
+"对于" = "KeywordFor"           # for
+"在" = "KeywordIn"              # in
+"匹配" = "KeywordMatch"         # match
+"跳出" = "KeywordBreak"         # break
+"继续" = "KeywordContinue"      # continue
+"返回" = "KeywordReturn"        # return
+"何时" = "KeywordWhen"          # when
+
+# Variable declarations - 变量声明
+"让" = "KeywordLet"             # let
+"值" = "KeywordVal"             # val
+"变量" = "KeywordVar"           # var
+"可变" = "KeywordMut"           # mutable
+"常量" = "KeywordConst"         # const
+"静态" = "KeywordStatic"        # static
+
+# Type definitions - 类型定义
+"结构" = "KeywordStruct"        # struct
+"枚举" = "KeywordEnum"          # enum
+"特征" = "KeywordTrait"         # trait
+"实现" = "KeywordImpl"          # impl
+"类型" = "KeywordType"          # type
+"类" = "KeywordClass"           # class
+"数据" = "KeywordData"          # data
+"密封" = "KeywordSealed"        # sealed
+"对象" = "KeywordObject"        # object
+"接口" = "KeywordInterface"     # interface
+
+# Module system - 模块系统
+"模块" = "KeywordModule"        # module
+"导入" = "KeywordImport"        # import
+"使用" = "KeywordUse"           # use
+
+# Literals - 字面量
+"真" = "KeywordTrue"            # true
+"假" = "KeywordFalse"           # false
+"空" = "KeywordNull"            # null
+
+# Type checking - 类型检查
+"是" = "KeywordIs"              # is
+"作为" = "KeywordAs"            # as
+"通过" = "KeywordBy"            # by
+
+# Async/Coroutines - 异步/协程
+"挂起" = "KeywordSuspend"       # suspend
+"等待" = "KeywordAwait"         # await
+"启动" = "KeywordLaunch"        # launch
+"流" = "KeywordFlow"            # flow
+
+# Error handling - 错误处理
+"尝试" = "KeywordTry"           # try
+"捕获" = "KeywordCatch"         # catch
+"最终" = "KeywordFinally"       # finally
+"抛出" = "KeywordThrow"         # throw
+
+# Function modifiers - 函数修饰符
+"内联" = "KeywordInline"        # inline
+"具体化" = "KeywordReified"     # reified
+"交叉内联" = "KeywordCrossinline" # crossinline
+"非内联" = "KeywordNoinline"    # noinline
+"操作符" = "KeywordOperator"    # operator
+"中缀" = "KeywordInfix"         # infix
+"尾递归" = "KeywordTailrec"     # tailrec
+
+# Class modifiers - 类修饰符
+"开放" = "KeywordOpen"          # open
+"终结" = "KeywordFinal"         # final
+"抽象" = "KeywordAbstract"      # abstract
+"重写" = "KeywordOverride"      # override
+"延迟初始化" = "KeywordLateinit" # lateinit
+"伴生" = "KeywordCompanion"     # companion
+
+# Logical operators - 逻辑操作符
+"且" = "KeywordAnd"             # and
+"或" = "KeywordOr"              # or
+"非" = "KeywordNot"             # not
+
+# Memory management - 内存管理
+"移动" = "KeywordMove"          # move
+"借用" = "KeywordBorrow"        # borrow
+"就地" = "KeywordInout"         # inout
+
+[operators]
+"+" = "Plus"
+"-" = "Minus"
+"*" = "Multiply"
+"/" = "Divide"
+"%" = "Modulo"
+"=" = "Assign"
+"+=" = "PlusAssign"
+"-=" = "MinusAssign"
+"*=" = "MultiplyAssign"
+"/=" = "DivideAssign"
+"%=" = "ModuloAssign"
+"==" = "Equal"
+"!=" = "NotEqual"
+"<" = "Less"
+"<=" = "LessEqual"
+">" = "Greater"
+">=" = "GreaterEqual"
+"&" = "BitwiseAnd"
+"|" = "BitwiseOr"
+"^" = "BitwiseXor"
+"~" = "BitwiseNot"
+"<<" = "LeftShift"
+">>" = "RightShift"
+"->" = "Arrow"
+"=>" = "FatArrow"
+"?" = "Question"
+"." = "Dot"
+".." = "DotDot"
+"..." = "TripleDot"
+"..<" = "DotDotLess"
+"::" = "DoubleColon"
+"?." = "QuestionDot"
+"?:" = "Elvis"
+"!!" = "BangBang"
+"_" = "Underscore"
+"@" = "At"

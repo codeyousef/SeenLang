@@ -1,0 +1,14 @@
+[package]
+name = "seen_concurrency"
+version = "0.1.0"
+edition = "2021"
+description = "Concurrency and async features for Seen"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }

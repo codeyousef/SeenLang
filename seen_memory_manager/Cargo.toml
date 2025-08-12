@@ -1,0 +1,21 @@
+[package]
+name = "seen_memory_manager"
+version = "0.1.0"
+edition = "2021"
+description = "Vale-style memory management for the Seen programming language"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+indexmap = { workspace = true }
+hashbrown = { workspace = true }
+seen_parser = { path = "../seen_parser" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+test-case = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }
+insta = { workspace = true }

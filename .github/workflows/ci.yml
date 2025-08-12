@@ -4,159 +4,88 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 env:
-  SEEN_BUILD_PARALLEL: true
-  SEEN_OPTIMIZATION_LEVEL: debug
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  # Check code formatting
-  fmt:
-    name: Seen Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - name: Check formatting
-        run: ./compiler_seen/target/native/release/seen_compiler format --check
-
-  # Static analysis with Seen
-  check:
-    name: Seen Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - name: Run static analysis
-        run: ./compiler_seen/target/native/release/seen_compiler check --all
-
-  # Run tests on multiple platforms
   test:
     name: Test Suite
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest] # Only Linux until cross-platform binaries are available
-    runs-on: ${{ matrix.os }}
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta]
+    
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ./target
-            ./compiler_seen/target
-          key: ${{ runner.os }}-seen-test-${{ hashFiles('**/Seen.toml') }}
-      # Seen compiler has built-in LLVM support - no external installation needed
-      - name: Run tests
-        run: ./compiler_seen/target/native/release/seen_compiler test --all --verbose
-      - name: Run integration tests
-        run: ./compiler_seen/target/native/release/seen_compiler test --integration --verbose
-        continue-on-error: true
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+    
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
+    
+    - name: Run tests
+      run: cargo nextest run --profile ci
+    
+    - name: Run doctests
+      run: cargo test --doc
+    
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+    
+    - name: Run clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
 
-  # Run benchmarks
-  bench:
-    name: Benchmarks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - name: Run benchmarks
-        run: ./compiler_seen/target/native/release/seen_compiler benchmark --all
-
-  # Check documentation
-  doc:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - name: Check documentation
-        run: ./compiler_seen/target/native/release/seen_compiler doc --all
-
-  # Code coverage with Seen
   coverage:
-    name: Code Coverage
+    name: Coverage
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - name: Run tests with coverage
-        run: ./compiler_seen/target/native/release/seen_compiler test --coverage --all
-        continue-on-error: true
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install tarpaulin
+      uses: taiki-e/install-action@cargo-tarpaulin
+    
+    - name: Generate coverage
+      run: cargo tarpaulin --verbose --workspace --timeout 120 --out xml
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./cobertura.xml
+        fail_ci_if_error: true
 
-  # Security audit
-  security:
+  audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - name: Run security checks
-        run: ./compiler_seen/target/native/release/seen_compiler audit --all
-        continue-on-error: true
-
-  # Check for unused dependencies
-  dependencies:
-    name: Check Dependencies
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - name: Check for unused dependencies
-        run: ./compiler_seen/target/native/release/seen_compiler deps --unused --all
-        continue-on-error: true
-
-  # Build release binaries
-  release-build:
-    name: Release Build
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Seen compiler
-        run: |
-          chmod +x ./compiler_seen/target/native/release/seen_compiler
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ./target
-            ./compiler_seen/target
-          key: ${{ runner.os }}-seen-release-${{ hashFiles('**/Seen.toml') }}
-      - name: Build release binary
-        run: ./compiler_seen/target/native/release/seen_compiler build --release --target ${{ matrix.target }}
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: seen-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/seen${{ matrix.os == 'windows-latest' && '.exe' || '' }}
-
-  # Notify on failure
-  notify:
-    name: Notify on Failure
-    needs: [fmt, check, test, bench, doc, coverage, security, dependencies]
-    runs-on: ubuntu-latest
-    if: failure()
-    steps:
-      - name: Notify failure
-        run: echo "One or more CI checks failed!"
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install cargo-audit
+      uses: taiki-e/install-action@cargo-audit
+    
+    - name: Run audit
+      run: cargo audit

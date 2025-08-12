@@ -13,36 +13,30 @@ seen_interpreter = { path = "../seen_interpreter" }
 seen_ir = { path = "../seen_ir" }
 
 # For CLI argument parsing
-clap = { version = "4.5.4", features = ["derive"] }
+clap = { workspace = true }
 
 # For error handling
-anyhow = "1.0.82"
-thiserror = "1.0"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 # For logging
-env_logger = "0.11.3"
-log = "0.4.21"
+env_logger = { workspace = true }
+log = { workspace = true }
 
 # For file operations
-tempfile = "3.10.1"
+tempfile = { workspace = true }
 
 # For project configuration
-toml = "0.8.2"
-serde = { version = "1.0", features = ["derive"] }
-
-# For file templating
-tera = "1.19.1"
+toml = { workspace = true }
+serde = { workspace = true }
 
 # For terminal coloring
-colored = "2.1.0"
-
-# For LLVM bindings
-inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+colored = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }
 test-case = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
-assert_cmd = "2.0"
-predicates = "3.1"
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
