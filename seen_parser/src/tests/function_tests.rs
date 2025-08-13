@@ -1,6 +1,6 @@
 //! Tests for function and lambda parsing
 
-use crate::{Parser, Expression, ParseResult, Receiver, MemoryModifier};
+use crate::{Parser, Expression, ParseResult, BinaryOperator, MemoryModifier};
 use seen_lexer::{Lexer, KeywordManager};
 use std::sync::Arc;
 
@@ -187,14 +187,17 @@ fn test_parse_lambda_with_multiple_params() {
 
 #[test]
 fn test_parse_lambda_with_types() {
-    let expr = parse_expression("{ (x: Int, y: Int) -> Int in x + y }").unwrap();
+    // Test lambda with explicit parameter types (no return type, inferred)
+    let expr = parse_expression("{ x: Int, y: Int -> x + y }").unwrap();
     
     match expr {
         Expression::Lambda { params, return_type, .. } => {
             assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "x");
+            assert_eq!(params[1].name, "y");
             assert!(params[0].type_annotation.is_some());
             assert!(params[1].type_annotation.is_some());
-            assert!(return_type.is_some());
+            assert!(return_type.is_none()); // Return type inferred, not specified
         }
         _ => panic!("Expected lambda expression"),
     }
@@ -305,5 +308,102 @@ fn test_parse_function_with_default_params() {
             assert!(params[1].default_value.is_some());
         }
         _ => panic!("Expected function with default parameter"),
+    }
+}
+
+// Additional Default Parameter Tests (following Syntax Design spec)
+
+#[test]
+fn test_parse_function_with_multiple_default_params_comprehensive() {
+    let expr = parse_expression(r#"fun Connect(
+        host: String = "localhost",
+        port: Int = 8080,
+        secure: Bool = false
+    ): Connection {
+        return Connection(host, port, secure)
+    }"#).unwrap();
+    
+    match expr {
+        Expression::Function { name, params, .. } => {
+            assert_eq!(name, "Connect");
+            assert_eq!(params.len(), 3);
+            
+            // Check first parameter (host)
+            assert_eq!(params[0].name, "host");
+            assert!(params[0].default_value.is_some());
+            match params[0].default_value.as_ref().unwrap() {
+                Expression::StringLiteral { value, .. } => assert_eq!(value, "localhost"),
+                _ => panic!("Expected string literal"),
+            }
+            
+            // Check second parameter (port)
+            assert_eq!(params[1].name, "port");
+            assert!(params[1].default_value.is_some());
+            match params[1].default_value.as_ref().unwrap() {
+                Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 8080),
+                _ => panic!("Expected integer literal"),
+            }
+            
+            // Check third parameter (secure)
+            assert_eq!(params[2].name, "secure");
+            assert!(params[2].default_value.is_some());
+            match params[2].default_value.as_ref().unwrap() {
+                Expression::BooleanLiteral { value, .. } => assert_eq!(*value, false),
+                _ => panic!("Expected boolean literal"),
+            }
+        }
+        _ => panic!("Expected function expression"),
+    }
+}
+
+#[test]
+fn test_parse_function_mixed_params_some_defaults() {
+    let expr = parse_expression("fun Process(input: String, timeout: Int = 5000): Result { return Success(input) }").unwrap();
+    match expr {
+        Expression::Function { params, .. } => {
+            assert_eq!(params.len(), 2);
+            
+            // First param has no default
+            assert_eq!(params[0].name, "input");
+            assert!(params[0].default_value.is_none());
+            
+            // Second param has default
+            assert_eq!(params[1].name, "timeout");
+            assert!(params[1].default_value.is_some());
+            match params[1].default_value.as_ref().unwrap() {
+                Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 5000),
+                _ => panic!("Expected integer literal"),
+            }
+        }
+        _ => panic!("Expected function expression"),
+    }
+}
+
+#[test]
+fn test_parse_function_default_param_complex_expression() {
+    let expr = parse_expression("fun CreateBuffer(size: Int = 1024 * 8): Buffer { return Buffer(size) }").unwrap();
+    match expr {
+        Expression::Function { params, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "size");
+            assert!(params[0].default_value.is_some());
+            
+            // Default should be a binary operation (1024 * 8)
+            match params[0].default_value.as_ref().unwrap() {
+                Expression::BinaryOp { op, left, right, .. } => {
+                    assert_eq!(*op, BinaryOperator::Multiply);
+                    match (left.as_ref(), right.as_ref()) {
+                        (Expression::IntegerLiteral { value: left_val, .. },
+                         Expression::IntegerLiteral { value: right_val, .. }) => {
+                            assert_eq!(*left_val, 1024);
+                            assert_eq!(*right_val, 8);
+                        }
+                        _ => panic!("Expected integer literals in multiplication"),
+                    }
+                }
+                _ => panic!("Expected binary operation as default value"),
+            }
+        }
+        _ => panic!("Expected function expression"),
     }
 }

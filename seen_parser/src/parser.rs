@@ -76,7 +76,7 @@ impl Parser {
     }
     
     /// Parse a top-level item (function, statement, or expression)
-    fn parse_top_level_item(&mut self) -> ParseResult<Expression> {
+    pub fn parse_top_level_item(&mut self) -> ParseResult<Expression> {
         // Check for contracts (requires/ensures/invariant)
         if self.check_keyword(KeywordType::KeywordRequires) || 
            self.check_keyword(KeywordType::KeywordEnsures) ||
@@ -99,9 +99,9 @@ impl Parser {
             return self.parse_function();
         }
         
-        // Check for async functions
+        // Check for async functions and blocks
         if self.check_keyword(KeywordType::KeywordAsync) {
-            return self.parse_async_function();
+            return self.parse_async_construct();
         }
         
         // Check for type alias
@@ -112,6 +112,11 @@ impl Parser {
         // Check for struct definitions
         if self.check_keyword(KeywordType::KeywordStruct) {
             return self.parse_struct_definition();
+        }
+        
+        // Check for interface definitions
+        if self.check_keyword(KeywordType::KeywordInterface) {
+            return self.parse_interface();
         }
         
         // Check for sealed class definitions
@@ -357,8 +362,19 @@ impl Parser {
         loop {
             match &self.current.token_type {
                 TokenType::LeftBrace => {
+                    // Check if this is a trailing lambda (list.Map { it * 2 })
+                    if self.is_trailing_lambda_context(&expr) {
+                        let pos = expr.position().clone(); // Get position before moving
+                        let lambda_arg = self.parse_lambda()?;
+                        expr = Expression::Call {
+                            callee: Box::new(expr),
+                            args: vec![lambda_arg],
+                            pos,
+                        };
+                        continue;
+                    }
                     // Check if this is a struct literal (only for type identifiers)
-                    if let Expression::Identifier { name, is_public, pos } = &expr {
+                    else if let Expression::Identifier { name, is_public, pos } = &expr {
                         // Type names start with uppercase, so check if this is a type
                         if *is_public || name.chars().next().map_or(false, |c| c.is_uppercase()) {
                             let struct_name = name.clone();
@@ -367,7 +383,7 @@ impl Parser {
                             continue;
                         }
                     }
-                    // Not a struct literal, so stop parsing postfix
+                    // Not a struct literal or trailing lambda, so stop parsing postfix
                     break;
                 }
                 TokenType::LeftParen => {
@@ -622,9 +638,9 @@ impl Parser {
             return self.parse_function();
         }
         
-        // Async functions
+        // Async functions and blocks
         if self.check_keyword(KeywordType::KeywordAsync) {
-            return self.parse_async_function();
+            return self.parse_async_construct();
         }
         
         // Blocks and parentheses
@@ -1075,10 +1091,30 @@ impl Parser {
         })
     }
     
-    /// Parse async function
-    fn parse_async_function(&mut self) -> ParseResult<Expression> {
+    /// Parse async construct (function or block)
+    fn parse_async_construct(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'async'
+        
+        // Check what follows 'async'
+        if self.check_keyword(KeywordType::KeywordFun) {
+            // async fun - parse async function
+            self.parse_async_function_body(pos)
+        } else if self.check(&TokenType::LeftBrace) {
+            // async { - parse async block
+            let body = Box::new(self.parse_block()?);
+            Ok(Expression::AsyncBlock { body, pos })
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: "KeywordFun or LeftBrace".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            })
+        }
+    }
+    
+    /// Parse async function body (helper)
+    fn parse_async_function_body(&mut self, pos: Position) -> ParseResult<Expression> {
         self.expect_keyword(KeywordType::KeywordFun)?;
         
         // Check for receiver syntax
@@ -1158,77 +1194,89 @@ impl Parser {
         }
         self.advance(); // consume '{'
         
-        let params = if self.check(&TokenType::LeftParen) {
-            // Typed parameters: { (x: Int, y: Int) -> ... }
-            self.advance();
-            let params = self.parse_parameters()?;
-            self.expect(&TokenType::RightParen)?;
-            params
+        // Parse lambda parameters - support both typed and untyped
+        let params = if self.check(&TokenType::RightBrace) {
+            // Empty lambda: { }
+            Vec::new()
+        } else if self.is_at_lambda_arrow() {
+            // No parameters, direct arrow: { -> body }
+            Vec::new()
         } else {
-            // Simple parameters: { x, y -> ... }
-            let mut params = Vec::new();
-            params.push(Parameter {
-                name: self.expect_identifier()?,
-                type_annotation: None,
-                default_value: None,
-                memory_modifier: None,
-            });
-            
-            while self.check(&TokenType::Comma) {
-                self.advance();
-                params.push(Parameter {
-                    name: self.expect_identifier()?,
+            // Check if this might be a trailing lambda with implicit 'it' parameter
+            // If we don't see an arrow within reasonable distance, assume implicit 'it'
+            if self.is_implicit_it_lambda() {
+                // Implicit 'it' parameter for trailing lambda syntax
+                vec![Parameter {
+                    name: "it".to_string(),
                     type_annotation: None,
                     default_value: None,
                     memory_modifier: None,
+                }]
+            } else {
+                // Parse explicit parameters: { x -> ... } or { x: Int, y: String -> ... }
+                let mut params = Vec::new();
+                
+                // First parameter
+                let param_name = self.expect_identifier()?;
+                let type_annotation = if self.check(&TokenType::Colon) {
+                    self.advance(); // consume ':'
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                
+                params.push(Parameter {
+                    name: param_name,
+                    type_annotation,
+                    default_value: None,
+                    memory_modifier: None,
                 });
-            }
-            params
-        };
-        
-        self.expect(&TokenType::Arrow)?;
-        
-        // Look for return type syntax: Type followed by 'in' keyword  
-        let return_type = if matches!(self.current.token_type, TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_)) {
-            // Use simple lookahead to check for return type pattern without consuming tokens
-            let mut lookahead_pos = 0;
-            
-            // Skip the type identifier(s) - could be complex like HashMap<String, Int>
-            if self.is_type_at_lookahead(lookahead_pos) {
-                // Find where the type ends by looking for 'in' keyword
-                let mut found_in = false;
-                for i in 1..10 { // Look ahead up to 10 tokens
-                    match self.peek_ahead(i) {
-                        Some(token) if matches!(token.token_type, TokenType::Keyword(KeywordType::KeywordIn)) => {
-                            found_in = true;
-                            break;
-                        }
-                        Some(_) => continue,
-                        None => break,
-                    }
+                
+                // Additional parameters
+                while self.check(&TokenType::Comma) {
+                    self.advance(); // consume ','
+                    let param_name = self.expect_identifier()?;
+                    let type_annotation = if self.check(&TokenType::Colon) {
+                        self.advance(); // consume ':'
+                        Some(self.parse_type()?)
+                    } else {
+                        None
+                    };
+                    
+                    params.push(Parameter {
+                        name: param_name,
+                        type_annotation,
+                        default_value: None,
+                        memory_modifier: None,
+                    });
                 }
                 
-                if found_in {
-                    // Parse return type and consume 'in'
-                    let type_annotation = self.parse_type()?;
-                    self.expect_keyword(KeywordType::KeywordIn)?;
-                    Some(type_annotation)
-                } else {
-                    // No 'in' found, this is lambda body
-                    None
-                }
-            } else {
-                // Not a valid type, this is lambda body
-                None
+                params
             }
-        } else if self.check_keyword(KeywordType::KeywordIn) {
-            // No return type, just 'in' keyword
-            self.advance();
+        };
+        
+        // Check for optional return type: { x: Int, y: Int }: ReturnType -> body
+        let return_type = if self.check(&TokenType::RightBrace) && params.is_empty() {
+            // Empty lambda with no return type
             None
+        } else if self.check(&TokenType::Colon) {
+            // Return type specified: { params }: ReturnType -> body
+            self.advance(); // consume ':'
+            Some(self.parse_type()?)
         } else {
-            // No return type, no 'in' keyword (simple lambda)
             None
         };
+        
+        // Expect arrow for explicit parameters, but not for implicit 'it'
+        let has_implicit_it = params.len() == 1 && params[0].name == "it";
+        
+        if !has_implicit_it && (!params.is_empty() || return_type.is_some()) {
+            self.expect(&TokenType::Arrow)?;
+        } else if !has_implicit_it && self.check(&TokenType::Arrow) {
+            // Empty parameter list with explicit arrow
+            self.advance();
+        }
+        // For implicit 'it', no arrow expected
         
         // Parse lambda body which can be multiple statements until the closing brace
         let body = self.parse_lambda_body()?;
@@ -1245,11 +1293,38 @@ impl Parser {
     
     /// Parse block expression
     fn parse_block(&mut self) -> ParseResult<Expression> {
-        let _pos = self.current.position.clone();
+        let pos = self.current.position.clone();
         self.expect(&TokenType::LeftBrace)?;
-        let body = self.parse_block_body()?;
+        
+        // Check if this is actually a lambda disguised as a block
+        if self.is_lambda_in_braces() {
+            // Parse as lambda but consume the braces
+            let lambda = self.parse_lambda_body()?;
+            self.expect(&TokenType::RightBrace)?;
+            return Ok(lambda);
+        }
+        
+        let mut expressions = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip any leading newlines
+            if self.check(&TokenType::Newline) {
+                self.advance();
+                continue;
+            }
+            
+            let expr = self.parse_expression()?;
+            expressions.push(expr);
+            
+            // Skip trailing newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
         self.expect(&TokenType::RightBrace)?;
-        Ok(body)
+        
+        Ok(Expression::Block { expressions, pos })
     }
     
     /// Parse block body (returns last expression value)
@@ -1522,21 +1597,29 @@ impl Parser {
         if self.check(&TokenType::Less) {
             self.advance(); // consume '<'
             
-            while !self.check(&TokenType::Greater) && !self.is_at_end() {
+            while !self.check(&TokenType::Greater) && !self.check(&TokenType::RightShift) && !self.is_at_end() {
                 generics.push(self.parse_type()?);
                 
                 if self.check(&TokenType::Comma) {
                     self.advance();
-                } else if !self.check(&TokenType::Greater) {
+                } else if !self.check(&TokenType::Greater) && !self.check(&TokenType::RightShift) {
                     return Err(ParseError::UnexpectedToken {
-                        expected: "comma or >".to_string(),
+                        expected: "comma, >, or >>".to_string(),
                         found: self.current.token_type.clone(),
                         pos: self.current.position.clone(),
                     });
                 }
             }
             
-            self.expect(&TokenType::Greater)?;
+            // Handle >> as two > tokens for nested generics
+            if self.check(&TokenType::RightShift) {
+                // Convert >> to > by changing the current token
+                // This is a hack, but it works for this case
+                self.current.token_type = TokenType::Greater;
+                self.current.lexeme = ">".to_string();
+            } else {
+                self.expect(&TokenType::Greater)?;
+            }
         }
         
         let is_nullable = if self.check(&TokenType::Question) {
@@ -1747,6 +1830,90 @@ impl Parser {
         )
     }
     
+    /// Check if we're at a lambda arrow (->)
+    fn is_at_lambda_arrow(&self) -> bool {
+        self.check(&TokenType::Arrow)
+    }
+    
+    /// Check if current expression context supports trailing lambda syntax
+    fn is_trailing_lambda_context(&self, expr: &Expression) -> bool {
+        match expr {
+            // Method calls like list.Map can have trailing lambdas
+            Expression::MemberAccess { .. } => true,
+            // Function identifiers can have trailing lambdas  
+            Expression::Identifier { .. } => true,
+            // Chained calls can have trailing lambdas
+            Expression::Call { .. } => true,
+            _ => false,
+        }
+    }
+    
+    /// Check if this lambda uses implicit 'it' parameter (no arrow found)
+    fn is_implicit_it_lambda(&mut self) -> bool {
+        // Look ahead for arrow to distinguish { x -> ... } from { x * 2 }
+        // If no arrow found within reasonable distance, assume implicit 'it'
+        
+        // Increase lookahead distance for typed parameters: { x: Int, y: String -> ... }
+        for i in 0..10 {
+            match self.peek_ahead(i) {
+                Some(token) if matches!(token.token_type, TokenType::Arrow) => {
+                    return false; // Found arrow, explicit parameters
+                }
+                Some(token) if matches!(token.token_type, TokenType::RightBrace) => {
+                    return true; // Found closing brace before arrow, implicit it
+                }
+                Some(_) => continue,
+                None => return true, // EOF before arrow, implicit it
+            }
+        }
+        
+        // If we can't decide in 10 tokens, assume explicit parameters and let parser handle errors
+        false
+    }
+    
+    fn is_lambda_in_braces(&mut self) -> bool {
+        // Look ahead to determine if this is a lambda within braces (already consumed opening brace)
+        // Lambda: x -> ... or (x: Type) -> ... or (x, y) -> ...
+        
+        let mut lookahead_tokens = Vec::new();
+        
+        // Look ahead to find arrow token within reasonable distance  
+        for _ in 0..15 {
+            // Get next token but save it for restoration
+            if let Ok(token) = self.lexer.next_token() {
+                match &token.token_type {
+                    TokenType::Arrow => {
+                        // Found arrow - put all tokens back and return true
+                        lookahead_tokens.push(token);
+                        for t in lookahead_tokens.into_iter().rev() {
+                            self.peek_buffer.push_front(t);
+                        }
+                        return true;
+                    }
+                    TokenType::RightBrace | TokenType::EOF => {
+                        // No arrow before closing - put tokens back and return false
+                        lookahead_tokens.push(token);
+                        for t in lookahead_tokens.into_iter().rev() {
+                            self.peek_buffer.push_front(t);
+                        }
+                        return false;
+                    }
+                    _ => {
+                        lookahead_tokens.push(token);
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        
+        // Restore tokens and assume false
+        for t in lookahead_tokens.into_iter().rev() {
+            self.peek_buffer.push_front(t);
+        }
+        false
+    }
+
     fn is_lambda(&mut self) -> bool {
         // Look ahead to determine if this is a lambda
         // Lambda: { x -> ... } or { (x: Type) -> ... } or { (x, y) -> ... }
@@ -2452,6 +2619,19 @@ impl Parser {
         let mut methods = Vec::new();
         
         while !self.check(&TokenType::RightBrace) {
+            // Skip any leading newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            // Check for end of interface after skipping newlines
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Expect 'fun' keyword for method definition
+            self.expect_keyword(KeywordType::KeywordFun)?;
+            
             let method_name = self.expect_identifier()?;
             self.expect(&TokenType::LeftParen)?;
             let params = self.parse_parameters()?;
@@ -2479,8 +2659,9 @@ impl Parser {
                 default_impl,
             });
             
-            if !self.check(&TokenType::RightBrace) {
-                self.expect(&TokenType::Comma)?;
+            // Allow optional newline or comma between methods
+            if self.check(&TokenType::Newline) || self.check(&TokenType::Comma) {
+                self.advance();
             }
         }
         

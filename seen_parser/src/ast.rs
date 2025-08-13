@@ -215,6 +215,12 @@ pub enum Expression {
         pos: Position,
     },
     
+    // Async block for structured concurrency
+    AsyncBlock {
+        body: Box<Expression>,
+        pos: Position,
+    },
+    
     // Type cast
     Cast {
         expr: Box<Expression>,
@@ -638,6 +644,75 @@ pub struct InterfaceMethod {
 pub struct Annotation {
     pub name: String,
     pub args: Vec<Expression>,
+}
+
+impl Expression {
+    /// Get the position of this expression
+    pub fn position(&self) -> &Position {
+        match self {
+            Expression::IntegerLiteral { pos, .. } => pos,
+            Expression::FloatLiteral { pos, .. } => pos,
+            Expression::StringLiteral { pos, .. } => pos,
+            Expression::InterpolatedString { pos, .. } => pos,
+            Expression::BooleanLiteral { pos, .. } => pos,
+            Expression::NullLiteral { pos } => pos,
+            Expression::Identifier { pos, .. } => pos,
+            Expression::BinaryOp { pos, .. } => pos,
+            Expression::UnaryOp { pos, .. } => pos,
+            Expression::If { pos, .. } => pos,
+            Expression::Match { pos, .. } => pos,
+            Expression::Block { pos, .. } => pos,
+            Expression::Let { pos, .. } => pos,
+            Expression::Function { pos, .. } => pos,
+            Expression::Lambda { pos, .. } => pos,
+            Expression::Call { pos, .. } => pos,
+            Expression::MemberAccess { pos, .. } => pos,
+            Expression::IndexAccess { pos, .. } => pos,
+            Expression::Elvis { pos, .. } => pos,
+            Expression::ForceUnwrap { pos, .. } => pos,
+            Expression::StructDefinition { pos, .. } => pos,
+            Expression::ClassDefinition { pos, .. } => pos,
+            Expression::TypeAlias { pos, .. } => pos,
+            Expression::Extension { pos, .. } => pos,
+            Expression::CompanionObject { pos, .. } => pos,
+            Expression::StructLiteral { pos, .. } => pos,
+            Expression::ArrayLiteral { pos, .. } => pos,
+            Expression::While { pos, .. } => pos,
+            Expression::For { pos, .. } => pos,
+            Expression::Break { pos, .. } => pos,
+            Expression::Continue { pos } => pos,
+            Expression::Return { pos, .. } => pos,
+            Expression::Loop { pos, .. } => pos,
+            Expression::Await { pos, .. } => pos,
+            Expression::AsyncBlock { pos, .. } => pos,
+            Expression::Cast { pos, .. } => pos,
+            Expression::Assignment { pos, .. } => pos,
+            Expression::Spawn { pos, .. } => pos,
+            Expression::Select { pos, .. } => pos,
+            Expression::Send { pos, .. } => pos,
+            Expression::Receive { pos, .. } => pos,
+            Expression::Request { pos, .. } => pos,
+            Expression::Actor { pos, .. } => pos,
+            Expression::Region { pos, .. } => pos,
+            Expression::Arena { pos, .. } => pos,
+            Expression::Comptime { pos, .. } => pos,
+            Expression::Macro { pos, .. } => pos,
+            Expression::Effect { pos, .. } => pos,
+            Expression::Handle { pos, .. } => pos,
+            Expression::ContractedFunction { pos, .. } => pos,
+            Expression::ObservableCreation { pos, .. } => pos,
+            Expression::FlowCreation { pos, .. } => pos,
+            Expression::ReactiveProperty { pos, .. } => pos,
+            Expression::StreamOperation { pos, .. } => pos,
+            Expression::Defer { pos, .. } => pos,
+            Expression::Assert { pos, .. } => pos,
+            Expression::Try { pos, .. } => pos,
+            Expression::Interface { pos, .. } => pos,
+            Expression::Class { pos, .. } => pos,
+            Expression::Annotated { pos, .. } => pos,
+            Expression::ConditionalCompilation { pos, .. } => pos,
+        }
+    }
 }
 
 impl Type {

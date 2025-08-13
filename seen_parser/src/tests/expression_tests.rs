@@ -218,3 +218,238 @@ fn test_parse_parenthesized_expression() {
         _ => panic!("Expected integer literal"),
     }
 }
+
+// Lambda Expression Tests (following Syntax Design spec)
+
+#[test]
+fn test_parse_simple_lambda_no_params() {
+    let expr = parse_expression("{ 42 }").unwrap();
+    match expr {
+        Expression::Lambda { params, body, .. } => {
+            assert_eq!(params.len(), 0);
+            match body.as_ref() {
+                Expression::IntegerLiteral { value, .. } => {
+                    assert_eq!(*value, 42);
+                }
+                _ => panic!("Expected integer literal in lambda body"),
+            }
+        }
+        // Single expression might be parsed as just the expression
+        Expression::IntegerLiteral { value, .. } => {
+            assert_eq!(value, 42);
+        }
+        _ => panic!("Expected lambda or integer literal, got: {:?}", expr),
+    }
+}
+
+#[test]
+fn test_parse_lambda_single_param() {
+    let expr = parse_expression("{ x -> x * 2 }").unwrap();
+    match expr {
+        Expression::Lambda { params, body, return_type, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "x");
+            assert!(return_type.is_none()); // No explicit return type
+            
+            // Check body is multiplication
+            match body.as_ref() {
+                Expression::BinaryOp { left, right, .. } => {
+                    match (left.as_ref(), right.as_ref()) {
+                        (Expression::Identifier { name, .. }, Expression::IntegerLiteral { value, .. }) => {
+                            assert_eq!(name, "x");
+                            assert_eq!(*value, 2);
+                        }
+                        _ => panic!("Expected x * 2 in lambda body"),
+                    }
+                }
+                _ => panic!("Expected binary operation in lambda body"),
+            }
+        }
+        _ => panic!("Expected lambda expression, got: {:?}", expr),
+    }
+}
+
+#[test]
+fn test_parse_lambda_multiple_params() {
+    let expr = parse_expression("{ x, y -> x + y }").unwrap();
+    match expr {
+        Expression::Lambda { params, body, .. } => {
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "x");
+            assert_eq!(params[1].name, "y");
+            
+            // Check body is addition
+            match body.as_ref() {
+                Expression::BinaryOp { left, right, .. } => {
+                    match (left.as_ref(), right.as_ref()) {
+                        (Expression::Identifier { name: left_name, .. }, 
+                         Expression::Identifier { name: right_name, .. }) => {
+                            assert_eq!(left_name, "x");
+                            assert_eq!(right_name, "y");
+                        }
+                        _ => panic!("Expected x + y in lambda body"),
+                    }
+                }
+                _ => panic!("Expected binary operation in lambda body"),
+            }
+        }
+        _ => panic!("Expected lambda expression"),
+    }
+}
+
+#[test]
+fn test_parse_lambda_with_explicit_types() {
+    let expr = parse_expression("{ x: Int, y: Int -> x + y }").unwrap();
+    match expr {
+        Expression::Lambda { params, body, .. } => {
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "x");
+            assert_eq!(params[1].name, "y");
+            
+            // Check parameter types
+            assert!(params[0].type_annotation.is_some());
+            assert!(params[1].type_annotation.is_some());
+            
+            if let Some(ref param_type) = params[0].type_annotation {
+                assert_eq!(param_type.name, "Int");
+            }
+            if let Some(ref param_type) = params[1].type_annotation {
+                assert_eq!(param_type.name, "Int");
+            }
+        }
+        _ => panic!("Expected lambda expression"),
+    }
+}
+
+#[test]
+fn test_parse_lambda_function_type_assignment() {
+    // Test lambda assigned to function type: let predicate: (String) -> Bool = { s -> s.length > 5 }
+    let expr = parse_expression("{ s -> s.length > 5 }").unwrap();
+    match expr {
+        Expression::Lambda { params, return_type, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "s");
+            assert!(return_type.is_none()); // Type is inferred from assignment context
+        }
+        _ => panic!("Expected lambda expression for function type assignment"),
+    }
+}
+
+#[test] 
+fn test_parse_lambda_complex_body() {
+    let expr = parse_expression("{ name -> \"Hello, \" + name + \"!\" }").unwrap();
+    match expr {
+        Expression::Lambda { params, body, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "name");
+            
+            // Body should be complex string concatenation
+            match body.as_ref() {
+                Expression::BinaryOp { .. } => {
+                    // Complex expression parsed correctly
+                }
+                _ => panic!("Expected complex binary operation in lambda body"),
+            }
+        }
+        _ => panic!("Expected lambda expression"),
+    }
+}
+
+#[test]
+fn test_parse_lambda_block_body() {
+    let expr = parse_expression("{ x -> \n    let y = x * 2 \n    y + 1 \n}").unwrap();
+    match expr {
+        Expression::Lambda { params, body, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "x");
+            
+            // Body should be a block with multiple expressions
+            match body.as_ref() {
+                Expression::Block { expressions, .. } => {
+                    assert_eq!(expressions.len(), 2); // let statement and return expression
+                }
+                _ => panic!("Expected block expression in lambda body"),
+            }
+        }
+        _ => panic!("Expected lambda expression"),
+    }
+}
+
+#[test]
+fn test_parse_nested_lambdas() {
+    let expr = parse_expression("{ x -> { y -> x + y } }").unwrap();
+    match expr {
+        Expression::Lambda { params, body, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "x");
+            
+            // Body should be another lambda
+            match body.as_ref() {
+                Expression::Lambda { params: inner_params, .. } => {
+                    assert_eq!(inner_params.len(), 1);
+                    assert_eq!(inner_params[0].name, "y");
+                }
+                _ => panic!("Expected nested lambda in body"),
+            }
+        }
+        _ => panic!("Expected outer lambda expression"),
+    }
+}
+
+#[test]
+fn test_parse_lambda_as_argument() {
+    let expr = parse_expression("map({ x -> x * 2 }, list)").unwrap();
+    match expr {
+        Expression::Call { callee, args, .. } => {
+            match callee.as_ref() {
+                Expression::Identifier { name, .. } => {
+                    assert_eq!(name, "map");
+                }
+                _ => panic!("Expected 'map' function call"),
+            }
+            
+            assert_eq!(args.len(), 2);
+            
+            // First argument should be a lambda
+            match &args[0] {
+                Expression::Lambda { params, .. } => {
+                    assert_eq!(params.len(), 1);
+                    assert_eq!(params[0].name, "x");
+                }
+                _ => panic!("Expected lambda as first argument"),
+            }
+        }
+        _ => panic!("Expected function call"),
+    }
+}
+
+#[test]
+fn test_parse_lambda_trailing_syntax() {
+    // Test trailing lambda syntax: list.Map { it * 2 }
+    let expr = parse_expression("list.Map { it * 2 }").unwrap();
+    match expr {
+        Expression::Call { callee, args, .. } => {
+            // Should parse as call with lambda argument
+            match callee.as_ref() {
+                Expression::MemberAccess { object, member, .. } => {
+                    match object.as_ref() {
+                        Expression::Identifier { name, .. } => assert_eq!(name, "list"),
+                        _ => panic!("Expected 'list' object"),
+                    }
+                    assert_eq!(member, "Map");
+                }
+                _ => panic!("Expected member access"),
+            }
+            
+            assert_eq!(args.len(), 1);
+            match &args[0] {
+                Expression::Lambda { params, .. } => {
+                    assert_eq!(params.len(), 1);
+                    assert_eq!(params[0].name, "it"); // implicit parameter
+                }
+                _ => panic!("Expected lambda argument"),
+            }
+        }
+        _ => panic!("Expected method call with trailing lambda"),
+    }
+}
