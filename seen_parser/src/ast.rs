@@ -122,7 +122,14 @@ pub enum Expression {
         pos: Position,
     },
     
-    // Struct literal
+    // Struct definition
+    StructDefinition {
+        name: String,
+        fields: Vec<StructField>,
+        pos: Position,
+    },
+    
+    // Struct literal (instantiation)
     StructLiteral {
         name: String,
         fields: Vec<(String, Expression)>,
@@ -365,6 +372,13 @@ pub struct Parameter {
     pub name: String,
     pub type_annotation: Option<Type>,
     pub default_value: Option<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructField {
+    pub name: String,
+    pub field_type: Type,
+    pub is_public: bool, // Capitalized fields are public
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

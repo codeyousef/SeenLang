@@ -222,6 +222,15 @@ impl IRGenerator {
             Expression::Function { name, params, body, .. } => {
                 self.generate_function_expression(name, params, body)
             },
+            Expression::For { variable, iterable, body, .. } => {
+                self.generate_for_expression(variable, iterable, body)
+            },
+            Expression::Break { value, .. } => {
+                self.generate_break_expression(value.as_deref())
+            },
+            Expression::Continue { .. } => {
+                self.generate_continue_expression()
+            },
             // Handle other expression types...
             _ => Err(IRError::Other(format!("Unsupported expression type: {:?}", expr))),
         }
@@ -449,6 +458,134 @@ impl IRGenerator {
         instructions.push(Instruction::Label(end_label));
         
         Ok((result_value, instructions))
+    }
+    
+    /// Generate IR for for loops
+    fn generate_for_expression(
+        &mut self,
+        variable: &str,
+        iterable: &Expression,
+        body: &Expression
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let mut instructions = Vec::new();
+        
+        // For now, only handle range expressions
+        match iterable {
+            Expression::BinaryOp { left, op, right, .. } => {
+                match op {
+                    BinaryOperator::InclusiveRange | BinaryOperator::ExclusiveRange => {
+                        // Get range bounds
+                        let (start_val, start_instructions) = self.generate_expression(left)?;
+                        let (end_val, end_instructions) = self.generate_expression(right)?;
+                        
+                        instructions.extend(start_instructions);
+                        instructions.extend(end_instructions);
+                        
+                        // Initialize loop variable
+                        let loop_var = IRValue::Variable(variable.to_string());
+                        instructions.push(Instruction::Store {
+                            value: start_val.clone(),
+                            dest: loop_var.clone(),
+                        });
+                        
+                        // Generate loop
+                        let loop_start = self.context.allocate_label("for_start");
+                        let loop_body = self.context.allocate_label("for_body");
+                        let loop_end = self.context.allocate_label("for_end");
+                        
+                        self.context.push_loop_labels(loop_end.0.clone(), loop_start.0.clone());
+                        
+                        instructions.push(Instruction::Label(loop_start.clone()));
+                        
+                        // Check loop condition
+                        let cond_reg = self.context.allocate_register();
+                        let cond_result = IRValue::Register(cond_reg);
+                        
+                        let comparison_op = if matches!(op, BinaryOperator::InclusiveRange) {
+                            BinaryOp::LessEqual
+                        } else {
+                            BinaryOp::LessThan
+                        };
+                        
+                        instructions.push(Instruction::Binary {
+                            op: comparison_op,
+                            left: loop_var.clone(),
+                            right: end_val,
+                            result: cond_result.clone(),
+                        });
+                        
+                        instructions.push(Instruction::JumpIf {
+                            condition: cond_result,
+                            target: loop_body.clone(),
+                        });
+                        instructions.push(Instruction::Jump(loop_end.clone()));
+                        
+                        // Loop body
+                        instructions.push(Instruction::Label(loop_body));
+                        let (_, body_instructions) = self.generate_expression(body)?;
+                        instructions.extend(body_instructions);
+                        
+                        // Increment loop variable
+                        let inc_reg = self.context.allocate_register();
+                        let inc_result = IRValue::Register(inc_reg);
+                        instructions.push(Instruction::Binary {
+                            op: BinaryOp::Add,
+                            left: loop_var.clone(),
+                            right: IRValue::Integer(1),
+                            result: inc_result.clone(),
+                        });
+                        instructions.push(Instruction::Store {
+                            value: inc_result,
+                            dest: loop_var,
+                        });
+                        
+                        // Jump back to start
+                        instructions.push(Instruction::Jump(loop_start));
+                        
+                        instructions.push(Instruction::Label(loop_end));
+                        
+                        self.context.pop_loop_labels();
+                        
+                        Ok((IRValue::Void, instructions))
+                    }
+                    _ => Err(IRError::Other("For loops only support range iterables currently".to_string()))
+                }
+            }
+            _ => Err(IRError::Other("For loops only support range iterables currently".to_string()))
+        }
+    }
+    
+    /// Generate IR for break expressions
+    fn generate_break_expression(
+        &mut self,
+        value: Option<&Expression>
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let mut instructions = Vec::new();
+        
+        let result_value = if let Some(expr) = value {
+            let (val, expr_instructions) = self.generate_expression(expr)?;
+            instructions.extend(expr_instructions);
+            val
+        } else {
+            IRValue::Void
+        };
+        
+        if let Some(break_label) = self.context.current_break_label() {
+            instructions.push(Instruction::Jump(Label::new(break_label.clone())));
+        } else {
+            return Err(IRError::Other("Break outside of loop".to_string()));
+        }
+        
+        Ok((result_value, instructions))
+    }
+    
+    /// Generate IR for continue expressions
+    fn generate_continue_expression(&mut self) -> IRResult<(IRValue, Vec<Instruction>)> {
+        if let Some(continue_label) = self.context.current_continue_label() {
+            Ok((IRValue::Void, vec![Instruction::Jump(Label::new(continue_label.clone()))]))
+        } else {
+            Err(IRError::Other("Continue outside of loop".to_string()))
+        }
     }
     
     /// Generate IR for while loops

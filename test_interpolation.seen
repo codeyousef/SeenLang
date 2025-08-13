@@ -1,0 +1,6 @@
+let name = "World"
+let count = 42
+let greeting = "Hello, {name}!"
+let message = "The count is {count}"
+println(greeting)
+println(message)

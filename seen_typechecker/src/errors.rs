@@ -119,9 +119,29 @@ pub enum TypeError {
         position: Position,
     },
 
-    #[error("Unknown type '{name}' at {position}")]
+    #[error("Unknown type '{type_name}' at {position}")]
     UnknownType {
-        name: String,
+        type_name: String,
+        position: Position,
+    },
+    
+    #[error("Unknown field '{field_name}' in struct '{struct_name}' at {position}")]
+    UnknownField {
+        struct_name: String,
+        field_name: String,
+        position: Position,
+    },
+    
+    #[error("Missing field '{field_name}' for struct '{struct_name}' at {position}")]
+    MissingField {
+        struct_name: String,
+        field_name: String,
+        position: Position,
+    },
+    
+    #[error("Type '{type_name}' is not a struct at {position}")]
+    NotAStruct {
+        type_name: String,
         position: Position,
     },
 }
@@ -165,7 +185,10 @@ impl TypeError {
             TypeError::CircularDependency { position, .. } |
             TypeError::DuplicateType { position, .. } |
             TypeError::DuplicateField { position, .. } |
-            TypeError::UnknownType { position, .. } => *position,
+            TypeError::UnknownType { position, .. } |
+            TypeError::UnknownField { position, .. } |
+            TypeError::MissingField { position, .. } |
+            TypeError::NotAStruct { position, .. } => *position,
         }
     }
     
@@ -173,11 +196,12 @@ impl TypeError {
     pub fn kind(&self) -> TypeErrorKind {
         match self {
             TypeError::TypeMismatch { .. } => TypeErrorKind::TypeMismatch,
-            TypeError::UndefinedVariable { .. } | TypeError::UndefinedFunction { .. } | TypeError::UnknownType { .. } => TypeErrorKind::UndefinedReference,
+            TypeError::UndefinedVariable { .. } | TypeError::UndefinedFunction { .. } | TypeError::UnknownType { .. } | TypeError::UnknownField { .. } => TypeErrorKind::UndefinedReference,
             TypeError::ArgumentCountMismatch { .. } => TypeErrorKind::ArgumentMismatch,
             TypeError::InvalidOperation { .. } => TypeErrorKind::InvalidOperation,
             TypeError::ImmutableAssignment { .. } => TypeErrorKind::AssignmentError,
-            TypeError::DuplicateVariable { .. } | TypeError::DuplicateFunction { .. } | TypeError::DuplicateType { .. } | TypeError::DuplicateField { .. } => TypeErrorKind::DuplicateDefinition,
+            TypeError::DuplicateVariable { .. } | TypeError::DuplicateFunction { .. } | TypeError::DuplicateType { .. } | TypeError::DuplicateField { .. } | TypeError::MissingField { .. } => TypeErrorKind::DuplicateDefinition,
+            TypeError::NotAStruct { .. } => TypeErrorKind::InvalidOperation,
             TypeError::NullSafety { .. } => TypeErrorKind::NullSafety,
             TypeError::IndexOutOfBounds { .. } | TypeError::InvalidIndexType { .. } => TypeErrorKind::IndexError,
             TypeError::ReturnTypeMismatch { .. } | TypeError::MissingReturn { .. } => TypeErrorKind::ReturnError,

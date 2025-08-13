@@ -1,0 +1,10 @@
+// Test array literals
+let numbers = [1, 2, 3, 4, 5]
+let names = ["Alice", "Bob", "Charlie"]
+
+// Test array indexing
+let first = numbers[0]
+let second = names[1]
+
+println("First number: {first}")
+println("Second name: {second}")

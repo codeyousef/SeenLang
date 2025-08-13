@@ -1,0 +1,23 @@
+// Nullable types test
+let name: String? = "Alice"
+let age: Int? = null
+
+// Safe navigation
+let nameLength = name?.length
+let ageValue = age?.value
+
+// Elvis operator
+let defaultName = name ?: "Unknown"
+let defaultAge = age ?: 0
+
+println("Name: {defaultName}")
+println("Age: {defaultAge}")
+
+// Force unwrap
+let forcedName = name!!
+println("Forced name: {forcedName}")
+
+// Null check in if
+if name != null {
+    println("Name is not null: {name}")
+}

@@ -54,6 +54,17 @@ impl Environment {
     pub fn define_function(&mut self, name: String, signature: FunctionSignature) {
         self.functions.insert(name, signature);
     }
+    
+    /// Define a type in this environment
+    pub fn define_type(&mut self, name: String, type_def: Type) {
+        self.types.insert(name, type_def);
+    }
+    
+    /// Look up a type definition
+    pub fn get_type(&self, name: &str) -> Option<&Type> {
+        self.types.get(name)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get_type(name)))
+    }
 
     /// Look up a variable type, checking smart casts first, then parent environments
     pub fn get_variable(&self, name: &str) -> Option<&Type> {
@@ -77,11 +88,6 @@ impl Environment {
     /// Check if a function is defined in this scope only
     pub fn has_function(&self, name: &str) -> bool {
         self.functions.contains_key(name)
-    }
-
-    /// Define a type in this environment
-    pub fn define_type(&mut self, name: String, type_def: Type) {
-        self.types.insert(name, type_def);
     }
 
     /// Add a smart cast for a variable (makes nullable var non-nullable in this scope)
@@ -205,6 +211,16 @@ impl TypeChecker {
             
             Expression::ForceUnwrap { nullable, pos } => {
                 self.check_force_unwrap(nullable, *pos)
+            }
+            
+            // Struct definition
+            Expression::StructDefinition { name, fields, pos } => {
+                self.check_struct_definition(name, fields, *pos)
+            }
+            
+            // Struct literal
+            Expression::StructLiteral { name, fields, pos } => {
+                self.check_struct_literal(name, fields, *pos)
             }
             
             // Control flow
@@ -375,8 +391,9 @@ impl TypeChecker {
                         field_type.clone()
                     }
                 } else {
-                    self.result.add_error(TypeError::UnknownType {
-                        name: format!("field '{}' not found", member),
+                    self.result.add_error(TypeError::UnknownField {
+                        struct_name: "Unknown".to_string(), // TODO: extract actual struct name
+                        field_name: member.to_string(),
                         position: pos,
                     });
                     Type::Unknown
@@ -444,6 +461,89 @@ impl TypeChecker {
                 // Force unwrap on non-nullable is just the original type
                 nullable_type
             }
+        }
+    }
+    
+    /// Type check struct definition
+    fn check_struct_definition(&mut self, name: &str, fields: &[seen_parser::ast::StructField], _pos: Position) -> Type {
+        // Create struct type with field information
+        let mut field_types = std::collections::HashMap::new();
+        for field in fields {
+            let field_type = Type::from(&field.field_type);
+            field_types.insert(field.name.clone(), field_type);
+        }
+        
+        // Register the struct type
+        let struct_type = Type::Struct {
+            name: name.to_string(),
+            fields: field_types,
+            generics: Vec::new(), // No generics support yet
+        };
+        
+        // Store struct definition in environment
+        self.env.define_type(name.to_string(), struct_type.clone());
+        
+        // Struct definitions evaluate to Unit
+        Type::Unit
+    }
+    
+    /// Type check struct literal
+    fn check_struct_literal(&mut self, name: &str, fields: &[(String, Expression)], pos: Position) -> Type {
+        // Look up and clone the struct type to avoid borrow issues
+        let struct_type = self.env.get_type(name).cloned();
+        
+        if let Some(struct_type) = struct_type {
+            if let Type::Struct { name: struct_name, fields: expected_fields, .. } = &struct_type {
+                // Check that all required fields are present and have correct types
+                let mut provided_fields = std::collections::HashSet::new();
+                
+                for (field_name, field_expr) in fields {
+                    provided_fields.insert(field_name.clone());
+                    
+                    let field_type = self.check_expression(field_expr);
+                    
+                    if let Some(expected_type) = expected_fields.get(field_name) {
+                        if !field_type.is_assignable_to(expected_type) {
+                            self.result.add_error(TypeError::TypeMismatch {
+                                expected: expected_type.clone(),
+                                actual: field_type,
+                                position: pos,
+                            });
+                        }
+                    } else {
+                        self.result.add_error(TypeError::UnknownField {
+                            struct_name: struct_name.clone(),
+                            field_name: field_name.clone(),
+                            position: pos,
+                        });
+                    }
+                }
+                
+                // Check for missing fields
+                for (expected_field, _) in expected_fields {
+                    if !provided_fields.contains(expected_field) {
+                        self.result.add_error(TypeError::MissingField {
+                            struct_name: struct_name.clone(),
+                            field_name: expected_field.clone(),
+                            position: pos,
+                        });
+                    }
+                }
+                
+                struct_type
+            } else {
+                self.result.add_error(TypeError::NotAStruct {
+                    type_name: name.to_string(),
+                    position: pos,
+                });
+                Type::Unknown
+            }
+        } else {
+            self.result.add_error(TypeError::UnknownType {
+                type_name: name.to_string(),
+                position: pos,
+            });
+            Type::Unknown
         }
     }
 
@@ -610,24 +710,6 @@ impl TypeChecker {
         }
 
         Type::Array(Box::new(element_type))
-    }
-
-    /// Type check struct literal
-    fn check_struct_literal(&mut self, name: &str, fields: &[(String, Expression)], pos: Position) -> Type {
-        // Check if the struct type exists
-        if let Some(struct_type) = self.env.types.get(name).cloned() {
-            // Type check each field initialization
-            for (_, value) in fields {
-                self.check_expression(value);
-            }
-            struct_type
-        } else {
-            self.result.add_error(TypeError::UnknownType {
-                name: name.to_string(),
-                position: pos,
-            });
-            Type::Unknown
-        }
     }
 
     /// Type check index access

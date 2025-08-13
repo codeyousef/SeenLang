@@ -1,0 +1,25 @@
+let age = 25
+let hasPermission = true
+
+// Test 'and' operator
+if age >= 18 and hasPermission {
+    println("Access granted")
+}
+
+// Test 'or' operator  
+let isWeekend = false
+let isHoliday = true
+if isWeekend or isHoliday {
+    println("Day off!")
+}
+
+// Test 'not' operator
+let isValid = false
+if not isValid {
+    println("Invalid!")
+}
+
+// Complex expression
+if (age > 21 and hasPermission) or not isValid {
+    println("Complex condition met")
+}
