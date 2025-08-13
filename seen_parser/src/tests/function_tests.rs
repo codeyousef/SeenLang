@@ -1,6 +1,6 @@
 //! Tests for function and lambda parsing
 
-use crate::{Parser, Expression, ParseResult};
+use crate::{Parser, Expression, ParseResult, Receiver, MemoryModifier};
 use seen_lexer::{Lexer, KeywordManager};
 use std::sync::Arc;
 
@@ -37,7 +37,7 @@ fn test_parse_simple_function() {
 #[test]
 fn test_parse_async_function() {
     let expr = parse_expression(r#"
-        async fun fetchData(): Data {
+        async fun fetchData(): String {
             return await api.get()
         }
     "#).unwrap();
@@ -86,6 +86,73 @@ fn test_parse_mutable_receiver() {
             assert!(recv.is_mutable);
         }
         _ => panic!("Expected function with mutable receiver"),
+    }
+}
+
+#[test]
+fn test_parse_memory_management_parameters() {
+    // Test move parameter
+    let expr = parse_expression(r#"
+        fun process(move value: String) {
+            println("processing value")
+        }
+    "#).unwrap();
+    
+    match expr {
+        Expression::Function { params, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "value");
+            assert_eq!(params[0].memory_modifier, Some(MemoryModifier::Move));
+        }
+        _ => panic!("Expected function with move parameter"),
+    }
+    
+    // Test borrow parameter
+    let expr2 = parse_expression(r#"
+        fun process(borrow item: String) {
+            println("borrowing item")
+        }
+    "#).unwrap();
+    
+    match expr2 {
+        Expression::Function { params, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "item");
+            assert_eq!(params[0].memory_modifier, Some(MemoryModifier::Borrow));
+        }
+        _ => panic!("Expected function with borrow parameter"),
+    }
+    
+    // Test inout parameter
+    let expr3 = parse_expression(r#"
+        fun process(inout buffer: String) {
+            println("modifying buffer")
+        }
+    "#).unwrap();
+    
+    match expr3 {
+        Expression::Function { params, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "buffer");
+            assert_eq!(params[0].memory_modifier, Some(MemoryModifier::Inout));
+        }
+        _ => panic!("Expected function with inout parameter"),
+    }
+    
+    // Test mut parameter 
+    let expr4 = parse_expression(r#"
+        fun process(mut counter: Int) {
+            counter = counter + 1
+        }
+    "#).unwrap();
+    
+    match expr4 {
+        Expression::Function { params, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "counter");
+            assert_eq!(params[0].memory_modifier, Some(MemoryModifier::Mut));
+        }
+        _ => panic!("Expected function with mut parameter"),
     }
 }
 

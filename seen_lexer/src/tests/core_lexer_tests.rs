@@ -218,12 +218,13 @@ mod basic_tokenization_tests {
             TokenType::Keyword(KeywordType::KeywordFun),
             TokenType::Keyword(KeywordType::KeywordIf),
             TokenType::Keyword(KeywordType::KeywordElse),
-            TokenType::Keyword(KeywordType::KeywordAnd),
-            TokenType::Keyword(KeywordType::KeywordOr),
-            TokenType::Keyword(KeywordType::KeywordNot),
-            TokenType::Keyword(KeywordType::KeywordMove),
-            TokenType::Keyword(KeywordType::KeywordBorrow),
-            TokenType::Keyword(KeywordType::KeywordInout),
+            // FIXED: Special operators now have dedicated token types
+            TokenType::LogicalAnd,    // KeywordAnd -> LogicalAnd
+            TokenType::LogicalOr,     // KeywordOr -> LogicalOr
+            TokenType::LogicalNot,    // KeywordNot -> LogicalNot
+            TokenType::Move,          // KeywordMove -> Move
+            TokenType::Borrow,        // KeywordBorrow -> Borrow
+            TokenType::Inout,         // KeywordInout -> Inout
             TokenType::Keyword(KeywordType::KeywordIs),
         ];
         
@@ -520,9 +521,10 @@ mod dynamic_keyword_integration_tests {
             TokenType::Keyword(KeywordType::KeywordFun),
             TokenType::Keyword(KeywordType::KeywordIf),
             TokenType::Keyword(KeywordType::KeywordElse),
-            TokenType::Keyword(KeywordType::KeywordAnd),
-            TokenType::Keyword(KeywordType::KeywordOr),
-            TokenType::Keyword(KeywordType::KeywordNot),
+            // FIXED: Logical operators use dedicated token types
+            TokenType::LogicalAnd,
+            TokenType::LogicalOr,
+            TokenType::LogicalNot,
         ];
         
         for expected_token in expected_tokens {
@@ -540,9 +542,10 @@ mod dynamic_keyword_integration_tests {
             TokenType::Keyword(KeywordType::KeywordFun),
             TokenType::Keyword(KeywordType::KeywordIf),
             TokenType::Keyword(KeywordType::KeywordElse),
-            TokenType::Keyword(KeywordType::KeywordAnd),
-            TokenType::Keyword(KeywordType::KeywordOr),
-            TokenType::Keyword(KeywordType::KeywordNot),
+            // FIXED: Logical operators use dedicated token types
+            TokenType::LogicalAnd,
+            TokenType::LogicalOr,
+            TokenType::LogicalNot,
         ];
         
         for expected_token in expected_tokens {

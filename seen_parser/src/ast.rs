@@ -287,6 +287,27 @@ pub enum Expression {
         pos: Position,
     },
     
+    // Reactive Programming
+    ObservableCreation {
+        source: ObservableSource,
+        pos: Position,
+    },
+    FlowCreation {
+        body: Box<Expression>,
+        pos: Position,
+    },
+    ReactiveProperty {
+        name: String,
+        value: Box<Expression>,
+        is_computed: bool,
+        pos: Position,
+    },
+    StreamOperation {
+        stream: Box<Expression>,
+        operation: StreamOp,
+        pos: Position,
+    },
+    
     // Error handling
     Defer {
         body: Box<Expression>,
@@ -382,6 +403,20 @@ pub struct Parameter {
     pub name: String,
     pub type_annotation: Option<Type>,
     pub default_value: Option<Expression>,
+    pub memory_modifier: Option<MemoryModifier>,
+}
+
+/// Memory management modifiers for parameters (Vale-style)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MemoryModifier {
+    /// Move semantics - parameter takes ownership
+    Move,
+    /// Immutable borrow
+    Borrow,
+    /// Mutable parameter
+    Mut,
+    /// In-out parameter (Vale-style)
+    Inout,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -461,6 +496,42 @@ pub struct Type {
     pub name: String,
     pub is_nullable: bool,
     pub generics: Vec<Type>,
+}
+
+// Supporting types for reactive programming
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ObservableSource {
+    /// Observable.Range(start, end, step)
+    Range {
+        start: Box<Expression>,
+        end: Box<Expression>,
+        step: Option<Box<Expression>>,
+    },
+    /// Observable.FromArray(array)
+    FromArray(Box<Expression>),
+    /// Observable from event source
+    FromEvent(String),
+    /// Observable.Interval(duration)
+    Interval(u64),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum StreamOp {
+    /// Map operation with lambda
+    Map(Box<Expression>),
+    /// Filter operation with predicate
+    Filter(Box<Expression>),
+    /// Throttle with duration in ms
+    Throttle(u64),
+    /// Debounce with duration in ms
+    Debounce(u64),
+    /// Take n elements
+    Take(usize),
+    /// Skip n elements
+    Skip(usize),
+    /// Distinct elements only
+    Distinct,
 }
 
 // Supporting types for new AST nodes

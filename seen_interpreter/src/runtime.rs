@@ -1,7 +1,15 @@
 //! Runtime environment for the Seen interpreter
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use crate::value::Value;
+use seen_concurrency::{
+    async_runtime::{AsyncRuntime, AsyncRuntimeConfig},
+    channels::ChannelManager,
+    actors::ActorSystem,
+};
+use seen_effects::{AdvancedRuntime, AdvancedRuntimeConfig};
+use seen_reactive::{ReactiveRuntime, ReactiveRuntimeConfig};
 
 /// Runtime error types
 #[derive(Debug, Clone)]
@@ -98,6 +106,16 @@ pub struct Runtime {
     return_value: Option<Value>,
     /// Maximum recursion depth
     max_recursion_depth: usize,
+    /// Async runtime for handling async/await operations
+    async_runtime: Arc<Mutex<AsyncRuntime>>,
+    /// Channel manager for channel operations
+    channel_manager: Arc<Mutex<ChannelManager>>,
+    /// Actor system for actor-based concurrency
+    actor_system: Arc<Mutex<ActorSystem>>,
+    /// Advanced runtime for effects and contracts
+    advanced_runtime: Arc<Mutex<AdvancedRuntime>>,
+    /// Reactive runtime for observables, flows, and reactive properties
+    reactive_runtime: Arc<Mutex<ReactiveRuntime>>,
 }
 
 impl Runtime {
@@ -108,6 +126,11 @@ impl Runtime {
             call_stack: Vec::new(),
             return_value: None,
             max_recursion_depth: 1000,
+            async_runtime: Arc::new(Mutex::new(AsyncRuntime::with_config(AsyncRuntimeConfig::default()))),
+            channel_manager: Arc::new(Mutex::new(ChannelManager::new())),
+            actor_system: Arc::new(Mutex::new(ActorSystem::new())),
+            advanced_runtime: Arc::new(Mutex::new(AdvancedRuntime::with_config(AdvancedRuntimeConfig::default()))),
+            reactive_runtime: Arc::new(Mutex::new(ReactiveRuntime::with_config(ReactiveRuntimeConfig::default()))),
         }
     }
 
@@ -198,6 +221,31 @@ impl Runtime {
     pub fn println(&self, value: &Value) -> Result<(), RuntimeError> {
         println!("{}", value.to_string());
         Ok(())
+    }
+    
+    /// Get reference to async runtime
+    pub fn async_runtime(&self) -> Arc<Mutex<AsyncRuntime>> {
+        Arc::clone(&self.async_runtime)
+    }
+    
+    /// Get reference to channel manager
+    pub fn channel_manager(&self) -> Arc<Mutex<ChannelManager>> {
+        Arc::clone(&self.channel_manager)
+    }
+    
+    /// Get reference to actor system
+    pub fn actor_system(&self) -> Arc<Mutex<ActorSystem>> {
+        Arc::clone(&self.actor_system)
+    }
+    
+    /// Get reference to advanced runtime (effects and contracts)
+    pub fn advanced_runtime(&self) -> Arc<Mutex<AdvancedRuntime>> {
+        Arc::clone(&self.advanced_runtime)
+    }
+    
+    /// Get reference to reactive runtime (observables, flows, reactive properties)
+    pub fn reactive_runtime(&self) -> Arc<Mutex<ReactiveRuntime>> {
+        Arc::clone(&self.reactive_runtime)
     }
 }
 

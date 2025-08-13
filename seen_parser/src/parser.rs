@@ -128,7 +128,8 @@ impl Parser {
     fn parse_logical_or(&mut self) -> ParseResult<Expression> {
         let mut expr = self.parse_logical_and()?;
         
-        while self.check_keyword(KeywordType::KeywordOr) {
+        // FIXED: Use TokenType::LogicalOr instead of KeywordType::KeywordOr
+        while self.check(&TokenType::LogicalOr) {
             let pos = self.current.position.clone();
             self.advance();
             let right = self.parse_logical_and()?;
@@ -147,7 +148,8 @@ impl Parser {
     fn parse_logical_and(&mut self) -> ParseResult<Expression> {
         let mut expr = self.parse_equality()?;
         
-        while self.check_keyword(KeywordType::KeywordAnd) {
+        // FIXED: Use TokenType::LogicalAnd instead of KeywordType::KeywordAnd
+        while self.check(&TokenType::LogicalAnd) {
             let pos = self.current.position.clone();
             self.advance();
             let right = self.parse_equality()?;
@@ -289,8 +291,8 @@ impl Parser {
     
     /// Parse unary expressions (not, -, !!)
     fn parse_unary(&mut self) -> ParseResult<Expression> {
-        // Check for 'not' keyword
-        if self.check_keyword(KeywordType::KeywordNot) {
+        // FIXED: Check for 'not' as TokenType::LogicalNot instead of KeywordType::KeywordNot
+        if self.check(&TokenType::LogicalNot) {
             let pos = self.current.position.clone();
             self.advance();
             let operand = self.parse_unary()?;
@@ -703,8 +705,8 @@ impl Parser {
             return Ok(Pattern::Wildcard);
         }
         
-        // Range pattern
-        if let Ok(start) = self.try_parse_literal() {
+        // Try to parse literal patterns (including bool and null)
+        if let Ok(start) = self.try_parse_pattern_literal() {
             if self.check(&TokenType::InclusiveRange) {
                 self.advance();
                 let inclusive = !self.check(&TokenType::Less);
@@ -729,7 +731,7 @@ impl Parser {
                     let mut fields = Vec::new();
                     
                     while !self.check(&TokenType::RightBrace) {
-                        let field_name = self.expect_identifier()?;
+                        let field_name = self.parse_field_name()?;
                         self.expect(&TokenType::Colon)?;
                         let field_pattern = self.parse_pattern()?;
                         fields.push((field_name, Box::new(field_pattern)));
@@ -1038,6 +1040,7 @@ impl Parser {
                 name: self.expect_identifier()?,
                 type_annotation: None,
                 default_value: None,
+                memory_modifier: None,
             });
             
             while self.check(&TokenType::Comma) {
@@ -1046,6 +1049,7 @@ impl Parser {
                     name: self.expect_identifier()?,
                     type_annotation: None,
                     default_value: None,
+                    memory_modifier: None,
                 });
             }
             params
@@ -1203,48 +1207,32 @@ impl Parser {
         // Extract the parts from the lexer's InterpolatedString token
         let parts = if let TokenType::InterpolatedString(lexer_parts) = &self.current.token_type {
             // Convert lexer InterpolationPart to parser InterpolationPart
-            lexer_parts.iter().map(|lexer_part| {
+            lexer_parts.iter().map(|lexer_part| -> ParseResult<InterpolationPart> {
                 match &lexer_part.kind {
                     seen_lexer::InterpolationKind::Text(text) => {
-                        InterpolationPart {
+                        Ok(InterpolationPart {
                             kind: InterpolationKind::Text(text.clone()),
                             pos: lexer_part.position.clone(),
-                        }
+                        })
                     }
                     seen_lexer::InterpolationKind::Expression(expr_str) => {
                         // Parse the expression string into an actual Expression
-                        // For now, we'll parse simple identifiers
-                        // TODO: Full expression parsing would require tokenizing the string
-                        let expr = if expr_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                            // Simple identifier
-                            Expression::Identifier {
-                                name: expr_str.clone(),
-                                is_public: expr_str.chars().next().map_or(false, |c| c.is_uppercase()),
-                                pos: lexer_part.position.clone(),
-                            }
-                        } else {
-                            // For complex expressions, we'd need to tokenize and parse
-                            // For now, fall back to string literal
-                            Expression::StringLiteral {
-                                value: expr_str.clone(),
-                                pos: lexer_part.position.clone(),
-                            }
-                        };
+                        let expr = self.parse_interpolation_expression(expr_str, lexer_part.position.clone())?;
                         
-                        InterpolationPart {
+                        Ok(InterpolationPart {
                             kind: InterpolationKind::Expression(Box::new(expr)),
                             pos: lexer_part.position.clone(),
-                        }
+                        })
                     }
                     seen_lexer::InterpolationKind::LiteralBrace => {
                         // Treat literal braces as text
-                        InterpolationPart {
+                        Ok(InterpolationPart {
                             kind: InterpolationKind::Text("{".to_string()),
                             pos: lexer_part.position.clone(),
-                        }
+                        })
                     }
                 }
-            }).collect()
+            }).collect::<ParseResult<Vec<_>>>()?
         } else {
             Vec::new()
         };
@@ -1254,11 +1242,45 @@ impl Parser {
         Ok(Expression::InterpolatedString { parts, pos })
     }
     
+    /// Parse an expression within string interpolation
+    fn parse_interpolation_expression(&self, expr_str: &str, pos: Position) -> ParseResult<Expression> {
+        // Create a sub-lexer for the expression string
+        let keyword_manager = self.lexer.keyword_manager();
+        let sub_lexer = seen_lexer::Lexer::new(expr_str.to_string(), keyword_manager);
+        
+        // Create a sub-parser
+        let mut sub_parser = Parser::new(sub_lexer);
+        
+        // Parse the expression
+        let expr = sub_parser.parse_expression().map_err(|_e| {
+            // Adjust error position to be relative to the original string
+            ParseError::UnexpectedToken {
+                found: TokenType::EOF, // Use a token type instead of string
+                expected: "valid expression".to_string(),
+                pos,
+            }
+        })?;
+        
+        // Ensure we've consumed the entire expression string
+        if !sub_parser.is_at_end() {
+            return Err(ParseError::UnexpectedToken {
+                found: TokenType::EOF, // Use a token type instead of string
+                expected: "end of expression".to_string(),
+                pos,
+            });
+        }
+        
+        Ok(expr)
+    }
+    
     /// Parse function parameters
     fn parse_parameters(&mut self) -> ParseResult<Vec<Parameter>> {
         let mut params = Vec::new();
         
         while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+            // Parse memory management modifier if present
+            let memory_modifier = self.parse_memory_modifier()?;
+            
             let name = self.expect_identifier()?;
             
             let type_annotation = if self.check(&TokenType::Colon) {
@@ -1279,6 +1301,7 @@ impl Parser {
                 name,
                 type_annotation,
                 default_value,
+                memory_modifier,
             });
             
             if !self.check(&TokenType::RightParen) {
@@ -1287,6 +1310,25 @@ impl Parser {
         }
         
         Ok(params)
+    }
+    
+    /// Parse memory management modifier for parameters
+    fn parse_memory_modifier(&mut self) -> ParseResult<Option<MemoryModifier>> {
+        if self.check(&TokenType::Move) {
+            self.advance();
+            Ok(Some(MemoryModifier::Move))
+        } else if self.check(&TokenType::Borrow) {
+            self.advance();
+            Ok(Some(MemoryModifier::Borrow))
+        } else if self.check_keyword(KeywordType::KeywordMut) {
+            self.advance();
+            Ok(Some(MemoryModifier::Mut))
+        } else if self.check(&TokenType::Inout) {
+            self.advance();
+            Ok(Some(MemoryModifier::Inout))
+        } else {
+            Ok(None)
+        }
     }
     
     /// Parse function arguments
@@ -1310,9 +1352,22 @@ impl Parser {
         let name = self.expect_identifier()?;
         self.expect(&TokenType::Colon)?;
         
-        let is_mutable = if self.check_keyword(KeywordType::KeywordInout) {
+        // Check for memory management keywords: inout, mut, borrow
+        let is_mutable = if self.check(&TokenType::Inout) {
             self.advance();
             true
+        } else if self.check_keyword(KeywordType::KeywordMut) {
+            self.advance();
+            true
+        } else if self.check(&TokenType::Borrow) {
+            self.advance();
+            // Handle 'borrow mut' pattern
+            if self.check_keyword(KeywordType::KeywordMut) {
+                self.advance();
+                true
+            } else {
+                false // immutable borrow
+            }
         } else {
             false
         };
@@ -1386,6 +1441,39 @@ impl Parser {
                 let value = value.clone();
                 self.advance();
                 Ok(Expression::StringLiteral { value, pos })
+            }
+            _ => Err(ParseError::InvalidExpression { pos })
+        }
+    }
+    
+    /// Try to parse all literal types including boolean and null (for pattern matching)
+    fn try_parse_pattern_literal(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        
+        match &self.current.token_type {
+            TokenType::IntegerLiteral(value) => {
+                let value = *value;
+                self.advance();
+                Ok(Expression::IntegerLiteral { value, pos })
+            }
+            TokenType::FloatLiteral(value) => {
+                let value = *value;
+                self.advance();
+                Ok(Expression::FloatLiteral { value, pos })
+            }
+            TokenType::StringLiteral(value) => {
+                let value = value.clone();
+                self.advance();
+                Ok(Expression::StringLiteral { value, pos })
+            }
+            TokenType::BoolLiteral(value) => {
+                let value = *value;
+                self.advance();
+                Ok(Expression::BooleanLiteral { value, pos })
+            }
+            TokenType::Keyword(KeywordType::KeywordNull) => {
+                self.advance();
+                Ok(Expression::NullLiteral { pos })
             }
             _ => Err(ParseError::InvalidExpression { pos })
         }
@@ -1473,6 +1561,39 @@ impl Parser {
             _ => Err(ParseError::UnexpectedToken {
                 found: self.current.token_type.clone(),
                 expected: "identifier".to_string(),
+                pos: self.current.position.clone(),
+            })
+        }
+    }
+    
+    /// Parse field name that can be identifier or keyword (for struct patterns)
+    fn parse_field_name(&mut self) -> ParseResult<String> {
+        match &self.current.token_type {
+            TokenType::PublicIdentifier(name) | TokenType::PrivateIdentifier(name) => {
+                let name = name.clone();
+                self.advance();
+                Ok(name)
+            }
+            TokenType::Keyword(keyword) => {
+                // Allow keywords as field names in struct patterns
+                let name = match keyword {
+                    KeywordType::KeywordData => "data".to_string(),
+                    KeywordType::KeywordType => "type".to_string(),
+                    KeywordType::KeywordClass => "class".to_string(),
+                    KeywordType::KeywordStruct => "struct".to_string(),
+                    KeywordType::KeywordEnum => "enum".to_string(),
+                    KeywordType::KeywordTrait => "trait".to_string(),
+                    // Add more as needed
+                    _ => format!("{:?}", keyword).to_lowercase()
+                        .replace("keyword", "")
+                        .replace("_", ""),
+                };
+                self.advance();
+                Ok(name)
+            }
+            _ => Err(ParseError::UnexpectedToken {
+                found: self.current.token_type.clone(),
+                expected: "field name".to_string(),
                 pos: self.current.position.clone(),
             })
         }

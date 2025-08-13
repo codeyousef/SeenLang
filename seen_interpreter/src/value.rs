@@ -1,10 +1,14 @@
 //! Value representation for the Seen interpreter
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use serde::{Serialize, Deserialize};
+use seen_concurrency::types::{Promise, TaskId, ActorRef, Channel};
+use seen_effects::{EffectId, EffectDefinition};
+use seen_reactive::{Observable, Flow, ReactiveProperty};
 
 /// Values that can be computed by the interpreter
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum Value {
     /// Integer value
     Integer(i64),
@@ -34,6 +38,30 @@ pub enum Value {
         body: Box<seen_parser::Expression>, // Store function body as expression
         closure: HashMap<String, Value>,
     },
+    /// Promise value for async operations
+    Promise(Arc<Promise>),
+    /// Task ID for spawned tasks
+    Task(TaskId),
+    /// Channel for message passing
+    Channel(Arc<Channel>),
+    /// Actor reference for actor model concurrency
+    Actor(ActorRef),
+    /// Effect definition
+    Effect(Arc<EffectDefinition>),
+    /// Effect handle context
+    EffectHandle {
+        effect_id: EffectId,
+        handlers: HashMap<String, Value>,
+    },
+    /// Observable for reactive streams
+    Observable(Arc<dyn std::any::Any + Send + Sync>),
+    /// Flow for reactive coroutines
+    Flow(Arc<dyn std::any::Any + Send + Sync>),
+    /// Reactive property
+    ReactiveProperty {
+        property_id: seen_reactive::properties::PropertyId,
+        name: String,
+    },
 }
 
 impl Value {
@@ -43,12 +71,22 @@ impl Value {
             Value::Boolean(b) => *b,
             Value::Null => false,
             Value::Unit => false,
-            Value::Integer(0) => false,
+            Value::Integer(i) => *i != 0,
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::Array(arr) => !arr.is_empty(),
             Value::Struct { .. } => true,
-            _ => true,
+            Value::Function { .. } => true,
+            Value::Promise(promise) => !promise.is_rejected(),
+            Value::Task(_) => true,
+            Value::Channel(_) => true,
+            Value::Actor(_) => true,
+            Value::Character(_) => true,
+            Value::Effect(_) => true,
+            Value::EffectHandle { .. } => true,
+            Value::Observable(_) => true,
+            Value::Flow(_) => true,
+            Value::ReactiveProperty { .. } => true,
         }
     }
 
@@ -65,6 +103,15 @@ impl Value {
             Value::Null => "Null",
             Value::Unit => "Unit",
             Value::Function { .. } => "Function",
+            Value::Promise(_) => "Promise",
+            Value::Task(_) => "Task",
+            Value::Channel(_) => "Channel",
+            Value::Actor(_) => "Actor",
+            Value::Effect(_) => "Effect",
+            Value::EffectHandle { .. } => "EffectHandle",
+            Value::Observable(_) => "Observable",
+            Value::Flow(_) => "Flow",
+            Value::ReactiveProperty { .. } => "ReactiveProperty",
         }
     }
 
@@ -89,6 +136,23 @@ impl Value {
             Value::Null => "null".to_string(),
             Value::Unit => "()".to_string(),
             Value::Function { name, .. } => format!("<function {}>", name),
+            Value::Promise(promise) => {
+                if promise.is_pending() {
+                    "<Promise pending>".to_string()
+                } else if promise.is_resolved() {
+                    format!("<Promise resolved>")
+                } else {
+                    "<Promise rejected>".to_string()
+                }
+            }
+            Value::Task(task_id) => format!("<Task {}>", task_id.id()),
+            Value::Channel(channel) => format!("<Channel {}>", channel.id.id()),
+            Value::Actor(actor_ref) => format!("<Actor {}>", actor_ref.id.id()),
+            Value::Effect(effect) => format!("<Effect {}>", effect.name),
+            Value::EffectHandle { effect_id, .. } => format!("<EffectHandle {}>", effect_id.id()),
+            Value::Observable(_) => "<Observable>".to_string(),
+            Value::Flow(_) => "<Flow>".to_string(),
+            Value::ReactiveProperty { name, .. } => format!("<ReactiveProperty {}>", name),
         }
     }
 
@@ -274,5 +338,34 @@ mod tests {
         assert!(Value::Integer(5).equals(&Value::Integer(5)));
         assert!(Value::Integer(5).equals(&Value::Float(5.0)));
         assert!(!Value::Integer(5).equals(&Value::Integer(3)));
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Integer(a), Value::Integer(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Character(a), Value::Character(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Null, Value::Null) => true,
+            (Value::Unit, Value::Unit) => true,
+            (Value::Struct { name: n1, fields: f1 }, Value::Struct { name: n2, fields: f2 }) => {
+                n1 == n2 && f1 == f2
+            }
+            (Value::Function { name: n1, .. }, Value::Function { name: n2, .. }) => n1 == n2,
+            (Value::Promise(a), Value::Promise(b)) => std::sync::Arc::ptr_eq(a, b),
+            (Value::Task(a), Value::Task(b)) => a == b,
+            (Value::Channel(a), Value::Channel(b)) => Arc::ptr_eq(a, b),
+            (Value::Actor(a), Value::Actor(b)) => a.id == b.id,
+            (Value::Effect(a), Value::Effect(b)) => Arc::ptr_eq(a, b),
+            (Value::EffectHandle { effect_id: id1, .. }, Value::EffectHandle { effect_id: id2, .. }) => id1 == id2,
+            (Value::Observable(a), Value::Observable(b)) => Arc::ptr_eq(a, b),
+            (Value::Flow(a), Value::Flow(b)) => Arc::ptr_eq(a, b),
+            (Value::ReactiveProperty { property_id: id1, .. }, Value::ReactiveProperty { property_id: id2, .. }) => id1 == id2,
+            _ => false,
+        }
     }
 }

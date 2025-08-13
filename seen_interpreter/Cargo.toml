@@ -9,7 +9,11 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 seen_parser = { path = "../seen_parser" }
+seen_concurrency = { path = "../seen_concurrency" }
+seen_effects = { path = "../seen_effects" }
+seen_reactive = { path = "../seen_reactive" }
 
 [dev-dependencies]
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }
+seen_lexer = { path = "../seen_lexer" }

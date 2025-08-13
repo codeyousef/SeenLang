@@ -1,7 +1,20 @@
 //! Main interpreter implementation for the Seen programming language
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use seen_parser::{Program, Expression, BinaryOperator, UnaryOperator, Pattern, MatchArm, InterpolationPart, InterpolationKind, Position};
+use seen_concurrency::{
+    types::{Promise, TaskPriority, AsyncValue},
+    async_runtime::AsyncFunction as AsyncFunctionTrait,
+};
+use seen_effects::{
+    EffectDefinition, EffectOperation as EffectOp, 
+    EffectId, effects::{EffectParameter, EffectMetadata, EffectOperationMetadata, EffectOperationId, EffectCost, EffectSafetyLevel},
+};
+use seen_reactive::{
+    Observable, Flow, ReactiveProperty,
+    properties::PropertyId,
+};
 use crate::value::Value;
 use crate::runtime::Runtime;
 use crate::errors::{InterpreterError, InterpreterResult};
@@ -337,6 +350,72 @@ impl Interpreter {
                 }
             }
             
+            // Async/Await expressions
+            Expression::Await { expr, pos } => {
+                self.interpret_await(expr, *pos)
+            }
+            
+            // Spawn expressions for concurrency
+            Expression::Spawn { expr, pos } => {
+                self.interpret_spawn(expr, *pos)
+            }
+            
+            // Select expressions for channel operations
+            Expression::Select { cases, pos } => {
+                self.interpret_select(cases, *pos)
+            }
+            
+            // Actor definitions
+            Expression::Actor { name, fields, pos, .. } => {
+                self.interpret_actor_definition(name, fields, *pos)
+            }
+            
+            // Send expressions
+            Expression::Send { target, message, pos } => {
+                self.interpret_send(target, message, *pos)
+            }
+            
+            // Receive expressions
+            Expression::Receive { pattern: _, handler, pos } => {
+                // Simplified receive implementation
+                self.interpret_expression(handler)
+            }
+            
+            // Effect definition
+            Expression::Effect { name, operations, pos } => {
+                self.interpret_effect_definition(name, operations, *pos)
+            }
+            
+            // Handle expression for effects
+            Expression::Handle { body, effect, handlers, pos } => {
+                self.interpret_handle(body, effect, handlers, *pos)
+            }
+            
+            // Contract-annotated function
+            Expression::ContractedFunction { function, requires, ensures, invariants, pos } => {
+                self.interpret_contracted_function(function, requires, ensures, invariants, *pos)
+            }
+            
+            // Observable creation (Seen syntax: Observable.Range(1, 10))
+            Expression::ObservableCreation { source, pos } => {
+                self.interpret_observable_creation(source, *pos)
+            }
+            
+            // Flow creation (Seen syntax: flow { emit(1); delay(100ms) })
+            Expression::FlowCreation { body, pos } => {
+                self.interpret_flow_creation(body, *pos)
+            }
+            
+            // Reactive property (Seen syntax: @Reactive var Username = "")
+            Expression::ReactiveProperty { name, value, is_computed, pos } => {
+                self.interpret_reactive_property(name, value, *is_computed, *pos)
+            }
+            
+            // Stream operations (Map, Filter, etc.)
+            Expression::StreamOperation { stream, operation, pos } => {
+                self.interpret_stream_operation(stream, operation, *pos)
+            }
+            
             // All other expressions return Unit for now
             _ => Ok(Value::Unit),
         }
@@ -633,6 +712,400 @@ impl Interpreter {
         }
         
         Ok(Value::String(result))
+    }
+    
+    /// Interpret await expression
+    fn interpret_await(&mut self, expr: &Expression, pos: Position) -> InterpreterResult<Value> {
+        // First evaluate the expression to get a promise/task
+        let promise_value = self.interpret_expression(expr)?;
+        
+        match promise_value {
+            Value::Promise(promise) => {
+                // Block until promise is resolved
+                while promise.is_pending() {
+                    // In a real implementation, this would yield to the async runtime
+                    // For now, we'll return a placeholder
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                
+                if promise.is_resolved() {
+                    if let Some(async_value) = promise.value() {
+                        // Convert AsyncValue to Value
+                        Ok(self.async_value_to_value(async_value))
+                    } else {
+                        Ok(Value::Unit)
+                    }
+                } else {
+                    Err(InterpreterError::runtime("Promise was rejected", pos))
+                }
+            }
+            Value::Task(task_id) => {
+                // Wait for task completion
+                let runtime = self.runtime.async_runtime();
+                // For now, return the task ID as a placeholder
+                Ok(Value::Task(task_id))
+            }
+            _ => Err(InterpreterError::runtime("Cannot await non-promise value", pos))
+        }
+    }
+    
+    /// Interpret spawn expression
+    fn interpret_spawn(&mut self, expr: &Expression, pos: Position) -> InterpreterResult<Value> {
+        // Create a simple async function from the expression
+        let async_runtime = self.runtime.async_runtime();
+        
+        // For now, we'll create a basic task
+        // In a full implementation, this would create an actual async task
+        let task_id = seen_concurrency::types::TaskId::new(1);
+        
+        // Store the expression to execute later (simplified)
+        Ok(Value::Task(task_id))
+    }
+    
+    /// Interpret select expression for channel operations
+    fn interpret_select(&mut self, cases: &[seen_parser::ast::SelectCase], pos: Position) -> InterpreterResult<Value> {
+        // Simplified select implementation
+        // In a real implementation, this would handle channel operations
+        for _case in cases {
+            // Process each case
+        }
+        Ok(Value::Unit)
+    }
+    
+    /// Interpret actor definition
+    fn interpret_actor_definition(&mut self, name: &str, _fields: &[(String, seen_parser::ast::Type)], pos: Position) -> InterpreterResult<Value> {
+        // Simplified actor definition
+        let actor_system = self.runtime.actor_system();
+        
+        // Create a placeholder actor
+        let actor_id = seen_concurrency::types::ActorId::new(1);
+        let actor_ref = seen_concurrency::types::ActorRef {
+            id: actor_id,
+            actor_type: name.to_string(),
+            mailbox: Arc::new(seen_concurrency::types::Mailbox {
+                messages: std::sync::Mutex::new(std::collections::VecDeque::new()),
+                capacity: None,
+            }),
+        };
+        
+        Ok(Value::Actor(actor_ref))
+    }
+    
+    /// Interpret send expression
+    fn interpret_send(&mut self, target: &Expression, message: &Expression, pos: Position) -> InterpreterResult<Value> {
+        let target_value = self.interpret_expression(target)?;
+        let message_value = self.interpret_expression(message)?;
+        
+        match target_value {
+            Value::Actor(actor_ref) => {
+                // Send message to actor
+                // For now, just return success
+                Ok(Value::Unit)
+            }
+            Value::Channel(channel) => {
+                // Send to channel
+                // For now, just return success
+                Ok(Value::Unit)
+            }
+            _ => Err(InterpreterError::runtime("Can only send to actors or channels", pos))
+        }
+    }
+    
+    /// Convert AsyncValue to interpreter Value
+    fn async_value_to_value(&self, async_value: &AsyncValue) -> Value {
+        match async_value {
+            AsyncValue::Unit => Value::Unit,
+            AsyncValue::Integer(i) => Value::Integer(*i),
+            AsyncValue::Float(f) => Value::Float(*f),
+            AsyncValue::Boolean(b) => Value::Boolean(*b),
+            AsyncValue::String(s) => Value::String(s.clone()),
+            AsyncValue::Array(arr) => {
+                let values: Vec<Value> = arr.iter()
+                    .map(|v| self.async_value_to_value(v))
+                    .collect();
+                Value::Array(values)
+            }
+            AsyncValue::Promise(promise) => Value::Promise(Arc::clone(promise)),
+            AsyncValue::Channel(channel) => Value::Channel(Arc::clone(channel)),
+            AsyncValue::Actor(actor) => Value::Actor(actor.clone()),
+            AsyncValue::Error => Value::Null, // Map error to null for now
+            AsyncValue::Pending => Value::Unit, // Map pending to unit
+        }
+    }
+    
+    /// Interpret effect definition
+    fn interpret_effect_definition(&mut self, name: &str, operations: &[seen_parser::ast::EffectOperation], pos: Position) -> InterpreterResult<Value> {
+        // Create effect definition
+        let mut effect_operations = HashMap::new();
+        
+        for (idx, op) in operations.iter().enumerate() {
+            let effect_op = EffectOp {
+                id: EffectOperationId::new(idx as u64),
+                name: op.name.clone(),
+                parameters: op.params.iter().map(|p| EffectParameter {
+                    name: p.name.clone(),
+                    param_type: p.type_annotation.clone().unwrap_or(seen_parser::ast::Type::new("Any")),
+                    is_mutable: false,
+                    default_value: None,
+                }).collect(),
+                return_type: op.return_type.clone().unwrap_or(seen_parser::ast::Type::new("Unit")),
+                is_pure: false,
+                metadata: EffectOperationMetadata {
+                    position: pos,
+                    documentation: None,
+                    performance_cost: EffectCost::Constant,
+                    can_fail: false,
+                },
+            };
+            effect_operations.insert(op.name.clone(), effect_op);
+        }
+        
+        let effect_def = Arc::new(EffectDefinition {
+            id: EffectId::new(1), // Simplified ID generation
+            name: name.to_string(),
+            operations: effect_operations,
+            metadata: EffectMetadata {
+                is_public: name.chars().next().map_or(false, |c| c.is_uppercase()),
+                position: pos,
+                documentation: None,
+                is_composable: true,
+                safety_level: EffectSafetyLevel::Safe,
+            },
+            type_parameters: Vec::new(),
+        });
+        
+        // Register effect with runtime
+        let advanced_runtime = self.runtime.advanced_runtime();
+        // For now, just return the effect definition
+        
+        Ok(Value::Effect(effect_def))
+    }
+    
+    /// Interpret handle expression for effects
+    fn interpret_handle(&mut self, body: &Expression, effect: &str, handlers: &[seen_parser::ast::EffectHandler], pos: Position) -> InterpreterResult<Value> {
+        // Set up effect handlers
+        let mut handler_map = HashMap::new();
+        
+        for handler in handlers {
+            // Store handler implementation
+            handler_map.insert(handler.operation.clone(), Value::Unit); // Simplified
+        }
+        
+        // Create effect handle context
+        let effect_handle = Value::EffectHandle {
+            effect_id: EffectId::new(1), // Simplified
+            handlers: handler_map,
+        };
+        
+        // Push effect handle to runtime
+        // Execute body with effect handlers in scope
+        let result = self.interpret_expression(body)?;
+        
+        // Pop effect handle from runtime
+        
+        Ok(result)
+    }
+    
+    /// Interpret contract-annotated function
+    fn interpret_contracted_function(
+        &mut self,
+        function: &Expression,
+        requires: &Option<Box<Expression>>,
+        ensures: &Option<Box<Expression>>,
+        invariants: &[Expression],
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        // Check preconditions
+        if let Some(req) = requires {
+            let req_value = self.interpret_expression(req)?;
+            if !req_value.is_truthy() {
+                return Err(InterpreterError::runtime("Precondition violation", pos));
+            }
+        }
+        
+        // Execute function
+        let result = self.interpret_expression(function)?;
+        
+        // Check postconditions
+        if let Some(ens) = ensures {
+            let ens_value = self.interpret_expression(ens)?;
+            if !ens_value.is_truthy() {
+                return Err(InterpreterError::runtime("Postcondition violation", pos));
+            }
+        }
+        
+        // Check invariants
+        for inv in invariants {
+            let inv_value = self.interpret_expression(inv)?;
+            if !inv_value.is_truthy() {
+                return Err(InterpreterError::runtime("Invariant violation", pos));
+            }
+        }
+        
+        Ok(result)
+    }
+    
+    /// Interpret observable creation
+    fn interpret_observable_creation(&mut self, source: &seen_parser::ast::ObservableSource, pos: Position) -> InterpreterResult<Value> {
+        let reactive_runtime = self.runtime.reactive_runtime();
+        let mut runtime = reactive_runtime.lock().unwrap();
+        
+        match source {
+            seen_parser::ast::ObservableSource::Range { start, end, step } => {
+                // Create observable from range
+                let start_val = self.interpret_expression(start)?;
+                let end_val = self.interpret_expression(end)?;
+                let step_val = step.as_ref()
+                    .map(|s| self.interpret_expression(s))
+                    .transpose()?
+                    .unwrap_or(Value::Integer(1));
+                
+                if let (Some(s), Some(e), Some(st)) = (
+                    start_val.as_integer(),
+                    end_val.as_integer(),
+                    step_val.as_integer()
+                ) {
+                    let observable = runtime.create_observable_range(s as i32, e as i32, st as i32);
+                    // Box the observable and wrap in Arc
+                    let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(observable);
+                    Ok(Value::Observable(Arc::new(boxed)))
+                } else {
+                    Err(InterpreterError::runtime("Observable.Range requires integer arguments", pos))
+                }
+            }
+            seen_parser::ast::ObservableSource::FromArray(array_expr) => {
+                // Create observable from array
+                let array_val = self.interpret_expression(array_expr)?;
+                if let Value::Array(values) = array_val {
+                    // Convert Value array to AsyncValue array for reactive runtime
+                    let async_values: Vec<seen_concurrency::types::AsyncValue> = values.iter()
+                        .map(|v| self.value_to_async_value(v))
+                        .collect();
+                    let observable = runtime.create_observable_from_vec(async_values);
+                    let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(observable);
+                    Ok(Value::Observable(Arc::new(boxed)))
+                } else {
+                    Err(InterpreterError::runtime("Observable.FromArray requires an array", pos))
+                }
+            }
+            _ => Ok(Value::Unit), // Other sources not implemented yet
+        }
+    }
+    
+    /// Interpret flow creation
+    fn interpret_flow_creation(&mut self, body: &Expression, pos: Position) -> InterpreterResult<Value> {
+        let reactive_runtime = self.runtime.reactive_runtime();
+        let mut runtime = reactive_runtime.lock().unwrap();
+        
+        // For now, create a simple flow
+        // In a full implementation, this would parse the flow body for emit() and delay() calls
+        let flow = runtime.create_flow_from_vec(vec![1, 2, 3]);
+        let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(flow);
+        Ok(Value::Flow(Arc::new(boxed)))
+    }
+    
+    /// Interpret reactive property creation
+    fn interpret_reactive_property(
+        &mut self,
+        name: &str,
+        value: &Expression,
+        is_computed: bool,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let reactive_runtime = self.runtime.reactive_runtime();
+        let mut runtime = reactive_runtime.lock().unwrap();
+        
+        if is_computed {
+            // Create computed property
+            let property_id = runtime.create_computed_property(
+                name.to_string(),
+                value.clone(),
+                seen_parser::ast::Type::new("Any"), // Type inference would determine real type
+                pos,
+            );
+            Ok(Value::ReactiveProperty {
+                property_id,
+                name: name.to_string(),
+            })
+        } else {
+            // Create reactive property
+            let initial_val = self.interpret_expression(value)?;
+            let async_val = self.value_to_async_value(&initial_val);
+            
+            let property_id = runtime.create_reactive_property(
+                name.to_string(),
+                async_val,
+                seen_parser::ast::Type::new("Any"),
+                true, // is_mutable
+                pos,
+            );
+            
+            // Also store the property value in the runtime for access
+            self.runtime.define_variable(name.to_string(), initial_val);
+            
+            Ok(Value::ReactiveProperty {
+                property_id,
+                name: name.to_string(),
+            })
+        }
+    }
+    
+    /// Interpret stream operations (Map, Filter, etc.)
+    fn interpret_stream_operation(
+        &mut self,
+        stream: &Expression,
+        operation: &seen_parser::ast::StreamOp,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let stream_val = self.interpret_expression(stream)?;
+        
+        match stream_val {
+            Value::Observable(obs) => {
+                // Apply operation to observable
+                // This is simplified - real implementation would transform the observable
+                match operation {
+                    seen_parser::ast::StreamOp::Map(_) => {
+                        // Map operation
+                        Ok(Value::Observable(obs))
+                    }
+                    seen_parser::ast::StreamOp::Filter(_) => {
+                        // Filter operation
+                        Ok(Value::Observable(obs))
+                    }
+                    seen_parser::ast::StreamOp::Throttle(_duration) => {
+                        // Throttle operation
+                        Ok(Value::Observable(obs))
+                    }
+                    _ => Ok(Value::Observable(obs)),
+                }
+            }
+            Value::Flow(flow) => {
+                // Apply operation to flow
+                Ok(Value::Flow(flow))
+            }
+            _ => Err(InterpreterError::runtime("Stream operations require Observable or Flow", pos)),
+        }
+    }
+    
+    /// Convert Value to AsyncValue for reactive runtime
+    fn value_to_async_value(&self, value: &Value) -> AsyncValue {
+        match value {
+            Value::Unit => AsyncValue::Unit,
+            Value::Integer(i) => AsyncValue::Integer(*i),
+            Value::Float(f) => AsyncValue::Float(*f),
+            Value::Boolean(b) => AsyncValue::Boolean(*b),
+            Value::String(s) => AsyncValue::String(s.clone()),
+            Value::Array(arr) => {
+                let async_values: Vec<AsyncValue> = arr.iter()
+                    .map(|v| self.value_to_async_value(v))
+                    .collect();
+                AsyncValue::Array(async_values)
+            }
+            Value::Promise(promise) => AsyncValue::Promise(Arc::clone(promise)),
+            Value::Channel(channel) => AsyncValue::Channel(Arc::clone(channel)),
+            Value::Actor(actor) => AsyncValue::Actor(actor.clone()),
+            _ => AsyncValue::Unit, // Other types map to Unit for now
+        }
     }
 }
 

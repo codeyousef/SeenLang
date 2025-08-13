@@ -29,6 +29,11 @@ impl Lexer {
         lexer
     }
     
+    /// Get the keyword manager used by this lexer
+    pub fn keyword_manager(&self) -> Arc<KeywordManager> {
+        self.keyword_manager.clone()
+    }
+    
     pub fn next_token(&mut self) -> LexerResult<Token> {
         self.skip_whitespace();
         
@@ -317,6 +322,14 @@ impl Lexer {
             match keyword_type {
                 KeywordType::KeywordTrue => Some(TokenType::BoolLiteral(true)),
                 KeywordType::KeywordFalse => Some(TokenType::BoolLiteral(false)),
+                // RESEARCH-BASED: Word-based logical operators (Stefik & Siebert 2013)
+                KeywordType::KeywordAnd => Some(TokenType::LogicalAnd),
+                KeywordType::KeywordOr => Some(TokenType::LogicalOr),
+                KeywordType::KeywordNot => Some(TokenType::LogicalNot),
+                // VALE-STYLE: Memory management operators as first-class tokens
+                KeywordType::KeywordMove => Some(TokenType::Move),
+                KeywordType::KeywordBorrow => Some(TokenType::Borrow),
+                KeywordType::KeywordInout => Some(TokenType::Inout),
                 // All other keywords use the dynamic Keyword variant
                 _ => Some(TokenType::Keyword(keyword_type))
             }
@@ -958,9 +971,10 @@ mod tests {
         
         assert_eq!(lexer.check_keyword(&fun_keyword), Some(TokenType::Keyword(KeywordType::KeywordFun)));
         assert_eq!(lexer.check_keyword(&if_keyword), Some(TokenType::Keyword(KeywordType::KeywordIf)));
-        assert_eq!(lexer.check_keyword(&and_keyword), Some(TokenType::Keyword(KeywordType::KeywordAnd)));
-        assert_eq!(lexer.check_keyword(&or_keyword), Some(TokenType::Keyword(KeywordType::KeywordOr)));
-        assert_eq!(lexer.check_keyword(&not_keyword), Some(TokenType::Keyword(KeywordType::KeywordNot)));
+        // FIXED: Logical operators now convert to dedicated token types
+        assert_eq!(lexer.check_keyword(&and_keyword), Some(TokenType::LogicalAnd));
+        assert_eq!(lexer.check_keyword(&or_keyword), Some(TokenType::LogicalOr));
+        assert_eq!(lexer.check_keyword(&not_keyword), Some(TokenType::LogicalNot));
         
         // Test non-keywords
         assert_eq!(lexer.check_keyword("variable_name"), None);
@@ -991,6 +1005,85 @@ mod tests {
         
         assert_eq!(lexer_ar.check_keyword(&ar_fun_keyword_dynamic), Some(TokenType::Keyword(KeywordType::KeywordFun)));
         assert_eq!(lexer_ar.check_keyword(&en_fun_keyword), None); // English should not work in Arabic mode
+    }
+
+    #[test] 
+    fn test_word_based_operators() {
+        // RESEARCH-BASED: Test Stefik & Siebert (2013) word-based logical operators
+        let keyword_manager = Arc::new(KeywordManager::new());
+        
+        // Test "and" operator
+        let mut lexer = Lexer::new("age >= 18 and hasPermission".to_string(), keyword_manager.clone());
+        
+        // Skip to the "and" token
+        lexer.next_token().unwrap(); // age
+        lexer.next_token().unwrap(); // >=
+        lexer.next_token().unwrap(); // 18
+        
+        let and_token = lexer.next_token().unwrap();
+        assert_eq!(and_token.token_type, TokenType::LogicalAnd, "Word 'and' should tokenize as LogicalAnd");
+        assert_eq!(and_token.lexeme, "and");
+        
+        // Test "or" operator
+        let mut lexer2 = Lexer::new("not valid or expired".to_string(), keyword_manager.clone());
+        
+        let not_token = lexer2.next_token().unwrap();
+        assert_eq!(not_token.token_type, TokenType::LogicalNot, "Word 'not' should tokenize as LogicalNot");
+        assert_eq!(not_token.lexeme, "not");
+        
+        lexer2.next_token().unwrap(); // valid
+        let or_token = lexer2.next_token().unwrap();
+        assert_eq!(or_token.token_type, TokenType::LogicalOr, "Word 'or' should tokenize as LogicalOr");
+        assert_eq!(or_token.lexeme, "or");
+        
+        // Test that boolean literals still work
+        let mut lexer3 = Lexer::new("true and false or not true".to_string(), keyword_manager);
+        
+        let true_token = lexer3.next_token().unwrap();
+        assert_eq!(true_token.token_type, TokenType::BoolLiteral(true));
+        
+        let and_token2 = lexer3.next_token().unwrap(); 
+        assert_eq!(and_token2.token_type, TokenType::LogicalAnd);
+        
+        let false_token = lexer3.next_token().unwrap();
+        assert_eq!(false_token.token_type, TokenType::BoolLiteral(false));
+        
+        let or_token2 = lexer3.next_token().unwrap();
+        assert_eq!(or_token2.token_type, TokenType::LogicalOr);
+        
+        let not_token2 = lexer3.next_token().unwrap();
+        assert_eq!(not_token2.token_type, TokenType::LogicalNot);
+        
+        let true_token2 = lexer3.next_token().unwrap();
+        assert_eq!(true_token2.token_type, TokenType::BoolLiteral(true));
+    }
+
+    #[test]
+    fn test_memory_management_operators() {
+        // VALE-STYLE: Test memory management keywords converted to dedicated tokens
+        let keyword_manager = Arc::new(KeywordManager::new());
+        
+        // Test "move" operator
+        let mut lexer = Lexer::new("move data".to_string(), keyword_manager.clone());
+        let move_token = lexer.next_token().unwrap();
+        assert_eq!(move_token.token_type, TokenType::Move, "Word 'move' should tokenize as Move");
+        assert_eq!(move_token.lexeme, "move");
+        
+        // Test "borrow" operator  
+        let mut lexer2 = Lexer::new("borrow mut data".to_string(), keyword_manager.clone());
+        let borrow_token = lexer2.next_token().unwrap();
+        assert_eq!(borrow_token.token_type, TokenType::Borrow, "Word 'borrow' should tokenize as Borrow");
+        assert_eq!(borrow_token.lexeme, "borrow");
+        
+        // Test "inout" operator
+        let mut lexer3 = Lexer::new("fun modify(inout data: Data)".to_string(), keyword_manager);
+        lexer3.next_token().unwrap(); // fun
+        lexer3.next_token().unwrap(); // modify
+        lexer3.next_token().unwrap(); // (
+        
+        let inout_token = lexer3.next_token().unwrap();
+        assert_eq!(inout_token.token_type, TokenType::Inout, "Word 'inout' should tokenize as Inout");
+        assert_eq!(inout_token.lexeme, "inout");
     }
     
     // Additional tests will be implemented following TDD methodology

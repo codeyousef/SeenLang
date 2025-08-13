@@ -15,6 +15,21 @@ use seen_parser::Parser;
 use seen_parser::ast::Program;
 use seen_typechecker::{TypeChecker, TypeCheckResult};
 use seen_memory_manager::MemoryManager;
+use seen_parser::ast::Expression;
+use seen_lexer::position::Position as SeenPosition;
+
+/// Symbol information for definitions and references
+#[derive(Debug, Clone)]
+struct SymbolInfo {
+    /// Symbol name
+    name: String,
+    /// Symbol kind (function, variable, struct, etc.)
+    kind: SymbolKind,
+    /// Definition location
+    definition: Location,
+    /// All references to this symbol
+    references: Vec<Location>,
+}
 
 /// Document information stored by the LSP server
 #[derive(Debug, Clone)]
@@ -29,6 +44,8 @@ struct DocumentInfo {
     type_info: Option<TypeCheckResult>,
     /// Diagnostic results
     diagnostics: Vec<Diagnostic>,
+    /// Symbol table for this document
+    symbols: HashMap<String, SymbolInfo>,
 }
 
 /// Main LSP backend for Seen Language
@@ -39,6 +56,8 @@ pub struct SeenLanguageServer {
     documents: Arc<RwLock<HashMap<Url, DocumentInfo>>>,
     /// Language configuration (keywords for different languages)
     language_config: Arc<RwLock<String>>,
+    /// Global symbol index across all documents
+    global_symbols: Arc<RwLock<HashMap<String, Vec<SymbolInfo>>>>,
 }
 
 impl SeenLanguageServer {
@@ -48,6 +67,7 @@ impl SeenLanguageServer {
             client,
             documents: Arc::new(RwLock::new(HashMap::new())),
             language_config: Arc::new(RwLock::new("en".to_string())),
+            global_symbols: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -237,6 +257,146 @@ impl SeenLanguageServer {
 
         items
     }
+
+    /// Extract symbols from the AST
+    fn extract_symbols(&self, program: &Program, uri: &Url) -> HashMap<String, SymbolInfo> {
+        let mut symbols = HashMap::new();
+        
+        for expr in &program.expressions {
+            self.extract_symbols_from_expression(expr, uri, &mut symbols);
+        }
+        
+        symbols
+    }
+    
+    /// Extract symbols from an expression
+    fn extract_symbols_from_expression(
+        &self,
+        expr: &Expression,
+        uri: &Url,
+        symbols: &mut HashMap<String, SymbolInfo>,
+    ) {
+        match expr {
+            // Function definitions
+            Expression::Function { name, pos, .. } => {
+                let location = Location {
+                    uri: uri.clone(),
+                    range: self.position_to_range(pos),
+                };
+                symbols.insert(
+                    name.clone(),
+                    SymbolInfo {
+                        name: name.clone(),
+                        kind: SymbolKind::FUNCTION,
+                        definition: location,
+                        references: Vec::new(),
+                    },
+                );
+            }
+            // Variable bindings
+            Expression::Let { name, value, pos, .. } => {
+                let location = Location {
+                    uri: uri.clone(),
+                    range: self.position_to_range(pos),
+                };
+                symbols.insert(
+                    name.clone(),
+                    SymbolInfo {
+                        name: name.clone(),
+                        kind: SymbolKind::VARIABLE,
+                        definition: location,
+                        references: Vec::new(),
+                    },
+                );
+                // Also check the value expression
+                self.extract_symbols_from_expression(value, uri, symbols);
+            }
+            // Struct definitions
+            Expression::StructDefinition { name, pos, .. } => {
+                let location = Location {
+                    uri: uri.clone(),
+                    range: self.position_to_range(pos),
+                };
+                symbols.insert(
+                    name.clone(),
+                    SymbolInfo {
+                        name: name.clone(),
+                        kind: SymbolKind::STRUCT,
+                        definition: location,
+                        references: Vec::new(),
+                    },
+                );
+            }
+            // Recursively check other expressions
+            Expression::Block { expressions, .. } => {
+                for expr in expressions {
+                    self.extract_symbols_from_expression(expr, uri, symbols);
+                }
+            }
+            Expression::If { then_branch, else_branch, .. } => {
+                self.extract_symbols_from_expression(then_branch, uri, symbols);
+                if let Some(else_expr) = else_branch {
+                    self.extract_symbols_from_expression(else_expr, uri, symbols);
+                }
+            }
+            Expression::While { body, .. } | Expression::Loop { body, .. } => {
+                self.extract_symbols_from_expression(body, uri, symbols);
+            }
+            Expression::For { body, .. } => {
+                self.extract_symbols_from_expression(body, uri, symbols);
+            }
+            _ => {}
+        }
+    }
+    
+    /// Convert Seen position to LSP range
+    fn position_to_range(&self, pos: &SeenPosition) -> Range {
+        Range {
+            start: Position {
+                line: pos.line.saturating_sub(1) as u32,
+                character: pos.column.saturating_sub(1) as u32,
+            },
+            end: Position {
+                line: pos.line.saturating_sub(1) as u32,
+                character: pos.column as u32,
+            },
+        }
+    }
+    
+    /// Find the symbol at a given position
+    async fn find_symbol_at_position(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Option<String> {
+        let documents = self.documents.read().await;
+        if let Some(doc) = documents.get(uri) {
+            // Parse the line to find the identifier at the position
+            let lines: Vec<&str> = doc.content.lines().collect();
+            if let Some(line) = lines.get(position.line as usize) {
+                // Simple heuristic: find word at position
+                let char_pos = position.character as usize;
+                let chars: Vec<char> = line.chars().collect();
+                
+                // Find word boundaries
+                let mut start = char_pos;
+                while start > 0 && chars.get(start - 1).map_or(false, |c| c.is_alphanumeric() || *c == '_') {
+                    start -= 1;
+                }
+                
+                let mut end = char_pos;
+                while end < chars.len() && chars.get(end).map_or(false, |c| c.is_alphanumeric() || *c == '_') {
+                    end += 1;
+                }
+                
+                if start < end {
+                    let word: String = chars[start..end].iter().collect();
+                    return Some(word);
+                }
+            }
+        }
+        None
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -296,6 +456,19 @@ impl LanguageServer for SeenLanguageServer {
         // Analyze the document
         let diagnostics = self.analyze_document(&uri, &content).await;
 
+        // Parse and extract symbols
+        let mut ast = None;
+        let mut symbols = HashMap::new();
+        
+        // Try to parse for symbol extraction
+        let keyword_manager = Arc::new(KeywordManager::new());
+        let mut lexer = Lexer::new(content.clone(), keyword_manager);
+        let mut parser = Parser::new(lexer);
+        if let Ok(program) = parser.parse_program() {
+            symbols = self.extract_symbols(&program, &uri);
+            ast = Some(program);
+        }
+        
         // Store document info
         let mut documents = self.documents.write().await;
         documents.insert(
@@ -303,9 +476,10 @@ impl LanguageServer for SeenLanguageServer {
             DocumentInfo {
                 content,
                 version,
-                ast: None,
+                ast,
                 type_info: None,
                 diagnostics: diagnostics.clone(),
+                symbols,
             },
         );
 
@@ -325,12 +499,27 @@ impl LanguageServer for SeenLanguageServer {
             // Analyze the document
             let diagnostics = self.analyze_document(&uri, content).await;
 
+            // Parse and extract symbols
+            let mut ast = None;
+            let mut symbols = HashMap::new();
+            
+            // Try to parse for symbol extraction
+            let keyword_manager = Arc::new(KeywordManager::new());
+            let mut lexer = Lexer::new(content.clone(), keyword_manager);
+            let mut parser = Parser::new(lexer);
+            if let Ok(program) = parser.parse_program() {
+                symbols = self.extract_symbols(&program, &uri);
+                ast = Some(program);
+            }
+            
             // Update document info
             let mut documents = self.documents.write().await;
             if let Some(doc) = documents.get_mut(&uri) {
                 doc.content = content.clone();
                 doc.version = version;
                 doc.diagnostics = diagnostics.clone();
+                doc.ast = ast;
+                doc.symbols = symbols;
             }
 
             // Publish diagnostics
@@ -383,30 +572,197 @@ impl LanguageServer for SeenLanguageServer {
 
     async fn goto_definition(
         &self,
-        _params: GotoDefinitionParams,
+        params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        // TODO: Implement go-to-definition
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        
+        // Find the symbol at the cursor position
+        if let Some(symbol_name) = self.find_symbol_at_position(&uri, position).await {
+            // Look for the symbol definition
+            let documents = self.documents.read().await;
+            
+            // First check current document
+            if let Some(doc) = documents.get(&uri) {
+                if let Some(symbol_info) = doc.symbols.get(&symbol_name) {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(
+                        symbol_info.definition.clone(),
+                    )));
+                }
+            }
+            
+            // Then check other documents
+            for (doc_uri, doc) in documents.iter() {
+                if doc_uri != &uri {
+                    if let Some(symbol_info) = doc.symbols.get(&symbol_name) {
+                        return Ok(Some(GotoDefinitionResponse::Scalar(
+                            symbol_info.definition.clone(),
+                        )));
+                    }
+                }
+            }
+        }
+        
         Ok(None)
     }
 
-    async fn references(&self, _params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        // TODO: Implement find references
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+        
+        // Find the symbol at the cursor position
+        if let Some(symbol_name) = self.find_symbol_at_position(&uri, position).await {
+            let mut locations = Vec::new();
+            let documents = self.documents.read().await;
+            
+            // Search all documents for references
+            for (doc_uri, doc) in documents.iter() {
+                // Find all occurrences of the symbol in the document
+                let lines: Vec<&str> = doc.content.lines().collect();
+                for (line_idx, line) in lines.iter().enumerate() {
+                    let mut col = 0;
+                    while let Some(pos) = line[col..].find(&symbol_name) {
+                        let actual_col = col + pos;
+                        
+                        // Check if this is a word boundary (not part of a larger identifier)
+                        let is_word_start = actual_col == 0 || 
+                            !line.chars().nth(actual_col - 1).map_or(false, |c| c.is_alphanumeric() || c == '_');
+                        let is_word_end = actual_col + symbol_name.len() >= line.len() ||
+                            !line.chars().nth(actual_col + symbol_name.len()).map_or(false, |c| c.is_alphanumeric() || c == '_');
+                        
+                        if is_word_start && is_word_end {
+                            let location = Location {
+                                uri: doc_uri.clone(),
+                                range: Range {
+                                    start: Position {
+                                        line: line_idx as u32,
+                                        character: actual_col as u32,
+                                    },
+                                    end: Position {
+                                        line: line_idx as u32,
+                                        character: (actual_col + symbol_name.len()) as u32,
+                                    },
+                                },
+                            };
+                            
+                            // Check if we should include the declaration
+                            let is_declaration = doc.symbols.get(&symbol_name)
+                                .map_or(false, |sym| sym.definition == location);
+                            
+                            if !is_declaration || include_declaration {
+                                locations.push(location);
+                            }
+                        }
+                        
+                        col = actual_col + 1;
+                    }
+                }
+            }
+            
+            if !locations.is_empty() {
+                return Ok(Some(locations));
+            }
+        }
+        
         Ok(None)
     }
 
     async fn document_highlight(
         &self,
-        _params: DocumentHighlightParams,
+        params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
-        // TODO: Implement document highlight
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        
+        // Find the symbol at the cursor position
+        if let Some(symbol_name) = self.find_symbol_at_position(&uri, position).await {
+            let mut highlights = Vec::new();
+            let documents = self.documents.read().await;
+            
+            // Only highlight in the current document
+            if let Some(doc) = documents.get(&uri) {
+                let lines: Vec<&str> = doc.content.lines().collect();
+                for (line_idx, line) in lines.iter().enumerate() {
+                    let mut col = 0;
+                    while let Some(pos) = line[col..].find(&symbol_name) {
+                        let actual_col = col + pos;
+                        
+                        // Check if this is a word boundary
+                        let is_word_start = actual_col == 0 || 
+                            !line.chars().nth(actual_col - 1).map_or(false, |c| c.is_alphanumeric() || c == '_');
+                        let is_word_end = actual_col + symbol_name.len() >= line.len() ||
+                            !line.chars().nth(actual_col + symbol_name.len()).map_or(false, |c| c.is_alphanumeric() || c == '_');
+                        
+                        if is_word_start && is_word_end {
+                            let range = Range {
+                                start: Position {
+                                    line: line_idx as u32,
+                                    character: actual_col as u32,
+                                },
+                                end: Position {
+                                    line: line_idx as u32,
+                                    character: (actual_col + symbol_name.len()) as u32,
+                                },
+                            };
+                            
+                            // Determine highlight kind
+                            let is_definition = doc.symbols.get(&symbol_name)
+                                .map_or(false, |sym| {
+                                    sym.definition.range == range
+                                });
+                            
+                            let kind = if is_definition {
+                                Some(DocumentHighlightKind::WRITE)
+                            } else {
+                                Some(DocumentHighlightKind::READ)
+                            };
+                            
+                            highlights.push(DocumentHighlight {
+                                range,
+                                kind,
+                            });
+                        }
+                        
+                        col = actual_col + 1;
+                    }
+                }
+            }
+            
+            if !highlights.is_empty() {
+                return Ok(Some(highlights));
+            }
+        }
+        
         Ok(None)
     }
 
     async fn document_symbol(
         &self,
-        _params: DocumentSymbolParams,
+        params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        // TODO: Implement document symbols
+        let uri = params.text_document.uri;
+        let documents = self.documents.read().await;
+        
+        if let Some(doc) = documents.get(&uri) {
+            let mut symbols = Vec::new();
+            
+            for symbol_info in doc.symbols.values() {
+                symbols.push(SymbolInformation {
+                    name: symbol_info.name.clone(),
+                    kind: symbol_info.kind,
+                    tags: None,
+                    deprecated: None,
+                    location: symbol_info.definition.clone(),
+                    container_name: None,
+                });
+            }
+            
+            if !symbols.is_empty() {
+                return Ok(Some(DocumentSymbolResponse::Flat(symbols)));
+            }
+        }
+        
         Ok(None)
     }
 
@@ -425,8 +781,66 @@ impl LanguageServer for SeenLanguageServer {
         Ok(None)
     }
 
-    async fn rename(&self, _params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        // TODO: Implement rename
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+        
+        // Find the symbol at the cursor position
+        if let Some(symbol_name) = self.find_symbol_at_position(&uri, position).await {
+            let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+            let documents = self.documents.read().await;
+            
+            // Find all occurrences and create text edits
+            for (doc_uri, doc) in documents.iter() {
+                let mut edits = Vec::new();
+                let lines: Vec<&str> = doc.content.lines().collect();
+                
+                for (line_idx, line) in lines.iter().enumerate() {
+                    let mut col = 0;
+                    while let Some(pos) = line[col..].find(&symbol_name) {
+                        let actual_col = col + pos;
+                        
+                        // Check if this is a word boundary
+                        let is_word_start = actual_col == 0 || 
+                            !line.chars().nth(actual_col - 1).map_or(false, |c| c.is_alphanumeric() || c == '_');
+                        let is_word_end = actual_col + symbol_name.len() >= line.len() ||
+                            !line.chars().nth(actual_col + symbol_name.len()).map_or(false, |c| c.is_alphanumeric() || c == '_');
+                        
+                        if is_word_start && is_word_end {
+                            edits.push(TextEdit {
+                                range: Range {
+                                    start: Position {
+                                        line: line_idx as u32,
+                                        character: actual_col as u32,
+                                    },
+                                    end: Position {
+                                        line: line_idx as u32,
+                                        character: (actual_col + symbol_name.len()) as u32,
+                                    },
+                                },
+                                new_text: new_name.clone(),
+                            });
+                        }
+                        
+                        col = actual_col + 1;
+                    }
+                }
+                
+                if !edits.is_empty() {
+                    changes.insert(doc_uri.clone(), edits);
+                }
+            }
+            
+            if !changes.is_empty() {
+                return Ok(Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    document_changes: None,
+                    change_annotations: None,
+                }));
+            }
+        }
+        
         Ok(None)
     }
 }

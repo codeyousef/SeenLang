@@ -1,6 +1,6 @@
 //! Tests for basic expression parsing
 
-use crate::{Parser, Expression, ParseResult};
+use crate::{Parser, Expression, ParseResult, InterpolationPart, InterpolationKind};
 use seen_lexer::{Lexer, KeywordManager};
 use std::sync::Arc;
 
@@ -124,6 +124,29 @@ fn test_parse_interpolated_string() {
     match expr {
         Expression::InterpolatedString { parts, .. } => {
             assert_eq!(parts.len(), 3); // "Hello, " + {name} + "!"
+        }
+        _ => panic!("Expected interpolated string"),
+    }
+}
+
+#[test]
+fn test_parse_complex_interpolated_string() {
+    // Test complex expression in interpolation
+    let expr = parse_expression("\"Result: {compute(x + y)}\"").unwrap();
+    match expr {
+        Expression::InterpolatedString { parts, .. } => {
+            assert_eq!(parts.len(), 2); // "Result: " + {compute(x + y)}
+            if let InterpolationPart { kind: InterpolationKind::Expression(expr), .. } = &parts[1] {
+                // Verify it parsed as a function call
+                match expr.as_ref() {
+                    Expression::Call { .. } => {
+                        // Success! The complex expression was parsed correctly
+                    }
+                    _ => panic!("Expected function call expression in interpolation, got: {:?}", expr),
+                }
+            } else {
+                panic!("Expected expression part in interpolation");
+            }
         }
         _ => panic!("Expected interpolated string"),
     }
