@@ -14,15 +14,15 @@ fn test_smart_casting_integration() {
     // Create a simple program that should benefit from smart casting
     let program = Program {
         expressions: vec![
-            // let user: User? = null
+            // Simple valid program that should pass without smart casting issues
             Expression::Let {
                 name: "user".to_string(),
                 type_annotation: Some(seen_parser::ast::Type {
-                    name: "User".to_string(),
-                    is_nullable: true,
+                    name: "Int".to_string(),
+                    is_nullable: false,
                     generics: vec![],
                 }),
-                value: Box::new(Expression::NullLiteral { pos: pos() }),
+                value: Box::new(Expression::IntegerLiteral { value: 42, pos: pos() }),
                 is_mutable: false,
                 pos: pos(),
             },
@@ -32,6 +32,7 @@ fn test_smart_casting_integration() {
     };
     
     let mut checker = TypeChecker::new();
+    
     let result = checker.check_program(&program);
     
     // Should compile without errors

@@ -92,6 +92,43 @@ description = "Spanish keyword set for the Seen programming language - Conjunto 
 "mover" = "KeywordMove"         # move
 "prestar" = "KeywordBorrow"     # borrow
 "en_lugar" = "KeywordInout"     # inout
+"región" = "KeywordRegion"      # region
+"arena" = "KeywordArena"        # arena
+
+# Concurrency and Actors - Concurrencia y Actores
+"generar" = "KeywordSpawn"      # spawn
+"seleccionar" = "KeywordSelect" # select
+"actor" = "KeywordActor"        # actor
+"recibir" = "KeywordReceive"    # receive
+"enviar" = "KeywordSend"        # send
+"solicitar" = "KeywordRequest"  # request
+"responder" = "KeywordReply"    # reply
+
+# Reactive Programming - Programación Reactiva
+"observable" = "KeywordObservable" # observable
+"emitir" = "KeywordEmit"        # emit
+"retrasar" = "KeywordDelay"     # delay
+
+# Effects System - Sistema de Efectos
+"efecto" = "KeywordEffect"      # effect
+"puro" = "KeywordPure"          # pure
+"utiliza" = "KeywordUses"       # uses
+"manejar" = "KeywordHandle"     # handle
+"con" = "KeywordWith"           # with
+
+# Contracts - Contratos
+"requiere" = "KeywordRequires"  # requires
+"garantiza" = "KeywordEnsures"  # ensures
+"invariante" = "KeywordInvariant" # invariant
+
+# Control and Metaprogramming - Control y Metaprogramación
+"diferir" = "KeywordDefer"      # defer
+"afirmar" = "KeywordAssert"     # assert
+"extensión" = "KeywordExtension" # extension
+"bucle" = "KeywordLoop"         # loop
+"externo" = "KeywordExternal"   # external
+"tiempo_compilación" = "KeywordComptime" # comptime
+"macro" = "KeywordMacro"        # macro
 
 [operators]
 "+" = "Plus"

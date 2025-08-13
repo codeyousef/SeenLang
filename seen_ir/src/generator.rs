@@ -987,7 +987,7 @@ mod tests {
             Expression::IntegerLiteral { value: 42, pos: seen_parser::Position::new(1, 1, 0) }
         ];
         
-        let result = generator.generate(&expressions);
+        let result = generator.generate_expressions(&expressions);
         assert!(result.is_ok());
         
         let program = result.unwrap();

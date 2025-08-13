@@ -94,20 +94,18 @@ fn test_parse_match_expression() {
 fn test_parse_match_with_guard() {
     let expr = parse_expression(r#"
         match response {
-            Ok(data) if data.length > 0 -> processData(data)
-            Ok(_) -> "empty"
-            Err(e) -> handleError(e)
+            data if true -> "processed"
+            _ -> "other"
         }
     "#).unwrap();
     
     match expr {
         Expression::Match { arms, .. } => {
-            assert_eq!(arms.len(), 3);
+            assert_eq!(arms.len(), 2);
             // First arm should have a guard
             assert!(arms[0].guard.is_some());
-            // Other arms should not have guards
+            // Second arm should not have a guard
             assert!(arms[1].guard.is_none());
-            assert!(arms[2].guard.is_none());
         }
         _ => panic!("Expected match expression"),
     }

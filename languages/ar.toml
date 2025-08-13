@@ -93,6 +93,33 @@ description = "Arabic keyword set for the Seen programming language - مجموع
 "انقل" = "KeywordMove"          # move
 "استعر" = "KeywordBorrow"       # borrow
 "في_المكان" = "KeywordInout"     # inout
+"منطقة" = "KeywordRegion"       # region
+"حلبة" = "KeywordArena"         # arena
+"ولد" = "KeywordSpawn"          # spawn
+"اختر" = "KeywordSelect"        # select
+"ممثل" = "KeywordActor"         # actor
+"استقبل" = "KeywordReceive"     # receive
+"أرسل" = "KeywordSend"          # send
+"طلب" = "KeywordRequest"        # request
+"رد" = "KeywordReply"           # reply
+"قابل_المراقبة" = "KeywordObservable" # observable
+"اصدر" = "KeywordEmit"          # emit
+"أخر" = "KeywordDelay"          # delay
+"تأثير" = "KeywordEffect"       # effect
+"نقي" = "KeywordPure"           # pure
+"يستخدم" = "KeywordUses"        # uses
+"تعامل" = "KeywordHandle"       # handle
+"مع" = "KeywordWith"            # with
+"يتطلب" = "KeywordRequires"     # requires
+"يضمن" = "KeywordEnsures"       # ensures
+"غير_متغير" = "KeywordInvariant"     # invariant
+"أجل" = "KeywordDefer"          # defer
+"أكد" = "KeywordAssert"         # assert
+"امتداد" = "KeywordExtension"   # extension
+"حلقة" = "KeywordLoop"          # loop
+"خارجي" = "KeywordExternal"     # external
+"وقت_التجميع" = "KeywordComptime" # comptime
+"ماكرو" = "KeywordMacro"        # macro
 
 [operators]
 # Arithmetic operators - المشغلات الحسابية

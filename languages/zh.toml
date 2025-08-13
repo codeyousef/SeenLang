@@ -92,6 +92,43 @@ description = "Chinese keyword set for the Seen programming language - Seen编�
 "移动" = "KeywordMove"          # move
 "借用" = "KeywordBorrow"        # borrow
 "就地" = "KeywordInout"         # inout
+"区域" = "KeywordRegion"        # region
+"竞技场" = "KeywordArena"       # arena
+
+# Concurrency and Actors - 并发和Actor模型
+"生成" = "KeywordSpawn"         # spawn
+"选择" = "KeywordSelect"        # select
+"角色" = "KeywordActor"         # actor
+"接收" = "KeywordReceive"       # receive
+"发送" = "KeywordSend"          # send
+"请求" = "KeywordRequest"       # request
+"回复" = "KeywordReply"         # reply
+
+# Reactive Programming - 响应式编程
+"可观察" = "KeywordObservable"  # observable
+"发出" = "KeywordEmit"          # emit
+"延迟" = "KeywordDelay"         # delay
+
+# Effects System - 效果系统
+"效果" = "KeywordEffect"        # effect
+"纯" = "KeywordPure"            # pure
+"运用" = "KeywordUses"          # uses
+"处理" = "KeywordHandle"        # handle
+"与" = "KeywordWith"            # with
+
+# Contracts - 契约
+"要求" = "KeywordRequires"      # requires
+"确保" = "KeywordEnsures"       # ensures
+"不变量" = "KeywordInvariant"   # invariant
+
+# Control and Metaprogramming - 控制和元编程
+"推迟" = "KeywordDefer"         # defer
+"断言" = "KeywordAssert"        # assert
+"扩展" = "KeywordExtension"     # extension
+"循环" = "KeywordLoop"          # loop
+"外部" = "KeywordExternal"      # external
+"编译时" = "KeywordComptime"    # comptime
+"宏" = "KeywordMacro"           # macro
 
 [operators]
 "+" = "Plus"

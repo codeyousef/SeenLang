@@ -578,12 +578,16 @@ mod tests {
             right: IRValue::Integer(8),
             result: IRValue::Register(2),
         });
+        // Add a return instruction to make the result used
+        block.add_instruction(Instruction::Return(Some(IRValue::Register(2))));
         
         function.add_block(block);
         
         optimizer.optimize_function(&mut function).unwrap();
         
         let block = function.get_block("entry").unwrap();
+        assert!(!block.instructions.is_empty(), "Block should have instructions after optimization");
+        
         if let Instruction::Binary { op, right, .. } = &block.instructions[0] {
             assert_eq!(*op, BinaryOp::LeftShift);
             assert_eq!(*right, IRValue::Integer(3)); // log2(8) = 3

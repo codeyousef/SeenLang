@@ -177,7 +177,7 @@ impl KeywordManager {
         };
         
         // Load default English keywords
-        if let Err(e) = manager.load_from_toml("en") {
+        if let Err(_e) = manager.load_from_toml("en") {
             // If we can't load from file, use hardcoded defaults for bootstrapping
             // This is temporary until we have a proper language file loading mechanism
             let default_keywords = Self::get_default_keywords();
@@ -185,6 +185,16 @@ impl KeywordManager {
         }
         
         manager
+    }
+
+    /// Create an empty keyword manager for testing purposes
+    #[cfg(test)]
+    pub fn new_empty() -> Self {
+        Self {
+            languages: Arc::new(RwLock::new(HashMap::new())),
+            current_language: Arc::new(RwLock::new("en".to_string())),
+            fallback_language: "en".to_string(),
+        }
     }
     
     /// Get default English keywords for bootstrapping
@@ -642,7 +652,10 @@ description = "This TOML file is missing required keywords"
         let current_lang = manager.current_language.read().unwrap();
         assert_eq!(*current_lang, "en");
         assert_eq!(manager.fallback_language, "en");
-        assert!(manager.languages.read().unwrap().is_empty());
+        // English keywords should be loaded by default
+        let languages = manager.languages.read().unwrap();
+        assert!(!languages.is_empty());
+        assert!(languages.contains_key("en"));
     }
     
     #[test]

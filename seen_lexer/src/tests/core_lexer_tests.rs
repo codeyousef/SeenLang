@@ -424,13 +424,13 @@ mod error_reporting_tests {
 
     #[test]
     fn test_unexpected_character_error() {
-        let mut lexer = create_test_lexer("@");
+        let mut lexer = create_test_lexer(";");
         
         let result = lexer.next_token();
         assert!(result.is_err());
         
         if let Err(LexerError::UnexpectedCharacter { character, position }) = result {
-            assert_eq!(character, '@');
+            assert_eq!(character, ';');
             assert_eq!(position.line, 1);
             assert_eq!(position.column, 1);
         } else {
@@ -485,7 +485,7 @@ mod error_reporting_tests {
 
     #[test]
     fn test_error_position_accuracy() {
-        let mut lexer = create_test_lexer("fun main() {\n    @\n}");
+        let mut lexer = create_test_lexer("fun main() {\n    ;\n}");
         
         // Skip tokens until we hit the error
         lexer.next_token().unwrap(); // fun
@@ -499,7 +499,7 @@ mod error_reporting_tests {
         assert!(result.is_err());
         
         if let Err(LexerError::UnexpectedCharacter { character, position }) = result {
-            assert_eq!(character, '@');
+            assert_eq!(character, ';');
             assert_eq!(position.line, 2);
             assert_eq!(position.column, 5); // After 4 spaces
         } else {
@@ -571,7 +571,7 @@ mod dynamic_keyword_integration_tests {
     fn test_no_hardcoded_keywords() {
         // This test ensures that the lexer doesn't contain any hardcoded keywords
         // by testing that it fails when no keyword manager is loaded
-        let keyword_manager = KeywordManager::new(); // No languages loaded
+        let keyword_manager = KeywordManager::new_empty(); // No languages loaded
         let lexer = Lexer::new("fun if else".to_string(), Arc::new(keyword_manager));
         
         // These should be treated as identifiers, not keywords
