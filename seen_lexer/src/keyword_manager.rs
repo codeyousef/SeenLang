@@ -136,6 +136,8 @@ pub enum KeywordType {
     KeywordActor,
     KeywordReceive,
     KeywordSend,
+    KeywordTo,      // for "send X to actor"
+    KeywordFrom,    // for "request Y from actor"
     KeywordRequest,
     KeywordReply,
     
@@ -353,6 +355,8 @@ impl KeywordManager {
             "KeywordActor" => Ok(KeywordType::KeywordActor),
             "KeywordReceive" => Ok(KeywordType::KeywordReceive),
             "KeywordSend" => Ok(KeywordType::KeywordSend),
+            "KeywordTo" => Ok(KeywordType::KeywordTo),
+            "KeywordFrom" => Ok(KeywordType::KeywordFrom),
             "KeywordRequest" => Ok(KeywordType::KeywordRequest),
             "KeywordReply" => Ok(KeywordType::KeywordReply),
             "KeywordObservable" => Ok(KeywordType::KeywordObservable),

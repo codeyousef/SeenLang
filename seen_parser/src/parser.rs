@@ -77,6 +77,23 @@ impl Parser {
     
     /// Parse a top-level item (function, statement, or expression)
     fn parse_top_level_item(&mut self) -> ParseResult<Expression> {
+        // Check for contracts (requires/ensures/invariant)
+        if self.check_keyword(KeywordType::KeywordRequires) || 
+           self.check_keyword(KeywordType::KeywordEnsures) ||
+           self.check_keyword(KeywordType::KeywordInvariant) {
+            return self.parse_contracted_function();
+        }
+        
+        // Check for pure functions
+        if self.check_keyword(KeywordType::KeywordPure) {
+            return self.parse_pure_function();
+        }
+        
+        // Check for external functions
+        if self.check_keyword(KeywordType::KeywordExternal) {
+            return self.parse_external_function();
+        }
+        
         // Check for function definitions
         if self.check_keyword(KeywordType::KeywordFun) {
             return self.parse_function();
@@ -87,14 +104,29 @@ impl Parser {
             return self.parse_async_function();
         }
         
+        // Check for type alias
+        if self.check_keyword(KeywordType::KeywordType) {
+            return self.parse_type_alias();
+        }
+        
         // Check for struct definitions
         if self.check_keyword(KeywordType::KeywordStruct) {
             return self.parse_struct_definition();
         }
         
+        // Check for sealed class definitions
+        if self.check_keyword(KeywordType::KeywordSealed) {
+            return self.parse_sealed_class();
+        }
+        
         // Check for class definitions
         if self.check_keyword(KeywordType::KeywordClass) {
             return self.parse_class_definition();
+        }
+        
+        // Check for companion object
+        if self.check_keyword(KeywordType::KeywordCompanion) {
+            return self.parse_companion_object();
         }
         
         // Otherwise, parse as an expression
@@ -416,6 +448,25 @@ impl Parser {
     pub fn parse_primary(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         
+        // Check for preprocessor directives
+        if self.check(&TokenType::Hash) {
+            return self.parse_conditional_compilation();
+        }
+        
+        // Check for annotations
+        if self.check(&TokenType::At) {
+            let annotations = self.parse_annotations()?;
+            
+            // Parse the annotated expression
+            let expr = self.parse_primary()?;
+            
+            return Ok(Expression::Annotated {
+                annotations,
+                expr: Box::new(expr),
+                pos,
+            });
+        }
+        
         // Literals
         if let TokenType::IntegerLiteral(value) = &self.current.token_type {
             let value = *value;
@@ -497,6 +548,18 @@ impl Parser {
         
         if self.check_keyword(KeywordType::KeywordActor) {
             return self.parse_actor();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordSend) {
+            return self.parse_send();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordRequest) {
+            return self.parse_request();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordReceive) {
+            return self.parse_receive();
         }
         
         // Memory management
@@ -862,6 +925,14 @@ impl Parser {
             None
         };
         
+        // Check for delegation (by lazy, by observable, etc.)
+        let delegation = if self.check_keyword(KeywordType::KeywordBy) {
+            self.advance(); // consume 'by'
+            Some(self.parse_delegation_type()?)
+        } else {
+            None
+        };
+        
         self.expect(&TokenType::Assign)?;
         let value = self.parse_expression()?;
         
@@ -870,6 +941,7 @@ impl Parser {
             type_annotation,
             value: Box::new(value),
             is_mutable: false,
+            delegation,
             pos,
         })
     }
@@ -888,6 +960,14 @@ impl Parser {
             None
         };
         
+        // Check for delegation (by lazy, by observable, etc.)
+        let delegation = if self.check_keyword(KeywordType::KeywordBy) {
+            self.advance(); // consume 'by'
+            Some(self.parse_delegation_type()?)
+        } else {
+            None
+        };
+        
         self.expect(&TokenType::Assign)?;
         let value = self.parse_expression()?;
         
@@ -896,6 +976,7 @@ impl Parser {
             type_annotation,
             value: Box::new(value),
             is_mutable: true,
+            delegation,
             pos,
         })
     }
@@ -954,6 +1035,27 @@ impl Parser {
             None
         };
         
+        // Parse 'uses' clause for effects
+        let uses_effects = if self.check_keyword(KeywordType::KeywordUses) {
+            self.advance(); // consume 'uses'
+            let mut effects = Vec::new();
+            
+            // Parse comma-separated list of effects
+            loop {
+                effects.push(self.expect_identifier()?);
+                
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            
+            effects
+        } else {
+            Vec::new()
+        };
+        
         self.expect(&TokenType::LeftBrace)?;
         let body = self.parse_block_body()?;
         self.expect(&TokenType::RightBrace)?;
@@ -965,6 +1067,10 @@ impl Parser {
             body: Box::new(body),
             is_async: false,
             receiver,
+            uses_effects,
+            is_pure: false,
+            is_external: false,
+            doc_comment: None,
             pos,
         })
     }
@@ -999,6 +1105,27 @@ impl Parser {
             None
         };
         
+        // Parse 'uses' clause for effects
+        let uses_effects = if self.check_keyword(KeywordType::KeywordUses) {
+            self.advance(); // consume 'uses'
+            let mut effects = Vec::new();
+            
+            // Parse comma-separated list of effects
+            loop {
+                effects.push(self.expect_identifier()?);
+                
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            
+            effects
+        } else {
+            Vec::new()
+        };
+        
         self.expect(&TokenType::LeftBrace)?;
         let body = self.parse_block_body()?;
         self.expect(&TokenType::RightBrace)?;
@@ -1010,6 +1137,10 @@ impl Parser {
             body: Box::new(body),
             is_async: true,
             receiver,
+            uses_effects,
+            is_pure: false,
+            is_external: false,
+            doc_comment: None,
             pos,
         })
     }
@@ -1851,21 +1982,38 @@ impl Parser {
         let pos = self.current.position.clone();
         self.advance(); // consume 'send'
         let message = Box::new(self.parse_expression()?);
-        // Expect 'to' keyword - but we don't have it defined yet, so parse it as identifier
-        // TODO: Add 'to' keyword to the language
-        if let TokenType::PrivateIdentifier(s) = &self.current.token_type {
-            if s == "to" {
-                self.advance();
-            } else {
-                return Err(ParseError::UnexpectedToken {
-                    expected: "keyword 'to'".to_string(),
-                    found: self.current.token_type.clone(),
-                    pos: self.current.position.clone(),
-                });
-            }
+        
+        // Expect 'to' keyword
+        if !self.check_keyword(KeywordType::KeywordTo) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "keyword 'to'".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
         }
+        self.advance(); // consume 'to'
+        
         let target = Box::new(self.parse_expression()?);
         Ok(Expression::Send { message, target, pos })
+    }
+    
+    fn parse_request(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'request'
+        let message = Box::new(self.parse_expression()?);
+        
+        // Expect 'from' keyword
+        if !self.check_keyword(KeywordType::KeywordFrom) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "keyword 'from'".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+        self.advance(); // consume 'from'
+        
+        let source = Box::new(self.parse_expression()?);
+        Ok(Expression::Request { message, source, pos })
     }
     
     fn parse_receive(&mut self) -> ParseResult<Expression> {
@@ -2016,6 +2164,13 @@ impl Parser {
                 break;
             }
             
+            // Parse annotations if present
+            let annotations = if self.check(&TokenType::At) {
+                self.parse_annotations()?
+            } else {
+                Vec::new()
+            };
+            
             let field_name = self.expect_identifier()?;
             let is_public = field_name.chars().next().map_or(false, |c| c.is_uppercase());
             
@@ -2026,6 +2181,7 @@ impl Parser {
                 name: field_name,
                 field_type,
                 is_public,
+                annotations,
             });
             
             // Allow optional comma or newline between fields
@@ -2037,7 +2193,7 @@ impl Parser {
         
         self.expect(&TokenType::RightBrace)?;
         
-        Ok(Expression::StructDefinition { name, fields, pos })
+        Ok(Expression::StructDefinition { name, fields, doc_comment: None, pos })
     }
     
     fn parse_class_definition(&mut self) -> ParseResult<Expression> {
@@ -2070,12 +2226,20 @@ impl Parser {
                 break;
             }
             
+            // Parse annotations if present
+            let annotations = if self.check(&TokenType::At) {
+                self.parse_annotations()?
+            } else {
+                Vec::new()
+            };
+            
             // Check if it's a method (starts with 'fun')
             if self.check_keyword(KeywordType::KeywordFun) {
+                // TODO: Add annotations support for methods
                 methods.push(self.parse_method()?);
             } else {
                 // It's a field
-                fields.push(self.parse_class_field()?);
+                fields.push(self.parse_class_field(annotations)?);
             }
         }
         
@@ -2085,12 +2249,14 @@ impl Parser {
             name, 
             superclass, 
             fields, 
-            methods, 
+            methods,
+            is_sealed: false,
+            doc_comment: None,
             pos 
         })
     }
     
-    fn parse_class_field(&mut self) -> ParseResult<crate::ast::ClassField> {
+    fn parse_class_field(&mut self, annotations: Vec<Annotation>) -> ParseResult<crate::ast::ClassField> {
         let is_mutable = if self.check_keyword(KeywordType::KeywordVar) {
             self.advance();
             true
@@ -2120,6 +2286,7 @@ impl Parser {
             is_public,
             is_mutable,
             default_value,
+            annotations,
         })
     }
     
@@ -2252,9 +2419,23 @@ impl Parser {
         let mut methods = Vec::new();
         
         while !self.check(&TokenType::RightBrace) {
-            methods.push(self.parse_function()?);
-            if !self.check(&TokenType::RightBrace) {
-                self.expect(&TokenType::Comma)?;
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Parse method
+            if self.check_keyword(KeywordType::KeywordFun) {
+                methods.push(self.parse_method()?);
+            }
+            
+            // Allow optional comma or newline between methods
+            if self.check(&TokenType::Comma) {
+                self.advance();
             }
         }
         
@@ -2365,6 +2546,386 @@ impl Parser {
             companion,
             pos,
         })
+    }
+    
+    /// Parse a function with contracts (requires/ensures/invariant)
+    fn parse_contracted_function(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        let mut requires = None;
+        let mut ensures = None;
+        let mut invariants = Vec::new();
+        
+        // Parse contract clauses (can appear in any order)
+        while self.check_keyword(KeywordType::KeywordRequires) ||
+              self.check_keyword(KeywordType::KeywordEnsures) ||
+              self.check_keyword(KeywordType::KeywordInvariant) {
+            
+            if self.check_keyword(KeywordType::KeywordRequires) {
+                self.advance();
+                self.expect(&TokenType::LeftBrace)?;
+                requires = Some(Box::new(self.parse_expression()?));
+                self.expect(&TokenType::RightBrace)?;
+            } else if self.check_keyword(KeywordType::KeywordEnsures) {
+                self.advance();
+                self.expect(&TokenType::LeftBrace)?;
+                ensures = Some(Box::new(self.parse_expression()?));
+                self.expect(&TokenType::RightBrace)?;
+            } else if self.check_keyword(KeywordType::KeywordInvariant) {
+                self.advance();
+                self.expect(&TokenType::LeftBrace)?;
+                invariants.push(self.parse_expression()?);
+                self.expect(&TokenType::RightBrace)?;
+            }
+        }
+        
+        // Now parse the actual function
+        if !self.check_keyword(KeywordType::KeywordFun) {
+            return Err(ParseError::UnexpectedToken {
+                expected: format!("function keyword ({})", self.lexer.keyword_manager().get_keyword_text(&KeywordType::KeywordFun).unwrap_or("function".to_string())),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+        
+        let function = Box::new(self.parse_function()?);
+        
+        Ok(Expression::ContractedFunction {
+            function,
+            requires,
+            ensures,
+            invariants,
+            pos,
+        })
+    }
+    
+    /// Parse a pure function (no side effects)
+    fn parse_pure_function(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'pure'
+        
+        if !self.check_keyword(KeywordType::KeywordFun) {
+            return Err(ParseError::UnexpectedToken {
+                expected: format!("function keyword ({})", self.lexer.keyword_manager().get_keyword_text(&KeywordType::KeywordFun).unwrap_or("function".to_string())),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+        
+        // Parse the function and set is_pure flag
+        let mut func = self.parse_function()?;
+        
+        // Update the is_pure flag
+        if let Expression::Function { ref mut is_pure, .. } = func {
+            *is_pure = true;
+        }
+        
+        Ok(func)
+    }
+    
+    /// Parse an external function (FFI)
+    fn parse_external_function(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'external'
+        
+        if !self.check_keyword(KeywordType::KeywordFun) {
+            return Err(ParseError::UnexpectedToken {
+                expected: format!("function keyword ({})", self.lexer.keyword_manager().get_keyword_text(&KeywordType::KeywordFun).unwrap_or("function".to_string())),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+        
+        // Parse the function and set is_external flag
+        let mut func = self.parse_function()?;
+        
+        // Update the is_external flag
+        if let Expression::Function { ref mut is_external, .. } = func {
+            *is_external = true;
+        }
+        
+        Ok(func)
+    }
+    
+    /// Parse a when expression (similar to match but more natural)
+    fn parse_when(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'when'
+        
+        // Check if there's a value to match against
+        let expr = if self.check(&TokenType::LeftBrace) {
+            // No value, just conditions
+            None
+        } else {
+            Some(Box::new(self.parse_expression()?))
+        };
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let mut arms = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            // Parse pattern or condition
+            let pattern = if expr.is_some() {
+                self.parse_pattern()?
+            } else {
+                // For when without value, parse condition as pattern
+                Pattern::Literal(Box::new(self.parse_expression()?))
+            };
+            
+            self.expect(&TokenType::Arrow)?;
+            let body = self.parse_expression()?;
+            
+            arms.push(MatchArm {
+                pattern,
+                guard: None,
+                body,
+            });
+            
+            if !self.check(&TokenType::RightBrace) {
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                }
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        // Convert to match expression
+        if let Some(value) = expr {
+            Ok(Expression::Match {
+                expr: value,
+                arms,
+                pos,
+            })
+        } else {
+            // When without value becomes a series of if-else
+            self.convert_when_to_if_chain(arms, pos)
+        }
+    }
+    
+    /// Parse type alias
+    fn parse_type_alias(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'type'
+        
+        let name = self.expect_identifier()?;
+        self.expect(&TokenType::Assign)?;
+        let target_type = self.parse_type()?;
+        
+        Ok(Expression::TypeAlias {
+            name,
+            target_type,
+            pos,
+        })
+    }
+    
+    /// Parse sealed class
+    fn parse_sealed_class(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'sealed'
+        
+        if !self.check_keyword(KeywordType::KeywordClass) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "class".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+        
+        // Parse as regular class but mark as sealed
+        let mut class_expr = self.parse_class_definition()?;
+        
+        if let Expression::ClassDefinition { ref mut is_sealed, .. } = class_expr {
+            *is_sealed = true;
+        }
+        
+        Ok(class_expr)
+    }
+    
+    /// Parse companion object
+    fn parse_companion_object(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'companion'
+        
+        if !self.check_keyword(KeywordType::KeywordObject) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "object".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+        self.advance(); // consume 'object'
+        
+        // The class name is inferred from context in real usage
+        let class_name = "Companion".to_string(); // Default name
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Parse annotations if present
+            let annotations = if self.check(&TokenType::At) {
+                self.parse_annotations()?
+            } else {
+                Vec::new()
+            };
+            
+            // Check if it's a method or field
+            if self.check_keyword(KeywordType::KeywordFun) {
+                methods.push(self.parse_method()?);
+            } else {
+                fields.push(self.parse_class_field(annotations)?);
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::CompanionObject {
+            class_name,
+            fields,
+            methods,
+            pos,
+        })
+    }
+    
+    /// Parse conditional compilation (#if)
+    fn parse_conditional_compilation(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume '#'
+        
+        // Expect if keyword 
+        if !self.check_keyword(KeywordType::KeywordIf) {
+            return Err(ParseError::UnexpectedToken {
+                expected: format!("conditional keyword ({})", self.lexer.keyword_manager().get_keyword_text(&KeywordType::KeywordIf).unwrap_or("conditional".to_string())),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+        self.advance(); // consume 'if'
+        
+        // Parse condition
+        let condition = Box::new(self.parse_expression()?);
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let then_branch = Box::new(self.parse_block_body()?);
+        self.expect(&TokenType::RightBrace)?;
+        
+        // Check for else branch
+        let else_branch = if self.check_keyword(KeywordType::KeywordElse) {
+            self.advance();
+            self.expect(&TokenType::LeftBrace)?;
+            let else_body = Box::new(self.parse_block_body()?);
+            self.expect(&TokenType::RightBrace)?;
+            Some(else_body)
+        } else {
+            None
+        };
+        
+        Ok(Expression::ConditionalCompilation {
+            condition,
+            then_branch,
+            else_branch,
+            pos,
+        })
+    }
+    
+    /// Parse delegation type (lazy, observable, etc.)
+    fn parse_delegation_type(&mut self) -> ParseResult<DelegationType> {
+        if let TokenType::PrivateIdentifier(name) = &self.current.token_type {
+            let delegation = match name.as_str() {
+                "lazy" => DelegationType::Lazy,
+                "observable" => DelegationType::Observable,
+                "computed" => DelegationType::Computed,
+                other => DelegationType::Custom(other.to_string()),
+            };
+            self.advance();
+            Ok(delegation)
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: "delegation type".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            })
+        }
+    }
+    
+    /// Parse annotations (@Reactive, @Computed, etc.)
+    fn parse_annotations(&mut self) -> ParseResult<Vec<Annotation>> {
+        let mut annotations = Vec::new();
+        
+        while self.check(&TokenType::At) {
+            self.advance(); // consume '@'
+            
+            let name = self.expect_identifier()?;
+            let mut args = Vec::new();
+            
+            // Check for annotation arguments
+            if self.check(&TokenType::LeftParen) {
+                self.advance(); // consume '('
+                
+                if !self.check(&TokenType::RightParen) {
+                    loop {
+                        args.push(self.parse_expression()?);
+                        
+                        if self.check(&TokenType::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                
+                self.expect(&TokenType::RightParen)?;
+            }
+            
+            annotations.push(Annotation { name, args });
+        }
+        
+        Ok(annotations)
+    }
+    
+    /// Convert when expression without value to if-else chain
+    fn convert_when_to_if_chain(&self, arms: Vec<MatchArm>, pos: Position) -> ParseResult<Expression> {
+        if arms.is_empty() {
+            return Ok(Expression::Block {
+                expressions: vec![],
+                pos,
+            });
+        }
+        
+        let mut iter = arms.into_iter().rev();
+        let mut result = None;
+        
+        for arm in iter {
+            if let Pattern::Literal(cond) = arm.pattern {
+                if result.is_none() {
+                    // Last arm becomes else branch
+                    result = Some(arm.body);
+                } else {
+                    // Build if-else chain
+                    result = Some(Expression::If {
+                        condition: cond,
+                        then_branch: Box::new(arm.body),
+                        else_branch: result.map(Box::new),
+                        pos: pos.clone(),
+                    });
+                }
+            } else {
+                return Err(ParseError::InvalidExpression { pos });
+            }
+        }
+        
+        result.ok_or(ParseError::InvalidExpression { pos })
     }
     
 }

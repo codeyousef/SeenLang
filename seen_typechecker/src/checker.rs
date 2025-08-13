@@ -214,7 +214,7 @@ impl TypeChecker {
             }
             
             // Struct definition
-            Expression::StructDefinition { name, fields, pos } => {
+            Expression::StructDefinition { name, fields, pos, .. } => {
                 self.check_struct_definition(name, fields, *pos)
             }
             

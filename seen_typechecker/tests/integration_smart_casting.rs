@@ -24,6 +24,7 @@ fn test_smart_casting_integration() {
                 }),
                 value: Box::new(Expression::IntegerLiteral { value: 42, pos: pos() }),
                 is_mutable: false,
+                delegation: None,
                 pos: pos(),
             },
             // Simple expression to test the implementation

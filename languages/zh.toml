@@ -101,6 +101,8 @@ description = "Chinese keyword set for the Seen programming language - Seen编�
 "角色" = "KeywordActor"         # actor
 "接收" = "KeywordReceive"       # receive
 "发送" = "KeywordSend"          # send
+"到" = "KeywordTo"              # to
+"从" = "KeywordFrom"            # from
 "请求" = "KeywordRequest"       # request
 "回复" = "KeywordReply"         # reply
 

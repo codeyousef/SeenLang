@@ -447,6 +447,7 @@ mod tests {
                         pos: Position::new(1, 9, 8),
                     }),
                     is_mutable: false,
+                    delegation: None,
                     pos: Position::new(1, 1, 0),
                 }
             ],

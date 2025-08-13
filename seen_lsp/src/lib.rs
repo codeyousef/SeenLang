@@ -255,6 +255,51 @@ impl SeenLanguageServer {
             ..Default::default()
         });
 
+        items.push(CompletionItem {
+            label: "type".to_string(),
+            kind: Some(CompletionItemKind::SNIPPET),
+            detail: Some("Type alias".to_string()),
+            insert_text: Some("type ${1:Name} = ${2:Type}".to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..Default::default()
+        });
+
+        items.push(CompletionItem {
+            label: "extension".to_string(),
+            kind: Some(CompletionItemKind::SNIPPET),
+            detail: Some("Extension methods".to_string()),
+            insert_text: Some("extension ${1:Type} {\n    fun ${2:method}(${3:params}): ${4:ReturnType} {\n        $0\n    }\n}".to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..Default::default()
+        });
+
+        items.push(CompletionItem {
+            label: "sealed class".to_string(),
+            kind: Some(CompletionItemKind::SNIPPET),
+            detail: Some("Sealed class".to_string()),
+            insert_text: Some("sealed class ${1:Name} {\n    $0\n}".to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..Default::default()
+        });
+
+        items.push(CompletionItem {
+            label: "pure fun".to_string(),
+            kind: Some(CompletionItemKind::SNIPPET),
+            detail: Some("Pure function".to_string()),
+            insert_text: Some("pure fun ${1:name}(${2:params}): ${3:ReturnType} = ${4:expression}".to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..Default::default()
+        });
+
+        items.push(CompletionItem {
+            label: "when".to_string(),
+            kind: Some(CompletionItemKind::SNIPPET),
+            detail: Some("When expression".to_string()),
+            insert_text: Some("when {\n    ${1:condition} -> ${2:result}\n    else -> $0\n}".to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            ..Default::default()
+        });
+
         items
     }
 
@@ -326,6 +371,56 @@ impl SeenLanguageServer {
                         references: Vec::new(),
                     },
                 );
+            }
+            // Class definitions
+            Expression::ClassDefinition { name, pos, .. } => {
+                let location = Location {
+                    uri: uri.clone(),
+                    range: self.position_to_range(pos),
+                };
+                symbols.insert(
+                    name.clone(),
+                    SymbolInfo {
+                        name: name.clone(),
+                        kind: SymbolKind::CLASS,
+                        definition: location,
+                        references: Vec::new(),
+                    },
+                );
+            }
+            // Type aliases
+            Expression::TypeAlias { name, pos, .. } => {
+                let location = Location {
+                    uri: uri.clone(),
+                    range: self.position_to_range(pos),
+                };
+                symbols.insert(
+                    name.clone(),
+                    SymbolInfo {
+                        name: name.clone(),
+                        kind: SymbolKind::TYPE_PARAMETER,
+                        definition: location,
+                        references: Vec::new(),
+                    },
+                );
+            }
+            // Extension methods
+            Expression::Extension { target_type, methods, pos, .. } => {
+                for method in methods {
+                    let location = Location {
+                        uri: uri.clone(),
+                        range: self.position_to_range(pos),
+                    };
+                    symbols.insert(
+                        method.name.clone(),
+                        SymbolInfo {
+                            name: format!("{}::{}", target_type.name, method.name),
+                            kind: SymbolKind::METHOD,
+                            definition: location,
+                            references: Vec::new(),
+                        },
+                    );
+                }
             }
             // Recursively check other expressions
             Expression::Block { expressions, .. } => {

@@ -539,6 +539,7 @@ mod tests {
                         pos: Position::new(1, 14, 13),
                     }),
                     is_mutable: false,
+                    delegation: None,
                     pos: Position::new(1, 1, 0),
                 },
                 // Multiple accesses to trigger borrow optimization

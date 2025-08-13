@@ -101,6 +101,8 @@ description = "Spanish keyword set for the Seen programming language - Conjunto 
 "actor" = "KeywordActor"        # actor
 "recibir" = "KeywordReceive"    # receive
 "enviar" = "KeywordSend"        # send
+"a" = "KeywordTo"               # to
+"de" = "KeywordFrom"            # from
 "solicitar" = "KeywordRequest"  # request
 "responder" = "KeywordReply"    # reply
 

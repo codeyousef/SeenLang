@@ -27,6 +27,12 @@
       "include": "#annotations"
     },
     {
+      "include": "#preprocessor"
+    },
+    {
+      "include": "#contracts"
+    },
+    {
       "include": "#operators"
     }
   ],
@@ -35,11 +41,11 @@
       "patterns": [
         {
           "name": "keyword.control.seen",
-          "match": "\\b(if|else|when|for|while|do|break|continue|return|yield)\\b"
+          "match": "\\b(if|else|when|for|while|do|break|continue|return|yield|requires|ensures|invariant|pure|uses|handle|with|defer|assert)\\b"
         },
         {
           "name": "keyword.declaration.seen",
-          "match": "\\b(fun|val|var|class|interface|object|trait|sealed|data|enum|type|alias|struct)\\b"
+          "match": "\\b(fun|val|var|class|interface|object|trait|sealed|data|enum|type|alias|struct|extension|companion)\\b"
         },
         {
           "name": "keyword.modifier.seen",
@@ -51,7 +57,7 @@
         },
         {
           "name": "keyword.other.seen",
-          "match": "\\b(as|is|in|out|where|by|constructor|init|companion|crossinline|noinline|vararg|dynamic|match|loop)\\b"
+          "match": "\\b(as|is|in|out|where|by|constructor|init|crossinline|noinline|vararg|dynamic|match|loop|send|to|from|request|reply|effect|actor|receive|spawn|select|lazy|observable|computed)\\b"
         },
         {
           "name": "keyword.operator.word.seen",
@@ -331,6 +337,47 @@
         {
           "name": "keyword.operator.arrow.seen",
           "match": "->"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.seen",
+          "begin": "^\\s*(#)(if)\\b",
+          "end": "(?<=[}])",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.preprocessor.seen"
+            },
+            "2": {
+              "name": "keyword.control.preprocessor.seen"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        }
+      ]
+    },
+    "contracts": {
+      "patterns": [
+        {
+          "name": "meta.contract.seen",
+          "begin": "\\b(requires|ensures|invariant)\\s*\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.contract.seen"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
         }
       ]
     }

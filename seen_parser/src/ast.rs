@@ -66,6 +66,7 @@ pub enum Expression {
         type_annotation: Option<Type>,
         value: Box<Expression>,
         is_mutable: bool, // var vs let
+        delegation: Option<DelegationType>, // by lazy, by observable, etc.
         pos: Position,
     },
     
@@ -77,6 +78,10 @@ pub enum Expression {
         body: Box<Expression>,
         is_async: bool,
         receiver: Option<Receiver>, // For method syntax
+        uses_effects: Vec<String>, // Effects this function uses
+        is_pure: bool, // Pure function (no side effects)
+        is_external: bool, // External function (FFI)
+        doc_comment: Option<String>, // Documentation comment
         pos: Position,
     },
     
@@ -126,6 +131,7 @@ pub enum Expression {
     StructDefinition {
         name: String,
         fields: Vec<StructField>,
+        doc_comment: Option<String>,
         pos: Position,
     },
     
@@ -133,6 +139,30 @@ pub enum Expression {
     ClassDefinition {
         name: String,
         superclass: Option<String>,
+        fields: Vec<ClassField>,
+        methods: Vec<Method>,
+        is_sealed: bool,
+        doc_comment: Option<String>,
+        pos: Position,
+    },
+    
+    // Type alias
+    TypeAlias {
+        name: String,
+        target_type: Type,
+        pos: Position,
+    },
+    
+    // Extension methods
+    Extension {
+        target_type: Type,
+        methods: Vec<Method>,
+        pos: Position,
+    },
+    
+    // Companion object
+    CompanionObject {
+        class_name: String,
         fields: Vec<ClassField>,
         methods: Vec<Method>,
         pos: Position,
@@ -232,6 +262,13 @@ pub enum Expression {
         pos: Position,
     },
     
+    // Request message from actor
+    Request {
+        message: Box<Expression>,
+        source: Box<Expression>,
+        pos: Position,
+    },
+    
     // Receive message
     Receive {
         pattern: Pattern,
@@ -327,12 +364,7 @@ pub enum Expression {
         pos: Position,
     },
     
-    // OOP
-    Extension {
-        target_type: Type,
-        methods: Vec<Expression>,
-        pos: Position,
-    },
+    // Removed duplicate Extension - using the earlier definition with Vec<Method>
     
     Interface {
         name: String,
@@ -355,6 +387,14 @@ pub enum Expression {
     Annotated {
         annotations: Vec<Annotation>,
         expr: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Conditional compilation
+    ConditionalCompilation {
+        condition: Box<Expression>,
+        then_branch: Box<Expression>,
+        else_branch: Option<Box<Expression>>,
         pos: Position,
     },
 }
@@ -420,10 +460,23 @@ pub enum MemoryModifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DelegationType {
+    /// Lazy initialization
+    Lazy,
+    /// Observable property
+    Observable,
+    /// Computed property
+    Computed,
+    /// Custom delegation
+    Custom(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StructField {
     pub name: String,
     pub field_type: Type,
     pub is_public: bool, // Capitalized fields are public
+    pub annotations: Vec<Annotation>, // @Reactive, @Computed, etc.
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -433,6 +486,7 @@ pub struct ClassField {
     pub is_public: bool, // Capitalized fields are public
     pub is_mutable: bool, // var vs let
     pub default_value: Option<Expression>,
+    pub annotations: Vec<Annotation>, // @Reactive, @Computed, etc.
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
