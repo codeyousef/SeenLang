@@ -129,6 +129,15 @@ pub enum Expression {
         pos: Position,
     },
     
+    // Class definition
+    ClassDefinition {
+        name: String,
+        superclass: Option<String>,
+        fields: Vec<ClassField>,
+        methods: Vec<Method>,
+        pos: Position,
+    },
+    
     // Struct literal (instantiation)
     StructLiteral {
         name: String,
@@ -168,6 +177,7 @@ pub enum Expression {
         value: Option<Box<Expression>>,
         pos: Position,
     },
+    
     
     // Async/await
     Await {
@@ -380,6 +390,28 @@ pub struct StructField {
     pub field_type: Type,
     pub is_public: bool, // Capitalized fields are public
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClassField {
+    pub name: String,
+    pub field_type: Type,
+    pub is_public: bool, // Capitalized fields are public
+    pub is_mutable: bool, // var vs let
+    pub default_value: Option<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Method {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Option<Type>,
+    pub body: Expression,
+    pub is_public: bool, // Capitalized methods are public
+    pub is_static: bool, // Static methods don't have self
+    pub receiver: Option<Receiver>, // None for static methods
+    pub pos: Position,
+}
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Receiver {

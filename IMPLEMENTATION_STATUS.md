@@ -1,6 +1,6 @@
 # Seen Language Implementation Status
 
-## ✅ Working Features (25-30% Complete)
+## ✅ Working Features (35-40% Complete)
 
 ### Core Language
 - ✅ **Variables**: `let` (immutable) and `var` (mutable)
@@ -25,6 +25,8 @@
 - ✅ **Struct Definitions**: Basic struct types
 - ✅ **Struct Instantiation**: Creating struct instances
 - ✅ **Member Access**: Accessing struct fields
+- ✅ **Pattern Matching**: Full match expressions with literals, ranges, structs
+- ✅ **Classes**: Parsing support for class definitions (runtime pending)
 
 ### Compilation Pipeline
 - ✅ **Lexer**: Tokenization with keyword support
@@ -34,7 +36,7 @@
 - ✅ **C Code Generator**: C output generation
 - ✅ **Compilation**: Full pipeline to executable
 
-## ❌ Missing Features (70-75% Incomplete)
+## ❌ Missing Features (60-65% Incomplete)
 
 ### Type System
 - ❌ **Full Nullable Safety**: Safe navigation `?.`, force unwrap `!!`
@@ -44,9 +46,9 @@
 - ❌ **Type Aliases**: `type UserId = Int`
 
 ### Advanced Control Flow
-- ❌ **Pattern Matching**: `match` expressions
+- ✅ **Pattern Matching**: `match` expressions with literals, ranges, wildcards
 - ❌ **When Expressions**: Multi-condition branching
-- ❌ **Guard Clauses**: Pattern guards
+- ❌ **Guard Clauses**: Pattern guards (syntax exists, not implemented)
 - ❌ **Destructuring**: In patterns and assignments
 
 ### Functions & Lambdas
@@ -57,8 +59,8 @@
 - ❌ **Function Overloading**: Multiple signatures
 
 ### Object-Oriented
-- ❌ **Classes**: Full class implementation
-- ❌ **Methods**: Instance and static methods
+- ⚠️ **Classes**: Parser support complete, type checking and runtime needed
+- ⚠️ **Methods**: Parser support for instance/static methods, runtime needed
 - ❌ **Interfaces**: Contract definitions
 - ❌ **Inheritance**: Class hierarchies
 - ❌ **Extensions**: Adding methods to existing types
@@ -131,7 +133,7 @@
 
 ## Timeline to 100% Completion
 
-Based on current progress (25-30% complete):
+Based on current progress (35-40% complete):
 
 | Component | Weeks Required | Priority |
 |-----------|---------------|----------|
@@ -147,7 +149,7 @@ Based on current progress (25-30% complete):
 | Installer & Distribution | 2-3 | Medium |
 | Self-Hosting Capability | 8-10 | High |
 
-**Total Estimated Time**: 35-50 weeks of full-time development
+**Total Estimated Time**: 30-42 weeks of full-time development
 
 ## Next Priority Tasks
 
@@ -164,4 +166,4 @@ Based on current progress (25-30% complete):
 
 ## Conclusion
 
-The Seen language has a solid foundation with ~25-30% of features implemented. The compilation pipeline works for basic programs, but significant work remains to implement the full language specification and achieve production readiness. The path to self-hosting requires completing approximately 70-75% more of the language features and tooling.
+The Seen language has a solid foundation with ~35-40% of features implemented. The compilation pipeline works for basic programs, and major language constructs like pattern matching and class parsing are now complete. Significant work remains to implement runtime support for classes, advanced type system features, and comprehensive tooling. The path to self-hosting requires completing approximately 60-65% more of the language features and tooling.

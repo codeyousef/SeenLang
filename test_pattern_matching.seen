@@ -1,0 +1,42 @@
+// Test pattern matching
+let value = 42
+
+let result = match value {
+    0 -> "zero"
+    1 -> "one"
+    42 -> "answer"
+    _ -> "other"
+}
+
+println("Match result: {result}")
+
+// Pattern matching with ranges
+let score = 85
+
+let grade = match score {
+    0..59 -> "F"
+    60..69 -> "D"
+    70..79 -> "C"
+    80..89 -> "B"
+    90..100 -> "A"
+    _ -> "Invalid"
+}
+
+println("Grade: {grade}")
+
+// Pattern matching with structs
+struct Point {
+    x: Int
+    y: Int
+}
+
+let point = Point { x: 0, y: 5 }
+
+let location = match point {
+    Point { x: 0, y: 0 } -> "origin"
+    Point { x: 0, y: _ } -> "on y-axis"
+    Point { x: _, y: 0 } -> "on x-axis"
+    Point { x: x, y: y } -> "point at ({x}, {y})"
+}
+
+println("Location: {location}")

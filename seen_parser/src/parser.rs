@@ -92,6 +92,11 @@ impl Parser {
             return self.parse_struct_definition();
         }
         
+        // Check for class definitions
+        if self.check_keyword(KeywordType::KeywordClass) {
+            return self.parse_class_definition();
+        }
+        
         // Otherwise, parse as an expression
         self.parse_expression()
     }
@@ -1912,6 +1917,147 @@ impl Parser {
         self.expect(&TokenType::RightBrace)?;
         
         Ok(Expression::StructDefinition { name, fields, pos })
+    }
+    
+    fn parse_class_definition(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'class'
+        
+        let name = self.expect_identifier()?;
+        
+        // Check for superclass
+        let superclass = if self.check(&TokenType::Colon) {
+            self.advance();
+            Some(self.expect_identifier()?)
+        } else {
+            None
+        };
+        
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            // Skip any leading newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            // Check for end of class after skipping newlines
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Check if it's a method (starts with 'fun')
+            if self.check_keyword(KeywordType::KeywordFun) {
+                methods.push(self.parse_method()?);
+            } else {
+                // It's a field
+                fields.push(self.parse_class_field()?);
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::ClassDefinition { 
+            name, 
+            superclass, 
+            fields, 
+            methods, 
+            pos 
+        })
+    }
+    
+    fn parse_class_field(&mut self) -> ParseResult<crate::ast::ClassField> {
+        let is_mutable = if self.check_keyword(KeywordType::KeywordVar) {
+            self.advance();
+            true
+        } else if self.check_keyword(KeywordType::KeywordLet) {
+            self.advance();
+            false
+        } else {
+            false // Default to immutable
+        };
+        
+        let name = self.expect_identifier()?;
+        let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
+        
+        self.expect(&TokenType::Colon)?;
+        let field_type = self.parse_type()?;
+        
+        let default_value = if self.check(&TokenType::Assign) {
+            self.advance();
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        
+        Ok(crate::ast::ClassField {
+            name,
+            field_type,
+            is_public,
+            is_mutable,
+            default_value,
+        })
+    }
+    
+    fn parse_method(&mut self) -> ParseResult<crate::ast::Method> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'fun'
+        
+        // Check if it's a method with receiver syntax: fun (receiver: Type) MethodName(...)
+        let (receiver, method_name) = if self.check(&TokenType::LeftParen) {
+            // Method with receiver
+            self.advance(); // consume '('
+            let receiver_name = self.expect_identifier()?;
+            self.expect(&TokenType::Colon)?;
+            let receiver_type = self.expect_identifier()?;
+            self.expect(&TokenType::RightParen)?;
+            
+            let method_name = self.expect_identifier()?;
+            
+            let receiver = Some(crate::ast::Receiver {
+                name: receiver_name,
+                type_name: receiver_type,
+                is_mutable: false, // TODO: handle mutable receivers
+            });
+            
+            (receiver, method_name)
+        } else {
+            // Static method or regular function
+            let method_name = self.expect_identifier()?;
+            (None, method_name)
+        };
+        
+        let is_public = method_name.chars().next().map_or(false, |c| c.is_uppercase());
+        let is_static = receiver.is_none();
+        
+        self.expect(&TokenType::LeftParen)?;
+        let parameters = self.parse_parameters()?;
+        self.expect(&TokenType::RightParen)?;
+        
+        let return_type = if self.check(&TokenType::Arrow) || self.check(&TokenType::Colon) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let body = self.parse_block_body()?;
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(crate::ast::Method {
+            name: method_name,
+            parameters,
+            return_type,
+            body,
+            is_public,
+            is_static,
+            receiver,
+            pos,
+        })
     }
     
     fn parse_assert(&mut self) -> ParseResult<Expression> {
