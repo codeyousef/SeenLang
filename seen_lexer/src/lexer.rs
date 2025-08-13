@@ -50,42 +50,80 @@ impl Lexer {
             
             Some(ch) if self.is_identifier_start(ch) => self.read_identifier(),
             
-            // Mathematical operators
+            // Mathematical and assignment operators
             Some('+') => {
                 self.advance();
-                Ok(Token::new(TokenType::Plus, "+".to_string(), start_pos))
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(Token::new(TokenType::PlusAssign, "+=".to_string(), start_pos))
+                } else {
+                    Ok(Token::new(TokenType::Plus, "+".to_string(), start_pos))
+                }
             }
             Some('-') => {
-                if self.peek() == Some('>') {
-                    self.advance();
+                self.advance();
+                if self.current_char == Some('>') {
                     self.advance();
                     Ok(Token::new(TokenType::Arrow, "->".to_string(), start_pos))
-                } else {
+                } else if self.current_char == Some('=') {
                     self.advance();
+                    Ok(Token::new(TokenType::MinusAssign, "-=".to_string(), start_pos))
+                } else {
                     Ok(Token::new(TokenType::Minus, "-".to_string(), start_pos))
                 }
             }
             Some('*') => {
                 self.advance();
-                Ok(Token::new(TokenType::Multiply, "*".to_string(), start_pos))
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(Token::new(TokenType::MultiplyAssign, "*=".to_string(), start_pos))
+                } else {
+                    Ok(Token::new(TokenType::Multiply, "*".to_string(), start_pos))
+                }
             }
             Some('/') => {
                 self.advance();
-                Ok(Token::new(TokenType::Divide, "/".to_string(), start_pos))
+                if self.current_char == Some('/') {
+                    // Single-line comment
+                    self.advance();
+                    let comment = self.read_single_line_comment();
+                    Ok(Token::new(TokenType::SingleLineComment(comment.clone()), comment, start_pos))
+                } else if self.current_char == Some('*') {
+                    // Multi-line comment
+                    self.advance();
+                    let comment = self.read_multi_line_comment()?;
+                    if comment.starts_with("/**") {
+                        Ok(Token::new(TokenType::DocComment(comment.clone()), comment, start_pos))
+                    } else {
+                        Ok(Token::new(TokenType::MultiLineComment(comment.clone()), comment, start_pos))
+                    }
+                } else if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(Token::new(TokenType::DivideAssign, "/=".to_string(), start_pos))
+                } else {
+                    Ok(Token::new(TokenType::Divide, "/".to_string(), start_pos))
+                }
             }
             Some('%') => {
                 self.advance();
-                Ok(Token::new(TokenType::Modulo, "%".to_string(), start_pos))
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(Token::new(TokenType::ModuloAssign, "%=".to_string(), start_pos))
+                } else {
+                    Ok(Token::new(TokenType::Modulo, "%".to_string(), start_pos))
+                }
             }
             
-            // Comparison operators
+            // Comparison and assignment operators
             Some('=') => {
-                if self.peek() == Some('=') {
-                    self.advance();
+                self.advance();
+                if self.current_char == Some('=') {
                     self.advance();
                     Ok(Token::new(TokenType::Equal, "==".to_string(), start_pos))
-                } else {
+                } else if self.current_char == Some('>') {
                     self.advance();
+                    Ok(Token::new(TokenType::FatArrow, "=>".to_string(), start_pos))
+                } else {
                     Ok(Token::new(TokenType::Assign, "=".to_string(), start_pos))
                 }
             }
@@ -106,22 +144,26 @@ impl Lexer {
                 }
             }
             Some('<') => {
-                if self.peek() == Some('=') {
-                    self.advance();
+                self.advance();
+                if self.current_char == Some('=') {
                     self.advance();
                     Ok(Token::new(TokenType::LessEqual, "<=".to_string(), start_pos))
-                } else {
+                } else if self.current_char == Some('<') {
                     self.advance();
+                    Ok(Token::new(TokenType::LeftShift, "<<".to_string(), start_pos))
+                } else {
                     Ok(Token::new(TokenType::Less, "<".to_string(), start_pos))
                 }
             }
             Some('>') => {
-                if self.peek() == Some('=') {
-                    self.advance();
+                self.advance();
+                if self.current_char == Some('=') {
                     self.advance();
                     Ok(Token::new(TokenType::GreaterEqual, ">=".to_string(), start_pos))
-                } else {
+                } else if self.current_char == Some('>') {
                     self.advance();
+                    Ok(Token::new(TokenType::RightShift, ">>".to_string(), start_pos))
+                } else {
                     Ok(Token::new(TokenType::Greater, ">".to_string(), start_pos))
                 }
             }
@@ -195,7 +237,44 @@ impl Lexer {
             }
             Some(':') => {
                 self.advance();
-                Ok(Token::new(TokenType::Colon, ":".to_string(), start_pos))
+                if self.current_char == Some(':') {
+                    self.advance();
+                    Ok(Token::new(TokenType::DoubleColon, "::".to_string(), start_pos))
+                } else {
+                    Ok(Token::new(TokenType::Colon, ":".to_string(), start_pos))
+                }
+            }
+            
+            // Bitwise operators
+            Some('&') => {
+                self.advance();
+                Ok(Token::new(TokenType::BitwiseAnd, "&".to_string(), start_pos))
+            }
+            Some('|') => {
+                self.advance();
+                Ok(Token::new(TokenType::BitwiseOr, "|".to_string(), start_pos))
+            }
+            Some('^') => {
+                self.advance();
+                Ok(Token::new(TokenType::BitwiseXor, "^".to_string(), start_pos))
+            }
+            Some('~') => {
+                self.advance();
+                Ok(Token::new(TokenType::BitwiseNot, "~".to_string(), start_pos))
+            }
+            
+            // Special characters
+            Some('_') => {
+                self.advance();
+                Ok(Token::new(TokenType::Underscore, "_".to_string(), start_pos))
+            }
+            Some('@') => {
+                self.advance();
+                Ok(Token::new(TokenType::At, "@".to_string(), start_pos))
+            }
+            Some('#') => {
+                self.advance();
+                Ok(Token::new(TokenType::Hash, "#".to_string(), start_pos))
             }
             
             Some(ch) => Err(LexerError::UnexpectedCharacter {
@@ -337,6 +416,49 @@ impl Lexer {
         ch.is_alphanumeric() || ch == '_' || 
         (!ch.is_ascii() && !ch.is_whitespace() && 
          !self.is_operator_char(ch) && !self.is_punctuation_char(ch))
+    }
+    
+    fn read_single_line_comment(&mut self) -> String {
+        let mut comment = String::from("//");
+        
+        while let Some(ch) = self.current_char {
+            if ch == '\n' {
+                break;
+            }
+            comment.push(ch);
+            self.advance();
+        }
+        
+        comment
+    }
+    
+    fn read_multi_line_comment(&mut self) -> LexerResult<String> {
+        let mut comment = String::from("/*");
+        let start_pos = self.pos_tracker;
+        let is_doc = self.current_char == Some('*');
+        
+        if is_doc {
+            comment.push('*');
+            self.advance();
+        }
+        
+        let mut last_was_star = false;
+        
+        while let Some(ch) = self.current_char {
+            comment.push(ch);
+            
+            if last_was_star && ch == '/' {
+                self.advance();
+                return Ok(comment);
+            }
+            
+            last_was_star = ch == '*';
+            self.advance();
+        }
+        
+        Err(LexerError::UnterminatedComment {
+            position: start_pos,
+        })
     }
     
     fn is_operator_char(&self, ch: char) -> bool {

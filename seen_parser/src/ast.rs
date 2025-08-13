@@ -182,62 +182,141 @@ pub enum Expression {
         pos: Position,
     },
     
-    // Class definition
+    // Loop expression (returns break value)
+    Loop {
+        body: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Spawn expression for concurrency
+    Spawn {
+        expr: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Select expression for channel operations
+    Select {
+        cases: Vec<SelectCase>,
+        pos: Position,
+    },
+    
+    // Actor definition
+    Actor {
+        name: String,
+        fields: Vec<(String, Type)>,
+        handlers: Vec<MessageHandler>,
+        pos: Position,
+    },
+    
+    // Send message to actor
+    Send {
+        message: Box<Expression>,
+        target: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Receive message
+    Receive {
+        pattern: Pattern,
+        handler: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Memory management blocks
+    Region {
+        name: Option<String>,
+        body: Box<Expression>,
+        pos: Position,
+    },
+    
+    Arena {
+        body: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Metaprogramming
+    Comptime {
+        body: Box<Expression>,
+        pos: Position,
+    },
+    
+    Macro {
+        name: String,
+        params: Vec<String>,
+        body: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Effects
+    Effect {
+        name: String,
+        operations: Vec<EffectOperation>,
+        pos: Position,
+    },
+    
+    Handle {
+        body: Box<Expression>,
+        effect: String,
+        handlers: Vec<EffectHandler>,
+        pos: Position,
+    },
+    
+    // Contracts
+    ContractedFunction {
+        function: Box<Expression>,
+        requires: Option<Box<Expression>>,
+        ensures: Option<Box<Expression>>,
+        invariants: Vec<Expression>,
+        pos: Position,
+    },
+    
+    // Error handling
+    Defer {
+        body: Box<Expression>,
+        pos: Position,
+    },
+    
+    Assert {
+        condition: Box<Expression>,
+        message: Option<String>,
+        pos: Position,
+    },
+    
+    Try {
+        body: Box<Expression>,
+        catch_clauses: Vec<CatchClause>,
+        finally: Option<Box<Expression>>,
+        pos: Position,
+    },
+    
+    // OOP
+    Extension {
+        target_type: Type,
+        methods: Vec<Expression>,
+        pos: Position,
+    },
+    
+    Interface {
+        name: String,
+        methods: Vec<InterfaceMethod>,
+        pos: Position,
+    },
+    
     Class {
         name: String,
-        superclass: Option<String>,
-        fields: Vec<Field>,
-        methods: Vec<Expression>, // Function expressions
+        is_sealed: bool,
+        is_open: bool,
+        is_abstract: bool,
+        fields: Vec<(String, Type)>,
+        methods: Vec<Expression>,
+        companion: Option<Box<Expression>>,
         pos: Position,
     },
     
-    // Struct definition
-    Struct {
-        name: String,
-        fields: Vec<Field>,
-        pos: Position,
-    },
-    
-    // Enum definition
-    Enum {
-        name: String,
-        variants: Vec<EnumVariant>,
-        pos: Position,
-    },
-    
-    // Trait definition
-    Trait {
-        name: String,
-        methods: Vec<TraitMethod>,
-        pos: Position,
-    },
-    
-    // Implementation block
-    Impl {
-        trait_name: Option<String>, // None for inherent impl
-        type_name: String,
-        methods: Vec<Expression>, // Function expressions
-        pos: Position,
-    },
-    
-    // Import/use statement
-    Import {
-        path: Vec<String>,
-        alias: Option<String>,
-        pos: Position,
-    },
-    
-    // Module definition
-    Module {
-        name: String,
-        body: Vec<Expression>,
-        pos: Position,
-    },
-    
-    // Type alias
-    TypeAlias {
-        name: String,
-        target: Type,
+    // Annotations
+    Annotated {
+        annotations: Vec<Annotation>,
+        expr: Box<Expression>,
         pos: Position,
     },
 }
@@ -273,13 +352,12 @@ pub struct MatchArm {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Pattern {
-    Literal(Expression),
+    Literal(Box<Expression>),
     Identifier(String),
     Wildcard,
-    Range { start: Expression, end: Expression, inclusive: bool },
-    Struct { name: String, fields: Vec<(String, Pattern)> },
-    Constructor { name: String, patterns: Vec<Pattern> },
-    Array(Vec<Pattern>),
+    Range { start: Box<Expression>, end: Box<Expression>, inclusive: bool },
+    Struct { name: String, fields: Vec<(String, Box<Pattern>)> },
+    Array(Vec<Box<Pattern>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -337,6 +415,58 @@ pub struct Type {
     pub name: String,
     pub is_nullable: bool,
     pub generics: Vec<Type>,
+}
+
+// Supporting types for new AST nodes
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectCase {
+    pub channel: Box<Expression>,
+    pub pattern: Pattern,
+    pub handler: Box<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MessageHandler {
+    pub message_type: String,
+    pub params: Vec<Parameter>,
+    pub body: Box<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectOperation {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub return_type: Option<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectHandler {
+    pub operation: String,
+    pub params: Vec<Parameter>,
+    pub body: Box<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CatchClause {
+    pub exception_type: Option<Type>,
+    pub variable: Option<String>,
+    pub body: Box<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InterfaceMethod {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub return_type: Option<Type>,
+    pub is_default: bool,
+    pub default_impl: Option<Box<Expression>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Annotation {
+    pub name: String,
+    pub args: Vec<Expression>,
 }
 
 impl Type {

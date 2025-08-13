@@ -1,10 +1,13 @@
 //! Interpreter for the Seen programming language
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_interpreter_module() {
-        // Test that interpreter module compiles
-        assert!(true);
-    }
-}
+pub mod value;
+pub mod runtime;
+pub mod errors;
+pub mod builtins;
+pub mod interpreter;
+
+pub use interpreter::Interpreter;
+pub use value::Value;
+pub use runtime::{Runtime, Environment};
+pub use errors::{InterpreterError, InterpreterResult};
+pub use builtins::BuiltinRegistry;

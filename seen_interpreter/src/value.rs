@@ -31,7 +31,7 @@ pub enum Value {
     Function {
         name: String,
         parameters: Vec<String>,
-        body: Box<seen_parser::ast::Block>,
+        body: Box<seen_parser::Expression>, // Store function body as expression
         closure: HashMap<String, Value>,
     },
 }

@@ -1,0 +1,4 @@
+let greeting = "Hello, World!"
+println(greeting)
+let x = 5 + 3
+println(x)

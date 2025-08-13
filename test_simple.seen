@@ -1,6 +1,5 @@
-fun main() {
-    println("Hello, World!");
-    val x = 42;
-    val y = x + 8;
-    println(y);
+let x = 42
+let y = x + 10
+if y > 50 {
+    println("big number")  
 }

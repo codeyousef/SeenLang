@@ -123,6 +123,49 @@ pub enum KeywordType {
     KeywordMove,
     KeywordBorrow,
     KeywordInout,
+    KeywordRegion,
+    KeywordArena,
+    
+    // Metaprogramming
+    KeywordComptime,
+    KeywordMacro,
+    
+    // Concurrency - Actor model
+    KeywordSpawn,
+    KeywordSelect,
+    KeywordActor,
+    KeywordReceive,
+    KeywordSend,
+    KeywordRequest,
+    KeywordReply,
+    
+    // Reactive Programming
+    KeywordObservable,
+    KeywordEmit,
+    KeywordDelay,
+    
+    // Effects System
+    KeywordEffect,
+    KeywordPure,
+    KeywordUses,
+    KeywordHandle,
+    KeywordWith,
+    
+    // Contracts
+    KeywordRequires,
+    KeywordEnsures,
+    KeywordInvariant,
+    
+    // Error Handling
+    KeywordDefer,
+    KeywordAssert,
+    
+    // OOP
+    KeywordExtension,
+    KeywordLoop,
+    
+    // Special
+    KeywordExternal,
 }
 
 impl KeywordManager {
@@ -291,6 +334,33 @@ impl KeywordManager {
             "KeywordMove" => Ok(KeywordType::KeywordMove),
             "KeywordBorrow" => Ok(KeywordType::KeywordBorrow),
             "KeywordInout" => Ok(KeywordType::KeywordInout),
+            "KeywordRegion" => Ok(KeywordType::KeywordRegion),
+            "KeywordArena" => Ok(KeywordType::KeywordArena),
+            "KeywordComptime" => Ok(KeywordType::KeywordComptime),
+            "KeywordMacro" => Ok(KeywordType::KeywordMacro),
+            "KeywordSpawn" => Ok(KeywordType::KeywordSpawn),
+            "KeywordSelect" => Ok(KeywordType::KeywordSelect),
+            "KeywordActor" => Ok(KeywordType::KeywordActor),
+            "KeywordReceive" => Ok(KeywordType::KeywordReceive),
+            "KeywordSend" => Ok(KeywordType::KeywordSend),
+            "KeywordRequest" => Ok(KeywordType::KeywordRequest),
+            "KeywordReply" => Ok(KeywordType::KeywordReply),
+            "KeywordObservable" => Ok(KeywordType::KeywordObservable),
+            "KeywordEmit" => Ok(KeywordType::KeywordEmit),
+            "KeywordDelay" => Ok(KeywordType::KeywordDelay),
+            "KeywordEffect" => Ok(KeywordType::KeywordEffect),
+            "KeywordPure" => Ok(KeywordType::KeywordPure),
+            "KeywordUses" => Ok(KeywordType::KeywordUses),
+            "KeywordHandle" => Ok(KeywordType::KeywordHandle),
+            "KeywordWith" => Ok(KeywordType::KeywordWith),
+            "KeywordRequires" => Ok(KeywordType::KeywordRequires),
+            "KeywordEnsures" => Ok(KeywordType::KeywordEnsures),
+            "KeywordInvariant" => Ok(KeywordType::KeywordInvariant),
+            "KeywordDefer" => Ok(KeywordType::KeywordDefer),
+            "KeywordAssert" => Ok(KeywordType::KeywordAssert),
+            "KeywordExtension" => Ok(KeywordType::KeywordExtension),
+            "KeywordLoop" => Ok(KeywordType::KeywordLoop),
+            "KeywordExternal" => Ok(KeywordType::KeywordExternal),
             _ => Err(anyhow!("Unknown keyword type: {}", type_str)),
         }
     }

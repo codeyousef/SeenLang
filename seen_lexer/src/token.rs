@@ -40,9 +40,22 @@ pub enum TokenType {
     
     // Assignment operators
     Assign,             // =
+    PlusAssign,         // +=
+    MinusAssign,        // -=
+    MultiplyAssign,     // *=
+    DivideAssign,       // /=
+    ModuloAssign,       // %=
     
     // Comparison operators
     Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
+    
+    // Bitwise operators
+    BitwiseAnd,         // &
+    BitwiseOr,          // |
+    BitwiseXor,         // ^
+    BitwiseNot,         // ~
+    LeftShift,          // <<
+    RightShift,         // >>
     
     // Nullable operators
     SafeNavigation,     // ?.
@@ -66,6 +79,16 @@ pub enum TokenType {
     Comma, Colon,
     Dot,                // .
     Arrow,              // ->
+    FatArrow,           // =>
+    DoubleColon,        // ::
+    Underscore,         // _
+    At,                 // @ (for annotations)
+    Hash,               // # (for preprocessor)
+    
+    // Comments
+    SingleLineComment(String),  // //
+    MultiLineComment(String),   // /* */
+    DocComment(String),         // /** */
     
     // Special tokens
     Newline, EOF,

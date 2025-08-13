@@ -8,6 +8,7 @@ description = "Intermediate representation for the Seen programming language"
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+seen_parser = { path = "../seen_parser" }
 
 [dev-dependencies]
 proptest = { workspace = true }

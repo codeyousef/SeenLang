@@ -3,6 +3,7 @@
 pub mod types;
 pub mod errors;
 pub mod checker;
+pub mod smart_cast;
 
 use std::collections::HashMap;
 pub use types::Type;

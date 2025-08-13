@@ -235,6 +235,11 @@ impl TypeChecker {
                 self.check_index_access(object, index, *pos)
             }
             
+            // Function definition
+            Expression::Function { name, params, return_type, body, pos, .. } => {
+                self.check_function_definition(name, params, return_type, body, *pos)
+            }
+            
             // For now, treat other expression types as unknown
             _ => Type::Unknown
         }
@@ -649,6 +654,90 @@ impl TypeChecker {
                 Type::Unknown
             }
         }
+    }
+
+    /// Type check function definition
+    fn check_function_definition(&mut self, name: &str, params: &[seen_parser::ast::Parameter], return_type: &Option<seen_parser::ast::Type>, body: &Expression, pos: Position) -> Type {
+        // Convert AST parameter types to checker types
+        let mut checker_params = Vec::new();
+        for param in params {
+            let param_type = if let Some(param_type_ast) = &param.type_annotation {
+                Type::from(param_type_ast)
+            } else {
+                Type::Unknown
+            };
+            checker_params.push(crate::Parameter {
+                name: param.name.clone(),
+                param_type,
+            });
+        }
+
+        // Convert return type
+        let checker_return_type = if let Some(ret_type_ast) = return_type {
+            Some(Type::from(ret_type_ast))
+        } else {
+            Some(Type::Unit) // Default to Unit if no return type specified
+        };
+
+        // Create function signature
+        let signature = FunctionSignature {
+            name: name.to_string(),
+            parameters: checker_params,
+            return_type: checker_return_type.clone(),
+        };
+
+        // Check for duplicate function
+        if self.env.has_function(name) {
+            self.result.add_error(TypeError::DuplicateFunction {
+                name: name.to_string(),
+                position: pos,
+            });
+        } else {
+            // Register the function in the environment
+            self.env.define_function(name.to_string(), signature);
+        }
+
+        // Create new scope for function body
+        let saved_env = self.env.clone();
+        let mut function_env = Environment::with_parent(self.env.clone());
+
+        // Add parameters to function scope
+        for param in params {
+            let param_type = if let Some(param_type_ast) = &param.type_annotation {
+                Type::from(param_type_ast)
+            } else {
+                Type::Unknown
+            };
+            function_env.define_variable(param.name.clone(), param_type);
+        }
+
+        // Set current environment to function scope
+        self.env = function_env;
+        
+        // Store current function return type for return statement checking
+        let saved_return_type = self.current_function_return_type.clone();
+        self.current_function_return_type = checker_return_type.clone();
+
+        // Type check the function body
+        let body_type = self.check_expression(body);
+
+        // Verify return type matches
+        if let Some(expected_return) = &checker_return_type {
+            if !body_type.is_assignable_to(expected_return) {
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: expected_return.clone(),
+                    actual: body_type.clone(),
+                    position: pos,
+                });
+            }
+        }
+
+        // Restore environment and return type
+        self.env = saved_env;
+        self.current_function_return_type = saved_return_type;
+
+        // Function definitions return the function type (for now, Unit)
+        Type::Unit
     }
 }
 

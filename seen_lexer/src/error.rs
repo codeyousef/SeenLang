@@ -22,6 +22,9 @@ pub enum LexerError {
     #[error("Invalid string interpolation at {position}: {message}")]
     InvalidInterpolation { position: Position, message: String },
     
+    #[error("Unterminated comment at {position}")]
+    UnterminatedComment { position: Position },
+    
     #[error("Keyword file not found: {language}")]
     KeywordFileNotFound { language: String },
     

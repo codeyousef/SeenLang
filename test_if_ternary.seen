@@ -1,0 +1,3 @@
+let x = 50
+let result = if x > 42 { x + 10 } else { x - 10 }
+result

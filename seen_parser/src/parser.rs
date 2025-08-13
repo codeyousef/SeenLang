@@ -46,6 +46,9 @@ impl Parser {
     pub fn parse_program(&mut self) -> ParseResult<Program> {
         let mut expressions = Vec::new();
         
+        // Skip leading whitespace/newlines
+        self.skip_whitespace();
+        
         while !self.is_at_end() {
             // Skip any newlines at the top level
             while self.check(&TokenType::Newline) {
@@ -64,6 +67,9 @@ impl Parser {
             while self.check(&TokenType::Newline) {
                 self.advance();
             }
+            
+            // Skip whitespace/newlines between expressions
+            self.skip_whitespace();
         }
         
         Ok(Program { expressions })
@@ -977,6 +983,75 @@ impl Parser {
             return self.parse_return();
         }
         
+        if self.check_keyword(KeywordType::KeywordLoop) {
+            return self.parse_loop();
+        }
+        
+        // Concurrency keywords
+        if self.check_keyword(KeywordType::KeywordSpawn) {
+            return self.parse_spawn();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordSelect) {
+            return self.parse_select();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordActor) {
+            return self.parse_actor();
+        }
+        
+        // Memory management
+        if self.check_keyword(KeywordType::KeywordRegion) {
+            return self.parse_region();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordArena) {
+            return self.parse_arena();
+        }
+        
+        // Metaprogramming
+        if self.check_keyword(KeywordType::KeywordComptime) {
+            return self.parse_comptime();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordMacro) {
+            return self.parse_macro();
+        }
+        
+        // Effects
+        if self.check_keyword(KeywordType::KeywordEffect) {
+            return self.parse_effect();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordHandle) {
+            return self.parse_handle();
+        }
+        
+        // Error handling
+        if self.check_keyword(KeywordType::KeywordDefer) {
+            return self.parse_defer();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordAssert) {
+            return self.parse_assert();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordTry) {
+            return self.parse_try();
+        }
+        
+        // OOP
+        if self.check_keyword(KeywordType::KeywordExtension) {
+            return self.parse_extension();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordInterface) {
+            return self.parse_interface();
+        }
+        
+        if self.check_keyword(KeywordType::KeywordClass) {
+            return self.parse_class();
+        }
         
         // Variable declarations
         if self.check_keyword(KeywordType::KeywordLet) {
@@ -1147,9 +1222,9 @@ impl Parser {
                     self.advance();
                 }
                 let end = self.parse_primary()?;
-                return Ok(Pattern::Range { start, end, inclusive });
+                return Ok(Pattern::Range { start: Box::new(start), end: Box::new(end), inclusive });
             }
-            return Ok(Pattern::Literal(start));
+            return Ok(Pattern::Literal(Box::new(start)));
         }
         
         // Identifier or struct pattern (including keywords used as identifiers)
@@ -1167,7 +1242,7 @@ impl Parser {
                         let field_name = self.expect_identifier()?;
                         self.expect(&TokenType::Colon)?;
                         let field_pattern = self.parse_pattern()?;
-                        fields.push((field_name, field_pattern));
+                        fields.push((field_name, Box::new(field_pattern)));
                         
                         if !self.check(&TokenType::RightBrace) {
                             self.expect(&TokenType::Comma)?;
@@ -1176,22 +1251,6 @@ impl Parser {
                     
                     self.expect(&TokenType::RightBrace)?;
                     return Ok(Pattern::Struct { name, fields });
-                } else if self.check(&TokenType::LeftParen) {
-                    // Constructor pattern: Name(pattern1, pattern2, ...)
-                    self.advance();
-                    let mut patterns = Vec::new();
-                    
-                    while !self.check(&TokenType::RightParen) && !self.is_at_end() {
-                        let pattern = self.parse_pattern()?;
-                        patterns.push(pattern);
-                        
-                        if !self.check(&TokenType::RightParen) {
-                            self.expect(&TokenType::Comma)?;
-                        }
-                    }
-                    
-                    self.expect(&TokenType::RightParen)?;
-                    return Ok(Pattern::Constructor { name, patterns });
                 }
                 
                 return Ok(Pattern::Identifier(name));
@@ -1215,7 +1274,7 @@ impl Parser {
             let mut patterns = Vec::new();
             
             while !self.check(&TokenType::RightBracket) {
-                patterns.push(self.parse_pattern()?);
+                patterns.push(Box::new(self.parse_pattern()?));
                 if !self.check(&TokenType::RightBracket) {
                     self.expect(&TokenType::Comma)?;
                 }
@@ -1921,9 +1980,10 @@ impl Parser {
         matches!(self.current.token_type, TokenType::EOF)
     }
     
-    fn peek_next(&self) -> Option<&TokenType> {
-        // For now, simple implementation
-        None
+    fn skip_whitespace(&mut self) {
+        while self.check(&TokenType::Newline) {
+            self.advance();
+        }
     }
     
     fn is_end_of_expression(&self) -> bool {
@@ -2078,6 +2138,427 @@ impl Parser {
             _ => None,
         }
     }
+    
+    // New parsing methods for advanced features
+    
+    fn parse_loop(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'loop'
+        let body = Box::new(self.parse_block()?);
+        Ok(Expression::Loop { body, pos })
+    }
+    
+    fn parse_spawn(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'spawn'
+        let expr = Box::new(self.parse_expression()?);
+        Ok(Expression::Spawn { expr, pos })
+    }
+    
+    fn parse_select(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'select'
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut cases = Vec::new();
+        while !self.check(&TokenType::RightBrace) {
+            // Parse select case (simplified for now)
+            let channel = Box::new(self.parse_expression()?);
+            self.expect(&TokenType::Arrow)?;
+            let pattern = self.parse_pattern()?;
+            self.expect(&TokenType::FatArrow)?;
+            let handler = Box::new(self.parse_expression()?);
+            
+            cases.push(SelectCase { channel, pattern, handler });
+            
+            if !self.check(&TokenType::RightBrace) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        Ok(Expression::Select { cases, pos })
+    }
+    
+    fn parse_actor(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'actor'
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let mut fields = Vec::new();
+        let mut handlers = Vec::new();
+        
+        // Parse fields and handlers (simplified)
+        while !self.check(&TokenType::RightBrace) {
+            // This is a simplified implementation
+            if self.check_keyword(KeywordType::KeywordReceive) {
+                // Parse message handler
+                self.advance();
+                let message_type = self.expect_identifier()?;
+                self.expect(&TokenType::LeftParen)?;
+                let params = self.parse_parameters()?;
+                self.expect(&TokenType::RightParen)?;
+                self.expect(&TokenType::FatArrow)?;
+                let body = Box::new(self.parse_expression()?);
+                
+                handlers.push(MessageHandler {
+                    message_type,
+                    params,
+                    body,
+                });
+            } else {
+                // Parse field
+                let field_name = self.expect_identifier()?;
+                self.expect(&TokenType::Colon)?;
+                let field_type = self.parse_type()?;
+                fields.push((field_name, field_type));
+            }
+            
+            if !self.check(&TokenType::RightBrace) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        Ok(Expression::Actor { name, fields, handlers, pos })
+    }
+    
+    fn parse_send(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'send'
+        let message = Box::new(self.parse_expression()?);
+        // Expect 'to' keyword - but we don't have it defined yet, so parse it as identifier
+        // TODO: Add 'to' keyword to the language
+        if let TokenType::PrivateIdentifier(s) = &self.current.token_type {
+            if s == "to" {
+                self.advance();
+            } else {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "keyword 'to'".to_string(),
+                    found: self.current.token_type.clone(),
+                    pos: self.current.position.clone(),
+                });
+            }
+        }
+        let target = Box::new(self.parse_expression()?);
+        Ok(Expression::Send { message, target, pos })
+    }
+    
+    fn parse_receive(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'receive'
+        let pattern = self.parse_pattern()?;
+        self.expect(&TokenType::FatArrow)?;
+        let handler = Box::new(self.parse_expression()?);
+        Ok(Expression::Receive { pattern, handler, pos })
+    }
+    
+    fn parse_region(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'region'
+        
+        let name = if self.check(&TokenType::LeftBrace) {
+            None
+        } else {
+            Some(self.expect_identifier()?)
+        };
+        
+        let body = Box::new(self.parse_block()?);
+        Ok(Expression::Region { name, body, pos })
+    }
+    
+    fn parse_arena(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'arena'
+        let body = Box::new(self.parse_block()?);
+        Ok(Expression::Arena { body, pos })
+    }
+    
+    fn parse_comptime(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'comptime'
+        let body = Box::new(self.parse_block()?);
+        Ok(Expression::Comptime { body, pos })
+    }
+    
+    fn parse_macro(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'macro'
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftParen)?;
+        let mut params = Vec::new();
+        while !self.check(&TokenType::RightParen) {
+            params.push(self.expect_identifier()?);
+            if !self.check(&TokenType::RightParen) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        self.expect(&TokenType::RightParen)?;
+        
+        let body = Box::new(self.parse_block()?);
+        Ok(Expression::Macro { name, params, body, pos })
+    }
+    
+    fn parse_effect(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'effect'
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let mut operations = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            let op_name = self.expect_identifier()?;
+            self.expect(&TokenType::LeftParen)?;
+            let params = self.parse_parameters()?;
+            self.expect(&TokenType::RightParen)?;
+            
+            let return_type = if self.check(&TokenType::Colon) {
+                self.advance();
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            
+            operations.push(EffectOperation { name: op_name, params, return_type });
+            
+            if !self.check(&TokenType::RightBrace) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        Ok(Expression::Effect { name, operations, pos })
+    }
+    
+    fn parse_handle(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'handle'
+        let body = Box::new(self.parse_expression()?);
+        self.expect_keyword(KeywordType::KeywordWith)?;
+        let effect = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let mut handlers = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            let operation = self.expect_identifier()?;
+            self.expect(&TokenType::LeftParen)?;
+            let params = self.parse_parameters()?;
+            self.expect(&TokenType::RightParen)?;
+            self.expect(&TokenType::FatArrow)?;
+            let handler_body = Box::new(self.parse_expression()?);
+            
+            handlers.push(EffectHandler {
+                operation,
+                params,
+                body: handler_body,
+            });
+            
+            if !self.check(&TokenType::RightBrace) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        Ok(Expression::Handle { body, effect, handlers, pos })
+    }
+    
+    fn parse_defer(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'defer'
+        let body = Box::new(self.parse_expression()?);
+        Ok(Expression::Defer { body, pos })
+    }
+    
+    fn parse_assert(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'assert'
+        self.expect(&TokenType::LeftParen)?;
+        let condition = Box::new(self.parse_expression()?);
+        
+        let message = if self.check(&TokenType::Comma) {
+            self.advance();
+            if let TokenType::StringLiteral(msg) = &self.current.token_type {
+                let message = Some(msg.clone());
+                self.advance();
+                message
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
+        self.expect(&TokenType::RightParen)?;
+        Ok(Expression::Assert { condition, message, pos })
+    }
+    
+    fn parse_try(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'try'
+        let body = Box::new(self.parse_expression()?);
+        
+        let mut catch_clauses = Vec::new();
+        
+        while self.check_keyword(KeywordType::KeywordCatch) {
+            self.advance();
+            
+            let (exception_type, variable) = if self.check(&TokenType::LeftParen) {
+                self.advance();
+                let var = Some(self.expect_identifier()?);
+                self.expect(&TokenType::Colon)?;
+                let typ = Some(self.parse_type()?);
+                self.expect(&TokenType::RightParen)?;
+                (typ, var)
+            } else {
+                (None, None)
+            };
+            
+            let catch_body = Box::new(self.parse_block()?);
+            catch_clauses.push(CatchClause {
+                exception_type,
+                variable,
+                body: catch_body,
+            });
+        }
+        
+        let finally = if self.check_keyword(KeywordType::KeywordFinally) {
+            self.advance();
+            Some(Box::new(self.parse_block()?))
+        } else {
+            None
+        };
+        
+        Ok(Expression::Try { body, catch_clauses, finally, pos })
+    }
+    
+    fn parse_extension(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'extension'
+        let target_type = self.parse_type()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let mut methods = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            methods.push(self.parse_function()?);
+            if !self.check(&TokenType::RightBrace) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        Ok(Expression::Extension { target_type, methods, pos })
+    }
+    
+    fn parse_interface(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'interface'
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let mut methods = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            let method_name = self.expect_identifier()?;
+            self.expect(&TokenType::LeftParen)?;
+            let params = self.parse_parameters()?;
+            self.expect(&TokenType::RightParen)?;
+            
+            let return_type = if self.check(&TokenType::Colon) {
+                self.advance();
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            
+            let (is_default, default_impl) = if self.check(&TokenType::Assign) {
+                self.advance();
+                (true, Some(Box::new(self.parse_expression()?)))
+            } else {
+                (false, None)
+            };
+            
+            methods.push(InterfaceMethod {
+                name: method_name,
+                params,
+                return_type,
+                is_default,
+                default_impl,
+            });
+            
+            if !self.check(&TokenType::RightBrace) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        Ok(Expression::Interface { name, methods, pos })
+    }
+    
+    fn parse_class(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        
+        let mut is_sealed = false;
+        let mut is_open = false;
+        let mut is_abstract = false;
+        
+        // Check for class modifiers
+        if self.check_keyword(KeywordType::KeywordSealed) {
+            is_sealed = true;
+            self.advance();
+        } else if self.check_keyword(KeywordType::KeywordOpen) {
+            is_open = true;
+            self.advance();
+        } else if self.check_keyword(KeywordType::KeywordAbstract) {
+            is_abstract = true;
+            self.advance();
+        }
+        
+        self.advance(); // consume 'class'
+        let name = self.expect_identifier()?;
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        let mut companion = None;
+        
+        while !self.check(&TokenType::RightBrace) {
+            if self.check_keyword(KeywordType::KeywordCompanion) {
+                self.advance();
+                self.expect_keyword(KeywordType::KeywordObject)?;
+                companion = Some(Box::new(self.parse_block()?));
+            } else if self.check_keyword(KeywordType::KeywordFun) {
+                methods.push(self.parse_function()?);
+            } else {
+                // Parse field
+                let field_name = self.expect_identifier()?;
+                self.expect(&TokenType::Colon)?;
+                let field_type = self.parse_type()?;
+                fields.push((field_name, field_type));
+            }
+            
+            if !self.check(&TokenType::RightBrace) {
+                self.expect(&TokenType::Comma)?;
+            }
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        Ok(Expression::Class {
+            name,
+            is_sealed,
+            is_open,
+            is_abstract,
+            fields,
+            methods,
+            companion,
+            pos,
+        })
+    }
+    
 }
 
 #[cfg(test)]

@@ -30,6 +30,7 @@ tempfile = { workspace = true }
 # For project configuration
 toml = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 # For terminal coloring
 colored = { workspace = true }
