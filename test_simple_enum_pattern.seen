@@ -1,0 +1,11 @@
+enum Status {
+    Active
+    Inactive
+}
+
+let status = Active
+
+match status {
+    Active -> 1
+    Inactive -> 0
+}

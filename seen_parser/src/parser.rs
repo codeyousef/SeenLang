@@ -829,6 +829,30 @@ impl Parser {
                     return Ok(Pattern::Struct { name, fields });
                 }
                 
+                if self.check(&TokenType::LeftParen) {
+                    // Enum pattern: Success(x, y) or Failure(msg)
+                    self.advance();
+                    let mut field_patterns = Vec::new();
+                    
+                    while !self.check(&TokenType::RightParen) {
+                        let field_pattern = self.parse_pattern()?;
+                        field_patterns.push(Box::new(field_pattern));
+                        
+                        if !self.check(&TokenType::RightParen) {
+                            self.expect(&TokenType::Comma)?;
+                        }
+                    }
+                    
+                    self.expect(&TokenType::RightParen)?;
+                    
+                    // For now, assume it's an enum pattern (we might need more sophisticated disambiguation later)
+                    return Ok(Pattern::Enum { 
+                        enum_name: "".to_string(), // We'll need to resolve this during type checking
+                        variant: name, 
+                        fields: field_patterns 
+                    });
+                }
+                
                 return Ok(Pattern::Identifier(name));
             }
             // Keywords can also be used as pattern identifiers

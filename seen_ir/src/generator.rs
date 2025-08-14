@@ -983,6 +983,38 @@ impl IRGenerator {
                     instructions.push(Instruction::Jump(arm_label.clone()));
                     break; // No need to check further patterns after wildcard
                 },
+                seen_parser::Pattern::Identifier(_name) => {
+                    // Identifier pattern always matches (binds the value to the identifier)
+                    // For now, treat as wildcard - TODO: implement variable binding
+                    instructions.push(Instruction::Jump(arm_label.clone()));
+                    break;
+                },
+                seen_parser::Pattern::Enum { variant, fields, .. } => {
+                    // For enum patterns, we need to check the enum tag
+                    // For now, implement basic enum variant matching without field destructuring
+                    // TODO: Implement proper enum tag checking and field extraction
+                    
+                    // Generate a placeholder comparison - this needs proper enum tag checking
+                    let cmp_reg = self.context.allocate_register();
+                    let cmp_result = IRValue::Register(cmp_reg);
+                    
+                    // This is a placeholder - in a real implementation we'd:
+                    // 1. Extract the tag from the enum value
+                    // 2. Compare it with the expected variant tag
+                    // 3. If fields.len() > 0, extract and bind field values
+                    
+                    instructions.push(Instruction::Binary {
+                        op: crate::instruction::BinaryOp::Equal,
+                        left: match_val.clone(),
+                        right: IRValue::StringConstant(0), // Placeholder
+                        result: cmp_result.clone(),
+                    });
+                    
+                    instructions.push(Instruction::JumpIf {
+                        condition: cmp_result,
+                        target: arm_label.clone(),
+                    });
+                },
                 _ => return Err(IRError::Other("Complex patterns not yet implemented".to_string())),
             }
         }

@@ -458,6 +458,7 @@ pub enum Pattern {
     Range { start: Box<Expression>, end: Box<Expression>, inclusive: bool },
     Struct { name: String, fields: Vec<(String, Box<Pattern>)> },
     Array(Vec<Box<Pattern>>),
+    Enum { enum_name: String, variant: String, fields: Vec<Box<Pattern>> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

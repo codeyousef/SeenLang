@@ -242,6 +242,7 @@ Status Status__Active() {
 1. **Contracts**: `requires`, `ensures`, `invariant` - keywords exist but no parsing
 2. **Advanced Pattern Matching**: Destructuring patterns for enums in match expressions
 3. **Generic Enums**: `enum Option<T> { Some(T), None }` - basic enums work, generics need extension
+4. **Pattern Literal Matching**: Basic literal patterns in match expressions need fixing (pre-existing issue)
 
 ### **4. Type System Gaps** ⚠️ **15% Remaining**
 - Generic type resolution incomplete (structs and enums need generic support)
@@ -254,6 +255,22 @@ Status Status__Active() {
 - Missing memory management (no free() calls)
 
 ---
+
+## 🐛 KNOWN ISSUES (Aug 14, 2025)
+
+### **Pattern Matching Parsing Issue**
+- **Problem**: Basic literal patterns in match expressions fail to parse
+- **Error**: "Unexpected token: found IntegerLiteral(1), expected identifier"
+- **Status**: Pre-existing issue discovered during enum pattern implementation
+- **Impact**: Match expressions with literal patterns don't parse correctly
+- **Workaround**: None currently - needs investigation and fix
+
+### **Enum Pattern Destructuring**
+- **Status**: Partially implemented
+- **Completed**: AST support with Pattern::Enum variant added
+- **Completed**: Basic enum pattern parsing in parser
+- **Pending**: Full destructuring with variable binding
+- **Pending**: Proper enum tag checking in IR generation
 
 ## 🔥 IMMEDIATE CRITICAL TASKS
 
@@ -897,6 +914,6 @@ code seen_parser/src/ast.rs     # Add contract AST variants here
 
 ---
 
-*Last Updated: August 13, 2025 - Advanced Parser Features Session Complete*  
-*Next Session Goal: Contract Parsing Implementation (requires/ensures/invariant)*  
+*Last Updated: August 14, 2025 - Enum Types Implementation Complete*  
+*Next Session Goal: Fix Pattern Matching Literal Parsing Issue*  
 *Environment: Ready for immediate continuation with TDD workflow*

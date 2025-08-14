@@ -1,0 +1,11 @@
+enum Result {
+    Success(value: Int)
+    Failure(error: String)
+}
+
+let result = Success(42)
+
+match result {
+    Success(x) -> x + 10
+    Failure(msg) -> 0
+}
