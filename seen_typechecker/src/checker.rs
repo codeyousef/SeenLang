@@ -256,6 +256,11 @@ impl TypeChecker {
                 self.check_function_definition(name, params, return_type, body, *pos)
             }
             
+            // Interface definition
+            Expression::Interface { name, methods, pos } => {
+                self.check_interface_definition(name, methods, *pos)
+            }
+            
             // For now, treat other expression types as unknown
             _ => Type::Unknown
         }
@@ -819,6 +824,56 @@ impl TypeChecker {
         self.current_function_return_type = saved_return_type;
 
         // Function definitions return the function type (for now, Unit)
+        Type::Unit
+    }
+    
+    /// Type check an interface definition
+    fn check_interface_definition(&mut self, name: &str, methods: &[InterfaceMethod], pos: Position) -> Type {
+        // Collect method signatures
+        let mut method_names = Vec::new();
+        for method in methods {
+            method_names.push(method.name.clone());
+            
+            // Convert parameters to our type system
+            let mut params = Vec::new();
+            for param in &method.params {
+                let param_type = if let Some(type_ann) = &param.type_annotation {
+                    Type::from(type_ann)
+                } else {
+                    Type::Unknown
+                };
+                params.push(crate::Parameter {
+                    name: param.name.clone(),
+                    param_type,
+                });
+            }
+            
+            // Convert return type
+            let return_type = if let Some(ret_type) = &method.return_type {
+                Some(Type::from(ret_type))
+            } else {
+                Some(Type::Unit)
+            };
+            
+            // Store method signature
+            let signature = FunctionSignature {
+                name: format!("{}::{}", name, method.name),
+                parameters: params,
+                return_type,
+            };
+            
+            self.env.define_function(format!("{}::{}", name, method.name), signature);
+        }
+        
+        // Create and register the interface type
+        let interface_type = Type::Interface {
+            name: name.to_string(),
+            methods: method_names,
+            generics: Vec::new(), // TODO: Add generic support
+        };
+        
+        self.env.define_type(name.to_string(), interface_type.clone());
+        
         Type::Unit
     }
 }

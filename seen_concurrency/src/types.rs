@@ -356,6 +356,54 @@ pub enum ChannelState {
     Error(String),
 }
 
+impl Channel {
+    /// Create a new channel
+    pub fn new(id: ChannelId, capacity: Option<usize>) -> Self {
+        Self {
+            id,
+            capacity,
+            state: ChannelState::Open,
+            sender_count: 0,
+            receiver_count: 0,
+        }
+    }
+    
+    /// Send a value to the channel (blocking)
+    pub fn send(&self, _value: AsyncValue) -> Result<(), String> {
+        match self.state {
+            ChannelState::Open => {
+                // In a real implementation, this would queue the message
+                Ok(())
+            }
+            ChannelState::Closed => Err("Channel is closed".to_string()),
+            ChannelState::Error(ref err) => Err(err.clone()),
+        }
+    }
+    
+    /// Try to receive a value from the channel (non-blocking)
+    pub fn try_recv(&self) -> Result<AsyncValue, String> {
+        match self.state {
+            ChannelState::Open => {
+                // In a real implementation, this would check the queue
+                // For now, return a placeholder that indicates no message available
+                Err("No message available".to_string())
+            }
+            ChannelState::Closed => Err("Channel is closed".to_string()),
+            ChannelState::Error(ref err) => Err(err.clone()),
+        }
+    }
+    
+    /// Close the channel
+    pub fn close(&mut self) {
+        self.state = ChannelState::Closed;
+    }
+    
+    /// Check if channel is open
+    pub fn is_open(&self) -> bool {
+        matches!(self.state, ChannelState::Open)
+    }
+}
+
 /// Actor reference for message-based concurrency
 #[derive(Debug, Clone)]
 pub struct ActorRef {

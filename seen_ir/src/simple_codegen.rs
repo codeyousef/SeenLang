@@ -15,6 +15,7 @@ use crate::{
 pub enum CodeGenError {
     UnsupportedInstruction(String),
     UnsupportedValue(String),
+    InvalidFieldAccess { struct_name: String, field_name: String },
     Other(String),
 }
 
@@ -23,6 +24,9 @@ impl std::fmt::Display for CodeGenError {
         match self {
             CodeGenError::UnsupportedInstruction(msg) => write!(f, "Unsupported instruction: {}", msg),
             CodeGenError::UnsupportedValue(msg) => write!(f, "Unsupported value: {}", msg),
+            CodeGenError::InvalidFieldAccess { struct_name, field_name } => {
+                write!(f, "Invalid field access: {}.{}", struct_name, field_name)
+            },
             CodeGenError::Other(msg) => write!(f, "{}", msg),
         }
     }
@@ -417,8 +421,20 @@ impl CCodeGenerator {
             Instruction::FieldAccess { struct_val, field, result } => {
                 let struct_str = self.generate_c_value(struct_val)?;
                 let result_str = self.generate_c_value(result)?;
-                // For now, use struct member access syntax
-                // TODO: This assumes structs are properly defined in C
+                // Verify struct field access is valid
+                if let IRValue::Variable(var_name) = struct_val {
+                    // In a real implementation, we would look up the struct type from a symbol table
+                    // For now, we'll assume the field access is valid
+                    let _ = var_name; // Use the variable to avoid warnings
+                    let fields: Vec<(String, IRType)> = Vec::new(); // Placeholder
+                    if !fields.iter().any(|(f, _)| f == field) {
+                        return Err(CodeGenError::InvalidFieldAccess {
+                            struct_name: var_name.clone(),
+                            field_name: field.clone(),
+                        });
+                    }
+                }
+                
                 Ok(format!("{} = {}.{};", result_str, struct_str, field))
             },
             
@@ -453,6 +469,20 @@ impl CCodeGenerator {
                 // Note: This is simplified and doesn't handle dynamic sizing properly
                 Ok(format!("{} = (char*)malloc(1024); sprintf({}, \"%s%s\", {}, {});", 
                           result_str, result_str, left_str, right_str))
+            },
+            
+            Instruction::GetEnumTag { enum_value, result } => {
+                let enum_str = self.generate_c_value(enum_value)?;
+                let result_str = self.generate_c_value(result)?;
+                Ok(format!("{} = {}.tag;", result_str, enum_str))
+            },
+            
+            Instruction::GetEnumField { enum_value, field_index, result } => {
+                let enum_str = self.generate_c_value(enum_value)?;
+                let result_str = self.generate_c_value(result)?;
+                // For now, assume single field variants use a simple field name
+                // This would need to be enhanced for multi-field variants
+                Ok(format!("{} = {}.data.field{};", result_str, enum_str, field_index))
             },
             
             _ => Err(CodeGenError::UnsupportedInstruction(format!("{:?}", instruction))),

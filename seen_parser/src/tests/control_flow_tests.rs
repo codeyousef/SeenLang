@@ -59,13 +59,11 @@ fn test_parse_if_with_word_operators() {
 
 #[test]
 fn test_parse_match_expression() {
-    let expr = parse_expression(r#"
-        match value {
+    let expr = parse_expression(r#"match value {
             0 -> "zero"
             1..10 -> "small"
             _ -> "large"
-        }
-    "#).unwrap();
+        }"#).unwrap();
     
     match expr {
         Expression::Match { arms, .. } => {

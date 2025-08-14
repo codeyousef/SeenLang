@@ -9,10 +9,18 @@ use seen_lexer::{Lexer, Token, TokenType, Position};
 use seen_lexer::keyword_manager::KeywordType;
 use std::collections::VecDeque;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ParsingContext {
+    TopLevel,
+    Statement,
+    Expression,
+}
+
 pub struct Parser {
     lexer: Lexer,
     current: Token,
     peek_buffer: VecDeque<Token>,
+    parsing_context: ParsingContext,
 }
 
 impl Parser {
@@ -39,6 +47,7 @@ impl Parser {
             lexer,
             current,
             peek_buffer: VecDeque::new(),
+            parsing_context: ParsingContext::TopLevel,
         }
     }
     
@@ -145,6 +154,13 @@ impl Parser {
     
     /// Parse any expression
     pub fn parse_expression(&mut self) -> ParseResult<Expression> {
+        self.parse_assignment()
+    }
+    
+    /// Parse an expression that stops at newlines (for statement-level parsing)
+    fn parse_statement_level_expression(&mut self) -> ParseResult<Expression> {
+        // For now, just parse a normal expression
+        // The real fix will be to properly handle statement boundaries
         self.parse_assignment()
     }
     
@@ -709,20 +725,19 @@ impl Parser {
         let pos = self.current.position.clone();
         self.advance(); // consume 'if'
         
-        let condition = self.parse_expression()?;
-        self.expect(&TokenType::LeftBrace)?;
-        let then_branch = self.parse_block_body()?;
-        self.expect(&TokenType::RightBrace)?;
+        // Parse condition without trailing lambdas
+        let condition = self.parse_condition_expression()?;
+        
+        // Parse the then branch as a block
+        let then_branch = self.parse_block()?;
         
         let else_branch = if self.check_keyword(KeywordType::KeywordElse) {
             self.advance();
             if self.check_keyword(KeywordType::KeywordIf) {
                 Some(Box::new(self.parse_if()?))
             } else {
-                self.expect(&TokenType::LeftBrace)?;
-                let else_body = self.parse_block_body()?;
-                self.expect(&TokenType::RightBrace)?;
-                Some(Box::new(else_body))
+                // Parse the else branch as a block
+                Some(Box::new(self.parse_block()?))
             }
         } else {
             None
@@ -736,17 +751,320 @@ impl Parser {
         })
     }
     
+    /// Parse an expression for control flow conditions (if/for/while)
+    /// This parses expressions but stops before { to avoid treating it as trailing lambda
+    fn parse_condition_expression(&mut self) -> ParseResult<Expression> {
+        self.parse_condition_logical_or()
+    }
+    
+    fn parse_condition_logical_or(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_logical_and()?;
+        
+        while self.check(&TokenType::LogicalOr) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_logical_and()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::Or,
+                right: Box::new(right),
+                pos,
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn parse_condition_logical_and(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_equality()?;
+        
+        while self.check(&TokenType::LogicalAnd) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_equality()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::And,
+                right: Box::new(right),
+                pos,
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn parse_condition_equality(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_comparison()?;
+        
+        while let Some(op) = self.match_equality_op() {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_comparison()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+                pos,
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn parse_condition_comparison(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_term()?;
+        
+        while let Some(op) = self.match_comparison_op() {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_term()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+                pos,
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn parse_condition_term(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_factor()?;
+        
+        while let Some(op) = self.match_term_op() {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_factor()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+                pos,
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn parse_condition_factor(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_unary()?;
+        
+        while let Some(op) = self.match_factor_op() {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_unary()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+                pos,
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn parse_condition_unary(&mut self) -> ParseResult<Expression> {
+        if self.check(&TokenType::LogicalNot) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let operand = self.parse_condition_unary()?;
+            return Ok(Expression::UnaryOp {
+                op: UnaryOperator::Not,
+                operand: Box::new(operand),
+                pos,
+            });
+        }
+        
+        if self.check(&TokenType::Minus) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let operand = self.parse_condition_unary()?;
+            return Ok(Expression::UnaryOp {
+                op: UnaryOperator::Negate,
+                operand: Box::new(operand),
+                pos,
+            });
+        }
+        
+        self.parse_condition_postfix()
+    }
+    
+    fn parse_condition_postfix(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_await()?;
+        
+        loop {
+            match &self.current.token_type {
+                TokenType::LeftBrace => {
+                    // In condition context, never treat { as trailing lambda
+                    // Just stop parsing and let the control flow handle the block
+                    break;
+                }
+                TokenType::LeftParen => {
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let args = self.parse_arguments()?;
+                    self.expect(&TokenType::RightParen)?;
+                    expr = Expression::Call {
+                        callee: Box::new(expr),
+                        args,
+                        pos,
+                    };
+                }
+                TokenType::Dot => {
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let member = self.expect_identifier()?;
+                    expr = Expression::MemberAccess {
+                        object: Box::new(expr),
+                        member,
+                        is_safe: false,
+                        pos,
+                    };
+                }
+                TokenType::SafeNavigation => {
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let member = self.expect_identifier()?;
+                    expr = Expression::MemberAccess {
+                        object: Box::new(expr),
+                        member,
+                        is_safe: true,
+                        pos,
+                    };
+                }
+                TokenType::LeftBracket => {
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let index = self.parse_expression()?;
+                    self.expect(&TokenType::RightBracket)?;
+                    expr = Expression::IndexAccess {
+                        object: Box::new(expr),
+                        index: Box::new(index),
+                        pos,
+                    };
+                }
+                TokenType::ForceUnwrap => {
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    expr = Expression::ForceUnwrap {
+                        nullable: Box::new(expr),
+                        pos,
+                    };
+                }
+                _ => break,
+            }
+        }
+        
+        Ok(expr)
+    }
+    
+    fn parse_condition_await(&mut self) -> ParseResult<Expression> {
+        if self.check_keyword(KeywordType::KeywordAwait) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let expr = self.parse_condition_unary()?;
+            return Ok(Expression::Await {
+                expr: Box::new(expr),
+                pos,
+            });
+        }
+        
+        self.parse_primary()
+    }
+    
+    /// Parse the target expression for a match statement
+    /// This is like parse_expression but stops before consuming { as a trailing lambda
+    fn parse_match_target(&mut self) -> ParseResult<Expression> {
+        // Parse a full expression but without postfix operations that might consume {
+        let mut expr = self.parse_await()?;
+        
+        // Handle postfix operations but stop at {
+        loop {
+            match &self.current.token_type {
+                TokenType::LeftParen => {
+                    // Function call
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let args = self.parse_arguments()?;
+                    self.expect(&TokenType::RightParen)?;
+                    expr = Expression::Call {
+                        callee: Box::new(expr),
+                        args,
+                        pos,
+                    };
+                }
+                TokenType::LeftBracket => {
+                    // Array/map access  
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let index = self.parse_expression()?;
+                    self.expect(&TokenType::RightBracket)?;
+                    expr = Expression::IndexAccess {
+                        object: Box::new(expr),
+                        index: Box::new(index),
+                        pos,
+                    };
+                }
+                TokenType::Dot => {
+                    // Member access
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let member = self.expect_identifier()?;
+                    expr = Expression::MemberAccess {
+                        object: Box::new(expr),
+                        member,
+                        is_safe: false,
+                        pos,
+                    };
+                }
+                TokenType::SafeNavigation => {
+                    // Safe navigation ?.
+                    let pos = self.current.position.clone();
+                    self.advance();
+                    let member = self.expect_identifier()?;
+                    expr = Expression::MemberAccess {
+                        object: Box::new(expr),
+                        member,
+                        is_safe: true,
+                        pos,
+                    };
+                }
+                TokenType::LeftBrace => {
+                    // Stop here - don't consume { as it's part of match syntax
+                    break;
+                }
+                _ => break,
+            }
+        }
+        
+        Ok(expr)
+    }
+    
     /// Parse match expression
     fn parse_match(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'match'
         
-        let expr = self.parse_expression()?;
+        // Parse the expression to match on, but don't allow trailing lambdas
+        // as the { } following the expression is part of the match syntax
+        let expr = self.parse_match_target()?;
         self.expect(&TokenType::LeftBrace)?;
         
         let mut arms = Vec::new();
         
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip any leading newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            // Check for end after skipping newlines
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
             let pattern = self.parse_pattern()?;
             
             let guard = if self.check_keyword(KeywordType::KeywordIf) {
@@ -766,7 +1084,7 @@ impl Parser {
             });
             
             // Optional comma or newline
-            if self.check(&TokenType::Comma) {
+            if self.check(&TokenType::Comma) || self.check(&TokenType::Newline) {
                 self.advance();
             }
         }
@@ -782,25 +1100,33 @@ impl Parser {
     
     /// Parse pattern for match expressions
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
-        // Wildcard pattern
         // Wildcard pattern - check for underscore identifier
         if self.check_identifier_value("_") {
             self.advance();
             return Ok(Pattern::Wildcard);
         }
         
-        // Try to parse literal patterns (including bool and null)
-        if let Ok(start) = self.try_parse_pattern_literal() {
-            if self.check(&TokenType::InclusiveRange) {
-                self.advance();
-                let inclusive = !self.check(&TokenType::Less);
-                if !inclusive {
+        // Check for literal patterns first before trying to parse them
+        // This avoids consuming tokens if it's not a literal
+        match &self.current.token_type {
+            TokenType::IntegerLiteral(_) | 
+            TokenType::FloatLiteral(_) | 
+            TokenType::StringLiteral(_) | 
+            TokenType::BoolLiteral(_) |
+            TokenType::Keyword(KeywordType::KeywordNull) => {
+                let start = self.try_parse_pattern_literal()?;
+                if self.check(&TokenType::InclusiveRange) {
                     self.advance();
+                    let inclusive = !self.check(&TokenType::Less);
+                    if !inclusive {
+                        self.advance();
+                    }
+                    let end = self.parse_primary()?;
+                    return Ok(Pattern::Range { start: Box::new(start), end: Box::new(end), inclusive });
                 }
-                let end = self.parse_primary()?;
-                return Ok(Pattern::Range { start: Box::new(start), end: Box::new(end), inclusive });
+                return Ok(Pattern::Literal(Box::new(start)));
             }
-            return Ok(Pattern::Literal(Box::new(start)));
+            _ => {}
         }
         
         // Identifier or struct pattern (including keywords used as identifiers)
@@ -845,12 +1171,20 @@ impl Parser {
                     
                     self.expect(&TokenType::RightParen)?;
                     
-                    // For now, assume it's an enum pattern (we might need more sophisticated disambiguation later)
-                    return Ok(Pattern::Enum { 
-                        enum_name: "".to_string(), // We'll need to resolve this during type checking
-                        variant: name, 
-                        fields: field_patterns 
-                    });
+                    // Try to determine if this is an enum pattern based on naming conventions
+                    // If the name starts with uppercase, it's likely an enum variant
+                    let is_enum_variant = name.chars().next().map_or(false, |c| c.is_uppercase());
+                    
+                    if is_enum_variant {
+                        return Ok(Pattern::Enum { 
+                            enum_name: "".to_string(), // Will be resolved during type checking
+                            variant: name, 
+                            fields: field_patterns 
+                        });
+                    } else {
+                        // Lowercase name with parentheses - likely a tuple pattern or function pattern
+                        return Ok(Pattern::Array(field_patterns));
+                    }
                 }
                 
                 return Ok(Pattern::Identifier(name));
@@ -914,10 +1248,11 @@ impl Parser {
         
         let variable = self.expect_identifier()?;
         self.expect_keyword(KeywordType::KeywordIn)?;
-        let iterable = self.parse_expression()?;
-        self.expect(&TokenType::LeftBrace)?;
-        let body = self.parse_block_body()?;
-        self.expect(&TokenType::RightBrace)?;
+        // Parse iterable without trailing lambdas
+        let iterable = self.parse_condition_expression()?;
+        
+        // Parse the body as a block
+        let body = self.parse_block()?;
         
         Ok(Expression::For {
             variable,
@@ -979,7 +1314,7 @@ impl Parser {
         };
         
         self.expect(&TokenType::Assign)?;
-        let value = self.parse_expression()?;
+        let value = self.parse_statement_level_expression()?;
         
         Ok(Expression::Let {
             name,
@@ -1014,7 +1349,7 @@ impl Parser {
         };
         
         self.expect(&TokenType::Assign)?;
-        let value = self.parse_expression()?;
+        let value = self.parse_statement_level_expression()?;
         
         Ok(Expression::Let {
             name,
@@ -1320,6 +1655,67 @@ impl Parser {
         })
     }
     
+    /// Parse lambda after we've already consumed the opening brace
+    fn parse_lambda_after_brace(&mut self, pos: Position) -> ParseResult<Expression> {
+        // Parse parameters (could be empty, single identifier, or full parameter list)
+        let mut params = Vec::new();
+        
+        // Check if we have parameters before the arrow
+        if !self.check(&TokenType::Arrow) {
+            // Parse first parameter
+            if let Ok(param_name) = self.expect_identifier() {
+                let type_annotation = if self.check(&TokenType::Colon) {
+                    self.advance();
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                
+                params.push(Parameter {
+                    name: param_name,
+                    type_annotation,
+                    default_value: None,
+                    memory_modifier: None,
+                });
+                
+                // Parse additional parameters
+                while self.check(&TokenType::Comma) {
+                    self.advance();
+                    let param_name = self.expect_identifier()?;
+                    let type_annotation = if self.check(&TokenType::Colon) {
+                        self.advance();
+                        Some(self.parse_type()?)
+                    } else {
+                        None
+                    };
+                    
+                    params.push(Parameter {
+                        name: param_name,
+                        type_annotation,
+                        default_value: None,
+                        memory_modifier: None,
+                    });
+                }
+            }
+        }
+        
+        // Expect arrow
+        self.expect(&TokenType::Arrow)?;
+        
+        // Parse body
+        let body = self.parse_lambda_body()?;
+        
+        // Expect closing brace
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::Lambda {
+            params,
+            body: Box::new(body),
+            return_type: None,
+            pos,
+        })
+    }
+    
     /// Parse block expression
     fn parse_block(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
@@ -1327,10 +1723,9 @@ impl Parser {
         
         // Check if this is actually a lambda disguised as a block
         if self.is_lambda_in_braces() {
-            // Parse as lambda but consume the braces
-            let lambda = self.parse_lambda_body()?;
-            self.expect(&TokenType::RightBrace)?;
-            return Ok(lambda);
+            // This is a lambda like { x -> x + 1 }
+            // We need to parse it as a lambda, not just the body
+            return self.parse_lambda_after_brace(pos);
         }
         
         let mut expressions = Vec::new();
@@ -1353,7 +1748,13 @@ impl Parser {
         
         self.expect(&TokenType::RightBrace)?;
         
-        Ok(Expression::Block { expressions, pos })
+        // If there's only one expression, return it directly
+        // This allows blocks like { 42 } to evaluate to just 42
+        match expressions.len() {
+            0 => Ok(Expression::Block { expressions: Vec::new(), pos }),
+            1 => Ok(expressions.into_iter().next().unwrap()),
+            _ => Ok(Expression::Block { expressions, pos })
+        }
     }
     
     /// Parse block body (returns last expression value)
@@ -1587,7 +1988,7 @@ impl Parser {
         let name = self.expect_identifier()?;
         self.expect(&TokenType::Colon)?;
         
-        // Check for memory management keywords: inout, mut, borrow
+        // Check for memory management keywords before the type: inout, mut, borrow
         let is_mutable = if self.check(&TokenType::Inout) {
             self.advance();
             true
@@ -1906,44 +2307,49 @@ impl Parser {
     fn is_lambda_in_braces(&mut self) -> bool {
         // Look ahead to determine if this is a lambda within braces (already consumed opening brace)
         // Lambda: x -> ... or (x: Type) -> ... or (x, y) -> ...
+        // Or implicit 'it' lambda: { it * 2 } (no arrow, but uses 'it')
         
-        let mut lookahead_tokens = Vec::new();
+        // Save current position for potential restoration
+        let saved_current = self.current.clone();
+        let mut temp_tokens = Vec::new();
+        let mut found_arrow = false;
+        let mut found_it_reference = false;
         
-        // Look ahead to find arrow token within reasonable distance  
+        // Temporarily advance to look ahead
         for _ in 0..15 {
-            // Get next token but save it for restoration
-            if let Ok(token) = self.lexer.next_token() {
-                match &token.token_type {
-                    TokenType::Arrow => {
-                        // Found arrow - put all tokens back and return true
-                        lookahead_tokens.push(token);
-                        for t in lookahead_tokens.into_iter().rev() {
-                            self.peek_buffer.push_front(t);
-                        }
-                        return true;
-                    }
-                    TokenType::RightBrace | TokenType::EOF => {
-                        // No arrow before closing - put tokens back and return false
-                        lookahead_tokens.push(token);
-                        for t in lookahead_tokens.into_iter().rev() {
-                            self.peek_buffer.push_front(t);
-                        }
-                        return false;
-                    }
-                    _ => {
-                        lookahead_tokens.push(token);
+            // Use advance() which properly handles peek_buffer
+            self.advance();
+            temp_tokens.push(self.current.clone());
+            
+            match &self.current.token_type {
+                TokenType::Arrow => {
+                    found_arrow = true;
+                    break;
+                }
+                TokenType::RightBrace | TokenType::EOF => {
+                    break;
+                }
+                TokenType::PrivateIdentifier(name) | TokenType::PublicIdentifier(name) => {
+                    if name == "it" {
+                        found_it_reference = true;
                     }
                 }
-            } else {
-                break;
+                _ => {}
             }
         }
         
-        // Restore tokens and assume false
-        for t in lookahead_tokens.into_iter().rev() {
-            self.peek_buffer.push_front(t);
+        // Restore tokens properly
+        // Put all tokens back into peek_buffer in correct order
+        self.current = saved_current;
+        
+        // Put tokens back into peek_buffer in reverse order
+        // (since peek_buffer is a deque and we'll pop from front)
+        for token in temp_tokens.into_iter().rev() {
+            self.peek_buffer.push_front(token);
         }
-        false
+        
+        // It's a lambda if we found an arrow OR if we found 'it' reference (implicit lambda)
+        found_arrow || found_it_reference
     }
 
     fn is_lambda(&mut self) -> bool {
@@ -2028,9 +2434,21 @@ impl Parser {
             return false;
         }
         
-        // For now, if we see a LeftParen right after 'fun', assume it's receiver syntax
-        // This is a simple heuristic that avoids complex lookahead
-        true
+        // Look ahead to distinguish receiver syntax from regular function parameters
+        // Receiver syntax: fun (receiver: Type) MethodName(...)
+        // Regular syntax: fun FunctionName(...)
+        
+        // Use peek ahead instead of modifying current position
+        let lookahead_1 = self.peek_ahead(1); // Identifier after '('
+        let lookahead_2 = self.peek_ahead(2); // Should be ':'
+        
+        match (lookahead_1, lookahead_2) {
+            (Some(token1), Some(token2)) => {
+                matches!(token1.token_type, TokenType::PrivateIdentifier(_) | TokenType::PublicIdentifier(_)) && 
+                matches!(token2.token_type, TokenType::Colon)
+            }
+            _ => false
+        }
     }
     
     /// Look ahead at token at position i (0 = current token, 1 = next token, etc.)
@@ -2053,8 +2471,23 @@ impl Parser {
     
     /// Check if the token at given lookahead position could be a type
     fn is_type_at_lookahead(&mut self, _distance: usize) -> bool {
-        // For now, simple check - any identifier can be a type
-        matches!(self.current.token_type, TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_))
+        match &self.current.token_type {
+            // Type identifiers (usually start with uppercase)
+            TokenType::PublicIdentifier(_) => true,
+            // Built-in types might be lowercase
+            TokenType::PrivateIdentifier(name) => {
+                matches!(name.as_str(), "int" | "float" | "string" | "bool" | "unit" | "any")
+            }
+            // Generic type parameters like List<T>
+            TokenType::Less => true, // Could be start of generic
+            // Array types like [Int]
+            TokenType::LeftBracket => true,
+            // Function types like (Int, String) -> Bool
+            TokenType::LeftParen => true,
+            // Nullable types like String?
+            TokenType::Question => true,
+            _ => false,
+        }
     }
     
     fn match_equality_op(&self) -> Option<BinaryOperator> {
@@ -2115,11 +2548,26 @@ impl Parser {
         
         let mut cases = Vec::new();
         while !self.check(&TokenType::RightBrace) {
-            // Parse select case (simplified for now)
+            // Skip newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            // Parse select case: channel <- pattern => handler
             let channel = Box::new(self.parse_expression()?);
+            
+            // Expect channel receive operator (using <- which might be Arrow)
             self.expect(&TokenType::Arrow)?;
+            
             let pattern = self.parse_pattern()?;
+            
+            // Expect case arrow
             self.expect(&TokenType::FatArrow)?;
+            
             let handler = Box::new(self.parse_expression()?);
             
             cases.push(SelectCase { channel, pattern, handler });
@@ -2502,8 +2950,8 @@ impl Parser {
             
             // Check if it's a method (starts with 'fun')
             if self.check_keyword(KeywordType::KeywordFun) {
-                // TODO: Add annotations support for methods
-                methods.push(self.parse_method()?);
+                // Parse method with annotations support
+                methods.push(self.parse_method_with_annotations(annotations)?);
             } else {
                 // It's a field
                 fields.push(self.parse_class_field(annotations)?);
@@ -2557,6 +3005,12 @@ impl Parser {
         })
     }
     
+    fn parse_method_with_annotations(&mut self, annotations: Vec<crate::ast::Annotation>) -> ParseResult<crate::ast::Method> {
+        let mut method = self.parse_method()?;
+        method.annotations = annotations;
+        Ok(method)
+    }
+    
     fn parse_method(&mut self) -> ParseResult<crate::ast::Method> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'fun'
@@ -2567,6 +3021,15 @@ impl Parser {
             self.advance(); // consume '('
             let receiver_name = self.expect_identifier()?;
             self.expect(&TokenType::Colon)?;
+            
+            // Check for mutable modifier
+            let is_mutable = if self.check_keyword(KeywordType::KeywordMut) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            
             let receiver_type = self.expect_identifier()?;
             self.expect(&TokenType::RightParen)?;
             
@@ -2575,7 +3038,7 @@ impl Parser {
             let receiver = Some(crate::ast::Receiver {
                 name: receiver_name,
                 type_name: receiver_type,
-                is_mutable: false, // TODO: handle mutable receivers
+                is_mutable,
             });
             
             (receiver, method_name)
@@ -2611,6 +3074,7 @@ impl Parser {
             is_public,
             is_static,
             receiver,
+            annotations: Vec::new(), // Default empty annotations
             pos,
         })
     }

@@ -131,6 +131,10 @@ pub enum Instruction {
     FieldAccess { struct_val: IRValue, field: String, result: IRValue },
     FieldSet { struct_val: IRValue, field: String, value: IRValue },
     
+    // Enum operations
+    GetEnumTag { enum_value: IRValue, result: IRValue },
+    GetEnumField { enum_value: IRValue, field_index: u32, result: IRValue },
+    
     // Type operations
     Cast { value: IRValue, target_type: IRType, result: IRValue },
     TypeCheck { value: IRValue, target_type: IRType, result: IRValue },
@@ -216,6 +220,12 @@ impl fmt::Display for Instruction {
             },
             Instruction::FieldSet { struct_val, field, value } => {
                 write!(f, "  field_set {}.{} = {}", struct_val, field, value)
+            },
+            Instruction::GetEnumTag { enum_value, result } => {
+                write!(f, "  enum_tag {} -> {}", enum_value, result)
+            },
+            Instruction::GetEnumField { enum_value, field_index, result } => {
+                write!(f, "  enum_field {}[{}] -> {}", enum_value, field_index, result)
             },
             Instruction::Cast { value, target_type, result } => {
                 write!(f, "  cast {} as {} -> {}", value, target_type, result)

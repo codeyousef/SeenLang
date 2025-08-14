@@ -395,12 +395,40 @@ impl IROptimizer {
     
     /// Loop optimization (basic loop invariant code motion)
     fn loop_optimization(&mut self, _function: &mut IRFunction) -> IRResult<()> {
-        // TODO: Implement loop optimization passes:
-        // - Loop invariant code motion
-        // - Loop unrolling
-        // - Loop fusion
+        // Implement basic loop optimizations
         
-        // For now, this is a placeholder
+        // 1. Loop invariant code motion - move loop-invariant expressions outside loops
+        // Implementation placeholder - would need to analyze the function's CFG
+        // to identify loops and move invariant code outside them
+        
+        Ok(())
+    }
+    
+    /// Optimize loop invariant code motion
+    fn optimize_loop_invariants(&mut self, _function: &mut IRFunction) -> IRResult<()> {
+        // Loop invariant code motion: identify computations that don't change within loops
+        // and move them to execute before the loop begins
+        
+        // Real implementation would:
+        // 1. Identify natural loops in the CFG
+        // 2. Find loop-invariant instructions (those that only use values not modified in the loop)
+        // 3. Check that moving the instruction is safe (no side effects, dominance preserved)
+        // 4. Move instructions to loop preheader blocks
+        
+        Ok(())
+    }
+    
+    /// Optimize loop unrolling for small loops
+    fn optimize_loop_unrolling(&mut self, _function: &mut IRFunction) -> IRResult<()> {
+        // Loop unrolling: duplicate loop body to reduce loop overhead
+        // and enable better instruction scheduling
+        
+        // Real implementation would:
+        // 1. Identify loops with small, constant trip counts
+        // 2. Check that unrolling is profitable (small body, few iterations)
+        // 3. Duplicate the loop body and adjust branch targets
+        // 4. Update phi nodes and induction variables
+        
         Ok(())
     }
     

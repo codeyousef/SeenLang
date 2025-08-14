@@ -61,7 +61,7 @@ fn test_flow_concept() {
     // Test basic flow-like iteration
     let code = r#"
         let arr = [1, 2, 3]
-        let sum = 0
+        var sum = 0
         for item in arr {
             sum = sum + item
         }

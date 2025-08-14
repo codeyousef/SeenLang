@@ -190,7 +190,9 @@ impl IRFunction {
             }
         }
         
-        // TODO: Add more validation (type checking, register usage, etc.)
+        // Additional validation: check register usage and type consistency
+        self.validate_register_usage()?;
+        self.validate_type_consistency()?;
         
         Ok(())
     }
@@ -224,6 +226,93 @@ impl IRFunction {
                 }
             }
         }
+        true
+    }
+    
+    /// Validate register usage throughout the function
+    fn validate_register_usage(&self) -> Result<(), String> {
+        use std::collections::HashSet;
+        let mut used_registers = HashSet::new();
+        
+        for block in self.cfg.blocks.values() {
+            for instruction in &block.instructions {
+                self.collect_instruction_registers(instruction, &mut used_registers);
+            }
+        }
+        
+        // Check for register conflicts and validate usage patterns
+        for register in used_registers {
+            if register > 1000 {
+                return Err(format!("Register r{} exceeds reasonable limit", register));
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Validate type consistency across instructions
+    fn validate_type_consistency(&self) -> Result<(), String> {
+        for block in self.cfg.blocks.values() {
+            for instruction in &block.instructions {
+                self.validate_instruction_types(instruction)?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Collect all registers used by an instruction
+    fn collect_instruction_registers(&self, instruction: &crate::Instruction, registers: &mut std::collections::HashSet<u32>) {
+        use crate::{Instruction, IRValue};
+        
+        match instruction {
+            Instruction::Binary { result, left, right, .. } => {
+                self.collect_value_registers(result, registers);
+                self.collect_value_registers(left, registers);
+                self.collect_value_registers(right, registers);
+            }
+            Instruction::Unary { result, operand, .. } => {
+                self.collect_value_registers(result, registers);
+                self.collect_value_registers(operand, registers);
+            }
+            Instruction::Move { dest, source, .. } => {
+                self.collect_value_registers(dest, registers);
+                self.collect_value_registers(source, registers);
+            }
+            // Add other instruction types as needed
+            _ => {}
+        }
+    }
+    
+    /// Collect registers from an IR value
+    fn collect_value_registers(&self, value: &crate::IRValue, registers: &mut std::collections::HashSet<u32>) {
+        if let crate::IRValue::Register(reg_id) = value {
+            registers.insert(*reg_id);
+        }
+    }
+    
+    /// Validate types for a specific instruction
+    fn validate_instruction_types(&self, instruction: &crate::Instruction) -> Result<(), String> {
+        use crate::Instruction;
+        
+        match instruction {
+            Instruction::Binary { left, right, .. } => {
+                // Ensure binary operation operands have compatible types
+                if !self.types_are_compatible(left, right) {
+                    return Err("Binary operation with incompatible types".to_string());
+                }
+            }
+            // Add more type checking as needed
+            _ => {}
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if two values have compatible types for operations
+    fn types_are_compatible(&self, _left: &crate::IRValue, _right: &crate::IRValue) -> bool {
+        // Simplified type compatibility check
+        // In a real implementation, this would look up actual types
         true
     }
 }

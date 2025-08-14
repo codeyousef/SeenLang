@@ -521,6 +521,7 @@ pub struct Method {
     pub is_public: bool, // Capitalized methods are public
     pub is_static: bool, // Static methods don't have self
     pub receiver: Option<Receiver>, // None for static methods
+    pub annotations: Vec<Annotation>, // @Reactive, @Computed, etc.
     pub pos: Position,
 }
 

@@ -8,10 +8,11 @@ use std::fs;
 use std::io::{self, Write, BufRead};
 use std::sync::Arc;
 use seen_lexer::{Lexer, KeywordManager, TokenType};
-use seen_parser::Parser as SeenParser;
+use seen_parser::{Parser as SeenParser, Program, Expression, Type};
 use seen_interpreter::Interpreter;
 use seen_typechecker::TypeChecker;
 use seen_ir::{IRGenerator, IROptimizer, CCodeGenerator, OptimizationLevel};
+use seen_memory_manager::MemoryManager;
 use anyhow::{Result, Context};
 
 #[derive(Parser)]
@@ -202,6 +203,21 @@ fn compile_file(input: &Path, output: Option<&PathBuf>, opt_level: u8, keyword_m
             eprintln!("Type error: {}", error);
         }
         anyhow::bail!("Type checking failed with {} errors", type_result.errors.len());
+    }
+    
+    // Memory analysis
+    let mut memory_manager = MemoryManager::new();
+    let memory_result = memory_manager.analyze_program(&ast);
+    if memory_result.has_errors() {
+        for error in memory_result.get_errors() {
+            eprintln!("Memory error: {}", error);
+        }
+        anyhow::bail!("Memory analysis failed with {} errors", memory_result.get_errors().len());
+    }
+    
+    // Apply memory optimizations
+    for optimization in memory_result.get_optimizations() {
+        println!("Memory optimization: {}", optimization);
     }
     
     // Generate IR
@@ -473,19 +489,98 @@ fn evaluate_line(
 
 fn format_file(input: &Path, in_place: bool) -> Result<()> {
     println!("Formatting {} (in-place: {})", input.display(), in_place);
-    // TODO: Implement code formatter
-    println!("Code formatting not yet implemented");
+    
+    // Read source file
+    let source = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    
+    // Create keyword manager
+    let mut keyword_manager = KeywordManager::new();
+    keyword_manager.load_from_toml("en")
+        .with_context(|| "Failed to load keywords")?;
+    keyword_manager.switch_language("en")
+        .with_context(|| "Failed to switch to English keywords")?;
+    
+    // Parse the source code
+    let lexer = Lexer::new(source.clone(), Arc::new(keyword_manager));
+    let mut parser = SeenParser::new(lexer);
+    let program = parser.parse_program()
+        .with_context(|| "Failed to parse source code for formatting")?;
+    
+    // Format the code
+    let formatted_code = format_program(&program);
+    
+    if in_place {
+        // Write back to the original file
+        fs::write(input, formatted_code)
+            .with_context(|| format!("Failed to write formatted code to: {}", input.display()))?;
+        println!("Formatted {} in place", input.display());
+    } else {
+        // Output to stdout
+        println!("{}", formatted_code);
+    }
+    
     Ok(())
 }
 
 fn run_tests(path: Option<&Path>) -> Result<()> {
-    if let Some(test_path) = path {
-        println!("Running tests in {}", test_path.display());
-    } else {
-        println!("Running all tests");
+    let base_path = path.unwrap_or_else(|| Path::new("."));
+    
+    // Discover test files
+    let test_files = discover_test_files(base_path)?;
+    
+    if test_files.is_empty() {
+        println!("No test files found in {}", base_path.display());
+        return Ok(());
     }
-    // TODO: Implement test runner
-    println!("Test runner not yet implemented");
+    
+    println!("Running {} test file(s) from {}", test_files.len(), base_path.display());
+    
+    // Create keyword manager
+    let mut keyword_manager = KeywordManager::new();
+    keyword_manager.load_from_toml("en")
+        .with_context(|| "Failed to load keywords")?;
+    keyword_manager.switch_language("en")
+        .with_context(|| "Failed to switch to English keywords")?;
+    
+    let keyword_manager = Arc::new(keyword_manager);
+    
+    let mut total_tests = 0;
+    let mut passed_tests = 0;
+    let mut failed_tests = 0;
+    
+    // Run each test file
+    for test_file in test_files {
+        println!("\n=== Running tests in {} ===", test_file.display());
+        
+        match run_test_file(&test_file, keyword_manager.clone()) {
+            Ok((passed, failed)) => {
+                total_tests += passed + failed;
+                passed_tests += passed;
+                failed_tests += failed;
+                
+                if failed > 0 {
+                    println!("❌ {} passed, {} failed", passed, failed);
+                } else {
+                    println!("✅ All {} tests passed", passed);
+                }
+            }
+            Err(e) => {
+                println!("❌ Error running test file: {}", e);
+                failed_tests += 1;
+                total_tests += 1;
+            }
+        }
+    }
+    
+    // Print summary
+    println!("\n=== Test Summary ===");
+    println!("Total: {}, Passed: {}, Failed: {}", total_tests, passed_tests, failed_tests);
+    
+    if failed_tests > 0 {
+        std::process::exit(1);
+    }
+    
     Ok(())
 }
 
@@ -541,4 +636,358 @@ fn lex_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> Result<()> {
     }
     
     Ok(())
+}
+
+/// Format a parsed Seen program back to well-formatted source code
+fn format_program(program: &Program) -> String {
+    let mut formatter = CodeFormatter::new();
+    formatter.format_program(program)
+}
+
+/// Code formatter that converts AST back to formatted source code
+struct CodeFormatter {
+    indent_level: usize,
+    output: String,
+}
+
+impl CodeFormatter {
+    fn new() -> Self {
+        Self {
+            indent_level: 0,
+            output: String::new(),
+        }
+    }
+
+    fn format_program(&mut self, program: &Program) -> String {
+        for expression in &program.expressions {
+            self.format_expression(expression);
+            self.output.push('\n');
+        }
+        
+        // Remove trailing newline
+        if self.output.ends_with('\n') {
+            self.output.pop();
+        }
+        
+        self.output.clone()
+    }
+
+    fn format_expression(&mut self, expr: &Expression) -> &mut Self {
+        match expr {
+            Expression::Function { name, params, return_type, body, is_async, receiver, .. } => {
+                self.add_indent();
+                
+                if *is_async {
+                    self.output.push_str("async ");
+                }
+                
+                self.output.push_str("fun ");
+                
+                if let Some(recv) = receiver {
+                    self.output.push('(');
+                    self.output.push_str(&recv.name);
+                    self.output.push_str(": ");
+                    if recv.is_mutable {
+                        self.output.push_str("inout ");
+                    }
+                    self.output.push_str(&recv.type_name);
+                    self.output.push_str(") ");
+                }
+                
+                self.output.push_str(name);
+                self.output.push('(');
+                
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 { self.output.push_str(", "); }
+                    self.output.push_str(&param.name);
+                    self.output.push_str(": ");
+                    if let Some(type_ann) = &param.type_annotation {
+                        self.format_type(type_ann);
+                    }
+                    if let Some(default) = &param.default_value {
+                        self.output.push_str(" = ");
+                        self.format_expression(default);
+                    }
+                }
+                
+                self.output.push(')');
+                
+                if let Some(ret_type) = return_type {
+                    self.output.push_str(": ");
+                    self.format_type(ret_type);
+                }
+                
+                self.output.push_str(" {\n");
+                self.indent_level += 1;
+                self.format_expression(body);
+                self.indent_level -= 1;
+                self.output.push('\n');
+                self.add_indent();
+                self.output.push('}');
+            }
+            
+            Expression::Block { expressions, .. } => {
+                for (i, expr) in expressions.iter().enumerate() {
+                    if i > 0 { self.output.push('\n'); }
+                    self.format_expression(expr);
+                }
+            }
+            
+            Expression::Let { name, type_annotation, value, is_mutable, .. } => {
+                self.add_indent();
+                self.output.push_str("let ");
+                if *is_mutable {
+                    self.output.push_str("mut ");
+                }
+                self.output.push_str(name);
+                if let Some(type_ann) = type_annotation {
+                    self.output.push_str(": ");
+                    self.format_type(type_ann);
+                }
+                self.output.push_str(" = ");
+                self.format_expression(value);
+            }
+            
+            Expression::If { condition, then_branch, else_branch, .. } => {
+                self.add_indent();
+                self.output.push_str("if ");
+                self.format_expression(condition);
+                self.output.push_str(" {\n");
+                self.indent_level += 1;
+                self.format_expression(then_branch);
+                self.indent_level -= 1;
+                self.output.push('\n');
+                self.add_indent();
+                self.output.push('}');
+                
+                if let Some(else_expr) = else_branch {
+                    self.output.push_str(" else {\n");
+                    self.indent_level += 1;
+                    self.format_expression(else_expr);
+                    self.indent_level -= 1;
+                    self.output.push('\n');
+                    self.add_indent();
+                    self.output.push('}');
+                }
+            }
+            
+            Expression::Call { callee, args, .. } => {
+                self.format_expression(callee);
+                self.output.push('(');
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 { self.output.push_str(", "); }
+                    self.format_expression(arg);
+                }
+                self.output.push(')');
+            }
+            
+            Expression::Identifier { name, .. } => {
+                self.output.push_str(name);
+            }
+            
+            Expression::StringLiteral { value, .. } => {
+                self.output.push('"');
+                self.output.push_str(value);
+                self.output.push('"');
+            }
+            
+            Expression::IntegerLiteral { value, .. } => {
+                self.output.push_str(&value.to_string());
+            }
+            
+            Expression::BooleanLiteral { value, .. } => {
+                self.output.push_str(if *value { "true" } else { "false" });
+            }
+            
+            Expression::BinaryOp { left, op, right, .. } => {
+                self.format_expression(left);
+                self.output.push(' ');
+                self.output.push_str(&format!("{:?}", op).to_lowercase());
+                self.output.push(' ');
+                self.format_expression(right);
+            }
+            
+            Expression::Return { value, .. } => {
+                self.add_indent();
+                self.output.push_str("return");
+                if let Some(val) = value {
+                    self.output.push(' ');
+                    self.format_expression(val);
+                }
+            }
+            
+            // Add more expression types as needed
+            _ => {
+                // For unhandled expressions, add a placeholder comment
+                self.output.push_str(&format!("/* {} */", std::any::type_name::<Expression>()));
+            }
+        }
+        
+        self
+    }
+
+    fn add_indent(&mut self) {
+        for _ in 0..self.indent_level {
+            self.output.push_str("    "); // 4 spaces per indent level
+        }
+    }
+
+    fn format_type(&mut self, type_info: &Type) -> &mut Self {
+        self.output.push_str(&type_info.name);
+        if type_info.is_nullable {
+            self.output.push('?');
+        }
+        if !type_info.generics.is_empty() {
+            self.output.push('<');
+            for (i, generic) in type_info.generics.iter().enumerate() {
+                if i > 0 { self.output.push_str(", "); }
+                self.format_type(generic);
+            }
+            self.output.push('>');
+        }
+        self
+    }
+}
+
+/// Discover test files in the given directory tree
+fn discover_test_files(base_path: &Path) -> Result<Vec<PathBuf>> {
+    let mut test_files = Vec::new();
+    
+    if base_path.is_file() && is_test_file(base_path) {
+        test_files.push(base_path.to_path_buf());
+        return Ok(test_files);
+    }
+    
+    if base_path.is_dir() {
+        // Recursively search for test files
+        search_test_files_recursive(base_path, &mut test_files)?;
+    }
+    
+    // Sort for consistent ordering
+    test_files.sort();
+    Ok(test_files)
+}
+
+/// Check if a file is a test file (ends with _test.seen or test_*.seen)
+fn is_test_file(path: &Path) -> bool {
+    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+        if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
+            return extension == "seen" && 
+                   (file_name.ends_with("_test.seen") || file_name.starts_with("test_"));
+        }
+    }
+    false
+}
+
+/// Recursively search for test files
+fn search_test_files_recursive(dir: &Path, test_files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        
+        if path.is_dir() {
+            search_test_files_recursive(&path, test_files)?;
+        } else if is_test_file(&path) {
+            test_files.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Run tests in a single file
+fn run_test_file(test_file: &Path, keyword_manager: Arc<KeywordManager>) -> Result<(usize, usize)> {
+    // Read the test file
+    let source = fs::read_to_string(test_file)
+        .with_context(|| format!("Failed to read test file: {}", test_file.display()))?;
+    
+    // Parse the test file
+    let lexer = Lexer::new(source, keyword_manager.clone());
+    let mut parser = SeenParser::new(lexer);
+    let program = parser.parse_program()
+        .with_context(|| format!("Failed to parse test file: {}", test_file.display()))?;
+    
+    // Extract test functions (functions that start with "test_" or end with "_test")
+    let test_functions = extract_test_functions(&program);
+    
+    if test_functions.is_empty() {
+        println!("No test functions found in {}", test_file.display());
+        return Ok((0, 0));
+    }
+    
+    let mut passed = 0;
+    let mut failed = 0;
+    
+    // Create an interpreter to run the tests
+    let mut interpreter = Interpreter::new();
+    
+    // Run each test function
+    for test_func in test_functions {
+        let func_name = get_function_name(test_func);
+        print!("  {} ... ", func_name);
+        io::stdout().flush().unwrap();
+        
+        match run_single_test(&mut interpreter, test_func, &program) {
+            Ok(_) => {
+                println!("✅ PASS");
+                passed += 1;
+            }
+            Err(e) => {
+                println!("❌ FAIL: {}", e);
+                failed += 1;
+            }
+        }
+    }
+    
+    Ok((passed, failed))
+}
+
+/// Extract test functions from a program
+fn extract_test_functions(program: &Program) -> Vec<&Expression> {
+    program.expressions.iter()
+        .filter_map(|expr| {
+            if let Expression::Function { name, .. } = expr {
+                if name.starts_with("test_") || name.ends_with("_test") {
+                    Some(expr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Run a single test function
+fn run_single_test(interpreter: &mut Interpreter, test_func: &Expression, program: &Program) -> Result<()> {
+    // Create a test program that just calls this test function
+    let test_program = Program {
+        expressions: vec![
+            test_func.clone(),
+            Expression::Call {
+                callee: Box::new(Expression::Identifier {
+                    name: get_function_name(test_func),
+                    is_public: false,
+                    pos: seen_lexer::Position { line: 1, column: 1, offset: 0 },
+                }),
+                args: vec![],
+                pos: seen_lexer::Position { line: 1, column: 1, offset: 0 },
+            }
+        ],
+    };
+    
+    // Run the test
+    match interpreter.interpret(&test_program) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("Test execution failed: {}", e)),
+    }
+}
+
+/// Get the name of a function from an Expression::Function
+fn get_function_name(expr: &Expression) -> String {
+    if let Expression::Function { name, .. } = expr {
+        name.clone()
+    } else {
+        "unknown".to_string()
+    }
 }

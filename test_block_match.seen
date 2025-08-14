@@ -1,0 +1,6 @@
+{
+    let x = 5
+    match x {
+        1 -> "one"
+    }
+}

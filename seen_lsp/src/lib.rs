@@ -492,6 +492,153 @@ impl SeenLanguageServer {
         }
         None
     }
+
+    /// Count references to a symbol in content
+    fn count_references(&self, content: &str, symbol_name: &str) -> u32 {
+        // Simple reference counting - in a real implementation this would be more sophisticated
+        let mut count = 0;
+        let mut current_pos = 0;
+        
+        while let Some(pos) = content[current_pos..].find(symbol_name) {
+            let actual_pos = current_pos + pos;
+            
+            // Check if this is a whole word (not part of another identifier)
+            let is_word_boundary_before = actual_pos == 0 || 
+                !content.chars().nth(actual_pos - 1).unwrap_or(' ').is_alphanumeric();
+            let end_pos = actual_pos + symbol_name.len();
+            let is_word_boundary_after = end_pos >= content.len() || 
+                !content.chars().nth(end_pos).unwrap_or(' ').is_alphanumeric();
+            
+            if is_word_boundary_before && is_word_boundary_after {
+                count += 1;
+            }
+            
+            current_pos = actual_pos + 1;
+        }
+        
+        count
+    }
+
+    /// Format a parsed program back to well-formatted source code
+    fn format_program(&self, program: &Program) -> String {
+        let mut output = String::new();
+        
+        for (i, expression) in program.expressions.iter().enumerate() {
+            if i > 0 {
+                output.push('\n');
+            }
+            self.format_expression(expression, &mut output, 0);
+        }
+        
+        output
+    }
+
+    /// Format an expression with proper indentation
+    fn format_expression(&self, expr: &Expression, output: &mut String, indent_level: usize) {
+        match expr {
+            Expression::Function { name, params, return_type, body, is_async, receiver, .. } => {
+                self.add_indent(output, indent_level);
+                
+                if *is_async {
+                    output.push_str("async ");
+                }
+                
+                output.push_str("fun ");
+                
+                if let Some(recv) = receiver {
+                    output.push('(');
+                    output.push_str(&recv.name);
+                    output.push_str(": ");
+                    if recv.is_mutable {
+                        output.push_str("inout ");
+                    }
+                    output.push_str(&recv.type_name);
+                    output.push_str(") ");
+                }
+                
+                output.push_str(name);
+                output.push('(');
+                
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 { output.push_str(", "); }
+                    output.push_str(&param.name);
+                    if let Some(type_ann) = &param.type_annotation {
+                        output.push_str(": ");
+                        output.push_str(&type_ann.name);
+                    }
+                    if let Some(default) = &param.default_value {
+                        output.push_str(" = ");
+                        self.format_expression(default, output, 0);
+                    }
+                }
+                
+                output.push(')');
+                
+                if let Some(ret_type) = return_type {
+                    output.push_str(": ");
+                    output.push_str(&ret_type.name);
+                }
+                
+                output.push_str(" {\n");
+                self.format_expression(body, output, indent_level + 1);
+                output.push('\n');
+                self.add_indent(output, indent_level);
+                output.push('}');
+            }
+            
+            Expression::Let { name, type_annotation, value, is_mutable, .. } => {
+                self.add_indent(output, indent_level);
+                output.push_str("let ");
+                if *is_mutable {
+                    output.push_str("mut ");
+                }
+                output.push_str(name);
+                if let Some(type_ann) = type_annotation {
+                    output.push_str(": ");
+                    output.push_str(&type_ann.name);
+                }
+                output.push_str(" = ");
+                self.format_expression(value, output, 0);
+            }
+            
+            Expression::StringLiteral { value, .. } => {
+                output.push('"');
+                output.push_str(value);
+                output.push('"');
+            }
+            
+            Expression::IntegerLiteral { value, .. } => {
+                output.push_str(&value.to_string());
+            }
+            
+            Expression::BooleanLiteral { value, .. } => {
+                output.push_str(if *value { "true" } else { "false" });
+            }
+            
+            Expression::Identifier { name, .. } => {
+                output.push_str(name);
+            }
+            
+            Expression::Block { expressions, .. } => {
+                for (i, expr) in expressions.iter().enumerate() {
+                    if i > 0 { output.push('\n'); }
+                    self.format_expression(expr, output, indent_level);
+                }
+            }
+            
+            // Add more expression types as needed
+            _ => {
+                output.push_str("/* unformatted expression */");
+            }
+        }
+    }
+
+    /// Add indentation to output
+    fn add_indent(&self, output: &mut String, indent_level: usize) {
+        for _ in 0..indent_level {
+            output.push_str("    "); // 4 spaces per indent level
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -861,18 +1008,259 @@ impl LanguageServer for SeenLanguageServer {
         Ok(None)
     }
 
-    async fn code_action(&self, _params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        // TODO: Implement code actions
-        Ok(None)
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = &params.text_document.uri;
+        let range = params.range;
+        
+        let mut actions = Vec::new();
+        
+        // Get document content
+        if let Some(doc) = self.documents.read().await.get(uri) {
+            let content = &doc.content;
+            let lines: Vec<&str> = content.lines().collect();
+            
+            // Quick fixes for common issues
+            if let Some(line_content) = lines.get(range.start.line as usize) {
+                let line_content = line_content.to_string();
+                
+                // Quick fix: Add missing semicolon
+                if !line_content.trim().is_empty() && 
+                   !line_content.trim_end().ends_with(';') && 
+                   !line_content.trim_end().ends_with('{') && 
+                   !line_content.trim_end().ends_with('}') {
+                    
+                    let edit = TextEdit {
+                        range: Range {
+                            start: Position { line: range.start.line, character: line_content.trim_end().len() as u32 },
+                            end: Position { line: range.start.line, character: line_content.trim_end().len() as u32 },
+                        },
+                        new_text: ";".to_string(),
+                    };
+                    
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Add missing semicolon".to_string(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            document_changes: None,
+                            change_annotations: None,
+                        }),
+                        command: None,
+                        is_preferred: Some(true),
+                        disabled: None,
+                        data: None,
+                    }));
+                }
+                
+                // Quick fix: Convert var to let
+                if line_content.trim().starts_with("var ") {
+                    let start_char = line_content.find("var").unwrap() as u32;
+                    let edit = TextEdit {
+                        range: Range {
+                            start: Position { line: range.start.line, character: start_char },
+                            end: Position { line: range.start.line, character: start_char + 3 },
+                        },
+                        new_text: "let".to_string(),
+                    };
+                    
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Convert 'var' to 'let'".to_string(),
+                        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                        diagnostics: Some(vec![]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            document_changes: None,
+                            change_annotations: None,
+                        }),
+                        command: None,
+                        is_preferred: Some(false),
+                        disabled: None,
+                        data: None,
+                    }));
+                }
+                
+                // Code action: Extract function
+                if range.start.line != range.end.line || 
+                   (range.start.line == range.end.line && range.end.character - range.start.character > 10) {
+                    
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Extract to function".to_string(),
+                        kind: Some(CodeActionKind::REFACTOR_EXTRACT),
+                        diagnostics: Some(vec![]),
+                        edit: None, // Would implement the actual extraction logic
+                        command: Some(Command {
+                            title: "Extract to function".to_string(),
+                            command: "seen.extractFunction".to_string(),
+                            arguments: Some(vec![
+                                serde_json::json!({
+                                    "uri": uri.to_string(),
+                                    "range": range
+                                })
+                            ]),
+                        }),
+                        is_preferred: Some(false),
+                        disabled: None,
+                        data: None,
+                    }));
+                }
+                
+                // Code action: Add type annotation
+                if line_content.contains("let ") && !line_content.contains(": ") {
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Add type annotation".to_string(),
+                        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                        diagnostics: Some(vec![]),
+                        edit: None,
+                        command: Some(Command {
+                            title: "Add type annotation".to_string(),
+                            command: "seen.addTypeAnnotation".to_string(),
+                            arguments: Some(vec![
+                                serde_json::json!({
+                                    "uri": uri.to_string(),
+                                    "range": range
+                                })
+                            ]),
+                        }),
+                        is_preferred: Some(false),
+                        disabled: None,
+                        data: None,
+                    }));
+                }
+            }
+        }
+        
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(actions))
+        }
     }
 
-    async fn code_lens(&self, _params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
-        // TODO: Implement code lens
-        Ok(None)
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let uri = &params.text_document.uri;
+        let mut lenses = Vec::new();
+        
+        if let Some(doc) = self.documents.read().await.get(uri) {
+            let content = &doc.content;
+            
+            // Parse the document to find functions
+            let mut keyword_manager = KeywordManager::new();
+            if keyword_manager.load_from_toml("en").is_ok() {
+                keyword_manager.switch_language("en").ok();
+                
+                let lexer = Lexer::new(content.clone(), Arc::new(keyword_manager));
+                let mut parser = Parser::new(lexer);
+                
+                if let Ok(program) = parser.parse_program() {
+                    // Find function definitions and add lens
+                    for (i, expr) in program.expressions.iter().enumerate() {
+                        if let Expression::Function { name, .. } = expr {
+                            let line = i as u32; // Approximate line number
+                            
+                            // Add "Run" lens for test functions
+                            if name.starts_with("test_") || name.ends_with("_test") {
+                                lenses.push(CodeLens {
+                                    range: Range {
+                                        start: Position { line, character: 0 },
+                                        end: Position { line, character: name.len() as u32 },
+                                    },
+                                    command: Some(Command {
+                                        title: "▶ Run Test".to_string(),
+                                        command: "seen.runTest".to_string(),
+                                        arguments: Some(vec![
+                                            serde_json::json!({
+                                                "uri": uri.to_string(),
+                                                "functionName": name
+                                            })
+                                        ]),
+                                    }),
+                                    data: None,
+                                });
+                            } else {
+                                // Add reference count lens for regular functions
+                                let ref_count = self.count_references(content, name);
+                                let title = if ref_count == 1 {
+                                    "1 reference".to_string()
+                                } else {
+                                    format!("{} references", ref_count)
+                                };
+                                
+                                lenses.push(CodeLens {
+                                    range: Range {
+                                        start: Position { line, character: 0 },
+                                        end: Position { line, character: name.len() as u32 },
+                                    },
+                                    command: Some(Command {
+                                        title,
+                                        command: "seen.showReferences".to_string(),
+                                        arguments: Some(vec![
+                                            serde_json::json!({
+                                                "uri": uri.to_string(),
+                                                "functionName": name
+                                            })
+                                        ]),
+                                    }),
+                                    data: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if lenses.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(lenses))
+        }
     }
 
-    async fn formatting(&self, _params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-        // TODO: Implement formatting
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+        
+        if let Some(doc) = self.documents.read().await.get(uri) {
+            let content = &doc.content;
+            
+            // Parse and format the document
+            let mut keyword_manager = KeywordManager::new();
+            if keyword_manager.load_from_toml("en").is_ok() {
+                keyword_manager.switch_language("en").ok();
+                
+                let lexer = Lexer::new(content.clone(), Arc::new(keyword_manager));
+                let mut parser = Parser::new(lexer);
+                
+                if let Ok(program) = parser.parse_program() {
+                    // Format the parsed program
+                    let formatted = self.format_program(&program);
+                    
+                    // Create a text edit that replaces the entire document
+                    let lines: Vec<&str> = content.lines().collect();
+                    let last_line = lines.len() as u32;
+                    let last_character = lines.last()
+                        .map(|line| line.len() as u32)
+                        .unwrap_or(0);
+                    
+                    let edit = TextEdit {
+                        range: Range {
+                            start: Position { line: 0, character: 0 },
+                            end: Position { line: last_line.saturating_sub(1), character: last_character },
+                        },
+                        new_text: formatted,
+                    };
+                    
+                    return Ok(Some(vec![edit]));
+                }
+            }
+        }
+        
         Ok(None)
     }
 
