@@ -1,5 +1,3 @@
-let value = 42
-
 match value {
     1 -> "one"
     2 -> "two" 

@@ -154,6 +154,10 @@ impl CCodeGenerator {
         let mut array_vars = std::collections::HashSet::new();
         // Check which variables are structs by scanning for struct stores
         let mut struct_vars = std::collections::HashMap::new();
+        // Check which variables are strings by scanning for string stores
+        let mut string_vars = std::collections::HashSet::new();
+        // Check which variables are booleans by scanning for boolean stores
+        let mut bool_vars = std::collections::HashSet::new();
         
         for block in function.cfg.blocks.values() {
             for inst in &block.instructions {
@@ -163,6 +167,12 @@ impl CCodeGenerator {
                     },
                     Instruction::Store { value: IRValue::Struct { type_name, .. }, dest: IRValue::Variable(name) } => {
                         struct_vars.insert(name.clone(), type_name.clone());
+                    },
+                    Instruction::Store { value: IRValue::String(_), dest: IRValue::Variable(name) } => {
+                        string_vars.insert(name.clone());
+                    },
+                    Instruction::Store { value: IRValue::Boolean(_), dest: IRValue::Variable(name) } => {
+                        bool_vars.insert(name.clone());
                     },
                     _ => {}
                 }
@@ -174,6 +184,10 @@ impl CCodeGenerator {
                 writeln!(output, "    int64_t* {};", var_name).unwrap();
             } else if let Some(struct_type) = struct_vars.get(var_name) {
                 writeln!(output, "    {} {};", struct_type, var_name).unwrap();
+            } else if string_vars.contains(var_name) {
+                writeln!(output, "    char* {};", var_name).unwrap();
+            } else if bool_vars.contains(var_name) {
+                writeln!(output, "    bool {};", var_name).unwrap();
             } else {
                 writeln!(output, "    int64_t {};", var_name).unwrap();
             }
@@ -453,6 +467,7 @@ impl CCodeGenerator {
             IRType::Boolean => "bool".to_string(),
             IRType::String => "char*".to_string(),
             IRType::Struct { name, .. } => name.clone(),
+            IRType::Enum { name, .. } => name.clone(),
             _ => "void*".to_string(),
         }
     }
@@ -461,7 +476,86 @@ impl CCodeGenerator {
         let mut output = String::new();
         
         if !module.types.is_empty() {
-            writeln!(output, "// Struct type definitions").unwrap();
+            writeln!(output, "// Type definitions").unwrap();
+            
+            // Generate enum definitions first (they may be referenced by structs)
+            for type_def in module.types.values() {
+                if let IRType::Enum { name, variants } = &type_def.type_def {
+                    // Generate enum definition
+                    writeln!(output, "typedef enum {{").unwrap();
+                    for (variant_name, _) in variants {
+                        writeln!(output, "    {}_TAG_{},", name.to_uppercase(), variant_name.to_uppercase()).unwrap();
+                    }
+                    writeln!(output, "}} {}_tag;", name).unwrap();
+                    writeln!(output).unwrap();
+                    
+                    // Generate union for enum data
+                    writeln!(output, "typedef struct {{").unwrap();
+                    writeln!(output, "    {}_tag tag;", name).unwrap();
+                    writeln!(output, "    union {{").unwrap();
+                    for (variant_name, variant_fields) in variants {
+                        if let Some(fields) = variant_fields {
+                            if fields.len() == 1 {
+                                // Single field tuple variant
+                                let c_type = self.generate_c_type(&fields[0]);
+                                writeln!(output, "        {} {};", c_type, variant_name.to_lowercase()).unwrap();
+                            } else if !fields.is_empty() {
+                                // Multiple field tuple variant - create a struct
+                                writeln!(output, "        struct {{").unwrap();
+                                for (i, field_type) in fields.iter().enumerate() {
+                                    let c_type = self.generate_c_type(field_type);
+                                    writeln!(output, "            {} field_{};", c_type, i).unwrap();
+                                }
+                                writeln!(output, "        }} {};", variant_name.to_lowercase()).unwrap();
+                            }
+                        }
+                        // Simple variants (no fields) don't need union members
+                    }
+                    writeln!(output, "    }} data;").unwrap();
+                    writeln!(output, "}} {};", name).unwrap();
+                    writeln!(output).unwrap();
+                }
+            }
+            
+            // Generate enum constructor functions
+            for type_def in module.types.values() {
+                if let IRType::Enum { name, variants } = &type_def.type_def {
+                    for (variant_name, variant_fields) in variants {
+                        if let Some(fields) = variant_fields {
+                            // Constructor for tuple variant
+                            write!(output, "{} {}__{}(", name, name, variant_name).unwrap();
+                            for (i, field_type) in fields.iter().enumerate() {
+                                if i > 0 { write!(output, ", ").unwrap(); }
+                                let c_type = self.generate_c_type(field_type);
+                                write!(output, "{} arg{}", c_type, i).unwrap();
+                            }
+                            writeln!(output, ") {{").unwrap();
+                            writeln!(output, "    {} result;", name).unwrap();
+                            writeln!(output, "    result.tag = {}_TAG_{};", name.to_uppercase(), variant_name.to_uppercase()).unwrap();
+                            for (i, _) in fields.iter().enumerate() {
+                                if fields.len() == 1 {
+                                    writeln!(output, "    result.data.{} = arg{};", variant_name.to_lowercase(), i).unwrap();
+                                } else {
+                                    writeln!(output, "    result.data.{}.field_{} = arg{};", variant_name.to_lowercase(), i, i).unwrap();
+                                }
+                            }
+                            writeln!(output, "    return result;").unwrap();
+                            writeln!(output, "}}").unwrap();
+                            writeln!(output).unwrap();
+                        } else {
+                            // Constructor for simple variant
+                            writeln!(output, "{} {}__{}() {{", name, name, variant_name).unwrap();
+                            writeln!(output, "    {} result;", name).unwrap();
+                            writeln!(output, "    result.tag = {}_TAG_{};", name.to_uppercase(), variant_name.to_uppercase()).unwrap();
+                            writeln!(output, "    return result;").unwrap();
+                            writeln!(output, "}}").unwrap();
+                            writeln!(output).unwrap();
+                        }
+                    }
+                }
+            }
+            
+            // Generate struct definitions
             for type_def in module.types.values() {
                 if let IRType::Struct { name, fields } = &type_def.type_def {
                     writeln!(output, "typedef struct {{").unwrap();
@@ -470,9 +564,9 @@ impl CCodeGenerator {
                         writeln!(output, "    {} {};", c_type, field_name).unwrap();
                     }
                     writeln!(output, "}} {};", name).unwrap();
+                    writeln!(output).unwrap();
                 }
             }
-            writeln!(output).unwrap();
         }
         
         Ok(output)

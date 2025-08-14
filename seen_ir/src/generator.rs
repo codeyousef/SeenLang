@@ -116,6 +116,11 @@ impl IRGenerator {
                     // Add the struct type to the module
                     self.register_struct_type(&mut module, name, fields)?;
                 }
+                Expression::EnumDefinition { name, variants, .. } => {
+                    // Enum definitions are handled at the module level for type registration
+                    // Add the enum type to the module
+                    self.register_enum_type(&mut module, name, variants)?;
+                }
                 other => {
                     // Regular expression, add to main function body
                     main_expressions.push(other);
@@ -235,6 +240,9 @@ impl IRGenerator {
             },
             Expression::Match { expr, arms, .. } => {
                 self.generate_match_expression(expr, arms)
+            },
+            Expression::EnumLiteral { enum_name, variant_name, fields, .. } => {
+                self.generate_enum_literal(enum_name, variant_name, fields)
             },
             // Handle other expression types...
             _ => Err(IRError::Other(format!("Unsupported expression type: {:?}", expr))),
@@ -1044,6 +1052,79 @@ impl IRGenerator {
         module.add_type(type_def);
         
         Ok(())
+    }
+
+    fn register_enum_type(
+        &mut self,
+        module: &mut IRModule,
+        name: &str,
+        variants: &[seen_parser::EnumVariant]
+    ) -> IRResult<()> {
+        // Convert AST enum variants to IR type variants
+        let mut ir_variants = Vec::new();
+        for variant in variants {
+            let variant_name = variant.name.clone();
+            let variant_fields = if let Some(fields) = &variant.fields {
+                // Tuple variant with fields
+                let field_types: Vec<IRType> = fields
+                    .iter()
+                    .map(|field| self.convert_ast_type_to_ir(&field.type_annotation))
+                    .collect();
+                Some(field_types)
+            } else {
+                // Simple variant without fields
+                None
+            };
+            ir_variants.push((variant_name, variant_fields));
+        }
+        
+        // Create IR enum type
+        let enum_type = IRType::Enum {
+            name: name.to_string(),
+            variants: ir_variants,
+        };
+        
+        // Create type definition and add to module
+        let type_def = crate::module::TypeDefinition::new(name, enum_type);
+        module.add_type(type_def);
+        
+        Ok(())
+    }
+
+    /// Generate IR for enum literal construction
+    fn generate_enum_literal(
+        &mut self, 
+        enum_name: &str,
+        variant_name: &str,
+        fields: &[Expression]
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let mut instructions = Vec::new();
+        
+        // Generate IR for the field values
+        let mut field_values = Vec::new();
+        for field in fields {
+            let (value, field_instructions) = self.generate_expression(field)?;
+            instructions.extend(field_instructions);
+            field_values.push(value);
+        }
+        
+        // For now, we'll represent enum literals as function calls to constructor functions
+        // In a more complete implementation, we would create proper enum constructor IR
+        let result_register = self.context.allocate_register();
+        let result_value = IRValue::Register(result_register);
+        
+        // Create constructor call instruction
+        // This is a placeholder - in a full implementation we would have dedicated enum construction
+        let constructor_name = format!("{}::{}", enum_name, variant_name);
+        let call_instruction = Instruction::Call {
+            target: IRValue::GlobalVariable(constructor_name),
+            args: field_values,
+            result: Some(result_value.clone()),
+        };
+        
+        instructions.push(call_instruction);
+        
+        Ok((result_value, instructions))
     }
 }
 

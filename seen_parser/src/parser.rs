@@ -114,6 +114,11 @@ impl Parser {
             return self.parse_struct_definition();
         }
         
+        // Check for enum definitions
+        if self.check_keyword(KeywordType::KeywordEnum) {
+            return self.parse_enum_definition();
+        }
+        
         // Check for interface definitions
         if self.check_keyword(KeywordType::KeywordInterface) {
             return self.parse_interface();
@@ -2364,6 +2369,74 @@ impl Parser {
         self.expect(&TokenType::RightBrace)?;
         
         Ok(Expression::StructDefinition { name, fields, doc_comment: None, pos })
+    }
+    
+    fn parse_enum_definition(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'enum'
+        
+        let name = self.expect_identifier()?;
+        self.expect(&TokenType::LeftBrace)?;
+        
+        let mut variants = Vec::new();
+        
+        while !self.check(&TokenType::RightBrace) {
+            // Skip any leading newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            // Check for end of enum after skipping newlines
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+            
+            let variant_name = self.expect_identifier()?;
+            
+            // Check for tuple variant with parameters: Success(value: T)
+            let fields = if self.check(&TokenType::LeftParen) {
+                self.advance(); // consume '('
+                let mut variant_fields = Vec::new();
+                
+                while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+                    let field_name = self.expect_identifier()?;
+                    self.expect(&TokenType::Colon)?;
+                    let field_type = self.parse_type()?;
+                    
+                    variant_fields.push(crate::ast::Field {
+                        name: field_name,
+                        type_annotation: field_type,
+                        is_public: true, // Enum variant fields are public by default
+                        is_mutable: false, // Enum variant fields are immutable
+                        default_value: None,
+                    });
+                    
+                    if !self.check(&TokenType::RightParen) {
+                        self.expect(&TokenType::Comma)?;
+                    }
+                }
+                
+                self.expect(&TokenType::RightParen)?;
+                Some(variant_fields)
+            } else {
+                None // Simple variant like Success
+            };
+            
+            variants.push(crate::ast::EnumVariant {
+                name: variant_name,
+                fields,
+            });
+            
+            // Allow optional comma or newline between variants
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            // Newlines are handled at the start of the loop
+        }
+        
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::EnumDefinition { name, variants, doc_comment: None, pos })
     }
     
     fn parse_class_definition(&mut self) -> ParseResult<Expression> {

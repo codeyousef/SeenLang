@@ -1,0 +1,14 @@
+struct Point {
+    x: Int,
+    y: Int
+}
+
+struct Rectangle {
+    topLeft: Point,
+    bottomRight: Point
+}
+
+let p1 = Point { x: 0, y: 0 }
+let p2 = Point { x: 10, y: 10 }
+let rect = Rectangle { topLeft: p1, bottomRight: p2 }
+rect

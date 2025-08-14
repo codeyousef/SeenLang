@@ -1,0 +1,8 @@
+enum Status {
+    Active
+    Inactive
+    Pending
+}
+
+let status = Active
+status

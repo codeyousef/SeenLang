@@ -1,7 +1,5 @@
-struct Point {
-    x: Int
-    y: Int
-}
-
+struct Point { x: Int, y: Int }
 let p = Point { x: 10, y: 20 }
-p.x + p.y
+let x_val = p.x
+let y_val = p.y
+x_val + y_val

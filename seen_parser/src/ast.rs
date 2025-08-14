@@ -135,6 +135,14 @@ pub enum Expression {
         pos: Position,
     },
     
+    // Enum definition
+    EnumDefinition {
+        name: String,
+        variants: Vec<EnumVariant>,
+        doc_comment: Option<String>,
+        pos: Position,
+    },
+    
     // Class definition
     ClassDefinition {
         name: String,
@@ -172,6 +180,14 @@ pub enum Expression {
     StructLiteral {
         name: String,
         fields: Vec<(String, Expression)>,
+        pos: Position,
+    },
+    
+    // Enum variant construction
+    EnumLiteral {
+        enum_name: String,
+        variant_name: String,
+        fields: Vec<Expression>, // For tuple variants like Success(42)
         pos: Position,
     },
     
@@ -671,11 +687,13 @@ impl Expression {
             Expression::Elvis { pos, .. } => pos,
             Expression::ForceUnwrap { pos, .. } => pos,
             Expression::StructDefinition { pos, .. } => pos,
+            Expression::EnumDefinition { pos, .. } => pos,
             Expression::ClassDefinition { pos, .. } => pos,
             Expression::TypeAlias { pos, .. } => pos,
             Expression::Extension { pos, .. } => pos,
             Expression::CompanionObject { pos, .. } => pos,
             Expression::StructLiteral { pos, .. } => pos,
+            Expression::EnumLiteral { pos, .. } => pos,
             Expression::ArrayLiteral { pos, .. } => pos,
             Expression::While { pos, .. } => pos,
             Expression::For { pos, .. } => pos,

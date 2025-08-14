@@ -1,0 +1,10 @@
+enum Status {
+    Active
+    Inactive
+    Pending
+}
+
+enum Result {
+    Success(value: Int)
+    Failure(error: String)
+}

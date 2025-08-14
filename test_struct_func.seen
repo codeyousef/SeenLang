@@ -1,0 +1,11 @@
+struct Point {
+    x: Int,
+    y: Int
+}
+
+fun createPoint(x: Int, y: Int): Point {
+    Point { x: x, y: y }
+}
+
+let p = createPoint(10, 20)
+p

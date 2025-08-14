@@ -21,6 +21,10 @@ pub enum IRType {
         name: String,
         fields: Vec<(String, IRType)>, // Changed from HashMap to Vec for Hash compatibility
     },
+    Enum {
+        name: String,
+        variants: Vec<(String, Option<Vec<IRType>>)>, // (variant_name, optional tuple fields)
+    },
     Pointer(Box<IRType>),
     Reference(Box<IRType>),
     Optional(Box<IRType>),
@@ -52,6 +56,7 @@ impl IRType {
             },
             
             (IRType::Struct { name: n1, .. }, IRType::Struct { name: n2, .. }) => n1 == n2,
+            (IRType::Enum { name: n1, .. }, IRType::Enum { name: n2, .. }) => n1 == n2,
             
             _ => false,
         }
@@ -68,6 +73,7 @@ impl IRType {
             IRType::Array(_) => 8, // Pointer to array data
             IRType::Function { .. } => 8, // Function pointer
             IRType::Struct { .. } => 8, // For now, all structs are heap-allocated
+            IRType::Enum { .. } => 8, // For now, all enums are heap-allocated (tag + data)
             IRType::Pointer(_) => 8,
             IRType::Reference(_) => 8,
             IRType::Optional(_) => 9, // 8 bytes for value + 1 byte for null flag
@@ -104,6 +110,7 @@ impl fmt::Display for IRType {
                 write!(f, ") -> {}", return_type)
             },
             IRType::Struct { name, .. } => write!(f, "struct {}", name),
+            IRType::Enum { name, .. } => write!(f, "enum {}", name),
             IRType::Pointer(inner) => write!(f, "*{}", inner),
             IRType::Reference(inner) => write!(f, "&{}", inner),
             IRType::Optional(inner) => write!(f, "{}?", inner),

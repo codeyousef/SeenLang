@@ -1,0 +1,13 @@
+enum Result<T, E> {
+    Success(value: T)
+    Failure(error: E)
+}
+
+enum Status {
+    Active
+    Inactive  
+    Pending
+}
+
+let result = Success(42)
+result
