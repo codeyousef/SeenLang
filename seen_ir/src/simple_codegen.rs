@@ -77,6 +77,12 @@ impl CCodeGenerator {
         writeln!(output, "#include <stdbool.h>").unwrap();
         writeln!(output).unwrap();
         
+        // Generate struct type definitions first
+        for module in &program.modules {
+            let struct_defs = self.generate_struct_definitions(module)?;
+            output.push_str(&struct_defs);
+        }
+        
         for module in &program.modules {
             let module_code = self.generate_module(module)?;
             output.push_str(&module_code);
@@ -146,10 +152,19 @@ impl CCodeGenerator {
         
         // Check which variables are arrays by scanning for array stores
         let mut array_vars = std::collections::HashSet::new();
+        // Check which variables are structs by scanning for struct stores
+        let mut struct_vars = std::collections::HashMap::new();
+        
         for block in function.cfg.blocks.values() {
             for inst in &block.instructions {
-                if let Instruction::Store { value: IRValue::Array(_), dest: IRValue::Variable(name) } = inst {
-                    array_vars.insert(name.clone());
+                match inst {
+                    Instruction::Store { value: IRValue::Array(_), dest: IRValue::Variable(name) } => {
+                        array_vars.insert(name.clone());
+                    },
+                    Instruction::Store { value: IRValue::Struct { type_name, .. }, dest: IRValue::Variable(name) } => {
+                        struct_vars.insert(name.clone(), type_name.clone());
+                    },
+                    _ => {}
                 }
             }
         }
@@ -157,6 +172,8 @@ impl CCodeGenerator {
         for var_name in &variables {
             if array_vars.contains(var_name) {
                 writeln!(output, "    int64_t* {};", var_name).unwrap();
+            } else if let Some(struct_type) = struct_vars.get(var_name) {
+                writeln!(output, "    {} {};", struct_type, var_name).unwrap();
             } else {
                 writeln!(output, "    int64_t {};", var_name).unwrap();
             }
@@ -434,8 +451,31 @@ impl CCodeGenerator {
             IRType::Integer => "int64_t".to_string(),
             IRType::Float => "double".to_string(),
             IRType::Boolean => "bool".to_string(),
+            IRType::String => "char*".to_string(),
+            IRType::Struct { name, .. } => name.clone(),
             _ => "void*".to_string(),
         }
+    }
+    
+    fn generate_struct_definitions(&mut self, module: &IRModule) -> Result<String> {
+        let mut output = String::new();
+        
+        if !module.types.is_empty() {
+            writeln!(output, "// Struct type definitions").unwrap();
+            for type_def in module.types.values() {
+                if let IRType::Struct { name, fields } = &type_def.type_def {
+                    writeln!(output, "typedef struct {{").unwrap();
+                    for (field_name, field_type) in fields {
+                        let c_type = self.generate_c_type(field_type);
+                        writeln!(output, "    {} {};", c_type, field_name).unwrap();
+                    }
+                    writeln!(output, "}} {};", name).unwrap();
+                }
+            }
+            writeln!(output).unwrap();
+        }
+        
+        Ok(output)
     }
     
     fn generate_c_value(&self, value: &IRValue) -> Result<String> {
@@ -462,14 +502,14 @@ impl CCodeGenerator {
                     Err(e) => Err(e),
                 }
             },
-            IRValue::Struct { type_name: _, fields } => {
-                // Generate C99 designated initializer
+            IRValue::Struct { type_name, fields } => {
+                // Generate C99 compound literal with designated initializer
                 let mut field_strs = Vec::new();
                 for (field_name, field_value) in fields {
                     let value_str = self.generate_c_value(field_value)?;
                     field_strs.push(format!(".{} = {}", field_name, value_str));
                 }
-                Ok(format!("{{{}}}", field_strs.join(", ")))
+                Ok(format!("({}){{{}}}", type_name, field_strs.join(", ")))
             },
             _ => Err(CodeGenError::UnsupportedValue(format!("{:?}", value))),
         }

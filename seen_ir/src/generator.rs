@@ -113,8 +113,8 @@ impl IRGenerator {
                 }
                 Expression::StructDefinition { name, fields, .. } => {
                     // Struct definitions are handled at the module level for type registration
-                    // For now, just register the struct type (no runtime IR needed)
-                    self.register_struct_type(name, fields)?;
+                    // Add the struct type to the module
+                    self.register_struct_type(&mut module, name, fields)?;
                 }
                 other => {
                     // Regular expression, add to main function body
@@ -209,8 +209,8 @@ impl IRGenerator {
             Expression::ArrayLiteral { elements, .. } => {
                 self.generate_array_literal(elements)
             },
-            Expression::StructLiteral { fields, .. } => {
-                self.generate_struct_literal(fields)
+            Expression::StructLiteral { name, fields, .. } => {
+                self.generate_struct_literal(name, fields)
             },
             Expression::InterpolatedString { parts, .. } => {
                 self.generate_string_interpolation(parts)
@@ -232,6 +232,9 @@ impl IRGenerator {
             },
             Expression::Continue { .. } => {
                 self.generate_continue_expression()
+            },
+            Expression::Match { expr, arms, .. } => {
+                self.generate_match_expression(expr, arms)
             },
             // Handle other expression types...
             _ => Err(IRError::Other(format!("Unsupported expression type: {:?}", expr))),
@@ -719,6 +722,7 @@ impl IRGenerator {
     /// Generate IR for struct literals
     fn generate_struct_literal(
         &mut self,
+        name: &str,
         fields: &[(String, Expression)]
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let mut instructions = Vec::new();
@@ -732,7 +736,7 @@ impl IRGenerator {
         }
         
         let result_value = IRValue::Struct {
-            type_name: "Unknown".to_string(), // Would need type information
+            type_name: name.to_string(),
             fields: field_values,
         };
         
@@ -915,6 +919,94 @@ impl IRGenerator {
         Ok((IRValue::Variable(format!("function_{}", name)), Vec::new()))
     }
     
+    /// Generate IR for match expressions
+    fn generate_match_expression(
+        &mut self,
+        expr: &Expression,
+        arms: &[seen_parser::MatchArm]
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let (match_val, mut instructions) = self.generate_expression(expr)?;
+        
+        if arms.is_empty() {
+            return Ok((IRValue::Void, instructions));
+        }
+        
+        // Allocate result register
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+        
+        // Generate labels for each arm and the end
+        let mut arm_labels = Vec::new();
+        for i in 0..arms.len() {
+            arm_labels.push(self.context.allocate_label(&format!("match_arm_{}", i)));
+        }
+        let end_label = self.context.allocate_label("match_end");
+        
+        // Generate pattern matching logic (check each pattern in sequence)
+        for (i, arm) in arms.iter().enumerate() {
+            let arm_label = &arm_labels[i];
+            
+            match &arm.pattern {
+                seen_parser::Pattern::Literal(literal) => {
+                    // Generate comparison for literal pattern
+                    let (literal_val, literal_instructions) = self.generate_expression(literal)?;
+                    instructions.extend(literal_instructions);
+                    
+                    let cmp_reg = self.context.allocate_register();
+                    let cmp_result = IRValue::Register(cmp_reg);
+                    
+                    instructions.push(Instruction::Binary {
+                        op: crate::instruction::BinaryOp::Equal,
+                        left: match_val.clone(),
+                        right: literal_val,
+                        result: cmp_result.clone(),
+                    });
+                    
+                    // If this pattern matches, jump to its arm
+                    instructions.push(Instruction::JumpIf {
+                        condition: cmp_result,
+                        target: arm_label.clone(),
+                    });
+                    
+                    // If not, continue to the next pattern (fall through)
+                },
+                seen_parser::Pattern::Wildcard => {
+                    // Wildcard always matches, jump directly to this arm
+                    instructions.push(Instruction::Jump(arm_label.clone()));
+                    break; // No need to check further patterns after wildcard
+                },
+                _ => return Err(IRError::Other("Complex patterns not yet implemented".to_string())),
+            }
+        }
+        
+        // If no patterns matched and no wildcard, jump to end (this shouldn't happen with exhaustive patterns)
+        if !arms.iter().any(|arm| matches!(arm.pattern, seen_parser::Pattern::Wildcard)) {
+            instructions.push(Instruction::Jump(end_label.clone()));
+        }
+        
+        // Generate code for each arm
+        for (i, arm) in arms.iter().enumerate() {
+            let arm_label = &arm_labels[i];
+            instructions.push(Instruction::Label(arm_label.clone()));
+            
+            let (arm_val, arm_instructions) = self.generate_expression(&arm.body)?;
+            instructions.extend(arm_instructions);
+            
+            // Move arm result to result register
+            instructions.push(Instruction::Move {
+                source: arm_val,
+                dest: result_value.clone(),
+            });
+            
+            // Jump to end
+            instructions.push(Instruction::Jump(end_label.clone()));
+        }
+        
+        instructions.push(Instruction::Label(end_label));
+        
+        Ok((result_value, instructions))
+    }
+    
     /// Convert AST type to IR type
     fn convert_ast_type_to_ir(&self, ast_type: &seen_parser::ast::Type) -> IRType {
         match ast_type.name.as_str() {
@@ -930,16 +1022,27 @@ impl IRGenerator {
     /// Register a struct type for use in the IR
     fn register_struct_type(
         &mut self,
-        _name: &str,
-        _fields: &[seen_parser::StructField]
+        module: &mut IRModule,
+        name: &str,
+        fields: &[seen_parser::StructField]
     ) -> IRResult<()> {
-        // For now, struct types are just registered for later use
-        // In a full implementation, this would:
-        // 1. Add the struct to the type system
-        // 2. Generate type metadata
-        // 3. Enable field access validation
-        // 
-        // Currently we just acknowledge the struct definition exists
+        // Convert AST struct fields to IR type fields
+        let mut ir_fields = Vec::new();
+        for field in fields {
+            let field_type = self.convert_ast_type_to_ir(&field.field_type);
+            ir_fields.push((field.name.clone(), field_type));
+        }
+        
+        // Create IR struct type
+        let struct_type = IRType::Struct {
+            name: name.to_string(),
+            fields: ir_fields,
+        };
+        
+        // Create type definition and add to module
+        let type_def = crate::module::TypeDefinition::new(name, struct_type);
+        module.add_type(type_def);
+        
         Ok(())
     }
 }
