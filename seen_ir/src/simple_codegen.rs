@@ -1,6 +1,6 @@
 //! Simple code generation from IR for the Seen programming language
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use crate::{
     IRProgram, 
@@ -133,10 +133,9 @@ impl CCodeGenerator {
         
         // Collect and declare variables (excluding parameters)
         let mut variables = std::collections::HashSet::new();
-        if let Some(entry) = &function.cfg.entry_block {
-            if let Some(block) = function.cfg.get_block(entry) {
-                self.collect_variables_from_block(block, &mut variables);
-            }
+        // Collect variables from all blocks, not just entry
+        for block in function.cfg.blocks.values() {
+            self.collect_variables_from_block(block, &mut variables);
         }
         
         // Remove parameter names from variables to avoid redeclaration
@@ -145,13 +144,108 @@ impl CCodeGenerator {
             variables.remove(param_name);
         }
         
-        for var_name in &variables {
-            writeln!(output, "    int64_t {};", var_name).unwrap();
+        // Check which variables are arrays by scanning for array stores
+        let mut array_vars = std::collections::HashSet::new();
+        for block in function.cfg.blocks.values() {
+            for inst in &block.instructions {
+                if let Instruction::Store { value: IRValue::Array(_), dest: IRValue::Variable(name) } = inst {
+                    array_vars.insert(name.clone());
+                }
+            }
         }
         
+        for var_name in &variables {
+            if array_vars.contains(var_name) {
+                writeln!(output, "    int64_t* {};", var_name).unwrap();
+            } else {
+                writeln!(output, "    int64_t {};", var_name).unwrap();
+            }
+        }
+        
+        // Generate all blocks in the CFG
         if let Some(entry) = &function.cfg.entry_block {
-            if let Some(block) = function.cfg.get_block(entry) {
-                let block_code = self.generate_basic_block(block)?;
+            // Process blocks in control flow order using DFS
+            let mut visited = HashSet::new();
+            let mut stack = vec![entry.clone()];
+            let mut ordered_blocks = Vec::new();
+            
+            // First, collect all blocks in DFS order starting from entry
+            while let Some(block_id) = stack.pop() {
+                if visited.contains(&block_id) {
+                    continue;
+                }
+                visited.insert(block_id.clone());
+                
+                if let Some(block) = function.cfg.get_block(&block_id) {
+                    ordered_blocks.push((block_id.clone(), block.clone()));
+                    
+                    // Process successors in reverse order (so they are visited in correct order)
+                    let mut successors = Vec::new();
+                    
+                    // Check terminator for jump targets
+                    if let Some(terminator) = &block.terminator {
+                        match terminator {
+                            Instruction::Jump(target) => {
+                                successors.push(target.0.clone());
+                            },
+                            Instruction::JumpIf { target, .. } => {
+                                // For conditional jumps, we need to find the fall-through block
+                                // Look for the next block after this conditional
+                                successors.push(target.0.clone());
+                            },
+                            Instruction::JumpIfNot { target, .. } => {
+                                successors.push(target.0.clone());
+                            },
+                            _ => {}
+                        }
+                    }
+                    
+                    // Also check instructions for jump targets
+                    for instruction in &block.instructions {
+                        match instruction {
+                            Instruction::Jump(target) => {
+                                if !visited.contains(&target.0) {
+                                    successors.push(target.0.clone());
+                                }
+                            },
+                            Instruction::JumpIf { target, .. } |
+                            Instruction::JumpIfNot { target, .. } => {
+                                if !visited.contains(&target.0) {
+                                    successors.push(target.0.clone());
+                                }
+                            },
+                            _ => {}
+                        }
+                    }
+                    
+                    // Add successors to stack in reverse order
+                    for successor in successors.into_iter().rev() {
+                        if !visited.contains(&successor) {
+                            stack.push(successor);
+                        }
+                    }
+                }
+            }
+            
+            // Now add any remaining blocks that weren't reached from entry
+            let mut all_block_names: Vec<String> = function.cfg.blocks.keys().cloned().collect();
+            all_block_names.sort();
+            
+            for block_name in all_block_names {
+                if !visited.contains(&block_name) {
+                    if let Some(block) = function.cfg.get_block(&block_name) {
+                        ordered_blocks.push((block_name, block.clone()));
+                    }
+                }
+            }
+            
+            // Generate code for all blocks in order
+            for (block_label, block) in ordered_blocks {
+                // Don't output the label if it's "entry" (it's implicit)
+                if block_label != "entry" {
+                    writeln!(output, "{}:", block_label).unwrap();
+                }
+                let block_code = self.generate_basic_block(&block)?;
                 output.push_str(&block_code);
             }
         }
@@ -164,14 +258,16 @@ impl CCodeGenerator {
     pub fn generate_basic_block(&mut self, block: &BasicBlock) -> Result<String> {
         let mut output = String::new();
         
-        // Special handling for if-else patterns
-        if let Some(if_code) = self.generate_if_else_block(&block.instructions)? {
-            output.push_str(&if_code);
-        } else {
-            for instruction in &block.instructions {
-                let inst_code = self.generate_instruction(instruction)?;
-                writeln!(output, "    {}", inst_code).unwrap();
+        // Generate all instructions directly without pattern matching
+        // Skip Label instructions since we output them separately at the block level
+        for instruction in &block.instructions {
+            // Skip labels - they're handled at the block level now
+            if matches!(instruction, Instruction::Label(_)) {
+                continue;
             }
+            
+            let inst_code = self.generate_instruction(instruction)?;
+            writeln!(output, "    {}", inst_code).unwrap();
         }
         
         if let Some(terminator) = &block.terminator {
@@ -221,9 +317,22 @@ impl CCodeGenerator {
             },
             
             Instruction::Store { value, dest } => {
-                let val = self.generate_c_value(value)?;
-                let dst = self.generate_c_value(dest)?;
-                Ok(format!("{} = {};", dst, val))
+                // Special handling for array literals
+                if let IRValue::Array(elements) = value {
+                    let dst = self.generate_c_value(dest)?;
+                    let mut output = String::new();
+                    // Allocate array on heap and initialize
+                    writeln!(output, "{} = (int64_t*)malloc({} * sizeof(int64_t));", dst, elements.len()).unwrap();
+                    for (i, elem) in elements.iter().enumerate() {
+                        let elem_str = self.generate_c_value(elem)?;
+                        writeln!(output, "    {}[{}] = {};", dst, i, elem_str).unwrap();
+                    }
+                    Ok(output.trim_end().to_string())
+                } else {
+                    let val = self.generate_c_value(value)?;
+                    let dst = self.generate_c_value(dest)?;
+                    Ok(format!("{} = {};", dst, val))
+                }
             },
             
             Instruction::Load { source, dest } => {
@@ -274,6 +383,47 @@ impl CCodeGenerator {
                 }
             },
             
+            Instruction::FieldAccess { struct_val, field, result } => {
+                let struct_str = self.generate_c_value(struct_val)?;
+                let result_str = self.generate_c_value(result)?;
+                // For now, use struct member access syntax
+                // TODO: This assumes structs are properly defined in C
+                Ok(format!("{} = {}.{};", result_str, struct_str, field))
+            },
+            
+            Instruction::FieldSet { struct_val, field, value } => {
+                let struct_str = self.generate_c_value(struct_val)?;
+                let value_str = self.generate_c_value(value)?;
+                Ok(format!("{}.{} = {};", struct_str, field, value_str))
+            },
+            
+            Instruction::ArrayAccess { array, index, result } => {
+                let array_str = self.generate_c_value(array)?;
+                let index_str = self.generate_c_value(index)?;
+                let result_str = self.generate_c_value(result)?;
+                Ok(format!("{} = {}[{}];", result_str, array_str, index_str))
+            },
+            
+            Instruction::ArraySet { array, index, value } => {
+                let array_str = self.generate_c_value(array)?;
+                let index_str = self.generate_c_value(index)?;
+                let value_str = self.generate_c_value(value)?;
+                Ok(format!("{}[{}] = {};", array_str, index_str, value_str))
+            },
+            
+            Instruction::StringConcat { left, right, result } => {
+                // For C, we'll need to use string functions
+                // This is a simplified implementation using sprintf
+                let left_str = self.generate_c_value(left)?;
+                let right_str = self.generate_c_value(right)?;
+                let result_str = self.generate_c_value(result)?;
+                
+                // Allocate buffer and concatenate
+                // Note: This is simplified and doesn't handle dynamic sizing properly
+                Ok(format!("{} = (char*)malloc(1024); sprintf({}, \"%s%s\", {}, {});", 
+                          result_str, result_str, left_str, right_str))
+            },
+            
             _ => Err(CodeGenError::UnsupportedInstruction(format!("{:?}", instruction))),
         }
     }
@@ -302,6 +452,25 @@ impl CCodeGenerator {
             },
             IRValue::Variable(name) => Ok(name.clone()),
             IRValue::String(s) => Ok(format!("\"{}\"", s.replace('"', "\\\""))),
+            IRValue::Array(elements) => {
+                // Generate C array initializer
+                let element_strs: Result<Vec<String>> = elements.iter()
+                    .map(|elem| self.generate_c_value(elem))
+                    .collect();
+                match element_strs {
+                    Ok(strs) => Ok(format!("{{{}}}", strs.join(", "))),
+                    Err(e) => Err(e),
+                }
+            },
+            IRValue::Struct { type_name: _, fields } => {
+                // Generate C99 designated initializer
+                let mut field_strs = Vec::new();
+                for (field_name, field_value) in fields {
+                    let value_str = self.generate_c_value(field_value)?;
+                    field_strs.push(format!(".{} = {}", field_name, value_str));
+                }
+                Ok(format!("{{{}}}", field_strs.join(", ")))
+            },
             _ => Err(CodeGenError::UnsupportedValue(format!("{:?}", value))),
         }
     }
@@ -348,7 +517,209 @@ impl CCodeGenerator {
         }
     }
     
-    /// Generate if-else block using simple pattern matching  
+    fn generate_for_loop_block(&mut self, instructions: &[Instruction], terminator: &Option<Instruction>) -> Result<Option<String>> {
+        // Detect for loop pattern:
+        // 1. Store initial value to loop variable
+        // 2. Labels for for_start, for_body, for_end
+        // 3. Condition check (usually <= or <)
+        // 4. Body instructions
+        // 5. Increment loop variable
+        
+        let mut loop_var_name = None;
+        let mut loop_start_label = None;
+        let mut loop_body_label = None;
+        let mut loop_end_label = None;
+        let mut condition_check = None;
+        let mut body_instructions = Vec::new();
+        let mut increment_instructions = Vec::new();
+        
+        let mut current_section = "init";
+        
+        for instruction in instructions {
+            match instruction {
+                Instruction::Store { dest: IRValue::Variable(name), .. } if current_section == "init" => {
+                    loop_var_name = Some(name.clone());
+                },
+                Instruction::Label(label) if label.0.contains("for_start") => {
+                    loop_start_label = Some(label.clone());
+                    current_section = "condition";
+                },
+                Instruction::Label(label) if label.0.contains("for_body") => {
+                    loop_body_label = Some(label.clone());
+                    current_section = "body";
+                },
+                Instruction::Label(label) if label.0.contains("for_end") => {
+                    loop_end_label = Some(label.clone());
+                    current_section = "end";
+                },
+                Instruction::Binary { op: crate::instruction::BinaryOp::LessThan, .. } 
+                | Instruction::Binary { op: crate::instruction::BinaryOp::LessEqual, .. }
+                if current_section == "condition" => {
+                    condition_check = Some(instruction.clone());
+                },
+                Instruction::Binary { op: crate::instruction::BinaryOp::Add, left, right: IRValue::Integer(1), .. }
+                if current_section == "body" => {
+                    // This is the increment instruction
+                    increment_instructions.push(instruction.clone());
+                },
+                Instruction::Store { dest: IRValue::Variable(name), .. }
+                if current_section == "body" && loop_var_name.as_ref() == Some(name) => {
+                    // Store of increment back to loop variable
+                    increment_instructions.push(instruction.clone());
+                },
+                _ if current_section == "body" && increment_instructions.is_empty() => {
+                    body_instructions.push(instruction.clone());
+                },
+                _ => {}
+            }
+        }
+        
+        // If we have all the components of a for loop, generate proper C code
+        if let (Some(var_name), Some(start_label), Some(body_label), Some(end_label), Some(condition)) = 
+               (loop_var_name, loop_start_label, loop_body_label, loop_end_label, condition_check) {
+            
+            let mut output = String::new();
+            
+            // Handle initialization (first store instruction)
+            for instruction in instructions {
+                if let Instruction::Store { value, dest: IRValue::Variable(name) } = instruction {
+                    if name == &var_name {
+                        let val_str = self.generate_c_value(value)?;
+                        writeln!(output, "    {} = {};", name, val_str).unwrap();
+                        break;
+                    }
+                }
+            }
+            
+            // Generate the for loop structure
+            writeln!(output, "{}:", start_label.0).unwrap();
+            
+            // Generate condition check
+            let cond_str = self.generate_instruction(&condition)?;
+            writeln!(output, "    {}", cond_str).unwrap();
+            
+            // Generate conditional jump
+            if let Instruction::Binary { result, .. } = condition {
+                writeln!(output, "    if (!{}) goto {};", self.generate_c_value(&result)?, end_label.0).unwrap();
+            }
+            
+            // Generate body
+            writeln!(output, "{}:", body_label.0).unwrap();
+            for inst in &body_instructions {
+                let inst_str = self.generate_instruction(inst)?;
+                writeln!(output, "    {}", inst_str).unwrap();
+            }
+            
+            // Generate increment
+            for inst in &increment_instructions {
+                let inst_str = self.generate_instruction(inst)?;
+                writeln!(output, "    {}", inst_str).unwrap();
+            }
+            
+            // Jump back to start
+            writeln!(output, "    goto {};", start_label.0).unwrap();
+            
+            // End label
+            writeln!(output, "{}:", end_label.0).unwrap();
+            
+            return Ok(Some(output));
+        }
+        
+        Ok(None)
+    }
+    
+    fn generate_while_loop_block(&mut self, instructions: &[Instruction], terminator: &Option<Instruction>) -> Result<Option<String>> {
+        // Detect while loop pattern:
+        // 1. Labels for loop_start, loop_body, loop_end
+        // 2. Condition check
+        // 3. Body instructions
+        
+        let mut loop_start_label = None;
+        let mut loop_body_label = None;
+        let mut loop_end_label = None;
+        let mut condition_check = None;
+        let mut body_instructions = Vec::new();
+        
+        let mut current_section = "init";
+        
+        for instruction in instructions {
+            match instruction {
+                Instruction::Label(label) if label.0.contains("loop_start") => {
+                    loop_start_label = Some(label.clone());
+                    current_section = "condition";
+                },
+                Instruction::Label(label) if label.0.contains("loop_body") => {
+                    loop_body_label = Some(label.clone());
+                    current_section = "body";
+                },
+                Instruction::Label(label) if label.0.contains("loop_end") => {
+                    loop_end_label = Some(label.clone());
+                    current_section = "end";
+                },
+                Instruction::Binary { op: crate::instruction::BinaryOp::LessThan, .. } 
+                | Instruction::Binary { op: crate::instruction::BinaryOp::LessEqual, .. }
+                | Instruction::Binary { op: crate::instruction::BinaryOp::GreaterThan, .. }
+                | Instruction::Binary { op: crate::instruction::BinaryOp::GreaterEqual, .. }
+                | Instruction::Binary { op: crate::instruction::BinaryOp::Equal, .. }
+                | Instruction::Binary { op: crate::instruction::BinaryOp::NotEqual, .. } 
+                if current_section == "condition" => {
+                    condition_check = Some(instruction.clone());
+                },
+                _ if current_section == "body" => {
+                    body_instructions.push(instruction.clone());
+                },
+                _ => {}
+            }
+        }
+        
+        // If we have all the components of a while loop, generate proper C code
+        if let (Some(start_label), Some(body_label), Some(end_label), Some(condition)) = 
+               (loop_start_label, loop_body_label, loop_end_label, condition_check) {
+            
+            let mut output = String::new();
+            
+            // Handle any instructions before the loop
+            for instruction in instructions {
+                if let Instruction::Label(label) = instruction {
+                    if label.0.contains("loop_start") {
+                        break;
+                    }
+                }
+                let inst_str = self.generate_instruction(instruction)?;
+                writeln!(output, "    {}", inst_str).unwrap();
+            }
+            
+            // Generate the while loop structure
+            writeln!(output, "{}:", start_label.0).unwrap();
+            
+            // Generate condition check
+            let cond_str = self.generate_instruction(&condition)?;
+            writeln!(output, "    {}", cond_str).unwrap();
+            
+            // Generate conditional jump
+            if let Instruction::Binary { result, .. } = condition {
+                writeln!(output, "    if (!{}) goto {};", self.generate_c_value(&result)?, end_label.0).unwrap();
+            }
+            
+            // Generate body
+            writeln!(output, "{}:", body_label.0).unwrap();
+            for inst in &body_instructions {
+                let inst_str = self.generate_instruction(inst)?;
+                writeln!(output, "    {}", inst_str).unwrap();
+            }
+            
+            // Jump back to start
+            writeln!(output, "    goto {};", start_label.0).unwrap();
+            
+            // End label
+            writeln!(output, "{}:", end_label.0).unwrap();
+            
+            return Ok(Some(output));
+        }
+        
+        Ok(None)
+    }
+    
     fn generate_if_else_block(&self, instructions: &[Instruction]) -> Result<Option<String>> {
         // Look for the specific pattern we know exists:
         // store variable, binary comparison, labels and moves

@@ -15,6 +15,7 @@ pub mod function;
 pub mod module;
 pub mod generator;
 pub mod optimizer;
+pub mod cfg_builder;
 
 // Simple codegen without LLVM dependency
 pub mod simple_codegen;

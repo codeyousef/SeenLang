@@ -102,7 +102,7 @@ impl IRGenerator {
         let mut program = IRProgram::new();
         let mut module = IRModule::new("main");
         
-        // First pass: collect all function definitions
+        // First pass: collect all function definitions and struct definitions
         let mut main_expressions = Vec::new();
         for expression in expressions {
             match expression {
@@ -110,6 +110,11 @@ impl IRGenerator {
                     // Generate the function and add to module
                     let function = self.generate_function_definition(name, params, return_type, body)?;
                     module.add_function(function);
+                }
+                Expression::StructDefinition { name, fields, .. } => {
+                    // Struct definitions are handled at the module level for type registration
+                    // For now, just register the struct type (no runtime IR needed)
+                    self.register_struct_type(name, fields)?;
                 }
                 other => {
                     // Regular expression, add to main function body
@@ -126,30 +131,27 @@ impl IRGenerator {
         
         // Create entry block
         let entry_label = Label::new("entry");
-        let mut entry_block = BasicBlock::new(entry_label.clone());
         self.context.current_block = Some(entry_label.0.clone());
         
         // Generate IR for main expressions
+        let mut all_instructions = vec![Instruction::Label(entry_label)];
         let mut result_value = IRValue::Integer(0); // Default return value
         
         for expression in main_expressions {
             let (value, instructions) = self.generate_expression(expression)?;
-            
-            // Add all instructions to the current block
-            for instruction in instructions {
-                entry_block.add_instruction(instruction);
-            }
-            
+            all_instructions.extend(instructions);
             result_value = value;
         }
         
         // Add return instruction
-        entry_block.add_instruction(Instruction::Return(Some(result_value)));
+        all_instructions.push(Instruction::Return(Some(result_value)));
         
         // Update function register count
         main_function.register_count = self.context.register_counter;
         
-        main_function.add_block(entry_block);
+        // Build proper CFG from instruction list
+        let cfg = crate::cfg_builder::build_cfg_from_instructions(all_instructions);
+        main_function.cfg = cfg;
         module.add_function(main_function);
         
         program.add_module(module);
@@ -514,11 +516,10 @@ impl IRGenerator {
                             result: cond_result.clone(),
                         });
                         
-                        instructions.push(Instruction::JumpIf {
+                        instructions.push(Instruction::JumpIfNot {
                             condition: cond_result,
-                            target: loop_body.clone(),
+                            target: loop_end.clone(),
                         });
-                        instructions.push(Instruction::Jump(loop_end.clone()));
                         
                         // Loop body
                         instructions.push(Instruction::Label(loop_body));
@@ -609,12 +610,11 @@ impl IRGenerator {
         let (cond_val, cond_instructions) = self.generate_expression(condition)?;
         instructions.extend(cond_instructions);
         
-        // Jump to body if condition is true, otherwise exit
-        instructions.push(Instruction::JumpIf {
+        // Jump to end if condition is false, otherwise continue to body
+        instructions.push(Instruction::JumpIfNot {
             condition: cond_val,
-            target: loop_body.clone(),
+            target: loop_end.clone(),
         });
-        instructions.push(Instruction::Jump(loop_end.clone()));
         
         // Generate body
         instructions.push(Instruction::Label(loop_body));
@@ -877,25 +877,23 @@ impl IRGenerator {
         
         // Create entry block for function
         let entry_label = Label::new("entry");
-        let mut entry_block = BasicBlock::new(entry_label.clone());
         self.context.current_block = Some(entry_label.0.clone());
         
         // Generate function body
-        let (result_value, instructions) = self.generate_expression(body)?;
+        let (result_value, mut instructions) = self.generate_expression(body)?;
         
-        // Add instructions to entry block
-        for instruction in instructions {
-            entry_block.add_instruction(instruction);
-        }
+        // Add entry label at the beginning
+        instructions.insert(0, Instruction::Label(entry_label));
         
-        // Add return instruction
-        entry_block.add_instruction(Instruction::Return(Some(result_value)));
+        // Add return instruction at the end
+        instructions.push(Instruction::Return(Some(result_value)));
         
         // Update function register count
         function.register_count = self.context.register_counter;
         
-        // Add block to function
-        function.add_block(entry_block);
+        // Build proper CFG from instruction list
+        let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);
+        function.cfg = cfg;
         
         // Restore context
         self.context.current_function = saved_function;
@@ -927,6 +925,22 @@ impl IRGenerator {
             "()" => IRType::Void,
             _ => IRType::Integer, // Default fallback
         }
+    }
+    
+    /// Register a struct type for use in the IR
+    fn register_struct_type(
+        &mut self,
+        _name: &str,
+        _fields: &[seen_parser::StructField]
+    ) -> IRResult<()> {
+        // For now, struct types are just registered for later use
+        // In a full implementation, this would:
+        // 1. Add the struct to the type system
+        // 2. Generate type metadata
+        // 3. Enable field access validation
+        // 
+        // Currently we just acknowledge the struct definition exists
+        Ok(())
     }
 }
 

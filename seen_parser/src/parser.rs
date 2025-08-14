@@ -1840,8 +1840,11 @@ impl Parser {
         match expr {
             // Method calls like list.Map can have trailing lambdas
             Expression::MemberAccess { .. } => true,
-            // Function identifiers can have trailing lambdas  
-            Expression::Identifier { .. } => true,
+            // Function identifiers can have trailing lambdas, but only if they're lowercase (functions)
+            // Uppercase identifiers are types and should be struct literals
+            Expression::Identifier { name, is_public, .. } => {
+                !(*is_public || name.chars().next().map_or(false, |c| c.is_uppercase()))
+            },
             // Chained calls can have trailing lambdas
             Expression::Call { .. } => true,
             _ => false,
