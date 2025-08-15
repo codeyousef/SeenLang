@@ -1,0 +1,71 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+// Module: main
+char* processSource(char* input) {
+    int64_t r0;
+    int64_t output;
+    r0 = createCProgram("main");
+    output = r0;
+    return output;
+block_0:
+    return output;
+}
+
+int64_t seen_main() {
+    return 0;
+}
+
+bool compileFile(char* inputPath, char* outputPath) {
+    int64_t r0;
+    int64_t r1;
+    int64_t r2;
+    int64_t r3;
+    int64_t r4;
+    int64_t success;
+    int64_t sourceCode;
+    int64_t cCode;
+    r0 = "";
+    r1 = (char*)malloc(1024); sprintf(r1, "%s%s", r0, "fun hello() -> Int ");
+    return 42;
+block_0:
+    r2 = (char*)malloc(1024); sprintf(r2, "%s%s", r1, 42);
+    sourceCode = r2;
+    r3 = processSource(sourceCode);
+    cCode = r3;
+    r4 = writeToFile(outputPath, cCode);
+    success = r4;
+    return success;
+block_1:
+    return success;
+}
+
+bool writeToFile(char* path, char* content) {
+    return true;
+block_0:
+    return true;
+}
+
+char* createCProgram(char* funcName) {
+    int64_t r0;
+    int64_t r1;
+    int64_t r2;
+    int64_t r3;
+    r0 = "";
+    r1 = (char*)malloc(1024); sprintf(r1, "%s%s", r0, "#include <stdio.h>
+int main() ");
+    return 0;
+block_0:
+    r2 = (char*)malloc(1024); sprintf(r2, "%s%s", r1, 0);
+    r3 = (char*)malloc(1024); sprintf(r3, "%s%s", r2, "
+");
+    return r3;
+block_1:
+    return r3;
+}
+
+int main(int argc, char* argv[]) {
+    return seen_main();
+}

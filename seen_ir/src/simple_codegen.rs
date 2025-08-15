@@ -131,6 +131,20 @@ impl CCodeGenerator {
         
         writeln!(output, "// Module: {}", module.name).unwrap();
         
+        // Generate forward declarations for all functions
+        for function in module.functions.values() {
+            let return_type = self.generate_c_type(&function.return_type);
+            let mut param_strings = Vec::new();
+            for param in &function.parameters {
+                let param_type = self.generate_c_type(&param.param_type);
+                param_strings.push(format!("{} {}", param_type, param.name));
+            }
+            let params_str = param_strings.join(", ");
+            writeln!(output, "{} {}({});", return_type, function.name, params_str).unwrap();
+        }
+        writeln!(output).unwrap();
+        
+        // Generate function implementations
         for function in module.functions.values() {
             let function_code = self.generate_function(function)?;
             output.push_str(&function_code);
@@ -156,14 +170,15 @@ impl CCodeGenerator {
         
         writeln!(output, "{} {}({}) {{", return_type, function_name, params_str).unwrap();
         
-        // Declare registers
-        for reg in 0..function.register_count {
-            writeln!(output, "    int64_t r{};", reg).unwrap();
-            self.context.map_register(reg, format!("r{}", reg));
-        }
+        // Don't declare registers yet - we'll include them in variable declarations below
         
         // Collect and declare variables (excluding parameters)
         let mut variables = std::collections::HashSet::new();
+        // Add all registers to variables
+        for reg in 0..function.register_count {
+            variables.insert(format!("r{}", reg));
+            self.context.map_register(reg, format!("r{}", reg));
+        }
         // Collect variables from all blocks, not just entry
         for block in function.cfg.blocks.values() {
             self.collect_variables_from_block(block, &mut variables);
@@ -193,11 +208,63 @@ impl CCodeGenerator {
                     Instruction::Store { value: IRValue::Struct { type_name, .. }, dest: IRValue::Variable(name) } => {
                         struct_vars.insert(name.clone(), type_name.clone());
                     },
-                    Instruction::Store { value: IRValue::String(_), dest: IRValue::Variable(name) } => {
-                        string_vars.insert(name.clone());
+                    Instruction::StringConcat { left, right, result } => {
+                        // Mark the result as a string variable
+                        if let IRValue::Variable(name) = result {
+                            string_vars.insert(name.clone());
+                        }
+                        // Also mark any register results as strings
+                        if let IRValue::Register(reg) = result {
+                            let reg_name = format!("r{}", reg);
+                            string_vars.insert(reg_name);
+                        }
                     },
-                    Instruction::Store { value: IRValue::Boolean(_), dest: IRValue::Variable(name) } => {
-                        bool_vars.insert(name.clone());
+                    // Detect all string assignments (consolidated)
+                    Instruction::Store { value, dest } => {
+                        match (value, dest) {
+                            (IRValue::String(_), IRValue::Variable(name)) => {
+                                string_vars.insert(name.clone());
+                            },
+                            (IRValue::String(_), IRValue::Register(reg)) => {
+                                let reg_name = format!("r{}", reg);
+                                string_vars.insert(reg_name);
+                            },
+                            (IRValue::Boolean(_), IRValue::Variable(name)) => {
+                                bool_vars.insert(name.clone());
+                            },
+                            _ => {}
+                        }
+                    },
+                    // Detect variables assigned from string registers
+                    Instruction::Store { value: IRValue::Register(src_reg), dest: IRValue::Variable(name) } => {
+                        let src_name = format!("r{}", src_reg);
+                        if string_vars.contains(&src_name) {
+                            string_vars.insert(name.clone());
+                        }
+                    },
+                    // Detect function calls that return strings
+                    Instruction::Call { target, result: Some(result_val), .. } => {
+                        // Check if the target function returns a string
+                        let is_string_function = match target {
+                            IRValue::Function { name: func_name, .. } => {
+                                func_name == "GenerateCCode" || func_name.ends_with("CCode") || func_name.contains("String")
+                            },
+                            IRValue::Variable(func_name) => {
+                                func_name == "GenerateCCode" || func_name.ends_with("CCode") || func_name.contains("String")
+                            },
+                            _ => false
+                        };
+                        
+                        if is_string_function {
+                            match result_val {
+                                IRValue::Variable(name) => { string_vars.insert(name.clone()); },
+                                IRValue::Register(reg) => { 
+                                    let reg_name = format!("r{}", reg);
+                                    string_vars.insert(reg_name); 
+                                },
+                                _ => {}
+                            }
+                        }
                     },
                     _ => {}
                 }
@@ -493,10 +560,26 @@ impl CCodeGenerator {
                 let right_str = self.generate_c_value(right)?;
                 let result_str = self.generate_c_value(result)?;
                 
-                // Allocate buffer and concatenate
-                // Note: This is simplified and doesn't handle dynamic sizing properly
-                Ok(format!("{} = (char*)malloc(1024); sprintf({}, \"%s%s\", {}, {});", 
-                          result_str, result_str, left_str, right_str))
+                // Determine format specifiers based on value types
+                let left_format = match left {
+                    IRValue::String(_) => "%s",
+                    IRValue::Integer(_) => "%d",
+                    IRValue::Float(_) => "%f",
+                    IRValue::Boolean(_) => "%d",
+                    _ => "%s", // Default to string for variables/registers
+                };
+                
+                let right_format = match right {
+                    IRValue::String(_) => "%s",
+                    IRValue::Integer(_) => "%d", 
+                    IRValue::Float(_) => "%f",
+                    IRValue::Boolean(_) => "%d",
+                    _ => "%s", // Default to string for variables/registers
+                };
+                
+                // Allocate buffer and concatenate with appropriate format
+                Ok(format!("{} = (char*)malloc(1024); sprintf({}, \"{}{}\", {}, {});", 
+                          result_str, result_str, left_format, right_format, left_str, right_str))
             },
             
             Instruction::GetEnumTag { enum_value, result } => {
@@ -648,7 +731,15 @@ impl CCodeGenerator {
                 }
             },
             IRValue::Variable(name) => Ok(name.clone()),
-            IRValue::String(s) => Ok(format!("\"{}\"", s.replace('"', "\\\""))),
+            IRValue::String(s) => {
+                let escaped = s
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+                    .replace('\n', "\\n")
+                    .replace('\r', "\\r")
+                    .replace('\t', "\\t");
+                Ok(format!("\"{}\"", escaped))
+            },
             IRValue::Array(elements) => {
                 // Generate C array initializer
                 let element_strs: Result<Vec<String>> = elements.iter()

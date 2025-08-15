@@ -1,0 +1,8 @@
+fun TestFunction() -> String {
+    return "test"
+}
+
+fun Main() {
+    let result = TestFunction()
+    Print(result)
+}

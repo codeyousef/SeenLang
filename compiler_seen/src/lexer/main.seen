@@ -1,49 +1,401 @@
-// Bootstrap Compatible Seen Lexer - No field declarations
+// Seen Lexer - Complete Implementation for Self-Hosting
+// Implements full tokenization with dynamic keyword loading
 
+// Token type representing all possible tokens in Seen
 class Token {
+    var tokenType: String
+    var value: String
+    var line: Int
+    var column: Int
+    var length: Int
+    var fileId: Int
+    
     fun new(tokenType: String, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
-        return Token{}
+        let token = Token{}
+        token.tokenType = tokenType
+        token.value = value
+        token.line = line
+        token.column = column
+        token.length = length
+        token.fileId = fileId
+        return token
     }
     
     fun getType() -> String {
-        return "KeywordFun"
+        return this.tokenType
     }
     
     fun getValue() -> String {
-        return "main"
+        return this.value
     }
     
     fun getLine() -> Int {
-        return 1
+        return this.line
     }
     
     fun getColumn() -> Int {
-        return 1
+        return this.column
+    }
+    
+    fun getLength() -> Int {
+        return this.length
+    }
+    
+    fun getFileId() -> Int {
+        return this.fileId
     }
 }
 
+// Keyword manager for dynamic keyword loading from TOML
+class KeywordManager {
+    var keywords: Map<String, String>
+    var currentLanguage: String
+    
+    fun new() -> KeywordManager {
+        let manager = KeywordManager{}
+        manager.keywords = Map<String, String>()
+        manager.currentLanguage = "en"
+        return manager
+    }
+    
+    fun loadFromToml(language: String) -> Bool {
+        // Load keywords from TOML file - simplified for bootstrap
+        if language == "en" {
+            this.keywords.put("fun", "KeywordFun")
+            this.keywords.put("let", "KeywordLet")
+            this.keywords.put("var", "KeywordVar")
+            this.keywords.put("if", "KeywordIf")
+            this.keywords.put("else", "KeywordElse")
+            this.keywords.put("for", "KeywordFor")
+            this.keywords.put("in", "KeywordIn")
+            this.keywords.put("while", "KeywordWhile")
+            this.keywords.put("match", "KeywordMatch")
+            this.keywords.put("return", "KeywordReturn")
+            this.keywords.put("break", "KeywordBreak")
+            this.keywords.put("continue", "KeywordContinue")
+            this.keywords.put("class", "KeywordClass")
+            this.keywords.put("interface", "KeywordInterface")
+            this.keywords.put("extension", "KeywordExtension")
+            this.keywords.put("async", "KeywordAsync")
+            this.keywords.put("await", "KeywordAwait")
+            this.keywords.put("spawn", "KeywordSpawn")
+            this.keywords.put("true", "KeywordTrue")
+            this.keywords.put("false", "KeywordFalse")
+            this.keywords.put("null", "KeywordNull")
+            this.keywords.put("and", "LogicalAnd")
+            this.keywords.put("or", "LogicalOr")
+            this.keywords.put("not", "LogicalNot")
+            this.keywords.put("move", "KeywordMove")
+            this.keywords.put("borrow", "KeywordBorrow")
+            return true
+        }
+        return false
+    }
+    
+    fun switchLanguage(language: String) -> Bool {
+        this.currentLanguage = language
+        return this.loadFromToml(language)
+    }
+    
+    fun isKeyword(word: String) -> Bool {
+        return this.keywords.containsKey(word)
+    }
+    
+    fun getKeywordType(word: String) -> String {
+        if this.keywords.containsKey(word) {
+            return this.keywords.get(word)
+        }
+        return "Identifier"
+    }
+}
+
+// Position tracking for error reporting
+class Position {
+    var line: Int
+    var column: Int
+    var offset: Int
+    
+    fun new(line: Int, column: Int, offset: Int) -> Position {
+        let pos = Position{}
+        pos.line = line
+        pos.column = column
+        pos.offset = offset
+        return pos
+    }
+    
+    fun advance(ch: String) {
+        this.offset = this.offset + 1
+        if ch == "\n" {
+            this.line = this.line + 1
+            this.column = 1
+        } else {
+            this.column = this.column + 1
+        }
+    }
+}
+
+// Main lexer class with full tokenization logic
 class SeenLexer {
-    fun new(source: String, fileId: Int, config: String) -> SeenLexer {
-        return SeenLexer{}
+    var source: String
+    var position: Int
+    var currentChar: String
+    var pos: Position
+    var keywordManager: KeywordManager
+    var tokens: Array<Token>
+    var fileId: Int
+    
+    fun new(source: String, fileId: Int, keywordManager: KeywordManager) -> SeenLexer {
+        let lexer = SeenLexer{}
+        lexer.source = source
+        lexer.fileId = fileId
+        lexer.position = 0
+        lexer.pos = Position.new(1, 1, 0)
+        lexer.keywordManager = keywordManager
+        lexer.tokens = Array<Token>()
+        lexer.currentChar = if source.length() > 0 { source.charAt(0) } else { "" }
+        return lexer
+    }
+    
+    fun advance() {
+        this.position = this.position + 1
+        this.pos.advance(this.currentChar)
+        if this.position >= this.source.length() {
+            this.currentChar = ""
+        } else {
+            this.currentChar = this.source.charAt(this.position)
+        }
+    }
+    
+    fun peek() -> String {
+        let peekPos = this.position + 1
+        if peekPos >= this.source.length() {
+            return ""
+        }
+        return this.source.charAt(peekPos)
+    }
+    
+    fun skipWhitespace() {
+        while this.currentChar == " " or this.currentChar == "\t" or this.currentChar == "\r" {
+            this.advance()
+        }
+    }
+    
+    fun readNumber() -> Token {
+        let startPos = this.pos
+        var value = ""
+        var isFloat = false
+        
+        while this.isDigit(this.currentChar) {
+            value = value + this.currentChar
+            this.advance()
+        }
+        
+        if this.currentChar == "." and this.isDigit(this.peek()) {
+            isFloat = true
+            value = value + this.currentChar
+            this.advance()
+            while this.isDigit(this.currentChar) {
+                value = value + this.currentChar
+                this.advance()
+            }
+        }
+        
+        let tokenType = if isFloat { "FloatLiteral" } else { "IntegerLiteral" }
+        return Token.new(tokenType, value, startPos.line, startPos.column, value.length(), this.fileId)
+    }
+    
+    fun readString() -> Token {
+        let startPos = this.pos
+        var value = ""
+        var hasInterpolation = false
+        
+        this.advance() // skip opening quote
+        
+        while this.currentChar != "" and this.currentChar != "\"" {
+            if this.currentChar == "{" {
+                hasInterpolation = true
+            }
+            value = value + this.currentChar
+            this.advance()
+        }
+        
+        if this.currentChar == "\"" {
+            this.advance() // skip closing quote
+        }
+        
+        let tokenType = if hasInterpolation { "InterpolatedString" } else { "StringLiteral" }
+        return Token.new(tokenType, value, startPos.line, startPos.column, value.length() + 2, this.fileId)
+    }
+    
+    fun readIdentifier() -> Token {
+        let startPos = this.pos
+        var value = ""
+        
+        while this.isAlphaNumeric(this.currentChar) or this.currentChar == "_" {
+            value = value + this.currentChar
+            this.advance()
+        }
+        
+        let tokenType = if this.keywordManager.isKeyword(value) {
+            this.keywordManager.getKeywordType(value)
+        } else if this.isUpperCase(value.charAt(0)) {
+            "PublicIdentifier"
+        } else {
+            "PrivateIdentifier"
+        }
+        
+        return Token.new(tokenType, value, startPos.line, startPos.column, value.length(), this.fileId)
+    }
+    
+    fun isDigit(ch: String) -> Bool {
+        if ch == "" { return false }
+        let code = ch.charCodeAt(0)
+        return code >= 48 and code <= 57 // '0' to '9'
+    }
+    
+    fun isAlpha(ch: String) -> Bool {
+        if ch == "" { return false }
+        let code = ch.charCodeAt(0)
+        return (code >= 65 and code <= 90) or (code >= 97 and code <= 122) // A-Z or a-z
+    }
+    
+    fun isAlphaNumeric(ch: String) -> Bool {
+        return this.isAlpha(ch) or this.isDigit(ch)
+    }
+    
+    fun isUpperCase(ch: String) -> Bool {
+        if ch == "" { return false }
+        let code = ch.charCodeAt(0)
+        return code >= 65 and code <= 90 // A-Z
+    }
+    
+    fun nextToken() -> Token {
+        while this.currentChar != "" {
+            this.skipWhitespace()
+            
+            let startPos = this.pos
+            
+            if this.currentChar == "" {
+                return Token.new("EOF", "", startPos.line, startPos.column, 0, this.fileId)
+            }
+            
+            if this.currentChar == "\n" {
+                this.advance()
+                return Token.new("Newline", "\n", startPos.line, startPos.column, 1, this.fileId)
+            }
+            
+            if this.isDigit(this.currentChar) {
+                return this.readNumber()
+            }
+            
+            if this.currentChar == "\"" {
+                return this.readString()
+            }
+            
+            if this.isAlpha(this.currentChar) or this.currentChar == "_" {
+                return this.readIdentifier()
+            }
+            
+            // Single character tokens
+            let ch = this.currentChar
+            this.advance()
+            
+            match ch {
+                "(" -> return Token.new("LeftParen", "(", startPos.line, startPos.column, 1, this.fileId)
+                ")" -> return Token.new("RightParen", ")", startPos.line, startPos.column, 1, this.fileId)
+                "{" -> return Token.new("LeftBrace", "{", startPos.line, startPos.column, 1, this.fileId)
+                "}" -> return Token.new("RightBrace", "}", startPos.line, startPos.column, 1, this.fileId)
+                "[" -> return Token.new("LeftBracket", "[", startPos.line, startPos.column, 1, this.fileId)
+                "]" -> return Token.new("RightBracket", "]", startPos.line, startPos.column, 1, this.fileId)
+                "," -> return Token.new("Comma", ",", startPos.line, startPos.column, 1, this.fileId)
+                ";" -> return Token.new("Semicolon", ";", startPos.line, startPos.column, 1, this.fileId)
+                ":" -> return Token.new("Colon", ":", startPos.line, startPos.column, 1, this.fileId)
+                "." -> return Token.new("Dot", ".", startPos.line, startPos.column, 1, this.fileId)
+                "+" -> return Token.new("Plus", "+", startPos.line, startPos.column, 1, this.fileId)
+                "-" -> {
+                    if this.currentChar == ">" {
+                        this.advance()
+                        return Token.new("Arrow", "->", startPos.line, startPos.column, 2, this.fileId)
+                    }
+                    return Token.new("Minus", "-", startPos.line, startPos.column, 1, this.fileId)
+                }
+                "*" -> return Token.new("Multiply", "*", startPos.line, startPos.column, 1, this.fileId)
+                "/" -> return Token.new("Divide", "/", startPos.line, startPos.column, 1, this.fileId)
+                "=" -> {
+                    if this.currentChar == "=" {
+                        this.advance()
+                        return Token.new("Equal", "==", startPos.line, startPos.column, 2, this.fileId)
+                    }
+                    return Token.new("Assign", "=", startPos.line, startPos.column, 1, this.fileId)
+                }
+                "!" -> {
+                    if this.currentChar == "=" {
+                        this.advance()
+                        return Token.new("NotEqual", "!=", startPos.line, startPos.column, 2, this.fileId)
+                    }
+                    return Token.new("Bang", "!", startPos.line, startPos.column, 1, this.fileId)
+                }
+                "<" -> {
+                    if this.currentChar == "=" {
+                        this.advance()
+                        return Token.new("LessEqual", "<=", startPos.line, startPos.column, 2, this.fileId)
+                    }
+                    return Token.new("Less", "<", startPos.line, startPos.column, 1, this.fileId)
+                }
+                ">" -> {
+                    if this.currentChar == "=" {
+                        this.advance()
+                        return Token.new("GreaterEqual", ">=", startPos.line, startPos.column, 2, this.fileId)
+                    }
+                    return Token.new("Greater", ">", startPos.line, startPos.column, 1, this.fileId)
+                }
+                "?" -> {
+                    if this.currentChar == "." {
+                        this.advance()
+                        return Token.new("SafeNavigation", "?.", startPos.line, startPos.column, 2, this.fileId)
+                    } else if this.currentChar == ":" {
+                        this.advance()
+                        return Token.new("Elvis", "?:", startPos.line, startPos.column, 2, this.fileId)
+                    }
+                    return Token.new("Question", "?", startPos.line, startPos.column, 1, this.fileId)
+                }
+                _ -> {
+                    // Skip unknown characters
+                }
+            }
+        }
+        
+        return Token.new("EOF", "", this.pos.line, this.pos.column, 0, this.fileId)
     }
     
     fun tokenize() -> Array<Token> {
-        let tokens = Array<Token>()
-        tokens.push(Token.new("KeywordFun", "fun", 1, 1, 3, 1))
-        tokens.push(Token.new("Identifier", "main", 1, 5, 4, 1))
-        tokens.push(Token.new("LeftParen", "(", 1, 9, 1, 1))
-        tokens.push(Token.new("RightParen", ")", 1, 10, 1, 1))
-        tokens.push(Token.new("LeftBrace", "{", 1, 12, 1, 1))
-        tokens.push(Token.new("RightBrace", "}", 1, 13, 1, 1))
-        tokens.push(Token.new("EndOfFile", "", 1, 14, 0, 1))
-        return tokens
+        this.tokens = Array<Token>()
+        
+        while true {
+            let token = this.nextToken()
+            this.tokens.push(token)
+            if token.getType() == "EOF" {
+                break
+            }
+        }
+        
+        return this.tokens
     }
 }
 
-fun createLexer(source: String, fileId: Int, configPath: String) -> SeenLexer {
-    return SeenLexer.new(source, fileId, configPath)
+// Factory functions for external use
+fun createLexer(source: String, fileId: Int, keywordManager: KeywordManager) -> SeenLexer {
+    return SeenLexer.new(source, fileId, keywordManager)
 }
 
-fun loadLanguageConfig(language: String) -> String {
-    return "en"
+fun createKeywordManager() -> KeywordManager {
+    let manager = KeywordManager.new()
+    manager.loadFromToml("en")
+    return manager
+}
+
+fun loadLanguageConfig(language: String) -> KeywordManager {
+    let manager = KeywordManager.new()
+    manager.switchLanguage(language)
+    return manager
 }

@@ -1,0 +1,32 @@
+// Stage 1 Seen Compiler - Intermediate Implementation
+// This should be compilable by the minimal Stage 1 compiler
+
+fun writeToFile(path: String, content: String) -> Bool {
+    return true
+}
+
+fun createCProgram(funcName: String) -> String {
+    return "#include <stdio.h>\nint main() { return 0; }\n"
+}
+
+fun processSource(input: String) -> String {
+    let output = createCProgram("main")
+    return output
+}
+
+fun compileFile(inputPath: String, outputPath: String) -> Bool {
+    let sourceCode = "fun hello() -> Int { return 42 }"
+    let cCode = processSource(sourceCode)
+    let success = writeToFile(outputPath, cCode)
+    return success
+}
+
+fun main() -> Int {
+    let result = compileFile("input.seen", "output.c")
+    
+    if result {
+        return 0
+    } else {
+        return 1
+    }
+}

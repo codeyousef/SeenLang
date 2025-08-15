@@ -678,33 +678,3 @@ fun CreateEmptyList() -> List<String> {
     return EmptyStringList()
 }
 
-fun CreateArgsList() -> List<String> {
-    return EmptyStringList()
-}
-
-fun EmptyStringList() -> List<String> {
-    // This would be implemented by the runtime/standard library
-    // For bootstrap, we use a direct approach that satisfies the type checker
-    // The runtime will handle actual empty list creation
-    return CreateBootstrapEmptyList()
-}
-
-fun CreateStringList() -> List<String> {
-    // Runtime will provide actual implementation  
-    return EmptyStringList()
-}
-
-fun CreateBootstrapEmptyList() -> List<String> {
-    // Bootstrap implementation that satisfies the type checker
-    // The Seen runtime system will provide the actual implementation
-    // For bootstrap compilation, this creates an empty List<String>
-    return RuntimeProvideEmptyList()
-}
-
-fun RuntimeProvideEmptyList() -> List<String> {
-    // Runtime provides empty list implementation
-    // This is where the Seen runtime system creates empty lists
-    // Returns a functional empty List<String> for all operations
-    return EmptyStringList()
-}
-
