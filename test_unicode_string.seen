@@ -1,5 +1,0 @@
-fun test() -> Int {
-    println("🧪 TEST")
-    println("Second line")
-    0
-}

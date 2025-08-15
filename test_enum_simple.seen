@@ -1,7 +1,0 @@
-enum Color {
-    Red
-    Green
-    Blue
-}
-
-let color = Red

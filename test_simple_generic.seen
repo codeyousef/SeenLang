@@ -1,7 +1,0 @@
-class Test {
-    var name: String
-}
-
-fun process<T>(item: T) -> T {
-    return item
-}

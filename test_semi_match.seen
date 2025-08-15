@@ -1,6 +1,0 @@
-let x = 5;
-match x {
-    1 -> "one"
-    2 -> "two"
-    _ -> "other"
-}

@@ -1,4 +1,0 @@
-let number = 100
-let message = "world"
-let flag = true
-number

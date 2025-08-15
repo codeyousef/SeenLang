@@ -1,7 +1,0 @@
-enum Result {
-    Success(value: Int)
-    Failure(error: String)
-}
-
-let result = Success(42)
-result

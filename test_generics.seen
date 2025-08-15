@@ -1,9 +1,0 @@
-class Test {
-    var list: List<String>
-    var map: Map<String, Int>
-    var nested: List<Map<String, List<Int>>>
-}
-
-fun process<T>(item: T) -> List<T> {
-    return [item]
-}

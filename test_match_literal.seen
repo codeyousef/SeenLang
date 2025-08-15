@@ -1,9 +1,0 @@
-// Test pattern matching with literal patterns
-let x = 5
-
-match x {
-    1 -> "one"
-    2 -> "two"
-    3 -> "three"
-    _ -> "other"
-}

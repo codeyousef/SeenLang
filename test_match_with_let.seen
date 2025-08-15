@@ -1,5 +1,0 @@
-let value = 42
-match value {
-    1 -> "one"
-    _ -> "other"
-}

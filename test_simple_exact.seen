@@ -1,7 +1,0 @@
-fun main() -> Int {
-    println("🧪 SEEN COMPILER TEST EXECUTION");
-    println("================================");
-    
-    let totalTests = 0;
-    0
-}
