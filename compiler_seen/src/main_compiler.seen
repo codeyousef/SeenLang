@@ -3,6 +3,7 @@
 
 use lexer::real_lexer::RealLexer
 use parser::real_parser::RealParser
+use typechecker::typechecker::TypeChecker
 use codegen::complete_codegen::CompleteCodeGenerator
 use codegen::llvm_backend::LLVMBackend
 use optimization::egraph::optimizer::EGraphOptimizer
@@ -153,11 +154,13 @@ class RealTypeChecker {
     fun check(ast: ProgramNode) -> TypedAST {
         errors = []
         
-        // Simple type checking - always pass for now
+        // Real type checking using the production type checker
+        let typeChecker = TypeChecker.new()
+        let typeResult = typeChecker.check(ast)
         let result = TypedAST{
             ast: ast,
-            isValid: true,
-            errors: ""
+            isValid: typeResult.success,
+            errors: if typeResult.success { "" } else { typeResult.errors.join("; ") }
         }
         
         return result

@@ -1,0 +1,46 @@
+// Code Generation Module - Real Implementation Entry Point
+// Exports the actual working implementations for TDD
+
+// Import all the interfaces and types
+import interfaces.{Target, OptLevel, OutputFormat, CodegenResult, CodegenError, CodegenStatistics, Backend, LLVMBackend, CBackend, WASMBackend, CodeOptimizer}
+
+// Import the real implementation
+import generator.{CodeGenerator}
+
+// Re-export everything that tests and other modules need
+export {
+    Target,
+    OptLevel,
+    OutputFormat,
+    CodegenResult,
+    CodegenError,
+    CodegenStatistics,
+    Backend,
+    LLVMBackend,
+    CBackend,
+    WASMBackend,
+    CodeOptimizer,
+    CodeGenerator
+}
+
+// Utility functions for tests
+export fun createCodeGenerator() -> CodeGenerator {
+    return CodeGenerator.new()
+}
+
+export fun createBackend(target: Target) -> Backend {
+    return match target {
+        Target.LLVM_IR, Target.Linux_x86_64, Target.Windows_x86_64, Target.macOS_x86_64, Target.macOS_ARM64, Target.Linux_ARM64 -> 
+            LLVMBackend.new(target) as Backend
+        Target.C -> 
+            CBackend.new() as Backend
+        Target.WASM -> 
+            WASMBackend.new() as Backend
+        _ -> 
+            Backend.new(target, "Generic")
+    }
+}
+
+export fun createOptimizer(level: OptLevel) -> CodeOptimizer {
+    return CodeOptimizer.new(level)
+}

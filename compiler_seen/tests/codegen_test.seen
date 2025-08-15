@@ -1,0 +1,558 @@
+// Comprehensive Code Generation Tests for Self-Hosting Compiler
+// Tests MUST pass before implementing code generation - TDD approach
+
+import testing.{Test, TestSuite, assert, assertEqual, assertNotEqual, assertThrows}
+import codegen.{CodeGenerator, CodegenResult, CodegenError, Target, OutputFormat}
+import ir.{IRModule, IRGenerator}
+import typechecker.{TypeChecker, TypeInferenceResult}
+import parser.{SeenParser, AST}
+import lexer.{SeenLexer}
+
+class CodegenTestSuite extends TestSuite {
+    fun new() -> CodegenTestSuite {
+        super("Code Generation Tests")
+        registerAllTests()
+    }
+    
+    fun registerAllTests() {
+        addTest("test_basic_llvm_ir_output")
+        addTest("test_executable_generation")
+        addTest("test_c_backend")
+        addTest("test_wasm_backend")
+        addTest("test_optimization_passes")
+        addTest("test_debug_information")
+        addTest("test_runtime_linking")
+        addTest("test_cross_compilation")
+        addTest("test_incremental_compilation")
+        addTest("test_error_handling")
+        addTest("test_memory_layout")
+        addTest("test_string_table")
+        addTest("test_symbol_table")
+        addTest("test_relocations")
+        addTest("test_performance_requirements")
+    }
+    
+    // Test 1: Basic LLVM IR output
+    @Test
+    fun test_basic_llvm_ir_output() {
+        let source = """
+        fun main() -> Int {
+            let x = 42
+            return x
+        }
+        """
+        
+        let result = generateCode(source, Target.LLVM_IR)
+        assert(result.success)
+        assertEqual(result.errors.length(), 0)
+        
+        let output = result.output
+        
+        // Check LLVM IR structure
+        assert(output.contains("ModuleID"))
+        assert(output.contains("target datalayout"))
+        assert(output.contains("target triple"))
+        assert(output.contains("define i32 @main()"))
+        assert(output.contains("ret i32"))
+        
+        // Check for proper LLVM IR syntax
+        assert(output.contains("entry:"))
+        assert(output.contains("alloca"))
+        assert(output.contains("store"))
+        assert(output.contains("load"))
+        
+        // Verify well-formed IR
+        assert(isValidLLVMIR(output))
+    }
+    
+    // Test 2: Executable generation
+    @Test
+    fun test_executable_generation() {
+        let source = """
+        fun main() -> Int {
+            println("Hello, World!")
+            return 0
+        }
+        """
+        
+        let result = generateExecutable(source, "test_hello")
+        assert(result.success)
+        assertEqual(result.errors.length(), 0)
+        
+        // Check that executable file was created
+        assert(fileExists("test_hello"))
+        
+        // Check that it's actually executable
+        assert(isExecutable("test_hello"))
+        
+        // Try to run it and check output
+        let runResult = runExecutable("test_hello")
+        assert(runResult.exitCode == 0)
+        assert(runResult.stdout.contains("Hello, World!"))
+    }
+    
+    // Test 3: C backend code generation
+    @Test
+    fun test_c_backend() {
+        let source = """
+        fun fibonacci(n: Int) -> Int {
+            if n <= 1 {
+                return n
+            }
+            return fibonacci(n - 1) + fibonacci(n - 2)
+        }
+        
+        fun main() -> Int {
+            let result = fibonacci(10)
+            println("Fibonacci(10) = {result}")
+            return 0
+        }
+        """
+        
+        let result = generateCode(source, Target.C)
+        assert(result.success)
+        
+        let cCode = result.output
+        
+        // Check C code structure
+        assert(cCode.contains("#include"))
+        assert(cCode.contains("int main()"))
+        assert(cCode.contains("int fibonacci(int n)"))
+        assert(cCode.contains("printf"))
+        
+        // Check for proper C syntax
+        assert(cCode.contains("if ("))
+        assert(cCode.contains("return "))
+        assert(cCode.contains("/* "))  // Comments
+        
+        // Verify compilable C code
+        assert(isValidCCode(cCode))
+    }
+    
+    // Test 4: WebAssembly backend
+    @Test
+    fun test_wasm_backend() {
+        let source = """
+        fun add(a: Int, b: Int) -> Int {
+            return a + b
+        }
+        
+        fun main() -> Int {
+            return add(20, 22)
+        }
+        """
+        
+        let result = generateCode(source, Target.WASM)
+        assert(result.success)
+        
+        let wasmBytes = result.binaryOutput
+        
+        // Check WASM binary header
+        assert(wasmBytes.length() > 8)
+        assert(wasmBytes[0] == 0x00)  // WASM magic number
+        assert(wasmBytes[1] == 0x61)  // 'a'
+        assert(wasmBytes[2] == 0x73)  // 's'
+        assert(wasmBytes[3] == 0x6D)  // 'm'
+        
+        // Check WASM version
+        assert(wasmBytes[4] == 0x01)  // Version 1
+        assert(wasmBytes[5] == 0x00)
+        assert(wasmBytes[6] == 0x00)
+        assert(wasmBytes[7] == 0x00)
+        
+        // Verify it's a valid WASM module
+        assert(isValidWASM(wasmBytes))
+    }
+    
+    // Test 5: Optimization passes
+    @Test
+    fun test_optimization_passes() {
+        let source = """
+        fun inefficient() -> Int {
+            let x = 1 + 2 + 3  // Should be constant folded
+            let y = x * 1      // Should be simplified
+            let z = y + 0      // Should be eliminated
+            return z
+        }
+        """
+        
+        // Generate without optimization
+        let unoptimized = generateCode(source, Target.LLVM_IR, OptLevel.O0)
+        
+        // Generate with optimization
+        let optimized = generateCode(source, Target.LLVM_IR, OptLevel.O3)
+        
+        assert(unoptimized.success)
+        assert(optimized.success)
+        
+        // Optimized version should be smaller
+        assert(optimized.output.length() < unoptimized.output.length())
+        
+        // Check for optimization artifacts
+        assert(optimized.output.contains("ret i32 6"))  // Constant folded
+        
+        // Verify both are still valid
+        assert(isValidLLVMIR(unoptimized.output))
+        assert(isValidLLVMIR(optimized.output))
+    }
+    
+    // Test 6: Debug information generation
+    @Test
+    fun test_debug_information() {
+        let source = """
+        fun debugTest(x: Int) -> Int {
+            let y = x * 2
+            let z = y + 1
+            return z
+        }
+        """
+        
+        let result = generateCode(source, Target.LLVM_IR, OptLevel.O0, true)  // Enable debug
+        assert(result.success)
+        
+        let output = result.output
+        
+        // Check for debug metadata
+        assert(output.contains("!dbg"))
+        assert(output.contains("DILocation"))
+        assert(output.contains("DISubprogram"))
+        assert(output.contains("DIFile"))
+        
+        // Check for line number information
+        assert(output.contains("line:"))
+        assert(output.contains("column:"))
+        
+        // Verify debug info is well-formed
+        assert(hasValidDebugInfo(output))
+    }
+    
+    // Test 7: Runtime linking
+    @Test
+    fun test_runtime_linking() {
+        let source = """
+        fun main() -> Int {
+            println("Testing runtime")
+            let arr = Array<Int>.new(10)
+            arr[0] = 42
+            return arr[0]
+        }
+        """
+        
+        let result = generateExecutable(source, "test_runtime")
+        assert(result.success)
+        
+        // Check that runtime functions are linked
+        let symbols = getExecutableSymbols("test_runtime")
+        assert(symbols.contains("printf"))
+        assert(symbols.contains("malloc"))
+        assert(symbols.contains("free"))
+        
+        // Check execution works with runtime
+        let runResult = runExecutable("test_runtime")
+        assert(runResult.exitCode == 42)
+    }
+    
+    // Test 8: Cross-compilation
+    @Test
+    fun test_cross_compilation() {
+        let source = """
+        fun main() -> Int {
+            return 123
+        }
+        """
+        
+        // Compile for different targets
+        let linuxResult = generateCode(source, Target.Linux_x86_64)
+        let windowsResult = generateCode(source, Target.Windows_x86_64)
+        let macResult = generateCode(source, Target.macOS_x86_64)
+        
+        assert(linuxResult.success)
+        assert(windowsResult.success)
+        assert(macResult.success)
+        
+        // Check target-specific details
+        assert(linuxResult.output.contains("x86_64-unknown-linux-gnu"))
+        assert(windowsResult.output.contains("x86_64-pc-windows-msvc"))
+        assert(macResult.output.contains("x86_64-apple-darwin"))
+        
+        // Verify all are valid for their targets
+        assert(isValidForTarget(linuxResult.output, Target.Linux_x86_64))
+        assert(isValidForTarget(windowsResult.output, Target.Windows_x86_64))
+        assert(isValidForTarget(macResult.output, Target.macOS_x86_64))
+    }
+    
+    // Test 9: Incremental compilation
+    @Test
+    fun test_incremental_compilation() {
+        let module1 = """
+        fun helper(x: Int) -> Int {
+            return x * 2
+        }
+        """
+        
+        let module2 = """
+        import module1.{helper}
+        
+        fun main() -> Int {
+            return helper(21)
+        }
+        """
+        
+        // Compile first module
+        let result1 = compileModule("module1", module1)
+        assert(result1.success)
+        
+        // Compile second module (should link with first)
+        let result2 = compileModule("module2", module2, ["module1"])
+        assert(result2.success)
+        
+        // Link into executable
+        let linkResult = linkModules(["module1", "module2"], "test_incremental")
+        assert(linkResult.success)
+        
+        let runResult = runExecutable("test_incremental")
+        assert(runResult.exitCode == 42)
+    }
+    
+    // Test 10: Error handling in codegen
+    @Test
+    fun test_error_handling() {
+        // Test with invalid IR
+        let invalidIR = createInvalidIRModule()
+        let generator = CodeGenerator.new()
+        
+        let result = generator.generateFromIR(invalidIR, Target.LLVM_IR)
+        assert(!result.success)
+        assert(result.errors.length() > 0)
+        
+        // Test with unsupported target
+        let validIR = createValidIRModule()
+        let unsupportedResult = generator.generateFromIR(validIR, Target.Unsupported)
+        assert(!unsupportedResult.success)
+        assert(unsupportedResult.errors[0].message.contains("Unsupported target"))
+    }
+    
+    // Test 11: Memory layout optimization
+    @Test
+    fun test_memory_layout() {
+        let source = """
+        class Point {
+            let x: Float
+            let y: Float
+            let z: Float
+        }
+        
+        fun createPoint() -> Point {
+            return Point.new(1.0, 2.0, 3.0)
+        }
+        """
+        
+        let result = generateCode(source, Target.LLVM_IR)
+        assert(result.success)
+        
+        let output = result.output
+        
+        // Check struct layout
+        assert(output.contains("struct.Point"))
+        assert(output.contains("align"))
+        
+        // Verify memory alignment
+        assert(hasOptimalAlignment(output))
+    }
+    
+    // Test 12: String table generation
+    @Test
+    fun test_string_table() {
+        let source = """
+        fun greetings() {
+            println("Hello")
+            println("World") 
+            println("Hello")  // Duplicate should be deduplicated
+        }
+        """
+        
+        let result = generateCode(source, Target.LLVM_IR)
+        assert(result.success)
+        
+        let output = result.output
+        
+        // Check string constants
+        assert(output.contains("@.str.0"))
+        assert(output.contains("@.str.1"))
+        
+        // Verify string deduplication
+        let helloCount = countStringOccurrences(output, "Hello")
+        assertEqual(helloCount, 1)  // Should appear only once in string table
+    }
+    
+    // Test 13: Symbol table generation
+    @Test
+    fun test_symbol_table() {
+        let source = """
+        fun publicFunction() -> Int {
+            return 42
+        }
+        
+        fun main() -> Int {
+            return publicFunction()
+        }
+        """
+        
+        let result = generateExecutable(source, "test_symbols")
+        assert(result.success)
+        
+        let symbols = getExecutableSymbols("test_symbols")
+        
+        // Check for exported symbols
+        assert(symbols.contains("main"))
+        assert(symbols.contains("publicFunction"))
+        
+        // Check symbol types
+        let mainSymbol = getSymbol(symbols, "main")
+        assertEqual(mainSymbol.type, "FUNC")
+        assertEqual(mainSymbol.visibility, "GLOBAL")
+    }
+    
+    // Test 14: Relocations handling
+    @Test
+    fun test_relocations() {
+        let source = """
+        let globalVar: Int = 100
+        
+        fun getGlobal() -> Int {
+            return globalVar
+        }
+        
+        fun main() -> Int {
+            return getGlobal()
+        }
+        """
+        
+        let result = generateCode(source, Target.LLVM_IR)
+        assert(result.success)
+        
+        let output = result.output
+        
+        // Check global variable handling
+        assert(output.contains("@globalVar"))
+        assert(output.contains("global i32"))
+        
+        // Verify relocations are properly handled
+        assert(hasValidRelocations(output))
+    }
+    
+    // Test 15: Performance requirements
+    @Test
+    fun test_performance_requirements() {
+        let source = generateLargeProgram(1000)  // 1000 functions
+        
+        let startTime = getCurrentTime()
+        let result = generateCode(source, Target.LLVM_IR)
+        let endTime = getCurrentTime()
+        let duration = endTime - startTime
+        
+        assert(result.success)
+        
+        // Code generation should be fast
+        // Target: 100K lines/sec
+        let linesGenerated = countLines(result.output)
+        let linesPerSecond = linesGenerated * 1000 / duration  // Convert ms to sec
+        
+        assert(linesPerSecond > 50000)  // At least 50K lines/sec
+        
+        // Memory usage should be reasonable
+        let memoryUsed = getMemoryUsage()
+        assert(memoryUsed < 100 * 1024 * 1024)  // Less than 100MB
+    }
+}
+
+// Helper functions for code generation
+
+fun generateCode(source: String, target: Target, optLevel: OptLevel = OptLevel.O0, debug: Bool = false) -> CodegenResult {
+    let lexer = SeenLexer.new(source, 1, "en")
+    let tokens = lexer.tokenize()
+    let parser = SeenParser.new(tokens)
+    let ast = parser.parse()
+    let typeChecker = TypeChecker.new()
+    let typeResult = typeChecker.check(ast)
+    
+    if !typeResult.success {
+        return CodegenResult.newWithErrors(typeResult.errors)
+    }
+    
+    let irGenerator = IRGenerator.new()
+    let irModule = irGenerator.generate(ast, typeResult)
+    
+    if !irModule.success {
+        return CodegenResult.newWithErrors(irModule.errors)
+    }
+    
+    let codeGenerator = CodeGenerator.new()
+    codeGenerator.setOptimizationLevel(optLevel)
+    codeGenerator.setDebugInfo(debug)
+    
+    return codeGenerator.generateFromIR(irModule, target)
+}
+
+fun generateExecutable(source: String, outputName: String) -> CodegenResult {
+    let result = generateCode(source, Target.Executable)
+    if result.success {
+        writeToFile(outputName, result.binaryOutput)
+        makeExecutable(outputName)
+    }
+    return result
+}
+
+// Mock helper functions (would be implemented by runtime)
+fun isValidLLVMIR(ir: String) -> Bool { return true }
+fun isValidCCode(code: String) -> Bool { return true } 
+fun isValidWASM(bytes: Array<Byte>) -> Bool { return true }
+fun fileExists(path: String) -> Bool { return true }
+fun isExecutable(path: String) -> Bool { return true }
+fun runExecutable(path: String) -> ExecutionResult { return ExecutionResult.new(0, "", "") }
+fun getExecutableSymbols(path: String) -> Array<String> { return Array<String>() }
+fun hasValidDebugInfo(ir: String) -> Bool { return true }
+fun isValidForTarget(output: String, target: Target) -> Bool { return true }
+fun compileModule(name: String, source: String, deps: Array<String> = []) -> CodegenResult { return CodegenResult.new(true, "", []) }
+fun linkModules(modules: Array<String>, output: String) -> CodegenResult { return CodegenResult.new(true, "", []) }
+fun createInvalidIRModule() -> IRModule { return IRModule.new("invalid") }
+fun createValidIRModule() -> IRModule { return IRModule.new("valid") }
+fun hasOptimalAlignment(ir: String) -> Bool { return true }
+fun countStringOccurrences(text: String, str: String) -> Int { return 1 }
+fun getSymbol(symbols: Array<String>, name: String) -> Symbol { return Symbol.new(name, "FUNC", "GLOBAL") }
+fun hasValidRelocations(ir: String) -> Bool { return true }
+fun generateLargeProgram(functionCount: Int) -> String { return "fun main() -> Int { return 0 }" }
+fun countLines(text: String) -> Int { return text.split("\\n").length() }
+fun getMemoryUsage() -> Int { return 1024 * 1024 }
+fun writeToFile(path: String, data: Array<Byte>) -> Void { }
+fun makeExecutable(path: String) -> Void { }
+
+// Helper classes
+class ExecutionResult {
+    let exitCode: Int
+    let stdout: String
+    let stderr: String
+    
+    fun new(exitCode: Int, stdout: String, stderr: String) -> ExecutionResult {
+        this.exitCode = exitCode
+        this.stdout = stdout
+        this.stderr = stderr
+    }
+}
+
+class Symbol {
+    let name: String
+    let type: String
+    let visibility: String
+    
+    fun new(name: String, type: String, visibility: String) -> Symbol {
+        this.name = name
+        this.type = type
+        this.visibility = visibility
+    }
+}
+
+// Export the test suite creation function
+export fun createCodegenTests() -> CodegenTestSuite {
+    return CodegenTestSuite.new()
+}

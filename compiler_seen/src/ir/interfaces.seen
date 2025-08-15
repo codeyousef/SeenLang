@@ -1,0 +1,559 @@
+// IR Generation Module Interfaces - To Be Implemented Following TDD
+// These are the contracts that the IR generation implementation must fulfill
+
+import parser.{AST, Function, Class, Expression, Statement}
+import typechecker.{TypeInferenceResult, Type, TypeError}
+
+// IR Value representation
+class IRValue {
+    let name: String
+    let type: IRType
+    let isConstant: Bool
+    let value: String?
+    
+    fun new(name: String, type: IRType, isConstant: Bool = false, value: String? = null) -> IRValue {
+        this.name = name
+        this.type = type
+        this.isConstant = isConstant
+        this.value = value
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun getType() -> IRType {
+        return type
+    }
+    
+    fun isConstant() -> Bool {
+        return isConstant
+    }
+    
+    fun toString() -> String {
+        if isConstant and value != null {
+            return value
+        }
+        return "{type.toString()} {name}"
+    }
+}
+
+// IR Type representation
+class IRType {
+    let name: String
+    let size: Int
+    let isPointer: Bool
+    let elementType: IRType?
+    
+    fun new(name: String, size: Int, isPointer: Bool = false, elementType: IRType? = null) -> IRType {
+        this.name = name
+        this.size = size
+        this.isPointer = isPointer
+        this.elementType = elementType
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun getSize() -> Int {
+        return size
+    }
+    
+    fun isPointer() -> Bool {
+        return isPointer
+    }
+    
+    fun isStruct() -> Bool {
+        return name.startsWith("struct")
+    }
+    
+    fun toString() -> String {
+        if isPointer {
+            return "{elementType?.toString() ?: "i8"}*"
+        }
+        return name
+    }
+    
+    // Predefined IR types
+    static let I8 = IRType.new("i8", 8)
+    static let I16 = IRType.new("i16", 16)
+    static let I32 = IRType.new("i32", 32)
+    static let I64 = IRType.new("i64", 64)
+    static let F32 = IRType.new("float", 32)
+    static let F64 = IRType.new("double", 64)
+    static let Void = IRType.new("void", 0)
+    static let Ptr = IRType.new("i8*", 64, true, I8)
+}
+
+// IR Instruction representation
+class IRInstruction {
+    let opcode: String
+    let result: IRValue?
+    let operands: Array<IRValue>
+    let metadata: Map<String, String>
+    
+    fun new(opcode: String, result: IRValue? = null) -> IRInstruction {
+        this.opcode = opcode
+        this.result = result
+        this.operands = Array<IRValue>()
+        this.metadata = Map<String, String>()
+    }
+    
+    fun addOperand(operand: IRValue) -> Void {
+        operands.push(operand)
+    }
+    
+    fun setMetadata(key: String, value: String) -> Void {
+        metadata.put(key, value)
+    }
+    
+    fun toString() -> String {
+        let output = ""
+        
+        if result != null {
+            output += "{result.name} = "
+        }
+        
+        output += opcode
+        
+        if operands.length() > 0 {
+            output += " "
+            for i in 0..operands.length() {
+                if i > 0 {
+                    output += ", "
+                }
+                output += operands[i].toString()
+            }
+        }
+        
+        return output
+    }
+}
+
+// IR Basic Block
+class IRBasicBlock {
+    let name: String
+    let instructions: Array<IRInstruction>
+    let predecessors: Array<IRBasicBlock>
+    let successors: Array<IRBasicBlock>
+    
+    fun new(name: String) -> IRBasicBlock {
+        this.name = name
+        this.instructions = Array<IRInstruction>()
+        this.predecessors = Array<IRBasicBlock>()
+        this.successors = Array<IRBasicBlock>()
+    }
+    
+    fun addInstruction(instruction: IRInstruction) -> Void {
+        instructions.push(instruction)
+    }
+    
+    fun addPredecessor(block: IRBasicBlock) -> Void {
+        predecessors.push(block)
+    }
+    
+    fun addSuccessor(block: IRBasicBlock) -> Void {
+        successors.push(block)
+    }
+    
+    fun toString() -> String {
+        let output = "{name}:\\n"
+        for instruction in instructions {
+            output += "  {instruction.toString()}\\n"
+        }
+        return output
+    }
+}
+
+// IR Function representation
+class IRFunction {
+    let name: String
+    let returnType: IRType
+    let parameters: Array<IRValue>
+    let blocks: Array<IRBasicBlock>
+    let isVarArgs: Bool
+    let attributes: Array<String>
+    
+    fun new(name: String, returnType: IRType) -> IRFunction {
+        this.name = name
+        this.returnType = returnType
+        this.parameters = Array<IRValue>()
+        this.blocks = Array<IRBasicBlock>()
+        this.isVarArgs = false
+        this.attributes = Array<String>()
+    }
+    
+    fun addParameter(param: IRValue) -> Void {
+        parameters.push(param)
+    }
+    
+    fun addBlock(block: IRBasicBlock) -> Void {
+        blocks.push(block)
+    }
+    
+    fun getEntryBlock() -> IRBasicBlock? {
+        if blocks.length() > 0 {
+            return blocks[0]
+        }
+        return null
+    }
+    
+    fun getAllInstructions() -> Array<IRInstruction> {
+        let allInstructions = Array<IRInstruction>()
+        for block in blocks {
+            for instruction in block.instructions {
+                allInstructions.push(instruction)
+            }
+        }
+        return allInstructions
+    }
+    
+    fun toString() -> String {
+        let output = "define {returnType.toString()} @{name}("
+        
+        for i in 0..parameters.length() {
+            if i > 0 {
+                output += ", "
+            }
+            output += parameters[i].toString()
+        }
+        
+        output += ") {\\n"
+        
+        for block in blocks {
+            output += block.toString()
+        }
+        
+        output += "}\\n"
+        return output
+    }
+}
+
+// IR Module (top-level container)
+class IRModule {
+    let name: String
+    let functions: Map<String, IRFunction>
+    let globalVariables: Map<String, IRValue>
+    let types: Map<String, IRType>
+    let stringConstants: Array<String>
+    let errors: Array<IRError>
+    let success: Bool
+    let targetTriple: String
+    let dataLayout: String
+    
+    fun new(name: String) -> IRModule {
+        this.name = name
+        this.functions = Map<String, IRFunction>()
+        this.globalVariables = Map<String, IRValue>()
+        this.types = Map<String, IRType>()
+        this.stringConstants = Array<String>()
+        this.errors = Array<IRError>()
+        this.success = true
+        this.targetTriple = "x86_64-unknown-linux-gnu"
+        this.dataLayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+    }
+    
+    fun addFunction(function: IRFunction) -> Void {
+        functions.put(function.name, function)
+    }
+    
+    fun getFunction(name: String) -> IRFunction? {
+        return functions.get(name)
+    }
+    
+    fun addGlobal(name: String, value: IRValue) -> Void {
+        globalVariables.put(name, value)
+    }
+    
+    fun addType(name: String, type: IRType) -> Void {
+        types.put(name, type)
+    }
+    
+    fun getType(name: String) -> IRType? {
+        return types.get(name)
+    }
+    
+    fun addStringConstant(str: String) -> String {
+        let constName = "@.str.{stringConstants.length()}"
+        stringConstants.push(str)
+        return constName
+    }
+    
+    fun addError(error: IRError) -> Void {
+        errors.push(error)
+        success = false
+    }
+    
+    fun verify() -> Bool {
+        // Basic verification - all functions should have at least one block
+        for (funcName, function) in functions.entries() {
+            if function.blocks.length() == 0 {
+                addError(IRError.new("Function {funcName} has no basic blocks", 0, 0))
+                return false
+            }
+            
+            // Each block should end with a terminator
+            for block in function.blocks {
+                if block.instructions.length() == 0 {
+                    addError(IRError.new("Basic block {block.name} has no instructions", 0, 0))
+                    return false
+                }
+                
+                let lastInstr = block.instructions[block.instructions.length() - 1]
+                if !isTerminator(lastInstr.opcode) {
+                    addError(IRError.new("Basic block {block.name} does not end with terminator", 0, 0))
+                    return false
+                }
+            }
+        }
+        
+        return true
+    }
+    
+    fun isTerminator(opcode: String) -> Bool {
+        return opcode == "ret" or opcode == "br" or opcode == "switch" or opcode == "unreachable"
+    }
+    
+    fun toString() -> String {
+        let output = "; ModuleID = '{name}'\\n"
+        output += "target datalayout = \"{dataLayout}\"\\n"
+        output += "target triple = \"{targetTriple}\"\\n\\n"
+        
+        // String constants
+        for i in 0..stringConstants.length() {
+            let str = stringConstants[i]
+            let escaped = escapeString(str)
+            let len = str.length() + 1  // +1 for null terminator
+            output += "@.str.{i} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"\\n"
+        }
+        
+        if stringConstants.length() > 0 {
+            output += "\\n"
+        }
+        
+        // Functions
+        for (funcName, function) in functions.entries() {
+            output += function.toString()
+            output += "\\n"
+        }
+        
+        return output
+    }
+    
+    fun escapeString(str: String) -> String {
+        // Basic string escaping for LLVM IR
+        return str.replace("\\", "\\\\")
+                 .replace("\"", "\\\"")
+                 .replace("\n", "\\0A")
+                 .replace("\t", "\\09")
+    }
+    
+    static fun newWithErrors(typeErrors: Array<TypeError>) -> IRModule {
+        let module = IRModule.new("error_module")
+        module.success = false
+        for typeError in typeErrors {
+            let irError = IRError.new(typeError.message, typeError.location.line, typeError.location.column)
+            module.addError(irError)
+        }
+        return module
+    }
+}
+
+// IR Generation Error
+class IRError extends Error {
+    let line: Int
+    let column: Int
+    let context: String
+    
+    fun new(message: String, line: Int, column: Int, context: String = "") -> IRError {
+        super(message)
+        this.line = line
+        this.column = column
+        this.context = context
+    }
+    
+    fun getLine() -> Int {
+        return line
+    }
+    
+    fun getColumn() -> Int {
+        return column
+    }
+    
+    fun getContext() -> String {
+        return context
+    }
+}
+
+// IR Builder (helper for constructing IR)
+class IRBuilder {
+    var currentBlock: IRBasicBlock?
+    var nextRegister: Int
+    var nextBlock: Int
+    
+    fun new() -> IRBuilder {
+        this.currentBlock = null
+        this.nextRegister = 1
+        this.nextBlock = 0
+    }
+    
+    fun setInsertPoint(block: IRBasicBlock) -> Void {
+        currentBlock = block
+    }
+    
+    fun createBlock(name: String? = null) -> IRBasicBlock {
+        let blockName = name ?: "bb{nextBlock}"
+        nextBlock += 1
+        return IRBasicBlock.new(blockName)
+    }
+    
+    fun getNextRegister() -> String {
+        let reg = "%{nextRegister}"
+        nextRegister += 1
+        return reg
+    }
+    
+    fun createAlloca(type: IRType, name: String? = null) -> IRValue {
+        let regName = name ?: getNextRegister()
+        let result = IRValue.new(regName, IRType.new("{type.toString()}*", 64, true, type))
+        let instruction = IRInstruction.new("alloca", result)
+        instruction.addOperand(IRValue.new(type.toString(), type, true))
+        currentBlock?.addInstruction(instruction)
+        return result
+    }
+    
+    fun createStore(value: IRValue, ptr: IRValue) -> Void {
+        let instruction = IRInstruction.new("store")
+        instruction.addOperand(value)
+        instruction.addOperand(ptr)
+        currentBlock?.addInstruction(instruction)
+    }
+    
+    fun createLoad(ptr: IRValue, name: String? = null) -> IRValue {
+        let regName = name ?: getNextRegister()
+        let elementType = ptr.type.elementType ?: IRType.I32
+        let result = IRValue.new(regName, elementType)
+        let instruction = IRInstruction.new("load", result)
+        instruction.addOperand(ptr)
+        currentBlock?.addInstruction(instruction)
+        return result
+    }
+    
+    fun createAdd(lhs: IRValue, rhs: IRValue, name: String? = null) -> IRValue {
+        let regName = name ?: getNextRegister()
+        let result = IRValue.new(regName, lhs.type)
+        let instruction = IRInstruction.new("add", result)
+        instruction.addOperand(lhs)
+        instruction.addOperand(rhs)
+        currentBlock?.addInstruction(instruction)
+        return result
+    }
+    
+    fun createICmp(predicate: String, lhs: IRValue, rhs: IRValue, name: String? = null) -> IRValue {
+        let regName = name ?: getNextRegister()
+        let result = IRValue.new(regName, IRType.new("i1", 1))
+        let instruction = IRInstruction.new("icmp", result)
+        instruction.addOperand(IRValue.new(predicate, IRType.Void, true, predicate))
+        instruction.addOperand(lhs)
+        instruction.addOperand(rhs)
+        currentBlock?.addInstruction(instruction)
+        return result
+    }
+    
+    fun createBr(block: IRBasicBlock) -> Void {
+        let instruction = IRInstruction.new("br")
+        instruction.addOperand(IRValue.new("label %{block.name}", IRType.Void, true))
+        currentBlock?.addInstruction(instruction)
+    }
+    
+    fun createCondBr(condition: IRValue, trueBlock: IRBasicBlock, falseBlock: IRBasicBlock) -> Void {
+        let instruction = IRInstruction.new("br")
+        instruction.addOperand(condition)
+        instruction.addOperand(IRValue.new("label %{trueBlock.name}", IRType.Void, true))
+        instruction.addOperand(IRValue.new("label %{falseBlock.name}", IRType.Void, true))
+        currentBlock?.addInstruction(instruction)
+    }
+    
+    fun createRet(value: IRValue? = null) -> Void {
+        let instruction = IRInstruction.new("ret")
+        if value != null {
+            instruction.addOperand(value)
+        } else {
+            instruction.addOperand(IRValue.new("void", IRType.Void, true))
+        }
+        currentBlock?.addInstruction(instruction)
+    }
+    
+    fun createCall(function: String, args: Array<IRValue>, returnType: IRType, name: String? = null) -> IRValue? {
+        let instruction = IRInstruction.new("call")
+        
+        if returnType != IRType.Void {
+            let regName = name ?: getNextRegister()
+            let result = IRValue.new(regName, returnType)
+            instruction.result = result
+        }
+        
+        instruction.addOperand(IRValue.new("@{function}", returnType, true))
+        for arg in args {
+            instruction.addOperand(arg)
+        }
+        
+        currentBlock?.addInstruction(instruction)
+        return instruction.result
+    }
+}
+
+// Main IR Generator interface
+class IRGenerator {
+    let builder: IRBuilder
+    let module: IRModule
+    let currentFunction: IRFunction?
+    let variables: Map<String, IRValue>
+    
+    fun new() -> IRGenerator {
+        // Note: This interface stub is replaced by the actual implementation in generator.seen
+        return IRGenerator{}
+    }
+    
+    fun generate(ast: AST, typeResult: TypeInferenceResult) -> IRModule {
+        // Default implementation - should be overridden
+        return IRModule.new("default")
+    }
+    
+    fun generateFunction(function: Function) -> IRFunction {
+        // Default implementation - empty function
+        return IRFunction.new("default", IRType.Void)
+    }
+    
+    fun generateExpression(expression: Expression) -> IRValue {
+        // Default implementation - void value
+        return IRValue.new("temp", IRType.Void)
+    }
+    
+    fun generateStatement(statement: Statement) -> Void {
+        // Default implementation - no-op
+    }
+    
+    fun generateClass(classNode: Class) -> Void {
+        // Default implementation - no-op
+    }
+    
+    fun convertSeenTypeToIR(seenType: Type) -> IRType {
+        // Default implementation - void type
+        return IRType.Void
+    }
+}
+
+// Utility functions for tests
+fun createIRGenerator() -> IRGenerator {
+    return IRGenerator.new()
+}
+
+fun createIRModule(name: String) -> IRModule {
+    return IRModule.new(name)
+}
+
+fun createIRBuilder() -> IRBuilder {
+    return IRBuilder.new()
+}
