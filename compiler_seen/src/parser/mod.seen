@@ -1,0 +1,43 @@
+// Parser Module - Real Implementation Entry Point
+// Exports the actual working implementations for TDD
+
+// Import all the interfaces and types
+import interfaces.{AST, ParseError, Function, Type, Parameter, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, MatchStatement, Class, Interface, Enum, Import, Literal, BinaryExpression}
+
+// Import the real implementation
+import parser.{SeenParser}
+
+// Re-export everything that tests and other modules need
+export {
+    AST,
+    ParseError,
+    Function,
+    Type,
+    Parameter,
+    Expression,
+    Statement,
+    Block,
+    ReturnStatement,
+    VariableDeclaration,
+    IfStatement,
+    MatchStatement,
+    Class,
+    Interface,
+    Enum,
+    Import,
+    Literal,
+    BinaryExpression,
+    SeenParser
+}
+
+// Utility functions for tests
+export fun createParser(tokens: Array<Token>) -> SeenParser {
+    return SeenParser.new(tokens)
+}
+
+export fun parseString(source: String, language: String = "en") -> AST {
+    let lexer = SeenLexer.new(source, 1, language)
+    let tokens = lexer.tokenize()
+    let parser = SeenParser.new(tokens)
+    return parser.parse()
+}

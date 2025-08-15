@@ -1,0 +1,678 @@
+// Real Type Checker Implementation - Following TDD
+// Implements comprehensive type checking with inference and smart casting
+
+import lexer.{TokenType}
+import parser.{AST, Function, Class, Interface, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, BinaryExpression, Literal, IdentifierExpression}
+import typechecker.interfaces.{Type, TypeKind, TypeError, Location, Environment, TypeInferenceResult, FunctionType, ClassType, InterfaceType, SmartCastContext}
+
+class TypeChecker {
+    let environment: Environment
+    let errors: Array<TypeError>
+    let warnings: Array<String>
+    let smartCastContext: SmartCastContext
+    var strictMode: Bool
+    var currentFunction: FunctionType?
+    
+    fun new() -> TypeChecker {
+        this.environment = Environment.new()
+        this.errors = Array<TypeError>()
+        this.warnings = Array<String>()
+        this.smartCastContext = SmartCastContext.new()
+        this.strictMode = true
+        this.currentFunction = null
+        
+        // Initialize built-in types and functions
+        initializeBuiltins()
+    }
+    
+    fun initializeBuiltins() -> Void {
+        // Built-in types are already available via Type static members
+        
+        // Built-in functions
+        let printlnType = FunctionType.new([Type.String], Type.Void)
+        environment.defineFunction("println", printlnType)
+        
+        let toStringType = FunctionType.new([], Type.String)  // Method on all objects
+        
+        // Arithmetic operations
+        let intArithType = FunctionType.new([Type.Int, Type.Int], Type.Int)
+        let floatArithType = FunctionType.new([Type.Float, Type.Float], Type.Float)
+        let stringConcatType = FunctionType.new([Type.String, Type.String], Type.String)
+        
+        // Comparison operations
+        let comparisonType = FunctionType.new([Type.Any, Type.Any], Type.Bool)
+        environment.defineFunction("==", comparisonType)
+        environment.defineFunction("!=", comparisonType)
+        environment.defineFunction("<", comparisonType)
+        environment.defineFunction("<=", comparisonType)
+        environment.defineFunction(">", comparisonType)
+        environment.defineFunction(">=", comparisonType)
+        
+        // Logical operations
+        let logicalType = FunctionType.new([Type.Bool, Type.Bool], Type.Bool)
+        environment.defineFunction("and", logicalType)
+        environment.defineFunction("or", logicalType)
+        
+        let notType = FunctionType.new([Type.Bool], Type.Bool)
+        environment.defineFunction("not", notType)
+    }
+    
+    fun check(ast: AST) -> TypeInferenceResult {
+        clearErrors()
+        
+        let result = TypeInferenceResult.new(true, Type.Void, environment)
+        
+        // First pass: collect all type definitions (classes, interfaces)
+        for classNode in ast.classes {
+            let classType = collectClassType(classNode)
+            environment.defineClass(classNode.name, classType)
+        }
+        
+        for interfaceNode in ast.interfaces {
+            let interfaceType = collectInterfaceType(interfaceNode)
+            environment.defineInterface(interfaceNode.name, interfaceType)
+        }
+        
+        // Second pass: check function signatures
+        for function in ast.functions {
+            let functionType = collectFunctionType(function)
+            environment.defineFunction(function.name, functionType)
+        }
+        
+        // Third pass: check function bodies and implementations
+        for function in ast.functions {
+            checkFunction(function)
+        }
+        
+        for classNode in ast.classes {
+            checkClass(classNode)
+        }
+        
+        for interfaceNode in ast.interfaces {
+            checkInterface(interfaceNode)
+        }
+        
+        // Update result with any errors found
+        if errors.length() > 0 {
+            result.success = false
+            for error in errors {
+                result.addError(error)
+            }
+        }
+        
+        for warning in warnings {
+            result.addWarning(warning)
+        }
+        
+        return result
+    }
+    
+    fun collectClassType(classNode: Class) -> ClassType {
+        let classType = ClassType.new(classNode.name)
+        
+        // Collect field types
+        for field in classNode.fields {
+            let fieldType = resolveASTType(field.type)
+            if fieldType != null {
+                classType.fields.put(field.name, fieldType)
+            }
+        }
+        
+        // Collect method signatures
+        for method in classNode.methods {
+            let methodType = collectFunctionType(method)
+            classType.methods.put(method.name, methodType)
+        }
+        
+        return classType
+    }
+    
+    fun collectInterfaceType(interfaceNode: Interface) -> InterfaceType {
+        let interfaceType = InterfaceType.new(interfaceNode.name)
+        
+        // Collect method signatures
+        for method in interfaceNode.methods {
+            let methodType = collectFunctionType(method)
+            interfaceType.methods.put(method.name, methodType)
+        }
+        
+        return interfaceType
+    }
+    
+    fun collectFunctionType(function: Function) -> FunctionType {
+        let paramTypes = Array<Type>()
+        
+        for param in function.parameters {
+            let paramType = resolveASTType(param.type)
+            if paramType != null {
+                paramTypes.push(paramType)
+            } else {
+                paramTypes.push(Type.Unknown)
+            }
+        }
+        
+        let returnType = resolveASTType(function.returnType)
+        if returnType == null {
+            returnType = Type.Void
+        }
+        
+        return FunctionType.new(paramTypes, returnType, function.isAsync)
+    }
+    
+    fun resolveASTType(astType: ASTType?) -> Type? {
+        if astType == null {
+            return null
+        }
+        
+        let baseType = resolveTypeName(astType.name)
+        if baseType == null {
+            addError(TypeError.new("Unknown type: {astType.name}", Location.new(0, 0), Type.Unknown, Type.Unknown))
+            return Type.Unknown
+        }
+        
+        let resolvedType = Type.new(baseType.name, astType.isNullable, baseType.kind)
+        
+        // Handle generic types
+        for genericASTType in astType.generics {
+            let genericType = resolveASTType(genericASTType)
+            if genericType != null {
+                resolvedType.generics.push(genericType)
+            }
+        }
+        
+        return resolvedType
+    }
+    
+    fun resolveTypeName(typeName: String) -> Type? {
+        return match typeName {
+            "Int" -> Type.Int
+            "Float" -> Type.Float
+            "String" -> Type.String
+            "Bool" -> Type.Bool
+            "Void" -> Type.Void
+            "Any" -> Type.Any
+            _ -> {
+                // Check if it's a user-defined class or interface
+                if environment.lookupClass(typeName) != null {
+                    return Type.new(typeName, false, TypeKind.Class)
+                }
+                if environment.lookupInterface(typeName) != null {
+                    return Type.new(typeName, false, TypeKind.Interface)
+                }
+                return null
+            }
+        }
+    }
+    
+    fun checkFunction(function: Function) -> Type {
+        // Create new scope for function parameters
+        let functionScope = Environment.new(environment)
+        
+        // Add parameters to scope
+        for param in function.parameters {
+            let paramType = resolveASTType(param.type)
+            if paramType != null {
+                functionScope.define(param.name, paramType)
+            }
+        }
+        
+        // Set current function context
+        let previousFunction = currentFunction
+        currentFunction = collectFunctionType(function)
+        
+        // Check function body with parameter scope
+        let previousEnv = environment
+        environment = functionScope
+        
+        checkStatement(function.body)
+        
+        // Restore previous context
+        environment = previousEnv
+        currentFunction = previousFunction
+        
+        return resolveASTType(function.returnType) ?: Type.Void
+    }
+    
+    fun checkStatement(statement: Statement) -> Void {
+        if statement is Block {
+            checkBlock(statement as Block)
+        } else if statement is ReturnStatement {
+            checkReturn(statement as ReturnStatement)
+        } else if statement is VariableDeclaration {
+            checkVariableDeclaration(statement as VariableDeclaration)
+        } else if statement is IfStatement {
+            checkIf(statement as IfStatement)
+        } else if statement is ExpressionStatement {
+            checkExpression((statement as ExpressionStatement).expression)
+        } else {
+            addWarning("Unknown statement type encountered")
+        }
+    }
+    
+    fun checkBlock(block: Block) -> Void {
+        // Create new scope for block
+        let blockScope = Environment.new(environment)
+        let previousEnv = environment
+        environment = blockScope
+        
+        for statement in block.statements {
+            checkStatement(statement)
+        }
+        
+        // Restore previous scope
+        environment = previousEnv
+    }
+    
+    fun checkReturn(returnStmt: ReturnStatement) -> Void {
+        if currentFunction == null {
+            addError(TypeError.new("Return statement outside function", Location.new(returnStmt.line, returnStmt.column), Type.Void, Type.Void))
+            return
+        }
+        
+        let expectedType = currentFunction.returnType
+        
+        if returnStmt.value != null {
+            let actualType = checkExpression(returnStmt.value)
+            if !isAssignableFrom(expectedType, actualType) {
+                addError(TypeError.new("Return type mismatch", Location.new(returnStmt.line, returnStmt.column), expectedType, actualType, "return statement"))
+            }
+        } else {
+            // No return value - should be Void
+            if expectedType != Type.Void {
+                addError(TypeError.new("Missing return value", Location.new(returnStmt.line, returnStmt.column), expectedType, Type.Void, "return statement"))
+            }
+        }
+    }
+    
+    fun checkVariableDeclaration(varDecl: VariableDeclaration) -> Void {
+        let declaredType = resolveASTType(varDecl.type)
+        let inferredType: Type? = null
+        
+        if varDecl.initializer != null {
+            inferredType = checkExpression(varDecl.initializer)
+        }
+        
+        let finalType: Type
+        
+        if declaredType != null and inferredType != null {
+            // Both declared and inferred - check compatibility
+            if !isAssignableFrom(declaredType, inferredType) {
+                addError(TypeError.new("Type mismatch in variable declaration", Location.new(varDecl.line, varDecl.column), declaredType, inferredType, varDecl.name))
+            }
+            finalType = declaredType
+        } else if declaredType != null {
+            // Only declared type
+            finalType = declaredType
+        } else if inferredType != null {
+            // Only inferred type
+            finalType = inferredType
+        } else {
+            // No type information
+            addError(TypeError.new("Cannot determine type for variable", Location.new(varDecl.line, varDecl.column), Type.Unknown, Type.Unknown, varDecl.name))
+            finalType = Type.Unknown
+        }
+        
+        environment.define(varDecl.name, finalType)
+    }
+    
+    fun checkIf(ifStmt: IfStatement) -> Void {
+        let conditionType = checkExpression(ifStmt.condition)
+        if !isAssignableFrom(Type.Bool, conditionType) {
+            addError(TypeError.new("If condition must be boolean", Location.new(ifStmt.line, ifStmt.column), Type.Bool, conditionType, "if condition"))
+        }
+        
+        // Check branches
+        checkStatement(ifStmt.thenBranch)
+        if ifStmt.elseBranch != null {
+            checkStatement(ifStmt.elseBranch)
+        }
+    }
+    
+    fun checkExpression(expression: Expression) -> Type {
+        if expression is Literal {
+            return checkLiteral(expression as Literal)
+        } else if expression is IdentifierExpression {
+            return checkIdentifier(expression as IdentifierExpression)
+        } else if expression is BinaryExpression {
+            return checkBinary(expression as BinaryExpression)
+        } else if expression is UnaryExpression {
+            return checkUnary(expression as UnaryExpression)
+        } else if expression is CallExpression {
+            return checkCall(expression as CallExpression)
+        } else {
+            addWarning("Unknown expression type encountered")
+            return Type.Unknown
+        }
+    }
+    
+    fun checkLiteral(literal: Literal) -> Type {
+        return match literal.type {
+            TokenType.IntegerLiteral -> Type.Int
+            TokenType.FloatLiteral -> Type.Float
+            TokenType.StringLiteral -> Type.String
+            TokenType.KeywordTrue, TokenType.KeywordFalse -> Type.Bool
+            TokenType.KeywordNull -> Type.new("Null", true)
+            _ -> Type.Unknown
+        }
+    }
+    
+    fun checkIdentifier(identifier: IdentifierExpression) -> Type {
+        let type = environment.lookup(identifier.name)
+        if type == null {
+            addError(TypeError.new("Undefined variable: {identifier.name}", Location.new(identifier.line, identifier.column), Type.Unknown, Type.Unknown, identifier.name))
+            return Type.Unknown
+        }
+        
+        // Check for smart cast
+        let castedType = smartCastContext.getCastedType(identifier.name)
+        if castedType != null {
+            return castedType
+        }
+        
+        return type
+    }
+    
+    fun checkBinary(binary: BinaryExpression) -> Type {
+        let leftType = checkExpression(binary.left)
+        let rightType = checkExpression(binary.right)
+        
+        return match binary.operator {
+            TokenType.Plus -> {
+                if (leftType == Type.Int and rightType == Type.Int) {
+                    Type.Int
+                } else if (leftType == Type.Float and rightType == Type.Float) {
+                    Type.Float
+                } else if (leftType == Type.String and rightType == Type.String) {
+                    Type.String
+                } else if (leftType == Type.String or rightType == Type.String) {
+                    // String concatenation with other types
+                    Type.String
+                } else {
+                    addError(TypeError.new("Invalid types for + operator", Location.new(binary.line, binary.column), Type.Unknown, leftType, "binary +"))
+                    Type.Unknown
+                }
+            }
+            
+            TokenType.Minus, TokenType.Multiply, TokenType.Divide, TokenType.Modulo -> {
+                if (leftType == Type.Int and rightType == Type.Int) {
+                    Type.Int
+                } else if (leftType == Type.Float and rightType == Type.Float) {
+                    Type.Float
+                } else if (leftType == Type.Int and rightType == Type.Float) or
+                          (leftType == Type.Float and rightType == Type.Int) {
+                    Type.Float
+                } else {
+                    addError(TypeError.new("Invalid types for arithmetic operator", Location.new(binary.line, binary.column), Type.Unknown, leftType, "binary arithmetic"))
+                    Type.Unknown
+                }
+            }
+            
+            TokenType.EqualEqual, TokenType.NotEqual -> {
+                // Equality can compare any types, but warn about incompatible types
+                if !areComparableTypes(leftType, rightType) {
+                    addWarning("Comparing incompatible types: {leftType.toString()} and {rightType.toString()}")
+                }
+                Type.Bool
+            }
+            
+            TokenType.LessThan, TokenType.LessEqual, TokenType.GreaterThan, TokenType.GreaterEqual -> {
+                if (leftType == Type.Int and rightType == Type.Int) or
+                   (leftType == Type.Float and rightType == Type.Float) or
+                   (leftType == Type.String and rightType == Type.String) {
+                    Type.Bool
+                } else {
+                    addError(TypeError.new("Invalid types for comparison operator", Location.new(binary.line, binary.column), Type.Unknown, leftType, "binary comparison"))
+                    Type.Bool
+                }
+            }
+            
+            TokenType.LogicalAnd, TokenType.LogicalOr -> {
+                if leftType != Type.Bool {
+                    addError(TypeError.new("Left operand of logical operator must be boolean", Location.new(binary.line, binary.column), Type.Bool, leftType, "logical operator"))
+                }
+                if rightType != Type.Bool {
+                    addError(TypeError.new("Right operand of logical operator must be boolean", Location.new(binary.line, binary.column), Type.Bool, rightType, "logical operator"))
+                }
+                Type.Bool
+            }
+            
+            _ -> {
+                addWarning("Unknown binary operator: {binary.operator}")
+                Type.Unknown
+            }
+        }
+    }
+    
+    fun checkUnary(unary: UnaryExpression) -> Type {
+        let operandType = checkExpression(unary.operand)
+        
+        return match unary.operator {
+            TokenType.Minus -> {
+                if operandType == Type.Int or operandType == Type.Float {
+                    operandType
+                } else {
+                    addError(TypeError.new("Unary minus requires numeric type", Location.new(unary.line, unary.column), Type.Int, operandType, "unary -"))
+                    Type.Unknown
+                }
+            }
+            
+            TokenType.LogicalNot -> {
+                if operandType != Type.Bool {
+                    addError(TypeError.new("Logical not requires boolean type", Location.new(unary.line, unary.column), Type.Bool, operandType, "unary not"))
+                }
+                Type.Bool
+            }
+            
+            _ -> {
+                addWarning("Unknown unary operator: {unary.operator}")
+                Type.Unknown
+            }
+        }
+    }
+    
+    fun checkCall(call: CallExpression) -> Type {
+        // Simplified call checking for TDD
+        let functionType = environment.lookupFunction(call.name)
+        if functionType == null {
+            addError(TypeError.new("Undefined function: {call.name}", Location.new(call.line, call.column), Type.Unknown, Type.Unknown, call.name))
+            return Type.Unknown
+        }
+        
+        // Check argument count
+        if call.arguments.length() != functionType.parameters.length() {
+            addError(TypeError.new("Argument count mismatch", Location.new(call.line, call.column), Type.Unknown, Type.Unknown, call.name))
+        }
+        
+        // Check argument types
+        for i in 0..min(call.arguments.length(), functionType.parameters.length()) {
+            let argType = checkExpression(call.arguments[i])
+            let paramType = functionType.parameters[i]
+            if !isAssignableFrom(paramType, argType) {
+                addError(TypeError.new("Argument type mismatch", Location.new(call.line, call.column), paramType, argType, "argument {i}"))
+            }
+        }
+        
+        return functionType.returnType
+    }
+    
+    fun checkClass(classNode: Class) -> ClassType {
+        let classType = environment.lookupClass(classNode.name)
+        if classType == null {
+            addError(TypeError.new("Unknown class during checking: {classNode.name}", Location.new(classNode.line, classNode.column), Type.Unknown, Type.Unknown))
+            return ClassType.new(classNode.name)
+        }
+        
+        // Create class scope with fields
+        let classScope = Environment.new(environment)
+        for (fieldName, fieldType) in classType.fields.entries() {
+            classScope.define(fieldName, fieldType)
+        }
+        
+        // Check method implementations
+        let previousEnv = environment
+        environment = classScope
+        
+        for method in classNode.methods {
+            checkFunction(method)
+        }
+        
+        environment = previousEnv
+        return classType
+    }
+    
+    fun checkInterface(interfaceNode: Interface) -> InterfaceType {
+        let interfaceType = environment.lookupInterface(interfaceNode.name)
+        if interfaceType == null {
+            addError(TypeError.new("Unknown interface during checking: {interfaceNode.name}", Location.new(interfaceNode.line, interfaceNode.column), Type.Unknown, Type.Unknown))
+            return InterfaceType.new(interfaceNode.name)
+        }
+        
+        // Interfaces only have method signatures, no implementation to check
+        return interfaceType
+    }
+    
+    fun inferType(expression: Expression) -> Type {
+        return checkExpression(expression)
+    }
+    
+    fun unifyTypes(type1: Type, type2: Type) -> Type? {
+        if type1.name == type2.name and type1.isNullable == type2.isNullable {
+            return type1
+        }
+        
+        // Handle numeric type promotion
+        if (type1 == Type.Int and type2 == Type.Float) or
+           (type1 == Type.Float and type2 == Type.Int) {
+            return Type.Float
+        }
+        
+        // Handle null compatibility
+        if type1.isNullable and type2.name == type1.name {
+            return type1
+        }
+        if type2.isNullable and type1.name == type2.name {
+            return type2
+        }
+        
+        return null
+    }
+    
+    fun isAssignableFrom(target: Type, source: Type) -> Bool {
+        // Exact match
+        if target.name == source.name and target.isNullable >= source.isNullable {
+            return true
+        }
+        
+        // Numeric promotion
+        if target == Type.Float and source == Type.Int {
+            return true
+        }
+        
+        // String conversion (everything can become string)
+        if target == Type.String {
+            return true
+        }
+        
+        // Any accepts everything
+        if target == Type.Any {
+            return true
+        }
+        
+        // Never can be assigned to anything
+        if source == Type.Never {
+            return true
+        }
+        
+        return false
+    }
+    
+    fun areComparableTypes(type1: Type, type2: Type) -> Bool {
+        if type1.name == type2.name {
+            return true
+        }
+        
+        // Numeric types are comparable
+        if (type1 == Type.Int or type1 == Type.Float) and
+           (type2 == Type.Int or type2 == Type.Float) {
+            return true
+        }
+        
+        return false
+    }
+    
+    fun resolveMethod(className: String, methodName: String, args: Array<Type>) -> FunctionType? {
+        let classType = environment.lookupClass(className)
+        if classType == null {
+            return null
+        }
+        
+        return classType.methods.get(methodName)
+    }
+    
+    fun performSmartCast(variable: String, type: Type, condition: String) -> Void {
+        smartCastContext.addCast(variable, type, condition)
+    }
+    
+    fun setStrictMode(enabled: Bool) -> Void {
+        strictMode = enabled
+    }
+    
+    fun getErrors() -> Array<TypeError> {
+        return errors
+    }
+    
+    fun getWarnings() -> Array<String> {
+        return warnings
+    }
+    
+    fun clearErrors() -> Void {
+        errors = Array<TypeError>()
+        warnings = Array<String>()
+        smartCastContext = SmartCastContext.new()
+    }
+    
+    fun addError(error: TypeError) -> Void {
+        errors.push(error)
+    }
+    
+    fun addWarning(warning: String) -> Void {
+        warnings.push(warning)
+    }
+    
+    fun min(a: Int, b: Int) -> Int {
+        return if a < b { a } else { b }
+    }
+}
+
+// Additional classes needed by the type checker
+
+class ExpressionStatement extends Statement {
+    let expression: Expression
+    
+    fun new(expression: Expression) -> ExpressionStatement {
+        super(expression.line, expression.column)
+        this.expression = expression
+    }
+}
+
+class UnaryExpression extends Expression {
+    let operator: TokenType
+    let operand: Expression
+    
+    fun new(operator: TokenType, operand: Expression) -> UnaryExpression {
+        super(operand.line, operand.column)
+        this.operator = operator
+        this.operand = operand
+    }
+}
+
+class CallExpression extends Expression {
+    let name: String
+    let arguments: Array<Expression>
+    
+    fun new(name: String, arguments: Array<Expression>, line: Int, column: Int) -> CallExpression {
+        super(line, column)
+        this.name = name
+        this.arguments = arguments
+    }
+}

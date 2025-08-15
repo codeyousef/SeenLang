@@ -1,0 +1,706 @@
+// Real Parser Implementation - Following TDD
+// Implements complete Seen language parsing with recursive descent
+
+import lexer.{Token, TokenType, SeenLexer}
+import parser.interfaces.{AST, ParseError, Function, Type, Parameter, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, MatchStatement, Class, Interface, Enum, Import, Literal, BinaryExpression}
+
+class SeenParser {
+    let tokens: Array<Token>
+    var current: Int
+    var errorRecoveryMode: Bool
+    var errors: Array<ParseError>
+    
+    fun new(tokens: Array<Token>) -> SeenParser {
+        this.tokens = tokens
+        this.current = 0
+        this.errorRecoveryMode = false
+        this.errors = Array<ParseError>()
+    }
+    
+    fun parse() -> AST {
+        let ast = AST.new()
+        
+        // Parse all top-level declarations
+        while !isAtEnd() {
+            try {
+                let item = parseTopLevel()
+                if item != null {
+                    addToAST(ast, item)
+                }
+            } catch (error: ParseError) {
+                errors.push(error)
+                if errorRecoveryMode {
+                    recover()
+                } else {
+                    throw error
+                }
+            }
+        }
+        
+        return ast
+    }
+    
+    fun parseTopLevel() -> ASTNode? {
+        // Skip any whitespace or comment tokens
+        skipWhitespaceAndComments()
+        
+        if isAtEnd() {
+            return null
+        }
+        
+        let token = getCurrentToken()
+        
+        return match token.getType() {
+            TokenType.KeywordFun -> parseFunction()
+            TokenType.KeywordClass -> parseClass()
+            TokenType.KeywordInterface -> parseInterface()
+            TokenType.KeywordEnum -> parseEnum()
+            TokenType.KeywordImport -> parseImport()
+            _ -> {
+                throwError("Expected function, class, interface, enum, or import", "top-level declaration", token.getType().toString())
+                null
+            }
+        }
+    }
+    
+    fun parseFunction() -> Function {
+        expect(TokenType.KeywordFun)
+        
+        let nameToken = expect(TokenType.Identifier)
+        let name = nameToken.getValue()
+        
+        expect(TokenType.LeftParen)
+        let parameters = parseParameterList()
+        expect(TokenType.RightParen)
+        
+        let returnType = parseReturnType()
+        
+        expect(TokenType.LeftBrace)
+        let body = parseBlock()
+        expect(TokenType.RightBrace)
+        
+        let func = Function.new(name, returnType)
+        for param in parameters {
+            func.parameters.push(param)
+        }
+        func.body = body
+        
+        return func
+    }
+    
+    fun parseParameterList() -> Array<Parameter> {
+        let parameters = Array<Parameter>()
+        
+        if getCurrentToken().getType() == TokenType.RightParen {
+            return parameters
+        }
+        
+        while true {
+            let param = parseParameter()
+            parameters.push(param)
+            
+            if getCurrentToken().getType() == TokenType.Comma {
+                advance()
+            } else {
+                break
+            }
+        }
+        
+        return parameters
+    }
+    
+    fun parseParameter() -> Parameter {
+        let nameToken = expect(TokenType.Identifier)
+        let name = nameToken.getValue()
+        
+        expect(TokenType.Colon)
+        let type = parseType()
+        
+        let param = Parameter.new(name, type)
+        
+        // Check for default value
+        if getCurrentToken().getType() == TokenType.Equal {
+            advance()
+            param.defaultValue = parseExpression()
+        }
+        
+        return param
+    }
+    
+    fun parseReturnType() -> Type {
+        if getCurrentToken().getType() == TokenType.Arrow {
+            advance()
+            return parseType()
+        } else {
+            // Default to Void if no return type specified
+            return Type.new("Void")
+        }
+    }
+    
+    fun parseType() -> Type {
+        let nameToken = expect(TokenType.Identifier)
+        let name = nameToken.getValue()
+        let isNullable = false
+        
+        // Check for nullable type (String?)
+        if getCurrentToken().getType() == TokenType.Question {
+            advance()
+            isNullable = true
+        }
+        
+        let type = Type.new(name, isNullable)
+        
+        // Check for generic types (List<T>)
+        if getCurrentToken().getType() == TokenType.LessThan {
+            advance()
+            while true {
+                let genericType = parseType()
+                type.generics.push(genericType)
+                
+                if getCurrentToken().getType() == TokenType.Comma {
+                    advance()
+                } else {
+                    break
+                }
+            }
+            expect(TokenType.GreaterThan)
+        }
+        
+        return type
+    }
+    
+    fun parseBlock() -> Block {
+        let block = Block.new()
+        
+        while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
+            let stmt = parseStatement()
+            if stmt != null {
+                block.addStatement(stmt)
+            }
+        }
+        
+        return block
+    }
+    
+    fun parseStatement() -> Statement? {
+        skipWhitespaceAndComments()
+        
+        if isAtEnd() {
+            return null
+        }
+        
+        let token = getCurrentToken()
+        
+        return match token.getType() {
+            TokenType.KeywordReturn -> parseReturn()
+            TokenType.KeywordLet -> parseVariableDeclaration(false)
+            TokenType.KeywordVar -> parseVariableDeclaration(true)
+            TokenType.KeywordIf -> parseIf()
+            TokenType.KeywordMatch -> parseMatch()
+            TokenType.LeftBrace -> {
+                advance()
+                let block = parseBlock()
+                expect(TokenType.RightBrace)
+                block
+            }
+            _ -> {
+                // Expression statement
+                let expr = parseExpression()
+                // Semicolon is optional in many contexts
+                if getCurrentToken().getType() == TokenType.Semicolon {
+                    advance()
+                }
+                ExpressionStatement.new(expr)
+            }
+        }
+    }
+    
+    fun parseReturn() -> ReturnStatement {
+        expect(TokenType.KeywordReturn)
+        
+        let value: Expression? = null
+        if getCurrentToken().getType() != TokenType.Semicolon and 
+           getCurrentToken().getType() != TokenType.RightBrace {
+            value = parseExpression()
+        }
+        
+        // Optional semicolon
+        if getCurrentToken().getType() == TokenType.Semicolon {
+            advance()
+        }
+        
+        return ReturnStatement.new(value)
+    }
+    
+    fun parseVariableDeclaration(isMutable: Bool) -> VariableDeclaration {
+        if isMutable {
+            expect(TokenType.KeywordVar)
+        } else {
+            expect(TokenType.KeywordLet)
+        }
+        
+        let nameToken = expect(TokenType.Identifier)
+        let name = nameToken.getValue()
+        
+        let decl = VariableDeclaration.new(name, isMutable)
+        
+        // Optional type annotation
+        if getCurrentToken().getType() == TokenType.Colon {
+            advance()
+            decl.type = parseType()
+        }
+        
+        // Optional initializer
+        if getCurrentToken().getType() == TokenType.Equal {
+            advance()
+            decl.initializer = parseExpression()
+        }
+        
+        // Optional semicolon
+        if getCurrentToken().getType() == TokenType.Semicolon {
+            advance()
+        }
+        
+        return decl
+    }
+    
+    fun parseIf() -> IfStatement {
+        expect(TokenType.KeywordIf)
+        
+        let condition = parseExpression()
+        let thenBranch = parseStatement()
+        
+        let ifStmt = IfStatement.new(condition, thenBranch)
+        
+        // Optional else branch
+        if getCurrentToken().getType() == TokenType.KeywordElse {
+            advance()
+            ifStmt.elseBranch = parseStatement()
+        }
+        
+        return ifStmt
+    }
+    
+    fun parseMatch() -> MatchStatement {
+        expect(TokenType.KeywordMatch)
+        
+        let expression = parseExpression()
+        expect(TokenType.LeftBrace)
+        
+        let matchStmt = MatchStatement.new(expression)
+        
+        // Parse match arms
+        while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
+            let pattern = parsePattern()
+            expect(TokenType.Arrow)
+            let body = parseStatement()
+            
+            let arm = MatchArm.new(pattern, body)
+            matchStmt.arms.push(arm)
+        }
+        
+        expect(TokenType.RightBrace)
+        return matchStmt
+    }
+    
+    fun parsePattern() -> Pattern {
+        // Simplified pattern parsing for TDD
+        let token = getCurrentToken()
+        advance()
+        return LiteralPattern.new(token.getValue())
+    }
+    
+    fun parseExpression() -> Expression {
+        return parseLogicalOr()
+    }
+    
+    fun parseLogicalOr() -> Expression {
+        let expr = parseLogicalAnd()
+        
+        while getCurrentToken().getType() == TokenType.LogicalOr {
+            let operator = getCurrentToken().getType()
+            advance()
+            let right = parseLogicalAnd()
+            expr = BinaryExpression.new(expr, operator, right)
+        }
+        
+        return expr
+    }
+    
+    fun parseLogicalAnd() -> Expression {
+        let expr = parseEquality()
+        
+        while getCurrentToken().getType() == TokenType.LogicalAnd {
+            let operator = getCurrentToken().getType()
+            advance()
+            let right = parseEquality()
+            expr = BinaryExpression.new(expr, operator, right)
+        }
+        
+        return expr
+    }
+    
+    fun parseEquality() -> Expression {
+        let expr = parseComparison()
+        
+        while match([TokenType.EqualEqual, TokenType.NotEqual]) {
+            let operator = getPreviousToken().getType()
+            let right = parseComparison()
+            expr = BinaryExpression.new(expr, operator, right)
+        }
+        
+        return expr
+    }
+    
+    fun parseComparison() -> Expression {
+        let expr = parseAddition()
+        
+        while match([TokenType.GreaterThan, TokenType.GreaterEqual, TokenType.LessThan, TokenType.LessEqual]) {
+            let operator = getPreviousToken().getType()
+            let right = parseAddition()
+            expr = BinaryExpression.new(expr, operator, right)
+        }
+        
+        return expr
+    }
+    
+    fun parseAddition() -> Expression {
+        let expr = parseMultiplication()
+        
+        while match([TokenType.Plus, TokenType.Minus]) {
+            let operator = getPreviousToken().getType()
+            let right = parseMultiplication()
+            expr = BinaryExpression.new(expr, operator, right)
+        }
+        
+        return expr
+    }
+    
+    fun parseMultiplication() -> Expression {
+        let expr = parseUnary()
+        
+        while match([TokenType.Multiply, TokenType.Divide, TokenType.Modulo]) {
+            let operator = getPreviousToken().getType()
+            let right = parseUnary()
+            expr = BinaryExpression.new(expr, operator, right)
+        }
+        
+        return expr
+    }
+    
+    fun parseUnary() -> Expression {
+        if match([TokenType.LogicalNot, TokenType.Minus]) {
+            let operator = getPreviousToken().getType()
+            let expr = parseUnary()
+            return UnaryExpression.new(operator, expr)
+        }
+        
+        return parsePrimary()
+    }
+    
+    fun parsePrimary() -> Expression {
+        let token = getCurrentToken()
+        
+        return match token.getType() {
+            TokenType.IntegerLiteral, TokenType.FloatLiteral, 
+            TokenType.StringLiteral, TokenType.KeywordTrue, TokenType.KeywordFalse -> {
+                advance()
+                Literal.new(token.getValue(), token.getType(), token.getLine(), token.getColumn())
+            }
+            
+            TokenType.Identifier -> {
+                advance()
+                IdentifierExpression.new(token.getValue(), token.getLine(), token.getColumn())
+            }
+            
+            TokenType.LeftParen -> {
+                advance()
+                let expr = parseExpression()
+                expect(TokenType.RightParen)
+                expr
+            }
+            
+            TokenType.InterpolatedStringStart -> parseStringInterpolation()
+            
+            _ -> {
+                throwError("Unexpected token in expression", "expression", token.getType().toString())
+                // Return dummy literal for error recovery
+                Literal.new("", TokenType.Error, token.getLine(), token.getColumn())
+            }
+        }
+    }
+    
+    fun parseStringInterpolation() -> Expression {
+        // Implementation for string interpolation parsing
+        expect(TokenType.InterpolatedStringStart)
+        
+        let parts = Array<Expression>()
+        
+        while getCurrentToken().getType() != TokenType.InterpolatedStringEnd and !isAtEnd() {
+            if getCurrentToken().getType() == TokenType.InterpolatedStringMiddle {
+                let token = getCurrentToken()
+                advance()
+                parts.push(Literal.new(token.getValue(), TokenType.StringLiteral, token.getLine(), token.getColumn()))
+            } else {
+                // Parse embedded expression
+                parts.push(parseExpression())
+            }
+        }
+        
+        expect(TokenType.InterpolatedStringEnd)
+        
+        return InterpolatedStringExpression.new(parts)
+    }
+    
+    fun parseClass() -> Class {
+        expect(TokenType.KeywordClass)
+        let nameToken = expect(TokenType.Identifier)
+        let name = nameToken.getValue()
+        
+        expect(TokenType.LeftBrace)
+        
+        let classNode = Class.new(name)
+        
+        while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
+            // Parse class members (methods, fields)
+            if getCurrentToken().getType() == TokenType.KeywordFun {
+                let method = parseFunction()
+                classNode.methods.push(method)
+            } else if getCurrentToken().getType() == TokenType.KeywordLet or getCurrentToken().getType() == TokenType.KeywordVar {
+                let field = parseVariableDeclaration(getCurrentToken().getType() == TokenType.KeywordVar)
+                classNode.fields.push(field)
+            } else {
+                throwError("Expected method or field declaration", "class member", getCurrentToken().getType().toString())
+                advance()
+            }
+        }
+        
+        expect(TokenType.RightBrace)
+        return classNode
+    }
+    
+    fun parseInterface() -> Interface {
+        expect(TokenType.KeywordInterface)
+        let nameToken = expect(TokenType.Identifier)
+        let name = nameToken.getValue()
+        
+        expect(TokenType.LeftBrace)
+        
+        let interfaceNode = Interface.new(name)
+        
+        while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
+            if getCurrentToken().getType() == TokenType.KeywordFun {
+                let method = parseFunction()
+                interfaceNode.methods.push(method)
+            } else {
+                throwError("Expected method declaration", "interface member", getCurrentToken().getType().toString())
+                advance()
+            }
+        }
+        
+        expect(TokenType.RightBrace)
+        return interfaceNode
+    }
+    
+    fun parseEnum() -> Enum {
+        expect(TokenType.KeywordEnum)
+        let nameToken = expect(TokenType.Identifier)
+        let name = nameToken.getValue()
+        
+        expect(TokenType.LeftBrace)
+        
+        let enumNode = Enum.new(name)
+        
+        while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
+            let variantToken = expect(TokenType.Identifier)
+            enumNode.variants.push(variantToken.getValue())
+            
+            if getCurrentToken().getType() == TokenType.Comma {
+                advance()
+            }
+        }
+        
+        expect(TokenType.RightBrace)
+        return enumNode
+    }
+    
+    fun parseImport() -> Import {
+        expect(TokenType.KeywordImport)
+        
+        // Parse import path - simplified for TDD
+        let pathToken = expect(TokenType.Identifier)
+        let path = pathToken.getValue()
+        
+        let importNode = Import.new(path)
+        
+        // Optional: parse specific items to import
+        if getCurrentToken().getType() == TokenType.Dot {
+            advance()
+            expect(TokenType.LeftBrace)
+            
+            while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
+                let itemToken = expect(TokenType.Identifier)
+                importNode.items.push(itemToken.getValue())
+                
+                if getCurrentToken().getType() == TokenType.Comma {
+                    advance()
+                }
+            }
+            
+            expect(TokenType.RightBrace)
+        }
+        
+        return importNode
+    }
+    
+    // Helper methods
+    
+    fun addToAST(ast: AST, item: ASTNode) -> Void {
+        if item is Function {
+            ast.functions.push(item as Function)
+        } else if item is Class {
+            ast.classes.push(item as Class)
+        } else if item is Interface {
+            ast.interfaces.push(item as Interface)
+        } else if item is Enum {
+            ast.enums.push(item as Enum)
+        } else if item is Import {
+            ast.imports.push(item as Import)
+        }
+    }
+    
+    fun setErrorRecoveryMode(enabled: Bool) -> Void {
+        errorRecoveryMode = enabled
+    }
+    
+    fun getCurrentToken() -> Token {
+        if isAtEnd() {
+            return tokens[tokens.length() - 1]  // EOF token
+        }
+        return tokens[current]
+    }
+    
+    fun advance() -> Token {
+        if !isAtEnd() {
+            current += 1
+        }
+        return getPreviousToken()
+    }
+    
+    fun peek(offset: Int = 1) -> Token {
+        let pos = current + offset
+        if pos >= tokens.length() {
+            return tokens[tokens.length() - 1]  // EOF token
+        }
+        return tokens[pos]
+    }
+    
+    fun getPreviousToken() -> Token {
+        return tokens[current - 1]
+    }
+    
+    fun match(types: Array<TokenType>) -> Bool {
+        for type in types {
+            if getCurrentToken().getType() == type {
+                advance()
+                return true
+            }
+        }
+        return false
+    }
+    
+    fun expect(type: TokenType) -> Token {
+        let token = getCurrentToken()
+        if token.getType() == type {
+            return advance()
+        }
+        
+        throwError("Expected {type}", type.toString(), token.getType().toString())
+        return token
+    }
+    
+    fun isAtEnd() -> Bool {
+        return current >= tokens.length() or getCurrentToken().getType() == TokenType.EndOfFile
+    }
+    
+    fun skipWhitespaceAndComments() -> Void {
+        while getCurrentToken().getType() == TokenType.Whitespace or 
+              getCurrentToken().getType() == TokenType.Comment or
+              getCurrentToken().getType() == TokenType.Newline {
+            advance()
+            if isAtEnd() {
+                break
+            }
+        }
+    }
+    
+    fun throwError(message: String, expected: String, actual: String) -> Void {
+        let token = getCurrentToken()
+        let error = ParseError.new(message, token, expected, actual)
+        throw error
+    }
+    
+    fun recover() -> Void {
+        // Error recovery: skip to next statement boundary
+        while !isAtEnd() and getCurrentToken().getType() != TokenType.Semicolon and
+              getCurrentToken().getType() != TokenType.RightBrace {
+            advance()
+        }
+        if getCurrentToken().getType() == TokenType.Semicolon {
+            advance()
+        }
+    }
+}
+
+// Additional AST node classes needed by the parser
+
+class ExpressionStatement extends Statement {
+    let expression: Expression
+    
+    fun new(expression: Expression) -> ExpressionStatement {
+        super(expression.line, expression.column)
+        this.expression = expression
+    }
+}
+
+class UnaryExpression extends Expression {
+    let operator: TokenType
+    let operand: Expression
+    
+    fun new(operator: TokenType, operand: Expression) -> UnaryExpression {
+        super(operand.line, operand.column)
+        this.operator = operator
+        this.operand = operand
+    }
+}
+
+class IdentifierExpression extends Expression {
+    let name: String
+    
+    fun new(name: String, line: Int, column: Int) -> IdentifierExpression {
+        super(line, column)
+        this.name = name
+    }
+    
+    fun getValue() -> String {
+        return name
+    }
+}
+
+class InterpolatedStringExpression extends Expression {
+    let parts: Array<Expression>
+    
+    fun new(parts: Array<Expression>) -> InterpolatedStringExpression {
+        super(0, 0)
+        this.parts = parts
+    }
+}
+
+class LiteralPattern extends Pattern {
+    let value: String
+    
+    fun new(value: String) -> LiteralPattern {
+        super(0, 0)
+        this.value = value
+    }
+}

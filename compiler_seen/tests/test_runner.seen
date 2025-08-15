@@ -1,0 +1,303 @@
+// Comprehensive Test Runner for Self-Hosting Compiler
+// Implements TDD infrastructure with detailed reporting
+
+import testing.{TestSuite, TestResult, TestReport}
+import bootstrap_test.{createBootstrapTests}
+import lexer_test.{createLexerTests}
+import parser_test.{createParserTests}
+import typechecker_test.{createTypeCheckerTests}
+
+class CompilerTestRunner {
+    var suites: Array<TestSuite>
+    var results: Array<TestResult>
+    
+    fun new() -> CompilerTestRunner {
+        suites = Array<TestSuite>()
+        results = Array<TestResult>()
+        registerAllTestSuites()
+    }
+    
+    fun registerAllTestSuites() {
+        // Bootstrap tests run first to verify infrastructure
+        suites.push(createBootstrapTests())
+        
+        // Core compiler component tests (will fail until implemented - this is TDD!)
+        suites.push(createLexerTests())
+        suites.push(createParserTests())
+        suites.push(createTypeCheckerTests())
+        
+        // Add more test suites as they're created
+    }
+    
+    fun runAllTests() -> TestReport {
+        println("========================================")
+        println("Seen Compiler Test Suite - TDD Mode")
+        println("========================================")
+        println()
+        
+        let startTime = getCurrentTime()
+        let totalTests = 0
+        let passedTests = 0
+        let failedTests = 0
+        
+        for suite in suites {
+            println("Running {suite.getName()}...")
+            let suiteResult = runTestSuite(suite)
+            results.push(suiteResult)
+            
+            totalTests += suiteResult.totalTests
+            passedTests += suiteResult.passedTests
+            failedTests += suiteResult.failedTests
+            
+            printSuiteResult(suiteResult)
+            println()
+        }
+        
+        let endTime = getCurrentTime()
+        let duration = endTime - startTime
+        
+        let report = TestReport.new(
+            totalTests,
+            passedTests,
+            failedTests,
+            duration,
+            results
+        )
+        
+        printFinalReport(report)
+        return report
+    }
+    
+    fun runTestSuite(suite: TestSuite) -> TestResult {
+        let suiteStartTime = getCurrentTime()
+        let tests = suite.getTests()
+        let passed = 0
+        let failed = 0
+        let failures = Array<TestFailure>()
+        
+        for test in tests {
+            try {
+                print("  • {test.getName()}... ")
+                test.run()
+                print("✅ PASS")
+                passed += 1
+            } catch (error: TestError) {
+                print("❌ FAIL")
+                failed += 1
+                failures.push(TestFailure.new(test.getName(), error.message, error.stackTrace))
+                
+                if shouldStopOnFirstFailure() {
+                    break
+                }
+            }
+            println()
+        }
+        
+        let suiteEndTime = getCurrentTime()
+        let suiteDuration = suiteEndTime - suiteStartTime
+        
+        return TestResult.new(
+            suite.getName(),
+            tests.length(),
+            passed,
+            failed,
+            suiteDuration,
+            failures
+        )
+    }
+    
+    fun printSuiteResult(result: TestResult) {
+        let status = if result.failedTests == 0 { "✅ PASSED" } else { "❌ FAILED" }
+        println("  Result: {status} ({result.passedTests}/{result.totalTests} tests, {result.duration}ms)")
+        
+        if result.failedTests > 0 {
+            println("  Failures:")
+            for failure in result.failures {
+                println("    • {failure.testName}: {failure.message}")
+                if isVerboseMode() {
+                    println("      Stack trace:")
+                    for line in failure.stackTrace {
+                        println("        {line}")
+                    }
+                }
+            }
+        }
+    }
+    
+    fun printFinalReport(report: TestReport) {
+        println("========================================")
+        println("FINAL TEST REPORT")
+        println("========================================")
+        println()
+        
+        let overallStatus = if report.failedTests == 0 { "✅ ALL TESTS PASSED" } else { "❌ SOME TESTS FAILED" }
+        println("Status: {overallStatus}")
+        println()
+        
+        println("Summary:")
+        println("  Total Tests: {report.totalTests}")
+        println("  Passed: {report.passedTests}")
+        println("  Failed: {report.failedTests}")
+        println("  Success Rate: {calculateSuccessRate(report)}%")
+        println("  Total Duration: {report.duration}ms")
+        println()
+        
+        if report.failedTests > 0 {
+            println("Failed Test Suites:")
+            for result in report.suiteResults {
+                if result.failedTests > 0 {
+                    println("  • {result.suiteName}: {result.failedTests} failures")
+                }
+            }
+            println()
+            
+            println("TDD Guidance:")
+            println("  1. Fix the failing tests one by one")
+            println("  2. Implement minimal code to make each test pass")
+            println("  3. Refactor while keeping tests green")
+            println("  4. Do not implement features without tests")
+            println()
+        } else {
+            println("🎉 All tests are passing!")
+            println("You can now proceed to the next TDD cycle or implementation phase.")
+            println()
+        }
+        
+        // Performance analysis
+        printPerformanceAnalysis(report)
+        
+        // Coverage analysis (if available)
+        printCoverageAnalysis(report)
+    }
+    
+    fun printPerformanceAnalysis(report: TestReport) {
+        println("Performance Analysis:")
+        
+        let slowestSuite = findSlowestSuite(report)
+        if slowestSuite != null {
+            println("  Slowest test suite: {slowestSuite.suiteName} ({slowestSuite.duration}ms)")
+        }
+        
+        let averageTestTime = report.duration / report.totalTests
+        println("  Average test time: {averageTestTime}ms")
+        
+        if averageTestTime > 100 {
+            println("  ⚠️ Warning: Tests are running slowly. Consider optimization.")
+        }
+        
+        println()
+    }
+    
+    fun printCoverageAnalysis(report: TestReport) {
+        // This would be implemented with actual coverage data
+        println("Code Coverage Analysis:")
+        println("  Lexer: TBD% (implement after lexer is written)")
+        println("  Parser: TBD% (implement after parser is written)")
+        println("  Type Checker: TBD% (implement after type checker is written)")
+        println("  Overall: TBD%")
+        println()
+        println("Note: Coverage analysis will be available after implementing each module.")
+        println()
+    }
+    
+    fun calculateSuccessRate(report: TestReport) -> Float {
+        if report.totalTests == 0 {
+            return 100.0
+        }
+        return (report.passedTests.toFloat() / report.totalTests.toFloat()) * 100.0
+    }
+    
+    fun findSlowestSuite(report: TestReport) -> TestResult? {
+        var slowest: TestResult? = null
+        var maxDuration = 0
+        
+        for result in report.suiteResults {
+            if result.duration > maxDuration {
+                maxDuration = result.duration
+                slowest = result
+            }
+        }
+        
+        return slowest
+    }
+    
+    fun shouldStopOnFirstFailure() -> Bool {
+        // Can be configured based on command line args
+        return false
+    }
+    
+    fun isVerboseMode() -> Bool {
+        // Can be configured based on command line args
+        return true
+    }
+    
+    fun getCurrentTime() -> Int {
+        // System time in milliseconds
+        return 0 // Implementation depends on runtime
+    }
+}
+
+// Test data structures
+class TestResult {
+    let suiteName: String
+    let totalTests: Int
+    let passedTests: Int
+    let failedTests: Int
+    let duration: Int
+    let failures: Array<TestFailure>
+    
+    fun new(suiteName: String, totalTests: Int, passedTests: Int, failedTests: Int, duration: Int, failures: Array<TestFailure>) -> TestResult {
+        this.suiteName = suiteName
+        this.totalTests = totalTests
+        this.passedTests = passedTests
+        this.failedTests = failedTests
+        this.duration = duration
+        this.failures = failures
+    }
+}
+
+class TestFailure {
+    let testName: String
+    let message: String
+    let stackTrace: Array<String>
+    
+    fun new(testName: String, message: String, stackTrace: Array<String>) -> TestFailure {
+        this.testName = testName
+        this.message = message
+        this.stackTrace = stackTrace
+    }
+}
+
+class TestReport {
+    let totalTests: Int
+    let passedTests: Int
+    let failedTests: Int
+    let duration: Int
+    let suiteResults: Array<TestResult>
+    
+    fun new(totalTests: Int, passedTests: Int, failedTests: Int, duration: Int, suiteResults: Array<TestResult>) -> TestReport {
+        this.totalTests = totalTests
+        this.passedTests = passedTests
+        this.failedTests = failedTests
+        this.duration = duration
+        this.suiteResults = suiteResults
+    }
+}
+
+// Main entry point for running tests
+fun main() -> Int {
+    let runner = CompilerTestRunner.new()
+    let report = runner.runAllTests()
+    
+    if report.failedTests > 0 {
+        return 1  // Indicate failure for CI/CD systems
+    }
+    
+    return 0  // Success
+}
+
+// Export for use by other modules
+export fun runCompilerTests() -> TestReport {
+    let runner = CompilerTestRunner.new()
+    return runner.runAllTests()
+}

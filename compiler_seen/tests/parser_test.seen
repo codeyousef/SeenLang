@@ -1,0 +1,471 @@
+// Comprehensive Parser Tests for Self-Hosting Compiler
+// Tests MUST pass before implementing parser - TDD approach
+
+import testing.{Test, TestSuite, assert, assertEqual, assertNotEqual, assertThrows}
+import parser.{SeenParser, AST, ParseError, Expression, Statement, Type}
+import lexer.{SeenLexer}
+
+class ParserTestSuite extends TestSuite {
+    fun new() -> ParserTestSuite {
+        super("Parser Tests")
+        registerAllTests()
+    }
+    
+    fun registerAllTests() {
+        addTest("test_basic_function_declaration")
+        addTest("test_variable_declarations")
+        addTest("test_expressions")
+        addTest("test_control_flow")
+        addTest("test_pattern_matching")
+        addTest("test_async_await")
+        addTest("test_nullable_types")
+        addTest("test_generics")
+        addTest("test_interfaces")
+        addTest("test_classes")
+        addTest("test_methods")
+        addTest("test_string_interpolation")
+        addTest("test_lambda_expressions")
+        addTest("test_array_operations")
+        addTest("test_error_recovery")
+        addTest("test_operator_precedence")
+        addTest("test_performance_requirements")
+    }
+    
+    // Test 1: Basic function declarations
+    @Test
+    fun test_basic_function_declaration() {
+        let source = """
+        fun main() -> Int {
+            return 0
+        }
+        
+        fun add(x: Int, y: Int) -> Int {
+            return x + y
+        }
+        
+        fun greet(name: String = "World") {
+            println("Hello, {name}!")
+        }
+        """
+        
+        let ast = parseSource(source)
+        
+        assertEqual(ast.functions.length(), 3)
+        
+        // Test main function
+        let mainFunc = ast.functions[0]
+        assertEqual(mainFunc.name, "main")
+        assertEqual(mainFunc.parameters.length(), 0)
+        assertEqual(mainFunc.returnType.name, "Int")
+        assert(mainFunc.body != null)
+        
+        // Test add function
+        let addFunc = ast.functions[1]
+        assertEqual(addFunc.name, "add")
+        assertEqual(addFunc.parameters.length(), 2)
+        assertEqual(addFunc.parameters[0].name, "x")
+        assertEqual(addFunc.parameters[0].type.name, "Int")
+        assertEqual(addFunc.parameters[1].name, "y")
+        assertEqual(addFunc.parameters[1].type.name, "Int")
+        assertEqual(addFunc.returnType.name, "Int")
+        
+        // Test function with default parameter
+        let greetFunc = ast.functions[2]
+        assertEqual(greetFunc.name, "greet")
+        assertEqual(greetFunc.parameters.length(), 1)
+        assertEqual(greetFunc.parameters[0].name, "name")
+        assertEqual(greetFunc.parameters[0].type.name, "String")
+        assert(greetFunc.parameters[0].defaultValue != null)
+        assertEqual(greetFunc.parameters[0].defaultValue.getValue(), "World")
+    }
+    
+    // Test 2: Variable declarations
+    @Test
+    fun test_variable_declarations() {
+        let source = """
+        fun test() {
+            let x = 42
+            let y: Int = 100
+            var mutable = "changeable"
+            let name: String? = null
+            let result = getValue() ?: "default"
+        }
+        """
+        
+        let ast = parseSource(source)
+        let func = ast.functions[0]
+        let statements = func.body.statements
+        
+        assertEqual(statements.length(), 5)
+        
+        // Test let with type inference
+        let stmt1 = statements[0] as VariableDeclaration
+        assertEqual(stmt1.name, "x")
+        assertEqual(stmt1.mutability, Mutability.Immutable)
+        assertEqual(stmt1.initializer.getValue(), 42)
+        assert(stmt1.type == null) // Type inferred
+        
+        // Test let with explicit type
+        let stmt2 = statements[1] as VariableDeclaration
+        assertEqual(stmt2.name, "y")
+        assertEqual(stmt2.type.name, "Int")
+        assertEqual(stmt2.initializer.getValue(), 100)
+        
+        // Test var (mutable)
+        let stmt3 = statements[2] as VariableDeclaration
+        assertEqual(stmt3.name, "mutable")
+        assertEqual(stmt3.mutability, Mutability.Mutable)
+        
+        // Test nullable type
+        let stmt4 = statements[3] as VariableDeclaration
+        assertEqual(stmt4.name, "name")
+        assert(stmt4.type.isNullable)
+        assertEqual(stmt4.type.baseType.name, "String")
+        
+        // Test elvis operator
+        let stmt5 = statements[4] as VariableDeclaration
+        assertEqual(stmt5.name, "result")
+        assert(stmt5.initializer is ElvisExpression)
+    }
+    
+    // Test 3: Expressions
+    @Test
+    fun test_expressions() {
+        let source = """
+        fun test() {
+            let a = 1 + 2 * 3
+            let b = (x + y) / z
+            let c = x and y or not z
+            let d = user?.name?.length() ?: 0
+            let e = array[index]
+            let f = obj.field
+            let g = "Hello, {name}!"
+        }
+        """
+        
+        let ast = parseSource(source)
+        let statements = ast.functions[0].body.statements
+        
+        // Test arithmetic with precedence
+        let expr1 = (statements[0] as VariableDeclaration).initializer as BinaryExpression
+        assertEqual(expr1.operator, BinaryOperator.Plus)
+        assertEqual(expr1.left.getValue(), 1)
+        assert(expr1.right is BinaryExpression)
+        
+        // Test parentheses override precedence
+        let expr2 = (statements[1] as VariableDeclaration).initializer as BinaryExpression
+        assertEqual(expr2.operator, BinaryOperator.Divide)
+        assert(expr2.left is BinaryExpression)
+        
+        // Test word operators
+        let expr3 = (statements[2] as VariableDeclaration).initializer
+        assert(expr3 is BinaryExpression)
+        let binExpr3 = expr3 as BinaryExpression
+        assertEqual(binExpr3.operator, BinaryOperator.LogicalOr)
+        
+        // Test safe navigation chain
+        let expr4 = (statements[3] as VariableDeclaration).initializer as ElvisExpression
+        assert(expr4.left is SafeNavigationExpression)
+        
+        // Test array access
+        let expr5 = (statements[4] as VariableDeclaration).initializer as IndexExpression
+        assertEqual(expr5.object.name, "array")
+        assertEqual(expr5.index.name, "index")
+        
+        // Test field access
+        let expr6 = (statements[5] as VariableDeclaration).initializer as FieldExpression
+        assertEqual(expr6.object.name, "obj")
+        assertEqual(expr6.field, "field")
+        
+        // Test string interpolation
+        let expr7 = (statements[6] as VariableDeclaration).initializer as InterpolatedStringExpression
+        assert(expr7.parts.length() > 1)
+    }
+    
+    // Test 4: Control flow statements
+    @Test
+    fun test_control_flow() {
+        let source = """
+        fun test() {
+            if x > 0 {
+                println("positive")
+            } else if x < 0 {
+                println("negative")
+            } else {
+                println("zero")
+            }
+            
+            while condition {
+                doSomething()
+            }
+            
+            for item in collection {
+                process(item)
+            }
+            
+            for i in 0..10 {
+                println(i)
+            }
+        }
+        """
+        
+        let ast = parseSource(source)
+        let statements = ast.functions[0].body.statements
+        
+        // Test if-else-if-else
+        let ifStmt = statements[0] as IfStatement
+        assert(ifStmt.condition is BinaryExpression)
+        assert(ifStmt.thenBranch != null)
+        assert(ifStmt.elseBranch != null)
+        assert(ifStmt.elseBranch is IfStatement) // else if
+        
+        // Test while loop
+        let whileStmt = statements[1] as WhileStatement
+        assert(whileStmt.condition is IdentifierExpression)
+        assert(whileStmt.body != null)
+        
+        // Test for-in loop
+        let forStmt1 = statements[2] as ForStatement
+        assertEqual(forStmt1.variable.name, "item")
+        assertEqual(forStmt1.iterable.name, "collection")
+        
+        // Test range for loop
+        let forStmt2 = statements[3] as ForStatement
+        assertEqual(forStmt2.variable.name, "i")
+        assert(forStmt2.iterable is RangeExpression)
+    }
+    
+    // Test 5: Pattern matching
+    @Test
+    fun test_pattern_matching() {
+        let source = """
+        fun test(value: Any) -> String {
+            return match value {
+                0 -> "zero"
+                1, 2, 3 -> "small"
+                n if n > 10 -> "big"
+                "hello" -> "greeting"
+                _ -> "unknown"
+            }
+        }
+        
+        fun testEnumMatch(result: Result<Int, String>) -> String {
+            return match result {
+                Ok(value) -> "Success: {value}"
+                Err(message) -> "Error: {message}"
+            }
+        }
+        """
+        
+        let ast = parseSource(source)
+        
+        // Test basic match expression
+        let func1 = ast.functions[0]
+        let returnStmt = func1.body.statements[0] as ReturnStatement
+        let matchExpr = returnStmt.value as MatchExpression
+        
+        assertEqual(matchExpr.value.name, "value")
+        assertEqual(matchExpr.arms.length(), 5)
+        
+        // Test literal pattern
+        let arm1 = matchExpr.arms[0]
+        assert(arm1.pattern is LiteralPattern)
+        assertEqual((arm1.pattern as LiteralPattern).value, 0)
+        
+        // Test multiple patterns
+        let arm2 = matchExpr.arms[1]
+        assert(arm2.pattern is OrPattern)
+        
+        // Test guard pattern
+        let arm3 = matchExpr.arms[2]
+        assert(arm3.pattern is GuardPattern)
+        
+        // Test wildcard pattern
+        let arm5 = matchExpr.arms[4]
+        assert(arm5.pattern is WildcardPattern)
+        
+        // Test enum destructuring
+        let func2 = ast.functions[1]
+        let matchExpr2 = (func2.body.statements[0] as ReturnStatement).value as MatchExpression
+        let enumArm1 = matchExpr2.arms[0]
+        assert(enumArm1.pattern is ConstructorPattern)
+        assertEqual((enumArm1.pattern as ConstructorPattern).constructor, "Ok")
+    }
+    
+    // Test 6: Async/await
+    @Test
+    fun test_async_await() {
+        let source = """
+        async fun fetchData() -> String {
+            let response = await httpGet("api/data")
+            return await response.text()
+        }
+        
+        fun testSpawn() {
+            let task = spawn {
+                heavyComputation()
+            }
+            let result = await task
+        }
+        """
+        
+        let ast = parseSource(source)
+        
+        // Test async function
+        let asyncFunc = ast.functions[0]
+        assert(asyncFunc.isAsync)
+        assertEqual(asyncFunc.name, "fetchData")
+        
+        let statements = asyncFunc.body.statements
+        
+        // Test await expression
+        let stmt1 = statements[0] as VariableDeclaration
+        assert(stmt1.initializer is AwaitExpression)
+        
+        // Test spawn expression
+        let testFunc = ast.functions[1]
+        let spawnStmt = testFunc.body.statements[0] as VariableDeclaration
+        assert(spawnStmt.initializer is SpawnExpression)
+        
+        // Test await on variable
+        let awaitStmt = testFunc.body.statements[1] as VariableDeclaration
+        assert(awaitStmt.initializer is AwaitExpression)
+    }
+    
+    // Test 7: Nullable types and operators
+    @Test
+    fun test_nullable_types() {
+        let source = """
+        fun test(user: User?) -> String {
+            let name = user?.name ?: "Unknown"
+            let length = user?.name?.length() ?: 0
+            
+            if let someUser = user {
+                return someUser.name
+            }
+            
+            return "No user"
+        }
+        """
+        
+        let ast = parseSource(source)
+        let func = ast.functions[0]
+        
+        // Test nullable parameter type
+        assert(func.parameters[0].type.isNullable)
+        assertEqual(func.parameters[0].type.baseType.name, "User")
+        
+        let statements = func.body.statements
+        
+        // Test safe navigation with elvis
+        let stmt1 = statements[0] as VariableDeclaration
+        assert(stmt1.initializer is ElvisExpression)
+        let elvis = stmt1.initializer as ElvisExpression
+        assert(elvis.left is SafeNavigationExpression)
+        
+        // Test chained safe navigation
+        let stmt2 = statements[1] as VariableDeclaration
+        let chainedElvis = stmt2.initializer as ElvisExpression
+        assert(chainedElvis.left is SafeNavigationExpression)
+        
+        // Test if-let pattern
+        let ifLetStmt = statements[2] as IfStatement
+        assert(ifLetStmt.condition is IfLetExpression)
+    }
+    
+    // Test 8: Generics
+    @Test
+    fun test_generics() {
+        let source = """
+        fun identity<T>(value: T) -> T {
+            return value
+        }
+        
+        class Container<T> {
+            var value: T
+            
+            fun new(initial: T) -> Container<T> {
+                value = initial
+            }
+            
+            fun get() -> T {
+                return value
+            }
+        }
+        
+        fun useContainer() {
+            let container = Container<String>.new("hello")
+            let result = container.get()
+        }
+        """
+        
+        let ast = parseSource(source)
+        
+        // Test generic function
+        let func = ast.functions[0]
+        assertEqual(func.typeParameters.length(), 1)
+        assertEqual(func.typeParameters[0].name, "T")
+        assertEqual(func.parameters[0].type.name, "T")
+        assertEqual(func.returnType.name, "T")
+        
+        // Test generic class
+        let containerClass = ast.classes[0]
+        assertEqual(containerClass.typeParameters.length(), 1)
+        assertEqual(containerClass.typeParameters[0].name, "T")
+        
+        // Test generic method
+        let constructor = containerClass.methods.find(m -> m.name == "new")
+        assert(constructor != null)
+        
+        // Test generic instantiation
+        let useFunc = ast.functions[1]
+        let instantiation = (useFunc.body.statements[0] as VariableDeclaration).initializer
+        assert(instantiation is GenericInstantiationExpression)
+    }
+    
+    // Test 9: Performance requirements
+    @Test
+    fun test_performance_requirements() {
+        // Generate large source code (10K lines)
+        let largeSource = generateLargeSource(10000)
+        
+        let startTime = getCurrentTime()
+        let ast = parseSource(largeSource)
+        let endTime = getCurrentTime()
+        
+        let durationMs = endTime - startTime
+        let linesPerSecond = (10000 * 1000) / durationMs
+        
+        // Must achieve at least 800K lines/sec
+        assert(linesPerSecond >= 800_000)
+        
+        // AST should be properly structured
+        assert(ast != null)
+        assert(ast.functions.length() > 0)
+    }
+    
+    // Helper methods
+    fun parseSource(source: String) -> AST {
+        let lexer = SeenLexer.new(source, 1, "en")
+        let tokens = lexer.tokenize()
+        let parser = SeenParser.new(tokens)
+        return parser.parse()
+    }
+    
+    fun generateLargeSource(lineCount: Int) -> String {
+        let builder = StringBuilder()
+        for i in 0..lineCount {
+            builder.append("fun function{i}() { let x = {i}; return x + 1; }\n")
+        }
+        return builder.toString()
+    }
+    
+    fun getCurrentTime() -> Int {
+        return 0 // Implementation depends on runtime
+    }
+}
+
+// Export test suite for test runner
+export fun createParserTests() -> TestSuite {
+    return ParserTestSuite.new()
+}

@@ -1,0 +1,333 @@
+// Testing Framework for Seen Language
+// Provides TDD infrastructure for self-hosting compiler development
+
+// Base test class that all tests inherit from
+abstract class Test {
+    let name: String
+    
+    fun new(name: String) -> Test {
+        this.name = name
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    // Override this method in test classes
+    abstract fun run() -> Void
+}
+
+// Test suite that contains multiple tests
+class TestSuite {
+    let name: String
+    var tests: Array<Test>
+    
+    fun new(name: String) -> TestSuite {
+        this.name = name
+        this.tests = Array<Test>()
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun addTest(testName: String) {
+        // This will be overridden by concrete test suites
+        // to add their specific test methods
+    }
+    
+    fun getTests() -> Array<Test> {
+        return tests
+    }
+}
+
+// Assertion functions for testing
+fun assert(condition: Bool) -> Void {
+    if !condition {
+        throw TestError.new("Assertion failed")
+    }
+}
+
+fun assertEqual<T>(actual: T, expected: T) -> Void {
+    if actual != expected {
+        throw TestError.new("Expected {expected}, but got {actual}")
+    }
+}
+
+fun assertNotEqual<T>(actual: T, expected: T) -> Void {
+    if actual == expected {
+        throw TestError.new("Expected values to be different, but both were {actual}")
+    }
+}
+
+fun assertNull<T>(value: T?) -> Void {
+    if value != null {
+        throw TestError.new("Expected null, but got {value}")
+    }
+}
+
+fun assertNotNull<T>(value: T?) -> Void {
+    if value == null {
+        throw TestError.new("Expected non-null value, but got null")
+    }
+}
+
+fun assertThrows<T>(lambda: () -> T, expectedErrorType: Type) -> Void {
+    var threwError = false
+    try {
+        lambda()
+    } catch (error: Exception) {
+        if error.getType() == expectedErrorType {
+            threwError = true
+        } else {
+            throw TestError.new("Expected {expectedErrorType}, but got {error.getType()}")
+        }
+    }
+    
+    if !threwError {
+        throw TestError.new("Expected {expectedErrorType} to be thrown, but no error was thrown")
+    }
+}
+
+fun assertContains<T>(collection: Array<T>, item: T) -> Void {
+    if !collection.contains(item) {
+        throw TestError.new("Collection does not contain {item}")
+    }
+}
+
+fun assertEmpty<T>(collection: Array<T>) -> Void {
+    if collection.length() != 0 {
+        throw TestError.new("Expected empty collection, but it has {collection.length()} items")
+    }
+}
+
+fun assertNotEmpty<T>(collection: Array<T>) -> Void {
+    if collection.length() == 0 {
+        throw TestError.new("Expected non-empty collection, but it was empty")
+    }
+}
+
+// Test-specific error type
+class TestError extends Exception {
+    let message: String
+    let stackTrace: Array<String>
+    
+    fun new(message: String) -> TestError {
+        this.message = message
+        this.stackTrace = getCurrentStackTrace()
+    }
+    
+    fun getMessage() -> String {
+        return message
+    }
+    
+    fun getStackTrace() -> Array<String> {
+        return stackTrace
+    }
+}
+
+// Test annotation (for marking test methods)
+annotation Test
+
+// Performance testing utilities
+class PerformanceTimer {
+    var startTime: Int
+    var endTime: Int
+    
+    fun new() -> PerformanceTimer {
+        startTime = 0
+        endTime = 0
+    }
+    
+    fun start() -> Void {
+        startTime = getCurrentTimeMillis()
+    }
+    
+    fun stop() -> Void {
+        endTime = getCurrentTimeMillis()
+    }
+    
+    fun getDuration() -> Int {
+        return endTime - startTime
+    }
+    
+    fun assertWithinTime(maxMillis: Int) -> Void {
+        let duration = getDuration()
+        if duration > maxMillis {
+            throw TestError.new("Operation took {duration}ms, expected <= {maxMillis}ms")
+        }
+    }
+}
+
+// Memory testing utilities
+class MemoryTracker {
+    var initialMemory: Int
+    var finalMemory: Int
+    
+    fun new() -> MemoryTracker {
+        initialMemory = 0
+        finalMemory = 0
+    }
+    
+    fun start() -> Void {
+        initialMemory = getCurrentMemoryUsage()
+    }
+    
+    fun stop() -> Void {
+        finalMemory = getCurrentMemoryUsage()
+    }
+    
+    fun getMemoryDelta() -> Int {
+        return finalMemory - initialMemory
+    }
+    
+    fun assertMemoryUsage(maxBytes: Int) -> Void {
+        let usage = getMemoryDelta()
+        if usage > maxBytes {
+            throw TestError.new("Memory usage was {usage} bytes, expected <= {maxBytes} bytes")
+        }
+    }
+}
+
+// Mock and stub utilities for TDD
+class Mock<T> {
+    var expectations: Array<MethodExpectation>
+    var calls: Array<MethodCall>
+    
+    fun new() -> Mock<T> {
+        expectations = Array<MethodExpectation>()
+        calls = Array<MethodCall>()
+    }
+    
+    fun expect(methodName: String) -> MethodExpectation {
+        let expectation = MethodExpectation.new(methodName)
+        expectations.push(expectation)
+        return expectation
+    }
+    
+    fun verify() -> Void {
+        for expectation in expectations {
+            if !expectation.isSatisfied(calls) {
+                throw TestError.new("Expectation not met: {expectation}")
+            }
+        }
+    }
+    
+    fun recordCall(methodName: String, args: Array<Any>) -> Void {
+        calls.push(MethodCall.new(methodName, args))
+    }
+}
+
+class MethodExpectation {
+    let methodName: String
+    var expectedArgs: Array<Any>?
+    var returnValue: Any?
+    var callCount: Int
+    var expectedCallCount: Int
+    
+    fun new(methodName: String) -> MethodExpectation {
+        this.methodName = methodName
+        this.expectedArgs = null
+        this.returnValue = null
+        this.callCount = 0
+        this.expectedCallCount = 1
+    }
+    
+    fun withArgs(args: Array<Any>) -> MethodExpectation {
+        expectedArgs = args
+        return this
+    }
+    
+    fun returns(value: Any) -> MethodExpectation {
+        returnValue = value
+        return this
+    }
+    
+    fun times(count: Int) -> MethodExpectation {
+        expectedCallCount = count
+        return this
+    }
+    
+    fun isSatisfied(calls: Array<MethodCall>) -> Bool {
+        let matchingCalls = calls.filter(call -> call.methodName == methodName)
+        return matchingCalls.length() == expectedCallCount
+    }
+}
+
+class MethodCall {
+    let methodName: String
+    let args: Array<Any>
+    let timestamp: Int
+    
+    fun new(methodName: String, args: Array<Any>) -> MethodCall {
+        this.methodName = methodName
+        this.args = args
+        this.timestamp = getCurrentTimeMillis()
+    }
+}
+
+// Test data builders (for creating test fixtures)
+class TestDataBuilder<T> {
+    var buildFunction: () -> T
+    var modifications: Array<(T) -> T>
+    
+    fun new(buildFunction: () -> T) -> TestDataBuilder<T> {
+        this.buildFunction = buildFunction
+        this.modifications = Array<(T) -> T>()
+    }
+    
+    fun with(modification: (T) -> T) -> TestDataBuilder<T> {
+        modifications.push(modification)
+        return this
+    }
+    
+    fun build() -> T {
+        var result = buildFunction()
+        for modification in modifications {
+            result = modification(result)
+        }
+        return result
+    }
+}
+
+// System interface functions (to be implemented by runtime)
+fun getCurrentTimeMillis() -> Int {
+    // Implementation depends on runtime
+    return 0
+}
+
+fun getCurrentMemoryUsage() -> Int {
+    // Implementation depends on runtime
+    return 0
+}
+
+fun getCurrentStackTrace() -> Array<String> {
+    // Implementation depends on runtime
+    return ["stack trace not available"]
+}
+
+// Utility for generating test data
+class TestDataGenerator {
+    static fun randomInt(min: Int, max: Int) -> Int {
+        // Implementation depends on runtime
+        return min
+    }
+    
+    static fun randomString(length: Int) -> String {
+        let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        var result = ""
+        for i in 0..length {
+            let index = randomInt(0, chars.length() - 1)
+            result += chars[index]
+        }
+        return result
+    }
+    
+    static fun randomArray<T>(generator: () -> T, count: Int) -> Array<T> {
+        let result = Array<T>()
+        for i in 0..count {
+            result.push(generator())
+        }
+        return result
+    }
+}

@@ -1,0 +1,352 @@
+// Lexer Module Interfaces - To Be Implemented Following TDD
+// These are the contracts that the lexer implementation must fulfill
+
+// Token types for the Seen language
+enum TokenType {
+    // Literals
+    IntegerLiteral,
+    FloatLiteral,
+    StringLiteral,
+    BooleanLiteral,
+    
+    // Identifiers and keywords
+    Identifier,
+    KeywordFun,
+    KeywordLet,
+    KeywordVar,
+    KeywordIf,
+    KeywordElse,
+    KeywordWhile,
+    KeywordFor,
+    KeywordIn,
+    KeywordReturn,
+    KeywordBreak,
+    KeywordContinue,
+    KeywordClass,
+    KeywordInterface,
+    KeywordEnum,
+    KeywordExtends,
+    KeywordImplements,
+    KeywordAsync,
+    KeywordAwait,
+    KeywordSpawn,
+    KeywordMatch,
+    KeywordTry,
+    KeywordCatch,
+    KeywordFinally,
+    KeywordThrow,
+    KeywordImport,
+    KeywordExport,
+    KeywordAs,
+    KeywordIs,
+    KeywordNull,
+    KeywordTrue,
+    KeywordFalse,
+    KeywordThis,
+    KeywordSuper,
+    KeywordMove,
+    KeywordBorrow,
+    
+    // Operators
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Modulo,
+    Equal,
+    PlusEqual,
+    MinusEqual,
+    MultiplyEqual,
+    DivideEqual,
+    EqualEqual,
+    NotEqual,
+    LessThan,
+    LessEqual,
+    GreaterThan,
+    GreaterEqual,
+    
+    // Logical operators (word-based)
+    LogicalAnd,    // "and"
+    LogicalOr,     // "or"
+    LogicalNot,    // "not"
+    
+    // Nullable operators
+    SafeNavigation,  // "?."
+    Elvis,          // "?:"
+    Question,       // "?"
+    
+    // Delimiters
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    Comma,
+    Semicolon,
+    Colon,
+    Dot,
+    Arrow,         // "->"
+    
+    // String interpolation
+    InterpolatedStringStart,
+    InterpolatedStringMiddle,
+    InterpolatedStringEnd,
+    
+    // Special
+    Newline,
+    Whitespace,
+    Comment,
+    Error,
+    EndOfFile,
+}
+
+// Individual token representation
+class Token {
+    let type: TokenType
+    let value: String
+    let line: Int
+    let column: Int
+    let length: Int
+    let fileId: Int
+    
+    fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
+        this.type = tokenType
+        this.value = value
+        this.line = line
+        this.column = column
+        this.length = length
+        this.fileId = fileId
+    }
+    
+    fun getType() -> TokenType {
+        return type
+    }
+    
+    fun getValue() -> String {
+        return value
+    }
+    
+    fun getLine() -> Int {
+        return line
+    }
+    
+    fun getColumn() -> Int {
+        return column
+    }
+    
+    fun getLength() -> Int {
+        return length
+    }
+    
+    fun getFileId() -> Int {
+        return fileId
+    }
+}
+
+// Lexer error types
+class LexerError extends Error {
+    let position: Position
+    let character: String
+    
+    fun new(message: String, position: Position, character: String) -> LexerError {
+        super(message)
+        this.position = position
+        this.character = character
+    }
+    
+    fun getPosition() -> Position {
+        return position
+    }
+    
+    fun getCharacter() -> String {
+        return character
+    }
+}
+
+// Position information
+class Position {
+    let line: Int
+    let column: Int
+    let fileId: Int
+    
+    fun new(line: Int, column: Int, fileId: Int) -> Position {
+        this.line = line
+        this.column = column
+        this.fileId = fileId
+    }
+    
+    fun getLine() -> Int {
+        return line
+    }
+    
+    fun getColumn() -> Int {
+        return column
+    }
+    
+    fun getFileId() -> Int {
+        return fileId
+    }
+}
+
+// Main lexer interface - implemented following TDD
+class SeenLexer {
+    let source: String
+    let fileId: Int
+    let language: String
+    var errorRecoveryMode: Bool
+    var keywordManager: KeywordManager
+    var position: Int
+    var line: Int
+    var column: Int
+    var tokens: Array<Token>
+    
+    fun new(source: String, fileId: Int, language: String) -> SeenLexer {
+        this.source = source
+        this.fileId = fileId
+        this.language = language
+        this.errorRecoveryMode = false
+        this.keywordManager = KeywordManager.new(language)
+        this.position = 0
+        this.line = 1
+        this.column = 1
+        this.tokens = Array<Token>()
+    }
+    
+    fun tokenize() -> Array<Token> {
+        // Implementation moved to separate lexer.seen file
+        // This stub delegates to the real implementation
+        throw Error.new("Use real SeenLexer from lexer.seen - this is interface stub!")
+    }
+    
+    fun setErrorRecoveryMode(enabled: Bool) -> Void {
+        errorRecoveryMode = enabled
+    }
+    
+    fun isKeywordSourceDynamic() -> Bool {
+        return keywordManager.isDynamic()
+    }
+    
+    fun getKeywordSources() -> Array<String> {
+        return keywordManager.getSources()
+    }
+    
+    fun getKeywordCount() -> Int {
+        return keywordManager.getKeywordCount()
+    }
+    
+    fun hasKeyword(keyword: String) -> Bool {
+        return keywordManager.isKeyword(keyword)
+    }
+    
+    fun hasTranslatedKeyword(keyword: String) -> Bool {
+        return keywordManager.hasTranslation(keyword)
+    }
+    
+    fun getMemoryUsage() -> Int {
+        // Estimate memory usage: source + tokens + internal structures
+        let sourceSize = source.length() * 2  // Assume 2 bytes per char
+        let tokensSize = tokens.length() * 64  // Estimate 64 bytes per token
+        let internalSize = 1024  // Estimate for internal structures
+        return sourceSize + tokensSize + internalSize
+    }
+}
+
+// Keyword manager for multilingual support - implemented following TDD
+class KeywordManager {
+    let language: String
+    var keywords: Map<String, TokenType>
+    var sources: Array<String>
+    
+    fun new(language: String) -> KeywordManager {
+        // Implementation moved to separate keyword_manager.seen file
+        // This stub delegates to the real implementation
+        throw Error.new("Use real KeywordManager from keyword_manager.seen - this is interface stub!")
+    }
+    
+    fun loadFromToml(path: String) -> Void {
+        // Implementation moved to separate keyword_manager.seen file
+        throw Error.new("Use real KeywordManager from keyword_manager.seen - this is interface stub!")
+    }
+    
+    fun isKeyword(text: String) -> Bool {
+        // Implementation moved to separate keyword_manager.seen file
+        throw Error.new("Use real KeywordManager from keyword_manager.seen - this is interface stub!")
+    }
+    
+    fun getKeywordType(text: String) -> TokenType? {
+        // Implementation moved to separate keyword_manager.seen file
+        throw Error.new("Use real KeywordManager from keyword_manager.seen - this is interface stub!")
+    }
+    
+    fun getAllKeywords() -> Array<String> {
+        // Implementation moved to separate keyword_manager.seen file
+        throw Error.new("Use real KeywordManager from keyword_manager.seen - this is interface stub!")
+    }
+    
+    fun isDynamic() -> Bool {
+        return true  // Always loads from TOML files
+    }
+    
+    fun getSources() -> Array<String> {
+        return sources
+    }
+    
+    fun getKeywordCount() -> Int {
+        return keywords.size()
+    }
+    
+    fun hasTranslation(keyword: String) -> Bool {
+        // Implementation moved to separate keyword_manager.seen file
+        throw Error.new("Use real KeywordManager from keyword_manager.seen - this is interface stub!")
+    }
+}
+
+// Extension methods for TokenType
+extension TokenType {
+    fun isOperator() -> Bool {
+        return match this {
+            Plus, Minus, Multiply, Divide, Modulo,
+            Equal, PlusEqual, MinusEqual, MultiplyEqual, DivideEqual,
+            EqualEqual, NotEqual, LessThan, LessEqual, GreaterThan, GreaterEqual,
+            LogicalAnd, LogicalOr, LogicalNot,
+            SafeNavigation, Elvis -> true
+            _ -> false
+        }
+    }
+    
+    fun isLiteral() -> Bool {
+        return match this {
+            IntegerLiteral, FloatLiteral, StringLiteral, BooleanLiteral -> true
+            _ -> false
+        }
+    }
+    
+    fun isKeyword() -> Bool {
+        return match this {
+            KeywordFun, KeywordLet, KeywordVar, KeywordIf, KeywordElse,
+            KeywordWhile, KeywordFor, KeywordIn, KeywordReturn, KeywordBreak,
+            KeywordContinue, KeywordClass, KeywordInterface, KeywordEnum,
+            KeywordExtends, KeywordImplements, KeywordAsync, KeywordAwait,
+            KeywordSpawn, KeywordMatch, KeywordTry, KeywordCatch, KeywordFinally,
+            KeywordThrow, KeywordImport, KeywordExport, KeywordAs, KeywordIs,
+            KeywordNull, KeywordTrue, KeywordFalse, KeywordThis, KeywordSuper,
+            KeywordMove, KeywordBorrow -> true
+            _ -> false
+        }
+    }
+}
+
+// Utility functions expected by tests
+fun generateLargeSource(tokenCount: Int) -> String {
+    let builder = StringBuilder()
+    for i in 0..tokenCount/10 {
+        builder.append("fun function{i}() { let x{i} = {i}; }\n")
+    }
+    return builder.toString()
+}
+
+fun getCurrentTime() -> Int {
+    // System time in milliseconds - to be implemented by runtime
+    return 0
+}

@@ -1,0 +1,404 @@
+// Type Checker Module Interfaces - To Be Implemented Following TDD
+// These are the contracts that the type checker implementation must fulfill
+
+import parser.{AST, Function, Class, Interface, Expression, Statement, Type as ASTType}
+
+// Type system representation
+class Type {
+    let name: String
+    let isNullable: Bool
+    let generics: Array<Type>
+    let kind: TypeKind
+    
+    fun new(name: String, isNullable: Bool = false, kind: TypeKind = TypeKind.Concrete) -> Type {
+        this.name = name
+        this.isNullable = isNullable
+        this.generics = Array<Type>()
+        this.kind = kind
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun isNullable() -> Bool {
+        return isNullable
+    }
+    
+    fun isCompatibleWith(other: Type) -> Bool {
+        // Same type and nullability compatibility
+        if name == other.name and isNullable >= other.isNullable {
+            return true
+        }
+        
+        // Numeric compatibility
+        if (name == "Int" and other.name == "Float") or
+           (name == "Float" and other.name == "Int") {
+            return true
+        }
+        
+        // String compatibility (everything can become string)
+        if other.name == "String" {
+            return true
+        }
+        
+        // Any accepts everything
+        if other.name == "Any" {
+            return true
+        }
+        
+        return false
+    }
+    
+    fun canCastTo(other: Type) -> Bool {
+        // Same as isCompatibleWith for basic implementation
+        return isCompatibleWith(other)
+    }
+    
+    fun toString() -> String {
+        let result = name
+        if generics.length() > 0 {
+            result += "<"
+            for i in 0..generics.length() {
+                if i > 0 {
+                    result += ", "
+                }
+                result += generics[i].toString()
+            }
+            result += ">"
+        }
+        if isNullable {
+            result += "?"
+        }
+        return result
+    }
+    
+    // Predefined types for convenience
+    static let Int = Type.new("Int")
+    static let Float = Type.new("Float")  
+    static let String = Type.new("String")
+    static let Bool = Type.new("Bool")
+    static let Void = Type.new("Void")
+    static let Any = Type.new("Any")
+    static let Never = Type.new("Never")
+    static let Unknown = Type.new("Unknown")
+}
+
+// Type kind classification
+enum TypeKind {
+    Concrete,      // Int, String, etc.
+    Generic,       // T, U, etc.
+    Function,      // (Int, String) -> Bool
+    Class,         // User-defined classes
+    Interface,     // User-defined interfaces
+    Enum,          // User-defined enums
+    Array,         // Array<T>
+    Nullable,      // T?
+    Union,         // T | U
+    Intersection   // T & U
+}
+
+// Type error representation
+class TypeError extends Error {
+    let location: Location
+    let expected: Type
+    let actual: Type
+    let context: String
+    
+    fun new(message: String, location: Location, expected: Type, actual: Type, context: String = "") -> TypeError {
+        super(message)
+        this.location = location
+        this.expected = expected
+        this.actual = actual
+        this.context = context
+    }
+    
+    fun getLocation() -> Location {
+        return location
+    }
+    
+    fun getExpected() -> Type {
+        return expected
+    }
+    
+    fun getActual() -> Type {
+        return actual
+    }
+    
+    fun getContext() -> String {
+        return context
+    }
+}
+
+// Location in source code
+class Location {
+    let line: Int
+    let column: Int
+    let file: String
+    
+    fun new(line: Int, column: Int, file: String = "") -> Location {
+        this.line = line
+        this.column = column
+        this.file = file
+    }
+}
+
+// Type environment (symbol table)
+class Environment {
+    let parent: Environment?
+    let variables: Map<String, Type>
+    let functions: Map<String, FunctionType>
+    let classes: Map<String, ClassType>
+    let interfaces: Map<String, InterfaceType>
+    
+    fun new(parent: Environment? = null) -> Environment {
+        this.parent = parent
+        this.variables = Map<String, Type>()
+        this.functions = Map<String, FunctionType>()
+        this.classes = Map<String, ClassType>()
+        this.interfaces = Map<String, InterfaceType>()
+    }
+    
+    fun define(name: String, type: Type) -> Void {
+        variables.put(name, type)
+    }
+    
+    fun lookup(name: String) -> Type? {
+        if variables.containsKey(name) {
+            return variables.get(name)
+        }
+        if parent != null {
+            return parent.lookup(name)
+        }
+        return null
+    }
+    
+    fun defineFunction(name: String, functionType: FunctionType) -> Void {
+        functions.put(name, functionType)
+    }
+    
+    fun lookupFunction(name: String) -> FunctionType? {
+        if functions.containsKey(name) {
+            return functions.get(name)
+        }
+        if parent != null {
+            return parent.lookupFunction(name)
+        }
+        return null
+    }
+    
+    fun defineClass(name: String, classType: ClassType) -> Void {
+        classes.put(name, classType)
+    }
+    
+    fun lookupClass(name: String) -> ClassType? {
+        if classes.containsKey(name) {
+            return classes.get(name)
+        }
+        if parent != null {
+            return parent.lookupClass(name)
+        }
+        return null
+    }
+}
+
+// Function type representation
+class FunctionType {
+    let parameters: Array<Type>
+    let returnType: Type
+    let isAsync: Bool
+    let generics: Array<Type>
+    
+    fun new(parameters: Array<Type>, returnType: Type, isAsync: Bool = false) -> FunctionType {
+        this.parameters = parameters
+        this.returnType = returnType
+        this.isAsync = isAsync
+        this.generics = Array<Type>()
+    }
+}
+
+// Class type representation  
+class ClassType {
+    let name: String
+    let fields: Map<String, Type>
+    let methods: Map<String, FunctionType>
+    let superclass: ClassType?
+    let interfaces: Array<InterfaceType>
+    
+    fun new(name: String) -> ClassType {
+        this.name = name
+        this.fields = Map<String, Type>()
+        this.methods = Map<String, FunctionType>()
+        this.superclass = null
+        this.interfaces = Array<InterfaceType>()
+    }
+}
+
+// Interface type representation
+class InterfaceType {
+    let name: String
+    let methods: Map<String, FunctionType>
+    let superinterfaces: Array<InterfaceType>
+    
+    fun new(name: String) -> InterfaceType {
+        this.name = name
+        this.methods = Map<String, FunctionType>()
+        this.superinterfaces = Array<InterfaceType>()
+    }
+}
+
+// Type inference result
+class TypeInferenceResult {
+    let success: Bool
+    let type: Type
+    let errors: Array<TypeError>
+    let warnings: Array<String>
+    let environment: Environment
+    
+    fun new(success: Bool, type: Type, environment: Environment) -> TypeInferenceResult {
+        this.success = success
+        this.type = type
+        this.errors = Array<TypeError>()
+        this.warnings = Array<String>()
+        this.environment = environment
+    }
+    
+    fun addError(error: TypeError) -> Void {
+        errors.push(error)
+        success = false
+    }
+    
+    fun addWarning(warning: String) -> Void {
+        warnings.push(warning)
+    }
+    
+    fun getVariableType(name: String) -> Type? {
+        return environment.lookup(name)
+    }
+}
+
+// Smart casting context
+class SmartCastContext {
+    let casts: Map<String, Type>
+    let conditions: Array<String>
+    
+    fun new() -> SmartCastContext {
+        this.casts = Map<String, Type>()
+        this.conditions = Array<String>()
+    }
+    
+    fun addCast(variable: String, type: Type, condition: String) -> Void {
+        casts.put(variable, type)
+        conditions.push(condition)
+    }
+    
+    fun getCastedType(variable: String) -> Type? {
+        return casts.get(variable)
+    }
+}
+
+// Main type checker interface
+class TypeChecker {
+    let environment: Environment
+    let errors: Array<TypeError>
+    let warnings: Array<String>
+    let smartCastContext: SmartCastContext
+    var strictMode: Bool
+    
+    fun new() -> TypeChecker {
+        // Implementation moved to separate typechecker.seen file
+        // This stub delegates to the real implementation
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun check(ast: AST) -> TypeInferenceResult {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun checkFunction(function: Function) -> Type {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun checkExpression(expression: Expression) -> Type {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun checkStatement(statement: Statement) -> Void {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun checkClass(classNode: Class) -> ClassType {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun checkInterface(interfaceNode: Interface) -> InterfaceType {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun inferType(expression: Expression) -> Type {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun unifyTypes(type1: Type, type2: Type) -> Type? {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun isAssignableFrom(target: Type, source: Type) -> Bool {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun resolveMethod(className: String, methodName: String, args: Array<Type>) -> FunctionType? {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun performSmartCast(variable: String, type: Type, condition: String) -> Void {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun setStrictMode(enabled: Bool) -> Void {
+        // Implementation moved to separate typechecker.seen file
+        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+    }
+    
+    fun getErrors() -> Array<TypeError> {
+        return errors
+    }
+    
+    fun getWarnings() -> Array<String> {
+        return warnings
+    }
+    
+    fun clearErrors() -> Void {
+        errors = Array<TypeError>()
+        warnings = Array<String>()
+    }
+}
+
+// Utility functions for tests
+fun typeCheckSource(source: String, language: String = "en") -> TypeInferenceResult {
+    let lexer = SeenLexer.new(source, 1, language)
+    let tokens = lexer.tokenize()
+    let parser = SeenParser.new(tokens)
+    let ast = parser.parse()
+    let checker = TypeChecker.new()
+    return checker.check(ast)
+}
+
+fun createTypeChecker() -> TypeChecker {
+    return TypeChecker.new()
+}
+
+fun createType(name: String, nullable: Bool = false) -> Type {
+    return Type.new(name, nullable)
+}

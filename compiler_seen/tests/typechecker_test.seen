@@ -1,0 +1,562 @@
+// Comprehensive Type Checker Tests for Self-Hosting Compiler
+// Tests MUST pass before implementing type checker - TDD approach
+
+import testing.{Test, TestSuite, assert, assertEqual, assertNotEqual, assertThrows}
+import typechecker.{TypeChecker, Type, TypeError, TypeInferenceResult, Environment}
+import parser.{SeenParser, AST}
+import lexer.{SeenLexer}
+
+class TypeCheckerTestSuite extends TestSuite {
+    fun new() -> TypeCheckerTestSuite {
+        super("Type Checker Tests")
+        registerAllTests()
+    }
+    
+    fun registerAllTests() {
+        addTest("test_basic_type_checking")
+        addTest("test_type_inference")
+        addTest("test_nullable_types")
+        addTest("test_generic_type_checking")
+        addTest("test_function_type_checking")
+        addTest("test_class_type_checking")
+        addTest("test_interface_type_checking")
+        addTest("test_method_resolution")
+        addTest("test_smart_casting")
+        addTest("test_async_type_checking")
+        addTest("test_pattern_match_types")
+        addTest("test_memory_safety")
+        addTest("test_error_reporting")
+        addTest("test_performance_requirements")
+    }
+    
+    // Test 1: Basic type checking
+    @Test
+    fun test_basic_type_checking() {
+        let source = """
+        fun test() {
+            let x: Int = 42
+            let y: String = "hello"
+            let z: Bool = true
+            let w: Float = 3.14
+            
+            // These should pass
+            let a = x + 10
+            let b = y + " world"
+            let c = not z
+            let d = w * 2.0
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        assertEqual(result.errors.length(), 0)
+        
+        // Verify inferred types
+        assertEqual(result.getVariableType("a"), Type.Int)
+        assertEqual(result.getVariableType("b"), Type.String)
+        assertEqual(result.getVariableType("c"), Type.Bool)
+        assertEqual(result.getVariableType("d"), Type.Float)
+    }
+    
+    // Test 2: Type inference
+    @Test
+    fun test_type_inference() {
+        let source = """
+        fun test() {
+            let a = 42          // Should infer Int
+            let b = "hello"     // Should infer String
+            let c = true        // Should infer Bool
+            let d = 3.14        // Should infer Float
+            let e = [1, 2, 3]   // Should infer Array<Int>
+            let f = null        // Should infer Nothing?
+            
+            // Function inference
+            let g = () -> { return 42 }  // Should infer () -> Int
+            
+            // Complex inference
+            let h = if true { 1 } else { 2 }  // Should infer Int
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        assertEqual(result.getVariableType("a"), Type.Int)
+        assertEqual(result.getVariableType("b"), Type.String)
+        assertEqual(result.getVariableType("c"), Type.Bool)
+        assertEqual(result.getVariableType("d"), Type.Float)
+        assertEqual(result.getVariableType("e"), Type.Array(Type.Int))
+        assertEqual(result.getVariableType("f"), Type.Nullable(Type.Nothing))
+        assertEqual(result.getVariableType("g"), Type.Function([], Type.Int))
+        assertEqual(result.getVariableType("h"), Type.Int)
+    }
+    
+    // Test 3: Nullable types
+    @Test
+    fun test_nullable_types() {
+        let source = """
+        fun test(user: User?) -> String {
+            // Safe navigation should preserve nullability
+            let name = user?.name           // String?
+            let length = user?.name?.length() // Int?
+            
+            // Elvis operator should eliminate nullability
+            let safeName = user?.name ?: "Unknown"  // String
+            let safeLength = user?.name?.length() ?: 0  // Int
+            
+            // If-let should smart cast
+            if let someUser = user {
+                let definiteName = someUser.name  // String (not nullable)
+                return definiteName
+            }
+            
+            return "No user"
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify nullable propagation
+        assertEqual(result.getVariableType("name"), Type.Nullable(Type.String))
+        assertEqual(result.getVariableType("length"), Type.Nullable(Type.Int))
+        
+        // Verify elvis operator type resolution
+        assertEqual(result.getVariableType("safeName"), Type.String)
+        assertEqual(result.getVariableType("safeLength"), Type.Int)
+        
+        // Verify smart casting
+        let smartCastType = result.getSmartCastType("someUser")
+        assertEqual(smartCastType, Type.User) // Not nullable
+    }
+    
+    // Test 4: Generic type checking
+    @Test
+    fun test_generic_type_checking() {
+        let source = """
+        fun identity<T>(value: T) -> T {
+            return value
+        }
+        
+        class Container<T> {
+            var value: T
+            
+            fun get() -> T {
+                return value
+            }
+            
+            fun set(newValue: T) {
+                value = newValue
+            }
+        }
+        
+        fun test() {
+            let intContainer = Container<Int>()
+            intContainer.set(42)
+            let result: Int = intContainer.get()
+            
+            let stringId = identity("hello")  // Should infer identity<String>
+            let intId = identity(42)          // Should infer identity<Int>
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify generic instantiation
+        assertEqual(result.getVariableType("result"), Type.Int)
+        assertEqual(result.getVariableType("stringId"), Type.String)
+        assertEqual(result.getVariableType("intId"), Type.Int)
+        
+        // Verify generic constraints are satisfied
+        let containerType = result.getVariableType("intContainer")
+        assertEqual(containerType, Type.Generic("Container", [Type.Int]))
+    }
+    
+    // Test 5: Function type checking
+    @Test
+    fun test_function_type_checking() {
+        let source = """
+        fun add(x: Int, y: Int) -> Int {
+            return x + y
+        }
+        
+        fun applyOperation(a: Int, b: Int, op: (Int, Int) -> Int) -> Int {
+            return op(a, b)
+        }
+        
+        fun test() {
+            let result1 = applyOperation(5, 3, add)
+            
+            let result2 = applyOperation(10, 2, (x, y) -> x - y)
+            
+            // Higher-order function
+            let mapper = (f: (Int) -> String) -> f(42)
+            let stringResult = mapper(x -> "Number: {x}")
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify function types
+        assertEqual(result.getFunctionType("add"), Type.Function([Type.Int, Type.Int], Type.Int))
+        assertEqual(result.getVariableType("result1"), Type.Int)
+        assertEqual(result.getVariableType("result2"), Type.Int)
+        assertEqual(result.getVariableType("stringResult"), Type.String)
+    }
+    
+    // Test 6: Class type checking
+    @Test
+    fun test_class_type_checking() {
+        let source = """
+        class Point {
+            var x: Float
+            var y: Float
+            
+            fun new(x: Float, y: Float) -> Point {
+                this.x = x
+                this.y = y
+                return this
+            }
+            
+            fun distance(other: Point) -> Float {
+                let dx = this.x - other.x
+                let dy = this.y - other.y
+                return sqrt(dx * dx + dy * dy)
+            }
+        }
+        
+        fun test() {
+            let p1 = Point.new(0.0, 0.0)
+            let p2 = Point.new(3.0, 4.0)
+            let dist = p1.distance(p2)
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify class instantiation
+        assertEqual(result.getVariableType("p1"), Type.Point)
+        assertEqual(result.getVariableType("p2"), Type.Point)
+        assertEqual(result.getVariableType("dist"), Type.Float)
+        
+        // Verify method resolution
+        let distanceMethod = result.getMethodType("Point", "distance")
+        assertEqual(distanceMethod, Type.Function([Type.Point], Type.Float))
+    }
+    
+    // Test 7: Interface type checking
+    @Test
+    fun test_interface_type_checking() {
+        let source = """
+        interface Drawable {
+            fun draw() -> Void
+            fun getArea() -> Float
+        }
+        
+        class Circle implements Drawable {
+            var radius: Float
+            
+            fun draw() -> Void {
+                println("Drawing circle")
+            }
+            
+            fun getArea() -> Float {
+                return 3.14159 * radius * radius
+            }
+        }
+        
+        fun renderShape(shape: Drawable) {
+            shape.draw()
+            println("Area: {shape.getArea()}")
+        }
+        
+        fun test() {
+            let circle = Circle()
+            renderShape(circle)  // Should pass: Circle implements Drawable
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify interface implementation
+        assert(result.implementsInterface("Circle", "Drawable"))
+        
+        // Verify interface method calls
+        let renderShapeType = result.getFunctionType("renderShape")
+        assertEqual(renderShapeType, Type.Function([Type.Interface("Drawable")], Type.Void))
+    }
+    
+    // Test 8: Method resolution
+    @Test
+    fun test_method_resolution() {
+        let source = """
+        class Animal {
+            fun speak() -> String {
+                return "Some sound"
+            }
+        }
+        
+        class Dog extends Animal {
+            fun speak() -> String {
+                return "Woof!"
+            }
+            
+            fun wagTail() -> Void {
+                println("Wagging tail")
+            }
+        }
+        
+        fun test() {
+            let animal: Animal = Dog()
+            let sound = animal.speak()  // Should resolve to Dog.speak()
+            
+            let dog = animal as Dog
+            dog.wagTail()  // Should work after cast
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify method resolution considers inheritance
+        assertEqual(result.getVariableType("sound"), Type.String)
+        
+        // Verify casting
+        let castType = result.getCastType("dog")
+        assertEqual(castType, Type.Dog)
+    }
+    
+    // Test 9: Smart casting
+    @Test
+    fun test_smart_casting() {
+        let source = """
+        fun test(value: Any) -> String {
+            if value is String {
+                // value should be smart-cast to String here
+                return value.toUpperCase()
+            } else if value is Int {
+                // value should be smart-cast to Int here
+                return value.toString()
+            }
+            
+            return "Unknown type"
+        }
+        
+        fun testNullable(user: User?) -> String {
+            if user != null {
+                // user should be smart-cast to User (non-nullable) here
+                return user.name
+            }
+            
+            return "No user"
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify smart casting in type checks
+        let smartCastString = result.getSmartCastTypeInBlock("value", 1)
+        assertEqual(smartCastString, Type.String)
+        
+        let smartCastInt = result.getSmartCastTypeInBlock("value", 2)
+        assertEqual(smartCastInt, Type.Int)
+        
+        // Verify nullable smart casting
+        let smartCastUser = result.getSmartCastTypeInBlock("user", 1)
+        assertEqual(smartCastUser, Type.User) // Not nullable
+    }
+    
+    // Test 10: Async type checking
+    @Test
+    fun test_async_type_checking() {
+        let source = """
+        async fun fetchData() -> String {
+            return "data"
+        }
+        
+        async fun processData() -> Int {
+            let data = await fetchData()  // Should be String
+            return data.length()          // Should be Int
+        }
+        
+        fun test() {
+            let promise = fetchData()     // Should be Promise<String>
+            let task = spawn {
+                return 42
+            }                            // Should be Task<Int>
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify async function return types
+        assertEqual(result.getFunctionReturnType("fetchData"), Type.Promise(Type.String))
+        assertEqual(result.getFunctionReturnType("processData"), Type.Promise(Type.Int))
+        
+        // Verify await type unwrapping
+        assertEqual(result.getVariableType("data"), Type.String)
+        
+        // Verify spawn type inference
+        assertEqual(result.getVariableType("task"), Type.Task(Type.Int))
+    }
+    
+    // Test 11: Pattern match type checking
+    @Test
+    fun test_pattern_match_types() {
+        let source = """
+        enum Result<T, E> {
+            Ok(T),
+            Err(E)
+        }
+        
+        fun handleResult(result: Result<Int, String>) -> String {
+            return match result {
+                Ok(value) -> {
+                    // value should be typed as Int
+                    return "Success: {value}"
+                }
+                Err(message) -> {
+                    // message should be typed as String
+                    return "Error: {message}"
+                }
+            }
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Verify pattern binding types
+        let valueType = result.getPatternBindingType("value")
+        assertEqual(valueType, Type.Int)
+        
+        let messageType = result.getPatternBindingType("message")
+        assertEqual(messageType, Type.String)
+    }
+    
+    // Test 12: Memory safety checking
+    @Test
+    fun test_memory_safety() {
+        let source = """
+        fun test() {
+            let data = move allocateData()
+            
+            // This should be an error - use after move
+            // processData(data)  // Uncomment to test error
+            
+            let borrowed = &data
+            // This should be an error - move while borrowed
+            // let moved = move data  // Uncomment to test error
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(result.success)
+        
+        // Test that memory errors are caught
+        let errorSource = """
+        fun test() {
+            let data = move allocateData()
+            processData(data)  // Error: use after move
+        }
+        """
+        
+        let errorResult = typeCheckSource(errorSource)
+        assert(!errorResult.success)
+        assert(errorResult.hasMemoryError())
+    }
+    
+    // Test 13: Error reporting
+    @Test
+    fun test_error_reporting() {
+        let source = """
+        fun test() {
+            let x: Int = "string"     // Type mismatch
+            let y = undefinedVar      // Undefined variable
+            
+            nonExistentFunction()     // Undefined function
+            
+            let z: String? = "hello"
+            let length = z.length()   // Nullable access without safety
+        }
+        """
+        
+        let result = typeCheckSource(source)
+        assert(!result.success)
+        assert(result.errors.length() >= 4)
+        
+        // Verify specific error types
+        assert(result.hasErrorType(TypeErrorKind.TypeMismatch))
+        assert(result.hasErrorType(TypeErrorKind.UndefinedVariable))
+        assert(result.hasErrorType(TypeErrorKind.UndefinedFunction))
+        assert(result.hasErrorType(TypeErrorKind.NullableAccess))
+        
+        // Verify error positions are reported
+        for error in result.errors {
+            assert(error.position.line > 0)
+            assert(error.position.column > 0)
+        }
+    }
+    
+    // Test 14: Performance requirements
+    @Test
+    fun test_performance_requirements() {
+        // Generate large source with many functions
+        let largeSource = generateLargeFunctionSource(1000)
+        
+        let startTime = getCurrentTime()
+        let result = typeCheckSource(largeSource)
+        let endTime = getCurrentTime()
+        
+        let durationUs = endTime - startTime
+        let functionsPerSecond = (1000 * 1_000_000) / durationUs
+        
+        // Must achieve at least 80μs per function (12,500 functions/sec)
+        assert(functionsPerSecond >= 12500)
+        
+        // Should successfully type check
+        assert(result.success)
+    }
+    
+    // Helper methods
+    fun typeCheckSource(source: String) -> TypeInferenceResult {
+        let lexer = SeenLexer.new(source, 1, "en")
+        let tokens = lexer.tokenize()
+        let parser = SeenParser.new(tokens)
+        let ast = parser.parse()
+        let typeChecker = TypeChecker.new()
+        return typeChecker.checkTypes(ast)
+    }
+    
+    fun generateLargeFunctionSource(functionCount: Int) -> String {
+        let builder = StringBuilder()
+        for i in 0..functionCount {
+            builder.append("""
+            fun function{i}(x: Int, y: String) -> String {
+                let result = y + x.toString()
+                if x > 0 {
+                    return result.toUpperCase()
+                } else {
+                    return result.toLowerCase()
+                }
+            }
+            """)
+        }
+        return builder.toString()
+    }
+    
+    fun getCurrentTime() -> Int {
+        return 0 // Implementation depends on runtime
+    }
+}
+
+// Export test suite for test runner
+export fun createTypeCheckerTests() -> TestSuite {
+    return TypeCheckerTestSuite.new()
+}

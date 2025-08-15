@@ -1,0 +1,556 @@
+// Real Lexer Implementation - Following TDD
+// Implements ONLY what the tests require - no more, no less
+
+import lexer.interfaces.{Token, TokenType, Position, LexerError, KeywordManager}
+
+class SeenLexer {
+    let source: String
+    let fileId: Int
+    let language: String
+    var errorRecoveryMode: Bool
+    var keywordManager: KeywordManager
+    var position: Int
+    var line: Int
+    var column: Int
+    var tokens: Array<Token>
+    
+    fun new(source: String, fileId: Int, language: String) -> SeenLexer {
+        this.source = source
+        this.fileId = fileId
+        this.language = language
+        this.errorRecoveryMode = false
+        this.keywordManager = KeywordManager.new(language)
+        this.position = 0
+        this.line = 1
+        this.column = 1
+        this.tokens = Array<Token>()
+    }
+    
+    fun tokenize() -> Array<Token> {
+        // Reset state
+        position = 0
+        line = 1
+        column = 1
+        tokens = Array<Token>()
+        
+        // Main tokenization loop
+        while position < source.length() {
+            let char = getCurrentChar()
+            
+            // Skip whitespace (except newlines for position tracking)
+            if isWhitespace(char) {
+                handleWhitespace(char)
+                continue
+            }
+            
+            // Handle comments
+            if char == '/' and peekChar() == '/' {
+                handleSingleLineComment()
+                continue
+            }
+            
+            if char == '/' and peekChar() == '*' {
+                handleMultiLineComment()
+                continue
+            }
+            
+            // Handle string literals
+            if char == '"' {
+                handleStringLiteral()
+                continue
+            }
+            
+            // Handle numeric literals
+            if isDigit(char) {
+                handleNumericLiteral()
+                continue
+            }
+            
+            // Handle identifiers and keywords
+            if isAlpha(char) or char == '_' {
+                handleIdentifierOrKeyword()
+                continue
+            }
+            
+            // Handle operators and punctuation
+            if handleOperator() {
+                continue
+            }
+            
+            // Handle single-character tokens
+            if handleSingleCharToken() {
+                continue
+            }
+            
+            // Unknown character
+            if errorRecoveryMode {
+                emitErrorToken(char)
+                advance()
+            } else {
+                throw LexerError.new("Unexpected character: {char}", getCurrentPosition(), char)
+            }
+        }
+        
+        // Add EOF token
+        emitToken(TokenType.EndOfFile, "", 0)
+        
+        return tokens
+    }
+    
+    fun setErrorRecoveryMode(enabled: Bool) -> Void {
+        errorRecoveryMode = enabled
+    }
+    
+    fun isKeywordSourceDynamic() -> Bool {
+        return keywordManager.isDynamic()
+    }
+    
+    fun getKeywordSources() -> Array<String> {
+        return keywordManager.getSources()
+    }
+    
+    fun getKeywordCount() -> Int {
+        return keywordManager.getKeywordCount()
+    }
+    
+    fun hasKeyword(keyword: String) -> Bool {
+        return keywordManager.isKeyword(keyword)
+    }
+    
+    fun hasTranslatedKeyword(keyword: String) -> Bool {
+        return keywordManager.hasTranslation(keyword)
+    }
+    
+    fun getMemoryUsage() -> Int {
+        // Estimate memory usage: source + tokens + internal structures
+        let sourceSize = source.length() * 2  // Assume 2 bytes per char
+        let tokensSize = tokens.length() * 64  // Estimate 64 bytes per token
+        let internalSize = 1024  // Estimate for internal structures
+        return sourceSize + tokensSize + internalSize
+    }
+    
+    // Helper methods for tokenization
+    
+    fun getCurrentChar() -> String {
+        if position >= source.length() {
+            return "\0"
+        }
+        return source[position]
+    }
+    
+    fun peekChar(offset: Int = 1) -> String {
+        let peekPos = position + offset
+        if peekPos >= source.length() {
+            return "\0"
+        }
+        return source[peekPos]
+    }
+    
+    fun advance() -> Void {
+        if position < source.length() {
+            if source[position] == '\n' {
+                line += 1
+                column = 1
+            } else {
+                column += 1
+            }
+            position += 1
+        }
+    }
+    
+    fun getCurrentPosition() -> Position {
+        return Position.new(line, column, fileId)
+    }
+    
+    fun emitToken(type: TokenType, value: String, length: Int) -> Void {
+        let token = Token.new(type, value, line, column - length, length, fileId)
+        tokens.push(token)
+    }
+    
+    fun emitErrorToken(char: String) -> Void {
+        emitToken(TokenType.Error, char, 1)
+    }
+    
+    fun isWhitespace(char: String) -> Bool {
+        return char == ' ' or char == '\t' or char == '\r' or char == '\n'
+    }
+    
+    fun isDigit(char: String) -> Bool {
+        return char >= '0' and char <= '9'
+    }
+    
+    fun isAlpha(char: String) -> Bool {
+        return (char >= 'a' and char <= 'z') or 
+               (char >= 'A' and char <= 'Z') or
+               isUnicodeAlpha(char)
+    }
+    
+    fun isAlphaNumeric(char: String) -> Bool {
+        return isAlpha(char) or isDigit(char)
+    }
+    
+    fun isUnicodeAlpha(char: String) -> Bool {
+        // Support for Unicode identifier characters
+        // This would need proper Unicode category detection
+        // For now, simple check for common non-ASCII letters
+        let code = char.codePoint()
+        return (code >= 0x00C0 and code <= 0x00D6) or   // Latin-1 Supplement
+               (code >= 0x00D8 and code <= 0x00F6) or   // Latin-1 Supplement
+               (code >= 0x00F8 and code <= 0x00FF) or   // Latin-1 Supplement
+               (code >= 0x0100 and code <= 0x017F) or   // Latin Extended-A
+               (code >= 0x0180 and code <= 0x024F) or   // Latin Extended-B
+               (code >= 0x0590 and code <= 0x05FF) or   // Hebrew
+               (code >= 0x0600 and code <= 0x06FF) or   // Arabic
+               (code >= 0x4E00 and code <= 0x9FFF)      // CJK Unified Ideographs
+    }
+    
+    fun handleWhitespace(char: String) -> Void {
+        advance()
+    }
+    
+    fun handleSingleLineComment() -> Void {
+        // Skip until end of line
+        while getCurrentChar() != '\n' and position < source.length() {
+            advance()
+        }
+    }
+    
+    fun handleMultiLineComment() -> Void {
+        advance() // Skip '/'
+        advance() // Skip '*'
+        
+        while position < source.length() - 1 {
+            if getCurrentChar() == '*' and peekChar() == '/' {
+                advance() // Skip '*'
+                advance() // Skip '/'
+                break
+            }
+            advance()
+        }
+    }
+    
+    fun handleStringLiteral() -> Void {
+        let startPos = position
+        advance() // Skip opening quote
+        
+        var value = ""
+        var hasInterpolation = false
+        
+        while position < source.length() and getCurrentChar() != '"' {
+            let char = getCurrentChar()
+            
+            if char == '\\' {
+                // Handle escape sequences
+                advance()
+                let escaped = getCurrentChar()
+                value += handleEscapeSequence(escaped)
+                advance()
+            } else if char == '{' and !isInInterpolation() {
+                // Check for string interpolation
+                hasInterpolation = true
+                break
+            } else {
+                value += char
+                advance()
+            }
+        }
+        
+        if getCurrentChar() == '"' {
+            advance() // Skip closing quote
+        } else {
+            throw LexerError.new("Unterminated string literal", getCurrentPosition(), "")
+        }
+        
+        if hasInterpolation {
+            handleInterpolatedString(startPos)
+        } else {
+            let length = position - startPos
+            emitToken(TokenType.StringLiteral, value, length)
+        }
+    }
+    
+    fun handleEscapeSequence(char: String) -> String {
+        return match char {
+            'n' -> '\n'
+            't' -> '\t'
+            'r' -> '\r'
+            '\\' -> '\\'
+            '"' -> '"'
+            '0' -> '\0'
+            _ -> char  // Unknown escape, return as-is
+        }
+    }
+    
+    fun isInInterpolation() -> Bool {
+        // Check if we're currently inside an interpolation expression
+        // This would need more sophisticated tracking
+        return false
+    }
+    
+    fun handleInterpolatedString(startPos: Int) -> Void {
+        // This is a complex feature that requires parsing expressions within strings
+        // For now, implement basic support to pass tests
+        
+        // Reset to start and re-parse with interpolation awareness
+        position = startPos
+        advance() // Skip opening quote
+        
+        emitToken(TokenType.InterpolatedStringStart, "", 1)
+        
+        var currentPart = ""
+        var inExpression = false
+        var braceLevel = 0
+        
+        while position < source.length() and getCurrentChar() != '"' {
+            let char = getCurrentChar()
+            
+            if char == '{' and !inExpression {
+                // Start of interpolation expression
+                if currentPart.length() > 0 {
+                    emitToken(TokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
+                    currentPart = ""
+                }
+                inExpression = true
+                braceLevel = 1
+                advance()
+                
+                // Parse the expression inside braces
+                parseInterpolationExpression()
+            } else if char == '}' and inExpression {
+                braceLevel -= 1
+                if braceLevel == 0 {
+                    inExpression = false
+                }
+                advance()
+            } else if char == '{' and inExpression {
+                braceLevel += 1
+                advance()
+            } else {
+                currentPart += char
+                advance()
+            }
+        }
+        
+        if currentPart.length() > 0 {
+            emitToken(TokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
+        }
+        
+        if getCurrentChar() == '"' {
+            advance() // Skip closing quote
+        }
+        
+        emitToken(TokenType.InterpolatedStringEnd, "", 1)
+    }
+    
+    fun parseInterpolationExpression() -> Void {
+        // Parse the expression inside {} - this is a mini-parser
+        // For now, tokenize it as regular tokens
+        let saved_position = position
+        
+        while position < source.length() and getCurrentChar() != '}' {
+            // Recursively tokenize the expression
+            if isAlpha(getCurrentChar()) or getCurrentChar() == '_' {
+                handleIdentifierOrKeyword()
+            } else if isDigit(getCurrentChar()) {
+                handleNumericLiteral()
+            } else if handleOperator() {
+                continue
+            } else if handleSingleCharToken() {
+                continue
+            } else {
+                advance()
+            }
+        }
+    }
+    
+    fun handleNumericLiteral() -> Void {
+        let startPos = position
+        var value = ""
+        var isFloat = false
+        
+        // Handle different number formats
+        if getCurrentChar() == '0' and (peekChar() == 'x' or peekChar() == 'X') {
+            // Hexadecimal
+            advance() // Skip '0'
+            advance() // Skip 'x'
+            value = "0x"
+            
+            while isHexDigit(getCurrentChar()) {
+                value += getCurrentChar()
+                advance()
+            }
+        } else if getCurrentChar() == '0' and (peekChar() == 'b' or peekChar() == 'B') {
+            // Binary
+            advance() // Skip '0'
+            advance() // Skip 'b'
+            value = "0b"
+            
+            while isBinaryDigit(getCurrentChar()) {
+                value += getCurrentChar()
+                advance()
+            }
+        } else {
+            // Decimal (integer or float)
+            while isDigit(getCurrentChar()) or getCurrentChar() == '_' {
+                if getCurrentChar() != '_' {
+                    value += getCurrentChar()
+                }
+                advance()
+            }
+            
+            // Check for decimal point
+            if getCurrentChar() == '.' and isDigit(peekChar()) {
+                isFloat = true
+                value += getCurrentChar()
+                advance()
+                
+                while isDigit(getCurrentChar()) or getCurrentChar() == '_' {
+                    if getCurrentChar() != '_' {
+                        value += getCurrentChar()
+                    }
+                    advance()
+                }
+            }
+            
+            // Check for scientific notation
+            if getCurrentChar() == 'e' or getCurrentChar() == 'E' {
+                isFloat = true
+                value += getCurrentChar()
+                advance()
+                
+                if getCurrentChar() == '+' or getCurrentChar() == '-' {
+                    value += getCurrentChar()
+                    advance()
+                }
+                
+                while isDigit(getCurrentChar()) {
+                    value += getCurrentChar()
+                    advance()
+                }
+            }
+        }
+        
+        let length = position - startPos
+        let tokenType = if isFloat { TokenType.FloatLiteral } else { TokenType.IntegerLiteral }
+        emitToken(tokenType, value, length)
+    }
+    
+    fun isHexDigit(char: String) -> Bool {
+        return isDigit(char) or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F')
+    }
+    
+    fun isBinaryDigit(char: String) -> Bool {
+        return char == '0' or char == '1'
+    }
+    
+    fun handleIdentifierOrKeyword() -> Void {
+        let startPos = position
+        var value = ""
+        
+        // First character (already validated as alpha or underscore)
+        value += getCurrentChar()
+        advance()
+        
+        // Subsequent characters
+        while isAlphaNumeric(getCurrentChar()) or getCurrentChar() == '_' {
+            value += getCurrentChar()
+            advance()
+        }
+        
+        let length = position - startPos
+        
+        // Check if it's a keyword
+        let keywordType = keywordManager.getKeywordType(value)
+        if keywordType != null {
+            emitToken(keywordType, value, length)
+        } else {
+            emitToken(TokenType.Identifier, value, length)
+        }
+    }
+    
+    fun handleOperator() -> Bool {
+        let char = getCurrentChar()
+        let nextChar = peekChar()
+        
+        // Two-character operators
+        let twoChar = char + nextChar
+        let twoCharType = getTwoCharOperatorType(twoChar)
+        if twoCharType != null {
+            advance()
+            advance()
+            emitToken(twoCharType, twoChar, 2)
+            return true
+        }
+        
+        // Single-character operators
+        let singleCharType = getSingleCharOperatorType(char)
+        if singleCharType != null {
+            advance()
+            emitToken(singleCharType, char, 1)
+            return true
+        }
+        
+        return false
+    }
+    
+    fun getTwoCharOperatorType(op: String) -> TokenType? {
+        return match op {
+            "==" -> TokenType.EqualEqual
+            "!=" -> TokenType.NotEqual
+            "<=" -> TokenType.LessEqual
+            ">=" -> TokenType.GreaterEqual
+            "+=" -> TokenType.PlusEqual
+            "-=" -> TokenType.MinusEqual
+            "*=" -> TokenType.MultiplyEqual
+            "/=" -> TokenType.DivideEqual
+            "->" -> TokenType.Arrow
+            "?." -> TokenType.SafeNavigation
+            "?:" -> TokenType.Elvis
+            _ -> null
+        }
+    }
+    
+    fun getSingleCharOperatorType(char: String) -> TokenType? {
+        return match char {
+            '+' -> TokenType.Plus
+            '-' -> TokenType.Minus
+            '*' -> TokenType.Multiply
+            '/' -> TokenType.Divide
+            '%' -> TokenType.Modulo
+            '=' -> TokenType.Equal
+            '<' -> TokenType.LessThan
+            '>' -> TokenType.GreaterThan
+            '?' -> TokenType.Question
+            _ -> null
+        }
+    }
+    
+    fun handleSingleCharToken() -> Bool {
+        let char = getCurrentChar()
+        let tokenType = getSingleCharTokenType(char)
+        
+        if tokenType != null {
+            advance()
+            emitToken(tokenType, char, 1)
+            return true
+        }
+        
+        return false
+    }
+    
+    fun getSingleCharTokenType(char: String) -> TokenType? {
+        return match char {
+            '(' -> TokenType.LeftParen
+            ')' -> TokenType.RightParen
+            '{' -> TokenType.LeftBrace
+            '}' -> TokenType.RightBrace
+            '[' -> TokenType.LeftBracket
+            ']' -> TokenType.RightBracket
+            ',' -> TokenType.Comma
+            ';' -> TokenType.Semicolon
+            ':' -> TokenType.Colon
+            '.' -> TokenType.Dot
+            _ -> null
+        }
+    }
+}

@@ -1,0 +1,420 @@
+// Parser Module Interfaces - To Be Implemented Following TDD
+// These are the contracts that the parser implementation must fulfill
+
+import lexer.{Token, TokenType, SeenLexer}
+
+// Parse error types
+class ParseError extends Error {
+    let token: Token
+    let expected: String
+    let actual: String
+    
+    fun new(message: String, token: Token, expected: String, actual: String) -> ParseError {
+        super(message)
+        this.token = token
+        this.expected = expected
+        this.actual = actual
+    }
+    
+    fun getToken() -> Token {
+        return token
+    }
+    
+    fun getExpected() -> String {
+        return expected
+    }
+    
+    fun getActual() -> String {
+        return actual
+    }
+}
+
+// Base AST node
+class ASTNode {
+    let line: Int
+    let column: Int
+    
+    fun new(line: Int, column: Int) -> ASTNode {
+        this.line = line
+        this.column = column
+    }
+    
+    fun getLine() -> Int {
+        return line
+    }
+    
+    fun getColumn() -> Int {
+        return column
+    }
+}
+
+// Program AST (root node)
+class AST extends ASTNode {
+    let functions: Array<Function>
+    let classes: Array<Class>
+    let interfaces: Array<Interface>
+    let enums: Array<Enum>
+    let imports: Array<Import>
+    
+    fun new() -> AST {
+        super(0, 0)
+        this.functions = Array<Function>()
+        this.classes = Array<Class>()
+        this.interfaces = Array<Interface>()
+        this.enums = Array<Enum>()
+        this.imports = Array<Import>()
+    }
+}
+
+// Type representation
+class Type extends ASTNode {
+    let name: String
+    let isNullable: Bool
+    let generics: Array<Type>
+    
+    fun new(name: String, isNullable: Bool = false) -> Type {
+        super(0, 0)
+        this.name = name
+        this.isNullable = isNullable
+        this.generics = Array<Type>()
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun isNullable() -> Bool {
+        return isNullable
+    }
+}
+
+// Function declaration
+class Function extends ASTNode {
+    let name: String
+    let parameters: Array<Parameter>
+    let returnType: Type
+    let body: Block
+    let isAsync: Bool
+    
+    fun new(name: String, returnType: Type) -> Function {
+        super(0, 0)
+        this.name = name
+        this.returnType = returnType
+        this.parameters = Array<Parameter>()
+        this.body = Block.new()
+        this.isAsync = false
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun getParameters() -> Array<Parameter> {
+        return parameters
+    }
+    
+    fun getReturnType() -> Type {
+        return returnType
+    }
+    
+    fun getBody() -> Block {
+        return body
+    }
+}
+
+// Function parameter
+class Parameter extends ASTNode {
+    let name: String
+    let type: Type
+    let defaultValue: Expression?
+    
+    fun new(name: String, type: Type) -> Parameter {
+        super(0, 0)
+        this.name = name
+        this.type = type
+        this.defaultValue = null
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun getType() -> Type {
+        return type
+    }
+    
+    fun hasDefaultValue() -> Bool {
+        return defaultValue != null
+    }
+}
+
+// Base expression
+class Expression extends ASTNode {
+    fun new(line: Int, column: Int) -> Expression {
+        super(line, column)
+    }
+    
+    fun getValue() -> String {
+        // STUB - To be implemented by concrete expressions
+        throw Error.new("Expression.getValue not implemented - write tests first!")
+    }
+}
+
+// Literal expression
+class Literal extends Expression {
+    let value: String
+    let type: TokenType
+    
+    fun new(value: String, type: TokenType, line: Int, column: Int) -> Literal {
+        super(line, column)
+        this.value = value
+        this.type = type
+    }
+    
+    fun getValue() -> String {
+        return value
+    }
+    
+    fun getType() -> TokenType {
+        return type
+    }
+}
+
+// Binary expression (a + b, a && b, etc.)
+class BinaryExpression extends Expression {
+    let left: Expression
+    let operator: TokenType
+    let right: Expression
+    
+    fun new(left: Expression, operator: TokenType, right: Expression) -> BinaryExpression {
+        super(left.line, left.column)
+        this.left = left
+        this.operator = operator
+        this.right = right
+    }
+    
+    fun getLeft() -> Expression {
+        return left
+    }
+    
+    fun getOperator() -> TokenType {
+        return operator
+    }
+    
+    fun getRight() -> Expression {
+        return right
+    }
+}
+
+// Statement base
+class Statement extends ASTNode {
+    fun new(line: Int, column: Int) -> Statement {
+        super(line, column)
+    }
+}
+
+// Block statement (contains multiple statements)
+class Block extends Statement {
+    let statements: Array<Statement>
+    
+    fun new() -> Block {
+        super(0, 0)
+        this.statements = Array<Statement>()
+    }
+    
+    fun addStatement(stmt: Statement) -> Void {
+        statements.push(stmt)
+    }
+    
+    fun getStatements() -> Array<Statement> {
+        return statements
+    }
+}
+
+// Return statement
+class ReturnStatement extends Statement {
+    let value: Expression?
+    
+    fun new(value: Expression?) -> ReturnStatement {
+        super(0, 0)
+        this.value = value
+    }
+    
+    fun getValue() -> Expression? {
+        return value
+    }
+}
+
+// Variable declaration
+class VariableDeclaration extends Statement {
+    let name: String
+    let type: Type?
+    let initializer: Expression?
+    let isMutable: Bool
+    
+    fun new(name: String, isMutable: Bool = false) -> VariableDeclaration {
+        super(0, 0)
+        this.name = name
+        this.isMutable = isMutable
+        this.type = null
+        this.initializer = null
+    }
+    
+    fun getName() -> String {
+        return name
+    }
+    
+    fun isMutable() -> Bool {
+        return isMutable
+    }
+}
+
+// If statement
+class IfStatement extends Statement {
+    let condition: Expression
+    let thenBranch: Statement
+    let elseBranch: Statement?
+    
+    fun new(condition: Expression, thenBranch: Statement) -> IfStatement {
+        super(0, 0)
+        this.condition = condition
+        this.thenBranch = thenBranch
+        this.elseBranch = null
+    }
+}
+
+// Match statement
+class MatchStatement extends Statement {
+    let expression: Expression
+    let arms: Array<MatchArm>
+    
+    fun new(expression: Expression) -> MatchStatement {
+        super(0, 0)
+        this.expression = expression
+        this.arms = Array<MatchArm>()
+    }
+}
+
+// Match arm
+class MatchArm extends ASTNode {
+    let pattern: Pattern
+    let body: Statement
+    
+    fun new(pattern: Pattern, body: Statement) -> MatchArm {
+        super(0, 0)
+        this.pattern = pattern
+        this.body = body
+    }
+}
+
+// Pattern for pattern matching
+class Pattern extends ASTNode {
+    fun new(line: Int, column: Int) -> Pattern {
+        super(line, column)
+    }
+}
+
+// Class declaration
+class Class extends ASTNode {
+    let name: String
+    let methods: Array<Function>
+    let fields: Array<VariableDeclaration>
+    
+    fun new(name: String) -> Class {
+        super(0, 0)
+        this.name = name
+        this.methods = Array<Function>()
+        this.fields = Array<VariableDeclaration>()
+    }
+}
+
+// Interface declaration
+class Interface extends ASTNode {
+    let name: String
+    let methods: Array<Function>
+    
+    fun new(name: String) -> Interface {
+        super(0, 0)
+        this.name = name
+        this.methods = Array<Function>()
+    }
+}
+
+// Enum declaration
+class Enum extends ASTNode {
+    let name: String
+    let variants: Array<String>
+    
+    fun new(name: String) -> Enum {
+        super(0, 0)
+        this.name = name
+        this.variants = Array<String>()
+    }
+}
+
+// Import declaration
+class Import extends ASTNode {
+    let path: String
+    let items: Array<String>
+    
+    fun new(path: String) -> Import {
+        super(0, 0)
+        this.path = path
+        this.items = Array<String>()
+    }
+}
+
+// Main parser interface
+class SeenParser {
+    let tokens: Array<Token>
+    var current: Int
+    var errorRecoveryMode: Bool
+    
+    fun new(tokens: Array<Token>) -> SeenParser {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.new not implemented - write tests first!")
+    }
+    
+    fun parse() -> AST {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.parse not implemented - write tests first!")
+    }
+    
+    fun setErrorRecoveryMode(enabled: Bool) -> Void {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.setErrorRecoveryMode not implemented - write tests first!")
+    }
+    
+    fun getCurrentToken() -> Token {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.getCurrentToken not implemented - write tests first!")
+    }
+    
+    fun advance() -> Token {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.advance not implemented - write tests first!")
+    }
+    
+    fun peek(offset: Int = 1) -> Token {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.peek not implemented - write tests first!")
+    }
+    
+    fun match(types: Array<TokenType>) -> Bool {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.match not implemented - write tests first!")
+    }
+    
+    fun expect(type: TokenType) -> Token {
+        // STUB - To be implemented following TDD
+        throw Error.new("SeenParser.expect not implemented - write tests first!")
+    }
+}
+
+// Utility function for tests
+fun parseSource(source: String, language: String = "en") -> AST {
+    let lexer = SeenLexer.new(source, 1, language)
+    let tokens = lexer.tokenize()
+    let parser = SeenParser.new(tokens)
+    return parser.parse()
+}

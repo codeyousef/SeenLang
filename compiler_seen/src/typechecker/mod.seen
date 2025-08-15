@@ -1,0 +1,37 @@
+// Type Checker Module - Real Implementation Entry Point
+// Exports the actual working implementations for TDD
+
+// Import all the interfaces and types
+import interfaces.{Type, TypeKind, TypeError, Location, Environment, TypeInferenceResult, FunctionType, ClassType, InterfaceType, SmartCastContext}
+
+// Import the real implementation
+import typechecker.{TypeChecker}
+
+// Re-export everything that tests and other modules need
+export {
+    Type,
+    TypeKind,
+    TypeError,
+    Location,
+    Environment,
+    TypeInferenceResult,
+    FunctionType,
+    ClassType,
+    InterfaceType,
+    SmartCastContext,
+    TypeChecker
+}
+
+// Utility functions for tests
+export fun createTypeChecker() -> TypeChecker {
+    return TypeChecker.new()
+}
+
+export fun typeCheckAST(ast: AST) -> TypeInferenceResult {
+    let checker = TypeChecker.new()
+    return checker.check(ast)
+}
+
+export fun createType(name: String, nullable: Bool = false) -> Type {
+    return Type.new(name, nullable)
+}
