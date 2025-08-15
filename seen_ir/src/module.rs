@@ -97,6 +97,14 @@ pub struct TypeDefinition {
     pub is_opaque: bool, // For forward declarations
 }
 
+/// Type alias definition
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TypeAlias {
+    pub name: String,
+    pub target: IRType,
+    pub is_public: bool,
+}
+
 impl TypeDefinition {
     pub fn new(name: impl Into<String>, type_def: IRType) -> Self {
         Self {
@@ -141,6 +149,7 @@ pub struct IRModule {
     pub constants: HashMap<String, ModuleConstant>,
     pub global_variables: HashMap<String, GlobalVariable>,
     pub types: HashMap<String, TypeDefinition>,
+    pub type_aliases: HashMap<String, TypeAlias>,
     pub imports: Vec<Import>,
     pub exports: Vec<Export>,
     pub dependencies: Vec<String>, // Module names this depends on
@@ -157,6 +166,7 @@ impl IRModule {
             constants: HashMap::new(),
             global_variables: HashMap::new(),
             types: HashMap::new(),
+            type_aliases: HashMap::new(),
             imports: Vec::new(),
             exports: Vec::new(),
             dependencies: Vec::new(),
@@ -189,6 +199,10 @@ impl IRModule {
     
     pub fn add_type(&mut self, type_def: TypeDefinition) {
         self.types.insert(type_def.name.clone(), type_def);
+    }
+    
+    pub fn add_type_alias(&mut self, type_alias: TypeAlias) {
+        self.type_aliases.insert(type_alias.name.clone(), type_alias);
     }
     
     pub fn add_import(&mut self, import: Import) {
@@ -292,8 +306,29 @@ impl IRModule {
         }
         
         // Analyze functions to build call sites and edges
-        // For now, this performs basic call graph construction
-        // In a real implementation, this would traverse function CFGs
+        for (caller_name, caller_function) in &self.functions {
+            // Scan function CFG for call instructions
+            for (block_label, block) in &caller_function.cfg.blocks {
+                for instruction in &block.instructions {
+                    if let crate::instruction::Instruction::Call { target, args, result } = instruction {
+                        if let crate::IRValue::GlobalVariable(callee_name) = target {
+                            // Add call site if target function exists in this module
+                            if self.functions.contains_key(callee_name) {
+                                let call_site = crate::function::CallSite {
+                                    caller: caller_name.clone(),
+                                    callee: callee_name.clone(),
+                                    block_label: block_label.clone(),
+                                    arguments: args.clone(),
+                                    return_value: result.clone(),
+                                    is_tail_call: false, // Would need more analysis to determine
+                                };
+                                graph.add_call_site(call_site);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         graph
     }

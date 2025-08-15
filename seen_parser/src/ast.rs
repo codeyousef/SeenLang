@@ -18,6 +18,7 @@ pub enum Expression {
     IntegerLiteral { value: i64, pos: Position },
     FloatLiteral { value: f64, pos: Position },
     StringLiteral { value: String, pos: Position },
+    CharLiteral { value: char, pos: Position },
     InterpolatedString { parts: Vec<InterpolationPart>, pos: Position },
     BooleanLiteral { value: bool, pos: Position },
     NullLiteral { pos: Position },
@@ -67,6 +68,32 @@ pub enum Expression {
         value: Box<Expression>,
         is_mutable: bool, // var vs let
         delegation: Option<DelegationType>, // by lazy, by observable, etc.
+        pos: Position,
+    },
+    
+    // Constant declaration (compile-time evaluated)
+    Const {
+        name: String,
+        type_annotation: Option<Type>,
+        value: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Memory management - move semantics
+    Move {
+        operand: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Memory management - borrow semantics
+    Borrow {
+        operand: Box<Expression>,
+        pos: Position,
+    },
+    
+    // Compile-time execution
+    Comptime {
+        body: Box<Expression>,
         pos: Position,
     },
     
@@ -310,12 +337,7 @@ pub enum Expression {
         pos: Position,
     },
     
-    // Metaprogramming
-    Comptime {
-        body: Box<Expression>,
-        pos: Position,
-    },
-    
+    // Metaprogramming  
     Macro {
         name: String,
         params: Vec<String>,
@@ -671,6 +693,7 @@ impl Expression {
             Expression::IntegerLiteral { pos, .. } => pos,
             Expression::FloatLiteral { pos, .. } => pos,
             Expression::StringLiteral { pos, .. } => pos,
+            Expression::CharLiteral { pos, .. } => pos,
             Expression::InterpolatedString { pos, .. } => pos,
             Expression::BooleanLiteral { pos, .. } => pos,
             Expression::NullLiteral { pos } => pos,
@@ -681,6 +704,10 @@ impl Expression {
             Expression::Match { pos, .. } => pos,
             Expression::Block { pos, .. } => pos,
             Expression::Let { pos, .. } => pos,
+            Expression::Const { pos, .. } => pos,
+            Expression::Move { pos, .. } => pos,
+            Expression::Borrow { pos, .. } => pos,
+            Expression::Comptime { pos, .. } => pos,
             Expression::Function { pos, .. } => pos,
             Expression::Lambda { pos, .. } => pos,
             Expression::Call { pos, .. } => pos,
@@ -715,7 +742,6 @@ impl Expression {
             Expression::Actor { pos, .. } => pos,
             Expression::Region { pos, .. } => pos,
             Expression::Arena { pos, .. } => pos,
-            Expression::Comptime { pos, .. } => pos,
             Expression::Macro { pos, .. } => pos,
             Expression::Effect { pos, .. } => pos,
             Expression::Handle { pos, .. } => pos,

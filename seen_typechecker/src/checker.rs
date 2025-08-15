@@ -397,7 +397,7 @@ impl TypeChecker {
                     }
                 } else {
                     self.result.add_error(TypeError::UnknownField {
-                        struct_name: "Unknown".to_string(), // TODO: extract actual struct name
+                        struct_name: self.extract_struct_name_from_type(&object_type),
                         field_name: member.to_string(),
                         position: pos,
                     });
@@ -869,12 +869,61 @@ impl TypeChecker {
         let interface_type = Type::Interface {
             name: name.to_string(),
             methods: method_names,
-            generics: Vec::new(), // TODO: Add generic support
+            generics: self.extract_generic_types_from_interface(methods),
         };
         
         self.env.define_type(name.to_string(), interface_type.clone());
         
         Type::Unit
+    }
+    
+    /// Extract struct name from a type for error reporting
+    fn extract_struct_name_from_type(&self, type_: &Type) -> String {
+        match type_ {
+            Type::Struct { name, .. } => name.clone(),
+            Type::Nullable(inner) => {
+                if let Type::Struct { name, .. } = inner.as_ref() {
+                    name.clone()
+                } else {
+                    format!("{:?}", inner)
+                }
+            },
+            _ => format!("{:?}", type_)
+        }
+    }
+    
+    /// Extract generic types from interface methods
+    fn extract_generic_types_from_interface(&self, methods: &[InterfaceMethod]) -> Vec<String> {
+        let mut generics = std::collections::HashSet::new();
+        
+        for method in methods {
+            // Extract generics from parameters
+            for param in &method.params {
+                if let Some(param_type) = &param.type_annotation {
+                    self.collect_generic_types_from_ast_type(param_type, &mut generics);
+                }
+            }
+            
+            // Extract generics from return type
+            if let Some(return_type) = &method.return_type {
+                self.collect_generic_types_from_ast_type(return_type, &mut generics);
+            }
+        }
+        
+        generics.into_iter().collect()
+    }
+    
+    /// Collect generic type names from AST Type
+    fn collect_generic_types_from_ast_type(&self, ast_type: &seen_parser::Type, generics: &mut std::collections::HashSet<String>) {
+        // If the type name starts with uppercase and is a single letter, it's likely a generic
+        if ast_type.name.len() == 1 && ast_type.name.chars().next().unwrap().is_uppercase() {
+            generics.insert(ast_type.name.clone());
+        }
+        
+        // Recursively check generic parameters
+        for generic_param in &ast_type.generics {
+            self.collect_generic_types_from_ast_type(generic_param, generics);
+        }
     }
 }
 

@@ -49,7 +49,14 @@ impl Lexer {
             
             Some(ch) if ch.is_ascii_digit() => self.read_number(),
             
-            Some('"') => self.read_string_literal(),
+            Some('"') => {
+                // Check for triple-quoted string
+                if self.peek() == Some('"') && self.peek_ahead(2) == Some('"') {
+                    self.read_multiline_string_literal()
+                } else {
+                    self.read_string_literal()
+                }
+            }
             
             Some('\'') => self.read_char_literal(),
             
@@ -363,6 +370,33 @@ impl Lexer {
         } else {
             None
         }
+    }
+    
+    fn peek_ahead(&self, offset: usize) -> Option<char> {
+        let mut pos = self.position;
+        let mut chars_ahead = 0;
+        
+        // Skip current character first
+        if let Some(current_char) = self.current_char {
+            pos += current_char.len_utf8();
+            chars_ahead += 1;
+        }
+        
+        // Skip additional characters until we reach the desired offset
+        while chars_ahead <= offset && pos < self.input.len() {
+            let remaining = &self.input[pos..];
+            if let Some(ch) = remaining.chars().next() {
+                if chars_ahead == offset {
+                    return Some(ch);
+                }
+                pos += ch.len_utf8();
+                chars_ahead += 1;
+            } else {
+                break;
+            }
+        }
+        
+        None
     }
     
     fn skip_whitespace(&mut self) {
@@ -908,6 +942,136 @@ impl Lexer {
             .ok_or(LexerError::InvalidUnicodeEscape {
                 position: self.pos_tracker,
             })
+    }
+    
+    fn read_multiline_string_literal(&mut self) -> LexerResult<Token> {
+        let start_pos = self.pos_tracker;
+        let mut parts = Vec::new();
+        let mut current_text = String::new();
+        let mut has_interpolation = false;
+        let mut lexeme = String::new();
+        
+        // Skip opening triple quotes
+        lexeme.push_str("\"\"\"");
+        self.advance(); // first "
+        self.advance(); // second "
+        self.advance(); // third "
+        
+        let mut text_start_pos = self.pos_tracker; // Position after opening quotes
+        
+        while let Some(ch) = self.current_char {
+            // Check for closing triple quotes
+            if ch == '"' && self.peek() == Some('"') && self.peek_ahead(2) == Some('"') {
+                // End of multiline string
+                lexeme.push_str("\"\"\"");
+                self.advance(); // first "
+                self.advance(); // second "
+                self.advance(); // third "
+                
+                if has_interpolation {
+                    // Add any remaining text only if there is actual text content
+                    if !current_text.is_empty() {
+                        parts.push(InterpolationPart {
+                            kind: InterpolationKind::Text(current_text.clone()),
+                            content: current_text,
+                            position: text_start_pos,
+                        });
+                    }
+                    return Ok(Token::new(TokenType::InterpolatedString(parts), lexeme, start_pos));
+                } else {
+                    return Ok(Token::new(TokenType::StringLiteral(current_text), lexeme, start_pos));
+                }
+            } else if ch == '{' {
+                // Check for escaped brace or interpolation
+                let brace_pos = self.pos_tracker; // Position of the '{'
+                self.advance();
+                if self.current_char == Some('{') {
+                    // Escaped opening brace
+                    current_text.push('{');
+                    lexeme.push_str("{{");
+                    self.advance();
+                } else {
+                    // Start of interpolation
+                    has_interpolation = true;
+                    
+                    // Save current text part if any
+                    if !current_text.is_empty() {
+                        parts.push(InterpolationPart {
+                            kind: InterpolationKind::Text(current_text.clone()),
+                            content: current_text.clone(),
+                            position: text_start_pos,
+                        });
+                        current_text.clear();
+                    }
+                    
+                    // Read the interpolated expression
+                    let expr = self.read_interpolation_expression()?;
+                    
+                    if expr.is_empty() {
+                        return Err(LexerError::InvalidInterpolation {
+                            position: brace_pos,
+                            message: "Empty interpolation expression".to_string(),
+                        });
+                    }
+                    
+                    parts.push(InterpolationPart {
+                        kind: InterpolationKind::Expression(expr.clone()),
+                        content: expr,
+                        position: brace_pos,
+                    });
+                    
+                    lexeme.push('{');
+                    lexeme.push_str(&parts.last().unwrap().content);
+                    lexeme.push('}');
+                    
+                    // Update text start position for next part
+                    text_start_pos = self.pos_tracker;
+                }
+            } else if ch == '}' && self.peek() == Some('}') {
+                // Escaped closing brace
+                current_text.push('}');
+                lexeme.push_str("}}");
+                self.advance();
+                self.advance();
+            } else if ch == '\\' {
+                // Handle escape sequences
+                lexeme.push('\\');
+                self.advance();
+                
+                if let Some(escaped_ch) = self.current_char {
+                    match escaped_ch {
+                        'n' => current_text.push('\n'),
+                        't' => current_text.push('\t'),
+                        'r' => current_text.push('\r'),
+                        '\\' => current_text.push('\\'),
+                        '"' => current_text.push('"'),
+                        '{' => current_text.push('{'),
+                        '}' => current_text.push('}'),
+                        _ => {
+                            current_text.push('\\');
+                            current_text.push(escaped_ch);
+                        }
+                    }
+                    lexeme.push(escaped_ch);
+                    self.advance();
+                } else {
+                    return Err(LexerError::UnexpectedCharacter {
+                        character: '\\',
+                        position: self.pos_tracker,
+                    });
+                }
+            } else {
+                // Regular character, including newlines
+                current_text.push(ch);
+                lexeme.push(ch);
+                self.advance();
+            }
+        }
+        
+        // Reached end of input without closing triple quotes
+        Err(LexerError::UnterminatedString {
+            position: start_pos,
+        })
     }
     
     fn read_identifier(&mut self) -> LexerResult<Token> {

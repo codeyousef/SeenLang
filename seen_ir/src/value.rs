@@ -11,6 +11,7 @@ pub enum IRType {
     Integer,
     Float,
     Boolean,
+    Char,
     String,
     Array(Box<IRType>),
     Function {
@@ -40,6 +41,7 @@ impl IRType {
             (IRType::Float, IRType::Float) => true,
             (IRType::Float, IRType::Integer) => true, // Allow integer to float conversion
             (IRType::Boolean, IRType::Boolean) => true,
+            (IRType::Char, IRType::Char) => true,
             (IRType::String, IRType::String) => true,
             
             (IRType::Array(a), IRType::Array(b)) => a.is_assignable_from(b),
@@ -69,11 +71,27 @@ impl IRType {
             IRType::Integer => 8, // 64-bit integers
             IRType::Float => 8,   // 64-bit floats
             IRType::Boolean => 1,
+            IRType::Char => 1,    // Single byte character
             IRType::String => 8,  // Pointer to string data
             IRType::Array(_) => 8, // Pointer to array data
             IRType::Function { .. } => 8, // Function pointer
-            IRType::Struct { .. } => 8, // For now, all structs are heap-allocated
-            IRType::Enum { .. } => 8, // For now, all enums are heap-allocated (tag + data)
+            IRType::Struct { fields, .. } => {
+                // Calculate actual struct size from field types
+                fields.iter().map(|(_, field_type)| field_type.size_bytes()).sum()
+            }
+            IRType::Enum { variants, .. } => {
+                // Calculate enum size as tag + largest variant
+                let tag_size = 8; // Discriminant tag
+                let largest_variant = variants.iter()
+                    .map(|(_, fields)| {
+                        fields.as_ref()
+                            .map(|f| f.iter().map(|t| t.size_bytes()).sum())
+                            .unwrap_or(0)
+                    })
+                    .max()
+                    .unwrap_or(0);
+                tag_size + largest_variant
+            }
             IRType::Pointer(_) => 8,
             IRType::Reference(_) => 8,
             IRType::Optional(_) => 9, // 8 bytes for value + 1 byte for null flag
@@ -99,6 +117,7 @@ impl fmt::Display for IRType {
             IRType::Integer => write!(f, "i64"),
             IRType::Float => write!(f, "f64"),
             IRType::Boolean => write!(f, "bool"),
+            IRType::Char => write!(f, "char"),
             IRType::String => write!(f, "string"),
             IRType::Array(inner) => write!(f, "[{}]", inner),
             IRType::Function { parameters, return_type } => {
@@ -126,6 +145,7 @@ pub enum IRValue {
     Integer(i64),
     Float(f64),
     Boolean(bool),
+    Char(char),
     String(String),
     StringConstant(usize), // Index into string table
     Array(Vec<IRValue>),
@@ -141,6 +161,7 @@ pub enum IRValue {
     Register(u32), // Virtual register for SSA form
     GlobalVariable(String),
     Label(String),
+    AddressOf(Box<IRValue>), // Address-of operator for references
     Null,
     Undefined, // For uninitialized values
 }
@@ -153,6 +174,7 @@ impl IRValue {
             IRValue::Integer(_) => IRType::Integer,
             IRValue::Float(_) => IRType::Float,
             IRValue::Boolean(_) => IRType::Boolean,
+            IRValue::Char(_) => IRType::Char,
             IRValue::String(_) | IRValue::StringConstant(_) => IRType::String,
             IRValue::Array(values) => {
                 if let Some(first) = values.first() {
@@ -161,18 +183,39 @@ impl IRValue {
                     IRType::Array(Box::new(IRType::Void))
                 }
             },
-            IRValue::Struct { type_name, .. } => IRType::Struct {
-                name: type_name.clone(),
-                fields: Vec::new(), // We'd need more context to fill this
+            IRValue::Struct { type_name, fields } => {
+                // Reconstruct struct type from the actual field values
+                let field_types: Vec<(String, IRType)> = fields.iter()
+                    .map(|(name, value)| (name.clone(), value.get_type()))
+                    .collect();
+                
+                IRType::Struct {
+                    name: type_name.clone(),
+                    fields: field_types,
+                }
             },
-            IRValue::Function { parameters, .. } => IRType::Function {
-                parameters: vec![IRType::Void; parameters.len()], // Placeholder
-                return_type: Box::new(IRType::Void),
+            IRValue::Function { name, parameters } => {
+                // For function values, we need to look up the actual function signature
+                // This requires access to the function registry/symbol table
+                // Generate a concrete function type based on parameter count
+                let param_types: Vec<IRType> = (0..parameters.len())
+                    .map(|i| IRType::Generic(format!("T{}", i)))
+                    .collect();
+                
+                IRType::Function {
+                    parameters: param_types,
+                    return_type: Box::new(IRType::Generic("R".to_string())),
+                }
             },
             IRValue::Variable(_) | IRValue::Register(_) | IRValue::GlobalVariable(_) => {
-                IRType::Void // Would need type context to determine
+                // Variables and registers need type context from the IR generation context
+                // Return unresolved generic type that will be resolved during type analysis
+                IRType::Generic("Unresolved".to_string())
             },
             IRValue::Label(_) => IRType::Void,
+            IRValue::AddressOf(value) => {
+                IRType::Pointer(Box::new(value.get_type()))
+            },
             IRValue::Null => IRType::Optional(Box::new(IRType::Void)),
             IRValue::Undefined => IRType::Void,
         }
@@ -184,6 +227,7 @@ impl IRValue {
             IRValue::Integer(_) | 
             IRValue::Float(_) | 
             IRValue::Boolean(_) | 
+            IRValue::Char(_) |
             IRValue::String(_) | 
             IRValue::StringConstant(_) |
             IRValue::Null
@@ -214,15 +258,26 @@ impl IRValue {
             IRValue::Integer(i) => i.to_string(),
             IRValue::Float(f) => f.to_string(),
             IRValue::Boolean(b) => if *b { "true".to_string() } else { "false".to_string() },
+            IRValue::Char(c) => format!("'{}'", c.escape_default()),
             IRValue::String(s) => format!("\"{}\"", s.escape_default()),
             IRValue::StringConstant(index) => format!("@str.{}", index),
-            IRValue::Array(_) => "[array]".to_string(), // Would need more complex handling
+            IRValue::Array(elements) => {
+                if elements.is_empty() {
+                    "[]".to_string()
+                } else {
+                    format!("[{}]", elements.iter()
+                        .map(|e| e.to_code_string())
+                        .collect::<Vec<_>>()
+                        .join(", "))
+                }
+            }
             IRValue::Struct { type_name, .. } => format!("struct {}", type_name),
             IRValue::Function { name, .. } => format!("@{}", name),
             IRValue::Variable(name) => format!("%{}", name),
             IRValue::Register(reg) => format!("%r{}", reg),
             IRValue::GlobalVariable(name) => format!("@{}", name),
             IRValue::Label(name) => format!(".{}", name),
+            IRValue::AddressOf(value) => format!("&{}", value.to_code_string()),
             IRValue::Null => "null".to_string(),
             IRValue::Undefined => "undef".to_string(),
         }

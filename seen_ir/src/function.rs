@@ -310,10 +310,46 @@ impl IRFunction {
     }
     
     /// Check if two values have compatible types for operations
-    fn types_are_compatible(&self, _left: &crate::IRValue, _right: &crate::IRValue) -> bool {
-        // Simplified type compatibility check
-        // In a real implementation, this would look up actual types
-        true
+    fn types_are_compatible(&self, left: &crate::IRValue, right: &crate::IRValue) -> bool {
+        let left_type = left.get_type();
+        let right_type = right.get_type();
+        
+        // Check type compatibility based on IR type system
+        match (&left_type, &right_type) {
+            // Same types are compatible
+            (l, r) if l == r => true,
+            
+            // Numeric compatibility
+            (crate::IRType::Integer, crate::IRType::Float) => true,
+            (crate::IRType::Float, crate::IRType::Integer) => true,
+            
+            // Pointer compatibility
+            (crate::IRType::Pointer(_), crate::IRType::Pointer(_)) => true,
+            (crate::IRType::Reference(_), crate::IRType::Reference(_)) => true,
+            
+            // Optional compatibility
+            (crate::IRType::Optional(inner), other) => {
+                self.types_are_compatible_inner(inner, &other)
+            },
+            (other, crate::IRType::Optional(inner)) => {
+                self.types_are_compatible_inner(&other, inner)
+            },
+            
+            // Generic types are compatible with anything during IR generation
+            (crate::IRType::Generic(_), _) => true,
+            (_, crate::IRType::Generic(_)) => true,
+            
+            // Arrays with compatible element types
+            (crate::IRType::Array(left_elem), crate::IRType::Array(right_elem)) => {
+                left_elem == right_elem
+            },
+            
+            _ => false,
+        }
+    }
+    
+    fn types_are_compatible_inner(&self, a: &crate::IRType, b: &crate::IRType) -> bool {
+        a == b || matches!(a, crate::IRType::Generic(_)) || matches!(b, crate::IRType::Generic(_))
     }
 }
 

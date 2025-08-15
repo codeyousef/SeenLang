@@ -1,6 +1,7 @@
 //! Type definitions for async and concurrency features
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
 use seen_lexer::position::Position;
 use serde::{Serialize, Deserialize};
 
@@ -323,6 +324,8 @@ pub struct Channel {
     pub capacity: Option<usize>,
     /// Channel state
     pub state: ChannelState,
+    /// Message queue
+    pub queue: Arc<Mutex<VecDeque<AsyncValue>>>,
     /// Sender count
     pub sender_count: usize,
     /// Receiver count
@@ -363,16 +366,27 @@ impl Channel {
             id,
             capacity,
             state: ChannelState::Open,
+            queue: Arc::new(Mutex::new(VecDeque::new())),
             sender_count: 0,
             receiver_count: 0,
         }
     }
     
     /// Send a value to the channel (blocking)
-    pub fn send(&self, _value: AsyncValue) -> Result<(), String> {
+    pub fn send(&self, value: AsyncValue) -> Result<(), String> {
         match self.state {
             ChannelState::Open => {
-                // In a real implementation, this would queue the message
+                let mut queue = self.queue.lock().unwrap();
+                
+                // Check capacity constraints
+                if let Some(cap) = self.capacity {
+                    if queue.len() >= cap {
+                        return Err("Channel is full".to_string());
+                    }
+                }
+                
+                // Add message to queue
+                queue.push_back(value);
                 Ok(())
             }
             ChannelState::Closed => Err("Channel is closed".to_string()),
@@ -384,11 +398,24 @@ impl Channel {
     pub fn try_recv(&self) -> Result<AsyncValue, String> {
         match self.state {
             ChannelState::Open => {
-                // In a real implementation, this would check the queue
-                // For now, return a placeholder that indicates no message available
-                Err("No message available".to_string())
+                let mut queue = self.queue.lock().unwrap();
+                
+                // Try to get a message from the queue
+                if let Some(value) = queue.pop_front() {
+                    Ok(value)
+                } else {
+                    Err("No message available".to_string())
+                }
             }
-            ChannelState::Closed => Err("Channel is closed".to_string()),
+            ChannelState::Closed => {
+                // Even if closed, return any remaining messages
+                let mut queue = self.queue.lock().unwrap();
+                if let Some(value) = queue.pop_front() {
+                    Ok(value)
+                } else {
+                    Err("Channel is closed".to_string())
+                }
+            }
             ChannelState::Error(ref err) => Err(err.clone()),
         }
     }
@@ -396,6 +423,25 @@ impl Channel {
     /// Close the channel
     pub fn close(&mut self) {
         self.state = ChannelState::Closed;
+    }
+    
+    /// Check if the channel is empty
+    pub fn is_empty(&self) -> bool {
+        self.queue.lock().unwrap().is_empty()
+    }
+    
+    /// Get the current number of messages in the queue
+    pub fn len(&self) -> usize {
+        self.queue.lock().unwrap().len()
+    }
+    
+    /// Check if the channel is at capacity
+    pub fn is_full(&self) -> bool {
+        if let Some(cap) = self.capacity {
+            self.len() >= cap
+        } else {
+            false // Unbounded channels are never full
+        }
     }
     
     /// Check if channel is open

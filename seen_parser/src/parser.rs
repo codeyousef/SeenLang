@@ -86,6 +86,11 @@ impl Parser {
     
     /// Parse a top-level item (function, statement, or expression)
     pub fn parse_top_level_item(&mut self) -> ParseResult<Expression> {
+        // Check for import statements
+        if self.check_keyword(KeywordType::KeywordImport) {
+            return self.parse_import_statement();
+        }
+        
         // Check for contracts (requires/ensures/invariant)
         if self.check_keyword(KeywordType::KeywordRequires) || 
            self.check_keyword(KeywordType::KeywordEnsures) ||
@@ -103,6 +108,11 @@ impl Parser {
             return self.parse_external_function();
         }
         
+        // Check for constant declarations
+        if self.check_keyword(KeywordType::KeywordConst) {
+            return self.parse_const_declaration();
+        }
+        
         // Check for function definitions
         if self.check_keyword(KeywordType::KeywordFun) {
             return self.parse_function();
@@ -111,6 +121,11 @@ impl Parser {
         // Check for async functions and blocks
         if self.check_keyword(KeywordType::KeywordAsync) {
             return self.parse_async_construct();
+        }
+        
+        // Check for compile-time execution
+        if self.check_keyword(KeywordType::KeywordComptime) {
+            return self.parse_comptime();
         }
         
         // Check for type alias
@@ -373,6 +388,28 @@ impl Parser {
             });
         }
         
+        // Check for move semantics
+        if self.check_keyword(KeywordType::KeywordMove) {
+            let pos = self.current.position.clone();
+            self.advance(); // consume 'move'
+            let operand = self.parse_unary()?;
+            return Ok(Expression::Move {
+                operand: Box::new(operand),
+                pos,
+            });
+        }
+        
+        // Check for borrow semantics
+        if self.check_keyword(KeywordType::KeywordBorrow) {
+            let pos = self.current.position.clone();
+            self.advance(); // consume 'borrow'
+            let operand = self.parse_unary()?;
+            return Ok(Expression::Borrow {
+                operand: Box::new(operand),
+                pos,
+            });
+        }
+        
         self.parse_postfix()
     }
     
@@ -523,6 +560,12 @@ impl Parser {
             return Ok(Expression::StringLiteral { value, pos });
         }
         
+        if let TokenType::CharLiteral(value) = &self.current.token_type {
+            let value = *value;
+            self.advance();
+            return Ok(Expression::CharLiteral { value, pos });
+        }
+        
         if let TokenType::InterpolatedString(_) = &self.current.token_type {
             return self.parse_interpolated_string();
         }
@@ -597,6 +640,11 @@ impl Parser {
         
         if self.check_keyword(KeywordType::KeywordReceive) {
             return self.parse_receive();
+        }
+        
+        // Reactive programming
+        if self.check_keyword(KeywordType::KeywordFlow) {
+            return self.parse_flow_creation();
         }
         
         // Memory management
@@ -1248,8 +1296,9 @@ impl Parser {
         
         let variable = self.expect_identifier()?;
         self.expect_keyword(KeywordType::KeywordIn)?;
-        // Parse iterable without trailing lambdas
-        let iterable = self.parse_condition_expression()?;
+        // Parse iterable without postfix expressions that would consume '{' 
+        // Use parse_await to avoid the postfix parsing that treats '{' as trailing lambda
+        let iterable = self.parse_await()?;
         
         // Parse the body as a block
         let body = self.parse_block()?;
@@ -1436,23 +1485,64 @@ impl Parser {
             Vec::new()
         };
         
-        self.expect(&TokenType::LeftBrace)?;
-        let body = self.parse_block_body()?;
-        self.expect(&TokenType::RightBrace)?;
+        // Handle both block body `{ }` and expression body `= expr`
+        let (requires, ensures, invariants, body) = if self.check(&TokenType::LeftBrace) {
+            // Block body with potential contracts
+            self.advance(); // consume '{'
+            let result = self.parse_function_body_with_contracts()?;
+            self.expect(&TokenType::RightBrace)?;
+            result
+        } else if self.check(&TokenType::Assign) {
+            // Expression body: fun name(...) = expr
+            self.advance(); // consume '='
+            let expr = self.parse_expression()?;
+            (None, None, Vec::new(), expr)
+        } else {
+            return Err(ParseError::UnexpectedToken {
+                expected: "{ or =".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        };
         
-        Ok(Expression::Function {
-            name,
-            params,
-            return_type,
-            body: Box::new(body),
-            is_async: false,
-            receiver,
-            uses_effects,
-            is_pure: false,
-            is_external: false,
-            doc_comment: None,
-            pos,
-        })
+        // If contracts exist, wrap with ContractedFunction
+        if requires.is_some() || ensures.is_some() || !invariants.is_empty() {
+            let function = Expression::Function {
+                name: name.clone(),
+                params,
+                return_type,
+                body: Box::new(body),
+                is_async: false,
+                receiver,
+                uses_effects,
+                is_pure: false,
+                is_external: false,
+                doc_comment: None,
+                pos: pos.clone(),
+            };
+            
+            Ok(Expression::ContractedFunction {
+                function: Box::new(function),
+                requires,
+                ensures,
+                invariants,
+                pos,
+            })
+        } else {
+            Ok(Expression::Function {
+                name,
+                params,
+                return_type,
+                body: Box::new(body),
+                is_async: false,
+                receiver,
+                uses_effects,
+                is_pure: false,
+                is_external: false,
+                doc_comment: None,
+                pos,
+            })
+        }
     }
     
     /// Parse async construct (function or block)
@@ -1526,23 +1616,64 @@ impl Parser {
             Vec::new()
         };
         
-        self.expect(&TokenType::LeftBrace)?;
-        let body = self.parse_block_body()?;
-        self.expect(&TokenType::RightBrace)?;
+        // Handle both block body `{ }` and expression body `= expr`
+        let (requires, ensures, invariants, body) = if self.check(&TokenType::LeftBrace) {
+            // Block body with potential contracts
+            self.advance(); // consume '{'
+            let result = self.parse_function_body_with_contracts()?;
+            self.expect(&TokenType::RightBrace)?;
+            result
+        } else if self.check(&TokenType::Assign) {
+            // Expression body: fun name(...) = expr
+            self.advance(); // consume '='
+            let expr = self.parse_expression()?;
+            (None, None, Vec::new(), expr)
+        } else {
+            return Err(ParseError::UnexpectedToken {
+                expected: "{ or =".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        };
         
-        Ok(Expression::Function {
-            name,
-            params,
-            return_type,
-            body: Box::new(body),
-            is_async: true,
-            receiver,
-            uses_effects,
-            is_pure: false,
-            is_external: false,
-            doc_comment: None,
-            pos,
-        })
+        // If contracts exist, wrap with ContractedFunction
+        if requires.is_some() || ensures.is_some() || !invariants.is_empty() {
+            let function = Expression::Function {
+                name: name.clone(),
+                params,
+                return_type,
+                body: Box::new(body),
+                is_async: true,
+                receiver,
+                uses_effects,
+                is_pure: false,
+                is_external: false,
+                doc_comment: None,
+                pos: pos.clone(),
+            };
+            
+            Ok(Expression::ContractedFunction {
+                function: Box::new(function),
+                requires,
+                ensures,
+                invariants,
+                pos,
+            })
+        } else {
+            Ok(Expression::Function {
+                name,
+                params,
+                return_type,
+                body: Box::new(body),
+                is_async: true,
+                receiver,
+                uses_effects,
+                is_pure: false,
+                is_external: false,
+                doc_comment: None,
+                pos,
+            })
+        }
     }
     
     /// Parse lambda expression
@@ -1791,6 +1922,89 @@ impl Parser {
             // Multiple expressions - block
             Ok(Expression::Block { expressions, pos })
         }
+    }
+    
+    /// Parse function body with optional contracts (requires/ensures/invariant)
+    /// Returns (requires, ensures, invariants, body)
+    fn parse_function_body_with_contracts(&mut self) -> ParseResult<(Option<Box<Expression>>, Option<Box<Expression>>, Vec<Expression>, Expression)> {
+        let pos = self.current.position.clone();
+        let mut requires = None;
+        let mut ensures = None;
+        let mut invariants = Vec::new();
+        let mut function_expressions = Vec::new();
+        
+        // Skip any leading newlines
+        while self.check(&TokenType::Newline) {
+            self.advance();
+        }
+        
+        // Parse contracts at the beginning of function body
+        while self.check_keyword(KeywordType::KeywordRequires) ||
+              self.check_keyword(KeywordType::KeywordEnsures) ||
+              self.check_keyword(KeywordType::KeywordInvariant) {
+            
+            if self.check_keyword(KeywordType::KeywordRequires) {
+                self.advance();
+                self.expect(&TokenType::LeftBrace)?;
+                requires = Some(Box::new(self.parse_expression()?));
+                self.expect(&TokenType::RightBrace)?;
+                
+                // Semicolon not needed - Seen uses newlines for separation
+            } else if self.check_keyword(KeywordType::KeywordEnsures) {
+                self.advance();
+                self.expect(&TokenType::LeftBrace)?;
+                ensures = Some(Box::new(self.parse_expression()?));
+                self.expect(&TokenType::RightBrace)?;
+                
+                // Semicolon not needed - Seen uses newlines for separation
+            } else if self.check_keyword(KeywordType::KeywordInvariant) {
+                self.advance();
+                self.expect(&TokenType::LeftBrace)?;
+                invariants.push(self.parse_expression()?);
+                self.expect(&TokenType::RightBrace)?;
+                
+                // Semicolon not needed - Seen uses newlines for separation
+            }
+            
+            // Skip newlines after contracts
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        // Parse the rest of the function body (regular expressions)
+        while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
+            // Skip any leading newlines
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            
+            // Check if we've reached the end after skipping newlines
+            if self.check(&TokenType::RightBrace) || self.is_at_end() {
+                break;
+            }
+            
+            function_expressions.push(self.parse_expression()?);
+            
+            // Handle statement terminators (semicolons and newlines)
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+        }
+        
+        // Create the function body
+        let body = if function_expressions.is_empty() {
+            // Empty function body returns null
+            Expression::NullLiteral { pos }
+        } else if function_expressions.len() == 1 {
+            // Single expression
+            function_expressions.into_iter().next().unwrap()
+        } else {
+            // Multiple expressions - block
+            Expression::Block { expressions: function_expressions, pos }
+        };
+        
+        Ok((requires, ensures, invariants, body))
     }
     
     /// Parse array literal
@@ -3463,6 +3677,32 @@ impl Parser {
         })
     }
     
+    /// Parse constant declaration
+    fn parse_const_declaration(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'const'
+        
+        let name = self.expect_identifier()?;
+        
+        // Optional type annotation
+        let type_annotation = if self.check(&TokenType::Colon) {
+            self.advance(); // consume ':'
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        self.expect(&TokenType::Assign)?;
+        let value = self.parse_expression()?;
+        
+        Ok(Expression::Const {
+            name,
+            type_annotation,
+            value: Box::new(value),
+            pos,
+        })
+    }
+    
     /// Parse sealed class
     fn parse_sealed_class(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
@@ -3673,6 +3913,94 @@ impl Parser {
         result.ok_or(ParseError::InvalidExpression { pos })
     }
     
+    /// Parse import statement: import module.path.{Symbol1, Symbol2}
+    fn parse_import_statement(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        
+        // Consume 'import' keyword
+        self.advance();
+        
+        // Parse module path (e.g., lexer.real_lexer)
+        let mut module_path: Vec<String> = Vec::new();
+        
+        // Parse first identifier
+        let name = self.expect_identifier()?;
+        module_path.push(name);
+        
+        // Parse additional path segments (module.submodule.submodule)
+        while self.check(&TokenType::Dot) {
+            self.advance(); // consume '.'
+            
+            // Check if we have a brace after the dot (module.path.{symbols})
+            if self.check(&TokenType::LeftBrace) {
+                break; // Don't parse another identifier, go to brace handling
+            }
+            
+            let name = self.expect_identifier()?;
+            module_path.push(name);
+        }
+        
+        // Parse imports: either single identifier or {Symbol1, Symbol2}
+        let _imported_symbols = if self.check(&TokenType::LeftBrace) {
+            self.advance(); // consume '{'
+            
+            let mut symbols = Vec::new();
+            
+            // Parse first symbol
+            let name = self.expect_identifier()?;
+            symbols.push(name);
+            
+            // Parse additional symbols
+            while self.check(&TokenType::Comma) {
+                self.advance(); // consume ','
+                
+                let name = self.expect_identifier()?;
+                symbols.push(name);
+            }
+            
+            // Consume closing '}'
+            if !self.check(&TokenType::RightBrace) {
+                return Err(ParseError::UnexpectedToken {
+                    found: self.current.token_type.clone(),
+                    expected: "'}' after import symbols".to_string(),
+                    pos: self.current.position.clone(),
+                });
+            }
+            self.advance();
+            
+            symbols
+        } else {
+            // Single import without braces - use last part of module path
+            if let Some(last) = module_path.last() {
+                vec![last.clone()]
+            } else {
+                vec![]
+            }
+        };
+        
+        // Create import expression
+        // For now, treat as a no-op block since imports are handled at compile time
+        Ok(Expression::Block {
+            expressions: vec![], // Import declarations don't generate runtime code
+            pos,
+        })
+    }
+    
+    
+    /// Parse flow creation block
+    fn parse_flow_creation(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'flow'
+        
+        self.expect(&TokenType::LeftBrace)?;
+        let body = self.parse_block_body()?;
+        self.expect(&TokenType::RightBrace)?;
+        
+        Ok(Expression::FlowCreation {
+            body: Box::new(body),
+            pos,
+        })
+    }
 }
 
 #[cfg(test)]

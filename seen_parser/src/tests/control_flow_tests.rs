@@ -128,13 +128,17 @@ fn test_parse_while_loop() {
 
 #[test]
 fn test_parse_for_loop() {
-    let expr = parse_expression("for item in items { process(item) }").unwrap();
+    let expr = parse_expression("for item in items { item }").unwrap();
     match expr {
         Expression::For { variable, iterable, body, .. } => {
             assert_eq!(variable, "item");
             match iterable.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "items"),
                 _ => panic!("Expected identifier as iterable"),
+            }
+            match body.as_ref() {
+                Expression::Identifier { name, .. } => assert_eq!(name, "item"),
+                _ => panic!("Expected identifier in body"),
             }
         }
         _ => panic!("Expected for loop"),

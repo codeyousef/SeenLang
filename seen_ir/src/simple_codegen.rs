@@ -41,6 +41,7 @@ pub type Result<T> = std::result::Result<T, CodeGenError>;
 pub struct CodeGenContext {
     pub register_mapping: HashMap<u32, String>,
     pub current_function: Option<String>,
+    pub struct_types: HashMap<String, Vec<(String, IRType)>>,
 }
 
 impl CodeGenContext {
@@ -48,11 +49,20 @@ impl CodeGenContext {
         Self {
             register_mapping: HashMap::new(),
             current_function: None,
+            struct_types: HashMap::new(),
         }
     }
     
     pub fn map_register(&mut self, virtual_reg: u32, physical_loc: String) {
         self.register_mapping.insert(virtual_reg, physical_loc);
+    }
+    
+    pub fn add_struct_type(&mut self, name: String, fields: Vec<(String, IRType)>) {
+        self.struct_types.insert(name, fields);
+    }
+    
+    pub fn get_struct_fields(&self, struct_name: &str) -> Option<&Vec<(String, IRType)>> {
+        self.struct_types.get(struct_name)
     }
     
     pub fn get_register_location(&self, virtual_reg: u32) -> Option<&String> {
@@ -70,6 +80,17 @@ impl CCodeGenerator {
         Self {
             context: CodeGenContext::new(),
         }
+    }
+    
+    /// Infer struct type from variable name (simplified heuristic)
+    fn infer_struct_type_from_variable(&self, var_name: &str) -> Option<String> {
+        // Simple heuristic: check if variable name matches any known struct types
+        for struct_name in self.context.struct_types.keys() {
+            if var_name.to_lowercase().contains(&struct_name.to_lowercase()) {
+                return Some(struct_name.clone());
+            }
+        }
+        None
     }
     
     pub fn generate_program(&mut self, program: &IRProgram) -> Result<String> {
@@ -421,17 +442,24 @@ impl CCodeGenerator {
             Instruction::FieldAccess { struct_val, field, result } => {
                 let struct_str = self.generate_c_value(struct_val)?;
                 let result_str = self.generate_c_value(result)?;
-                // Verify struct field access is valid
+                
+                // Verify struct field access is valid by looking up struct type
                 if let IRValue::Variable(var_name) = struct_val {
-                    // In a real implementation, we would look up the struct type from a symbol table
-                    // For now, we'll assume the field access is valid
-                    let _ = var_name; // Use the variable to avoid warnings
-                    let fields: Vec<(String, IRType)> = Vec::new(); // Placeholder
-                    if !fields.iter().any(|(f, _)| f == field) {
-                        return Err(CodeGenError::InvalidFieldAccess {
-                            struct_name: var_name.clone(),
-                            field_name: field.clone(),
-                        });
+                    // Extract struct type name from variable (simplified approach)
+                    // In a more complete implementation, we'd track variable types
+                    let struct_type_name = self.infer_struct_type_from_variable(var_name);
+                    
+                    if let Some(struct_name) = struct_type_name {
+                        if let Some(fields) = self.context.get_struct_fields(&struct_name) {
+                            if !fields.iter().any(|(f, _)| f == field) {
+                                return Err(CodeGenError::InvalidFieldAccess {
+                                    struct_name: struct_name,
+                                    field_name: field.clone(),
+                                });
+                            }
+                        }
+                        // If no struct info available, proceed with field access
+                        // This allows for dynamic/external structs
                     }
                 }
                 
@@ -495,6 +523,7 @@ impl CCodeGenerator {
             IRType::Integer => "int64_t".to_string(),
             IRType::Float => "double".to_string(),
             IRType::Boolean => "bool".to_string(),
+            IRType::Char => "char".to_string(),
             IRType::String => "char*".to_string(),
             IRType::Struct { name, .. } => name.clone(),
             IRType::Enum { name, .. } => name.clone(),
@@ -588,6 +617,9 @@ impl CCodeGenerator {
             // Generate struct definitions
             for type_def in module.types.values() {
                 if let IRType::Struct { name, fields } = &type_def.type_def {
+                    // Register struct type in context for field validation
+                    self.context.add_struct_type(name.clone(), fields.clone());
+                    
                     writeln!(output, "typedef struct {{").unwrap();
                     for (field_name, field_type) in fields {
                         let c_type = self.generate_c_type(field_type);
@@ -607,6 +639,7 @@ impl CCodeGenerator {
             IRValue::Integer(i) => Ok(i.to_string()),
             IRValue::Float(f) => Ok(f.to_string()),
             IRValue::Boolean(b) => Ok(if *b { "true".to_string() } else { "false".to_string() }),
+            IRValue::Char(c) => Ok(format!("'{}'", c.escape_default())),
             IRValue::Register(reg) => {
                 if let Some(location) = self.context.get_register_location(*reg) {
                     Ok(location.clone())
@@ -634,6 +667,11 @@ impl CCodeGenerator {
                     field_strs.push(format!(".{} = {}", field_name, value_str));
                 }
                 Ok(format!("({}){{{}}}", type_name, field_strs.join(", ")))
+            },
+            IRValue::Void => {
+                // Void values don't have a direct C representation
+                // For expressions that need a value, return 0
+                Ok("0".to_string())
             },
             _ => Err(CodeGenError::UnsupportedValue(format!("{:?}", value))),
         }

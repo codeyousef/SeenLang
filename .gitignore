@@ -4540,3 +4540,4 @@ debug.log
 /performance_validation/target-wsl/.rustc_info.json
 /performance_validation/target-wsl/CACHEDIR.TAG
 /target-wsl/
+/docs/private/

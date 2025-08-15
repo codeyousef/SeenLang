@@ -147,6 +147,33 @@ pub enum Instruction {
     PushFrame,
     PopFrame,
     
+    // Method dispatch operations
+    VirtualCall { 
+        receiver: IRValue, 
+        method_name: String, 
+        args: Vec<IRValue>, 
+        result: Option<IRValue> 
+    },
+    StaticCall { 
+        class_name: String, 
+        method_name: String, 
+        args: Vec<IRValue>, 
+        result: Option<IRValue> 
+    },
+    
+    // Object-oriented operations
+    ConstructObject { 
+        class_name: String, 
+        args: Vec<IRValue>, 
+        result: IRValue 
+    },
+    ConstructEnum { 
+        enum_name: String, 
+        variant_name: String, 
+        fields: Vec<IRValue>, 
+        result: IRValue 
+    },
+    
     // Debug and intrinsics
     Print(IRValue),
     Debug { message: String, value: Option<IRValue> },
@@ -241,6 +268,46 @@ impl fmt::Display for Instruction {
             },
             Instruction::PushFrame => write!(f, "  push_frame"),
             Instruction::PopFrame => write!(f, "  pop_frame"),
+            Instruction::VirtualCall { receiver, method_name, args, result } => {
+                write!(f, "  vcall {}.{}(", receiver, method_name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")?;
+                if let Some(res) = result {
+                    write!(f, " -> {}", res)?;
+                }
+                Ok(())
+            },
+            Instruction::StaticCall { class_name, method_name, args, result } => {
+                write!(f, "  scall {}::{} (", class_name, method_name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")?;
+                if let Some(res) = result {
+                    write!(f, " -> {}", res)?;
+                }
+                Ok(())
+            },
+            Instruction::ConstructObject { class_name, args, result } => {
+                write!(f, "  new {}(", class_name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ") -> {}", result)
+            },
+            Instruction::ConstructEnum { enum_name, variant_name, fields, result } => {
+                write!(f, "  enum {}::{}(", enum_name, variant_name)?;
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", field)?;
+                }
+                write!(f, ") -> {}", result)
+            },
             Instruction::Print(value) => write!(f, "  print {}", value),
             Instruction::Debug { message, value } => {
                 if let Some(val) = value {
