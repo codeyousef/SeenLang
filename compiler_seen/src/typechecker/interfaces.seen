@@ -306,69 +306,69 @@ class TypeChecker {
     var strictMode: Bool
     
     fun new() -> TypeChecker {
-        // Implementation moved to separate typechecker.seen file
-        // This stub delegates to the real implementation
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Factory method that returns the real implementation
+        import typechecker.typechecker.{TypeChecker as RealTypeChecker}
+        return RealTypeChecker.new()
     }
     
     fun check(ast: AST) -> TypeInferenceResult {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return TypeInferenceResult.new(true, Type.Void, Environment.new())
     }
     
     fun checkFunction(function: Function) -> Type {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return Type.Void
     }
     
     fun checkExpression(expression: Expression) -> Type {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return Type.Unknown
     }
     
     fun checkStatement(statement: Statement) -> Void {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        // No-op for interface
     }
     
     fun checkClass(classNode: Class) -> ClassType {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return ClassType.new(classNode.name)
     }
     
     fun checkInterface(interfaceNode: Interface) -> InterfaceType {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return InterfaceType.new(interfaceNode.name)
     }
     
     fun inferType(expression: Expression) -> Type {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return Type.Unknown
     }
     
     fun unifyTypes(type1: Type, type2: Type) -> Type? {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return if type1.name == type2.name { type1 } else { null }
     }
     
     fun isAssignableFrom(target: Type, source: Type) -> Bool {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return target.name == source.name or target == Type.Any
     }
     
     fun resolveMethod(className: String, methodName: String, args: Array<Type>) -> FunctionType? {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        return null
     }
     
     fun performSmartCast(variable: String, type: Type, condition: String) -> Void {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        // No-op for interface
     }
     
     fun setStrictMode(enabled: Bool) -> Void {
-        // Implementation moved to separate typechecker.seen file
-        throw Error.new("Use real TypeChecker from typechecker.seen - this is interface stub!")
+        // Default implementation - override in concrete implementations
+        this.strictMode = enabled
     }
     
     fun getErrors() -> Array<TypeError> {

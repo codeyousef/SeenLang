@@ -331,12 +331,69 @@ class VectorizationEngine {
     // Helper functions
     fun hasSimpleInductionVariable(loop: LoopStatement) -> Bool {
         // Check for simple i++ or i += constant pattern
-        return true; // Simplified for now
+        for statement in loop.body.statements {
+            if statement is ExpressionStatement {
+                let expr = (statement as ExpressionStatement).expression
+                if expr is AssignmentExpression {
+                    let assignment = expr as AssignmentExpression
+                    // Look for i++ or i += constant patterns
+                    if assignment.operator == "+=" or assignment.operator == "++" {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
     }
     
     fun hasComplexControlFlow(loop: LoopStatement) -> Bool {
         // Check for early exits, nested loops, function calls
-        return false; // Simplified for now
+        return hasEarlyExits(loop) or hasNestedLoops(loop) or hasFunctionCalls(loop)
+    }
+    
+    fun hasEarlyExits(loop: LoopStatement) -> Bool {
+        // Look for break, continue, return statements
+        for statement in loop.body.statements {
+            if statement is BreakStatement or statement is ContinueStatement or statement is ReturnStatement {
+                return true
+            }
+        }
+        return false
+    }
+    
+    fun hasNestedLoops(loop: LoopStatement) -> Bool {
+        // Look for nested for/while loops
+        for statement in loop.body.statements {
+            if statement is ForStatement or statement is WhileStatement {
+                return true
+            }
+        }
+        return false
+    }
+    
+    fun hasFunctionCalls(loop: LoopStatement) -> Bool {
+        // Look for function call expressions
+        for statement in loop.body.statements {
+            if statement is ExpressionStatement {
+                let expr = (statement as ExpressionStatement).expression
+                if containsFunctionCall(expr) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    
+    fun containsFunctionCall(expr: Expression) -> Bool {
+        if expr is CallExpression {
+            return true
+        }
+        // Recursively check sub-expressions
+        if expr is BinaryExpression {
+            let binary = expr as BinaryExpression
+            return containsFunctionCall(binary.left) or containsFunctionCall(binary.right)
+        }
+        return false
     }
     
     fun hasMemoryDependencies(loop: LoopStatement) -> Bool {
@@ -351,7 +408,38 @@ class VectorizationEngine {
     
     fun getLoopOperations(loop: LoopStatement) -> List<String> {
         // Extract list of operations in the loop
-        return ["add", "mul"]; // Simplified for now
+        let operations = List<String>()
+        for statement in loop.body.statements {
+            if statement is ExpressionStatement {
+                let expr = (statement as ExpressionStatement).expression
+                extractOperations(expr, operations)
+            }
+        }
+        return operations
+    }
+    
+    fun extractOperations(expr: Expression, operations: List<String>) -> Void {
+        if expr is BinaryExpression {
+            let binary = expr as BinaryExpression
+            operations.add(tokenTypeToOperation(binary.operator))
+            extractOperations(binary.left, operations)
+            extractOperations(binary.right, operations)
+        } else if expr is AssignmentExpression {
+            let assignment = expr as AssignmentExpression
+            operations.add("assign")
+            extractOperations(assignment.right, operations)
+        }
+    }
+    
+    fun tokenTypeToOperation(tokenType: TokenType) -> String {
+        return match tokenType {
+            TokenType.Plus -> "add"
+            TokenType.Minus -> "sub"
+            TokenType.Multiply -> "mul"
+            TokenType.Divide -> "div"
+            TokenType.Modulo -> "mod"
+            _ -> "unknown"
+        }
     }
     
     fun containsOnly(operations: List<String>, allowed: List<String>) -> Bool {
@@ -374,7 +462,9 @@ class VectorizationEngine {
     
     fun isReductionPattern(loop: LoopStatement) -> Bool {
         // Check if this is a reduction (sum, product, min, max)
-        return false; // Simplified for now
+        let operations = getLoopOperations(loop)
+        // Look for accumulation patterns
+        return operations.contains("add") or operations.contains("mul")
     }
     
     fun hasCPUID(feature: String) -> Bool {
@@ -393,5 +483,98 @@ class VectorizationEngine {
     fun generateScalarLoop(loop: LoopStatement, context: CodeGenContext) -> String {
         // Fall back to scalar code generation
         return "  ; Scalar loop (vectorization not beneficial)\n"
+    }
+}
+
+// Supporting classes for vectorization analysis
+class MemoryAccess {
+    let baseArray: String
+    let accessType: String  // "read" or "write"
+    let indexExpression: Expression
+    
+    fun new(arrayAccess: Expression, accessType: String) -> MemoryAccess {
+        this.baseArray = extractArrayName(arrayAccess)
+        this.accessType = accessType
+        this.indexExpression = extractIndexExpression(arrayAccess)
+    }
+    
+    fun extractArrayName(expr: Expression) -> String {
+        if expr is ArrayAccessExpression {
+            let arrayAccess = expr as ArrayAccessExpression
+            if arrayAccess.array is IdentifierExpression {
+                return (arrayAccess.array as IdentifierExpression).name
+            }
+        }
+        return "unknown"
+    }
+    
+    fun extractIndexExpression(expr: Expression) -> Expression {
+        if expr is ArrayAccessExpression {
+            return (expr as ArrayAccessExpression).index
+        }
+        return LiteralExpression.new("0", TokenType.IntegerLiteral, 0, 0)
+    }
+}
+
+// Additional AST nodes needed for vectorization analysis
+class AssignmentExpression extends Expression {
+    let left: Expression
+    let operator: String
+    let right: Expression
+    
+    fun new(left: Expression, operator: String, right: Expression) -> AssignmentExpression {
+        super(left.line, left.column)
+        this.left = left
+        this.operator = operator
+        this.right = right
+    }
+}
+
+class ArrayAccessExpression extends Expression {
+    let array: Expression
+    let index: Expression
+    
+    fun new(array: Expression, index: Expression) -> ArrayAccessExpression {
+        super(array.line, array.column)
+        this.array = array
+        this.index = index
+    }
+}
+
+class BreakStatement extends Statement {
+    fun new(line: Int, column: Int) -> BreakStatement {
+        super(line, column)
+    }
+}
+
+class ContinueStatement extends Statement {
+    fun new(line: Int, column: Int) -> ContinueStatement {
+        super(line, column)
+    }
+}
+
+class ForStatement extends Statement {
+    let init: Expression?
+    let condition: Expression?
+    let increment: Expression?
+    let body: Block
+    
+    fun new(init: Expression?, condition: Expression?, increment: Expression?, body: Block) -> ForStatement {
+        super(0, 0)
+        this.init = init
+        this.condition = condition
+        this.increment = increment
+        this.body = body
+    }
+}
+
+class WhileStatement extends Statement {
+    let condition: Expression
+    let body: Block
+    
+    fun new(condition: Expression, body: Block) -> WhileStatement {
+        super(0, 0)
+        this.condition = condition
+        this.body = body
     }
 }

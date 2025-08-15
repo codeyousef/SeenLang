@@ -324,17 +324,59 @@ class Z3Solver {
     }
     
     fun generateIntValue() -> Int {
-        // Generate reasonable integer values for bootstrap
-        return 42; // Simplified for bootstrap
+        // Analyze constraints to generate valid integer values
+        for constraint in constraints {
+            if constraint.type == "range" {
+                return constraint.minValue  // Use constraint bounds
+            } else if constraint.type == "equal" {
+                return constraint.targetValue
+            }
+        }
+        
+        // If no constraints, return optimization-friendly values
+        return 0  // Identity for addition, neutral element
     }
     
     fun generateBoolValue() -> Bool {
-        return true; // Simplified for bootstrap
+        // Analyze boolean constraints to satisfy requirements
+        for constraint in constraints {
+            if constraint.type == "bool_equal" {
+                return constraint.boolValue
+            } else if constraint.type == "implies" {
+                // If antecedent is true, consequent must be true
+                return true  // Conservative choice for optimization
+            }
+        }
+        
+        // Default to false for safety (no unnecessary optimizations)
+        return false
     }
     
     fun generateEnumValue() -> String {
-        // Return common optimization-friendly opcodes
-        return "add"; // Simplified for bootstrap
+        // Analyze constraints to choose optimal opcodes
+        for constraint in constraints {
+            if constraint.type == "opcode_preference" {
+                return constraint.preferredOpcode
+            } else if constraint.type == "performance" {
+                // Return fastest opcode for the operation type
+                return getFastestOpcode(constraint.operationType)
+            }
+        }
+        
+        // Default to most common/efficient opcode
+        return "mov"  // Move is generally fastest and most common
+    }
+    
+    fun getFastestOpcode(operationType: String) -> String {
+        // Return the fastest opcode for each operation type
+        return match operationType {
+            "arithmetic" -> "add"  // Addition is fastest arithmetic
+            "memory" -> "mov"      // Move is fastest memory operation
+            "comparison" -> "cmp"  // Direct comparison is fastest
+            "logical" -> "and"     // Bitwise AND is fast
+            "branch" -> "jmp"      // Unconditional jump is fastest
+            _ -> "nop"             // No-op for unknown operations
+        }
     }
 }
 
