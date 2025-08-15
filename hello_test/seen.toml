@@ -1,7 +1,0 @@
-name = "hello_test"
-language = "english"
-version = "0.1.0"
-
-[build]
-output_dir = ""
-optimization = ""

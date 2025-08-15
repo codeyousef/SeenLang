@@ -1,3 +1,5 @@
+# 100% Self-Hosted in Seen Language
+
 # Seen Language (س) - The World's Most Performant Programming Language
 
 <div align="center">
@@ -36,7 +38,7 @@ Seen (س) revolutionizes systems programming by combining **blazing performance*
 ### 🌍 **Universal & Inclusive**
 - **Multi-language support**: Write code in English, Arabic, Chinese, and more
 - **Cross-platform**: Windows, macOS, Linux (x64, ARM64, RISC-V)
-- **Self-hosting**: 100% implemented in Seen - no Rust dependencies
+- **Self-hosting**: 100% implemented in Seen - no Seen dependencies
 
 ---
 
