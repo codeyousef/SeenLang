@@ -1,0 +1,20 @@
+module main {
+    fun main() -> Int {
+        print("Hello from Seen in VS Code!")
+        
+        let message = "Testing language features"
+        let count = 42
+        
+        // Test nullable types
+        let user: String? = "Alice"
+        let result = user?.length() ?: 0
+        
+        // Test pattern matching
+        match count {
+            42 -> print("The answer!")
+            _ -> print("Something else")
+        }
+        
+        return 0
+    }
+}

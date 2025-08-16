@@ -4,7 +4,10 @@
   "description": "Official Seen language support with revolutionary optimization features and Alpha phase completeness",
   "version": "1.1.0",
   "publisher": "seen-lang",
-  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seen-lang/vscode-seen.git"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -36,13 +39,18 @@
     "workspaceContains:**/*.seen",
     "workspaceContains:Seen.toml"
   ],
-  "main": "./dist/extension.js",
+  "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
         "id": "seen",
-        "aliases": ["Seen", "seen"],
-        "extensions": [".seen"],
+        "aliases": [
+          "Seen",
+          "seen"
+        ],
+        "extensions": [
+          ".seen"
+        ],
         "configuration": "./language-configuration.json",
         "icon": {
           "light": "./images/seen-light.svg",
@@ -72,7 +80,11 @@
         },
         "seen.lsp.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Trace communication with the Seen Language Server"
         },
@@ -93,13 +105,23 @@
         },
         "seen.target.default": {
           "type": "string",
-          "enum": ["native", "x86_64", "aarch64", "riscv32", "riscv64", "wasm"],
+          "enum": [
+            "native",
+            "x86_64",
+            "aarch64",
+            "riscv32",
+            "riscv64",
+            "wasm"
+          ],
           "default": "native",
           "description": "Default compilation target"
         },
         "seen.language.default": {
           "type": "string",
-          "enum": ["en", "ar"],
+          "enum": [
+            "en",
+            "ar"
+          ],
           "default": "en",
           "description": "Default language for new projects"
         }
@@ -202,11 +224,19 @@
     "taskDefinitions": [
       {
         "type": "seen",
-        "required": ["task"],
+        "required": [
+          "task"
+        ],
         "properties": {
           "task": {
             "type": "string",
-            "enum": ["build", "test", "benchmark", "check", "clean"]
+            "enum": [
+              "build",
+              "test",
+              "benchmark",
+              "check",
+              "clean"
+            ]
           },
           "args": {
             "type": "array",
@@ -225,7 +255,9 @@
         "runtime": "node",
         "configurationAttributes": {
           "launch": {
-            "required": ["program"],
+            "required": [
+              "program"
+            ],
             "properties": {
               "program": {
                 "type": "string",
@@ -254,7 +286,10 @@
       {
         "name": "seen",
         "owner": "seen",
-        "fileLocation": ["relative", "${workspaceFolder}"],
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
         "pattern": {
           "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
           "file": 1,
@@ -293,14 +328,16 @@
     "test": "node ./out/test/runTest.js",
     "test-web": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js",
     "type-check": "tsc --noEmit",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package",
     "package-production": "npm run package-web && vsce package --no-dependencies",
     "publish": "vsce publish --no-dependencies",
     "vscode:package": "npm run package",
     "clean": "rimraf out dist *.vsix"
   },
   "dependencies": {
-    "vscode-languageclient": "^8.1.0"
+    "vscode-languageclient": "^8.1.0",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",

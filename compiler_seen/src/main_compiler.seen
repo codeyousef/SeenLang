@@ -420,17 +420,9 @@ class TypeInfo {
 }
 
 // Utility functions
-fun WriteFile(path: String, content: String) -> Bool {
-    // In production, would use actual file I/O
-    println("Writing to file: " + path)
-    return true
-}
-
-fun ExecuteCommand(command: String) -> CommandResult {
-    // In production, would execute actual system command
-    println("Executing: " + command)
-    return CommandResult{ success: true, output: "" }
-}
+// External C functions for file I/O and system operations
+extern fun WriteFile(path: String, content: String) -> Bool
+extern fun ExecuteCommand(command: String) -> CommandResult
 
 class CommandResult {
     var success: Bool
@@ -663,10 +655,7 @@ fun GetCommandLineArgs() -> List<String> {
     return args
 }
 
-fun ReadFile(path: String) -> String {
-    // Would read actual file in production
-    return "fun main() -> Int { return 0 }"
-}
+extern fun ReadFile(path: String) -> String
 
 // Helper functions to avoid array literal syntax
 fun CreateTokenList() -> List<String> {

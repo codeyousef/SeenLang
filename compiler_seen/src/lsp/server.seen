@@ -361,4 +361,47 @@ class SeenLspServer {
             diagnostics: diagnostics
         })
     }
+    
+    fun run() {
+        // Main JSON-RPC event loop
+        println("🚀 Starting Seen LSP Server...")
+        
+        while true {
+            let request = readJsonRpcRequest()
+            if request == null {
+                break
+            }
+            
+            match request.method {
+                "initialize" -> {
+                    let response = initialize(request.params)
+                    sendJsonRpcResponse(request.id, response)
+                }
+                "textDocument/didOpen" -> {
+                    didOpen(request.params)
+                }
+                "textDocument/didChange" -> {
+                    didChange(request.params)
+                }
+                "textDocument/completion" -> {
+                    let response = completion(request.params)
+                    sendJsonRpcResponse(request.id, response)
+                }
+                "textDocument/hover" -> {
+                    let response = hover(request.params)
+                    sendJsonRpcResponse(request.id, response)
+                }
+                "shutdown" -> {
+                    sendJsonRpcResponse(request.id, null)
+                    break
+                }
+                default -> {
+                    // Method not found
+                    sendJsonRpcError(request.id, -32601, "Method not found")
+                }
+            }
+        }
+        
+        println("✅ LSP Server shutdown complete")
+    }
 }

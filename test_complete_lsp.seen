@@ -1,0 +1,48 @@
+/**
+ * Test file for complete LSP functionality
+ * This demonstrates all working features:
+ * - Hover information
+ * - Go-to-definition  
+ * - Autocompletion
+ * - Error diagnostics
+ */
+
+/// A simple user structure with documentation
+struct User {
+    Name: String
+    Age: Int
+    Email: String?
+}
+
+/// Creates a new user with the given name and age
+fun CreateUser(name: String, age: Int): User {
+    return User{
+        Name: name,
+        Age: age,
+        Email: null
+    }
+}
+
+/// Main function demonstrating various language features
+fun main() -> Int {
+    // Variable declarations with type inference
+    let user = CreateUser("Alice", 25)
+    let message = "Hello, {user.Name}!"
+    
+    // Nullable types and safe navigation
+    let email = user.Email?.toUpperCase() ?: "No email"
+    
+    // Pattern matching
+    let status = match user.Age {
+        0..17 -> "Minor"
+        18..64 -> "Adult"
+        _ -> "Senior"
+    }
+    
+    // Method call with hover information
+    println(message)
+    println("Status: {status}")
+    println("Email: {email}")
+    
+    return 0
+}

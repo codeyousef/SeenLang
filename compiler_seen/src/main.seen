@@ -2,6 +2,7 @@
 // This is the REAL compiler entry point!
 
 use main_compiler::CompileSeenProgram
+use lsp::server::SeenLspServer
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -51,6 +52,8 @@ fun main() -> Int {
     } else if command == "init" {
         let projectName = if args.size() > 2 { args[2] } else { "new_project" }
         return initCommand(projectName)
+    } else if command == "lsp" {
+        return lspCommand()
     } else if command == "--version" or command == "-v" {
         println("Seen Compiler v2.0.0 (Self-hosted)")
         println("Language: Seen (س)")
@@ -77,6 +80,7 @@ fun printUsage() {
     println("  run <source.seen>             JIT compile and run immediately")
     println("  format <source.seen>          Format source code")
     println("  init [project_name]           Initialize new Seen project")
+    println("  lsp                           Start Language Server Protocol mode")
     println("  --version, -v                 Show version information")
     println("  --help, -h                    Show this help message")
     println("")
@@ -242,6 +246,19 @@ fun getDefaultOutput(sourceFile: String) -> String {
 fun getTimestamp() -> String {
     // In real implementation, would get actual timestamp
     return "12345"
+}
+
+fun lspCommand() -> Int {
+    // Start Language Server Protocol mode
+    // This communicates via stdin/stdout using JSON-RPC
+    startLspServer()
+    return 0
+}
+
+fun startLspServer() {
+    // Create and start the LSP server
+    let server = SeenLspServer::new()
+    server.run()
 }
 
 fun FormatSeenCode(source: String) -> String {

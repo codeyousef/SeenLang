@@ -1,0 +1,4 @@
+fun main() -> Int {
+    println("Testing LSP functionality")
+    return 0
+}

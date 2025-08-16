@@ -1,0 +1,9 @@
+// Test file for LSP functionality
+let name: String = "world"
+let greeting = "Hello, {name}!"
+
+fun greet(person: String): String {
+    return "Hello, {person}!"
+}
+
+let result = greet(name)

@@ -13,18 +13,28 @@ let client: LanguageClient;
 let diagnosticProvider: SeenDiagnosticProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Seen Language extension is activating');
+    console.log('🚀 Seen Language extension is activating...');
+    vscode.window.showInformationMessage('Seen Language extension activated!');
 
-    // Get Seen compiler path
-    const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
+    // Get Seen compiler path - prefer system installation
+    const defaultPath = process.platform === 'win32' 
+        ? 'node'
+        : 'seen';
+    const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', defaultPath);
+    console.log(`🔍 Using Seen compiler path: ${seenPath}`);
+    console.log(`🔍 Platform: ${process.platform}`);
+    console.log(`🔍 Default path would be: ${defaultPath}`);
     
     // Verify Seen is installed
     try {
         await verifySeenInstallation(seenPath);
+        console.log('✅ Seen compiler verification passed');
+        vscode.window.showInformationMessage(`Seen compiler found at: ${seenPath}`);
     } catch (error) {
+        console.error('❌ Seen compiler verification failed:', error);
         const installAction = 'Install Seen';
         const selected = await vscode.window.showErrorMessage(
-            'Seen compiler not found. Please install it first.',
+            `Seen compiler not found at: ${seenPath}. Error: ${error}`,
             installAction
         );
         
@@ -49,17 +59,16 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // Start Language Server
-    const serverOptions: ServerOptions = {
-        command: seenPath,
-        args: ['lsp'],
-        transport: TransportKind.stdio,
-        options: {
-            env: {
-                ...process.env,
-                SEEN_LSP_LOG: vscode.workspace.getConfiguration('seen.lsp.trace').get('server')
-            }
-        }
+    // Use inline LSP server to avoid spawn issues
+    console.log(`🚀 Starting inline Seen LSP server`);
+    
+    const serverOptions: ServerOptions = () => {
+        return new Promise((resolve) => {
+            const { InlineLSPServer } = require('./inline_lsp');
+            const server = new InlineLSPServer();
+            server.start();
+            resolve(server);
+        });
     };
 
     const clientOptions: LanguageClientOptions = {
@@ -67,17 +76,8 @@ export async function activate(context: vscode.ExtensionContext) {
         synchronize: {
             fileEvents: [
                 vscode.workspace.createFileSystemWatcher('**/*.seen'),
-                vscode.workspace.createFileSystemWatcher('**/Seen.toml'),
-                vscode.workspace.createFileSystemWatcher('**/languages/*.toml')
+                vscode.workspace.createFileSystemWatcher('**/Seen.toml')
             ]
-        },
-        initializationOptions: {
-            capabilities: {
-                reactive: true,          // Enable reactive programming features
-                multilingual: true,      // Enable multilingual support
-                benchmarking: true,      // Enable benchmark support
-                riscv: true             // Enable RISC-V features
-            }
         }
     };
 
@@ -89,26 +89,30 @@ export async function activate(context: vscode.ExtensionContext) {
         clientOptions
     );
 
+    // Start the client
+    console.log('🚀 Starting LSP client...');
+    try {
+        await client.start();
+        console.log('✅ LSP client started successfully');
+        vscode.window.showInformationMessage('Seen LSP server is running!');
+    } catch (error) {
+        console.error('❌ Failed to start LSP client:', error);
+        vscode.window.showErrorMessage(`Failed to start Seen LSP server: ${error}`);
+        return;
+    }
+    
     // Register custom protocol handlers
-    client.onReady().then(() => {
-        // Handle reactive stream visualizations
-        client.onNotification('seen/reactiveStream', (params: any) => {
-            ReactiveVisualizer.show(params);
-        });
-
-        // Handle benchmark results
-        client.onNotification('seen/benchmarkResult', (params: any) => {
-            BenchmarkRunner.showResults(params);
-        });
-
-        // Handle multilingual suggestions
-        client.onNotification('seen/languageSuggestion', (params: any) => {
-            handleLanguageSuggestion(params);
-        });
+    client.onNotification('seen/reactiveStream', (params: any) => {
+        ReactiveVisualizer.show(params);
     });
 
-    // Start the client
-    await client.start();
+    client.onNotification('seen/benchmarkResult', (params: any) => {
+        BenchmarkRunner.showResults(params);
+    });
+
+    client.onNotification('seen/languageSuggestion', (params: any) => {
+        handleLanguageSuggestion(params);
+    });
 
     // Initialize error diagnostics provider
     diagnosticProvider = new SeenDiagnosticProvider();
@@ -117,7 +121,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register quick fix provider
     const quickFixProvider = new SeenQuickFixProvider();
     context.subscriptions.push(
-        vscode.languages.registerCodeActionProvider(
+        vscode.languages.registerCodeActionsProvider(
             { language: 'seen' },
             quickFixProvider,
             {

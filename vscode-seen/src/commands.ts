@@ -99,10 +99,10 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
                 if (formatted && Array.isArray(formatted) && formatted.length > 0) {
                     await editor.edit(editBuilder => {
                         formatted.forEach((edit: any) => {
-                            editBuilder.replace(
-                                client.protocol2CodeConverter.asRange(edit.range),
-                                edit.newText
-                            );
+                            const range = client.protocol2CodeConverter.asRange(edit.range);
+                            if (range) {
+                                editBuilder.replace(range, edit.newText);
+                            }
                         });
                     });
                 }

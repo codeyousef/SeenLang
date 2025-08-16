@@ -1,0 +1,8 @@
+module main {
+    fun main() {
+        print("Hello from Seen Language!")
+        let x = 42
+        let message = "Testing VS Code extension"
+        print(message)
+    }
+}
