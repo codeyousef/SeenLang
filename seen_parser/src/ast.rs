@@ -134,6 +134,13 @@ pub enum Expression {
         is_safe: bool, // true for ?. operator
         pos: Position,
     },
+
+    // Import declaration for bundling
+    Import {
+        module_path: Vec<String>,
+        symbols: Vec<String>,
+        pos: Position,
+    },
     
     // Index access (brackets)
     IndexAccess {
@@ -712,6 +719,7 @@ impl Expression {
             Expression::Lambda { pos, .. } => pos,
             Expression::Call { pos, .. } => pos,
             Expression::MemberAccess { pos, .. } => pos,
+            Expression::Import { pos, .. } => pos,
             Expression::IndexAccess { pos, .. } => pos,
             Expression::Elvis { pos, .. } => pos,
             Expression::ForceUnwrap { pos, .. } => pos,

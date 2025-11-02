@@ -23,6 +23,12 @@ Thumbs.db
 /dist/
 /build/
 
+# LLVM build artifacts
+*.ll
+*.o
+a.out
+stage1_seen
+
 # Debug logs
 npm-debug.log*
 yarn-debug.log*
@@ -4541,3 +4547,44 @@ debug.log
 /performance_validation/target-wsl/CACHEDIR.TAG
 /target-wsl/
 /docs/private/
+# --- SeenLang additions (bootstrap artifacts and local binaries) ---
+# Common binary/object outputs
+*.exe
+*.o
+*.obj
+*.bin
+*.dll
+*.so
+*.dylib
+
+# Cargo targets (both workspace-local and shared)
+target/
+**/target/
+~/.cargo/target-shared/
+
+# Seen bootstrap artifacts
+stage1.c
+stage1_*.c
+stage*.seen
+simple_test_out.c
+simple_test_exe
+
+# Generated wrappers and platform launchers
+compiler_seen/target/
+compiler_seen/target/**
+compiler_seen/src/seen_runtime.o
+seen_lexer.o
+seen_parser.o
+seen_runtime.o
+seen_symbols.o
+seen_lsp_full.o
+
+# Windows launchers copied to repo root
+seen.exe
+seen_windows.exe
+seen_lsp_wrapper.exe
+seen_lsp_full_wrapper.exe
+working_lsp_server.exe
+seen_compiler.exe
+seen_complete.exe
+seen_lsp_fixed.exe

@@ -7,19 +7,19 @@ pub type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum ParseError {
-    #[error("Unexpected token: found {found:?}, expected {expected}")]
+    #[error("Unexpected token: found {found:?}, expected {expected} at {pos:?}")]
     UnexpectedToken {
         found: TokenType,
         expected: String,
         pos: Position,
     },
     
-    #[error("Unexpected end of file")]
+    #[error("Unexpected end of file at {pos:?}")]
     UnexpectedEof {
         pos: Position,
     },
     
-    #[error("Invalid expression at position {pos:?}")]
+    #[error("Invalid expression at {pos:?}")]
     InvalidExpression {
         pos: Position,
     },

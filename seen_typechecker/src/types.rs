@@ -262,6 +262,15 @@ impl TypeInfo {
 /// Convert from parser AST types to type checker types
 impl From<&seen_parser::ast::Type> for Type {
     fn from(ast_type: &seen_parser::ast::Type) -> Self {
+        // Map generic collection types (Array/List/Vec<T>) via generics vector if present
+        if !ast_type.generics.is_empty() {
+            let elem_ty = Type::from(&ast_type.generics[0]);
+            match ast_type.name.as_str() {
+                "Array" | "List" | "Vec" => return Type::Array(Box::new(elem_ty)),
+                _ => {}
+            }
+        }
+
         let base_type = match ast_type.name.as_str() {
             "Int" => Type::Int,
             "UInt" => Type::UInt,
@@ -272,9 +281,14 @@ impl From<&seen_parser::ast::Type> for Type {
             "()" => Type::Unit,
             _ => {
                 // Handle array types
-                if ast_type.name.starts_with("Array<") && ast_type.name.ends_with('>') {
+                if (ast_type.name.starts_with("Array<") && ast_type.name.ends_with('>'))
+                    || (ast_type.name.starts_with("List<") && ast_type.name.ends_with('>'))
+                    || (ast_type.name.starts_with("Vec<") && ast_type.name.ends_with('>'))
+                {
                     // Extract element type from Array<T>
-                    let element_name = &ast_type.name[6..ast_type.name.len()-1];
+                    let start = ast_type.name.find('<').unwrap_or(0) + 1;
+                    let end = ast_type.name.len()-1;
+                    let element_name = &ast_type.name[start..end];
                     let element_type = Type::from(&seen_parser::ast::Type::new(element_name));
                     Type::Array(Box::new(element_type))
                 } else {

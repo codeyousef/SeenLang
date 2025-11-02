@@ -16,9 +16,9 @@ pub mod module;
 pub mod generator;
 pub mod optimizer;
 pub mod cfg_builder;
+#[cfg(feature = "llvm")]
+pub mod llvm_backend;
 
-// Simple codegen without LLVM dependency
-pub mod simple_codegen;
 
 // Re-export main types
 pub use instruction::{Instruction, BasicBlock, Label};
@@ -27,7 +27,6 @@ pub use function::{IRFunction, Parameter};
 pub use module::IRModule;
 pub use generator::IRGenerator;
 pub use optimizer::{IROptimizer, OptimizationLevel};
-pub use simple_codegen::CCodeGenerator;
 
 /// A complete IR program consisting of multiple modules
 #[derive(Debug, Clone, Serialize, Deserialize)]

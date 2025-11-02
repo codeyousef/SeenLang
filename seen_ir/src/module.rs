@@ -404,7 +404,10 @@ impl fmt::Display for IRModule {
         // Type definitions
         if !self.types.is_empty() {
             writeln!(f, "\n; Type definitions")?;
-            for type_def in self.types.values() {
+            let mut keys: Vec<&String> = self.types.keys().collect();
+            keys.sort();
+            for key in keys {
+                let type_def = self.types.get(key).unwrap();
                 write!(f, "type {} = {}", type_def.name, type_def.type_def)?;
                 if type_def.visibility == Visibility::Public {
                     write!(f, " [public]")?;
@@ -419,7 +422,10 @@ impl fmt::Display for IRModule {
         // Constants
         if !self.constants.is_empty() {
             writeln!(f, "\n; Constants")?;
-            for constant in self.constants.values() {
+            let mut keys: Vec<&String> = self.constants.keys().collect();
+            keys.sort();
+            for key in keys {
+                let constant = self.constants.get(key).unwrap();
                 write!(f, "const {}: {} = {}", 
                        constant.name, constant.const_type, constant.value)?;
                 if constant.visibility == Visibility::Public {
@@ -432,7 +438,10 @@ impl fmt::Display for IRModule {
         // Global variables
         if !self.global_variables.is_empty() {
             writeln!(f, "\n; Global variables")?;
-            for global in self.global_variables.values() {
+            let mut keys: Vec<&String> = self.global_variables.keys().collect();
+            keys.sort();
+            for key in keys {
+                let global = self.global_variables.get(key).unwrap();
                 write!(f, "global ")?;
                 if global.is_mutable {
                     write!(f, "mut ")?;
@@ -454,7 +463,10 @@ impl fmt::Display for IRModule {
         // Functions
         if !self.functions.is_empty() {
             writeln!(f, "\n; Functions")?;
-            for function in self.functions.values() {
+            let mut fn_names: Vec<&String> = self.functions.keys().collect();
+            fn_names.sort();
+            for name in fn_names {
+                let function = self.functions.get(name).unwrap();
                 writeln!(f, "{}", function)?;
             }
         }

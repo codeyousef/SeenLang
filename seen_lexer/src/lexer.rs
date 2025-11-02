@@ -982,51 +982,10 @@ impl Lexer {
                     return Ok(Token::new(TokenType::StringLiteral(current_text), lexeme, start_pos));
                 }
             } else if ch == '{' {
-                // Check for escaped brace or interpolation
-                let brace_pos = self.pos_tracker; // Position of the '{'
+                // Treat '{' as a literal character inside triple-quoted strings
+                current_text.push('{');
+                lexeme.push('{');
                 self.advance();
-                if self.current_char == Some('{') {
-                    // Escaped opening brace
-                    current_text.push('{');
-                    lexeme.push_str("{{");
-                    self.advance();
-                } else {
-                    // Start of interpolation
-                    has_interpolation = true;
-                    
-                    // Save current text part if any
-                    if !current_text.is_empty() {
-                        parts.push(InterpolationPart {
-                            kind: InterpolationKind::Text(current_text.clone()),
-                            content: current_text.clone(),
-                            position: text_start_pos,
-                        });
-                        current_text.clear();
-                    }
-                    
-                    // Read the interpolated expression
-                    let expr = self.read_interpolation_expression()?;
-                    
-                    if expr.is_empty() {
-                        return Err(LexerError::InvalidInterpolation {
-                            position: brace_pos,
-                            message: "Empty interpolation expression".to_string(),
-                        });
-                    }
-                    
-                    parts.push(InterpolationPart {
-                        kind: InterpolationKind::Expression(expr.clone()),
-                        content: expr,
-                        position: brace_pos,
-                    });
-                    
-                    lexeme.push('{');
-                    lexeme.push_str(&parts.last().unwrap().content);
-                    lexeme.push('}');
-                    
-                    // Update text start position for next part
-                    text_start_pos = self.pos_tracker;
-                }
             } else if ch == '}' && self.peek() == Some('}') {
                 // Escaped closing brace
                 current_text.push('}');

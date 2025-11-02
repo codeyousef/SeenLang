@@ -36,6 +36,9 @@ serde_json = { workspace = true }
 # For terminal coloring
 colored = { workspace = true }
 
+# Hashing for determinism checks
+sha2 = "0.10"
+
 # For async runtime (needed for LSP)
 tokio = { version = "1", features = ["rt", "macros"] }
 [dev-dependencies]

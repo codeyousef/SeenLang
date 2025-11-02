@@ -1,7 +1,7 @@
 // Seen Compiler - Self-hosted Implementation
 // This is the REAL compiler entry point!
 
-use main_compiler::CompileSeenProgram
+import main_compiler.{CompileSeenProgram}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()

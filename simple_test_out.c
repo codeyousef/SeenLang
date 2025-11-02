@@ -4,6 +4,8 @@
 #include <stdbool.h>
 
 // Module: main
+int64_t main();
+
 int64_t seen_main() {
     return 0;
 }

@@ -771,6 +771,57 @@ impl Interpreter {
 
     /// Interpret a function/method call
     fn interpret_call(&mut self, callee: &Expression, args: &[Expression], pos: Position) -> InterpreterResult<Value> {
+        // Method-call lowering for common string/array operations
+        if let Expression::MemberAccess { object, member, .. } = callee {
+            let recv = self.interpret_expression(object)?;
+            match (member.as_str(), args.len(), recv) {
+                ("length", 0, Value::String(s)) | ("size", 0, Value::String(s)) => {
+                    return Ok(Value::Integer(s.chars().count() as i64));
+                }
+                ("length", 0, Value::Array(arr)) | ("size", 0, Value::Array(arr)) => {
+                    return Ok(Value::Integer(arr.len() as i64));
+                }
+                ("push", 1, Value::Array(mut arr)) => {
+                    let elem = self.interpret_expression(&args[0])?;
+                    arr.push(elem);
+                    return Ok(Value::Array(arr));
+                }
+                ("pop", 0, Value::Array(mut arr)) => {
+                    if !arr.is_empty() { arr.pop(); }
+                    return Ok(Value::Array(arr));
+                }
+                ("slice", 2, Value::Array(arr)) => {
+                    let start = self.interpret_expression(&args[0])?.as_integer().ok_or_else(|| InterpreterError::type_error("slice start must be int", pos))? as usize;
+                    let end = self.interpret_expression(&args[1])?.as_integer().ok_or_else(|| InterpreterError::type_error("slice end must be int", pos))? as usize;
+                    if start > end || end > arr.len() { return Err(InterpreterError::runtime("slice out of bounds", pos)); }
+                    let slice = arr[start..end].to_vec();
+                    return Ok(Value::Array(slice));
+                }
+                ("endsWith", 1, Value::String(s)) => {
+                    let suffix = self.interpret_expression(&args[0])?.to_string();
+                    return Ok(Value::Boolean(s.ends_with(&suffix)));
+                }
+                ("substring", 2, Value::String(s)) => {
+                    let start = self.interpret_expression(&args[0])?.as_integer().ok_or_else(|| InterpreterError::type_error("substring start must be int", pos))? as usize;
+                    let end = self.interpret_expression(&args[1])?.as_integer().ok_or_else(|| InterpreterError::type_error("substring end must be int", pos))? as usize;
+                    let chars: Vec<char> = s.chars().collect();
+                    if start > end || end > chars.len() { return Err(InterpreterError::runtime("substring out of bounds", pos)); }
+                    let sub: String = chars[start..end].iter().collect();
+                    return Ok(Value::String(sub));
+                }
+                (_, _, recv_val) => {
+                    // Fallback: treat as free function with receiver as first arg
+                    if let Expression::MemberAccess { member, .. } = callee {
+                        let mut arg_values = Vec::new();
+                        arg_values.push(recv_val);
+                        for a in args { arg_values.push(self.interpret_expression(a)?); }
+                        if self.builtins.is_builtin(member) {
+                            return self.builtins.call(member, &arg_values, pos);
+                        }
+                    }
+                }
+            }
+        }
         // Check if it's a built-in function call
         if let Expression::Identifier { name, .. } = callee {
             if self.builtins.is_builtin(name) {

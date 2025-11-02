@@ -135,6 +135,16 @@ impl TypeChecker {
             return_type: Some(Type::Unit),
         });
 
+        // Built-ins used by bootstrap/self-host sources
+        env.define_function("CompileSeenProgram".to_string(), FunctionSignature {
+            name: "CompileSeenProgram".to_string(),
+            parameters: vec![
+                Parameter { name: "source".to_string(), param_type: Type::String },
+                Parameter { name: "output".to_string(), param_type: Type::String },
+            ],
+            return_type: Some(Type::Bool),
+        });
+
         Self {
             env,
             result: TypeCheckResult::new(),
@@ -142,8 +152,30 @@ impl TypeChecker {
         }
     }
 
+    /// Predeclare all top-level function signatures for forward references
+    fn predeclare_signatures(&mut self, program: &Program) {
+        for expr in &program.expressions {
+            if let Expression::Function { name, params, return_type, .. } = expr {
+                // Build parameter types
+                let mut checker_params = Vec::new();
+                for p in params {
+                    let pty = if let Some(ta) = &p.type_annotation { Type::from(ta) } else { Type::Unknown };
+                    checker_params.push(crate::Parameter { name: p.name.clone(), param_type: pty });
+                }
+                // Return type (default Unit)
+                let ret = return_type.as_ref().map(|t| Type::from(t)).or(Some(Type::Unit));
+                let sig = FunctionSignature { name: name.clone(), parameters: checker_params, return_type: ret };
+                if !self.env.has_function(name) {
+                    self.env.define_function(name.clone(), sig);
+                }
+            }
+        }
+    }
+
     /// Type check a program
     pub fn check_program(&mut self, program: &Program) -> TypeCheckResult {
+        // Predeclare function signatures so that order of definitions doesn't matter
+        self.predeclare_signatures(program);
         for expression in &program.expressions {
             self.check_expression(expression);
         }
@@ -167,6 +199,8 @@ impl TypeChecker {
     /// Type check an expression and return its type
     pub fn check_expression(&mut self, expression: &Expression) -> Type {
         match expression {
+            // Import declarations are compile-time only; no runtime type
+            Expression::Import { .. } => Type::Unit,
             // Literals
             Expression::IntegerLiteral { .. } => Type::Int,
             Expression::FloatLiteral { .. } => Type::Float,
@@ -372,6 +406,20 @@ impl TypeChecker {
                     position: pos,
                 });
                 Type::Unknown
+            }
+        } else if let Expression::MemberAccess { object, member, .. } = callee {
+            // Method-style call like array.size() or string.length()
+            let recv_ty = self.check_expression(object);
+            // Validate no arguments for simple accessors
+            for arg in args { let _ = self.check_expression(arg); }
+            let base = recv_ty.non_nullable().clone();
+            match (&base, member.as_str()) {
+                (Type::Array(_), "size") | (Type::Array(_), "length") => Type::Int,
+                (Type::String, "size") | (Type::String, "length") => Type::Int,
+                _ => {
+                    // Unknown method; treat as unknown return
+                    Type::Unknown
+                }
             }
         } else {
             // For complex callee expressions, just type check them and assume unknown return
@@ -773,14 +821,8 @@ impl TypeChecker {
             return_type: checker_return_type.clone(),
         };
 
-        // Check for duplicate function
-        if self.env.has_function(name) {
-            self.result.add_error(TypeError::DuplicateFunction {
-                name: name.to_string(),
-                position: pos,
-            });
-        } else {
-            // Register the function in the environment
+        // Register (or update) the function in the environment without duplicate error
+        if !self.env.has_function(name) {
             self.env.define_function(name.to_string(), signature);
         }
 

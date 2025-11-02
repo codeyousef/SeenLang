@@ -4,5 +4,5 @@ fun TestFunction() -> String {
 
 fun Main() {
     let result = TestFunction()
-    Print(result)
+    println(result)
 }
