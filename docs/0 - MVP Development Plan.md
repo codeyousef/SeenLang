@@ -1,62 +1,65 @@
-# Seen Language MVP Development Plan (Reality‑Based)
+# Seen Language MVP Development Plan (Reality‑Based, Rust‑Only)
 
 This plan replaces previous claims with the current, verifiable status and defines the remaining work to reach a solid, self‑hosted MVP.
 
 ## Executive Summary
 - Current base: Rust workspace (lexer, parser, typechecker, IR, CLI, etc.).
-- CLI works for `check`, `run` (interpreter), and `build` (Seen → C) on simple samples.
-- Stage‑1 bootstrap: We can emit C for `compiler_seen/src/main.seen` and build a native binary, but only with injected C stubs and minimal string helpers. This is not a complete self‑host yet.
+- CLI works for `check`, `run` (interpreter), and `build` (IR text). LLVM backend (via inkwell/LLVM 15) builds native binaries behind a feature flag.
+- Stage‑1 bootstrap (LLVM): `compiler_seen/src/main.seen` now type‑checks. Native build reaches LLVM lowering and fails on a remaining unknown call target (CompileSeenProgram) and a few value‑flow edges. No C backend remains.
 - Roadmap claims (RISC‑V, “100% tests”, full LSP) are not substantiated and are out of scope for the MVP.
 
 ## What’s Implemented
 - CLI commands: `build`, `run`, `check`, `ir`, `repl`, `format`, `test`, `parse`, `lex`.
 - IR generation and LLVM backend (feature‑gated); string helpers and method‑style lowering (length/size/endsWith/substring and string `+`).
-- Parser handles `import …` syntax.
-- Docs: `docs/quickstart.md` and `docs/SELF_HOSTING_PLAN.md` exist and are actionable.
+- Parser + bundler: `import …` supported; self‑host entry no longer imports `main_compiler`.
+- Docs: `docs/quickstart.md` and `docs/SELF_HOSTING_PLAN.md` updated with LLVM 15 flow.
 
 ## Gaps to MVP
-- Import bundling: no real module resolution or bundling of `main_compiler` and deps; Stage‑1 succeeded only with injected stubs.
-- Type + codegen integration: strings/arrays/structs not consistently typed through IR to LLVM; some temps are untyped in IR and need conservative lowering.
-- Lists/arrays: construction, length, indexing, and returns need full end‑to‑end lowering + helpers.
-- Built‑ins/runtime: minimal runtime for `println`, string ops, and basic IO (currently stubbed for Stage‑1).
-- Determinism: Stage‑2/Stage‑3 not yet produced or hash‑compared.
-- Tests: no focused tests for bootstrap surface (imports, strings, method lowering, bundling, simple end‑to‑end C build).
-- LSP completeness not validated; keep out of MVP.
+- Import bundling: in place; symbol‑lists/aliasing can be refined later.
+- Type + codegen: strings/arrays mostly mapped; finish a few edges (array ops as needed by sources).
+- CompileSeenProgram bridge: implement in Stage‑1 as an external compile call (write temp file, invoke `seen build --backend llvm`) and later replace with in‑process pipeline.
+- Determinism: Stage‑2/Stage‑3 not yet built as native; IR‑text determinism exists.
+- Tests: add focused coverage for bundling, strings/arrays, and LLVM e2e.
+- LSP completeness not validated; out of MVP.
 
 ## MVP Scope (revised)
 Deliver a self‑hosted compiler that:
-- Compiles `compiler_seen/src/main.seen` to C without stubs and builds/runs (Stage‑1).
+- Compiles `compiler_seen/src/main.seen` to a native binary with LLVM (no C, no stubs) — Stage‑1.
 - Builds Stage‑2 and Stage‑3 from Stage‑1 with matching hashes.
-- Supports the minimal feature set used by bootstrap: functions, strings, arrays (basic), control flow, imports, simple structs.
+- Supports minimal features used by bootstrap: functions, strings, arrays (basic), control flow, imports, simple structs.
 
 ## Plan & Milestones
-- Stage‑1 without stubs
-  - Implement list/array lowering and helpers in C.
-  - Track/emit correct C types for strings/structs; fix struct/list returns.
-  - Provide minimal C runtime for built‑ins (println, file IO, exec, time, format).
-- Acceptance: `cargo build -p seen_cli --release --features seen_ir/llvm`; `seen build compiler_seen/src/main.seen --backend llvm --output stage1_seen`; `./stage1_seen build …` succeeds.
+- Stage‑1 (LLVM, no stubs)
+  - Implement `CompileSeenProgram(source, output)` bridge: Stage‑1 writes `source` to a temp file and invokes `seen build <temp> --backend llvm --output <output>` via `__ExecuteCommand`.
+  - Finalize intrinsic/call mapping (println, endsWith, substring, strlen/concat are done; fill any missing used by sources).
+  - Acceptance: `cargo build -p seen_cli --release --features llvm`; `seen build compiler_seen/src/main.seen --backend llvm --output stage1_seen` succeeds.
 - Import/bundler
-  - Implement `import` resolution; bundle only required modules (e.g., `CompileSeenProgram` and deps).
-  - Acceptance: no manual stubs; full Stage‑1 build succeeds.
+  - Support symbol‑list imports and aliasing; verify `import main_compiler.{CompileSeenProgram}`.
+  - Acceptance: no manual stubs; Stage‑1 build succeeds.
 - Stage‑2/Stage‑3 determinism
   - Build Stage‑2 with Stage‑1, Stage‑3 with Stage‑2; compare hashes.
   - Acceptance: `sha256(stage2_seen) == sha256(stage3_seen)`.
 - Tests and docs
-  - Add targeted tests: import syntax, triple‑quoted and interpolated strings, string method lowering, bundler integration, simple e2e C build.
+  - Add targeted tests: imports, triple‑quoted/interpolated strings, arrays/strings, bundler, LLVM e2e.
   - Keep quickstart and verifier instructions updated.
 
 ## Non‑Goals for MVP
 - RISC‑V/ISA/vector support, LLVM performance targets, full Kotlin‑feature parity, and complete LSP. These are follow‑ups.
 
 ## Risks
-- Type/codegen gaps causing C type errors.
+- Type/codegen gaps causing LLVM type errors.
 - Over/under‑bundling causing duplicates or missing symbols.
-- Hidden dependencies in `compiler_seen` that require more runtime helpers.
+- Hidden dependencies in `compiler_seen` requiring additional runtime helpers.
 
 ## Current Reality Checklist
 - [x] CLI builds and basic flows work
-- [x] Stage‑1 C emits and compiles with temporary stubs
-- [ ] Stage‑1 compiles without stubs
-- [ ] Bundler resolves imports
-- [ ] Stage‑2/Stage‑3 deterministic
-- [ ] Tests for bootstrap surface
+- [x] LLVM backend builds with LLVM 15
+- [x] Self‑host entry type‑checks
+- [ ] Stage‑1 native build links and runs (CompileSeenProgram bridged)
+- [ ] Stage‑2/Stage‑3 deterministic (native)
+- [ ] Tests for bootstrap surface and LLVM e2e
+
+## Next 3 Tasks (tomorrow)
+- Bridge CompileSeenProgram in LLVM path (call `seen build` with temp file) so Stage‑1 produces `stage1_seen`. Files: compiler_seen/src/main.seen (call site), seen_ir/src/llvm_backend.rs (intrinsic dispatch for "CompileSeenProgram").
+- Confirm all runtime intrinsics used in `main.seen` are lowered (println, __Read/WriteFile, __ExecuteCommand, __GetTimestamp, string ops). File: seen_ir/src/llvm_backend.rs.
+- Run `scripts/self_host_llvm.sh` and verify Stage‑2/Stage‑3 hashes match; if not, capture diffs and update tests.

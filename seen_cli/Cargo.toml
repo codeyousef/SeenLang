@@ -49,3 +49,8 @@ rstest = { workspace = true }
 tempfile = { workspace = true }
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
+
+[features]
+default = []
+# Propagate LLVM backend toggle into seen_ir
+llvm = ["seen_ir/llvm"]

@@ -6,8 +6,11 @@
 
 ## Prerequisites
 - Rust toolchain installed (rustc, cargo).
-- Toolchain for native builds: clang/llc/opt and gcc/make on PATH.
-- Verify: `rustc --version && cargo --version && which clang llc opt gcc`.
+- LLVM 15 toolchain for native builds: `llvm-15-dev` and `clang-15` (Linux) or Homebrew `llvm@15` (macOS).
+- Export env (Linux):
+  - `export LLVM_SYS_150_PREFIX=/usr/lib/llvm-15`
+  - `export LLVM_CONFIG_PATH=/usr/bin/llvm-config-15`
+- Verify: `rustc --version && cargo --version && llvm-config-15 --version && which clang`.
 
 ## Branch & Build (Rust Base)
 - Branch: `git checkout -b compiler-first origin/main` (done).
@@ -18,18 +21,18 @@
 
 ## Stage 1 (Seen → Native via LLVM)
 - Build the CLI with LLVM enabled:
-  - `cargo build -p seen_cli --release --features seen_ir/llvm`
+  - `cargo build -p seen_cli --release --features llvm`
 - Produce Stage‑1 binary directly:
-  - `./target/release/seen_cli build compiler_seen/src/main.seen --backend llvm --output stage1_seen`
+  - `~/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen --backend llvm --output stage1_seen`
 - Sanity check: `./stage1_seen --version`.
 
 Status (implemented):
-- Added string runtime helpers and method-call lowering (length/endsWith/substring/+).
-- Added bootstrap stubs in emitted C for: `CompileSeenProgram`, `println`, file ops and misc.
-- Disabled bundling of the full `main_compiler` during Stage 1 to avoid type/IR gaps.
+- LLVM backend wired (inkwell 0.6, LLVM 15).
+- String runtime helpers and method-call lowering (length/endsWith/substring/+).
+- Import bundling in CLI (basic path resolution).
 
 Next:
-- Remove stub reliance by lowering lists/struct returns and providing minimal runtime.
+- Expand array/list lowering; implement `CompileSeenProgram` LLVM path; complete type coverage.
 
 ## Stage 2/3 (Self‑Compile Twice)
 - Build Stage‑2 with Stage‑1:
@@ -39,11 +42,12 @@ Next:
 - Verify determinism:
   - `sha256sum stage2_seen stage3_seen` (expect identical hashes).
 
+Automation:
+- `scripts/self_host_llvm.sh` runs Stage‑1/2/3 and prints hashes.
+
 ## Verifier (Optional)
-- Run Seen verifier with Rust CLI:
-  - `seen run compiler_seen/src/bootstrap/verifier.seen`
-- Or build a native verifier (LLVM):
-  - `seen build compiler_seen/src/bootstrap/verifier.seen --backend llvm --output verifier && ./verifier`
+- Determinism (IR text): `seen determinism compiler_seen/src/main.seen -O2`.
+- Full pipeline (LLVM): `scripts/self_host_llvm.sh` builds Stage‑1/2/3 and prints hashes.
 
 ## Install Self‑Hosted Compiler
 - Backup bootstrap: `sudo mv /usr/local/bin/seen /usr/local/bin/seen_bootstrap_backup`.

@@ -28,6 +28,8 @@ Thumbs.db
 *.o
 a.out
 stage1_seen
+stage2_seen
+stage3_seen
 
 # Debug logs
 npm-debug.log*

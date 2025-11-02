@@ -341,10 +341,8 @@ fn compile_file_llvm(input: &Path, output: Option<&PathBuf>, opt_level: u8, emit
     }
     #[cfg(not(feature = "llvm"))]
     {
-        anyhow::bail!("LLVM backend not enabled at build time. Rebuild with: cargo build --features seen_ir/llvm");
+        anyhow::bail!("LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm");
     }
-
-    println!("Build completed (LLVM backend)");
     Ok(())
 }
 
@@ -395,16 +393,18 @@ fn bundle_imports(program: Program, input_path: &Path, keyword_manager: Arc<Keyw
     Ok(merged)
 }
 
-fn run_file(input: &Path, _args: &[String], keyword_manager: Arc<KeywordManager>) -> Result<()> {
+fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>) -> Result<()> {
     // Read source file
     let source = fs::read_to_string(input)
         .with_context(|| format!("Failed to read source file: {}", input.display()))?;
     
     // Lex and parse
-    let lexer = Lexer::new(source, keyword_manager);
+    let lexer = Lexer::new(source.clone(), keyword_manager.clone());
     let mut parser = SeenParser::new(lexer);
-    let ast = parser.parse_program()
+    let parsed = parser.parse_program()
         .context("Failed to parse source")?;
+    // Bundle imports so interpreter sees imported functions
+    let ast = bundle_imports(parsed, input, keyword_manager.clone())?;
     
     // Type check
     let mut type_checker = TypeChecker::new();
@@ -418,6 +418,12 @@ fn run_file(input: &Path, _args: &[String], keyword_manager: Arc<KeywordManager>
     
     // Interpret the program
     let mut interpreter = Interpreter::new();
+    // Forward program args via env for __GetCommandLineArgs override
+    if !args.is_empty() {
+        let mut s = String::from("seen");
+        for a in args { s.push(' '); s.push_str(a); }
+        std::env::set_var("SEEN_PROGRAM_ARGS", s);
+    }
     let result = interpreter.interpret(&ast)
         .context("Runtime error")?;
     

@@ -4,6 +4,10 @@ use crate::value::Value;
 use crate::errors::{InterpreterError, InterpreterResult};
 use seen_parser::Position;
 use std::collections::HashMap;
+use std::fs;
+use std::io::Read as _;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::Command;
 
 /// Type signature for built-in functions
 pub type BuiltinFunction = fn(&[Value], Position) -> InterpreterResult<Value>;
@@ -37,6 +41,17 @@ impl BuiltinRegistry {
         registry.register("sqrt", builtin_sqrt, 1);
         registry.register("pow", builtin_pow, 2);
         
+        // System/IO builtins (double-underscore to avoid name clashes with user code)
+        registry.register("__GetCommandLineArgs", builtin_get_command_line_args, 0);
+        registry.register("__GetTimestamp", builtin_get_timestamp, 0);
+        registry.register("__ReadFile", builtin_read_file, 1);
+        registry.register("__WriteFile", builtin_write_file, 2);
+        registry.register("__CreateDirectory", builtin_create_directory, 1);
+        registry.register("__DeleteFile", builtin_delete_file, 1);
+        registry.register("__ExecuteProgram", builtin_execute_program, 1);
+        registry.register("__ExecuteCommand", builtin_execute_command, 1);
+        registry.register("__FormatSeenCode", builtin_format_seen_code, 1);
+
         registry
     }
     
@@ -259,6 +274,91 @@ fn builtin_pow(args: &[Value], position: Position) -> InterpreterResult<Value> {
             position,
         )),
     }
+}
+
+// --- System/IO builtin implementations ---
+
+fn builtin_get_command_line_args(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    // Prefer SEEN_PROGRAM_ARGS env override for interpreter-run programs
+    if let Ok(over) = std::env::var("SEEN_PROGRAM_ARGS") {
+        let parts: Vec<String> = over
+            .split(' ')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        return Ok(Value::Array(parts.into_iter().map(Value::String).collect()));
+    }
+    let vals: Vec<Value> = std::env::args().map(Value::String).collect();
+    Ok(Value::Array(vals))
+}
+
+fn builtin_get_timestamp(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    Ok(Value::String(now.as_secs().to_string()))
+}
+
+fn builtin_read_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let path = args[0].to_string();
+    match fs::read_to_string(&path) {
+        Ok(s) => Ok(Value::String(s)),
+        Err(_) => Ok(Value::String(String::new())), // Align with Seen stubs' empty-string-on-fail pattern
+    }
+}
+
+fn builtin_write_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let path = args[0].to_string();
+    let content = args[1].to_string();
+    match fs::write(&path, content) {
+        Ok(_) => Ok(Value::Boolean(true)),
+        Err(_) => Ok(Value::Boolean(false)),
+    }
+}
+
+fn builtin_create_directory(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let path = args[0].to_string();
+    match fs::create_dir_all(&path) {
+        Ok(_) => Ok(Value::Boolean(true)),
+        Err(_) => Ok(Value::Boolean(false)),
+    }
+}
+
+fn builtin_delete_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let path = args[0].to_string();
+    match fs::remove_file(&path) {
+        Ok(_) => Ok(Value::Boolean(true)),
+        Err(_) => Ok(Value::Boolean(false)),
+    }
+}
+
+fn builtin_execute_program(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let path = args[0].to_string();
+    let status = Command::new(path).status();
+    Ok(Value::Integer(match status {
+        Ok(s) => s.code().unwrap_or(1) as i64,
+        Err(_) => 1,
+    }))
+}
+
+fn builtin_execute_command(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let cmd = args[0].to_string();
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd").arg("/C").arg(cmd).output();
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("sh").arg("-c").arg(cmd).output();
+
+    let (success, stdout) = match output {
+        Ok(o) => (o.status.success(), String::from_utf8_lossy(&o.stdout).to_string()),
+        Err(_) => (false, String::new()),
+    };
+    let mut fields = HashMap::new();
+    fields.insert("success".to_string(), Value::Boolean(success));
+    fields.insert("output".to_string(), Value::String(stdout));
+    Ok(Value::Struct { name: "CommandResult".to_string(), fields })
+}
+
+fn builtin_format_seen_code(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    // Placeholder: return input as-is
+    Ok(Value::String(args[0].to_string()))
 }
 
 impl Default for BuiltinRegistry {

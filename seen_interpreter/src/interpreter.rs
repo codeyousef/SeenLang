@@ -125,6 +125,8 @@ impl Interpreter {
         }
         
         match expr {
+            // Imports are compile-time only; no runtime semantics
+            Expression::Import { .. } => Ok(Value::Unit),
             // Literals
             Expression::IntegerLiteral { value, .. } => Ok(Value::Integer(*value)),
             Expression::FloatLiteral { value, .. } => Ok(Value::Float(*value)),

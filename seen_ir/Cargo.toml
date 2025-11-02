@@ -6,14 +6,15 @@ description = "Intermediate representation for the Seen programming language"
 
 [features]
 default = []
-llvm = ["dep:inkwell"]
+# Enable LLVM backend; select the installed LLVM version feature on inkwell
+llvm = ["dep:inkwell", "inkwell/llvm15-0"]
 
 [dependencies]
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 seen_parser = { path = "../seen_parser" }
-inkwell = { version = "0.2", optional = true }
+inkwell = { version = "0.6", optional = true, default-features = false }
 
 [dev-dependencies]
 proptest = { workspace = true }

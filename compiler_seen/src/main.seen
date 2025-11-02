@@ -1,7 +1,7 @@
 // Seen Compiler - Self-hosted Implementation
 // This is the REAL compiler entry point!
 
-import main_compiler.{CompileSeenProgram}
+// Uses built-in CompileSeenProgram(source: String, output: String) -> Bool provided by the runtime
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -240,48 +240,21 @@ fun getDefaultOutput(sourceFile: String) -> String {
 }
 
 fun getTimestamp() -> String {
-    // In real implementation, would get actual timestamp
-    return "12345"
+    return __GetTimestamp()
 }
 
-fun FormatSeenCode(source: String) -> String {
-    // In real implementation, would use proper formatter
-    // For now, return as-is
-    return source
-}
+fun FormatSeenCode(source: String) -> String { return __FormatSeenCode(source) }
 
 // System interface functions (would be implemented in runtime)
 
-fun GetCommandLineArgs() -> List<String> {
-    // In real implementation, gets actual command line args
-    return ["seen", "build", "test.seen"]
-}
+fun GetCommandLineArgs() -> List<String> { return __GetCommandLineArgs() }
 
-fun ReadFile(path: String) -> String {
-    // In real implementation, reads actual file
-    return """
-fun main() -> Int {
-    println("Hello, Seen!")
-    return 0
-}"""
-}
+fun ReadFile(path: String) -> String { return __ReadFile(path) }
 
-fun WriteFile(path: String, content: String) -> Bool {
-    println("[Would write to: {path}]")
-    return true
-}
+fun WriteFile(path: String, content: String) -> Bool { return __WriteFile(path, content) }
 
-fun CreateDirectory(path: String) -> Bool {
-    println("[Would create directory: {path}]")
-    return true
-}
+fun CreateDirectory(path: String) -> Bool { return __CreateDirectory(path) }
 
-fun DeleteFile(path: String) -> Bool {
-    println("[Would delete: {path}]")
-    return true
-}
+fun DeleteFile(path: String) -> Bool { return __DeleteFile(path) }
 
-fun ExecuteProgram(path: String) -> Int {
-    println("[Would execute: {path}]")
-    return 0
-}
+fun ExecuteProgram(path: String) -> Int { return __ExecuteProgram(path) }

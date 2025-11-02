@@ -145,6 +145,66 @@ impl TypeChecker {
             return_type: Some(Type::Bool),
         });
 
+        // System/IO builtins used by self-host sources (double-underscore forms)
+        env.define_function("__GetCommandLineArgs".to_string(), FunctionSignature {
+            name: "__GetCommandLineArgs".to_string(),
+            parameters: vec![],
+            return_type: Some(Type::Array(Box::new(Type::String))),
+        });
+        env.define_function("__GetTimestamp".to_string(), FunctionSignature {
+            name: "__GetTimestamp".to_string(),
+            parameters: vec![],
+            return_type: Some(Type::String),
+        });
+        env.define_function("__ReadFile".to_string(), FunctionSignature {
+            name: "__ReadFile".to_string(),
+            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
+            return_type: Some(Type::String),
+        });
+        env.define_function("__WriteFile".to_string(), FunctionSignature {
+            name: "__WriteFile".to_string(),
+            parameters: vec![
+                Parameter { name: "path".to_string(), param_type: Type::String },
+                Parameter { name: "content".to_string(), param_type: Type::String },
+            ],
+            return_type: Some(Type::Bool),
+        });
+        env.define_function("__CreateDirectory".to_string(), FunctionSignature {
+            name: "__CreateDirectory".to_string(),
+            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
+            return_type: Some(Type::Bool),
+        });
+        env.define_function("__DeleteFile".to_string(), FunctionSignature {
+            name: "__DeleteFile".to_string(),
+            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
+            return_type: Some(Type::Bool),
+        });
+        env.define_function("__ExecuteProgram".to_string(), FunctionSignature {
+            name: "__ExecuteProgram".to_string(),
+            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
+            return_type: Some(Type::Int),
+        });
+        // Return type models CommandResult { success: Bool, output: String }
+        env.define_function("__ExecuteCommand".to_string(), FunctionSignature {
+            name: "__ExecuteCommand".to_string(),
+            parameters: vec![Parameter { name: "command".to_string(), param_type: Type::String }],
+            return_type: Some(Type::Struct {
+                name: "CommandResult".to_string(),
+                fields: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("success".to_string(), Type::Bool);
+                    m.insert("output".to_string(), Type::String);
+                    m
+                },
+                generics: Vec::new(),
+            }),
+        });
+        env.define_function("__FormatSeenCode".to_string(), FunctionSignature {
+            name: "__FormatSeenCode".to_string(),
+            parameters: vec![Parameter { name: "source".to_string(), param_type: Type::String }],
+            return_type: Some(Type::String),
+        });
+
         Self {
             env,
             result: TypeCheckResult::new(),
