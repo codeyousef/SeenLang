@@ -1,16 +1,16 @@
 //! Concurrency and Async features for Seen Language
 
-pub mod async_runtime;
-pub mod async_functions;
-pub mod channels;
 pub mod actors;
+pub mod async_functions;
+pub mod async_runtime;
+pub mod channels;
 pub mod select;
 pub mod types;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_concurrency_module() {
         // Test that the concurrency module exports are available

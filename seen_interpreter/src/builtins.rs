@@ -1,13 +1,13 @@
 //! Built-in functions for the Seen interpreter
 
-use crate::value::Value;
 use crate::errors::{InterpreterError, InterpreterResult};
+use crate::value::Value;
 use seen_parser::Position;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read as _;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Type signature for built-in functions
 pub type BuiltinFunction = fn(&[Value], Position) -> InterpreterResult<Value>;
@@ -23,7 +23,7 @@ impl BuiltinRegistry {
         let mut registry = Self {
             functions: HashMap::new(),
         };
-        
+
         // Register all built-in functions
         registry.register("print", builtin_print, 1);
         registry.register("println", builtin_println, 1);
@@ -40,7 +40,7 @@ impl BuiltinRegistry {
         registry.register("round", builtin_round, 1);
         registry.register("sqrt", builtin_sqrt, 1);
         registry.register("pow", builtin_pow, 2);
-        
+
         // System/IO builtins (double-underscore to avoid name clashes with user code)
         registry.register("__GetCommandLineArgs", builtin_get_command_line_args, 0);
         registry.register("__GetTimestamp", builtin_get_timestamp, 0);
@@ -54,17 +54,17 @@ impl BuiltinRegistry {
 
         registry
     }
-    
+
     /// Register a built-in function
     fn register(&mut self, name: &str, function: BuiltinFunction, arity: usize) {
         self.functions.insert(name.to_string(), (function, arity));
     }
-    
+
     /// Check if a function is a built-in
     pub fn is_builtin(&self, name: &str) -> bool {
         self.functions.contains_key(name)
     }
-    
+
     /// Call a built-in function
     pub fn call(&self, name: &str, args: &[Value], position: Position) -> InterpreterResult<Value> {
         if let Some((function, expected_arity)) = self.functions.get(name) {
@@ -78,7 +78,10 @@ impl BuiltinRegistry {
             }
             function(args, position)
         } else {
-            Err(InterpreterError::undefined_variable(name.to_string(), position))
+            Err(InterpreterError::undefined_variable(
+                name.to_string(),
+                position,
+            ))
         }
     }
 }
@@ -116,14 +119,9 @@ fn builtin_to_string(args: &[Value], _position: Position) -> InterpreterResult<V
 
 fn builtin_parse_int(args: &[Value], position: Position) -> InterpreterResult<Value> {
     match &args[0] {
-        Value::String(s) => {
-            s.parse::<i64>()
-                .map(Value::Integer)
-                .map_err(|_| InterpreterError::runtime(
-                    format!("Cannot parse '{}' as integer", s),
-                    position,
-                ))
-        }
+        Value::String(s) => s.parse::<i64>().map(Value::Integer).map_err(|_| {
+            InterpreterError::runtime(format!("Cannot parse '{}' as integer", s), position)
+        }),
         Value::Integer(i) => Ok(Value::Integer(*i)),
         Value::Float(f) => Ok(Value::Integer(*f as i64)),
         _ => Err(InterpreterError::type_error(
@@ -135,14 +133,9 @@ fn builtin_parse_int(args: &[Value], position: Position) -> InterpreterResult<Va
 
 fn builtin_parse_float(args: &[Value], position: Position) -> InterpreterResult<Value> {
     match &args[0] {
-        Value::String(s) => {
-            s.parse::<f64>()
-                .map(Value::Float)
-                .map_err(|_| InterpreterError::runtime(
-                    format!("Cannot parse '{}' as float", s),
-                    position,
-                ))
-        }
+        Value::String(s) => s.parse::<f64>().map(Value::Float).map_err(|_| {
+            InterpreterError::runtime(format!("Cannot parse '{}' as float", s), position)
+        }),
         Value::Integer(i) => Ok(Value::Float(*i as f64)),
         Value::Float(f) => Ok(Value::Float(*f)),
         _ => Err(InterpreterError::type_error(
@@ -170,7 +163,11 @@ fn builtin_min(args: &[Value], position: Position) -> InterpreterResult<Value> {
         (Value::Integer(a), Value::Float(b)) => Ok(Value::Float((*a as f64).min(*b))),
         (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a.min(*b as f64))),
         _ => Err(InterpreterError::type_error(
-            format!("Cannot compare {} and {}", args[0].type_name(), args[1].type_name()),
+            format!(
+                "Cannot compare {} and {}",
+                args[0].type_name(),
+                args[1].type_name()
+            ),
             position,
         )),
     }
@@ -183,7 +180,11 @@ fn builtin_max(args: &[Value], position: Position) -> InterpreterResult<Value> {
         (Value::Integer(a), Value::Float(b)) => Ok(Value::Float((*a as f64).max(*b))),
         (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a.max(*b as f64))),
         _ => Err(InterpreterError::type_error(
-            format!("Cannot compare {} and {}", args[0].type_name(), args[1].type_name()),
+            format!(
+                "Cannot compare {} and {}",
+                args[0].type_name(),
+                args[1].type_name()
+            ),
             position,
         )),
     }
@@ -260,17 +261,15 @@ fn builtin_pow(args: &[Value], position: Position) -> InterpreterResult<Value> {
                 Ok(Value::Integer(base.pow(*exp as u32)))
             }
         }
-        (Value::Float(base), Value::Integer(exp)) => {
-            Ok(Value::Float(base.powi(*exp as i32)))
-        }
-        (Value::Integer(base), Value::Float(exp)) => {
-            Ok(Value::Float((*base as f64).powf(*exp)))
-        }
-        (Value::Float(base), Value::Float(exp)) => {
-            Ok(Value::Float(base.powf(*exp)))
-        }
+        (Value::Float(base), Value::Integer(exp)) => Ok(Value::Float(base.powi(*exp as i32))),
+        (Value::Integer(base), Value::Float(exp)) => Ok(Value::Float((*base as f64).powf(*exp))),
+        (Value::Float(base), Value::Float(exp)) => Ok(Value::Float(base.powf(*exp))),
         _ => Err(InterpreterError::type_error(
-            format!("Cannot raise {} to power of {}", args[0].type_name(), args[1].type_name()),
+            format!(
+                "Cannot raise {} to power of {}",
+                args[0].type_name(),
+                args[1].type_name()
+            ),
             position,
         )),
     }
@@ -293,7 +292,9 @@ fn builtin_get_command_line_args(_args: &[Value], _position: Position) -> Interp
 }
 
 fn builtin_get_timestamp(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     Ok(Value::String(now.as_secs().to_string()))
 }
 
@@ -347,13 +348,19 @@ fn builtin_execute_command(args: &[Value], _position: Position) -> InterpreterRe
     let output = Command::new("sh").arg("-c").arg(cmd).output();
 
     let (success, stdout) = match output {
-        Ok(o) => (o.status.success(), String::from_utf8_lossy(&o.stdout).to_string()),
+        Ok(o) => (
+            o.status.success(),
+            String::from_utf8_lossy(&o.stdout).to_string(),
+        ),
         Err(_) => (false, String::new()),
     };
     let mut fields = HashMap::new();
     fields.insert("success".to_string(), Value::Boolean(success));
     fields.insert("output".to_string(), Value::String(stdout));
-    Ok(Value::Struct { name: "CommandResult".to_string(), fields })
+    Ok(Value::Struct {
+        name: "CommandResult".to_string(),
+        fields,
+    })
 }
 
 fn builtin_format_seen_code(args: &[Value], _position: Position) -> InterpreterResult<Value> {

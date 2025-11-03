@@ -1,7 +1,7 @@
 //! Tests for control flow expressions (if, match, loops)
 
-use crate::{Parser, Expression, Pattern, ParseResult, BinaryOperator};
-use seen_lexer::{Lexer, KeywordManager};
+use crate::{BinaryOperator, Expression, ParseResult, Parser, Pattern};
+use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
@@ -17,7 +17,12 @@ fn parse_expression(input: &str) -> ParseResult<Expression> {
 fn test_parse_if_expression_returns_value() {
     let expr = parse_expression("if x > 10 { \"big\" } else { \"small\" }").unwrap();
     match expr {
-        Expression::If { condition, then_branch, else_branch, .. } => {
+        Expression::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
             assert!(else_branch.is_some());
             // Verify both branches are expressions
             match then_branch.as_ref() {
@@ -59,28 +64,31 @@ fn test_parse_if_with_word_operators() {
 
 #[test]
 fn test_parse_match_expression() {
-    let expr = parse_expression(r#"match value {
+    let expr = parse_expression(
+        r#"match value {
             0 -> "zero"
             1..10 -> "small"
             _ -> "large"
-        }"#).unwrap();
-    
+        }"#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Match { arms, .. } => {
             assert_eq!(arms.len(), 3);
             // Check first arm is literal pattern
             match &arms[0].pattern {
-                Pattern::Literal(_) => {},
+                Pattern::Literal(_) => {}
                 _ => panic!("Expected literal pattern"),
             }
             // Check second arm is range pattern
             match &arms[1].pattern {
-                Pattern::Range { .. } => {},
+                Pattern::Range { .. } => {}
                 _ => panic!("Expected range pattern"),
             }
             // Check third arm is wildcard
             match &arms[2].pattern {
-                Pattern::Wildcard => {},
+                Pattern::Wildcard => {}
                 _ => panic!("Expected wildcard pattern"),
             }
         }
@@ -90,13 +98,16 @@ fn test_parse_match_expression() {
 
 #[test]
 fn test_parse_match_with_guard() {
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         match response {
             data if true -> "processed"
             _ -> "other"
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Match { arms, .. } => {
             assert_eq!(arms.len(), 2);
@@ -113,7 +124,9 @@ fn test_parse_match_with_guard() {
 fn test_parse_while_loop() {
     let expr = parse_expression("while count < 10 { count = count + 1 }").unwrap();
     match expr {
-        Expression::While { condition, body, .. } => {
+        Expression::While {
+            condition, body, ..
+        } => {
             // Verify condition is a comparison
             match condition.as_ref() {
                 Expression::BinaryOp { .. } => {
@@ -130,7 +143,12 @@ fn test_parse_while_loop() {
 fn test_parse_for_loop() {
     let expr = parse_expression("for item in items { item }").unwrap();
     match expr {
-        Expression::For { variable, iterable, body, .. } => {
+        Expression::For {
+            variable,
+            iterable,
+            body,
+            ..
+        } => {
             assert_eq!(variable, "item");
             match iterable.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "items"),
@@ -148,14 +166,17 @@ fn test_parse_for_loop() {
 #[test]
 fn test_parse_match_with_complex_guards() {
     // Test complex guard expressions
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         match value {
             x if x > 0 and x < 100 -> "valid range"
             y if y == 0 or y == -1 -> "special cases"
             _ -> "other"
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Match { arms, .. } => {
             assert_eq!(arms.len(), 3);
@@ -163,7 +184,10 @@ fn test_parse_match_with_complex_guards() {
             assert!(arms[0].guard.is_some());
             if let Some(guard) = &arms[0].guard {
                 match guard {
-                    Expression::BinaryOp { op: BinaryOperator::And, .. } => {
+                    Expression::BinaryOp {
+                        op: BinaryOperator::And,
+                        ..
+                    } => {
                         // Success - complex logical expression
                     }
                     _ => panic!("Expected logical AND in guard expression"),
@@ -181,14 +205,17 @@ fn test_parse_match_with_complex_guards() {
 #[test]
 fn test_parse_match_with_destructuring_patterns() {
     // Test destructuring patterns like Success(data), Failure(code, msg)
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         match result {
             Success { value: data } -> "Got: " + data  
             Failure { code: c, message: msg } if c >= 500 -> "Server error: " + msg
             Failure { message: msg } -> "Error: " + msg
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Match { arms, .. } => {
             assert_eq!(arms.len(), 3);
@@ -210,7 +237,7 @@ fn test_parse_match_with_destructuring_patterns() {
                 _ => panic!("Expected struct pattern for Failure"),
             }
             assert!(arms[1].guard.is_some()); // Should have guard
-            // Third arm: Failure pattern without guard  
+                                              // Third arm: Failure pattern without guard
             assert!(arms[2].guard.is_none());
         }
         _ => panic!("Expected match expression"),
@@ -220,14 +247,17 @@ fn test_parse_match_with_destructuring_patterns() {
 #[test]
 fn test_parse_match_with_nested_patterns() {
     // Test nested struct patterns
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         match response {
             Response { data: Success { value: x } } -> x
             Response { data: Failure { code: 404 } } -> "Not found"
             _ -> "Unknown"
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Match { arms, .. } => {
             assert_eq!(arms.len(), 3);
@@ -238,7 +268,9 @@ fn test_parse_match_with_nested_patterns() {
                     assert_eq!(fields.len(), 1);
                     // The data field should have nested Success pattern
                     match &*fields[0].1 {
-                        Pattern::Struct { name: inner_name, .. } => {
+                        Pattern::Struct {
+                            name: inner_name, ..
+                        } => {
                             assert_eq!(inner_name, "Success");
                         }
                         _ => panic!("Expected nested struct pattern"),
@@ -254,7 +286,8 @@ fn test_parse_match_with_nested_patterns() {
 #[test]
 fn test_parse_match_with_range_patterns() {
     // Test range patterns in match
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         match score {
             0..49 -> "F"
             50..69 -> "D" 
@@ -263,8 +296,10 @@ fn test_parse_match_with_range_patterns() {
             90..100 -> "A"
             _ -> "Invalid"
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Match { arms, .. } => {
             assert_eq!(arms.len(), 6);
@@ -292,7 +327,8 @@ fn test_parse_match_with_range_patterns() {
 #[test]
 fn test_parse_match_with_literal_patterns() {
     // Test literal patterns and mixed pattern types
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         match input {
             "hello" -> "greeting"
             42 -> "answer"
@@ -300,48 +336,44 @@ fn test_parse_match_with_literal_patterns() {
             null -> "empty"
             _ -> "unknown"
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Match { arms, .. } => {
             assert_eq!(arms.len(), 5);
-            
+
             // String literal pattern
             match &arms[0].pattern {
-                Pattern::Literal(expr) => {
-                    match expr.as_ref() {
-                        Expression::StringLiteral { value, .. } => {
-                            assert_eq!(value, "hello");
-                        }
-                        _ => panic!("Expected string literal in pattern"),
+                Pattern::Literal(expr) => match expr.as_ref() {
+                    Expression::StringLiteral { value, .. } => {
+                        assert_eq!(value, "hello");
                     }
-                }
+                    _ => panic!("Expected string literal in pattern"),
+                },
                 _ => panic!("Expected literal pattern"),
             }
-            
+
             // Integer literal pattern
             match &arms[1].pattern {
-                Pattern::Literal(expr) => {
-                    match expr.as_ref() {
-                        Expression::IntegerLiteral { value, .. } => {
-                            assert_eq!(*value, 42);
-                        }
-                        _ => panic!("Expected integer literal in pattern"),
+                Pattern::Literal(expr) => match expr.as_ref() {
+                    Expression::IntegerLiteral { value, .. } => {
+                        assert_eq!(*value, 42);
                     }
-                }
+                    _ => panic!("Expected integer literal in pattern"),
+                },
                 _ => panic!("Expected literal pattern"),
             }
-            
+
             // Boolean literal pattern
             match &arms[2].pattern {
-                Pattern::Literal(expr) => {
-                    match expr.as_ref() {
-                        Expression::BooleanLiteral { value, .. } => {
-                            assert_eq!(*value, true);
-                        }
-                        _ => panic!("Expected boolean literal in pattern"),
+                Pattern::Literal(expr) => match expr.as_ref() {
+                    Expression::BooleanLiteral { value, .. } => {
+                        assert_eq!(*value, true);
                     }
-                }
+                    _ => panic!("Expected boolean literal in pattern"),
+                },
                 _ => panic!("Expected literal pattern"),
             }
         }
@@ -352,7 +384,8 @@ fn test_parse_match_with_literal_patterns() {
 #[test]
 fn test_parse_match_exhaustive_edge_cases() {
     // Test edge cases like multiple guards, empty body, complex expressions
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         match computation() {
             result if result > 0 and result % 2 == 0 -> {
                 println("positive even")
@@ -365,10 +398,16 @@ fn test_parse_match_exhaustive_edge_cases() {
             0 -> 0
             _ -> -1
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Match { expr: matched_expr, arms, .. } => {
+        Expression::Match {
+            expr: matched_expr,
+            arms,
+            ..
+        } => {
             // Verify the matched expression is a function call
             match matched_expr.as_ref() {
                 Expression::Call { .. } => {
@@ -376,37 +415,38 @@ fn test_parse_match_exhaustive_edge_cases() {
                 }
                 _ => panic!("Expected function call as matched expression"),
             }
-            
+
             assert_eq!(arms.len(), 4);
-            
+
             // First arm has complex guard with logical operators
             assert!(arms[0].guard.is_some());
             if let Some(guard) = &arms[0].guard {
                 match guard {
-                    Expression::BinaryOp { op: BinaryOperator::And, .. } => {
+                    Expression::BinaryOp {
+                        op: BinaryOperator::And,
+                        ..
+                    } => {
                         // Success - complex guard expression
                     }
                     _ => panic!("Expected AND in complex guard"),
                 }
             }
-            
+
             // Second arm also has guard
             assert!(arms[1].guard.is_some());
-            
+
             // Third arm is literal without guard
             assert!(arms[2].guard.is_none());
             match &arms[2].pattern {
-                Pattern::Literal(expr) => {
-                    match expr.as_ref() {
-                        Expression::IntegerLiteral { value, .. } => {
-                            assert_eq!(*value, 0);
-                        }
-                        _ => panic!("Expected integer 0 literal"),
+                Pattern::Literal(expr) => match expr.as_ref() {
+                    Expression::IntegerLiteral { value, .. } => {
+                        assert_eq!(*value, 0);
                     }
-                }
+                    _ => panic!("Expected integer 0 literal"),
+                },
                 _ => panic!("Expected literal pattern for 0"),
             }
-            
+
             // Fourth arm is wildcard
             assert!(arms[3].guard.is_none());
             match &arms[3].pattern {

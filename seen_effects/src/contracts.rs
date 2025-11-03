@@ -7,12 +7,12 @@
 //! - Formal verification support for critical functions
 //! - Runtime contract validation with optimization modes
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::fmt;
+use crate::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
-use seen_parser::ast::{Expression, Type, BinaryOperator};
-use crate::types::{AsyncValue, AsyncError, AsyncResult};
+use seen_parser::ast::{BinaryOperator, Expression, Type};
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 /// Unique identifier for contracts
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,7 +23,7 @@ impl ContractId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     /// Get the numeric ID
     pub fn id(&self) -> u64 {
         self.0
@@ -98,7 +98,7 @@ impl PreconditionId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     pub fn id(&self) -> u64 {
         self.0
     }
@@ -112,7 +112,7 @@ impl PostconditionId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     pub fn id(&self) -> u64 {
         self.0
     }
@@ -126,7 +126,7 @@ impl InvariantId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     pub fn id(&self) -> u64 {
         self.0
     }
@@ -376,7 +376,7 @@ impl Contract {
     pub fn new(name: String, position: Position) -> Self {
         let id = ContractId::new(rand::random());
         let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
-        
+
         Self {
             id,
             name,
@@ -393,9 +393,14 @@ impl Contract {
             is_enabled: true,
         }
     }
-    
+
     /// Add a precondition
-    pub fn add_precondition(&mut self, condition: Expression, error_message: String, position: Position) -> PreconditionId {
+    pub fn add_precondition(
+        &mut self,
+        condition: Expression,
+        error_message: String,
+        position: Position,
+    ) -> PreconditionId {
         let id = PreconditionId::new(rand::random());
         let precondition = Precondition {
             id,
@@ -411,9 +416,14 @@ impl Contract {
         self.preconditions.push(precondition);
         id
     }
-    
+
     /// Add a postcondition
-    pub fn add_postcondition(&mut self, condition: Expression, error_message: String, position: Position) -> PostconditionId {
+    pub fn add_postcondition(
+        &mut self,
+        condition: Expression,
+        error_message: String,
+        position: Position,
+    ) -> PostconditionId {
         let id = PostconditionId::new(rand::random());
         let postcondition = Postcondition {
             id,
@@ -429,9 +439,15 @@ impl Contract {
         self.postconditions.push(postcondition);
         id
     }
-    
+
     /// Add an invariant
-    pub fn add_invariant(&mut self, condition: Expression, error_message: String, scope: InvariantScope, position: Position) -> InvariantId {
+    pub fn add_invariant(
+        &mut self,
+        condition: Expression,
+        error_message: String,
+        scope: InvariantScope,
+        position: Position,
+    ) -> InvariantId {
         let id = InvariantId::new(rand::random());
         let invariant = Invariant {
             id,
@@ -448,44 +464,50 @@ impl Contract {
         self.invariants.push(invariant);
         id
     }
-    
+
     /// Set verification level
     pub fn with_verification_level(mut self, level: VerificationLevel) -> Self {
         self.metadata.verification_level = level;
         self
     }
-    
+
     /// Set performance impact
     pub fn with_performance_impact(mut self, impact: PerformanceImpact) -> Self {
         self.metadata.performance_impact = impact;
         self
     }
-    
+
     /// Get contract signature for display
     pub fn signature(&self) -> String {
         let mut parts = Vec::new();
-        
+
         if !self.preconditions.is_empty() {
-            let requires: Vec<String> = self.preconditions.iter()
+            let requires: Vec<String> = self
+                .preconditions
+                .iter()
                 .map(|p| format!("requires {}", expression_to_string(&p.condition)))
                 .collect();
             parts.extend(requires);
         }
-        
+
         if !self.postconditions.is_empty() {
-            let ensures: Vec<String> = self.postconditions.iter()
+            let ensures: Vec<String> = self
+                .postconditions
+                .iter()
                 .map(|p| format!("ensures {}", expression_to_string(&p.condition)))
                 .collect();
             parts.extend(ensures);
         }
-        
+
         if !self.invariants.is_empty() {
-            let invariants: Vec<String> = self.invariants.iter()
+            let invariants: Vec<String> = self
+                .invariants
+                .iter()
                 .map(|i| format!("invariant {}", expression_to_string(&i.condition)))
                 .collect();
             parts.extend(invariants);
         }
-        
+
         if parts.is_empty() {
             format!("contract {}", self.name)
         } else {
@@ -510,7 +532,7 @@ impl ContractSystem {
             stats: ContractSystemStats::default(),
         }
     }
-    
+
     /// Create contract system with custom configuration
     pub fn with_config(config: ContractSystemConfig) -> Self {
         Self {
@@ -526,25 +548,32 @@ impl ContractSystem {
             stats: ContractSystemStats::default(),
         }
     }
-    
+
     /// Register a contract
     pub fn register_contract(&mut self, contract: Contract) -> Result<ContractId, AsyncError> {
         let contract_id = contract.id;
         let function_name = contract.name.clone();
-        
+
         // Update statistics
         self.stats.total_contracts += 1;
-        *self.stats.contracts_by_level.entry(contract.metadata.verification_level.clone()).or_insert(0) += 1;
-        
+        *self
+            .stats
+            .contracts_by_level
+            .entry(contract.metadata.verification_level.clone())
+            .or_insert(0) += 1;
+
         // Store contract
         self.contracts.insert(contract_id, contract);
-        
+
         // Index by function name
-        self.function_contracts.entry(function_name).or_insert_with(Vec::new).push(contract_id);
-        
+        self.function_contracts
+            .entry(function_name)
+            .or_insert_with(Vec::new)
+            .push(contract_id);
+
         Ok(contract_id)
     }
-    
+
     /// Check preconditions before function call
     pub fn check_preconditions(
         &mut self,
@@ -555,16 +584,16 @@ impl ContractSystem {
         if self.mode == ContractMode::Disabled || self.mode == ContractMode::PostconditionsOnly {
             return Ok(());
         }
-        
+
         let start_time = std::time::Instant::now();
-        
+
         if let Some(contract_ids) = self.function_contracts.get(function_name) {
             for &contract_id in contract_ids {
                 if let Some(contract) = self.contracts.get(&contract_id) {
                     if !contract.is_enabled {
                         continue;
                     }
-                    
+
                     for precondition in &contract.preconditions {
                         let result = self.evaluate_condition(
                             &precondition.condition,
@@ -572,9 +601,9 @@ impl ContractSystem {
                             None,
                             &HashMap::new(),
                         );
-                        
+
                         self.stats.preconditions_checked += 1;
-                        
+
                         match result {
                             Ok(AsyncValue::Boolean(true)) => {
                                 // Precondition satisfied
@@ -595,9 +624,9 @@ impl ContractSystem {
                                         stack_trace: vec![function_name.to_string()],
                                     },
                                 };
-                                
+
                                 self.stats.violations_found += 1;
-                                
+
                                 if self.config.fail_fast {
                                     return Err(violation);
                                 }
@@ -617,9 +646,9 @@ impl ContractSystem {
                                         stack_trace: vec![function_name.to_string()],
                                     },
                                 };
-                                
+
                                 self.stats.violations_found += 1;
-                                
+
                                 if self.config.fail_fast {
                                     return Err(violation);
                                 }
@@ -639,9 +668,9 @@ impl ContractSystem {
                                         stack_trace: vec![function_name.to_string()],
                                     },
                                 };
-                                
+
                                 self.stats.violations_found += 1;
-                                
+
                                 if self.config.fail_fast {
                                     return Err(violation);
                                 }
@@ -651,11 +680,11 @@ impl ContractSystem {
                 }
             }
         }
-        
+
         self.stats.total_evaluation_time_ms += start_time.elapsed().as_millis() as u64;
         Ok(())
     }
-    
+
     /// Check postconditions after function return
     pub fn check_postconditions(
         &mut self,
@@ -667,16 +696,16 @@ impl ContractSystem {
         if self.mode == ContractMode::Disabled || self.mode == ContractMode::PreconditionsOnly {
             return Ok(());
         }
-        
+
         let start_time = std::time::Instant::now();
-        
+
         if let Some(contract_ids) = self.function_contracts.get(function_name) {
             for &contract_id in contract_ids {
                 if let Some(contract) = self.contracts.get(&contract_id) {
                     if !contract.is_enabled {
                         continue;
                     }
-                    
+
                     for postcondition in &contract.postconditions {
                         let result = self.evaluate_condition(
                             &postcondition.condition,
@@ -684,9 +713,9 @@ impl ContractSystem {
                             Some(&return_value),
                             &HashMap::new(),
                         );
-                        
+
                         self.stats.postconditions_checked += 1;
-                        
+
                         match result {
                             Ok(AsyncValue::Boolean(true)) => {
                                 // Postcondition satisfied
@@ -707,9 +736,9 @@ impl ContractSystem {
                                         stack_trace: vec![function_name.to_string()],
                                     },
                                 };
-                                
+
                                 self.stats.violations_found += 1;
-                                
+
                                 if self.config.fail_fast {
                                     return Err(violation);
                                 }
@@ -729,9 +758,9 @@ impl ContractSystem {
                                         stack_trace: vec![function_name.to_string()],
                                     },
                                 };
-                                
+
                                 self.stats.violations_found += 1;
-                                
+
                                 if self.config.fail_fast {
                                     return Err(violation);
                                 }
@@ -741,11 +770,11 @@ impl ContractSystem {
                 }
             }
         }
-        
+
         self.stats.total_evaluation_time_ms += start_time.elapsed().as_millis() as u64;
         Ok(())
     }
-    
+
     /// Check invariants
     pub fn check_invariants(
         &mut self,
@@ -756,12 +785,16 @@ impl ContractSystem {
         if self.mode == ContractMode::Disabled {
             return Ok(());
         }
-        
+
         let start_time = std::time::Instant::now();
-        
+
         // Check global invariants
         for &invariant_id in &self.global_invariants.clone() {
-            if let Some(contract) = self.contracts.values().find(|c| c.invariants.iter().any(|i| i.id == invariant_id)) {
+            if let Some(contract) = self
+                .contracts
+                .values()
+                .find(|c| c.invariants.iter().any(|i| i.id == invariant_id))
+            {
                 if let Some(invariant) = contract.invariants.iter().find(|i| i.id == invariant_id) {
                     if invariant.scope == InvariantScope::Global || invariant.scope == *scope {
                         let result = self.evaluate_condition(
@@ -770,9 +803,9 @@ impl ContractSystem {
                             None,
                             &context,
                         );
-                        
+
                         self.stats.invariants_checked += 1;
-                        
+
                         match result {
                             Ok(AsyncValue::Boolean(true)) => {
                                 // Invariant satisfied
@@ -793,9 +826,9 @@ impl ContractSystem {
                                         stack_trace: Vec::new(),
                                     },
                                 };
-                                
+
                                 self.stats.violations_found += 1;
-                                
+
                                 if self.config.fail_fast {
                                     return Err(violation);
                                 }
@@ -809,37 +842,38 @@ impl ContractSystem {
                 }
             }
         }
-        
+
         self.stats.total_evaluation_time_ms += start_time.elapsed().as_millis() as u64;
         Ok(())
     }
-    
+
     /// Set contract checking mode
     pub fn set_mode(&mut self, mode: ContractMode) {
         self.mode = mode;
     }
-    
+
     /// Get contract by ID
     pub fn get_contract(&self, contract_id: ContractId) -> Option<&Contract> {
         self.contracts.get(&contract_id)
     }
-    
+
     /// Get contracts for function
     pub fn get_function_contracts(&self, function_name: &str) -> Vec<&Contract> {
         if let Some(contract_ids) = self.function_contracts.get(function_name) {
-            contract_ids.iter()
+            contract_ids
+                .iter()
                 .filter_map(|&id| self.contracts.get(&id))
                 .collect()
         } else {
             Vec::new()
         }
     }
-    
+
     /// Get system statistics
     pub fn get_stats(&self) -> &ContractSystemStats {
         &self.stats
     }
-    
+
     /// Evaluate a condition expression
     fn evaluate_condition(
         &self,
@@ -874,10 +908,14 @@ impl ContractSystem {
                     })
                 }
             }
-            Expression::BinaryOp { left, right, op, .. } => {
-                let left_val = self.evaluate_condition(left, parameters, return_value, local_variables)?;
-                let right_val = self.evaluate_condition(right, parameters, return_value, local_variables)?;
-                
+            Expression::BinaryOp {
+                left, right, op, ..
+            } => {
+                let left_val =
+                    self.evaluate_condition(left, parameters, return_value, local_variables)?;
+                let right_val =
+                    self.evaluate_condition(right, parameters, return_value, local_variables)?;
+
                 match (left_val, right_val, op) {
                     (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::Equal) => {
                         Ok(AsyncValue::Boolean(a == b))
@@ -894,9 +932,11 @@ impl ContractSystem {
                     (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::Greater) => {
                         Ok(AsyncValue::Boolean(a > b))
                     }
-                    (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::GreaterEqual) => {
-                        Ok(AsyncValue::Boolean(a >= b))
-                    }
+                    (
+                        AsyncValue::Integer(a),
+                        AsyncValue::Integer(b),
+                        BinaryOperator::GreaterEqual,
+                    ) => Ok(AsyncValue::Boolean(a >= b)),
                     (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::Add) => {
                         Ok(AsyncValue::Integer(a + b))
                     }
@@ -922,20 +962,16 @@ impl ContractSystem {
                     (AsyncValue::Boolean(a), AsyncValue::Boolean(b), BinaryOperator::Or) => {
                         Ok(AsyncValue::Boolean(a || b))
                     }
-                    _ => {
-                        Err(AsyncError::RuntimeError {
-                            message: "Unsupported operation in contract condition".to_string(),
-                            position: Position::new(0, 0, 0),
-                        })
-                    }
+                    _ => Err(AsyncError::RuntimeError {
+                        message: "Unsupported operation in contract condition".to_string(),
+                        position: Position::new(0, 0, 0),
+                    }),
                 }
             }
-            _ => {
-                Err(AsyncError::RuntimeError {
-                    message: "Unsupported expression in contract condition".to_string(),
-                    position: Position::new(0, 0, 0),
-                })
-            }
+            _ => Err(AsyncError::RuntimeError {
+                message: "Unsupported expression in contract condition".to_string(),
+                position: Position::new(0, 0, 0),
+            }),
         }
     }
 }
@@ -951,10 +987,7 @@ impl fmt::Display for ContractViolation {
         write!(
             f,
             "Contract violation: {} at {}:{}:{}",
-            self.message,
-            self.position.line,
-            self.position.column,
-            self.position.offset
+            self.message, self.position.line, self.position.column, self.position.offset
         )
     }
 }
@@ -969,7 +1002,9 @@ fn expression_to_string(expr: &Expression) -> String {
         Expression::BooleanLiteral { value, .. } => value.to_string(),
         Expression::StringLiteral { value, .. } => format!("\"{}\"", value),
         Expression::Identifier { name, .. } => name.clone(),
-        Expression::BinaryOp { left, right, op, .. } => {
+        Expression::BinaryOp {
+            left, right, op, ..
+        } => {
             let op_str = match op {
                 BinaryOperator::Add => "+",
                 BinaryOperator::Subtract => "-",
@@ -985,7 +1020,12 @@ fn expression_to_string(expr: &Expression) -> String {
                 BinaryOperator::Or => "or",
                 _ => "?",
             };
-            format!("{} {} {}", expression_to_string(left), op_str, expression_to_string(right))
+            format!(
+                "{} {} {}",
+                expression_to_string(left),
+                op_str,
+                expression_to_string(right)
+            )
         }
         _ => "?".to_string(),
     }
@@ -994,22 +1034,22 @@ fn expression_to_string(expr: &Expression) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_contract_creation() {
         let contract = Contract::new("TestContract".to_string(), Position::new(1, 1, 0));
-        
+
         assert_eq!(contract.name, "TestContract");
         assert!(contract.metadata.is_public); // Capital T = public
         assert!(contract.preconditions.is_empty());
         assert!(contract.postconditions.is_empty());
         assert!(contract.invariants.is_empty());
     }
-    
+
     #[test]
     fn test_contract_precondition() {
         let mut contract = Contract::new("Divide".to_string(), Position::new(1, 1, 0));
-        
+
         // requires b != 0
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
@@ -1024,22 +1064,25 @@ mod tests {
             op: BinaryOperator::NotEqual,
             pos: Position::new(1, 12, 0),
         };
-        
+
         let precondition_id = contract.add_precondition(
             condition,
             "Division by zero not allowed".to_string(),
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(contract.preconditions.len(), 1);
         assert_eq!(contract.preconditions[0].id, precondition_id);
-        assert_eq!(contract.preconditions[0].error_message, "Division by zero not allowed");
+        assert_eq!(
+            contract.preconditions[0].error_message,
+            "Division by zero not allowed"
+        );
     }
-    
+
     #[test]
     fn test_contract_postcondition() {
         let mut contract = Contract::new("Divide".to_string(), Position::new(1, 1, 0));
-        
+
         // ensures result * b == a
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::BinaryOp {
@@ -1064,36 +1107,36 @@ mod tests {
             op: BinaryOperator::Equal,
             pos: Position::new(1, 21, 0),
         };
-        
+
         let postcondition_id = contract.add_postcondition(
             condition,
             "Result must satisfy: result * b == a".to_string(),
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(contract.postconditions.len(), 1);
         assert_eq!(contract.postconditions[0].id, postcondition_id);
     }
-    
+
     #[test]
     fn test_contract_system_registration() {
         let mut system = ContractSystem::new();
         let contract = Contract::new("TestFunction".to_string(), Position::new(1, 1, 0));
         let contract_id = contract.id;
-        
+
         let result = system.register_contract(contract);
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), contract_id);
         assert_eq!(system.stats.total_contracts, 1);
         assert!(system.get_contract(contract_id).is_some());
     }
-    
+
     #[test]
     fn test_precondition_checking() {
         let mut system = ContractSystem::new();
         let mut contract = Contract::new("Divide".to_string(), Position::new(1, 1, 0));
-        
+
         // requires b != 0
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
@@ -1108,41 +1151,41 @@ mod tests {
             op: BinaryOperator::NotEqual,
             pos: Position::new(1, 12, 0),
         };
-        
+
         contract.add_precondition(
             condition,
             "Division by zero not allowed".to_string(),
             Position::new(1, 1, 0),
         );
-        
+
         system.register_contract(contract).unwrap();
-        
+
         // Test with valid parameters
         let mut valid_params = HashMap::new();
         valid_params.insert("a".to_string(), AsyncValue::Integer(10));
         valid_params.insert("b".to_string(), AsyncValue::Integer(2));
-        
+
         let result = system.check_preconditions("Divide", valid_params, Position::new(1, 1, 0));
         assert!(result.is_ok());
-        
+
         // Test with invalid parameters
         let mut invalid_params = HashMap::new();
         invalid_params.insert("a".to_string(), AsyncValue::Integer(10));
         invalid_params.insert("b".to_string(), AsyncValue::Integer(0));
-        
+
         let result = system.check_preconditions("Divide", invalid_params, Position::new(1, 1, 0));
         assert!(result.is_err());
-        
+
         let violation = result.unwrap_err();
         assert_eq!(violation.violation_type, ViolationType::PreconditionFailed);
         assert_eq!(violation.message, "Division by zero not allowed");
     }
-    
+
     #[test]
     fn test_postcondition_checking() {
         let mut system = ContractSystem::new();
         let mut contract = Contract::new("Divide".to_string(), Position::new(1, 1, 0));
-        
+
         // ensures result * b == a
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::BinaryOp {
@@ -1167,20 +1210,20 @@ mod tests {
             op: BinaryOperator::Equal,
             pos: Position::new(1, 21, 0),
         };
-        
+
         contract.add_postcondition(
             condition,
             "Result must satisfy: result * b == a".to_string(),
             Position::new(1, 1, 0),
         );
-        
+
         system.register_contract(contract).unwrap();
-        
+
         // Test with correct result
         let mut params = HashMap::new();
         params.insert("a".to_string(), AsyncValue::Integer(10));
         params.insert("b".to_string(), AsyncValue::Integer(2));
-        
+
         let result = system.check_postconditions(
             "Divide",
             params.clone(),
@@ -1188,7 +1231,7 @@ mod tests {
             Position::new(1, 1, 0),
         );
         assert!(result.is_ok());
-        
+
         // Test with incorrect result
         let result = system.check_postconditions(
             "Divide",
@@ -1197,15 +1240,15 @@ mod tests {
             Position::new(1, 1, 0),
         );
         assert!(result.is_err());
-        
+
         let violation = result.unwrap_err();
         assert_eq!(violation.violation_type, ViolationType::PostconditionFailed);
     }
-    
+
     #[test]
     fn test_contract_signature() {
         let mut contract = Contract::new("SafeDivide".to_string(), Position::new(1, 1, 0));
-        
+
         // Add precondition: requires b != 0
         let pre_condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
@@ -1220,13 +1263,13 @@ mod tests {
             op: BinaryOperator::NotEqual,
             pos: Position::new(1, 12, 0),
         };
-        
+
         contract.add_precondition(
             pre_condition,
             "Division by zero not allowed".to_string(),
             Position::new(1, 1, 0),
         );
-        
+
         // Add postcondition: ensures result * b == a
         let post_condition = Expression::BinaryOp {
             left: Box::new(Expression::BinaryOp {
@@ -1251,28 +1294,29 @@ mod tests {
             op: BinaryOperator::Equal,
             pos: Position::new(1, 21, 0),
         };
-        
+
         contract.add_postcondition(
             post_condition,
             "Result must be correct".to_string(),
             Position::new(1, 1, 0),
         );
-        
+
         let signature = contract.signature();
         assert!(signature.contains("SafeDivide"));
         assert!(signature.contains("requires b != 0"));
         assert!(signature.contains("ensures result * b == a"));
     }
-    
+
     #[test]
     fn test_contract_modes() {
         let mut system = ContractSystem::new();
-        
+
         // Test disabled mode
         system.set_mode(ContractMode::Disabled);
-        let result = system.check_preconditions("AnyFunction", HashMap::new(), Position::new(1, 1, 0));
+        let result =
+            system.check_preconditions("AnyFunction", HashMap::new(), Position::new(1, 1, 0));
         assert!(result.is_ok()); // Should always pass when disabled
-        
+
         // Test preconditions only mode
         system.set_mode(ContractMode::PreconditionsOnly);
         let result = system.check_postconditions(
@@ -1283,7 +1327,7 @@ mod tests {
         );
         assert!(result.is_ok()); // Should pass when postconditions disabled
     }
-    
+
     #[test]
     fn test_expression_to_string() {
         let expr = Expression::BinaryOp {
@@ -1299,7 +1343,7 @@ mod tests {
             op: BinaryOperator::Greater,
             pos: Position::new(1, 3, 0),
         };
-        
+
         let result = expression_to_string(&expr);
         assert_eq!(result, "x > 5");
     }

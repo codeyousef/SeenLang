@@ -1,10 +1,10 @@
 //! IR function representation for the Seen programming language
 
+use crate::instruction::{BasicBlock, ControlFlowGraph, Label};
+use crate::value::{IRType, IRValue};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use serde::{Deserialize, Serialize};
-use crate::instruction::{BasicBlock, ControlFlowGraph, Label};
-use crate::value::{IRValue, IRType};
 
 /// Function parameter representation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -22,7 +22,7 @@ impl Parameter {
             is_mutable: false,
         }
     }
-    
+
     pub fn mutable(name: impl Into<String>, param_type: IRType) -> Self {
         Self {
             name: name.into(),
@@ -60,7 +60,7 @@ impl LocalVariable {
             register: None,
         }
     }
-    
+
     pub fn mutable(name: impl Into<String>, var_type: IRType) -> Self {
         Self {
             name: name.into(),
@@ -69,7 +69,7 @@ impl LocalVariable {
             register: None,
         }
     }
-    
+
     pub fn assign_register(&mut self, register: u32) {
         self.register = Some(register);
     }
@@ -87,14 +87,14 @@ pub struct IRFunction {
     pub is_extern: bool,
     pub calling_convention: CallingConvention,
     pub stack_size: Option<usize>, // Computed during compilation
-    pub register_count: u32, // Number of virtual registers used
+    pub register_count: u32,       // Number of virtual registers used
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CallingConvention {
-    Seen,     // Default Seen calling convention
-    C,        // C calling convention for extern functions
-    System,   // System calling convention
+    Seen,   // Default Seen calling convention
+    C,      // C calling convention for extern functions
+    System, // System calling convention
 }
 
 impl IRFunction {
@@ -112,69 +112,73 @@ impl IRFunction {
             register_count: 0,
         }
     }
-    
+
     pub fn public(mut self) -> Self {
         self.is_public = true;
         self
     }
-    
+
     pub fn extern_function(mut self, convention: CallingConvention) -> Self {
         self.is_extern = true;
         self.calling_convention = convention;
         self
     }
-    
+
     pub fn add_parameter(&mut self, parameter: Parameter) {
         self.parameters.push(parameter);
     }
-    
+
     pub fn add_local(&mut self, local: LocalVariable) {
         self.locals.insert(local.name.clone(), local);
     }
-    
+
     pub fn get_local(&self, name: &str) -> Option<&LocalVariable> {
         self.locals.get(name)
     }
-    
+
     pub fn get_local_mut(&mut self, name: &str) -> Option<&mut LocalVariable> {
         self.locals.get_mut(name)
     }
-    
+
     /// Allocate a new virtual register
     pub fn allocate_register(&mut self) -> u32 {
         let register = self.register_count;
         self.register_count += 1;
         register
     }
-    
+
     /// Get the function signature as an IRType
     pub fn signature(&self) -> IRType {
         IRType::Function {
-            parameters: self.parameters.iter().map(|p| p.param_type.clone()).collect(),
+            parameters: self
+                .parameters
+                .iter()
+                .map(|p| p.param_type.clone())
+                .collect(),
             return_type: Box::new(self.return_type.clone()),
         }
     }
-    
+
     /// Add a basic block to the function
     pub fn add_block(&mut self, block: BasicBlock) {
         self.cfg.add_block(block);
     }
-    
+
     /// Get a basic block by name
     pub fn get_block(&self, name: &str) -> Option<&BasicBlock> {
         self.cfg.get_block(name)
     }
-    
+
     /// Get a mutable reference to a basic block
     pub fn get_block_mut(&mut self, name: &str) -> Option<&mut BasicBlock> {
         self.cfg.get_block_mut(name)
     }
-    
+
     /// Validate the function's IR
     pub fn validate(&self) -> Result<(), String> {
         // Validate the control flow graph
         self.cfg.validate()?;
-        
+
         // Check that all parameters have unique names
         let mut param_names = std::collections::HashSet::new();
         for param in &self.parameters {
@@ -182,36 +186,39 @@ impl IRFunction {
                 return Err(format!("Duplicate parameter name: {}", param.name));
             }
         }
-        
+
         // Check that local variables don't conflict with parameters
         for local_name in self.locals.keys() {
             if param_names.contains(local_name) {
-                return Err(format!("Local variable {} conflicts with parameter", local_name));
+                return Err(format!(
+                    "Local variable {} conflicts with parameter",
+                    local_name
+                ));
             }
         }
-        
+
         // Additional validation: check register usage and type consistency
         self.validate_register_usage()?;
         self.validate_type_consistency()?;
-        
+
         Ok(())
     }
-    
+
     /// Calculate the stack frame size needed for this function
     pub fn calculate_stack_size(&mut self) {
         let mut size = 0;
-        
+
         // Add size for local variables
         for local in self.locals.values() {
             size += local.var_type.size_bytes();
         }
-        
+
         // Add alignment padding
         size = (size + 15) & !15; // Align to 16 bytes
-        
+
         self.stack_size = Some(size);
     }
-    
+
     /// Check if this function is a leaf function (doesn't call other functions)
     pub fn is_leaf(&self) -> bool {
         for block in self.cfg.blocks.values() {
@@ -228,28 +235,28 @@ impl IRFunction {
         }
         true
     }
-    
+
     /// Validate register usage throughout the function
     fn validate_register_usage(&self) -> Result<(), String> {
         use std::collections::HashSet;
         let mut used_registers = HashSet::new();
-        
+
         for block in self.cfg.blocks.values() {
             for instruction in &block.instructions {
                 self.collect_instruction_registers(instruction, &mut used_registers);
             }
         }
-        
+
         // Check for register conflicts and validate usage patterns
         for register in used_registers {
             if register > 1000 {
                 return Err(format!("Register r{} exceeds reasonable limit", register));
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate type consistency across instructions
     fn validate_type_consistency(&self) -> Result<(), String> {
         for block in self.cfg.blocks.values() {
@@ -257,21 +264,32 @@ impl IRFunction {
                 self.validate_instruction_types(instruction)?;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Collect all registers used by an instruction
-    fn collect_instruction_registers(&self, instruction: &crate::Instruction, registers: &mut std::collections::HashSet<u32>) {
-        use crate::{Instruction, IRValue};
-        
+    fn collect_instruction_registers(
+        &self,
+        instruction: &crate::Instruction,
+        registers: &mut std::collections::HashSet<u32>,
+    ) {
+        use crate::{IRValue, Instruction};
+
         match instruction {
-            Instruction::Binary { result, left, right, .. } => {
+            Instruction::Binary {
+                result,
+                left,
+                right,
+                ..
+            } => {
                 self.collect_value_registers(result, registers);
                 self.collect_value_registers(left, registers);
                 self.collect_value_registers(right, registers);
             }
-            Instruction::Unary { result, operand, .. } => {
+            Instruction::Unary {
+                result, operand, ..
+            } => {
                 self.collect_value_registers(result, registers);
                 self.collect_value_registers(operand, registers);
             }
@@ -283,18 +301,22 @@ impl IRFunction {
             _ => {}
         }
     }
-    
+
     /// Collect registers from an IR value
-    fn collect_value_registers(&self, value: &crate::IRValue, registers: &mut std::collections::HashSet<u32>) {
+    fn collect_value_registers(
+        &self,
+        value: &crate::IRValue,
+        registers: &mut std::collections::HashSet<u32>,
+    ) {
         if let crate::IRValue::Register(reg_id) = value {
             registers.insert(*reg_id);
         }
     }
-    
+
     /// Validate types for a specific instruction
     fn validate_instruction_types(&self, instruction: &crate::Instruction) -> Result<(), String> {
         use crate::Instruction;
-        
+
         match instruction {
             Instruction::Binary { left, right, .. } => {
                 // Ensure binary operation operands have compatible types
@@ -305,49 +327,49 @@ impl IRFunction {
             // Add more type checking as needed
             _ => {}
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if two values have compatible types for operations
     fn types_are_compatible(&self, left: &crate::IRValue, right: &crate::IRValue) -> bool {
         let left_type = left.get_type();
         let right_type = right.get_type();
-        
+
         // Check type compatibility based on IR type system
         match (&left_type, &right_type) {
             // Same types are compatible
             (l, r) if l == r => true,
-            
+
             // Numeric compatibility
             (crate::IRType::Integer, crate::IRType::Float) => true,
             (crate::IRType::Float, crate::IRType::Integer) => true,
-            
+
             // Pointer compatibility
             (crate::IRType::Pointer(_), crate::IRType::Pointer(_)) => true,
             (crate::IRType::Reference(_), crate::IRType::Reference(_)) => true,
-            
+
             // Optional compatibility
             (crate::IRType::Optional(inner), other) => {
                 self.types_are_compatible_inner(inner, &other)
-            },
+            }
             (other, crate::IRType::Optional(inner)) => {
                 self.types_are_compatible_inner(&other, inner)
-            },
-            
+            }
+
             // Generic types are compatible with anything during IR generation
             (crate::IRType::Generic(_), _) => true,
             (_, crate::IRType::Generic(_)) => true,
-            
+
             // Arrays with compatible element types
             (crate::IRType::Array(left_elem), crate::IRType::Array(right_elem)) => {
                 left_elem == right_elem
-            },
-            
+            }
+
             _ => false,
         }
     }
-    
+
     fn types_are_compatible_inner(&self, a: &crate::IRType, b: &crate::IRType) -> bool {
         a == b || matches!(a, crate::IRType::Generic(_)) || matches!(b, crate::IRType::Generic(_))
     }
@@ -364,14 +386,16 @@ impl fmt::Display for IRFunction {
             write!(f, " [extern]")?;
         }
         write!(f, "(")?;
-        
+
         for (i, param) in self.parameters.iter().enumerate() {
-            if i > 0 { write!(f, ", ")?; }
+            if i > 0 {
+                write!(f, ", ")?;
+            }
             write!(f, "{}", param)?;
         }
-        
+
         write!(f, ") -> {} {{", self.return_type)?;
-        
+
         // Local variables
         if !self.locals.is_empty() {
             writeln!(f)?;
@@ -388,18 +412,18 @@ impl fmt::Display for IRFunction {
                 writeln!(f)?;
             }
         }
-        
+
         // Stack size information
         if let Some(size) = self.stack_size {
             writeln!(f, "  ; Stack size: {} bytes", size)?;
         }
-        
+
         // Control flow graph
         if !self.cfg.blocks.is_empty() {
             writeln!(f)?;
             write!(f, "{}", self.cfg)?;
         }
-        
+
         writeln!(f, "}}")?;
         Ok(())
     }
@@ -420,7 +444,7 @@ impl CallSite {
     pub fn new(
         caller: impl Into<String>,
         callee: impl Into<String>,
-        block_label: impl Into<String>
+        block_label: impl Into<String>,
     ) -> Self {
         Self {
             caller: caller.into(),
@@ -431,17 +455,17 @@ impl CallSite {
             is_tail_call: false,
         }
     }
-    
+
     pub fn with_args(mut self, args: Vec<IRValue>) -> Self {
         self.arguments = args;
         self
     }
-    
+
     pub fn with_return(mut self, return_val: IRValue) -> Self {
         self.return_value = Some(return_val);
         self
     }
-    
+
     pub fn tail_call(mut self) -> Self {
         self.is_tail_call = true;
         self
@@ -462,23 +486,23 @@ impl CallGraph {
             call_sites: Vec::new(),
         }
     }
-    
+
     pub fn add_function(&mut self, function: IRFunction) {
         self.functions.insert(function.name.clone(), function);
     }
-    
+
     pub fn add_call_site(&mut self, call_site: CallSite) {
         self.call_sites.push(call_site);
     }
-    
+
     pub fn get_function(&self, name: &str) -> Option<&IRFunction> {
         self.functions.get(name)
     }
-    
+
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut IRFunction> {
         self.functions.get_mut(name)
     }
-    
+
     /// Get all functions called by the given function
     pub fn callees(&self, caller: &str) -> Vec<&str> {
         self.call_sites
@@ -487,7 +511,7 @@ impl CallGraph {
             .map(|cs| cs.callee.as_str())
             .collect()
     }
-    
+
     /// Get all functions that call the given function
     pub fn callers(&self, callee: &str) -> Vec<&str> {
         self.call_sites
@@ -496,45 +520,45 @@ impl CallGraph {
             .map(|cs| cs.caller.as_str())
             .collect()
     }
-    
+
     /// Check if the call graph has cycles (recursive functions)
     pub fn has_cycles(&self) -> bool {
         // Simple cycle detection using DFS
         let mut visited = std::collections::HashSet::new();
         let mut rec_stack = std::collections::HashSet::new();
-        
+
         for function_name in self.functions.keys() {
             if self.has_cycle_dfs(function_name, &mut visited, &mut rec_stack) {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     fn has_cycle_dfs(
         &self,
         function: &str,
         visited: &mut std::collections::HashSet<String>,
-        rec_stack: &mut std::collections::HashSet<String>
+        rec_stack: &mut std::collections::HashSet<String>,
     ) -> bool {
         if rec_stack.contains(function) {
             return true;
         }
-        
+
         if visited.contains(function) {
             return false;
         }
-        
+
         visited.insert(function.to_string());
         rec_stack.insert(function.to_string());
-        
+
         for callee in self.callees(function) {
             if self.has_cycle_dfs(callee, visited, rec_stack) {
                 return true;
             }
         }
-        
+
         rec_stack.remove(function);
         false
     }
@@ -554,67 +578,71 @@ mod tests {
     #[test]
     fn test_function_creation() {
         let mut func = IRFunction::new("test_func", IRType::Integer);
-        
+
         func.add_parameter(Parameter::new("x", IRType::Integer));
         func.add_parameter(Parameter::new("y", IRType::Float));
-        
+
         assert_eq!(func.name, "test_func");
         assert_eq!(func.parameters.len(), 2);
         assert_eq!(func.return_type, IRType::Integer);
     }
-    
+
     #[test]
     fn test_local_variables() {
         let mut func = IRFunction::new("test", IRType::Void);
-        
+
         let local = LocalVariable::mutable("temp", IRType::Integer);
         func.add_local(local);
-        
+
         assert!(func.get_local("temp").is_some());
         assert!(func.get_local("temp").unwrap().is_mutable);
         assert_eq!(func.get_local("temp").unwrap().var_type, IRType::Integer);
     }
-    
+
     #[test]
     fn test_register_allocation() {
         let mut func = IRFunction::new("test", IRType::Void);
-        
+
         let reg1 = func.allocate_register();
         let reg2 = func.allocate_register();
-        
+
         assert_eq!(reg1, 0);
         assert_eq!(reg2, 1);
         assert_eq!(func.register_count, 2);
     }
-    
+
     #[test]
     fn test_function_signature() {
         let mut func = IRFunction::new("add", IRType::Integer);
         func.add_parameter(Parameter::new("x", IRType::Integer));
         func.add_parameter(Parameter::new("y", IRType::Integer));
-        
+
         let sig = func.signature();
-        if let IRType::Function { parameters, return_type } = sig {
+        if let IRType::Function {
+            parameters,
+            return_type,
+        } = sig
+        {
             assert_eq!(parameters.len(), 2);
             assert_eq!(*return_type, IRType::Integer);
         } else {
             panic!("Expected function type");
         }
     }
-    
+
     #[test]
     fn test_call_graph() {
         let mut graph = CallGraph::new();
-        
+
         let func1 = IRFunction::new("main", IRType::Void);
         let func2 = IRFunction::new("helper", IRType::Integer);
-        
+
         graph.add_function(func1);
         graph.add_function(func2);
-        
+
         let call_site = CallSite::new("main", "helper", "main_block");
         graph.add_call_site(call_site);
-        
+
         assert_eq!(graph.callees("main"), vec!["helper"]);
         assert_eq!(graph.callers("helper"), vec!["main"]);
     }

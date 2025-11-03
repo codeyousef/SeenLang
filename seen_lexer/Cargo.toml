@@ -15,6 +15,7 @@ lasso = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
 hashbrown = { workspace = true }
 env_logger = { workspace = true }
+unicode-normalization = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

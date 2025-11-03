@@ -6,14 +6,14 @@
 //! - Automatic dependency tracking and change propagation
 //! - Integration with UI bindings and reactive updates
 
+use crate::observable::{Observable, ObservableId};
+use seen_concurrency::types::{AsyncError, AsyncResult, AsyncValue};
+use seen_lexer::position::Position;
+use seen_parser::ast::{Expression, Type};
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
-use std::any::Any;
-use seen_lexer::position::Position;
-use seen_parser::ast::{Expression, Type};
-use seen_concurrency::types::{AsyncValue, AsyncError, AsyncResult};
-use crate::observable::{Observable, ObservableId};
 
 /// Unique identifier for reactive properties
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,7 +24,7 @@ impl PropertyId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     /// Get the numeric ID
     pub fn id(&self) -> u64 {
         self.0
@@ -123,7 +123,7 @@ impl ObserverId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     /// Get the numeric ID
     pub fn id(&self) -> u64 {
         self.0
@@ -249,10 +249,10 @@ impl ReactiveProperty {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos() as u64
+                .as_nanos() as u64,
         );
         let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
-        
+
         Self {
             id,
             name,
@@ -271,12 +271,12 @@ impl ReactiveProperty {
             change_history: Vec::new(),
         }
     }
-    
+
     /// Get the current value
     pub fn get(&self) -> &AsyncValue {
         &self.value
     }
-    
+
     /// Set a new value (if mutable)
     pub fn set(&mut self, new_value: AsyncValue) -> Result<(), AsyncError> {
         if !self.is_mutable {
@@ -285,9 +285,9 @@ impl ReactiveProperty {
                 position: self.metadata.position,
             });
         }
-        
+
         let old_value = self.value.clone();
-        
+
         // Validate type compatibility
         if !self.is_value_compatible(&new_value) {
             return Err(AsyncError::RuntimeError {
@@ -298,10 +298,10 @@ impl ReactiveProperty {
                 position: self.metadata.position,
             });
         }
-        
+
         // Update value
         self.value = new_value.clone();
-        
+
         // Record change
         let change = PropertyChange {
             property_id: self.id,
@@ -310,23 +310,24 @@ impl ReactiveProperty {
             timestamp: Instant::now(),
             source: ChangeSource::DirectAssignment,
         };
-        
+
         // Add to history
         self.change_history.push(change.clone());
-        if self.change_history.len() > 100 { // Max history size
+        if self.change_history.len() > 100 {
+            // Max history size
             self.change_history.remove(0);
         }
-        
+
         // Update metadata
         self.metadata.change_count += 1;
         self.metadata.last_changed = Some(change.timestamp);
-        
+
         // Notify observers
         self.notify_observers(&change);
-        
+
         Ok(())
     }
-    
+
     /// Add an observer to this property
     pub fn add_observer<F>(&mut self, name: String, callback: F) -> ObserverId
     where
@@ -336,9 +337,9 @@ impl ReactiveProperty {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos() as u64
+                .as_nanos() as u64,
         );
-        
+
         let observer = Observer {
             id: observer_id,
             callback: Arc::new(callback),
@@ -350,19 +351,19 @@ impl ReactiveProperty {
             },
             is_active: true,
         };
-        
+
         {
             let mut observers = self.observers.lock().unwrap();
             observers.insert(observer_id, observer);
         }
-        
+
         observer_id
     }
-    
+
     /// Remove an observer
     pub fn remove_observer(&mut self, observer_id: ObserverId) -> Result<(), AsyncError> {
         let mut observers = self.observers.lock().unwrap();
-        
+
         if observers.remove(&observer_id).is_some() {
             Ok(())
         } else {
@@ -372,11 +373,11 @@ impl ReactiveProperty {
             })
         }
     }
-    
+
     /// Notify all observers of a change
     fn notify_observers(&self, change: &PropertyChange) {
         let observers = self.observers.lock().unwrap();
-        
+
         for observer in observers.values() {
             if observer.is_active {
                 match (observer.callback)(change) {
@@ -388,7 +389,7 @@ impl ReactiveProperty {
             }
         }
     }
-    
+
     /// Check if a value is compatible with the property type
     fn is_value_compatible(&self, value: &AsyncValue) -> bool {
         // Type checking using runtime type information
@@ -401,17 +402,17 @@ impl ReactiveProperty {
             _ => false,
         }
     }
-    
+
     /// Get property metadata
     pub fn metadata(&self) -> &PropertyMetadata {
         &self.metadata
     }
-    
+
     /// Get change history
     pub fn get_change_history(&self) -> &[PropertyChange] {
         &self.change_history
     }
-    
+
     /// Get number of active observers
     pub fn observer_count(&self) -> usize {
         self.observers.lock().unwrap().len()
@@ -430,10 +431,10 @@ impl ComputedProperty {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos() as u64
+                .as_nanos() as u64,
         );
         let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
-        
+
         Self {
             id,
             name,
@@ -453,30 +454,36 @@ impl ComputedProperty {
             computation_history: Vec::new(),
         }
     }
-    
+
     /// Get the computed value (recompute if cache invalid)
-    pub fn get(&mut self, property_manager: &ReactivePropertyManager) -> Result<&AsyncValue, AsyncError> {
+    pub fn get(
+        &mut self,
+        property_manager: &ReactivePropertyManager,
+    ) -> Result<&AsyncValue, AsyncError> {
         if !self.cache_valid {
             self.recompute(property_manager)?;
         }
-        
+
         Ok(self.cached_value.as_ref().unwrap())
     }
-    
+
     /// Recompute the value based on dependencies
-    pub fn recompute(&mut self, property_manager: &ReactivePropertyManager) -> Result<(), AsyncError> {
+    pub fn recompute(
+        &mut self,
+        property_manager: &ReactivePropertyManager,
+    ) -> Result<(), AsyncError> {
         let start_time = Instant::now();
-        
+
         // Extract computation reference before borrowing self mutably
         let computation = self.computation.clone();
-        
+
         // Execute computation expression
         let result = self.execute_computation(&computation, property_manager)?;
-        
+
         // Update cache
         self.cached_value = Some(result.clone());
         self.cache_valid = true;
-        
+
         // Record computation
         let record = ComputationRecord {
             timestamp: start_time,
@@ -484,19 +491,20 @@ impl ComputedProperty {
             dependencies_snapshot: self.dependencies.clone(),
             duration_ms: start_time.elapsed().as_millis() as u64,
         };
-        
+
         self.computation_history.push(record);
-        if self.computation_history.len() > 50 { // Max computation history
+        if self.computation_history.len() > 50 {
+            // Max computation history
             self.computation_history.remove(0);
         }
-        
+
         // Update metadata
         self.metadata.change_count += 1;
         self.metadata.last_changed = Some(start_time);
-        
+
         Ok(())
     }
-    
+
     /// Execute computation expression
     fn execute_computation(
         &mut self,
@@ -518,10 +526,12 @@ impl ComputedProperty {
                     })
                 }
             }
-            Expression::BinaryOp { left, right, op, .. } => {
+            Expression::BinaryOp {
+                left, right, op, ..
+            } => {
                 let left_val = self.execute_computation(left, property_manager)?;
                 let right_val = self.execute_computation(right, property_manager)?;
-                
+
                 // Simplified binary operations
                 use seen_parser::ast::BinaryOperator;
                 match (left_val, right_val, op) {
@@ -543,22 +553,22 @@ impl ComputedProperty {
             _ => Ok(AsyncValue::Unit),
         }
     }
-    
+
     /// Invalidate cache when dependencies change
     pub fn invalidate_cache(&mut self) {
         self.cache_valid = false;
     }
-    
+
     /// Add a dependency
     pub fn add_dependency(&mut self, property_id: PropertyId) {
         self.dependencies.insert(property_id);
     }
-    
+
     /// Get dependencies
     pub fn get_dependencies(&self) -> &HashSet<PropertyId> {
         &self.dependencies
     }
-    
+
     /// Get computation history
     pub fn get_computation_history(&self) -> &[ComputationRecord] {
         &self.computation_history
@@ -578,7 +588,7 @@ impl ReactivePropertyManager {
             config: ReactiveConfig::default(),
         }
     }
-    
+
     /// Create a new reactive property
     pub fn create_reactive_property(
         &mut self,
@@ -588,13 +598,14 @@ impl ReactivePropertyManager {
         is_mutable: bool,
         position: Position,
     ) -> PropertyId {
-        let property = ReactiveProperty::new(name, initial_value, property_type, is_mutable, position);
+        let property =
+            ReactiveProperty::new(name, initial_value, property_type, is_mutable, position);
         let property_id = property.id;
-        
+
         self.properties.insert(property_id, property);
         property_id
     }
-    
+
     /// Create a new computed property
     pub fn create_computed_property(
         &mut self,
@@ -605,48 +616,58 @@ impl ReactivePropertyManager {
     ) -> PropertyId {
         let property = ComputedProperty::new(name, computation, property_type, position);
         let property_id = property.id;
-        
+
         self.computed_properties.insert(property_id, property);
         property_id
     }
-    
+
     /// Get a reactive property by ID
     pub fn get_reactive_property(&self, property_id: PropertyId) -> Option<&ReactiveProperty> {
         self.properties.get(&property_id)
     }
-    
+
     /// Get a mutable reactive property by ID
-    pub fn get_reactive_property_mut(&mut self, property_id: PropertyId) -> Option<&mut ReactiveProperty> {
+    pub fn get_reactive_property_mut(
+        &mut self,
+        property_id: PropertyId,
+    ) -> Option<&mut ReactiveProperty> {
         self.properties.get_mut(&property_id)
     }
-    
+
     /// Get a computed property by ID
-    pub fn get_computed_property_mut(&mut self, property_id: PropertyId) -> Option<&mut ComputedProperty> {
+    pub fn get_computed_property_mut(
+        &mut self,
+        property_id: PropertyId,
+    ) -> Option<&mut ComputedProperty> {
         self.computed_properties.get_mut(&property_id)
     }
-    
+
     /// Find property by name
     pub fn find_property_by_name(&self, name: &str) -> Option<&ReactiveProperty> {
         self.properties.values().find(|p| p.name == name)
     }
-    
+
     /// Set a reactive property value
-    pub fn set_property_value(&mut self, property_id: PropertyId, value: AsyncValue) -> Result<(), AsyncError> {
+    pub fn set_property_value(
+        &mut self,
+        property_id: PropertyId,
+        value: AsyncValue,
+    ) -> Result<(), AsyncError> {
         if let Some(property) = self.properties.get_mut(&property_id) {
             property.set(value)?;
-            
+
             // Queue dependent properties for update
             if let Some(dependents) = self.dependency_graph.dependents.get(&property_id) {
                 for &dependent_id in dependents {
                     self.update_queue.push(dependent_id);
                 }
             }
-            
+
             // Process updates if batching is disabled
             if !self.config.batch_updates {
                 self.process_update_queue()?;
             }
-            
+
             Ok(())
         } else {
             Err(AsyncError::RuntimeError {
@@ -655,7 +676,7 @@ impl ReactivePropertyManager {
             })
         }
     }
-    
+
     /// Process the update queue
     pub fn process_update_queue(&mut self) -> Result<(), AsyncError> {
         // Process one item at a time to avoid borrowing conflicts
@@ -672,18 +693,21 @@ impl ReactivePropertyManager {
         }
         Ok(())
     }
-    
+
     /// Add dependency relationship
     pub fn add_dependency(&mut self, dependent: PropertyId, dependency: PropertyId) {
         self.dependency_graph.add_dependency(dependent, dependency);
     }
-    
+
     /// Get system statistics
     pub fn get_stats(&self) -> ReactiveStats {
         ReactiveStats {
             total_reactive_properties: self.properties.len(),
             total_computed_properties: self.computed_properties.len(),
-            total_dependencies: self.dependency_graph.dependencies.values()
+            total_dependencies: self
+                .dependency_graph
+                .dependencies
+                .values()
                 .map(|deps| deps.len())
                 .sum(),
             pending_updates: self.update_queue.len(),
@@ -705,45 +729,47 @@ impl DependencyGraph {
             dependents: HashMap::new(),
         }
     }
-    
+
     /// Add a dependency relationship
     pub fn add_dependency(&mut self, dependent: PropertyId, dependency: PropertyId) {
         // Add to dependencies map
-        self.dependencies.entry(dependent)
+        self.dependencies
+            .entry(dependent)
             .or_insert_with(HashSet::new)
             .insert(dependency);
-        
+
         // Add to dependents map
-        self.dependents.entry(dependency)
+        self.dependents
+            .entry(dependency)
             .or_insert_with(HashSet::new)
             .insert(dependent);
     }
-    
+
     /// Remove a dependency relationship
     pub fn remove_dependency(&mut self, dependent: PropertyId, dependency: PropertyId) {
         if let Some(deps) = self.dependencies.get_mut(&dependent) {
             deps.remove(&dependency);
         }
-        
+
         if let Some(deps) = self.dependents.get_mut(&dependency) {
             deps.remove(&dependent);
         }
     }
-    
+
     /// Check for circular dependencies
     pub fn has_circular_dependency(&self, property: PropertyId) -> bool {
         let mut visited = HashSet::new();
         self.dfs_check_cycle(property, &mut visited)
     }
-    
+
     /// Depth-first search to check for cycles
     fn dfs_check_cycle(&self, current: PropertyId, visited: &mut HashSet<PropertyId>) -> bool {
         if visited.contains(&current) {
             return true; // Cycle detected
         }
-        
+
         visited.insert(current);
-        
+
         if let Some(dependencies) = self.dependencies.get(&current) {
             for &dependency in dependencies {
                 if self.dfs_check_cycle(dependency, visited) {
@@ -751,7 +777,7 @@ impl DependencyGraph {
                 }
             }
         }
-        
+
         visited.remove(&current);
         false
     }
@@ -774,144 +800,173 @@ pub struct ReactiveStats {
 mod tests {
     use super::*;
     use seen_lexer::position::Position;
-    
+
     #[test]
     fn test_reactive_property_creation() {
         let property = ReactiveProperty::new(
             "Username".to_string(),
             AsyncValue::String("Alice".to_string()),
-            Type { name: "String".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "String".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             true,
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(property.name, "Username");
         assert!(property.is_mutable);
         assert!(property.metadata.is_public); // Capital U = public
         assert_eq!(property.observer_count(), 0);
     }
-    
+
     #[test]
     fn test_reactive_property_set_get() {
         let mut property = ReactiveProperty::new(
             "count".to_string(),
             AsyncValue::Integer(0),
-            Type { name: "Int".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "Int".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             true,
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(*property.get(), AsyncValue::Integer(0));
-        
+
         property.set(AsyncValue::Integer(42)).unwrap();
         assert_eq!(*property.get(), AsyncValue::Integer(42));
         assert_eq!(property.metadata.change_count, 1);
     }
-    
+
     #[test]
     fn test_reactive_property_observer() {
         let mut property = ReactiveProperty::new(
             "testProp".to_string(),
             AsyncValue::String("initial".to_string()),
-            Type { name: "String".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "String".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             true,
             Position::new(1, 1, 0),
         );
-        
+
         let changed_values = Arc::new(Mutex::new(Vec::new()));
         let changed_clone = changed_values.clone();
-        
-        let _observer_id = property.add_observer(
-            "test_observer".to_string(),
-            move |change| {
-                changed_clone.lock().unwrap().push(change.new_value.clone());
-                Ok(AsyncValue::Unit)
-            },
-        );
-        
-        property.set(AsyncValue::String("changed".to_string())).unwrap();
-        
+
+        let _observer_id = property.add_observer("test_observer".to_string(), move |change| {
+            changed_clone.lock().unwrap().push(change.new_value.clone());
+            Ok(AsyncValue::Unit)
+        });
+
+        property
+            .set(AsyncValue::String("changed".to_string()))
+            .unwrap();
+
         let changes = changed_values.lock().unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0], AsyncValue::String("changed".to_string()));
     }
-    
+
     #[test]
     fn test_computed_property_creation() {
         let computation = Expression::BooleanLiteral {
             value: true,
             pos: Position::new(1, 1, 0),
         };
-        
+
         let property = ComputedProperty::new(
             "IsValid".to_string(),
             computation,
-            Type { name: "Bool".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "Bool".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(property.name, "IsValid");
         assert!(property.metadata.is_public); // Capital I = public
         assert!(!property.cache_valid);
     }
-    
+
     #[test]
     fn test_reactive_property_manager() {
         let mut manager = ReactivePropertyManager::new();
-        
+
         let property_id = manager.create_reactive_property(
             "Username".to_string(),
             AsyncValue::String("Alice".to_string()),
-            Type { name: "String".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "String".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             true,
             Position::new(1, 1, 0),
         );
-        
+
         assert!(manager.get_reactive_property(property_id).is_some());
-        
-        manager.set_property_value(property_id, AsyncValue::String("Bob".to_string())).unwrap();
-        
+
+        manager
+            .set_property_value(property_id, AsyncValue::String("Bob".to_string()))
+            .unwrap();
+
         let property = manager.get_reactive_property(property_id).unwrap();
         assert_eq!(*property.get(), AsyncValue::String("Bob".to_string()));
     }
-    
+
     #[test]
     fn test_dependency_graph() {
         let mut graph = DependencyGraph::new();
-        
+
         let prop1 = PropertyId::new(1);
         let prop2 = PropertyId::new(2);
-        
+
         graph.add_dependency(prop1, prop2);
-        
+
         assert!(graph.dependencies.get(&prop1).unwrap().contains(&prop2));
         assert!(graph.dependents.get(&prop2).unwrap().contains(&prop1));
     }
-    
+
     #[test]
     fn test_manager_stats() {
         let mut manager = ReactivePropertyManager::new();
-        
+
         let _reactive_id = manager.create_reactive_property(
             "count".to_string(),
             AsyncValue::Integer(0),
-            Type { name: "Int".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "Int".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             true,
             Position::new(1, 1, 0),
         );
-        
+
         let computation = Expression::BooleanLiteral {
             value: true,
             pos: Position::new(1, 1, 0),
         };
-        
+
         let _computed_id = manager.create_computed_property(
             "IsEven".to_string(),
             computation,
-            Type { name: "Bool".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "Bool".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             Position::new(1, 1, 0),
         );
-        
+
         let stats = manager.get_stats();
         assert_eq!(stats.total_reactive_properties, 1);
         assert_eq!(stats.total_computed_properties, 1);

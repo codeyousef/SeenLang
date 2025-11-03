@@ -1,7 +1,7 @@
 //! Tests for extension method parsing
 
-use crate::{Parser, Expression};
-use seen_lexer::{Lexer, KeywordManager};
+use crate::{Expression, Parser};
+use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
 fn parse_top_level_item(input: &str) -> Result<Expression, crate::ParseError> {
@@ -17,16 +17,23 @@ fn parse_top_level_item(input: &str) -> Result<Expression, crate::ParseError> {
 
 #[test]
 fn test_parse_simple_extension() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         extension String {
             fun Reversed(): String {
                 return this.chars().reverse().join()
             }
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Extension { target_type, methods, .. } => {
+        Expression::Extension {
+            target_type,
+            methods,
+            ..
+        } => {
             assert_eq!(target_type.name, "String");
             assert_eq!(methods.len(), 1);
             assert_eq!(methods[0].name, "Reversed");
@@ -40,7 +47,8 @@ fn test_parse_simple_extension() {
 
 #[test]
 fn test_parse_extension_multiple_methods() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         extension String {
             fun Reversed(): String {
                 return this.chars().reverse().join()
@@ -50,17 +58,23 @@ fn test_parse_extension_multiple_methods() {
                 return this.trim().toLowerCase()
             }
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Extension { target_type, methods, .. } => {
+        Expression::Extension {
+            target_type,
+            methods,
+            ..
+        } => {
             assert_eq!(target_type.name, "String");
             assert_eq!(methods.len(), 2);
-            
+
             // Check first method (public)
             assert_eq!(methods[0].name, "Reversed");
             assert!(methods[0].name.chars().next().unwrap().is_uppercase()); // Public
-            
+
             // Check second method (private)
             assert_eq!(methods[1].name, "cleaned");
             assert!(methods[1].name.chars().next().unwrap().is_lowercase()); // Private
@@ -71,16 +85,23 @@ fn test_parse_extension_multiple_methods() {
 
 #[test]
 fn test_parse_extension_with_parameters() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         extension Array {
             fun Contains(item: T): Bool {
                 return this.any { it == item }
             }
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Extension { target_type, methods, .. } => {
+        Expression::Extension {
+            target_type,
+            methods,
+            ..
+        } => {
             assert_eq!(target_type.name, "Array");
             assert_eq!(methods.len(), 1);
             assert_eq!(methods[0].name, "Contains");
@@ -96,16 +117,23 @@ fn test_parse_extension_with_parameters() {
 
 #[test]
 fn test_parse_extension_generic_target() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         extension List<T> {
             fun First(): T? {
                 return this.firstOrNull()
             }
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Extension { target_type, methods, .. } => {
+        Expression::Extension {
+            target_type,
+            methods,
+            ..
+        } => {
             assert_eq!(target_type.name, "List");
             assert_eq!(target_type.generics.len(), 1);
             assert_eq!(target_type.generics[0].name, "T");
@@ -122,7 +150,8 @@ fn test_parse_extension_generic_target() {
 
 #[test]
 fn test_parse_extension_visibility() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         extension String {
             fun ToUpper(): String {     // Public method
                 return this.toUpperCase()
@@ -132,17 +161,23 @@ fn test_parse_extension_visibility() {
                 return this.toLowerCase()
             }
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Extension { target_type, methods, .. } => {
+        Expression::Extension {
+            target_type,
+            methods,
+            ..
+        } => {
             assert_eq!(target_type.name, "String");
             assert_eq!(methods.len(), 2);
-            
+
             // Check method visibility through name capitalization
             assert_eq!(methods[0].name, "ToUpper");
             assert!(methods[0].name.chars().next().unwrap().is_uppercase()); // Public
-            
+
             assert_eq!(methods[1].name, "toLower");
             assert!(methods[1].name.chars().next().unwrap().is_lowercase()); // Private
         }
@@ -154,17 +189,24 @@ fn test_parse_extension_visibility() {
 fn test_parse_extension_with_receiver_modifiers() {
     // Note: This tests if extension methods can have receiver modifiers
     // This might be a more advanced feature
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         extension StringBuilder {
             fun Append(text: String): StringBuilder {
                 // Extension method that modifies the receiver
                 return this.append(text)
             }
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Extension { target_type, methods, .. } => {
+        Expression::Extension {
+            target_type,
+            methods,
+            ..
+        } => {
             assert_eq!(target_type.name, "StringBuilder");
             assert_eq!(methods.len(), 1);
             assert_eq!(methods[0].name, "Append");
@@ -177,13 +219,20 @@ fn test_parse_extension_with_receiver_modifiers() {
 
 #[test]
 fn test_parse_empty_extension() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         extension String {
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Extension { target_type, methods, .. } => {
+        Expression::Extension {
+            target_type,
+            methods,
+            ..
+        } => {
             assert_eq!(target_type.name, "String");
             assert_eq!(methods.len(), 0); // Empty extension (marker extension)
         }

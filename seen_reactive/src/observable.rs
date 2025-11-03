@@ -1,15 +1,15 @@
 //! Observable streams for reactive programming
-//! 
+//!
 //! Implements Observable patterns following Seen syntax:
 //! - Observable<T> for data streams
 //! - Operators like Map, Filter, Throttle, Debounce
 //! - Subscription management and error handling
 
+use futures::stream::Stream;
+use seen_concurrency::types::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use futures::stream::Stream;
-use seen_concurrency::types::*;
 
 /// Unique identifier for observables
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,12 +19,14 @@ impl ObservableId {
     /// Create new observable ID
     pub fn new() -> Self {
         // In real implementation, would use proper ID generation
-        Self(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64)
+        Self(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
+        )
     }
-    
+
     /// Get ID value
     pub fn value(&self) -> u64 {
         self.0
@@ -48,7 +50,10 @@ impl<T> std::fmt::Debug for Observable<T> {
         f.debug_struct("Observable")
             .field("id", &self.id)
             .field("metadata", &self.metadata)
-            .field("subscription_count", &self.subscriptions.lock().unwrap().len())
+            .field(
+                "subscription_count",
+                &self.subscriptions.lock().unwrap().len(),
+            )
             .finish()
     }
 }
@@ -95,10 +100,12 @@ pub struct SubscriptionId(u64);
 impl SubscriptionId {
     /// Create new subscription ID
     pub fn new() -> Self {
-        Self(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64)
+        Self(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
+        )
     }
 }
 
@@ -128,14 +135,14 @@ impl<T: Clone + Send + 'static> Observable<T> {
             },
         }
     }
-    
+
     /// Emit a value to all subscribers
     pub fn emit(&self, value: T) -> Result<(), AsyncError> {
         // Store value
         if let Ok(mut values) = self.values.lock() {
             values.push(value.clone());
         }
-        
+
         // Notify subscribers
         if let Ok(subscriptions) = self.subscriptions.lock() {
             for subscription in subscriptions.values() {
@@ -146,7 +153,7 @@ impl<T: Clone + Send + 'static> Observable<T> {
         }
         Ok(())
     }
-    
+
     /// Subscribe to the observable
     pub fn subscribe<F>(&self, callback: F) -> SubscriptionId
     where
@@ -163,14 +170,14 @@ impl<T: Clone + Send + 'static> Observable<T> {
                 observer_type: "callback".to_string(),
             },
         };
-        
+
         if let Ok(mut subscriptions) = self.subscriptions.lock() {
             subscriptions.insert(subscription_id, subscription);
         }
-        
+
         subscription_id
     }
-    
+
     /// Unsubscribe from the observable
     pub fn unsubscribe(&self, subscription_id: SubscriptionId) -> Result<(), AsyncError> {
         if let Ok(mut subscriptions) = self.subscriptions.lock() {
@@ -178,7 +185,7 @@ impl<T: Clone + Send + 'static> Observable<T> {
         }
         Ok(())
     }
-    
+
     /// Map transformation (simplified)
     pub fn map<U, F>(&self, mapper: F) -> Observable<U>
     where
@@ -186,7 +193,7 @@ impl<T: Clone + Send + 'static> Observable<T> {
         U: Clone + Send + 'static,
     {
         let mapped = Observable::new(format!("{}_mapped", self.metadata.name));
-        
+
         // Set up subscription to transform values
         let mapped_clone = mapped.clone();
         let mapper = Arc::new(mapper);
@@ -195,17 +202,17 @@ impl<T: Clone + Send + 'static> Observable<T> {
             mapped_clone.emit(mapped_value)?;
             Ok(AsyncValue::Unit)
         });
-        
+
         mapped
     }
-    
+
     /// Filter values
     pub fn filter<F>(&self, predicate: F) -> Observable<T>
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
         let filtered = Observable::new(format!("{}_filtered", self.metadata.name));
-        
+
         let filtered_clone = filtered.clone();
         let predicate = Arc::new(predicate);
         self.subscribe(move |value| {
@@ -214,10 +221,10 @@ impl<T: Clone + Send + 'static> Observable<T> {
             }
             Ok(AsyncValue::Unit)
         });
-        
+
         filtered
     }
-    
+
     /// Get all current values
     pub fn get_values(&self) -> Vec<T> {
         if let Ok(values) = self.values.lock() {
@@ -268,11 +275,11 @@ impl ObservableFactory {
             },
         }
     }
-    
+
     /// Create observable from range
     pub fn range(&mut self, start: i32, end: i32, step: i32) -> Observable<i32> {
         let observable = Observable::new("range".to_string());
-        
+
         // Emit range values
         let mut current = start;
         if step > 0 {
@@ -286,24 +293,24 @@ impl ObservableFactory {
                 current += step;
             }
         }
-        
+
         self.stats.total_observables += 1;
         observable
     }
-    
+
     /// Create observable from vector
     pub fn from_vec<T: Clone + Send + 'static>(&mut self, values: Vec<T>) -> Observable<T> {
         let observable = Observable::new("vector".to_string());
-        
+
         // Emit all values
         for value in values {
             let _ = observable.emit(value);
         }
-        
+
         self.stats.total_observables += 1;
         observable
     }
-    
+
     /// Get statistics
     pub fn get_stats(&self) -> ObservableStats {
         self.stats.clone()
@@ -327,74 +334,74 @@ mod tests {
         assert_eq!(observable.metadata.name, "test");
         assert!(observable.metadata.supports_backpressure);
     }
-    
+
     #[test]
     fn test_observable_emit_and_subscribe() {
         let observable = Observable::new("test".to_string());
         let received = Arc::new(AtomicUsize::new(0));
         let received_clone = Arc::clone(&received);
-        
+
         let _subscription_id = observable.subscribe(move |_value| {
             received_clone.fetch_add(1, Ordering::SeqCst);
             Ok(AsyncValue::Unit)
         });
-        
+
         observable.emit(42).unwrap();
         observable.emit(84).unwrap();
-        
+
         assert_eq!(received.load(Ordering::SeqCst), 2);
     }
-    
+
     #[test]
     fn test_observable_map() {
         let observable = Observable::new("test".to_string());
         let mapped = observable.map(|x| x * 2);
-        
+
         observable.emit(5).unwrap();
-        
+
         // In a full implementation, mapped would contain [10]
         assert_eq!(mapped.metadata.name, "test_mapped");
     }
-    
+
     #[test]
     fn test_observable_filter() {
         let observable = Observable::new("test".to_string());
         let filtered = observable.filter(|&x| x > 10);
-        
+
         observable.emit(5).unwrap();
         observable.emit(15).unwrap();
-        
+
         assert_eq!(filtered.metadata.name, "test_filtered");
     }
-    
+
     #[test]
     fn test_observable_factory() {
         let mut factory = ObservableFactory::new();
-        
+
         let range_obs = factory.range(1, 5, 1);
         assert_eq!(range_obs.get_values(), vec![1, 2, 3, 4]);
-        
+
         let vec_obs = factory.from_vec(vec![10, 20, 30]);
         assert_eq!(vec_obs.get_values(), vec![10, 20, 30]);
-        
+
         assert_eq!(factory.stats.total_observables, 2);
     }
-    
+
     #[test]
     fn test_subscription_management() {
         let observable = Observable::<i32>::new("test".to_string());
-        
+
         let subscription_id = observable.subscribe(|_| Ok(AsyncValue::Unit));
-        
+
         // Verify subscription exists
         {
             let subscriptions = observable.subscriptions.lock().unwrap();
             assert!(subscriptions.contains_key(&subscription_id));
         }
-        
+
         // Unsubscribe
         observable.unsubscribe(subscription_id).unwrap();
-        
+
         // Verify subscription removed
         {
             let subscriptions = observable.subscriptions.lock().unwrap();

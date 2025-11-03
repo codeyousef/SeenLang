@@ -1,7 +1,7 @@
 //! Tests for interface/trait parsing
 
-use crate::{Parser, Expression, Program};
-use seen_lexer::{Lexer, KeywordManager};
+use crate::{Expression, Parser, Program};
+use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
 fn parse_program(input: &str) -> Result<Program, crate::ParseError> {
@@ -27,7 +27,7 @@ fn parse_top_level_item(input: &str) -> Result<Expression, crate::ParseError> {
 #[test]
 fn test_parse_simple_interface() {
     let expr = parse_top_level_item("interface Drawable {}").unwrap();
-    
+
     match expr {
         Expression::Interface { name, methods, .. } => {
             assert_eq!(name, "Drawable");
@@ -39,12 +39,15 @@ fn test_parse_simple_interface() {
 
 #[test]
 fn test_parse_interface_with_method() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         interface Drawable {
             fun Draw(canvas: Canvas)
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Interface { name, methods, .. } => {
             assert_eq!(name, "Drawable");
@@ -61,30 +64,33 @@ fn test_parse_interface_with_method() {
 
 #[test]
 fn test_parse_interface_multiple_methods() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         interface Logger {
             fun Log(message: String)
             fun Debug(level: Int, message: String)
             fun Error(error: String)
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Interface { name, methods, .. } => {
             assert_eq!(name, "Logger");
             assert_eq!(methods.len(), 3);
-            
+
             // Check Log method
             assert_eq!(methods[0].name, "Log");
             assert_eq!(methods[0].params.len(), 1);
             assert_eq!(methods[0].params[0].name, "message");
-            
-            // Check Debug method  
+
+            // Check Debug method
             assert_eq!(methods[1].name, "Debug");
             assert_eq!(methods[1].params.len(), 2);
             assert_eq!(methods[1].params[0].name, "level");
             assert_eq!(methods[1].params[1].name, "message");
-            
+
             // Check Error method
             assert_eq!(methods[2].name, "Error");
             assert_eq!(methods[2].params.len(), 1);
@@ -96,33 +102,36 @@ fn test_parse_interface_multiple_methods() {
 
 #[test]
 fn test_parse_interface_with_return_types() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         interface Repository {
             fun GetUser(id: Int): User?
             fun SaveUser(user: User): Bool
             fun DeleteUser(id: Int): Result<Bool, Error>
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Interface { name, methods, .. } => {
             assert_eq!(name, "Repository");
             assert_eq!(methods.len(), 3);
-            
+
             // Check GetUser method has nullable return type
             assert_eq!(methods[0].name, "GetUser");
             assert!(methods[0].return_type.is_some());
             let return_type = methods[0].return_type.as_ref().unwrap();
             assert_eq!(return_type.name, "User");
             assert!(return_type.is_nullable);
-            
+
             // Check SaveUser method has Bool return type
             assert_eq!(methods[1].name, "SaveUser");
             assert!(methods[1].return_type.is_some());
             let return_type = methods[1].return_type.as_ref().unwrap();
             assert_eq!(return_type.name, "Bool");
             assert!(!return_type.is_nullable);
-            
+
             // Check DeleteUser method has generic Result return type
             assert_eq!(methods[2].name, "DeleteUser");
             assert!(methods[2].return_type.is_some());
@@ -139,12 +148,15 @@ fn test_parse_interface_with_return_types() {
 #[test]
 fn test_parse_interface_visibility() {
     // Test public interface (capitalized name)
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         interface Drawable {
             fun Draw()
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Interface { name, .. } => {
             assert_eq!(name, "Drawable");
@@ -153,14 +165,17 @@ fn test_parse_interface_visibility() {
         }
         _ => panic!("Expected interface definition"),
     }
-    
-    // Test private interface (lowercase name)  
-    let expr2 = parse_top_level_item(r#"
+
+    // Test private interface (lowercase name)
+    let expr2 = parse_top_level_item(
+        r#"
         interface drawable {
             fun draw()
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr2 {
         Expression::Interface { name, .. } => {
             assert_eq!(name, "drawable");
@@ -180,7 +195,8 @@ fn test_parse_interface_visibility() {
 fn test_parse_interface_with_default_implementations() {
     // Note: This tests whether we can parse default method implementations in interfaces
     // This is a more advanced feature that might not be implemented initially
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         interface Loggable {
             fun Log(message: String)
             
@@ -188,17 +204,19 @@ fn test_parse_interface_with_default_implementations() {
                 Log("[{level}] {message}")
             }
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Interface { methods, .. } => {
             assert_eq!(methods.len(), 2);
-            
+
             // First method has no body (abstract)
             assert_eq!(methods[0].name, "Log");
             assert!(!methods[0].is_default);
             assert!(methods[0].default_impl.is_none());
-            
+
             // Second method has default implementation
             assert_eq!(methods[1].name, "LogWithLevel");
             assert!(methods[1].is_default); // Marked as having default implementation
@@ -210,11 +228,14 @@ fn test_parse_interface_with_default_implementations() {
 
 #[test]
 fn test_parse_empty_interface() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         interface Marker {
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Interface { name, methods, .. } => {
             assert_eq!(name, "Marker");

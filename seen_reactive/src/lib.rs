@@ -7,19 +7,19 @@
 //! - Automatic dependency tracking and change propagation
 //! - Integration with async/await and concurrency systems
 
+pub mod flow;
 pub mod observable;
 pub mod properties;
-pub mod flow;
 
 // Re-export main types for convenience
+pub use flow::{Flow, FlowCollector, FlowFactory};
 pub use observable::{Observable, ObservableFactory};
-pub use properties::{ReactiveProperty, ComputedProperty, ReactivePropertyManager};
-pub use flow::{Flow, FlowFactory, FlowCollector};
+pub use properties::{ComputedProperty, ReactiveProperty, ReactivePropertyManager};
 
+use seen_concurrency::types::{AsyncError, AsyncResult, AsyncValue};
+use seen_lexer::position::Position;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use seen_lexer::position::Position;
-use seen_concurrency::types::{AsyncValue, AsyncError, AsyncResult};
 
 /// Main reactive runtime for managing all reactive features
 #[derive(Debug)]
@@ -98,7 +98,7 @@ impl ReactiveRuntime {
             stats: ReactiveRuntimeStats::default(),
         }
     }
-    
+
     /// Create reactive runtime with custom configuration
     pub fn with_config(config: ReactiveRuntimeConfig) -> Self {
         Self {
@@ -109,14 +109,14 @@ impl ReactiveRuntime {
             stats: ReactiveRuntimeStats::default(),
         }
     }
-    
+
     /// Create an observable from range (Seen syntax: Observable.Range(1, 10))
     pub fn create_observable_range(&mut self, start: i32, end: i32, step: i32) -> Observable<i32> {
         let observable = self.observable_factory.range(start, end, step);
         self.stats.total_observables_created += 1;
         observable
     }
-    
+
     /// Create an observable from vector
     pub fn create_observable_from_vec<T>(&mut self, values: Vec<T>) -> Observable<T>
     where
@@ -126,7 +126,7 @@ impl ReactiveRuntime {
         self.stats.total_observables_created += 1;
         observable
     }
-    
+
     /// Create a reactive property
     pub fn create_reactive_property(
         &mut self,
@@ -137,12 +137,16 @@ impl ReactiveRuntime {
         position: Position,
     ) -> properties::PropertyId {
         let property_id = self.property_manager.create_reactive_property(
-            name, initial_value, property_type, is_mutable, position
+            name,
+            initial_value,
+            property_type,
+            is_mutable,
+            position,
         );
         self.stats.total_properties_created += 1;
         property_id
     }
-    
+
     /// Create a computed property
     pub fn create_computed_property(
         &mut self,
@@ -152,12 +156,15 @@ impl ReactiveRuntime {
         position: Position,
     ) -> properties::PropertyId {
         let property_id = self.property_manager.create_computed_property(
-            name, computation, property_type, position
+            name,
+            computation,
+            property_type,
+            position,
         );
         self.stats.total_properties_created += 1;
         property_id
     }
-    
+
     /// Create a flow from vector
     pub fn create_flow_from_vec<T>(&mut self, values: Vec<T>) -> Flow<T>
     where
@@ -167,45 +174,44 @@ impl ReactiveRuntime {
         self.stats.total_flows_created += 1;
         flow
     }
-    
+
     /// Create a range flow
     pub fn create_flow_range(&mut self, start: i64, end: i64, step: i64) -> Flow<i64> {
         let flow = FlowFactory::range(start, end, step);
         self.stats.total_flows_created += 1;
         flow
     }
-    
+
     /// Process all pending reactive updates
     pub fn process_updates(&mut self) -> Result<(), AsyncError> {
         self.property_manager.process_update_queue()?;
         Ok(())
     }
-    
+
     /// Get runtime statistics
     pub fn get_stats(&self) -> &ReactiveRuntimeStats {
         &self.stats
     }
-    
+
     /// Get observable statistics
     pub fn get_observable_stats(&self) -> observable::ObservableStats {
         self.observable_factory.get_stats()
     }
-    
+
     /// Get property statistics
     pub fn get_property_stats(&self) -> properties::ReactiveStats {
         self.property_manager.get_stats()
     }
-    
+
     /// Update runtime statistics
     pub fn update_stats(&mut self) {
         let observable_stats = self.get_observable_stats();
         let property_stats = self.get_property_stats();
-        
+
         self.stats.active_subscriptions = observable_stats.total_subscriptions;
-        
+
         // Approximate memory usage calculation
-        self.stats.memory_usage_bytes = 
-            (observable_stats.total_observables * 1024) + // ~1KB per observable
+        self.stats.memory_usage_bytes = (observable_stats.total_observables * 1024) + // ~1KB per observable
             (property_stats.total_reactive_properties * 512) + // ~512B per property
             (property_stats.total_computed_properties * 768); // ~768B per computed property
     }
@@ -221,18 +227,26 @@ impl Default for ReactiveRuntime {
 pub mod syntax {
     use super::*;
     use std::time::Duration;
-    
+
     /// Create an observable that emits mouse clicks
     /// Seen syntax: let clicks: Observable<MouseEvent> = button.Clicks()
     pub fn mouse_clicks() -> Observable<MouseEvent> {
         // Simplified implementation - in real system would connect to UI events
         let mut factory = ObservableFactory::new();
         factory.from_vec(vec![
-            MouseEvent { x: 100, y: 200, button: MouseButton::Left },
-            MouseEvent { x: 150, y: 250, button: MouseButton::Left },
+            MouseEvent {
+                x: 100,
+                y: 200,
+                button: MouseButton::Left,
+            },
+            MouseEvent {
+                x: 150,
+                y: 250,
+                button: MouseButton::Left,
+            },
         ])
     }
-    
+
     /// Create a reactive ViewModel following Seen syntax
     /// ```seen
     /// struct ViewModel {
@@ -253,7 +267,7 @@ pub mod syntax {
             true,
             Position::new(1, 1, 0),
         );
-        
+
         let email_id = runtime.create_reactive_property(
             "Email".to_string(),
             AsyncValue::String("".to_string()),
@@ -265,7 +279,7 @@ pub mod syntax {
             true,
             Position::new(2, 1, 0),
         );
-        
+
         // Create computed property for validation
         let validation_expr = seen_parser::ast::Expression::BinaryOp {
             left: Box::new(seen_parser::ast::Expression::Identifier {
@@ -281,7 +295,7 @@ pub mod syntax {
             op: seen_parser::ast::BinaryOperator::And,
             pos: Position::new(3, 10, 0),
         };
-        
+
         let is_valid_id = runtime.create_computed_property(
             "IsValid".to_string(),
             validation_expr,
@@ -292,7 +306,7 @@ pub mod syntax {
             },
             Position::new(3, 1, 0),
         );
-        
+
         ViewModelExample {
             username_id,
             email_id,
@@ -329,29 +343,29 @@ pub struct ViewModelExample {
 mod tests {
     use super::*;
     use std::time::Duration;
-    
+
     #[test]
     fn test_reactive_runtime_creation() {
         let runtime = ReactiveRuntime::new();
-        
+
         assert_eq!(runtime.stats.total_observables_created, 0);
         assert_eq!(runtime.stats.total_properties_created, 0);
         assert_eq!(runtime.stats.total_flows_created, 0);
     }
-    
+
     #[test]
     fn test_reactive_runtime_observable_creation() {
         let mut runtime = ReactiveRuntime::new();
-        
+
         let _observable = runtime.create_observable_range(1, 5, 1);
-        
+
         assert_eq!(runtime.stats.total_observables_created, 1);
     }
-    
+
     #[test]
     fn test_reactive_runtime_property_creation() {
         let mut runtime = ReactiveRuntime::new();
-        
+
         let _property_id = runtime.create_reactive_property(
             "TestProperty".to_string(),
             AsyncValue::String("test".to_string()),
@@ -363,38 +377,38 @@ mod tests {
             true,
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(runtime.stats.total_properties_created, 1);
     }
-    
+
     #[test]
     fn test_reactive_runtime_flow_creation() {
         let mut runtime = ReactiveRuntime::new();
-        
+
         let _flow = runtime.create_flow_from_vec(vec![1, 2, 3]);
-        
+
         assert_eq!(runtime.stats.total_flows_created, 1);
     }
-    
+
     #[tokio::test]
     async fn test_syntax_helpers() {
         let _mouse_clicks = syntax::mouse_clicks();
         // Test that syntax helpers work
     }
-    
+
     #[test]
     fn test_view_model_creation() {
         let mut runtime = ReactiveRuntime::new();
         let _view_model = syntax::create_view_model(&mut runtime);
-        
+
         // Should have created 2 reactive properties and 1 computed property
         assert_eq!(runtime.stats.total_properties_created, 3);
     }
-    
+
     #[test]
     fn test_runtime_stats_update() {
         let mut runtime = ReactiveRuntime::new();
-        
+
         // Create some reactive elements
         let _observable = runtime.create_observable_range(1, 5, 1);
         let _property = runtime.create_reactive_property(
@@ -408,12 +422,12 @@ mod tests {
             true,
             Position::new(1, 1, 0),
         );
-        
+
         runtime.update_stats();
-        
+
         assert!(runtime.stats.memory_usage_bytes > 0);
     }
-    
+
     #[test]
     fn test_runtime_configuration() {
         let config = ReactiveRuntimeConfig {
@@ -422,9 +436,9 @@ mod tests {
             enable_monitoring: false,
             gc_interval_ms: 30000,
         };
-        
+
         let runtime = ReactiveRuntime::with_config(config.clone());
-        
+
         assert_eq!(runtime.config.max_observables, 5000);
         assert!(!runtime.config.enable_monitoring);
     }

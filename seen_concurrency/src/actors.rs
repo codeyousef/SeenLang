@@ -7,15 +7,15 @@
 //! - request Message from actor
 //! - Proper message type safety and supervision
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, Condvar};
-use std::time::{Duration, Instant, SystemTime};
-use seen_parser::ast::{Expression, Type};
-use seen_lexer::position::Position;
 use crate::types::{
-    ActorId, ActorRef, ActorMessage, AsyncValue, AsyncError, AsyncResult, 
-    TaskId, TaskPriority, Mailbox
+    ActorId, ActorMessage, ActorRef, AsyncError, AsyncResult, AsyncValue, Mailbox, TaskId,
+    TaskPriority,
 };
+use seen_lexer::position::Position;
+use seen_parser::ast::{Expression, Type};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Actor definition following Seen syntax
 #[derive(Debug, Clone)]
@@ -153,10 +153,7 @@ pub enum SystemMessage {
     /// Supervise child actor
     Supervise(ActorId),
     /// Child actor has failed
-    ChildFailed {
-        child_id: ActorId,
-        error: String,
-    },
+    ChildFailed { child_id: ActorId, error: String },
 }
 
 /// Manager for all actors in the system
@@ -212,7 +209,7 @@ impl ActorDefinition {
         position: Position,
     ) -> Self {
         let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
-        
+
         Self {
             name,
             state_variables,
@@ -222,30 +219,27 @@ impl ActorDefinition {
             supervision: SupervisionStrategy::Restart, // Default strategy
         }
     }
-    
+
     /// Set supervision strategy
     pub fn with_supervision(mut self, strategy: SupervisionStrategy) -> Self {
         self.supervision = strategy;
         self
     }
-    
+
     /// Check if actor can handle a message type
     pub fn can_handle(&self, message_type: &str) -> bool {
         self.message_handlers.contains_key(message_type)
     }
-    
+
     /// Get message handler for a type
     pub fn get_handler(&self, message_type: &str) -> Option<&MessageHandler> {
         self.message_handlers.get(message_type)
     }
-    
+
     /// Get actor signature for display
     pub fn signature(&self) -> String {
-        let handlers: Vec<String> = self.message_handlers
-            .keys()
-            .map(|k| k.clone())
-            .collect();
-        
+        let handlers: Vec<String> = self.message_handlers.keys().map(|k| k.clone()).collect();
+
         format!(
             "actor {} {{ receive: [{}] }}",
             self.name,
@@ -271,12 +265,12 @@ impl MessageHandler {
             position,
         }
     }
-    
+
     /// Create a simple send handler (no reply)
     pub fn send_handler(message_type: String, handler: Expression, position: Position) -> Self {
         Self::new(message_type, handler, false, None, position)
     }
-    
+
     /// Create a request handler (expects reply)
     pub fn request_handler(
         message_type: String,
@@ -299,7 +293,7 @@ impl ActorInstance {
             messages: Mutex::new(VecDeque::new()),
             capacity: Some(1000), // Default capacity
         });
-        
+
         Self {
             id,
             actor_type: definition.name.clone(),
@@ -318,12 +312,12 @@ impl ActorInstance {
             },
         }
     }
-    
+
     /// Process a message using the appropriate handler
     pub fn process_message(&mut self, message: ActorMessage) -> AsyncResult {
         let start_time = Instant::now();
         self.execution_state = ActorExecutionState::Processing;
-        
+
         // Extract message type and payload
         let (message_type, payload) = match &message.content {
             AsyncValue::String(msg) => (msg.clone(), AsyncValue::Unit),
@@ -337,16 +331,16 @@ impl ActorInstance {
             }
             _ => ("Unknown".to_string(), message.content.clone()),
         };
-        
+
         // Find appropriate handler
         if let Some(handler) = self.definition.get_handler(&message_type).cloned() {
             // Execute handler
             let result = self.execute_handler(&handler, payload);
-            
+
             // Update statistics
             let processing_time = start_time.elapsed().as_millis() as f64;
             self.update_stats(processing_time);
-            
+
             self.execution_state = ActorExecutionState::Ready;
             result
         } else {
@@ -357,12 +351,13 @@ impl ActorInstance {
             })
         }
     }
-    
+
     /// Execute a message handler
     fn execute_handler(&mut self, handler: &MessageHandler, payload: AsyncValue) -> AsyncResult {
         // Store payload in actor state for handler access
-        self.state.insert("__message_payload".to_string(), payload.clone());
-        
+        self.state
+            .insert("__message_payload".to_string(), payload.clone());
+
         // Execute handler by evaluating the expression with access to actor state
         // Create an execution context with actor state
         let handler_result: AsyncResult = match &handler.handler {
@@ -380,51 +375,52 @@ impl ActorInstance {
                 Ok(payload)
             }
         };
-        
+
         // Update actor state if handler modified it
         self.state.remove("__message_payload");
-        
+
         Ok(AsyncValue::Unit)
     }
-    
+
     /// Update actor statistics
     fn update_stats(&mut self, processing_time_ms: f64) {
         self.stats.messages_processed += 1;
-        
+
         // Update rolling average
         let total_messages = self.stats.messages_processed as f64;
-        self.stats.avg_processing_time_ms = 
-            (self.stats.avg_processing_time_ms * (total_messages - 1.0) + processing_time_ms) / total_messages;
+        self.stats.avg_processing_time_ms =
+            (self.stats.avg_processing_time_ms * (total_messages - 1.0) + processing_time_ms)
+                / total_messages;
     }
-    
+
     /// Restart actor after failure
     pub fn restart(&mut self) -> Result<(), AsyncError> {
-        if self.stats.failure_count >= 3 { // Max restart attempts
-            self.execution_state = ActorExecutionState::Failed(
-                "Too many restart attempts".to_string()
-            );
+        if self.stats.failure_count >= 3 {
+            // Max restart attempts
+            self.execution_state =
+                ActorExecutionState::Failed("Too many restart attempts".to_string());
             return Err(AsyncError::ActorError {
                 reason: "Actor cannot be restarted - too many failures".to_string(),
                 position: Position::new(0, 0, 0),
             });
         }
-        
+
         // Reset state to initial values
         self.state.clear();
-        
+
         // Initialize state from definition
         for (name, type_info) in &self.definition.state_variables {
             let default_value = Self::get_default_value(type_info);
             self.state.insert(name.clone(), default_value);
         }
-        
+
         self.execution_state = ActorExecutionState::Ready;
         self.stats.failure_count += 1;
         self.stats.last_restart = Some(SystemTime::now());
-        
+
         Ok(())
     }
-    
+
     /// Send message to another actor
     pub fn send_to_actor(&self, target: ActorId, message: ActorMessage) -> Result<(), AsyncError> {
         // Message sending is handled through the actor system
@@ -433,7 +429,7 @@ impl ActorInstance {
         let _ = (target, message);
         Ok(())
     }
-    
+
     /// Get default value for a type
     fn get_default_value(type_info: &Type) -> AsyncValue {
         match type_info.name.as_str() {
@@ -444,7 +440,7 @@ impl ActorInstance {
             _ => AsyncValue::Unit,
         }
     }
-    
+
     /// Get actor reference
     pub fn actor_ref(&self) -> ActorRef {
         ActorRef {
@@ -467,7 +463,7 @@ impl ActorSystem {
             config: ActorSystemConfig::default(),
         }
     }
-    
+
     /// Create actor system with custom configuration
     pub fn with_config(config: ActorSystemConfig) -> Self {
         Self {
@@ -479,22 +475,30 @@ impl ActorSystem {
             config,
         }
     }
-    
+
     /// Register an actor definition (type)
-    pub fn register_actor_definition(&mut self, definition: ActorDefinition) -> Result<(), AsyncError> {
+    pub fn register_actor_definition(
+        &mut self,
+        definition: ActorDefinition,
+    ) -> Result<(), AsyncError> {
         if self.definitions.contains_key(&definition.name) {
             return Err(AsyncError::ActorError {
                 reason: format!("Actor type '{}' already registered", definition.name),
                 position: definition.position,
             });
         }
-        
-        self.definitions.insert(definition.name.clone(), Arc::new(definition));
+
+        self.definitions
+            .insert(definition.name.clone(), Arc::new(definition));
         Ok(())
     }
-    
+
     /// Spawn a new actor instance (Seen syntax: spawn ActorType())
-    pub fn spawn_actor(&mut self, actor_type: &str, init_params: Vec<AsyncValue>) -> Result<ActorRef, AsyncError> {
+    pub fn spawn_actor(
+        &mut self,
+        actor_type: &str,
+        init_params: Vec<AsyncValue>,
+    ) -> Result<ActorRef, AsyncError> {
         // Check actor limit
         if self.actors.len() >= self.config.max_actors {
             return Err(AsyncError::ActorError {
@@ -502,44 +506,51 @@ impl ActorSystem {
                 position: Position::new(0, 0, 0),
             });
         }
-        
+
         // Get actor definition
-        let definition = self.definitions.get(actor_type)
+        let definition = self
+            .definitions
+            .get(actor_type)
             .ok_or_else(|| AsyncError::ActorError {
                 reason: format!("Unknown actor type '{}'", actor_type),
                 position: Position::new(0, 0, 0),
             })?
             .clone();
-        
+
         // Create new actor ID
         let actor_id = ActorId::new(self.next_actor_id);
         self.next_actor_id += 1;
-        
+
         // Initialize actor state from parameters
         let initial_state = self.initialize_actor_state(&definition, init_params)?;
-        
+
         // Create actor instance
         let actor = ActorInstance::new(actor_id, definition, initial_state);
         let actor_ref = actor.actor_ref();
-        
+
         // Register actor
         self.actors.insert(actor_id, actor);
-        
+
         Ok(actor_ref)
     }
-    
+
     /// Send message to actor (Seen syntax: send Message to actor)
-    pub fn send_message(&mut self, target: ActorId, message: String, payload: AsyncValue) -> Result<(), AsyncError> {
+    pub fn send_message(
+        &mut self,
+        target: ActorId,
+        message: String,
+        payload: AsyncValue,
+    ) -> Result<(), AsyncError> {
         let actor_message = ActorMessage {
             sender: None, // Anonymous sender for fire-and-forget messages
             content: AsyncValue::String(message),
             timestamp: SystemTime::now(),
             priority: TaskPriority::Normal,
         };
-        
+
         self.deliver_message(target, actor_message)
     }
-    
+
     /// Send request to actor (Seen syntax: request Message from actor)
     pub fn request_from_actor(
         &mut self,
@@ -550,25 +561,29 @@ impl ActorSystem {
     ) -> Result<u64, AsyncError> {
         let request_id = self.next_actor_id; // Reuse ID counter for requests
         self.next_actor_id += 1;
-        
+
         let actor_message = ActorMessage {
             sender: Some(requester),
             content: AsyncValue::String(message),
             timestamp: SystemTime::now(),
             priority: TaskPriority::Normal,
         };
-        
+
         self.deliver_message(target, actor_message)?;
-        
+
         Ok(request_id)
     }
-    
+
     /// Deliver message to actor's mailbox
-    fn deliver_message(&mut self, target: ActorId, message: ActorMessage) -> Result<(), AsyncError> {
+    fn deliver_message(
+        &mut self,
+        target: ActorId,
+        message: ActorMessage,
+    ) -> Result<(), AsyncError> {
         if let Some(actor) = self.actors.get(&target) {
             // Check mailbox capacity
             let mut mailbox = actor.mailbox.messages.lock().unwrap();
-            
+
             if let Some(capacity) = actor.mailbox.capacity {
                 if mailbox.len() >= capacity {
                     // Mailbox full - add to dead letters
@@ -582,7 +597,7 @@ impl ActorSystem {
                     });
                 }
             }
-            
+
             mailbox.push_back(message);
             Ok(())
         } else {
@@ -594,23 +609,23 @@ impl ActorSystem {
             })
         }
     }
-    
+
     /// Process all pending messages for all actors
     pub fn process_messages(&mut self) -> Result<usize, AsyncError> {
         let mut processed_count = 0;
         let actor_ids: Vec<ActorId> = self.actors.keys().cloned().collect();
-        
+
         for actor_id in actor_ids {
             processed_count += self.process_actor_messages(actor_id)?;
         }
-        
+
         Ok(processed_count)
     }
-    
+
     /// Process messages for a specific actor
     fn process_actor_messages(&mut self, actor_id: ActorId) -> Result<usize, AsyncError> {
         let mut processed_count = 0;
-        
+
         // Get messages from mailbox
         let messages = if let Some(actor) = self.actors.get(&actor_id) {
             let mut mailbox = actor.mailbox.messages.lock().unwrap();
@@ -622,7 +637,7 @@ impl ActorSystem {
         } else {
             return Ok(0);
         };
-        
+
         // Process each message
         for message in messages {
             if let Some(actor) = self.actors.get_mut(&actor_id) {
@@ -637,18 +652,22 @@ impl ActorSystem {
                 }
             }
         }
-        
+
         Ok(processed_count)
     }
-    
+
     /// Handle actor failure according to supervision strategy
-    fn handle_actor_failure(&mut self, actor_id: ActorId, error: AsyncError) -> Result<(), AsyncError> {
+    fn handle_actor_failure(
+        &mut self,
+        actor_id: ActorId,
+        error: AsyncError,
+    ) -> Result<(), AsyncError> {
         let strategy = if let Some(actor) = self.actors.get(&actor_id) {
             actor.definition.supervision.clone()
         } else {
             return Ok(());
         };
-        
+
         match strategy {
             SupervisionStrategy::Restart => {
                 if let Some(actor) = self.actors.get_mut(&actor_id) {
@@ -676,10 +695,10 @@ impl ActorSystem {
                 // Continue processing (ignore error)
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Stop an actor
     pub fn stop_actor(&mut self, actor_id: ActorId) -> Result<(), AsyncError> {
         if let Some(mut actor) = self.actors.remove(&actor_id) {
@@ -694,7 +713,7 @@ impl ActorSystem {
                 };
                 let _ = self.deliver_message(supervisor, stopped_msg);
             }
-            
+
             // Notify children that parent is stopping
             for child_id in actor.children.clone() {
                 let parent_stopped = ActorMessage {
@@ -708,7 +727,7 @@ impl ActorSystem {
         }
         Ok(())
     }
-    
+
     /// Initialize actor state from definition and parameters
     fn initialize_actor_state(
         &self,
@@ -716,7 +735,7 @@ impl ActorSystem {
         _init_params: Vec<AsyncValue>,
     ) -> Result<HashMap<String, AsyncValue>, AsyncError> {
         let mut state = HashMap::new();
-        
+
         // Initialize state variables with default values
         for (name, type_info) in &definition.state_variables {
             let default_value = match type_info.name.as_str() {
@@ -728,33 +747,40 @@ impl ActorSystem {
             };
             state.insert(name.clone(), default_value);
         }
-        
+
         Ok(state)
     }
-    
+
     /// Get actor by ID
     pub fn get_actor(&self, actor_id: ActorId) -> Option<&ActorInstance> {
         self.actors.get(&actor_id)
     }
-    
+
     /// Get actor definition by name
     pub fn get_actor_definition(&self, name: &str) -> Option<&Arc<ActorDefinition>> {
         self.definitions.get(name)
     }
-    
+
     /// Get all actor definitions (types)
     pub fn get_all_definitions(&self) -> Vec<&Arc<ActorDefinition>> {
         self.definitions.values().collect()
     }
-    
+
     /// Get system statistics
     pub fn get_stats(&self) -> ActorSystemStats {
         ActorSystemStats {
             total_actors: self.actors.len(),
             total_definitions: self.definitions.len(),
             dead_letter_count: self.dead_letters.len(),
-            active_actors: self.actors.values()
-                .filter(|a| matches!(a.execution_state, ActorExecutionState::Ready | ActorExecutionState::Processing))
+            active_actors: self
+                .actors
+                .values()
+                .filter(|a| {
+                    matches!(
+                        a.execution_state,
+                        ActorExecutionState::Ready | ActorExecutionState::Processing
+                    )
+                })
                 .count(),
         }
     }
@@ -783,7 +809,7 @@ pub struct ActorSystemStats {
 mod tests {
     use super::*;
     use seen_lexer::Position;
-    
+
     #[test]
     fn test_actor_definition_creation() {
         let mut handlers = HashMap::new();
@@ -791,34 +817,37 @@ mod tests {
             "Increment".to_string(),
             MessageHandler::send_handler(
                 "Increment".to_string(),
-                Expression::IntegerLiteral { value: 1, pos: Position::new(1, 1, 0) },
+                Expression::IntegerLiteral {
+                    value: 1,
+                    pos: Position::new(1, 1, 0),
+                },
                 Position::new(1, 1, 0),
             ),
         );
-        
+
         let definition = ActorDefinition::new(
             "Counter".to_string(),
             HashMap::new(),
             handlers,
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(definition.name, "Counter");
         assert!(definition.is_public); // Capitalized name
         assert!(definition.can_handle("Increment"));
     }
-    
+
     #[test]
     fn test_actor_system_creation() {
         let system = ActorSystem::new();
         assert_eq!(system.actors.len(), 0);
         assert_eq!(system.definitions.len(), 0);
     }
-    
+
     #[test]
     fn test_actor_spawning() {
         let mut system = ActorSystem::new();
-        
+
         // Register actor definition
         let definition = ActorDefinition::new(
             "TestActor".to_string(),
@@ -826,19 +855,19 @@ mod tests {
             HashMap::new(),
             Position::new(1, 1, 0),
         );
-        
+
         system.register_actor_definition(definition).unwrap();
-        
+
         // Spawn actor
         let actor_ref = system.spawn_actor("TestActor", Vec::new()).unwrap();
         assert_eq!(actor_ref.actor_type, "TestActor");
         assert_eq!(system.actors.len(), 1);
     }
-    
+
     #[test]
     fn test_message_sending() {
         let mut system = ActorSystem::new();
-        
+
         // Register and spawn actor
         let definition = ActorDefinition::new(
             "MessageActor".to_string(),
@@ -846,34 +875,34 @@ mod tests {
             HashMap::new(),
             Position::new(1, 1, 0),
         );
-        
+
         system.register_actor_definition(definition).unwrap();
         let actor_ref = system.spawn_actor("MessageActor", Vec::new()).unwrap();
-        
+
         // Send message
         let result = system.send_message(
             actor_ref.id,
             "TestMessage".to_string(),
             AsyncValue::String("payload".to_string()),
         );
-        
+
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_actor_system_stats() {
         let mut system = ActorSystem::new();
-        
+
         let definition = ActorDefinition::new(
             "StatsActor".to_string(),
             HashMap::new(),
             HashMap::new(),
             Position::new(1, 1, 0),
         );
-        
+
         system.register_actor_definition(definition).unwrap();
         system.spawn_actor("StatsActor", Vec::new()).unwrap();
-        
+
         let stats = system.get_stats();
         assert_eq!(stats.total_actors, 1);
         assert_eq!(stats.total_definitions, 1);

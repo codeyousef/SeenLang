@@ -1,7 +1,7 @@
 //! Tests for async/await parsing
 
-use crate::{Parser, Expression};
-use seen_lexer::{Lexer, KeywordManager};
+use crate::{Expression, Parser};
+use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
 fn parse_top_level_item(input: &str) -> Result<Expression, crate::ParseError> {
@@ -26,15 +26,24 @@ fn parse_expression(input: &str) -> Result<Expression, crate::ParseError> {
 
 #[test]
 fn test_parse_async_function() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         async fun FetchUser(id: UserID): User {
             let response = await Http.Get("/users/" + id)
             return User.FromJson(response.body)
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
-        Expression::Function { name, is_async, params, return_type, .. } => {
+        Expression::Function {
+            name,
+            is_async,
+            params,
+            return_type,
+            ..
+        } => {
             assert_eq!(name, "FetchUser");
             assert!(is_async);
             assert_eq!(params.len(), 1);
@@ -49,12 +58,15 @@ fn test_parse_async_function() {
 
 #[test]
 fn test_parse_private_async_function() {
-    let expr = parse_top_level_item(r#"
+    let expr = parse_top_level_item(
+        r#"
         async fun processInternal(): Result {
             return Success()
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::Function { name, is_async, .. } => {
             assert_eq!(name, "processInternal");
@@ -69,56 +81,53 @@ fn test_parse_private_async_function() {
 #[test]
 fn test_parse_await_expression() {
     let expr = parse_expression("await Http.Get(\"/api/data\")").unwrap();
-    
+
     match expr {
-        Expression::Await { expr, .. } => {
-            match expr.as_ref() {
-                Expression::Call { callee, .. } => {
-                    match callee.as_ref() {
-                        Expression::MemberAccess { object, member, .. } => {
-                            match object.as_ref() {
-                                Expression::Identifier { name, .. } => assert_eq!(name, "Http"),
-                                _ => panic!("Expected Http identifier"),
-                            }
-                            assert_eq!(member, "Get");
-                        }
-                        _ => panic!("Expected member access"),
+        Expression::Await { expr, .. } => match expr.as_ref() {
+            Expression::Call { callee, .. } => match callee.as_ref() {
+                Expression::MemberAccess { object, member, .. } => {
+                    match object.as_ref() {
+                        Expression::Identifier { name, .. } => assert_eq!(name, "Http"),
+                        _ => panic!("Expected Http identifier"),
                     }
+                    assert_eq!(member, "Get");
                 }
-                _ => panic!("Expected function call in await"),
-            }
-        }
+                _ => panic!("Expected member access"),
+            },
+            _ => panic!("Expected function call in await"),
+        },
         _ => panic!("Expected await expression"),
     }
 }
 
-#[test] 
+#[test]
 fn test_parse_await_variable() {
     let expr = parse_expression("await userFuture").unwrap();
-    
+
     match expr {
-        Expression::Await { expr, .. } => {
-            match expr.as_ref() {
-                Expression::Identifier { name, .. } => {
-                    assert_eq!(name, "userFuture");
-                }
-                _ => panic!("Expected identifier in await"),
+        Expression::Await { expr, .. } => match expr.as_ref() {
+            Expression::Identifier { name, .. } => {
+                assert_eq!(name, "userFuture");
             }
-        }
+            _ => panic!("Expected identifier in await"),
+        },
         _ => panic!("Expected await expression"),
     }
 }
 
 #[test]
 fn test_parse_async_block() {
-    let expr = parse_expression(r#"
+    let expr = parse_expression(
+        r#"
         async {
             let user = spawn { FetchUser(123) }
             let posts = spawn { FetchPosts(123) }
             Display(await user, await posts)
         }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     match expr {
         Expression::AsyncBlock { body, .. } => {
             // The body should be a block with multiple expressions
@@ -136,7 +145,7 @@ fn test_parse_async_block() {
 #[test]
 fn test_parse_spawn_expression() {
     let expr = parse_expression("spawn { FetchUser(123) }").unwrap();
-    
+
     match expr {
         Expression::Spawn { expr, .. } => {
             // Since { FetchUser(123) } has only one expression, it returns that expression directly
@@ -171,7 +180,7 @@ fn test_parse_async_lambda() {
         }
         other => panic!("Expected simple lambda, got: {:?}", other),
     }
-    
+
     // Now test lambda with await
     let await_lambda = parse_expression("{ x -> await process(x) }").unwrap();
     match await_lambda {
@@ -180,19 +189,17 @@ fn test_parse_async_lambda() {
         }
         other => panic!("Expected await lambda, got: {:?}", other),
     }
-    
+
     // Finally test async block with lambda
     let expr = parse_expression("async { x -> await process(x) }").unwrap();
-    
+
     match expr {
-        Expression::AsyncBlock { body, .. } => {
-            match body.as_ref() {
-                Expression::Lambda { .. } => {
-                    println!("Async lambda parsed correctly");
-                }
-                other => panic!("Expected lambda in async block, got: {:?}", other),
+        Expression::AsyncBlock { body, .. } => match body.as_ref() {
+            Expression::Lambda { .. } => {
+                println!("Async lambda parsed correctly");
             }
-        }
+            other => panic!("Expected lambda in async block, got: {:?}", other),
+        },
         other => panic!("Expected async block with lambda, got: {:?}", other),
     }
 }
@@ -200,7 +207,7 @@ fn test_parse_async_lambda() {
 #[test]
 fn test_parse_nested_await() {
     let expr = parse_expression("await (await getUser()).getProfile()").unwrap();
-    
+
     match expr {
         Expression::Await { expr, .. } => {
             // Outer await

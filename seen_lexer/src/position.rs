@@ -11,13 +11,17 @@ pub struct Position {
 
 impl Position {
     pub fn new(line: usize, column: usize, offset: usize) -> Self {
-        Self { line, column, offset }
+        Self {
+            line,
+            column,
+            offset,
+        }
     }
-    
+
     pub fn start() -> Self {
         Self::new(1, 1, 0)
     }
-    
+
     pub fn advance_char(&mut self, ch: char) {
         if ch == '\n' {
             self.line += 1;
@@ -27,7 +31,7 @@ impl Position {
         }
         self.offset += ch.len_utf8();
     }
-    
+
     pub fn advance_str(&mut self, s: &str) {
         for ch in s.chars() {
             self.advance_char(ch);
@@ -44,7 +48,7 @@ impl std::fmt::Display for Position {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_position_creation() {
         let pos = Position::new(1, 1, 0);
@@ -52,7 +56,7 @@ mod tests {
         assert_eq!(pos.column, 1);
         assert_eq!(pos.offset, 0);
     }
-    
+
     #[test]
     fn test_position_advance_char() {
         let mut pos = Position::start();
@@ -60,7 +64,7 @@ mod tests {
         assert_eq!(pos.line, 1);
         assert_eq!(pos.column, 2);
         assert_eq!(pos.offset, 1);
-        
+
         pos.advance_char('\n');
         assert_eq!(pos.line, 2);
         assert_eq!(pos.column, 1);

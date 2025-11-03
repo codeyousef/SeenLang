@@ -7,13 +7,13 @@
 //! - Reflection capabilities for runtime type inspection
 //! - Code generation with AST manipulation
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::any::{Any, TypeId};
-use std::time::{Duration, Instant};
+use crate::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
 use seen_parser::ast::{Expression, Type};
-use crate::types::{AsyncValue, AsyncError, AsyncResult};
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Unique identifier for compile-time contexts
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,7 +23,7 @@ impl ComptimeContextId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     pub fn id(&self) -> u64 {
         self.0
     }
@@ -37,7 +37,7 @@ impl MacroId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     pub fn id(&self) -> u64 {
         self.0
     }
@@ -51,7 +51,7 @@ impl TemplateId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     pub fn id(&self) -> u64 {
         self.0
     }
@@ -355,20 +355,11 @@ pub enum ComptimeResult {
 #[derive(Debug, Clone)]
 pub enum ComptimeError {
     /// Execution timeout
-    Timeout {
-        limit: Duration,
-        elapsed: Duration,
-    },
+    Timeout { limit: Duration, elapsed: Duration },
     /// Memory limit exceeded
-    OutOfMemory {
-        limit: usize,
-        used: usize,
-    },
+    OutOfMemory { limit: usize, used: usize },
     /// Infinite recursion detected
-    InfiniteRecursion {
-        depth: usize,
-        function: String,
-    },
+    InfiniteRecursion { depth: usize, function: String },
     /// Type error during execution
     TypeError {
         expected: ComptimeType,
@@ -376,10 +367,7 @@ pub enum ComptimeError {
         position: Position,
     },
     /// Undefined variable or function
-    Undefined {
-        name: String,
-        position: Position,
-    },
+    Undefined { name: String, position: Position },
     /// Macro expansion error
     MacroExpansionError {
         macro_name: String,
@@ -492,12 +480,12 @@ impl MetaprogrammingSystem {
             config: MetaprogrammingConfig::default(),
             stats: MetaprogrammingStats::default(),
         };
-        
+
         // Register built-in functions
         system.register_builtins();
         system
     }
-    
+
     /// Create system with custom configuration
     pub fn with_config(config: MetaprogrammingConfig) -> Self {
         let mut system = Self {
@@ -512,11 +500,11 @@ impl MetaprogrammingSystem {
             config,
             stats: MetaprogrammingStats::default(),
         };
-        
+
         system.register_builtins();
         system
     }
-    
+
     /// Execute code at compile time
     pub fn execute_comptime(
         &mut self,
@@ -530,20 +518,19 @@ impl MetaprogrammingSystem {
                 position,
             });
         }
-        
+
         let start_time = Instant::now();
         self.stats.total_comptime_executions += 1;
-        
+
         // Get or create context
-        let context_id = context_id.unwrap_or_else(|| {
-            self.create_context("default".to_string(), position)
-        });
-        
+        let context_id =
+            context_id.unwrap_or_else(|| self.create_context("default".to_string(), position));
+
         let result = self.evaluate_expression(&expression, context_id, position);
-        
+
         let elapsed = start_time.elapsed();
         self.stats.total_execution_time += elapsed;
-        
+
         // Check timeout
         if elapsed > self.config.default_timeout {
             self.stats.execution_errors += 1;
@@ -552,10 +539,10 @@ impl MetaprogrammingSystem {
                 elapsed,
             });
         }
-        
+
         result
     }
-    
+
     /// Expand a macro
     pub fn expand_macro(
         &mut self,
@@ -570,9 +557,9 @@ impl MetaprogrammingSystem {
                 position,
             });
         }
-        
+
         self.stats.total_macro_expansions += 1;
-        
+
         if let Some(macro_def) = self.macros.get(&macro_id).cloned() {
             // Validate arguments
             if arguments.len() != macro_def.parameters.len() {
@@ -587,20 +574,17 @@ impl MetaprogrammingSystem {
                     position,
                 });
             }
-            
+
             // Create expansion context
-            let context_id = self.create_context(
-                format!("macro_{}", macro_def.name),
-                position,
-            );
-            
+            let context_id = self.create_context(format!("macro_{}", macro_def.name), position);
+
             // Bind arguments to parameters
             if let Some(context) = self.contexts.get_mut(&context_id) {
                 for (param, arg) in macro_def.parameters.iter().zip(arguments.iter()) {
                     context.variables.insert(param.name.clone(), arg.clone());
                 }
             }
-            
+
             // Expand macro body
             self.evaluate_expression(&macro_def.body, context_id, position)
         } else {
@@ -611,7 +595,7 @@ impl MetaprogrammingSystem {
             })
         }
     }
-    
+
     /// Instantiate a template
     pub fn instantiate_template(
         &mut self,
@@ -626,24 +610,22 @@ impl MetaprogrammingSystem {
                 position,
             });
         }
-        
+
         self.stats.total_template_instantiations += 1;
-        
+
         if let Some(template) = self.templates.get(&template_id).cloned() {
             // Validate constraints
             for constraint in &template.constraints {
                 // Evaluate constraint in context with arguments
-                let context_id = self.create_context(
-                    format!("template_{}_constraint", template.name),
-                    position,
-                );
-                
+                let context_id =
+                    self.create_context(format!("template_{}_constraint", template.name), position);
+
                 if let Some(context) = self.contexts.get_mut(&context_id) {
                     for (name, value) in &arguments {
                         context.variables.insert(name.clone(), value.clone());
                     }
                 }
-                
+
                 match self.evaluate_expression(&constraint.expression, context_id, position) {
                     ComptimeResult::Value(ComptimeValue::Boolean(true)) => {
                         // Constraint satisfied
@@ -667,7 +649,7 @@ impl MetaprogrammingSystem {
                     }
                 }
             }
-            
+
             // Generate code from template
             ComptimeResult::Code(template.body.clone())
         } else {
@@ -678,12 +660,12 @@ impl MetaprogrammingSystem {
             })
         }
     }
-    
+
     /// Create a new compile-time context
     pub fn create_context(&mut self, name: String, position: Position) -> ComptimeContextId {
         let id = ComptimeContextId::new(self.next_context_id);
         self.next_context_id += 1;
-        
+
         let context = ComptimeContext {
             id,
             name,
@@ -698,42 +680,50 @@ impl MetaprogrammingSystem {
                 memory_limit_bytes: self.config.default_memory_limit,
             },
         };
-        
+
         self.contexts.insert(id, context);
         id
     }
-    
+
     /// Register a macro
     pub fn register_macro(&mut self, macro_def: MacroDefinition) -> MacroId {
         let macro_id = macro_def.id;
         self.macros.insert(macro_id, macro_def);
         macro_id
     }
-    
+
     /// Register a template
     pub fn register_template(&mut self, template: Template) -> TemplateId {
         let template_id = template.id;
         self.templates.insert(template_id, template);
         template_id
     }
-    
+
     /// Get system statistics
     pub fn get_stats(&self) -> &MetaprogrammingStats {
         &self.stats
     }
-    
+
     /// Register built-in functions
     fn register_builtins(&mut self) {
-        self.builtins.insert("typeof".to_string(), BuiltinFunction::TypeOf);
-        self.builtins.insert("sizeof".to_string(), BuiltinFunction::SizeOf);
-        self.builtins.insert("alignof".to_string(), BuiltinFunction::AlignOf);
-        self.builtins.insert("hasmethod".to_string(), BuiltinFunction::HasMethod);
-        self.builtins.insert("getmethods".to_string(), BuiltinFunction::GetMethods);
-        self.builtins.insert("generatecode".to_string(), BuiltinFunction::GenerateCode);
-        self.builtins.insert("parseast".to_string(), BuiltinFunction::ParseAst);
-        self.builtins.insert("asttostring".to_string(), BuiltinFunction::AstToString);
+        self.builtins
+            .insert("typeof".to_string(), BuiltinFunction::TypeOf);
+        self.builtins
+            .insert("sizeof".to_string(), BuiltinFunction::SizeOf);
+        self.builtins
+            .insert("alignof".to_string(), BuiltinFunction::AlignOf);
+        self.builtins
+            .insert("hasmethod".to_string(), BuiltinFunction::HasMethod);
+        self.builtins
+            .insert("getmethods".to_string(), BuiltinFunction::GetMethods);
+        self.builtins
+            .insert("generatecode".to_string(), BuiltinFunction::GenerateCode);
+        self.builtins
+            .insert("parseast".to_string(), BuiltinFunction::ParseAst);
+        self.builtins
+            .insert("asttostring".to_string(), BuiltinFunction::AstToString);
     }
-    
+
     /// Evaluate an expression in compile-time context
     fn evaluate_expression(
         &self,
@@ -790,50 +780,50 @@ impl Default for MetaprogrammingSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_metaprogramming_system_creation() {
         let system = MetaprogrammingSystem::new();
-        
+
         assert!(system.config.enable_comptime);
         assert!(system.config.enable_macros);
         assert!(system.config.enable_templates);
         assert_eq!(system.stats.total_comptime_executions, 0);
         assert!(!system.builtins.is_empty()); // Should have built-ins
     }
-    
+
     #[test]
     fn test_comptime_context_creation() {
         let mut system = MetaprogrammingSystem::new();
-        
+
         let context_id = system.create_context("test".to_string(), Position::new(1, 1, 0));
-        
+
         assert!(system.contexts.contains_key(&context_id));
         let context = system.contexts.get(&context_id).unwrap();
         assert_eq!(context.name, "test");
     }
-    
+
     #[test]
     fn test_comptime_execution() {
         let mut system = MetaprogrammingSystem::new();
-        
+
         let expression = Expression::IntegerLiteral {
             value: 42,
             pos: Position::new(1, 1, 0),
         };
-        
+
         let result = system.execute_comptime(expression, None, Position::new(1, 1, 0));
-        
+
         match result {
             ComptimeResult::Value(ComptimeValue::Integer(42)) => {
                 // Success
             }
             _ => panic!("Expected integer 42, got {:?}", result),
         }
-        
+
         assert_eq!(system.stats.total_comptime_executions, 1);
     }
-    
+
     #[test]
     fn test_macro_definition() {
         let macro_def = MacroDefinition {
@@ -861,13 +851,13 @@ mod tests {
                 expansion_limit: 100,
             },
         };
-        
+
         let mut system = MetaprogrammingSystem::new();
         let macro_id = system.register_macro(macro_def);
-        
+
         assert!(system.macros.contains_key(&macro_id));
     }
-    
+
     #[test]
     fn test_template_definition() {
         let template = Template {
@@ -887,13 +877,13 @@ mod tests {
                 max_depth: 10,
             },
         };
-        
+
         let mut system = MetaprogrammingSystem::new();
         let template_id = system.register_template(template);
-        
+
         assert!(system.templates.contains_key(&template_id));
     }
-    
+
     #[test]
     fn test_comptime_value_types() {
         let values = vec![
@@ -903,22 +893,22 @@ mod tests {
             ComptimeValue::String("hello".to_string()),
             ComptimeValue::Array(vec![ComptimeValue::Integer(1), ComptimeValue::Integer(2)]),
         ];
-        
+
         assert_eq!(values.len(), 5);
-        
+
         // Test cloning
         for value in &values {
             let _cloned = value.clone();
         }
     }
-    
+
     #[test]
     fn test_comptime_error_handling() {
         let error = ComptimeError::Timeout {
             limit: Duration::from_secs(1),
             elapsed: Duration::from_secs(2),
         };
-        
+
         match error {
             ComptimeError::Timeout { limit, elapsed } => {
                 assert_eq!(limit, Duration::from_secs(1));
@@ -927,11 +917,11 @@ mod tests {
             _ => panic!("Expected timeout error"),
         }
     }
-    
+
     #[test]
     fn test_builtin_functions() {
         let system = MetaprogrammingSystem::new();
-        
+
         assert!(system.builtins.contains_key("typeof"));
         assert!(system.builtins.contains_key("sizeof"));
         assert!(system.builtins.contains_key("alignof"));

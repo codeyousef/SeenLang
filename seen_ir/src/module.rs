@@ -1,10 +1,10 @@
 //! IR module system for the Seen programming language
 
+use crate::function::{CallGraph, IRFunction};
+use crate::value::{IRType, IRValue};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use serde::{Deserialize, Serialize};
-use crate::function::{IRFunction, CallGraph};
-use crate::value::{IRValue, IRType};
 
 /// Module visibility levels
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,12 +32,12 @@ impl ModuleConstant {
             visibility: Visibility::Private,
         }
     }
-    
+
     pub fn public(mut self) -> Self {
         self.visibility = Visibility::Public;
         self
     }
-    
+
     pub fn internal(mut self) -> Self {
         self.visibility = Visibility::Internal;
         self
@@ -66,22 +66,22 @@ impl GlobalVariable {
             is_thread_local: false,
         }
     }
-    
+
     pub fn with_initial_value(mut self, value: IRValue) -> Self {
         self.initial_value = Some(value);
         self
     }
-    
+
     pub fn mutable(mut self) -> Self {
         self.is_mutable = true;
         self
     }
-    
+
     pub fn public(mut self) -> Self {
         self.visibility = Visibility::Public;
         self
     }
-    
+
     pub fn thread_local(mut self) -> Self {
         self.is_thread_local = true;
         self
@@ -114,12 +114,12 @@ impl TypeDefinition {
             is_opaque: false,
         }
     }
-    
+
     pub fn public(mut self) -> Self {
         self.visibility = Visibility::Public;
         self
     }
-    
+
     pub fn opaque(mut self) -> Self {
         self.is_opaque = true;
         self
@@ -174,143 +174,155 @@ impl IRModule {
             metadata: HashMap::new(),
         }
     }
-    
+
     pub fn with_path(mut self, path: impl Into<String>) -> Self {
         self.path = Some(path.into());
         self
     }
-    
+
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
         self.version = Some(version.into());
         self
     }
-    
+
     pub fn add_function(&mut self, function: IRFunction) {
         self.functions.insert(function.name.clone(), function);
     }
-    
+
     pub fn add_constant(&mut self, constant: ModuleConstant) {
         self.constants.insert(constant.name.clone(), constant);
     }
-    
+
     pub fn add_global(&mut self, global: GlobalVariable) {
         self.global_variables.insert(global.name.clone(), global);
     }
-    
+
     pub fn add_type(&mut self, type_def: TypeDefinition) {
         self.types.insert(type_def.name.clone(), type_def);
     }
-    
+
     pub fn add_type_alias(&mut self, type_alias: TypeAlias) {
-        self.type_aliases.insert(type_alias.name.clone(), type_alias);
+        self.type_aliases
+            .insert(type_alias.name.clone(), type_alias);
     }
-    
+
     pub fn add_import(&mut self, import: Import) {
         if !self.dependencies.contains(&import.module_path) {
             self.dependencies.push(import.module_path.clone());
         }
         self.imports.push(import);
     }
-    
+
     pub fn add_export(&mut self, export: Export) {
         self.exports.push(export);
     }
-    
+
     pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.metadata.insert(key.into(), value.into());
     }
-    
+
     /// Get a function by name
     pub fn get_function(&self, name: &str) -> Option<&IRFunction> {
         self.functions.get(name)
     }
-    
+
     /// Get a mutable reference to a function
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut IRFunction> {
         self.functions.get_mut(name)
     }
-    
+
     /// Get all public functions
     pub fn public_functions(&self) -> impl Iterator<Item = &IRFunction> {
         self.functions.values().filter(|f| f.is_public)
     }
-    
+
     /// Get all exported items
     pub fn exported_items(&self) -> Vec<&str> {
         self.exports.iter().map(|e| e.item_name.as_str()).collect()
     }
-    
+
     /// Check if an item is exported
     pub fn is_exported(&self, item_name: &str) -> bool {
         self.exports.iter().any(|e| e.item_name == item_name)
     }
-    
+
     /// Validate the module
     pub fn validate(&self) -> Result<(), String> {
         // Check that all exported items exist
         for export in &self.exports {
-            let exists = self.functions.contains_key(&export.item_name) ||
-                        self.constants.contains_key(&export.item_name) ||
-                        self.global_variables.contains_key(&export.item_name) ||
-                        self.types.contains_key(&export.item_name);
-            
+            let exists = self.functions.contains_key(&export.item_name)
+                || self.constants.contains_key(&export.item_name)
+                || self.global_variables.contains_key(&export.item_name)
+                || self.types.contains_key(&export.item_name);
+
             if !exists {
-                return Err(format!("Exported item '{}' does not exist in module", export.item_name));
+                return Err(format!(
+                    "Exported item '{}' does not exist in module",
+                    export.item_name
+                ));
             }
         }
-        
+
         // Validate all functions
         for function in self.functions.values() {
             if let Err(e) = function.validate() {
-                return Err(format!("Function '{}' validation failed: {}", function.name, e));
+                return Err(format!(
+                    "Function '{}' validation failed: {}",
+                    function.name, e
+                ));
             }
         }
-        
+
         // Check for duplicate names across different namespaces
         let mut all_names = std::collections::HashSet::new();
-        
+
         for name in self.functions.keys() {
             if !all_names.insert(name.clone()) {
                 return Err(format!("Duplicate name '{}' in module", name));
             }
         }
-        
+
         for name in self.constants.keys() {
             if !all_names.insert(name.clone()) {
                 return Err(format!("Duplicate name '{}' in module", name));
             }
         }
-        
+
         for name in self.global_variables.keys() {
             if !all_names.insert(name.clone()) {
                 return Err(format!("Duplicate name '{}' in module", name));
             }
         }
-        
+
         for name in self.types.keys() {
             if !all_names.insert(name.clone()) {
                 return Err(format!("Duplicate name '{}' in module", name));
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Get the call graph for this module
     pub fn call_graph(&self) -> CallGraph {
         let mut graph = CallGraph::new();
-        
+
         // Add all functions to the graph
         for function in self.functions.values() {
             graph.add_function(function.clone());
         }
-        
+
         // Analyze functions to build call sites and edges
         for (caller_name, caller_function) in &self.functions {
             // Scan function CFG for call instructions
             for (block_label, block) in &caller_function.cfg.blocks {
                 for instruction in &block.instructions {
-                    if let crate::instruction::Instruction::Call { target, args, result } = instruction {
+                    if let crate::instruction::Instruction::Call {
+                        target,
+                        args,
+                        result,
+                    } = instruction
+                    {
                         if let crate::IRValue::GlobalVariable(callee_name) = target {
                             // Add call site if target function exists in this module
                             if self.functions.contains_key(callee_name) {
@@ -329,21 +341,21 @@ impl IRModule {
                 }
             }
         }
-        
+
         graph
     }
-    
+
     /// Get module statistics
     pub fn statistics(&self) -> ModuleStatistics {
         let mut stats = ModuleStatistics::default();
-        
+
         stats.function_count = self.functions.len();
         stats.constant_count = self.constants.len();
         stats.global_count = self.global_variables.len();
         stats.type_count = self.types.len();
         stats.import_count = self.imports.len();
         stats.export_count = self.exports.len();
-        
+
         // Calculate code size (approximate)
         for function in self.functions.values() {
             for block in function.cfg.blocks.values() {
@@ -353,7 +365,7 @@ impl IRModule {
                 }
             }
         }
-        
+
         stats
     }
 }
@@ -373,19 +385,19 @@ pub struct ModuleStatistics {
 impl fmt::Display for IRModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "; Module: {}", self.name)?;
-        
+
         if let Some(path) = &self.path {
             writeln!(f, "; Path: {}", path)?;
         }
-        
+
         if let Some(version) = &self.version {
             writeln!(f, "; Version: {}", version)?;
         }
-        
+
         if !self.dependencies.is_empty() {
             writeln!(f, "; Dependencies: {}", self.dependencies.join(", "))?;
         }
-        
+
         // Imports
         if !self.imports.is_empty() {
             writeln!(f, "\n; Imports")?;
@@ -400,7 +412,7 @@ impl fmt::Display for IRModule {
                 writeln!(f)?;
             }
         }
-        
+
         // Type definitions
         if !self.types.is_empty() {
             writeln!(f, "\n; Type definitions")?;
@@ -418,7 +430,7 @@ impl fmt::Display for IRModule {
                 writeln!(f)?;
             }
         }
-        
+
         // Constants
         if !self.constants.is_empty() {
             writeln!(f, "\n; Constants")?;
@@ -426,15 +438,18 @@ impl fmt::Display for IRModule {
             keys.sort();
             for key in keys {
                 let constant = self.constants.get(key).unwrap();
-                write!(f, "const {}: {} = {}", 
-                       constant.name, constant.const_type, constant.value)?;
+                write!(
+                    f,
+                    "const {}: {} = {}",
+                    constant.name, constant.const_type, constant.value
+                )?;
                 if constant.visibility == Visibility::Public {
                     write!(f, " [public]")?;
                 }
                 writeln!(f)?;
             }
         }
-        
+
         // Global variables
         if !self.global_variables.is_empty() {
             writeln!(f, "\n; Global variables")?;
@@ -459,7 +474,7 @@ impl fmt::Display for IRModule {
                 writeln!(f)?;
             }
         }
-        
+
         // Functions
         if !self.functions.is_empty() {
             writeln!(f, "\n; Functions")?;
@@ -470,7 +485,7 @@ impl fmt::Display for IRModule {
                 writeln!(f, "{}", function)?;
             }
         }
-        
+
         // Exports
         if !self.exports.is_empty() {
             writeln!(f, "\n; Exports")?;
@@ -482,7 +497,7 @@ impl fmt::Display for IRModule {
                 writeln!(f)?;
             }
         }
-        
+
         Ok(())
     }
 }
@@ -505,15 +520,15 @@ impl LinkingInfo {
             dependencies: Vec::new(),
         }
     }
-    
+
     pub fn add_export(&mut self, name: impl Into<String>, mangled: impl Into<String>) {
         self.exported_symbols.insert(name.into(), mangled.into());
     }
-    
+
     pub fn add_import(&mut self, name: impl Into<String>, mangled: impl Into<String>) {
         self.imported_symbols.insert(name.into(), mangled.into());
     }
-    
+
     pub fn add_dependency(&mut self, dep: impl Into<String>) {
         let dep = dep.into();
         if !self.dependencies.contains(&dep) {
@@ -532,78 +547,74 @@ mod tests {
         let module = IRModule::new("test_module")
             .with_path("src/test.seen")
             .with_version("1.0.0");
-        
+
         assert_eq!(module.name, "test_module");
         assert_eq!(module.path, Some("src/test.seen".to_string()));
         assert_eq!(module.version, Some("1.0.0".to_string()));
     }
-    
+
     #[test]
     fn test_module_constants() {
         let mut module = IRModule::new("test");
-        
-        let constant = ModuleConstant::new(
-            "PI",
-            IRValue::Float(3.14159),
-            IRType::Float
-        ).public();
-        
+
+        let constant = ModuleConstant::new("PI", IRValue::Float(3.14159), IRType::Float).public();
+
         module.add_constant(constant);
-        
+
         assert!(module.constants.contains_key("PI"));
         assert_eq!(module.constants["PI"].visibility, Visibility::Public);
     }
-    
+
     #[test]
     fn test_module_imports_exports() {
         let mut module = IRModule::new("test");
-        
+
         let import = Import {
             module_path: "std.math".to_string(),
             items: vec!["sin".to_string(), "cos".to_string()],
             alias: None,
         };
-        
+
         let export = Export {
             item_name: "my_function".to_string(),
             alias: Some("exported_func".to_string()),
         };
-        
+
         module.add_import(import);
         module.add_export(export);
-        
+
         assert_eq!(module.imports.len(), 1);
         assert_eq!(module.exports.len(), 1);
         assert!(module.dependencies.contains(&"std.math".to_string()));
     }
-    
+
     #[test]
     fn test_global_variables() {
         let mut module = IRModule::new("test");
-        
+
         let global = GlobalVariable::new("counter", IRType::Integer)
             .with_initial_value(IRValue::Integer(0))
             .mutable()
             .public()
             .thread_local();
-        
+
         module.add_global(global);
-        
+
         let global_ref = &module.global_variables["counter"];
         assert!(global_ref.is_mutable);
         assert_eq!(global_ref.visibility, Visibility::Public);
         assert!(global_ref.is_thread_local);
         assert_eq!(global_ref.initial_value, Some(IRValue::Integer(0)));
     }
-    
+
     #[test]
     fn test_linking_info() {
         let mut linking = LinkingInfo::new("my_module");
-        
+
         linking.add_export("my_func", "_seen_my_module_my_func");
         linking.add_import("external_func", "_external_func");
         linking.add_dependency("std");
-        
+
         assert_eq!(linking.exported_symbols.len(), 1);
         assert_eq!(linking.imported_symbols.len(), 1);
         assert_eq!(linking.dependencies.len(), 1);

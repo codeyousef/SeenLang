@@ -56,6 +56,7 @@ chumsky = "0.10.1"
 lasso = "0.7.3"
 indexmap = { version = "2.10.0", features = ["serde"] }
 hashbrown = "0.15.5"
+unicode-normalization = "0.1.23"
 
 [profile.test]
 opt-level = 0

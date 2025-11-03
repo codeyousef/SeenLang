@@ -1,11 +1,11 @@
 //! Type checker implementation for the Seen programming language
 
-use std::collections::HashMap;
-use seen_parser::ast::*;
-use seen_lexer::Position;
-use crate::types::Type;
 use crate::errors::*;
-use crate::{TypeCheckResult, FunctionSignature, Parameter};
+use crate::types::Type;
+use crate::{FunctionSignature, Parameter, TypeCheckResult};
+use seen_lexer::Position;
+use seen_parser::ast::*;
+use std::collections::HashMap;
 
 /// Type checking environment
 #[derive(Debug, Clone)]
@@ -54,29 +54,32 @@ impl Environment {
     pub fn define_function(&mut self, name: String, signature: FunctionSignature) {
         self.functions.insert(name, signature);
     }
-    
+
     /// Define a type in this environment
     pub fn define_type(&mut self, name: String, type_def: Type) {
         self.types.insert(name, type_def);
     }
-    
+
     /// Look up a type definition
     pub fn get_type(&self, name: &str) -> Option<&Type> {
-        self.types.get(name)
+        self.types
+            .get(name)
             .or_else(|| self.parent.as_ref().and_then(|p| p.get_type(name)))
     }
 
     /// Look up a variable type, checking smart casts first, then parent environments
     pub fn get_variable(&self, name: &str) -> Option<&Type> {
         // Check smart casts first (they take precedence)
-        self.smart_casts.get(name)
+        self.smart_casts
+            .get(name)
             .or_else(|| self.variables.get(name))
             .or_else(|| self.parent.as_ref().and_then(|p| p.get_variable(name)))
     }
 
     /// Look up a function signature, checking parent environments
     pub fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
-        self.functions.get(name)
+        self.functions
+            .get(name)
             .or_else(|| self.parent.as_ref().and_then(|p| p.get_function(name)))
     }
 
@@ -124,86 +127,149 @@ impl TypeChecker {
     /// Create a new type checker
     pub fn new() -> Self {
         let mut env = Environment::new();
-        
+
         // Add built-in functions
-        env.define_function("println".to_string(), FunctionSignature {
-            name: "println".to_string(),
-            parameters: vec![Parameter {
-                name: "value".to_string(),
-                param_type: Type::String,
-            }],
-            return_type: Some(Type::Unit),
-        });
+        env.define_function(
+            "println".to_string(),
+            FunctionSignature {
+                name: "println".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
 
         // Built-ins used by bootstrap/self-host sources
-        env.define_function("CompileSeenProgram".to_string(), FunctionSignature {
-            name: "CompileSeenProgram".to_string(),
-            parameters: vec![
-                Parameter { name: "source".to_string(), param_type: Type::String },
-                Parameter { name: "output".to_string(), param_type: Type::String },
-            ],
-            return_type: Some(Type::Bool),
-        });
+        env.define_function(
+            "CompileSeenProgram".to_string(),
+            FunctionSignature {
+                name: "CompileSeenProgram".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "source".to_string(),
+                        param_type: Type::String,
+                    },
+                    Parameter {
+                        name: "output".to_string(),
+                        param_type: Type::String,
+                    },
+                ],
+                return_type: Some(Type::Bool),
+            },
+        );
 
         // System/IO builtins used by self-host sources (double-underscore forms)
-        env.define_function("__GetCommandLineArgs".to_string(), FunctionSignature {
-            name: "__GetCommandLineArgs".to_string(),
-            parameters: vec![],
-            return_type: Some(Type::Array(Box::new(Type::String))),
-        });
-        env.define_function("__GetTimestamp".to_string(), FunctionSignature {
-            name: "__GetTimestamp".to_string(),
-            parameters: vec![],
-            return_type: Some(Type::String),
-        });
-        env.define_function("__ReadFile".to_string(), FunctionSignature {
-            name: "__ReadFile".to_string(),
-            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
-            return_type: Some(Type::String),
-        });
-        env.define_function("__WriteFile".to_string(), FunctionSignature {
-            name: "__WriteFile".to_string(),
-            parameters: vec![
-                Parameter { name: "path".to_string(), param_type: Type::String },
-                Parameter { name: "content".to_string(), param_type: Type::String },
-            ],
-            return_type: Some(Type::Bool),
-        });
-        env.define_function("__CreateDirectory".to_string(), FunctionSignature {
-            name: "__CreateDirectory".to_string(),
-            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
-            return_type: Some(Type::Bool),
-        });
-        env.define_function("__DeleteFile".to_string(), FunctionSignature {
-            name: "__DeleteFile".to_string(),
-            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
-            return_type: Some(Type::Bool),
-        });
-        env.define_function("__ExecuteProgram".to_string(), FunctionSignature {
-            name: "__ExecuteProgram".to_string(),
-            parameters: vec![Parameter { name: "path".to_string(), param_type: Type::String }],
-            return_type: Some(Type::Int),
-        });
+        env.define_function(
+            "__GetCommandLineArgs".to_string(),
+            FunctionSignature {
+                name: "__GetCommandLineArgs".to_string(),
+                parameters: vec![],
+                return_type: Some(Type::Array(Box::new(Type::String))),
+            },
+        );
+        env.define_function(
+            "__GetTimestamp".to_string(),
+            FunctionSignature {
+                name: "__GetTimestamp".to_string(),
+                parameters: vec![],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__ReadFile".to_string(),
+            FunctionSignature {
+                name: "__ReadFile".to_string(),
+                parameters: vec![Parameter {
+                    name: "path".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__WriteFile".to_string(),
+            FunctionSignature {
+                name: "__WriteFile".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "path".to_string(),
+                        param_type: Type::String,
+                    },
+                    Parameter {
+                        name: "content".to_string(),
+                        param_type: Type::String,
+                    },
+                ],
+                return_type: Some(Type::Bool),
+            },
+        );
+        env.define_function(
+            "__CreateDirectory".to_string(),
+            FunctionSignature {
+                name: "__CreateDirectory".to_string(),
+                parameters: vec![Parameter {
+                    name: "path".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Bool),
+            },
+        );
+        env.define_function(
+            "__DeleteFile".to_string(),
+            FunctionSignature {
+                name: "__DeleteFile".to_string(),
+                parameters: vec![Parameter {
+                    name: "path".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Bool),
+            },
+        );
+        env.define_function(
+            "__ExecuteProgram".to_string(),
+            FunctionSignature {
+                name: "__ExecuteProgram".to_string(),
+                parameters: vec![Parameter {
+                    name: "path".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Int),
+            },
+        );
         // Return type models CommandResult { success: Bool, output: String }
-        env.define_function("__ExecuteCommand".to_string(), FunctionSignature {
-            name: "__ExecuteCommand".to_string(),
-            parameters: vec![Parameter { name: "command".to_string(), param_type: Type::String }],
-            return_type: Some(Type::Struct {
-                name: "CommandResult".to_string(),
-                fields: {
-                    let mut m = std::collections::HashMap::new();
-                    m.insert("success".to_string(), Type::Bool);
-                    m.insert("output".to_string(), Type::String);
-                    m
-                },
-                generics: Vec::new(),
-            }),
-        });
-        env.define_function("__FormatSeenCode".to_string(), FunctionSignature {
-            name: "__FormatSeenCode".to_string(),
-            parameters: vec![Parameter { name: "source".to_string(), param_type: Type::String }],
-            return_type: Some(Type::String),
-        });
+        env.define_function(
+            "__ExecuteCommand".to_string(),
+            FunctionSignature {
+                name: "__ExecuteCommand".to_string(),
+                parameters: vec![Parameter {
+                    name: "command".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Struct {
+                    name: "CommandResult".to_string(),
+                    fields: {
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("success".to_string(), Type::Bool);
+                        m.insert("output".to_string(), Type::String);
+                        m
+                    },
+                    generics: Vec::new(),
+                }),
+            },
+        );
+        env.define_function(
+            "__FormatSeenCode".to_string(),
+            FunctionSignature {
+                name: "__FormatSeenCode".to_string(),
+                parameters: vec![Parameter {
+                    name: "source".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
 
         Self {
             env,
@@ -215,16 +281,36 @@ impl TypeChecker {
     /// Predeclare all top-level function signatures for forward references
     fn predeclare_signatures(&mut self, program: &Program) {
         for expr in &program.expressions {
-            if let Expression::Function { name, params, return_type, .. } = expr {
+            if let Expression::Function {
+                name,
+                params,
+                return_type,
+                ..
+            } = expr
+            {
                 // Build parameter types
                 let mut checker_params = Vec::new();
                 for p in params {
-                    let pty = if let Some(ta) = &p.type_annotation { Type::from(ta) } else { Type::Unknown };
-                    checker_params.push(crate::Parameter { name: p.name.clone(), param_type: pty });
+                    let pty = if let Some(ta) = &p.type_annotation {
+                        Type::from(ta)
+                    } else {
+                        Type::Unknown
+                    };
+                    checker_params.push(crate::Parameter {
+                        name: p.name.clone(),
+                        param_type: pty,
+                    });
                 }
                 // Return type (default Unit)
-                let ret = return_type.as_ref().map(|t| Type::from(t)).or(Some(Type::Unit));
-                let sig = FunctionSignature { name: name.clone(), parameters: checker_params, return_type: ret };
+                let ret = return_type
+                    .as_ref()
+                    .map(|t| Type::from(t))
+                    .or(Some(Type::Unit));
+                let sig = FunctionSignature {
+                    name: name.clone(),
+                    parameters: checker_params,
+                    return_type: ret,
+                };
                 if !self.env.has_function(name) {
                     self.env.define_function(name.clone(), sig);
                 }
@@ -242,7 +328,7 @@ impl TypeChecker {
 
         // Collect all variables and functions into the result
         self.collect_environment();
-        
+
         std::mem::take(&mut self.result)
     }
 
@@ -267,108 +353,129 @@ impl TypeChecker {
             Expression::StringLiteral { .. } => Type::String,
             Expression::BooleanLiteral { .. } => Type::Bool,
             Expression::NullLiteral { .. } => Type::Nullable(Box::new(Type::Unknown)),
-            
+
             // Identifiers
             Expression::Identifier { name, pos, .. } => {
                 if let Some(var_type) = self.env.get_variable(name) {
                     var_type.clone()
                 } else {
-                    self.result.add_error(undefined_variable(name.clone(), *pos));
+                    self.result
+                        .add_error(undefined_variable(name.clone(), *pos));
                     Type::Unknown
                 }
             }
-            
+
             // Binary operations
-            Expression::BinaryOp { left, op, right, pos } => {
-                self.check_binary_operation(left, op, right, *pos)
-            }
-            
+            Expression::BinaryOp {
+                left,
+                op,
+                right,
+                pos,
+            } => self.check_binary_operation(left, op, right, *pos),
+
             // Unary operations
             Expression::UnaryOp { op, operand, pos } => {
                 self.check_unary_operation(op, operand, *pos)
             }
-            
+
             // Function calls
             Expression::Call { callee, args, pos } => {
                 self.check_call_expression(callee, args, *pos)
             }
-            
+
             // Member access
-            Expression::MemberAccess { object, member, is_safe, pos } => {
-                self.check_member_access(object, member, *is_safe, *pos)
-            }
-            
+            Expression::MemberAccess {
+                object,
+                member,
+                is_safe,
+                pos,
+            } => self.check_member_access(object, member, *is_safe, *pos),
+
             // Nullable operators
-            Expression::Elvis { nullable, default, pos } => {
-                self.check_elvis_operator(nullable, default, *pos)
-            }
-            
-            Expression::ForceUnwrap { nullable, pos } => {
-                self.check_force_unwrap(nullable, *pos)
-            }
-            
+            Expression::Elvis {
+                nullable,
+                default,
+                pos,
+            } => self.check_elvis_operator(nullable, default, *pos),
+
+            Expression::ForceUnwrap { nullable, pos } => self.check_force_unwrap(nullable, *pos),
+
             // Struct definition
-            Expression::StructDefinition { name, fields, pos, .. } => {
-                self.check_struct_definition(name, fields, *pos)
-            }
-            
+            Expression::StructDefinition {
+                name, fields, pos, ..
+            } => self.check_struct_definition(name, fields, *pos),
+
             // Struct literal
             Expression::StructLiteral { name, fields, pos } => {
                 self.check_struct_literal(name, fields, *pos)
             }
-            
+
             // Control flow
-            Expression::If { condition, then_branch, else_branch, pos } => {
-                self.check_if_expression(condition, then_branch, else_branch.as_deref(), *pos)
-            }
-            
+            Expression::If {
+                condition,
+                then_branch,
+                else_branch,
+                pos,
+            } => self.check_if_expression(condition, then_branch, else_branch.as_deref(), *pos),
+
             // Blocks
-            Expression::Block { expressions, .. } => {
-                self.check_block_expression(expressions)
-            }
-            
+            Expression::Block { expressions, .. } => self.check_block_expression(expressions),
+
             // Variable binding
-            Expression::Let { name, type_annotation, value, pos, .. } => {
-                self.check_let_expression(name, type_annotation, value, *pos)
-            }
-            
+            Expression::Let {
+                name,
+                type_annotation,
+                value,
+                pos,
+                ..
+            } => self.check_let_expression(name, type_annotation, value, *pos),
+
             // Collections
-            Expression::ArrayLiteral { elements, pos } => {
-                self.check_array_literal(elements, *pos)
-            }
-            
+            Expression::ArrayLiteral { elements, pos } => self.check_array_literal(elements, *pos),
+
             Expression::StructLiteral { name, fields, pos } => {
                 self.check_struct_literal(name, fields, *pos)
             }
-            
+
             Expression::IndexAccess { object, index, pos } => {
                 self.check_index_access(object, index, *pos)
             }
-            
+
             // Function definition
-            Expression::Function { name, params, return_type, body, pos, .. } => {
-                self.check_function_definition(name, params, return_type, body, *pos)
-            }
-            
+            Expression::Function {
+                name,
+                params,
+                return_type,
+                body,
+                pos,
+                ..
+            } => self.check_function_definition(name, params, return_type, body, *pos),
+
             // Interface definition
             Expression::Interface { name, methods, pos } => {
                 self.check_interface_definition(name, methods, *pos)
             }
-            
+
             // For now, treat other expression types as unknown
-            _ => Type::Unknown
+            _ => Type::Unknown,
         }
     }
 
     /// Type check a binary operation
-    fn check_binary_operation(&mut self, left: &Expression, op: &BinaryOperator, right: &Expression, pos: Position) -> Type {
+    fn check_binary_operation(
+        &mut self,
+        left: &Expression,
+        op: &BinaryOperator,
+        right: &Expression,
+        pos: Position,
+    ) -> Type {
         let left_type = self.check_expression(left);
         let right_type = self.check_expression(right);
 
         // Convert operator to string for type system
         let op_str = match op {
             BinaryOperator::Add => "+",
-            BinaryOperator::Subtract => "-", 
+            BinaryOperator::Subtract => "-",
             BinaryOperator::Multiply => "*",
             BinaryOperator::Divide => "/",
             BinaryOperator::Modulo => "%",
@@ -398,7 +505,12 @@ impl TypeChecker {
     }
 
     /// Type check a unary operation
-    fn check_unary_operation(&mut self, op: &UnaryOperator, operand: &Expression, pos: Position) -> Type {
+    fn check_unary_operation(
+        &mut self,
+        op: &UnaryOperator,
+        operand: &Expression,
+        pos: Position,
+    ) -> Type {
         let operand_type = self.check_expression(operand);
 
         match op {
@@ -432,7 +544,12 @@ impl TypeChecker {
     }
 
     /// Type check a function call
-    fn check_call_expression(&mut self, callee: &Expression, args: &[Expression], pos: Position) -> Type {
+    fn check_call_expression(
+        &mut self,
+        callee: &Expression,
+        args: &[Expression],
+        pos: Position,
+    ) -> Type {
         // Complete call checking with full type resolution
         if let Expression::Identifier { name, .. } = callee {
             if let Some(signature) = self.env.get_function(name).cloned() {
@@ -471,7 +588,9 @@ impl TypeChecker {
             // Method-style call like array.size() or string.length()
             let recv_ty = self.check_expression(object);
             // Validate no arguments for simple accessors
-            for arg in args { let _ = self.check_expression(arg); }
+            for arg in args {
+                let _ = self.check_expression(arg);
+            }
             let base = recv_ty.non_nullable().clone();
             match (&base, member.as_str()) {
                 (Type::Array(_), "size") | (Type::Array(_), "length") => Type::Int,
@@ -492,9 +611,15 @@ impl TypeChecker {
     }
 
     /// Type check member access
-    fn check_member_access(&mut self, object: &Expression, member: &str, is_safe: bool, pos: Position) -> Type {
+    fn check_member_access(
+        &mut self,
+        object: &Expression,
+        member: &str,
+        is_safe: bool,
+        pos: Position,
+    ) -> Type {
         let object_type = self.check_expression(object);
-        
+
         match &object_type {
             Type::Struct { fields, .. } => {
                 if let Some(field_type) = fields.get(member) {
@@ -539,7 +664,12 @@ impl TypeChecker {
     }
 
     /// Type check Elvis operator
-    fn check_elvis_operator(&mut self, nullable: &Expression, default: &Expression, pos: Position) -> Type {
+    fn check_elvis_operator(
+        &mut self,
+        nullable: &Expression,
+        default: &Expression,
+        pos: Position,
+    ) -> Type {
         let nullable_type = self.check_expression(nullable);
         let default_type = self.check_expression(default);
 
@@ -576,45 +706,60 @@ impl TypeChecker {
             }
         }
     }
-    
+
     /// Type check struct definition
-    fn check_struct_definition(&mut self, name: &str, fields: &[seen_parser::ast::StructField], _pos: Position) -> Type {
+    fn check_struct_definition(
+        &mut self,
+        name: &str,
+        fields: &[seen_parser::ast::StructField],
+        _pos: Position,
+    ) -> Type {
         // Create struct type with field information
         let mut field_types = std::collections::HashMap::new();
         for field in fields {
             let field_type = Type::from(&field.field_type);
             field_types.insert(field.name.clone(), field_type);
         }
-        
+
         // Register the struct type
         let struct_type = Type::Struct {
             name: name.to_string(),
             fields: field_types,
             generics: Vec::new(), // No generics support yet
         };
-        
+
         // Store struct definition in environment
         self.env.define_type(name.to_string(), struct_type.clone());
-        
+
         // Struct definitions evaluate to Unit
         Type::Unit
     }
-    
+
     /// Type check struct literal
-    fn check_struct_literal(&mut self, name: &str, fields: &[(String, Expression)], pos: Position) -> Type {
+    fn check_struct_literal(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expression)],
+        pos: Position,
+    ) -> Type {
         // Look up and clone the struct type to avoid borrow issues
         let struct_type = self.env.get_type(name).cloned();
-        
+
         if let Some(struct_type) = struct_type {
-            if let Type::Struct { name: struct_name, fields: expected_fields, .. } = &struct_type {
+            if let Type::Struct {
+                name: struct_name,
+                fields: expected_fields,
+                ..
+            } = &struct_type
+            {
                 // Check that all required fields are present and have correct types
                 let mut provided_fields = std::collections::HashSet::new();
-                
+
                 for (field_name, field_expr) in fields {
                     provided_fields.insert(field_name.clone());
-                    
+
                     let field_type = self.check_expression(field_expr);
-                    
+
                     if let Some(expected_type) = expected_fields.get(field_name) {
                         if !field_type.is_assignable_to(expected_type) {
                             self.result.add_error(TypeError::TypeMismatch {
@@ -631,7 +776,7 @@ impl TypeChecker {
                         });
                     }
                 }
-                
+
                 // Check for missing fields
                 for (expected_field, _) in expected_fields {
                     if !provided_fields.contains(expected_field) {
@@ -642,7 +787,7 @@ impl TypeChecker {
                         });
                     }
                 }
-                
+
                 struct_type
             } else {
                 self.result.add_error(TypeError::NotAStruct {
@@ -661,7 +806,13 @@ impl TypeChecker {
     }
 
     /// Type check if expression with smart casting support
-    pub fn check_if_expression(&mut self, condition: &Expression, then_branch: &Expression, else_branch: Option<&Expression>, pos: Position) -> Type {
+    pub fn check_if_expression(
+        &mut self,
+        condition: &Expression,
+        then_branch: &Expression,
+        else_branch: Option<&Expression>,
+        pos: Position,
+    ) -> Type {
         let condition_type = self.check_expression(condition);
         if !condition_type.is_assignable_to(&Type::Bool) {
             self.result.add_error(TypeError::TypeMismatch {
@@ -673,7 +824,7 @@ impl TypeChecker {
 
         // Analyze condition for smart casting opportunities
         let smart_casts = self.analyze_condition_for_smart_casts(condition);
-        
+
         // Type check then branch with smart casts applied
         let then_type = {
             let old_env = self.env.clone();
@@ -686,7 +837,7 @@ impl TypeChecker {
             self.env = old_env;
             then_type
         };
-        
+
         if let Some(else_expr) = else_branch {
             // Type check else branch without smart casts (original types)
             let else_type = self.check_expression(else_expr);
@@ -711,19 +862,33 @@ impl TypeChecker {
 
     /// Analyze a condition expression for smart casting opportunities
     /// Returns a map of variable names to their smart-cast types
-    fn analyze_condition_for_smart_casts(&mut self, condition: &Expression) -> HashMap<String, Type> {
+    fn analyze_condition_for_smart_casts(
+        &mut self,
+        condition: &Expression,
+    ) -> HashMap<String, Type> {
         let mut smart_casts = HashMap::new();
-        
+
         match condition {
             // Handle: if variable != null
-            Expression::BinaryOp { left, op: BinaryOperator::NotEqual, right, .. } => {
-                if let (Expression::Identifier { name, .. }, Expression::NullLiteral { .. }) = (left.as_ref(), right.as_ref()) {
+            Expression::BinaryOp {
+                left,
+                op: BinaryOperator::NotEqual,
+                right,
+                ..
+            } => {
+                if let (Expression::Identifier { name, .. }, Expression::NullLiteral { .. }) =
+                    (left.as_ref(), right.as_ref())
+                {
                     if let Some(var_type) = self.env.get_variable(name).cloned() {
                         if let Type::Nullable(inner_type) = var_type {
                             smart_casts.insert(name.clone(), *inner_type);
                         }
                     }
-                } else if let (Expression::NullLiteral { .. }, Expression::Identifier { name, .. }) = (left.as_ref(), right.as_ref()) {
+                } else if let (
+                    Expression::NullLiteral { .. },
+                    Expression::Identifier { name, .. },
+                ) = (left.as_ref(), right.as_ref())
+                {
                     if let Some(var_type) = self.env.get_variable(name).cloned() {
                         if let Type::Nullable(inner_type) = var_type {
                             smart_casts.insert(name.clone(), *inner_type);
@@ -731,7 +896,7 @@ impl TypeChecker {
                     }
                 }
             }
-            
+
             // Handle: if variable (implicit null check for Bool?)
             Expression::Identifier { name, .. } => {
                 if let Some(var_type) = self.env.get_variable(name).cloned() {
@@ -742,20 +907,25 @@ impl TypeChecker {
                     }
                 }
             }
-            
+
             // Handle compound conditions with 'and': if x != null and y != null
-            Expression::BinaryOp { left, op: BinaryOperator::And, right, .. } => {
+            Expression::BinaryOp {
+                left,
+                op: BinaryOperator::And,
+                right,
+                ..
+            } => {
                 let left_casts = self.analyze_condition_for_smart_casts(left);
                 let right_casts = self.analyze_condition_for_smart_casts(right);
                 smart_casts.extend(left_casts);
                 smart_casts.extend(right_casts);
             }
-            
+
             _ => {
                 // Other condition types don't provide smart casting opportunities
             }
         }
-        
+
         smart_casts
     }
 
@@ -773,9 +943,15 @@ impl TypeChecker {
     }
 
     /// Type check let expression
-    fn check_let_expression(&mut self, name: &str, type_annotation: &Option<seen_parser::ast::Type>, value: &Expression, pos: Position) -> Type {
+    fn check_let_expression(
+        &mut self,
+        name: &str,
+        type_annotation: &Option<seen_parser::ast::Type>,
+        value: &Expression,
+        pos: Position,
+    ) -> Type {
         let value_type = self.check_expression(value);
-        
+
         let declared_type = if let Some(type_ann) = type_annotation {
             let declared = Type::from(type_ann);
             if !value_type.is_assignable_to(&declared) {
@@ -797,7 +973,8 @@ impl TypeChecker {
                 position: pos,
             });
         } else {
-            self.env.define_variable(name.to_string(), declared_type.clone());
+            self.env
+                .define_variable(name.to_string(), declared_type.clone());
         }
 
         // Let expressions return the bound value
@@ -826,7 +1003,12 @@ impl TypeChecker {
     }
 
     /// Type check index access
-    fn check_index_access(&mut self, object: &Expression, index: &Expression, pos: Position) -> Type {
+    fn check_index_access(
+        &mut self,
+        object: &Expression,
+        index: &Expression,
+        pos: Position,
+    ) -> Type {
         let array_type = self.check_expression(object);
         let index_type = self.check_expression(index);
 
@@ -852,7 +1034,14 @@ impl TypeChecker {
     }
 
     /// Type check function definition
-    fn check_function_definition(&mut self, name: &str, params: &[seen_parser::ast::Parameter], return_type: &Option<seen_parser::ast::Type>, body: &Expression, pos: Position) -> Type {
+    fn check_function_definition(
+        &mut self,
+        name: &str,
+        params: &[seen_parser::ast::Parameter],
+        return_type: &Option<seen_parser::ast::Type>,
+        body: &Expression,
+        pos: Position,
+    ) -> Type {
         // Convert AST parameter types to checker types
         let mut checker_params = Vec::new();
         for param in params {
@@ -902,7 +1091,7 @@ impl TypeChecker {
 
         // Set current environment to function scope
         self.env = function_env;
-        
+
         // Store current function return type for return statement checking
         let saved_return_type = self.current_function_return_type.clone();
         self.current_function_return_type = checker_return_type.clone();
@@ -928,14 +1117,19 @@ impl TypeChecker {
         // Function definitions return the function type (for now, Unit)
         Type::Unit
     }
-    
+
     /// Type check an interface definition
-    fn check_interface_definition(&mut self, name: &str, methods: &[InterfaceMethod], pos: Position) -> Type {
+    fn check_interface_definition(
+        &mut self,
+        name: &str,
+        methods: &[InterfaceMethod],
+        pos: Position,
+    ) -> Type {
         // Collect method signatures
         let mut method_names = Vec::new();
         for method in methods {
             method_names.push(method.name.clone());
-            
+
             // Convert parameters to our type system
             let mut params = Vec::new();
             for param in &method.params {
@@ -949,36 +1143,38 @@ impl TypeChecker {
                     param_type,
                 });
             }
-            
+
             // Convert return type
             let return_type = if let Some(ret_type) = &method.return_type {
                 Some(Type::from(ret_type))
             } else {
                 Some(Type::Unit)
             };
-            
+
             // Store method signature
             let signature = FunctionSignature {
                 name: format!("{}::{}", name, method.name),
                 parameters: params,
                 return_type,
             };
-            
-            self.env.define_function(format!("{}::{}", name, method.name), signature);
+
+            self.env
+                .define_function(format!("{}::{}", name, method.name), signature);
         }
-        
+
         // Create and register the interface type
         let interface_type = Type::Interface {
             name: name.to_string(),
             methods: method_names,
             generics: self.extract_generic_types_from_interface(methods),
         };
-        
-        self.env.define_type(name.to_string(), interface_type.clone());
-        
+
+        self.env
+            .define_type(name.to_string(), interface_type.clone());
+
         Type::Unit
     }
-    
+
     /// Extract struct name from a type for error reporting
     fn extract_struct_name_from_type(&self, type_: &Type) -> String {
         match type_ {
@@ -989,15 +1185,15 @@ impl TypeChecker {
                 } else {
                     format!("{:?}", inner)
                 }
-            },
-            _ => format!("{:?}", type_)
+            }
+            _ => format!("{:?}", type_),
         }
     }
-    
+
     /// Extract generic types from interface methods
     fn extract_generic_types_from_interface(&self, methods: &[InterfaceMethod]) -> Vec<String> {
         let mut generics = std::collections::HashSet::new();
-        
+
         for method in methods {
             // Extract generics from parameters
             for param in &method.params {
@@ -1005,23 +1201,27 @@ impl TypeChecker {
                     self.collect_generic_types_from_ast_type(param_type, &mut generics);
                 }
             }
-            
+
             // Extract generics from return type
             if let Some(return_type) = &method.return_type {
                 self.collect_generic_types_from_ast_type(return_type, &mut generics);
             }
         }
-        
+
         generics.into_iter().collect()
     }
-    
+
     /// Collect generic type names from AST Type
-    fn collect_generic_types_from_ast_type(&self, ast_type: &seen_parser::Type, generics: &mut std::collections::HashSet<String>) {
+    fn collect_generic_types_from_ast_type(
+        &self,
+        ast_type: &seen_parser::Type,
+        generics: &mut std::collections::HashSet<String>,
+    ) {
         // If the type name starts with uppercase and is a single letter, it's likely a generic
         if ast_type.name.len() == 1 && ast_type.name.chars().next().unwrap().is_uppercase() {
             generics.insert(ast_type.name.clone());
         }
-        
+
         // Recursively check generic parameters
         for generic_param in &ast_type.generics {
             self.collect_generic_types_from_ast_type(generic_param, generics);

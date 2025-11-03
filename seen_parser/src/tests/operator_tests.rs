@@ -1,7 +1,7 @@
 //! Tests for operator parsing (binary, unary, nullable)
 
-use crate::{Parser, Expression, BinaryOperator, UnaryOperator, ParseResult};
-use seen_lexer::{Lexer, KeywordManager};
+use crate::{BinaryOperator, Expression, ParseResult, Parser, UnaryOperator};
+use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
 fn parse_expression(input: &str) -> ParseResult<Expression> {
@@ -17,7 +17,9 @@ fn parse_expression(input: &str) -> ParseResult<Expression> {
 fn test_parse_binary_addition() {
     let expr = parse_expression("10 + 20").unwrap();
     match expr {
-        Expression::BinaryOp { left, op, right, .. } => {
+        Expression::BinaryOp {
+            left, op, right, ..
+        } => {
             assert_eq!(op, BinaryOperator::Add);
             match left.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 10),
@@ -96,7 +98,8 @@ fn test_parse_word_operator_not() {
 
 #[test]
 fn test_parse_complex_logical_expression() {
-    let expr = parse_expression("age >= 18 and (hasLicense or isSupervised) and not isDrunk").unwrap();
+    let expr =
+        parse_expression("age >= 18 and (hasLicense or isSupervised) and not isDrunk").unwrap();
     match expr {
         Expression::BinaryOp { op, .. } => {
             assert_eq!(op, BinaryOperator::And);
@@ -124,7 +127,9 @@ fn test_parse_unary_negation() {
 fn test_parse_safe_navigation() {
     let expr = parse_expression("user?.name").unwrap();
     match expr {
-        Expression::MemberAccess { member, is_safe, .. } => {
+        Expression::MemberAccess {
+            member, is_safe, ..
+        } => {
             assert_eq!(member, "name");
             assert!(is_safe);
         }
@@ -136,7 +141,9 @@ fn test_parse_safe_navigation() {
 fn test_parse_elvis_operator() {
     let expr = parse_expression("userName ?: \"Guest\"").unwrap();
     match expr {
-        Expression::Elvis { nullable, default, .. } => {
+        Expression::Elvis {
+            nullable, default, ..
+        } => {
             match nullable.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "userName"),
                 _ => panic!("Expected identifier"),
@@ -154,12 +161,10 @@ fn test_parse_elvis_operator() {
 fn test_parse_force_unwrap() {
     let expr = parse_expression("maybeValue!!").unwrap();
     match expr {
-        Expression::ForceUnwrap { nullable, .. } => {
-            match nullable.as_ref() {
-                Expression::Identifier { name, .. } => assert_eq!(name, "maybeValue"),
-                _ => panic!("Expected identifier"),
-            }
-        }
+        Expression::ForceUnwrap { nullable, .. } => match nullable.as_ref() {
+            Expression::Identifier { name, .. } => assert_eq!(name, "maybeValue"),
+            _ => panic!("Expected identifier"),
+        },
         _ => panic!("Expected force unwrap"),
     }
 }
@@ -185,7 +190,9 @@ fn test_parse_chained_nullable_operators() {
 fn test_parse_inclusive_range() {
     let expr = parse_expression("1..10").unwrap();
     match expr {
-        Expression::BinaryOp { op, left, right, .. } => {
+        Expression::BinaryOp {
+            op, left, right, ..
+        } => {
             assert_eq!(op, BinaryOperator::InclusiveRange);
             match left.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 1),
@@ -204,7 +211,9 @@ fn test_parse_inclusive_range() {
 fn test_parse_exclusive_range() {
     let expr = parse_expression("0..<10").unwrap();
     match expr {
-        Expression::BinaryOp { op, left, right, .. } => {
+        Expression::BinaryOp {
+            op, left, right, ..
+        } => {
             assert_eq!(op, BinaryOperator::ExclusiveRange);
             match left.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 0),
@@ -241,7 +250,13 @@ fn test_parse_assignment() {
 fn test_parse_let_binding() {
     let expr = parse_expression("let x = 10").unwrap();
     match expr {
-        Expression::Let { name, value, is_mutable, type_annotation, .. } => {
+        Expression::Let {
+            name,
+            value,
+            is_mutable,
+            type_annotation,
+            ..
+        } => {
             assert_eq!(name, "x");
             assert!(!is_mutable);
             assert!(type_annotation.is_none());
@@ -258,7 +273,12 @@ fn test_parse_let_binding() {
 fn test_parse_var_binding() {
     let expr = parse_expression("var count: Int = 0").unwrap();
     match expr {
-        Expression::Let { name, is_mutable, type_annotation, .. } => {
+        Expression::Let {
+            name,
+            is_mutable,
+            type_annotation,
+            ..
+        } => {
             assert_eq!(name, "count");
             assert!(is_mutable);
             assert!(type_annotation.is_some());

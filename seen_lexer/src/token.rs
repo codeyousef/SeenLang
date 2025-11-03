@@ -20,78 +20,96 @@ pub enum TokenType {
     CharLiteral(char),
     BoolLiteral(bool),
     InterpolatedString(Vec<InterpolationPart>),
-    
+
     // Identifiers (visibility based on capitalization)
     PublicIdentifier(String),
     PrivateIdentifier(String),
-    
+
     // Keywords (dynamically loaded from TOML)
     // Single variant for all keywords - no hardcoding!
     Keyword(crate::keyword_manager::KeywordType),
-    
+
     // Logical operators (research-based)
-    LogicalAnd, LogicalOr, LogicalNot,
-    
+    LogicalAnd,
+    LogicalOr,
+    LogicalNot,
+
     // Memory management (Vale-style)
-    Move, Borrow, Inout,
-    
+    Move,
+    Borrow,
+    Inout,
+
     // Mathematical operators
-    Plus, Minus, Multiply, Divide, Modulo,
-    
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Modulo,
+
     // Assignment operators
-    Assign,             // =
-    PlusAssign,         // +=
-    MinusAssign,        // -=
-    MultiplyAssign,     // *=
-    DivideAssign,       // /=
-    ModuloAssign,       // %=
-    
+    Assign,         // =
+    PlusAssign,     // +=
+    MinusAssign,    // -=
+    MultiplyAssign, // *=
+    DivideAssign,   // /=
+    ModuloAssign,   // %=
+
     // Comparison operators
-    Equal, NotEqual, Less, Greater, LessEqual, GreaterEqual,
-    
+    Equal,
+    NotEqual,
+    Less,
+    Greater,
+    LessEqual,
+    GreaterEqual,
+
     // Bitwise operators
-    BitwiseAnd,         // &
-    BitwiseOr,          // |
-    BitwiseXor,         // ^
-    BitwiseNot,         // ~
-    LeftShift,          // <<
-    RightShift,         // >>
-    
+    BitwiseAnd, // &
+    BitwiseOr,  // |
+    BitwiseXor, // ^
+    BitwiseNot, // ~
+    LeftShift,  // <<
+    RightShift, // >>
+
     // Nullable operators
-    SafeNavigation,     // ?.
-    Elvis,              // ?:
-    ForceUnwrap,        // !!
-    Question,           // ?
-    
+    SafeNavigation, // ?.
+    Elvis,          // ?:
+    ForceUnwrap,    // !!
+    Question,       // ?
+
     // Range operators
-    InclusiveRange,     // ..
-    ExclusiveRange,     // ..<
-    
+    InclusiveRange, // ..
+    ExclusiveRange, // ..<
+
     // String interpolation tokens
     InterpolationStart, // {
     InterpolationEnd,   // }
     LiteralBrace,       // {{ or }}
-    
+
     // Punctuation
-    LeftParen, RightParen,
-    LeftBrace, RightBrace,
-    LeftBracket, RightBracket,
-    Comma, Colon,
-    Dot,                // .
-    Arrow,              // ->
-    FatArrow,           // =>
-    DoubleColon,        // ::
-    Underscore,         // _
-    At,                 // @ (for annotations)
-    Hash,               // # (for preprocessor)
-    
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    Comma,
+    Colon,
+    Dot,         // .
+    Arrow,       // ->
+    FatArrow,    // =>
+    DoubleColon, // ::
+    Underscore,  // _
+    At,          // @ (for annotations)
+    Hash,        // # (for preprocessor)
+
     // Comments
-    SingleLineComment(String),  // //
-    MultiLineComment(String),   // /* */
-    DocComment(String),         // /** */
-    
+    SingleLineComment(String), // //
+    MultiLineComment(String),  // /* */
+    DocComment(String),        // /** */
+
     // Special tokens
-    Newline, EOF,
+    Newline,
+    EOF,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,12 +139,12 @@ impl Token {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_token_creation() {
         let pos = Position::new(1, 1, 0);
         let token = Token::new(TokenType::Plus, "+".to_string(), pos);
-        
+
         assert_eq!(token.token_type, TokenType::Plus);
         assert_eq!(token.lexeme, "+");
         assert_eq!(token.position.line, 1);

@@ -1,7 +1,7 @@
 //! Type definitions for the effects system
 
-use std::fmt;
 use seen_lexer::position::Position;
+use std::fmt;
 
 /// Values that can be used in effects and contracts
 #[derive(Debug, Clone, PartialEq)]
@@ -24,10 +24,7 @@ pub enum AsyncValue {
 #[derive(Debug, Clone)]
 pub enum AsyncError {
     /// Runtime error with message and position
-    RuntimeError {
-        message: String,
-        position: Position,
-    },
+    RuntimeError { message: String, position: Position },
     /// Task was cancelled
     TaskCancelled { task_id: TaskId },
     /// Task timed out
@@ -51,12 +48,19 @@ impl fmt::Display for AsyncError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AsyncError::RuntimeError { message, position } => {
-                write!(f, "Runtime error at {}:{}: {}", position.line, position.column, message)
+                write!(
+                    f,
+                    "Runtime error at {}:{}: {}",
+                    position.line, position.column, message
+                )
             }
             AsyncError::TaskCancelled { task_id } => {
                 write!(f, "Task {:?} was cancelled", task_id)
             }
-            AsyncError::TaskTimeout { task_id, timeout_ms } => {
+            AsyncError::TaskTimeout {
+                task_id,
+                timeout_ms,
+            } => {
                 write!(f, "Task {:?} timed out after {}ms", task_id, timeout_ms)
             }
         }

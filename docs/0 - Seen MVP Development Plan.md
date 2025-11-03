@@ -18,15 +18,32 @@ This replaces previous MVP notes. It merges **Pre‑Bootstrap (PB)**, **Pre‑Se
 
 ---
 
-## 2) Phase PB — Pre‑Bootstrap (**done**)
-- Unicode NFC; visibility via `caps` or `explicit` (`Seen.toml`).
-- Result/abort error model; word‑operator precedence frozen; formatter enforces style.
-- RAII `defer`; region exit order; generational refs.
-- Deterministic IR: sorted emission, no timestamps/paths.
-- Runtime split: `seen_core` (compiler) vs `seen_std` (later).
-- CLI determinism profile.
+## 2) Phase PB — Pre‑Bootstrap (In Progress)
+Pre‑bootstrap should make the Rust toolchain a stable foundation before we attempt Stage‑1. These items were previously marked complete but are still missing. Break them down and check them off as we implement them:
 
-## 3) Phase PSH — Pre‑Self‑Host (**done**)
+- [ ] **Unicode NFC + visibility policy**
+  - Normalize identifiers/literals to NFC during lexing.
+  - Support `Seen.toml` switches for `caps`/`explicit` visibility and error when source disagrees.
+- [ ] **Result/Abort error model**
+  - Wire a consistent `Result<T, E>` type across compiler crates.
+  - Add an `abort` intrinsic for unrecoverable failures and ensure diagnostics surface it.
+- [ ] **Operator precedence & formatter lock**
+  - Freeze word/operator precedence tables in the parser.
+  - Extend formatter/pretty-printer so it enforces the frozen precedence (no drift across runs).
+- [ ] **RAII `defer` + generational refs runtime**
+  - Implement runtime support for `defer` blocks in interpreter + LLVM backend.
+  - Add generational handle checks when dereferencing opaque IDs.
+- [ ] **Deterministic IR emission**
+  - Ensure IR generator/optimizer emit sorted structures (no HashMap iteration).
+  - Add regression test that hashes IR for the same input twice and matches.
+- [ ] **Runtime split**
+  - Carve shared code into `seen_core` (compiler) vs `seen_std` (future runtime) crates.
+  - Update CLI to depend only on `seen_core`.
+- [ ] **CLI determinism profile**
+  - Introduce `--profile deterministic` (or similar) that locks randomness, timestamps, temp paths.
+  - Document usage in quickstart/plan.
+
+## 3) Phase PSH — Pre‑Self‑Host (Pending)
 - Typestates + phantom types; sealed traits; monomorphized generics.
 - Async boundary rules (no suspend across borrows; `move` into tasks; scoped joins).
 - Atomics/fences/TLS; minimal channels/fibers/job stubs.
@@ -83,4 +100,3 @@ These items were previously post‑MVP; they are now **required to conclude MVP*
 
 ## 6) What Moves to Alpha (unchanged intent)
 - Macro/DSL depth (render‑graph blocks), compile‑time reflection expansions, package registry online, plugin distro at scale, profiler GUI, ECS/gameplay templates.
-

@@ -1,9 +1,9 @@
 //! IR instruction system for the Seen programming language
 
-use std::fmt;
-use std::collections::HashMap;
+use crate::value::{IRType, IRValue};
 use serde::{Deserialize, Serialize};
-use crate::value::{IRValue, IRType};
+use std::collections::HashMap;
+use std::fmt;
 
 /// A label for jumps and basic block identification
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -30,7 +30,7 @@ pub enum BinaryOp {
     Multiply,
     Divide,
     Modulo,
-    
+
     // Comparison
     Equal,
     NotEqual,
@@ -38,11 +38,11 @@ pub enum BinaryOp {
     LessEqual,
     GreaterThan,
     GreaterEqual,
-    
+
     // Logical
     And,
     Or,
-    
+
     // Bitwise
     BitwiseAnd,
     BitwiseOr,
@@ -104,80 +104,157 @@ pub enum Instruction {
     // Control flow
     Label(Label),
     Jump(Label),
-    JumpIf { condition: IRValue, target: Label },
-    JumpIfNot { condition: IRValue, target: Label },
-    Call { target: IRValue, args: Vec<IRValue>, result: Option<IRValue> },
+    JumpIf {
+        condition: IRValue,
+        target: Label,
+    },
+    JumpIfNot {
+        condition: IRValue,
+        target: Label,
+    },
+    Call {
+        target: IRValue,
+        args: Vec<IRValue>,
+        result: Option<IRValue>,
+    },
     Return(Option<IRValue>),
-    
+
     // Data operations
-    Load { source: IRValue, dest: IRValue },
-    Store { value: IRValue, dest: IRValue },
-    Move { source: IRValue, dest: IRValue },
-    
+    Load {
+        source: IRValue,
+        dest: IRValue,
+    },
+    Store {
+        value: IRValue,
+        dest: IRValue,
+    },
+    Move {
+        source: IRValue,
+        dest: IRValue,
+    },
+
     // Arithmetic and logic
-    Binary { op: BinaryOp, left: IRValue, right: IRValue, result: IRValue },
-    Unary { op: UnaryOp, operand: IRValue, result: IRValue },
-    
+    Binary {
+        op: BinaryOp,
+        left: IRValue,
+        right: IRValue,
+        result: IRValue,
+    },
+    Unary {
+        op: UnaryOp,
+        operand: IRValue,
+        result: IRValue,
+    },
+
     // Memory management
-    Allocate { size: IRValue, result: IRValue },
-    Deallocate { pointer: IRValue },
-    
+    Allocate {
+        size: IRValue,
+        result: IRValue,
+    },
+    Deallocate {
+        pointer: IRValue,
+    },
+
     // Array operations
-    ArrayAccess { array: IRValue, index: IRValue, result: IRValue },
-    ArraySet { array: IRValue, index: IRValue, value: IRValue },
-    ArrayLength { array: IRValue, result: IRValue },
-    
+    ArrayAccess {
+        array: IRValue,
+        index: IRValue,
+        result: IRValue,
+    },
+    ArraySet {
+        array: IRValue,
+        index: IRValue,
+        value: IRValue,
+    },
+    ArrayLength {
+        array: IRValue,
+        result: IRValue,
+    },
+
     // Struct operations
-    FieldAccess { struct_val: IRValue, field: String, result: IRValue },
-    FieldSet { struct_val: IRValue, field: String, value: IRValue },
-    
+    FieldAccess {
+        struct_val: IRValue,
+        field: String,
+        result: IRValue,
+    },
+    FieldSet {
+        struct_val: IRValue,
+        field: String,
+        value: IRValue,
+    },
+
     // Enum operations
-    GetEnumTag { enum_value: IRValue, result: IRValue },
-    GetEnumField { enum_value: IRValue, field_index: u32, result: IRValue },
-    
+    GetEnumTag {
+        enum_value: IRValue,
+        result: IRValue,
+    },
+    GetEnumField {
+        enum_value: IRValue,
+        field_index: u32,
+        result: IRValue,
+    },
+
     // Type operations
-    Cast { value: IRValue, target_type: IRType, result: IRValue },
-    TypeCheck { value: IRValue, target_type: IRType, result: IRValue },
-    
+    Cast {
+        value: IRValue,
+        target_type: IRType,
+        result: IRValue,
+    },
+    TypeCheck {
+        value: IRValue,
+        target_type: IRType,
+        result: IRValue,
+    },
+
     // String operations
-    StringConcat { left: IRValue, right: IRValue, result: IRValue },
-    StringLength { string: IRValue, result: IRValue },
-    
+    StringConcat {
+        left: IRValue,
+        right: IRValue,
+        result: IRValue,
+    },
+    StringLength {
+        string: IRValue,
+        result: IRValue,
+    },
+
     // Function operations
     PushFrame,
     PopFrame,
-    
+
     // Method dispatch operations
-    VirtualCall { 
-        receiver: IRValue, 
-        method_name: String, 
-        args: Vec<IRValue>, 
-        result: Option<IRValue> 
+    VirtualCall {
+        receiver: IRValue,
+        method_name: String,
+        args: Vec<IRValue>,
+        result: Option<IRValue>,
     },
-    StaticCall { 
-        class_name: String, 
-        method_name: String, 
-        args: Vec<IRValue>, 
-        result: Option<IRValue> 
+    StaticCall {
+        class_name: String,
+        method_name: String,
+        args: Vec<IRValue>,
+        result: Option<IRValue>,
     },
-    
+
     // Object-oriented operations
-    ConstructObject { 
-        class_name: String, 
-        args: Vec<IRValue>, 
-        result: IRValue 
+    ConstructObject {
+        class_name: String,
+        args: Vec<IRValue>,
+        result: IRValue,
     },
-    ConstructEnum { 
-        enum_name: String, 
-        variant_name: String, 
-        fields: Vec<IRValue>, 
-        result: IRValue 
+    ConstructEnum {
+        enum_name: String,
+        variant_name: String,
+        fields: Vec<IRValue>,
+        result: IRValue,
     },
-    
+
     // Debug and intrinsics
     Print(IRValue),
-    Debug { message: String, value: Option<IRValue> },
-    
+    Debug {
+        message: String,
+        value: Option<IRValue>,
+    },
+
     // No-op for optimization
     Nop,
 }
@@ -189,14 +266,20 @@ impl fmt::Display for Instruction {
             Instruction::Jump(label) => write!(f, "  jmp {}", label),
             Instruction::JumpIf { condition, target } => {
                 write!(f, "  jif {} {}", condition, target)
-            },
+            }
             Instruction::JumpIfNot { condition, target } => {
                 write!(f, "  jnot {} {}", condition, target)
-            },
-            Instruction::Call { target, args, result } => {
+            }
+            Instruction::Call {
+                target,
+                args,
+                result,
+            } => {
                 write!(f, "  call {} (", target)?;
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", arg)?;
                 }
                 write!(f, ")")?;
@@ -204,74 +287,126 @@ impl fmt::Display for Instruction {
                     write!(f, " -> {}", res)?;
                 }
                 Ok(())
-            },
+            }
             Instruction::Return(value) => {
                 if let Some(val) = value {
                     write!(f, "  ret {}", val)
                 } else {
                     write!(f, "  ret")
                 }
-            },
+            }
             Instruction::Load { source, dest } => {
                 write!(f, "  load {} -> {}", source, dest)
-            },
+            }
             Instruction::Store { value, dest } => {
                 write!(f, "  store {} -> {}", value, dest)
-            },
+            }
             Instruction::Move { source, dest } => {
                 write!(f, "  mov {} -> {}", source, dest)
-            },
-            Instruction::Binary { op, left, right, result } => {
+            }
+            Instruction::Binary {
+                op,
+                left,
+                right,
+                result,
+            } => {
                 write!(f, "  {} {} {} -> {}", op, left, right, result)
-            },
-            Instruction::Unary { op, operand, result } => {
+            }
+            Instruction::Unary {
+                op,
+                operand,
+                result,
+            } => {
                 write!(f, "  {} {} -> {}", op, operand, result)
-            },
+            }
             Instruction::Allocate { size, result } => {
                 write!(f, "  alloc {} -> {}", size, result)
-            },
+            }
             Instruction::Deallocate { pointer } => {
                 write!(f, "  free {}", pointer)
-            },
-            Instruction::ArrayAccess { array, index, result } => {
+            }
+            Instruction::ArrayAccess {
+                array,
+                index,
+                result,
+            } => {
                 write!(f, "  arr_get {}[{}] -> {}", array, index, result)
-            },
-            Instruction::ArraySet { array, index, value } => {
+            }
+            Instruction::ArraySet {
+                array,
+                index,
+                value,
+            } => {
                 write!(f, "  arr_set {}[{}] = {}", array, index, value)
-            },
+            }
             Instruction::ArrayLength { array, result } => {
                 write!(f, "  arr_len {} -> {}", array, result)
-            },
-            Instruction::FieldAccess { struct_val, field, result } => {
+            }
+            Instruction::FieldAccess {
+                struct_val,
+                field,
+                result,
+            } => {
                 write!(f, "  field_get {}.{} -> {}", struct_val, field, result)
-            },
-            Instruction::FieldSet { struct_val, field, value } => {
+            }
+            Instruction::FieldSet {
+                struct_val,
+                field,
+                value,
+            } => {
                 write!(f, "  field_set {}.{} = {}", struct_val, field, value)
-            },
+            }
             Instruction::GetEnumTag { enum_value, result } => {
                 write!(f, "  enum_tag {} -> {}", enum_value, result)
-            },
-            Instruction::GetEnumField { enum_value, field_index, result } => {
-                write!(f, "  enum_field {}[{}] -> {}", enum_value, field_index, result)
-            },
-            Instruction::Cast { value, target_type, result } => {
+            }
+            Instruction::GetEnumField {
+                enum_value,
+                field_index,
+                result,
+            } => {
+                write!(
+                    f,
+                    "  enum_field {}[{}] -> {}",
+                    enum_value, field_index, result
+                )
+            }
+            Instruction::Cast {
+                value,
+                target_type,
+                result,
+            } => {
                 write!(f, "  cast {} as {} -> {}", value, target_type, result)
-            },
-            Instruction::TypeCheck { value, target_type, result } => {
+            }
+            Instruction::TypeCheck {
+                value,
+                target_type,
+                result,
+            } => {
                 write!(f, "  is {} {} -> {}", value, target_type, result)
-            },
-            Instruction::StringConcat { left, right, result } => {
+            }
+            Instruction::StringConcat {
+                left,
+                right,
+                result,
+            } => {
                 write!(f, "  str_concat {} {} -> {}", left, right, result)
-            },
+            }
             Instruction::StringLength { string, result } => {
                 write!(f, "  str_len {} -> {}", string, result)
-            },
+            }
             Instruction::PushFrame => write!(f, "  push_frame"),
             Instruction::PopFrame => write!(f, "  pop_frame"),
-            Instruction::VirtualCall { receiver, method_name, args, result } => {
+            Instruction::VirtualCall {
+                receiver,
+                method_name,
+                args,
+                result,
+            } => {
                 write!(f, "  vcall {}.{}(", receiver, method_name)?;
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", arg)?;
                 }
                 write!(f, ")")?;
@@ -279,11 +414,18 @@ impl fmt::Display for Instruction {
                     write!(f, " -> {}", res)?;
                 }
                 Ok(())
-            },
-            Instruction::StaticCall { class_name, method_name, args, result } => {
+            }
+            Instruction::StaticCall {
+                class_name,
+                method_name,
+                args,
+                result,
+            } => {
                 write!(f, "  scall {}::{} (", class_name, method_name)?;
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", arg)?;
                 }
                 write!(f, ")")?;
@@ -291,23 +433,36 @@ impl fmt::Display for Instruction {
                     write!(f, " -> {}", res)?;
                 }
                 Ok(())
-            },
-            Instruction::ConstructObject { class_name, args, result } => {
+            }
+            Instruction::ConstructObject {
+                class_name,
+                args,
+                result,
+            } => {
                 write!(f, "  new {}(", class_name)?;
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", arg)?;
                 }
                 write!(f, ") -> {}", result)
-            },
-            Instruction::ConstructEnum { enum_name, variant_name, fields, result } => {
+            }
+            Instruction::ConstructEnum {
+                enum_name,
+                variant_name,
+                fields,
+                result,
+            } => {
                 write!(f, "  enum {}::{}(", enum_name, variant_name)?;
                 for (i, field) in fields.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", field)?;
                 }
                 write!(f, ") -> {}", result)
-            },
+            }
             Instruction::Print(value) => write!(f, "  print {}", value),
             Instruction::Debug { message, value } => {
                 if let Some(val) = value {
@@ -315,7 +470,7 @@ impl fmt::Display for Instruction {
                 } else {
                     write!(f, "  debug \"{}\"", message)
                 }
-            },
+            }
             Instruction::Nop => write!(f, "  nop"),
         }
     }
@@ -337,26 +492,26 @@ impl BasicBlock {
             terminator: None,
         }
     }
-    
+
     pub fn add_instruction(&mut self, instruction: Instruction) {
         // Check if this is a terminator instruction
         match instruction {
-            Instruction::Jump(_) | 
-            Instruction::JumpIf { .. } | 
-            Instruction::JumpIfNot { .. } | 
-            Instruction::Return(_) => {
+            Instruction::Jump(_)
+            | Instruction::JumpIf { .. }
+            | Instruction::JumpIfNot { .. }
+            | Instruction::Return(_) => {
                 self.terminator = Some(instruction);
-            },
+            }
             _ => {
                 self.instructions.push(instruction);
             }
         }
     }
-    
+
     pub fn is_terminated(&self) -> bool {
         self.terminator.is_some()
     }
-    
+
     /// Get all the labels this block can jump to
     pub fn successors(&self) -> Vec<&Label> {
         match &self.terminator {
@@ -366,18 +521,19 @@ impl BasicBlock {
             _ => vec![],
         }
     }
-    
+
     /// Check if this block has any side effects
     pub fn has_side_effects(&self) -> bool {
         self.instructions.iter().any(|inst| {
-            matches!(inst,
-                Instruction::Store { .. } |
-                Instruction::Call { .. } |
-                Instruction::Print(_) |
-                Instruction::Allocate { .. } |
-                Instruction::Deallocate { .. } |
-                Instruction::ArraySet { .. } |
-                Instruction::FieldSet { .. }
+            matches!(
+                inst,
+                Instruction::Store { .. }
+                    | Instruction::Call { .. }
+                    | Instruction::Print(_)
+                    | Instruction::Allocate { .. }
+                    | Instruction::Deallocate { .. }
+                    | Instruction::ArraySet { .. }
+                    | Instruction::FieldSet { .. }
             )
         }) || matches!(&self.terminator, Some(Instruction::Call { .. }))
     }
@@ -410,7 +566,7 @@ impl ControlFlowGraph {
             entry_block: None,
         }
     }
-    
+
     pub fn add_block(&mut self, block: BasicBlock) {
         let label_name = block.label.0.clone();
         if self.entry_block.is_none() {
@@ -418,33 +574,36 @@ impl ControlFlowGraph {
         }
         self.blocks.insert(label_name, block);
     }
-    
+
     pub fn get_block(&self, label: &str) -> Option<&BasicBlock> {
         self.blocks.get(label)
     }
-    
+
     pub fn get_block_mut(&mut self, label: &str) -> Option<&mut BasicBlock> {
         self.blocks.get_mut(label)
     }
-    
+
     /// Validate the CFG structure
     pub fn validate(&self) -> Result<(), String> {
         // Check that all jump targets exist
         for block in self.blocks.values() {
             for successor in block.successors() {
                 if !self.blocks.contains_key(&successor.0) {
-                    return Err(format!("Invalid jump to non-existent label: {}", successor.0));
+                    return Err(format!(
+                        "Invalid jump to non-existent label: {}",
+                        successor.0
+                    ));
                 }
             }
         }
-        
+
         // Check that entry block exists
         if let Some(entry) = &self.entry_block {
             if !self.blocks.contains_key(entry) {
                 return Err(format!("Entry block {} does not exist", entry));
             }
         }
-        
+
         Ok(())
     }
 }
@@ -460,17 +619,17 @@ impl fmt::Display for ControlFlowGraph {
         if let Some(entry) = &self.entry_block {
             writeln!(f, "; Entry: {}", entry)?;
         }
-        
+
         // Display blocks in a consistent order
         let mut block_names: Vec<_> = self.blocks.keys().collect();
         block_names.sort();
-        
+
         for name in block_names {
             if let Some(block) = self.blocks.get(name) {
                 writeln!(f, "{}", block)?;
             }
         }
-        
+
         Ok(())
     }
 }
@@ -483,61 +642,61 @@ mod tests {
     fn test_basic_block_creation() {
         let label = Label::new("start");
         let mut block = BasicBlock::new(label.clone());
-        
+
         assert_eq!(block.label, label);
         assert!(block.instructions.is_empty());
         assert!(block.terminator.is_none());
         assert!(!block.is_terminated());
     }
-    
+
     #[test]
     fn test_basic_block_termination() {
         let mut block = BasicBlock::new(Label::new("test"));
-        
+
         block.add_instruction(Instruction::Move {
             source: IRValue::Integer(42),
             dest: IRValue::Register(1),
         });
         assert!(!block.is_terminated());
-        
+
         block.add_instruction(Instruction::Return(Some(IRValue::Register(1))));
         assert!(block.is_terminated());
-        
+
         assert_eq!(block.instructions.len(), 1);
         assert!(block.terminator.is_some());
     }
-    
+
     #[test]
     fn test_control_flow_graph() {
         let mut cfg = ControlFlowGraph::new();
-        
+
         let mut block1 = BasicBlock::new(Label::new("start"));
         block1.add_instruction(Instruction::Jump(Label::new("end")));
-        
+
         let mut block2 = BasicBlock::new(Label::new("end"));
         block2.add_instruction(Instruction::Return(None));
-        
+
         cfg.add_block(block1);
         cfg.add_block(block2);
-        
+
         assert_eq!(cfg.entry_block, Some("start".to_string()));
         assert!(cfg.get_block("start").is_some());
         assert!(cfg.get_block("end").is_some());
         assert!(cfg.validate().is_ok());
     }
-    
+
     #[test]
     fn test_binary_operations() {
         let add_op = BinaryOp::Add;
         assert_eq!(add_op.to_string(), "add");
-        
+
         let inst = Instruction::Binary {
             op: BinaryOp::Multiply,
             left: IRValue::Register(1),
             right: IRValue::Integer(2),
             result: IRValue::Register(2),
         };
-        
+
         let display = inst.to_string();
         assert!(display.contains("mul"));
         assert!(display.contains("%r1"));

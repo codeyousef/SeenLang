@@ -6,14 +6,12 @@
 //! - select { when timeout(duration): { ... } }
 //! - Proper non-blocking channel operations with timeouts
 
+use crate::channels::{ChannelManager, SelectCase, SelectId, SelectResult};
+use crate::types::{AsyncError, AsyncResult, AsyncValue, ChannelId, TaskId};
+use seen_lexer::position::Position;
+use seen_parser::ast::Expression;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use seen_parser::ast::Expression;
-use seen_lexer::position::Position;
-use crate::types::{
-    ChannelId, AsyncValue, AsyncError, AsyncResult, TaskId
-};
-use crate::channels::{ChannelManager, SelectId, SelectCase, SelectResult};
 
 /// Select expression for waiting on multiple channel operations
 #[derive(Debug, Clone)]
@@ -88,9 +86,7 @@ pub enum SelectExecutionResult {
         bound_variable: Option<String>,
     },
     /// A send case matched
-    Sent {
-        case_index: usize,
-    },
+    Sent { case_index: usize },
     /// Timeout occurred
     Timeout,
     /// Select operation failed
@@ -99,14 +95,18 @@ pub enum SelectExecutionResult {
 
 impl SelectExpression {
     /// Create a new select expression
-    pub fn new(cases: Vec<SelectCase>, timeout: Option<SelectTimeoutCase>, position: Position) -> Self {
+    pub fn new(
+        cases: Vec<SelectCase>,
+        timeout: Option<SelectTimeoutCase>,
+        position: Position,
+    ) -> Self {
         Self {
             cases,
             timeout,
             position,
         }
     }
-    
+
     /// Add a receive case
     pub fn receive_case(
         mut self,
@@ -121,7 +121,7 @@ impl SelectExpression {
         });
         self
     }
-    
+
     /// Add a send case
     pub fn send_case(
         mut self,
@@ -130,15 +130,17 @@ impl SelectExpression {
         handler: Expression,
         position: Position,
     ) -> Self {
-        self.cases.push(SelectCase::Send {
-            channel_id,
-            value,
-        });
+        self.cases.push(SelectCase::Send { channel_id, value });
         self
     }
-    
+
     /// Add a timeout case
-    pub fn timeout_case(mut self, duration: Duration, handler: Expression, position: Position) -> Self {
+    pub fn timeout_case(
+        mut self,
+        duration: Duration,
+        handler: Expression,
+        position: Position,
+    ) -> Self {
         self.timeout = Some(SelectTimeoutCase {
             duration,
             handler,
@@ -146,7 +148,7 @@ impl SelectExpression {
         });
         self
     }
-    
+
     /// Validate the select expression
     pub fn validate(&self) -> Result<(), AsyncError> {
         if self.cases.is_empty() && self.timeout.is_none() {
@@ -155,7 +157,7 @@ impl SelectExpression {
                 position: self.position,
             });
         }
-        
+
         // Check for duplicate channel operations
         let mut seen_channels = std::collections::HashSet::new();
         for case in &self.cases {
@@ -164,7 +166,7 @@ impl SelectExpression {
                 SelectCase::Send { channel_id, .. } => *channel_id,
                 SelectCase::Timeout { .. } => continue,
             };
-            
+
             if !seen_channels.insert(channel_id) {
                 return Err(AsyncError::RuntimeError {
                     message: format!("Duplicate channel {:?} in select expression", channel_id),
@@ -172,7 +174,7 @@ impl SelectExpression {
                 });
             }
         }
-        
+
         Ok(())
     }
 }
@@ -186,18 +188,21 @@ impl SelectExecutor {
             next_select_id: 1,
         }
     }
-    
+
     /// Execute a select expression
-    pub fn execute_select(&mut self, select_expr: SelectExpression) -> Result<SelectExecutionResult, AsyncError> {
+    pub fn execute_select(
+        &mut self,
+        select_expr: SelectExpression,
+    ) -> Result<SelectExecutionResult, AsyncError> {
         // Validate select expression
         select_expr.validate()?;
-        
+
         // Create select execution
         let select_id = SelectId::new(self.next_select_id);
         self.next_select_id += 1;
-        
+
         let cases_with_handlers = self.convert_cases_to_handlers(&select_expr)?;
-        
+
         let execution = SelectExecution {
             id: select_id,
             cases: cases_with_handlers,
@@ -206,33 +211,38 @@ impl SelectExecutor {
             waiting_task: None,
             result: None,
         };
-        
+
         self.active_selects.insert(select_id, execution);
-        
+
         // Try to execute immediately (non-blocking)
         self.try_execute_select(select_id)
     }
-    
+
     /// Try to execute a select operation non-blocking
-    fn try_execute_select(&mut self, select_id: SelectId) -> Result<SelectExecutionResult, AsyncError> {
+    fn try_execute_select(
+        &mut self,
+        select_id: SelectId,
+    ) -> Result<SelectExecutionResult, AsyncError> {
         // Get execution data we need
         let (timeout_check, cases) = {
-            let execution = self.active_selects.get(&select_id)
-                .ok_or_else(|| AsyncError::RuntimeError {
-                    message: "Select operation not found".to_string(),
-                    position: Position::new(0, 0, 0),
-                })?;
-            
+            let execution =
+                self.active_selects
+                    .get(&select_id)
+                    .ok_or_else(|| AsyncError::RuntimeError {
+                        message: "Select operation not found".to_string(),
+                        position: Position::new(0, 0, 0),
+                    })?;
+
             // Check timeout first
             let timeout_check = if let Some(timeout_case) = &execution.timeout {
                 execution.start_time.elapsed() >= timeout_case.duration
             } else {
                 false
             };
-            
+
             (timeout_check, execution.cases.clone())
         };
-        
+
         // Handle timeout if needed
         if timeout_check {
             let result = SelectExecutionResult::Timeout;
@@ -241,7 +251,7 @@ impl SelectExecutor {
             }
             return Ok(result);
         }
-        
+
         // Try each case in order
         for (index, case_with_handler) in cases.iter().enumerate() {
             match self.try_execute_case(&case_with_handler.case)? {
@@ -257,9 +267,7 @@ impl SelectExecutor {
                     return Ok(result);
                 }
                 SelectResult::Sent { .. } => {
-                    let result = SelectExecutionResult::Sent {
-                        case_index: index,
-                    };
+                    let result = SelectExecutionResult::Sent { case_index: index };
                     if let Some(exec) = self.active_selects.get_mut(&select_id) {
                         exec.result = Some(result.clone());
                     }
@@ -286,18 +294,21 @@ impl SelectExecutor {
                 }
             }
         }
-        
+
         // No cases ready - would block
         Err(AsyncError::RuntimeError {
             message: "Select operation would block".to_string(),
             position: Position::new(0, 0, 0),
         })
     }
-    
+
     /// Try to execute a single select case
     fn try_execute_case(&mut self, case: &SelectCase) -> Result<SelectResult, AsyncError> {
         match case {
-            SelectCase::Receive { channel_id, pattern } => {
+            SelectCase::Receive {
+                channel_id,
+                pattern,
+            } => {
                 // Try non-blocking receive
                 if let Some(channel) = self.channel_manager.get_channel(*channel_id) {
                     // Non-blocking receive implementation
@@ -310,7 +321,7 @@ impl SelectExecutor {
             SelectCase::Send { channel_id, value } => {
                 // Try non-blocking send
                 if let Some(channel) = self.channel_manager.get_channel(*channel_id) {
-                    // Non-blocking send implementation  
+                    // Non-blocking send implementation
                     // Returns WouldBlock if channel is full
                     Ok(SelectResult::WouldBlock)
                 } else {
@@ -323,26 +334,26 @@ impl SelectExecutor {
             }
         }
     }
-    
+
     /// Convert select cases to cases with handlers
     fn convert_cases_to_handlers(
         &self,
         select_expr: &SelectExpression,
     ) -> Result<Vec<SelectCaseWithHandler>, AsyncError> {
         let mut cases_with_handlers = Vec::new();
-        
+
         for case in &select_expr.cases {
             // Create handlers from the select expression by extracting from AST
             let handler = Expression::IntegerLiteral {
                 value: 0,
                 pos: select_expr.position,
             };
-            
+
             let bind_variable = match case {
                 SelectCase::Receive { pattern, .. } => Some(pattern.clone()),
                 _ => None,
             };
-            
+
             cases_with_handlers.push(SelectCaseWithHandler {
                 case: case.clone(),
                 handler,
@@ -350,22 +361,24 @@ impl SelectExecutor {
                 position: select_expr.position,
             });
         }
-        
+
         Ok(cases_with_handlers)
     }
-    
+
     /// Poll all active select operations
     pub fn poll_selects(&mut self) -> Vec<(SelectId, SelectExecutionResult)> {
         let mut completed = Vec::new();
         let select_ids: Vec<SelectId> = self.active_selects.keys().cloned().collect();
-        
+
         for select_id in select_ids {
             match self.try_execute_select(select_id) {
                 Ok(result) => {
                     completed.push((select_id, result));
                     self.active_selects.remove(&select_id);
                 }
-                Err(AsyncError::RuntimeError { message, .. }) if message == "Select operation would block" => {
+                Err(AsyncError::RuntimeError { message, .. })
+                    if message == "Select operation would block" =>
+                {
                     // Still waiting - continue polling
                 }
                 Err(error) => {
@@ -374,10 +387,10 @@ impl SelectExecutor {
                 }
             }
         }
-        
+
         completed
     }
-    
+
     /// Cancel a select operation
     pub fn cancel_select(&mut self, select_id: SelectId) -> Result<(), AsyncError> {
         if self.active_selects.remove(&select_id).is_some() {
@@ -389,17 +402,17 @@ impl SelectExecutor {
             })
         }
     }
-    
+
     /// Get select operation status
     pub fn get_select_status(&self, select_id: SelectId) -> Option<&SelectExecution> {
         self.active_selects.get(&select_id)
     }
-    
+
     /// Get all active select operations
     pub fn get_active_selects(&self) -> Vec<SelectId> {
         self.active_selects.keys().cloned().collect()
     }
-    
+
     /// Create a channel and return its ID
     pub fn create_channel<T>(&mut self, capacity: Option<usize>) -> ChannelId
     where
@@ -419,14 +432,14 @@ impl Default for SelectExecutor {
 /// Helper functions for creating select expressions with Seen syntax
 pub mod syntax {
     use super::*;
-    
+
     /// Create a select expression builder following Seen syntax
     pub struct SelectBuilder {
         cases: Vec<SelectCase>,
         timeout: Option<SelectTimeoutCase>,
         position: Position,
     }
-    
+
     impl SelectBuilder {
         /// Start building a select expression
         pub fn new(position: Position) -> Self {
@@ -436,7 +449,7 @@ pub mod syntax {
                 position,
             }
         }
-        
+
         /// Add a "when channel receives value" case
         pub fn when_receives(
             mut self,
@@ -450,7 +463,7 @@ pub mod syntax {
             });
             self
         }
-        
+
         /// Add a "when channel sends value" case
         pub fn when_sends(
             mut self,
@@ -458,13 +471,10 @@ pub mod syntax {
             value: AsyncValue,
             handler: Expression,
         ) -> Self {
-            self.cases.push(SelectCase::Send {
-                channel_id,
-                value,
-            });
+            self.cases.push(SelectCase::Send { channel_id, value });
             self
         }
-        
+
         /// Add a "when timeout(duration)" case
         pub fn when_timeout(
             mut self,
@@ -479,13 +489,13 @@ pub mod syntax {
             });
             self
         }
-        
+
         /// Build the select expression
         pub fn build(self) -> SelectExpression {
             SelectExpression::new(self.cases, self.timeout, self.position)
         }
     }
-    
+
     /// Create a select expression with the Seen syntax:
     /// ```seen
     /// select {
@@ -507,11 +517,11 @@ pub mod syntax {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::syntax::*;
+    use super::*;
     use seen_lexer::Position;
     use std::time::Duration;
-    
+
     #[test]
     fn test_select_expression_creation() {
         let channel_id = ChannelId::new(1);
@@ -519,22 +529,22 @@ mod tests {
             value: 42,
             pos: Position::new(1, 1, 0),
         };
-        
+
         let select_expr = select(Position::new(1, 1, 0))
             .when_receives(channel_id, "value".to_string(), handler.clone())
             .when_timeout(Duration::from_millis(1000), handler, Position::new(1, 1, 0))
             .build();
-        
+
         assert_eq!(select_expr.cases.len(), 1);
         assert!(select_expr.timeout.is_some());
     }
-    
+
     #[test]
     fn test_select_validation() {
         // Empty select should fail
         let empty_select = SelectExpression::new(Vec::new(), None, Position::new(1, 1, 0));
         assert!(empty_select.validate().is_err());
-        
+
         // Select with cases should pass
         let channel_id = ChannelId::new(1);
         let cases = vec![SelectCase::Receive {
@@ -544,13 +554,13 @@ mod tests {
         let valid_select = SelectExpression::new(cases, None, Position::new(1, 1, 0));
         assert!(valid_select.validate().is_ok());
     }
-    
+
     #[test]
     fn test_select_executor_creation() {
         let executor = SelectExecutor::new();
         assert_eq!(executor.active_selects.len(), 0);
     }
-    
+
     #[test]
     fn test_select_builder_syntax() {
         let channel_id1 = ChannelId::new(1);
@@ -559,18 +569,22 @@ mod tests {
             value: 42,
             pos: Position::new(1, 1, 0),
         };
-        
+
         let select_expr = select(Position::new(1, 1, 0))
             .when_receives(channel_id1, "msg".to_string(), handler.clone())
-            .when_sends(channel_id2, AsyncValue::String("test".to_string()), handler.clone())
+            .when_sends(
+                channel_id2,
+                AsyncValue::String("test".to_string()),
+                handler.clone(),
+            )
             .when_timeout(Duration::from_secs(1), handler, Position::new(1, 1, 0))
             .build();
-        
+
         assert_eq!(select_expr.cases.len(), 2);
         assert!(select_expr.timeout.is_some());
         assert!(select_expr.validate().is_ok());
     }
-    
+
     #[test]
     fn test_select_execution_result_types() {
         let result = SelectExecutionResult::Received {
@@ -578,9 +592,13 @@ mod tests {
             value: AsyncValue::Integer(42),
             bound_variable: Some("value".to_string()),
         };
-        
+
         match result {
-            SelectExecutionResult::Received { case_index, value, bound_variable } => {
+            SelectExecutionResult::Received {
+                case_index,
+                value,
+                bound_variable,
+            } => {
                 assert_eq!(case_index, 0);
                 assert_eq!(value, AsyncValue::Integer(42));
                 assert_eq!(bound_variable, Some("value".to_string()));

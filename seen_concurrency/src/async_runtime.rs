@@ -5,17 +5,16 @@
 //! The runtime is designed for zero-cost abstractions with compile-time
 //! optimization and runtime efficiency.
 
+use crate::types::{
+    AsyncError, AsyncResult, AsyncValue, Promise, TaskHandle, TaskId, TaskPriority, TaskState,
+};
+use seen_lexer::position::Position;
+use seen_parser::ast::Expression;
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
-use std::pin::Pin;
-use std::future::Future;
-use seen_parser::ast::Expression;
-use seen_lexer::position::Position;
-use crate::types::{
-    TaskId, TaskHandle, TaskState, AsyncValue, AsyncError, 
-    Promise, AsyncResult, TaskPriority
-};
 
 /// Main async runtime for executing Seen async operations
 #[derive(Debug)]
@@ -114,13 +113,18 @@ pub struct AsyncTask {
 /// Trait for async function execution
 pub trait AsyncFunction: Send + Sync + std::fmt::Debug {
     /// Execute the async function
-    fn execute(&self, context: &mut AsyncExecutionContext) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>>;
-    
+    fn execute(
+        &self,
+        context: &mut AsyncExecutionContext,
+    ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>>;
+
     /// Get function name for debugging
     fn name(&self) -> &str;
-    
+
     /// Check if function is pure (no side effects)
-    fn is_pure(&self) -> bool { false }
+    fn is_pure(&self) -> bool {
+        false
+    }
 }
 
 /// Context for async function execution
@@ -146,7 +150,7 @@ impl AsyncRuntime {
             config: AsyncRuntimeConfig::default(),
         }
     }
-    
+
     /// Create async runtime with custom configuration
     pub fn with_config(config: AsyncRuntimeConfig) -> Self {
         Self {
@@ -156,9 +160,13 @@ impl AsyncRuntime {
             config,
         }
     }
-    
+
     /// Spawn a new async task
-    pub fn spawn_task(&mut self, function: Box<dyn AsyncFunction>, priority: TaskPriority) -> TaskHandle {
+    pub fn spawn_task(
+        &mut self,
+        function: Box<dyn AsyncFunction>,
+        priority: TaskPriority,
+    ) -> TaskHandle {
         // Check task limits
         if self.task_registry.active_task_count() >= self.config.max_concurrent_tasks {
             return TaskHandle::error(AsyncError::TaskLimitExceeded {
@@ -166,7 +174,7 @@ impl AsyncRuntime {
                 position: Position::new(0, 0, 0),
             });
         }
-        
+
         // Create new task
         let task_id = self.task_registry.create_task_id();
         let task = AsyncTask {
@@ -178,55 +186,56 @@ impl AsyncRuntime {
             dependencies: Vec::new(),
             waker: None,
         };
-        
+
         // Register task
         self.task_registry.register_task(task);
         self.scheduler.schedule_task(task_id, priority);
-        
+
         TaskHandle::new(task_id)
     }
-    
+
     /// Execute async function and return a Promise
     pub fn execute_async_function(&mut self, function: Box<dyn AsyncFunction>) -> Promise {
         let task_handle = self.spawn_task(function, TaskPriority::Normal);
-        
+
         match task_handle.task_id() {
             Some(task_id) => {
                 let promise = Promise::new(task_id);
-                self.promise_resolver.register_promise(task_id, promise.clone());
+                self.promise_resolver
+                    .register_promise(task_id, promise.clone());
                 promise
             }
-            None => Promise::rejected("Failed to spawn async task".to_string())
+            None => Promise::rejected("Failed to spawn async task".to_string()),
         }
     }
-    
+
     /// Run the event loop until completion
     pub fn run_until_complete(&mut self) -> AsyncResult {
         while self.has_pending_tasks() {
             self.run_single_iteration()?;
         }
-        
+
         Ok(AsyncValue::Unit)
     }
-    
+
     /// Run a single iteration of the event loop
     pub fn run_single_iteration(&mut self) -> AsyncResult {
         // Get next task to execute
         if let Some(task_id) = self.scheduler.get_next_task() {
             self.execute_task(task_id)?;
         }
-        
+
         // Process completed tasks
         self.process_completed_tasks();
-        
+
         // Clean up finished tasks if needed
         if self.task_registry.completed_task_count() > self.config.task_cleanup_threshold {
             self.cleanup_completed_tasks();
         }
-        
+
         Ok(AsyncValue::Unit)
     }
-    
+
     /// Execute a specific task
     fn execute_task(&mut self, task_id: TaskId) -> AsyncResult {
         // Update task state
@@ -237,7 +246,7 @@ impl AsyncRuntime {
             };
             task.state = TaskState::Running;
         }
-        
+
         // Set up execution context
         let mut context = AsyncExecutionContext {
             task_id,
@@ -245,14 +254,16 @@ impl AsyncRuntime {
             local_state: HashMap::new(),
             stack_trace: Vec::new(),
         };
-        
+
         // Get function reference and execute
         let future = {
-            let task = self.task_registry.get_task(task_id)
+            let task = self
+                .task_registry
+                .get_task(task_id)
                 .ok_or(AsyncError::TaskNotFound { task_id })?;
             task.function.execute(&mut context)
         };
-        
+
         // Poll the future
         match self.poll_future(future, task_id) {
             Poll::Ready(result) => {
@@ -260,7 +271,8 @@ impl AsyncRuntime {
                     task.state = TaskState::Completed;
                 }
                 self.task_registry.store_result(task_id, result.clone());
-                self.promise_resolver.resolve_promise(task_id, result.clone());
+                self.promise_resolver
+                    .resolve_promise(task_id, result.clone());
                 result
             }
             Poll::Pending => {
@@ -271,76 +283,78 @@ impl AsyncRuntime {
             }
         }
     }
-    
+
     /// Poll a future to completion or pending
     fn poll_future(
-        &mut self, 
-        mut future: Pin<Box<dyn Future<Output = AsyncResult> + Send>>, 
-        task_id: TaskId
+        &mut self,
+        mut future: Pin<Box<dyn Future<Output = AsyncResult> + Send>>,
+        task_id: TaskId,
     ) -> Poll<AsyncResult> {
         // Create waker for the task
         let waker = self.create_waker(task_id);
         let mut context = Context::from_waker(&waker);
-        
+
         // Poll the future
         future.as_mut().poll(&mut context)
     }
-    
+
     /// Create a waker for a task
     fn create_waker(&self, task_id: TaskId) -> Waker {
         // Create a waker that can wake the task when ready
         use std::task::{RawWaker, RawWakerVTable};
-        
+
         unsafe fn clone(_: *const ()) -> RawWaker {
             RawWaker::new(std::ptr::null(), &VTABLE)
         }
-        
+
         unsafe fn wake(_: *const ()) {}
         unsafe fn wake_by_ref(_: *const ()) {}
         unsafe fn drop(_: *const ()) {}
-        
+
         static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
-        
+
         let raw_waker = RawWaker::new(std::ptr::null(), &VTABLE);
         unsafe { Waker::from_raw(raw_waker) }
     }
-    
+
     /// Process completed tasks and resolve promises
     fn process_completed_tasks(&mut self) {
         let completed_tasks: Vec<TaskId> = self.task_registry.get_completed_tasks();
-        
+
         for task_id in completed_tasks {
             if let Some(result) = self.task_registry.get_result(task_id) {
-                self.promise_resolver.resolve_promise(task_id, result.clone());
-                
+                self.promise_resolver
+                    .resolve_promise(task_id, result.clone());
+
                 // Process promise chains
                 if let Some(chain) = self.promise_resolver.get_promise_chain(task_id) {
                     for &chained_task_id in chain {
-                        self.scheduler.schedule_task(chained_task_id, TaskPriority::Normal);
+                        self.scheduler
+                            .schedule_task(chained_task_id, TaskPriority::Normal);
                     }
                 }
             }
         }
     }
-    
+
     /// Clean up completed tasks to free memory
     fn cleanup_completed_tasks(&mut self) {
         self.task_registry.cleanup_completed_tasks();
         self.promise_resolver.cleanup_resolved_promises();
     }
-    
+
     /// Check if there are pending tasks
     fn has_pending_tasks(&self) -> bool {
-        self.scheduler.has_ready_tasks() || 
-        self.scheduler.has_waiting_tasks() ||
-        !self.promise_resolver.pending_promises.is_empty()
+        self.scheduler.has_ready_tasks()
+            || self.scheduler.has_waiting_tasks()
+            || !self.promise_resolver.pending_promises.is_empty()
     }
-    
+
     /// Get current configuration
     pub fn config(&self) -> &AsyncRuntimeConfig {
         &self.config
     }
-    
+
     /// Update configuration
     pub fn set_config(&mut self, config: AsyncRuntimeConfig) {
         self.config = config;
@@ -363,7 +377,7 @@ impl TaskScheduler {
             current_task: None,
         }
     }
-    
+
     /// Schedule a task for execution
     pub fn schedule_task(&mut self, task_id: TaskId, priority: TaskPriority) {
         match priority {
@@ -378,7 +392,7 @@ impl TaskScheduler {
             }
         }
     }
-    
+
     /// Get the next task to execute
     pub fn get_next_task(&mut self) -> Option<TaskId> {
         // Check priority queue first
@@ -386,33 +400,33 @@ impl TaskScheduler {
             self.current_task = Some(task_id);
             return Some(task_id);
         }
-        
+
         // Then check ready queue
         if let Some(task_id) = self.ready_queue.pop_front() {
             self.current_task = Some(task_id);
             return Some(task_id);
         }
-        
+
         None
     }
-    
+
     /// Mark a task as waiting
     pub fn mark_task_waiting(&mut self, task_id: TaskId, state: TaskState) {
         self.waiting_tasks.insert(task_id, state);
     }
-    
+
     /// Wake up a waiting task
     pub fn wake_task(&mut self, task_id: TaskId) {
         if self.waiting_tasks.remove(&task_id).is_some() {
             self.ready_queue.push_back(task_id);
         }
     }
-    
+
     /// Check if there are ready tasks
     pub fn has_ready_tasks(&self) -> bool {
         !self.ready_queue.is_empty() || !self.priority_queue.is_empty()
     }
-    
+
     /// Check if there are waiting tasks
     pub fn has_waiting_tasks(&self) -> bool {
         !self.waiting_tasks.is_empty()
@@ -428,57 +442,58 @@ impl TaskRegistry {
             completed_results: HashMap::new(),
         }
     }
-    
+
     /// Create a new unique task ID
     pub fn create_task_id(&mut self) -> TaskId {
         let id = TaskId::new(self.next_task_id);
         self.next_task_id += 1;
         id
     }
-    
+
     /// Register a new task
     pub fn register_task(&mut self, task: AsyncTask) {
         self.tasks.insert(task.id, task);
     }
-    
+
     /// Get a task by ID
     pub fn get_task(&self, task_id: TaskId) -> Option<&AsyncTask> {
         self.tasks.get(&task_id)
     }
-    
+
     /// Get a mutable task by ID
     pub fn get_task_mut(&mut self, task_id: TaskId) -> Option<&mut AsyncTask> {
         self.tasks.get_mut(&task_id)
     }
-    
+
     /// Store task result
     pub fn store_result(&mut self, task_id: TaskId, result: AsyncResult) {
         self.completed_results.insert(task_id, result);
     }
-    
+
     /// Get task result
     pub fn get_result(&self, task_id: TaskId) -> Option<&AsyncResult> {
         self.completed_results.get(&task_id)
     }
-    
+
     /// Get all completed tasks
     pub fn get_completed_tasks(&self) -> Vec<TaskId> {
-        self.tasks.iter()
+        self.tasks
+            .iter()
             .filter(|(_, task)| matches!(task.state, TaskState::Completed))
             .map(|(id, _)| *id)
             .collect()
     }
-    
+
     /// Get active task count
     pub fn active_task_count(&self) -> usize {
         self.tasks.len() - self.completed_results.len()
     }
-    
+
     /// Get completed task count
     pub fn completed_task_count(&self) -> usize {
         self.completed_results.len()
     }
-    
+
     /// Clean up completed tasks
     pub fn cleanup_completed_tasks(&mut self) {
         let completed_tasks: Vec<TaskId> = self.completed_results.keys().cloned().collect();
@@ -498,12 +513,12 @@ impl PromiseResolver {
             resolved_values: HashMap::new(),
         }
     }
-    
+
     /// Register a promise for resolution
     pub fn register_promise(&mut self, task_id: TaskId, promise: Promise) {
         self.pending_promises.insert(task_id, promise);
     }
-    
+
     /// Resolve a promise with a value
     pub fn resolve_promise(&mut self, task_id: TaskId, result: AsyncResult) {
         if let Some(mut promise) = self.pending_promises.remove(&task_id) {
@@ -511,7 +526,7 @@ impl PromiseResolver {
                 Ok(value) => promise.resolve(value.clone()),
                 Err(error) => promise.reject(format!("{:?}", error)),
             }
-            
+
             // Store resolved value
             match result {
                 Ok(value) => {
@@ -524,19 +539,20 @@ impl PromiseResolver {
             }
         }
     }
-    
+
     /// Add a promise chain (for .then() operations)
     pub fn add_promise_chain(&mut self, parent_task: TaskId, child_task: TaskId) {
-        self.promise_chains.entry(parent_task)
+        self.promise_chains
+            .entry(parent_task)
             .or_insert_with(Vec::new)
             .push(child_task);
     }
-    
+
     /// Get promise chain for a task
     pub fn get_promise_chain(&self, task_id: TaskId) -> Option<&Vec<TaskId>> {
         self.promise_chains.get(&task_id)
     }
-    
+
     /// Clean up resolved promises
     pub fn cleanup_resolved_promises(&mut self) {
         // Keep only unresolved promises
@@ -550,80 +566,83 @@ impl PromiseResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[derive(Debug)]
     struct TestAsyncFunction {
         name: String,
         result: AsyncValue,
     }
-    
+
     impl AsyncFunction for TestAsyncFunction {
-        fn execute(&self, _context: &mut AsyncExecutionContext) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
+        fn execute(
+            &self,
+            _context: &mut AsyncExecutionContext,
+        ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
             let result = Ok(self.result.clone());
             Box::pin(async move { result })
         }
-        
+
         fn name(&self) -> &str {
             &self.name
         }
-        
+
         fn is_pure(&self) -> bool {
             true
         }
     }
-    
+
     #[test]
     fn test_async_runtime_creation() {
         let runtime = AsyncRuntime::new();
         assert_eq!(runtime.config.max_concurrent_tasks, 1000);
         assert!(runtime.config.enable_priority_scheduling);
     }
-    
+
     #[test]
     fn test_task_spawning() {
         let mut runtime = AsyncRuntime::new();
-        
+
         let function = Box::new(TestAsyncFunction {
             name: "test_function".to_string(),
             result: AsyncValue::Integer(42),
         });
-        
+
         let handle = runtime.spawn_task(function, TaskPriority::Normal);
         assert!(handle.task_id().is_some());
     }
-    
+
     #[test]
     fn test_task_scheduler() {
         let mut scheduler = TaskScheduler::new();
-        
+
         let task_id = TaskId::new(1);
         scheduler.schedule_task(task_id, TaskPriority::High);
-        
+
         assert!(scheduler.has_ready_tasks());
         assert_eq!(scheduler.get_next_task(), Some(task_id));
     }
-    
+
     #[test]
     fn test_task_registry() {
         let mut registry = TaskRegistry::new();
-        
+
         let task_id = registry.create_task_id();
         assert_eq!(task_id.id(), 1);
-        
+
         let second_id = registry.create_task_id();
         assert_eq!(second_id.id(), 2);
     }
-    
+
     #[test]
     fn test_promise_resolver() {
         let mut resolver = PromiseResolver::new();
-        
+
         let task_id = TaskId::new(1);
         let promise = Promise::new(task_id);
-        
+
         resolver.register_promise(task_id, promise);
         assert!(resolver.pending_promises.contains_key(&task_id));
-        
+
         resolver.resolve_promise(task_id, Ok(AsyncValue::String("test".to_string())));
         assert!(!resolver.pending_promises.contains_key(&task_id));
         assert!(resolver.resolved_values.contains_key(&task_id));

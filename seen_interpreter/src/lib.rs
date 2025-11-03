@@ -1,13 +1,13 @@
 //! Interpreter for the Seen programming language
 
-pub mod value;
-pub mod runtime;
-pub mod errors;
 pub mod builtins;
+pub mod errors;
 pub mod interpreter;
+pub mod runtime;
+pub mod value;
 
-pub use interpreter::Interpreter;
-pub use value::Value;
-pub use runtime::{Runtime, Environment};
-pub use errors::{InterpreterError, InterpreterResult};
 pub use builtins::BuiltinRegistry;
+pub use errors::{InterpreterError, InterpreterResult};
+pub use interpreter::Interpreter;
+pub use runtime::{Environment, Runtime};
+pub use value::Value;

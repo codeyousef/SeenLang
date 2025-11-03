@@ -6,15 +6,9 @@ use seen_parser::Position;
 #[derive(Debug, Clone)]
 pub enum InterpreterError {
     /// Runtime error with message and location
-    RuntimeError {
-        message: String,
-        position: Position,
-    },
+    RuntimeError { message: String, position: Position },
     /// Type error
-    TypeError {
-        message: String,
-        position: Position,
-    },
+    TypeError { message: String, position: Position },
     /// Argument count mismatch
     ArgumentCountMismatch {
         function: String,
@@ -23,14 +17,9 @@ pub enum InterpreterError {
         position: Position,
     },
     /// Undefined variable
-    UndefinedVariable {
-        name: String,
-        position: Position,
-    },
+    UndefinedVariable { name: String, position: Position },
     /// Division by zero
-    DivisionByZero {
-        position: Position,
-    },
+    DivisionByZero { position: Position },
 }
 
 impl InterpreterError {

@@ -4,11 +4,11 @@
 //! by combining ownership analysis with region-based allocation. The system
 //! provides compile-time memory safety guarantees with zero runtime overhead.
 
-use std::collections::HashMap;
+use crate::ownership::{OwnershipAnalyzer, OwnershipError, OwnershipInfo, OwnershipMode};
+use crate::regions::{RegionAnalyzer, RegionError, RegionId, RegionManager};
 use seen_parser::ast::*;
 use seen_typechecker::{TypeCheckResult, TypeChecker};
-use crate::ownership::{OwnershipAnalyzer, OwnershipInfo, OwnershipError, OwnershipMode};
-use crate::regions::{RegionAnalyzer, RegionManager, RegionError, RegionId};
+use std::collections::HashMap;
 
 /// Results of memory analysis
 #[derive(Debug)]
@@ -36,27 +36,27 @@ impl MemoryAnalysisResult {
             optimizations: Vec::new(),
         }
     }
-    
+
     /// Check if there are any memory safety errors
     pub fn has_errors(&self) -> bool {
         !self.errors.is_empty()
     }
-    
+
     /// Get all errors
     pub fn get_errors(&self) -> &[MemoryError] {
         &self.errors
     }
-    
+
     /// Get all optimization suggestions
     pub fn get_optimizations(&self) -> &[MemoryOptimization] {
         &self.optimizations
     }
-    
+
     /// Add a memory error
     pub fn add_error(&mut self, error: MemoryError) {
         self.errors.push(error);
     }
-    
+
     /// Add an optimization suggestion
     pub fn add_optimization(&mut self, optimization: MemoryOptimization) {
         self.optimizations.push(optimization);
@@ -104,17 +104,38 @@ impl std::fmt::Display for MemoryError {
             MemoryError::Ownership(err) => write!(f, "Ownership error: {}", err),
             MemoryError::Region(err) => write!(f, "Region error: {}", err),
             MemoryError::Type(err) => write!(f, "Type error: {}", err),
-            MemoryError::MemoryLeak { variable, region, position } => {
-                write!(f, "Potential memory leak: variable '{}' in region {:?} at {}", 
-                       variable, region, position)
+            MemoryError::MemoryLeak {
+                variable,
+                region,
+                position,
+            } => {
+                write!(
+                    f,
+                    "Potential memory leak: variable '{}' in region {:?} at {}",
+                    variable, region, position
+                )
             }
-            MemoryError::UseAfterFree { variable, freed_at, used_at } => {
-                write!(f, "Use after free: variable '{}' freed at {} but used at {}", 
-                       variable, freed_at, used_at)
+            MemoryError::UseAfterFree {
+                variable,
+                freed_at,
+                used_at,
+            } => {
+                write!(
+                    f,
+                    "Use after free: variable '{}' freed at {} but used at {}",
+                    variable, freed_at, used_at
+                )
             }
-            MemoryError::DoubleFree { variable, first_free, second_free } => {
-                write!(f, "Double free: variable '{}' freed at {} and again at {}", 
-                       variable, first_free, second_free)
+            MemoryError::DoubleFree {
+                variable,
+                first_free,
+                second_free,
+            } => {
+                write!(
+                    f,
+                    "Double free: variable '{}' freed at {} and again at {}",
+                    variable, first_free, second_free
+                )
             }
         }
     }
@@ -178,25 +199,60 @@ pub enum MemoryOptimization {
 impl std::fmt::Display for MemoryOptimization {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MemoryOptimization::PreferCopy { variable, position, reason } => {
-                write!(f, "Consider copying '{}' at {} instead of moving: {}", 
-                       variable, position, reason)
+            MemoryOptimization::PreferCopy {
+                variable,
+                position,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Consider copying '{}' at {} instead of moving: {}",
+                    variable, position, reason
+                )
             }
-            MemoryOptimization::PreferMove { variable, position, reason } => {
-                write!(f, "Consider moving '{}' at {} instead of copying: {}", 
-                       variable, position, reason)
+            MemoryOptimization::PreferMove {
+                variable,
+                position,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Consider moving '{}' at {} instead of copying: {}",
+                    variable, position, reason
+                )
             }
-            MemoryOptimization::PreferBorrow { variable, position, reason } => {
-                write!(f, "Consider borrowing '{}' at {} instead of owning: {}", 
-                       variable, position, reason)
+            MemoryOptimization::PreferBorrow {
+                variable,
+                position,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Consider borrowing '{}' at {} instead of owning: {}",
+                    variable, position, reason
+                )
             }
-            MemoryOptimization::MergeRegion { region, parent, reason } => {
-                write!(f, "Consider merging region {:?} with parent {:?}: {}", 
-                       region, parent, reason)
+            MemoryOptimization::MergeRegion {
+                region,
+                parent,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Consider merging region {:?} with parent {:?}: {}",
+                    region, parent, reason
+                )
             }
-            MemoryOptimization::ShortenLifetime { variable, current_scope, suggested_scope } => {
-                write!(f, "Consider shortening lifetime of '{}' from {} to {}", 
-                       variable, current_scope, suggested_scope)
+            MemoryOptimization::ShortenLifetime {
+                variable,
+                current_scope,
+                suggested_scope,
+            } => {
+                write!(
+                    f,
+                    "Consider shortening lifetime of '{}' from {} to {}",
+                    variable, current_scope, suggested_scope
+                )
             }
         }
     }
@@ -251,7 +307,7 @@ impl MemoryManager {
             config: MemoryManagerConfig::default(),
         }
     }
-    
+
     /// Create a memory manager with custom configuration
     pub fn with_config(config: MemoryManagerConfig) -> Self {
         Self {
@@ -261,20 +317,20 @@ impl MemoryManager {
             config,
         }
     }
-    
+
     /// Perform comprehensive memory analysis on a program
     pub fn analyze_program(&mut self, program: &Program) -> MemoryAnalysisResult {
         let mut result = MemoryAnalysisResult::new();
-        
+
         // Step 1: Type checking (foundation for memory analysis)
         result.type_info = self.type_checker.check_program(program);
-        
+
         // Convert type errors to memory errors
         let type_errors: Vec<_> = result.type_info.get_errors().iter().cloned().collect();
         for type_error in type_errors {
             result.add_error(MemoryError::Type(type_error));
         }
-        
+
         // Step 2: Ownership analysis
         match self.ownership_analyzer.analyze_program(program) {
             Ok(ownership_info) => {
@@ -285,7 +341,7 @@ impl MemoryManager {
                 return result; // Can't continue without ownership info
             }
         }
-        
+
         // Step 3: Region analysis (with ownership information)
         self.region_analyzer = RegionAnalyzer::with_ownership(result.ownership_info.clone());
         match self.region_analyzer.analyze_program(program) {
@@ -297,43 +353,48 @@ impl MemoryManager {
                 return result; // Can't continue without region info
             }
         }
-        
+
         // Step 4: Memory safety validation
         self.validate_memory_safety(&mut result);
-        
+
         // Step 5: Performance optimization analysis
         if self.config.aggressive_optimizations || self.config.suggest_lifetime_optimizations {
             self.analyze_optimizations(&mut result);
         }
-        
+
         result
     }
-    
+
     /// Validate memory safety based on ownership and region analysis
     fn validate_memory_safety(&self, result: &mut MemoryAnalysisResult) {
         // Check for potential memory leaks
         self.check_memory_leaks(result);
-        
+
         // Check for use-after-free issues
         self.check_use_after_free(result);
-        
+
         // Check for double-free issues
         self.check_double_free(result);
-        
+
         // Validate move semantics if enabled
         if self.config.validate_move_semantics {
             self.validate_move_semantics(result);
         }
     }
-    
+
     /// Check for potential memory leaks
     fn check_memory_leaks(&self, result: &mut MemoryAnalysisResult) {
         // Variables that are allocated but never used might indicate leaks
-        let variables_to_check: Vec<_> = result.ownership_info.variables.iter()
-            .filter(|(_, var_info)| var_info.accessed_at.is_empty() && matches!(var_info.mode, OwnershipMode::Own))
+        let variables_to_check: Vec<_> = result
+            .ownership_info
+            .variables
+            .iter()
+            .filter(|(_, var_info)| {
+                var_info.accessed_at.is_empty() && matches!(var_info.mode, OwnershipMode::Own)
+            })
             .map(|(name, info)| (name.clone(), info.declared_at))
             .collect();
-            
+
         for (var_name, declared_at) in variables_to_check {
             if let Some(region_id) = result.region_manager.find_variable_region(&var_name) {
                 result.add_error(MemoryError::MemoryLeak {
@@ -344,16 +405,22 @@ impl MemoryManager {
             }
         }
     }
-    
+
     /// Check for use-after-free issues
     fn check_use_after_free(&self, result: &mut MemoryAnalysisResult) {
-        let use_after_free_errors: Vec<_> = result.ownership_info.variables.iter()
+        let use_after_free_errors: Vec<_> = result
+            .ownership_info
+            .variables
+            .iter()
             .filter_map(|(var_name, var_info)| {
                 if let Some(moved_at) = var_info.moved_at {
-                    let invalid_accesses: Vec<_> = var_info.accessed_at.iter()
+                    let invalid_accesses: Vec<_> = var_info
+                        .accessed_at
+                        .iter()
                         .filter(|&&access_pos| {
-                            access_pos.line > moved_at.line || 
-                            (access_pos.line == moved_at.line && access_pos.column > moved_at.column)
+                            access_pos.line > moved_at.line
+                                || (access_pos.line == moved_at.line
+                                    && access_pos.column > moved_at.column)
                         })
                         .map(|&access_pos| (var_name.clone(), moved_at, access_pos))
                         .collect();
@@ -368,7 +435,7 @@ impl MemoryManager {
             })
             .flatten()
             .collect();
-            
+
         for (var_name, freed_at, used_at) in use_after_free_errors {
             result.add_error(MemoryError::UseAfterFree {
                 variable: var_name,
@@ -377,14 +444,14 @@ impl MemoryManager {
             });
         }
     }
-    
+
     /// Check for double-free issues
     fn check_double_free(&self, result: &mut MemoryAnalysisResult) {
         // This would require tracking multiple moves of the same variable
         // For now, this is handled by the ownership analyzer's use-after-move detection
         // Double-free detection using generation tracking
     }
-    
+
     /// Validate move semantics
     fn validate_move_semantics(&self, result: &mut MemoryAnalysisResult) {
         // Check that moves are valid and efficient
@@ -395,31 +462,34 @@ impl MemoryManager {
             }
         }
     }
-    
+
     /// Analyze potential optimizations
     fn analyze_optimizations(&self, result: &mut MemoryAnalysisResult) {
         // Suggest copy instead of move for small types
         self.suggest_copy_optimizations(result);
-        
+
         // Suggest move instead of copy for large types
         self.suggest_move_optimizations(result);
-        
+
         // Suggest borrowing instead of owning
         self.suggest_borrow_optimizations(result);
-        
+
         // Suggest region merging if enabled
         if self.config.enable_region_merging {
             self.suggest_region_merging(result);
         }
     }
-    
+
     /// Suggest copy optimizations for small types
     fn suggest_copy_optimizations(&self, result: &mut MemoryAnalysisResult) {
-        let copy_candidates: Vec<_> = result.ownership_info.variables.iter()
+        let copy_candidates: Vec<_> = result
+            .ownership_info
+            .variables
+            .iter()
             .filter(|(_, var_info)| matches!(var_info.mode, OwnershipMode::Move))
             .map(|(name, info)| (name.clone(), info.declared_at))
             .collect();
-            
+
         for (var_name, declared_at) in copy_candidates {
             result.add_optimization(MemoryOptimization::PreferCopy {
                 variable: var_name,
@@ -428,14 +498,17 @@ impl MemoryManager {
             });
         }
     }
-    
+
     /// Suggest move optimizations for large types
     fn suggest_move_optimizations(&self, result: &mut MemoryAnalysisResult) {
-        let move_candidates: Vec<_> = result.ownership_info.variables.iter()
+        let move_candidates: Vec<_> = result
+            .ownership_info
+            .variables
+            .iter()
             .filter(|(_, var_info)| matches!(var_info.mode, OwnershipMode::Copy))
             .map(|(name, info)| (name.clone(), info.declared_at))
             .collect();
-            
+
         for (var_name, declared_at) in move_candidates {
             result.add_optimization(MemoryOptimization::PreferMove {
                 variable: var_name,
@@ -444,23 +517,29 @@ impl MemoryManager {
             });
         }
     }
-    
+
     /// Suggest borrowing optimizations
     fn suggest_borrow_optimizations(&self, result: &mut MemoryAnalysisResult) {
-        let borrow_candidates: Vec<_> = result.ownership_info.variables.iter()
-            .filter(|(_, var_info)| matches!(var_info.mode, OwnershipMode::Own) && var_info.accessed_at.len() > 3)
+        let borrow_candidates: Vec<_> = result
+            .ownership_info
+            .variables
+            .iter()
+            .filter(|(_, var_info)| {
+                matches!(var_info.mode, OwnershipMode::Own) && var_info.accessed_at.len() > 3
+            })
             .map(|(name, info)| (name.clone(), info.declared_at))
             .collect();
-            
+
         for (var_name, declared_at) in borrow_candidates {
             result.add_optimization(MemoryOptimization::PreferBorrow {
                 variable: var_name,
                 position: declared_at,
-                reason: "Variable accessed multiple times, borrowing reduces allocations".to_string(),
+                reason: "Variable accessed multiple times, borrowing reduces allocations"
+                    .to_string(),
             });
         }
     }
-    
+
     /// Suggest region merging optimizations
     fn suggest_region_merging(&self, result: &mut MemoryAnalysisResult) {
         // Find regions that could be merged with their parents
@@ -479,12 +558,12 @@ impl MemoryManager {
             }
         }
     }
-    
+
     /// Get current configuration
     pub fn config(&self) -> &MemoryManagerConfig {
         &self.config
     }
-    
+
     /// Update configuration
     pub fn set_config(&mut self, config: MemoryManagerConfig) {
         self.config = config;
@@ -501,33 +580,33 @@ impl Default for MemoryManager {
 mod tests {
     use super::*;
     use seen_lexer::Position;
-    
+
     #[test]
     fn test_memory_manager_creation() {
         let manager = MemoryManager::new();
         assert!(!manager.config.aggressive_optimizations);
         assert!(manager.config.enable_region_merging);
     }
-    
+
     #[test]
     fn test_memory_analysis_result() {
         let mut result = MemoryAnalysisResult::new();
         assert!(!result.has_errors());
-        
+
         result.add_error(MemoryError::MemoryLeak {
             variable: "x".to_string(),
             region: crate::regions::RegionId::new(1),
             position: Position::new(1, 1, 0),
         });
-        
+
         assert!(result.has_errors());
         assert_eq!(result.get_errors().len(), 1);
     }
-    
+
     #[test]
     fn test_program_analysis() {
         let mut manager = MemoryManager::new();
-        
+
         // Create a program that accesses variables multiple times to trigger borrow optimizations
         let program = Program {
             expressions: vec![
@@ -562,22 +641,22 @@ mod tests {
                     name: "data".to_string(),
                     is_public: false,
                     pos: Position::new(5, 1, 60),
-                }
+                },
             ],
         };
-        
+
         let result = manager.analyze_program(&program);
-        
+
         // Should have ownership info for variable data
         assert!(result.ownership_info.variables.contains_key("data"));
-        
+
         // Should have region allocation for variable data
         assert!(result.region_manager.is_allocated("data"));
-        
+
         // Should have some optimizations suggested
         assert!(!result.optimizations.is_empty());
     }
-    
+
     #[test]
     fn test_memory_manager_with_config() {
         let config = MemoryManagerConfig {
@@ -587,10 +666,16 @@ mod tests {
             validate_move_semantics: false,
             suggest_lifetime_optimizations: false,
         };
-        
+
         let manager = MemoryManager::with_config(config.clone());
-        assert_eq!(manager.config.aggressive_optimizations, config.aggressive_optimizations);
-        assert_eq!(manager.config.enable_region_merging, config.enable_region_merging);
+        assert_eq!(
+            manager.config.aggressive_optimizations,
+            config.aggressive_optimizations
+        );
+        assert_eq!(
+            manager.config.enable_region_merging,
+            config.enable_region_merging
+        );
         assert_eq!(manager.config.max_region_depth, config.max_region_depth);
     }
 }

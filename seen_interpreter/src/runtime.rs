@@ -1,15 +1,15 @@
 //! Runtime environment for the Seen interpreter
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use crate::value::Value;
 use seen_concurrency::{
+    actors::ActorSystem,
     async_runtime::{AsyncRuntime, AsyncRuntimeConfig},
     channels::ChannelManager,
-    actors::ActorSystem,
 };
 use seen_effects::{AdvancedRuntime, AdvancedRuntimeConfig};
 use seen_reactive::{ReactiveRuntime, ReactiveRuntimeConfig};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Runtime error types
 #[derive(Debug, Clone)]
@@ -25,7 +25,9 @@ impl std::fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RuntimeError::UndefinedVariable(name) => write!(f, "Undefined variable: {}", name),
-            RuntimeError::VariableAlreadyDefined(name) => write!(f, "Variable already defined: {}", name),
+            RuntimeError::VariableAlreadyDefined(name) => {
+                write!(f, "Variable already defined: {}", name)
+            }
             RuntimeError::StackUnderflow => write!(f, "Stack underflow"),
             RuntimeError::RecursionLimit => write!(f, "Recursion limit exceeded"),
             RuntimeError::TypeError(msg) => write!(f, "Type error: {}", msg),
@@ -126,11 +128,17 @@ impl Runtime {
             call_stack: Vec::new(),
             return_value: None,
             max_recursion_depth: 1000,
-            async_runtime: Arc::new(Mutex::new(AsyncRuntime::with_config(AsyncRuntimeConfig::default()))),
+            async_runtime: Arc::new(Mutex::new(AsyncRuntime::with_config(
+                AsyncRuntimeConfig::default(),
+            ))),
             channel_manager: Arc::new(Mutex::new(ChannelManager::new())),
             actor_system: Arc::new(Mutex::new(ActorSystem::new())),
-            advanced_runtime: Arc::new(Mutex::new(AdvancedRuntime::with_config(AdvancedRuntimeConfig::default()))),
-            reactive_runtime: Arc::new(Mutex::new(ReactiveRuntime::with_config(ReactiveRuntimeConfig::default()))),
+            advanced_runtime: Arc::new(Mutex::new(AdvancedRuntime::with_config(
+                AdvancedRuntimeConfig::default(),
+            ))),
+            reactive_runtime: Arc::new(Mutex::new(ReactiveRuntime::with_config(
+                ReactiveRuntimeConfig::default(),
+            ))),
         }
     }
 
@@ -177,7 +185,11 @@ impl Runtime {
     }
 
     /// Push a function call onto the call stack
-    pub fn push_call(&mut self, function_name: String, location: seen_parser::Position) -> Result<(), RuntimeError> {
+    pub fn push_call(
+        &mut self,
+        function_name: String,
+        location: seen_parser::Position,
+    ) -> Result<(), RuntimeError> {
         if self.call_stack.len() >= self.max_recursion_depth {
             return Err(RuntimeError::RecursionLimit);
         }
@@ -190,8 +202,7 @@ impl Runtime {
 
     /// Pop a function call from the call stack
     pub fn pop_call(&mut self) -> Result<(), RuntimeError> {
-        self.call_stack.pop()
-            .ok_or(RuntimeError::StackUnderflow)?;
+        self.call_stack.pop().ok_or(RuntimeError::StackUnderflow)?;
         Ok(())
     }
 
@@ -222,27 +233,27 @@ impl Runtime {
         println!("{}", value.to_string());
         Ok(())
     }
-    
+
     /// Get reference to async runtime
     pub fn async_runtime(&self) -> Arc<Mutex<AsyncRuntime>> {
         Arc::clone(&self.async_runtime)
     }
-    
+
     /// Get reference to channel manager
     pub fn channel_manager(&self) -> Arc<Mutex<ChannelManager>> {
         Arc::clone(&self.channel_manager)
     }
-    
+
     /// Get reference to actor system
     pub fn actor_system(&self) -> Arc<Mutex<ActorSystem>> {
         Arc::clone(&self.actor_system)
     }
-    
+
     /// Get reference to advanced runtime (effects and contracts)
     pub fn advanced_runtime(&self) -> Arc<Mutex<AdvancedRuntime>> {
         Arc::clone(&self.advanced_runtime)
     }
-    
+
     /// Get reference to reactive runtime (observables, flows, reactive properties)
     pub fn reactive_runtime(&self) -> Arc<Mutex<ReactiveRuntime>> {
         Arc::clone(&self.reactive_runtime)

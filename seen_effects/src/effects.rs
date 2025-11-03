@@ -7,12 +7,12 @@
 //! - handle { ... } with IO { override fun Read() = "mocked" }
 //! - Effect composition and type-safe effect tracking
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::any::{Any, TypeId};
+use crate::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
 use seen_parser::ast::{Expression, Type};
-use crate::types::{AsyncValue, AsyncError, AsyncResult};
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Unique identifier for effects
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,7 +23,7 @@ impl EffectId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     /// Get the numeric ID
     pub fn id(&self) -> u64 {
         self.0
@@ -39,7 +39,7 @@ impl EffectOperationId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     /// Get the numeric ID
     pub fn id(&self) -> u64 {
         self.0
@@ -192,15 +192,19 @@ pub enum EffectScope {
 pub trait EffectImplementation: Send + Sync + std::fmt::Debug {
     /// Execute the effect operation
     fn execute(&self, parameters: Vec<AsyncValue>) -> AsyncResult;
-    
+
     /// Get operation name
     fn operation_name(&self) -> &str;
-    
+
     /// Check if implementation is pure
-    fn is_pure(&self) -> bool { false }
-    
+    fn is_pure(&self) -> bool {
+        false
+    }
+
     /// Get estimated cost
-    fn cost(&self) -> EffectCost { EffectCost::Unknown }
+    fn cost(&self) -> EffectCost {
+        EffectCost::Unknown
+    }
 }
 
 /// Context for effect execution
@@ -342,7 +346,7 @@ impl EffectDefinition {
     pub fn new(name: String, position: Position) -> Self {
         let id = EffectId::new(rand::random());
         let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
-        
+
         Self {
             id,
             name,
@@ -357,33 +361,33 @@ impl EffectDefinition {
             type_parameters: Vec::new(),
         }
     }
-    
+
     /// Add an operation to the effect
     pub fn add_operation(&mut self, operation: EffectOperation) {
         self.operations.insert(operation.name.clone(), operation);
     }
-    
+
     /// Get operation by name
     pub fn get_operation(&self, name: &str) -> Option<&EffectOperation> {
         self.operations.get(name)
     }
-    
+
     /// Check if effect has operation
     pub fn has_operation(&self, name: &str) -> bool {
         self.operations.contains_key(name)
     }
-    
+
     /// Set effect safety level
     pub fn with_safety_level(mut self, level: EffectSafetyLevel) -> Self {
         self.metadata.safety_level = level;
         self
     }
-    
+
     /// Add type parameter
     pub fn add_type_parameter(&mut self, param: String) {
         self.type_parameters.push(param);
     }
-    
+
     /// Get effect signature for display
     pub fn signature(&self) -> String {
         let type_params = if self.type_parameters.is_empty() {
@@ -391,11 +395,9 @@ impl EffectDefinition {
         } else {
             format!("<{}>", self.type_parameters.join(", "))
         };
-        
-        let operations: Vec<String> = self.operations.values()
-            .map(|op| op.signature())
-            .collect();
-        
+
+        let operations: Vec<String> = self.operations.values().map(|op| op.signature()).collect();
+
         format!(
             "effect {}{} {{\n{}\n}}",
             self.name,
@@ -414,7 +416,7 @@ impl EffectOperation {
         position: Position,
     ) -> Self {
         let id = EffectOperationId::new(rand::random());
-        
+
         Self {
             id,
             name,
@@ -429,26 +431,28 @@ impl EffectOperation {
             },
         }
     }
-    
+
     /// Mark operation as pure
     pub fn as_pure(mut self) -> Self {
         self.is_pure = true;
         self.metadata.can_fail = false;
         self
     }
-    
+
     /// Set performance cost
     pub fn with_cost(mut self, cost: EffectCost) -> Self {
         self.metadata.performance_cost = cost;
         self
     }
-    
+
     /// Get operation signature
     pub fn signature(&self) -> String {
-        let params: Vec<String> = self.parameters.iter()
+        let params: Vec<String> = self
+            .parameters
+            .iter()
             .map(|p| format!("{}: {}", p.name, p.param_type.name))
             .collect();
-        
+
         format!(
             "    fun {}({}): {}",
             self.name,
@@ -474,15 +478,16 @@ impl EffectHandler {
             scope: EffectScope::Block(position),
         }
     }
-    
+
     /// Add implementation for an operation
     pub fn add_implementation<I>(&mut self, operation_name: String, implementation: I)
     where
         I: EffectImplementation + 'static,
     {
-        self.implementations.insert(operation_name, Box::new(implementation));
+        self.implementations
+            .insert(operation_name, Box::new(implementation));
     }
-    
+
     /// Execute an operation
     pub fn execute_operation(
         &self,
@@ -501,18 +506,18 @@ impl EffectHandler {
             })
         }
     }
-    
+
     /// Check if handler can handle operation
     pub fn can_handle(&self, operation_name: &str) -> bool {
         self.implementations.contains_key(operation_name)
     }
-    
+
     /// Set handler priority
     pub fn with_priority(mut self, priority: i32) -> Self {
         self.metadata.priority = priority;
         self
     }
-    
+
     /// Set handler scope
     pub fn with_scope(mut self, scope: EffectScope) -> Self {
         self.scope = scope;
@@ -532,7 +537,7 @@ impl EffectSystem {
             config: EffectSystemConfig::default(),
         }
     }
-    
+
     /// Create effect system with custom configuration
     pub fn with_config(config: EffectSystemConfig) -> Self {
         Self {
@@ -544,11 +549,11 @@ impl EffectSystem {
             config,
         }
     }
-    
+
     /// Register an effect definition
     pub fn register_effect(&mut self, effect: EffectDefinition) -> Result<EffectId, AsyncError> {
         let effect_id = effect.id;
-        
+
         // Check for name conflicts
         for existing_effect in self.effects.values() {
             if existing_effect.name == effect.name {
@@ -558,17 +563,17 @@ impl EffectSystem {
                 });
             }
         }
-        
+
         self.effects.insert(effect_id, effect);
         self.handlers.insert(effect_id, Vec::new());
-        
+
         Ok(effect_id)
     }
-    
+
     /// Register an effect handler
     pub fn register_handler(&mut self, handler: EffectHandler) -> Result<(), AsyncError> {
         let effect_id = handler.effect_id;
-        
+
         // Check if effect exists
         if !self.effects.contains_key(&effect_id) {
             return Err(AsyncError::RuntimeError {
@@ -576,17 +581,17 @@ impl EffectSystem {
                 position: handler.metadata.position,
             });
         }
-        
+
         // Add handler to the list for this effect
         let handlers = self.handlers.entry(effect_id).or_insert_with(Vec::new);
         handlers.push(Arc::new(handler));
-        
+
         // Sort handlers by priority (highest first)
         handlers.sort_by(|a, b| b.metadata.priority.cmp(&a.metadata.priority));
-        
+
         Ok(())
     }
-    
+
     /// Call an effect operation
     pub fn call_effect(
         &mut self,
@@ -596,23 +601,31 @@ impl EffectSystem {
         position: Position,
     ) -> AsyncResult {
         let start_time = std::time::Instant::now();
-        
+
         // Get effect name early to avoid borrowing issues
-        let effect_name = self.get_effect_name(effect_id).unwrap_or("Unknown").to_string();
-        
+        let effect_name = self
+            .get_effect_name(effect_id)
+            .unwrap_or("Unknown")
+            .to_string();
+
         // Get current thread context
         let thread_id = std::thread::current().id();
-        let context = self.execution_contexts.entry(thread_id)
+        let context = self
+            .execution_contexts
+            .entry(thread_id)
             .or_insert_with(|| EffectExecutionContext::new());
-        
+
         // Check stack depth
         if context.effect_stack.len() >= self.config.max_stack_depth {
             return Err(AsyncError::RuntimeError {
-                message: format!("Effect stack overflow (max depth: {})", self.config.max_stack_depth),
+                message: format!(
+                    "Effect stack overflow (max depth: {})",
+                    self.config.max_stack_depth
+                ),
                 position,
             });
         }
-        
+
         // Create effect call
         let effect_call = EffectCall {
             effect_id,
@@ -621,25 +634,27 @@ impl EffectSystem {
             position,
             timestamp: start_time,
         };
-        
+
         // Push to stack
         context.effect_stack.push(effect_call.clone());
-        
+
         // Find appropriate handler
         let result = if let Some(handlers) = self.handlers.get(&effect_id) {
             let mut result = None;
-            
+
             for handler in handlers {
                 if handler.can_handle(operation_name) {
                     result = Some(handler.execute_operation(operation_name, parameters.clone()));
                     break;
                 }
             }
-            
+
             result.unwrap_or_else(|| {
                 Err(AsyncError::RuntimeError {
-                    message: format!("No handler found for effect operation '{}::{}'", 
-                        effect_name, operation_name),
+                    message: format!(
+                        "No handler found for effect operation '{}::{}'",
+                        effect_name, operation_name
+                    ),
                     position,
                 })
             })
@@ -649,19 +664,19 @@ impl EffectSystem {
                 position,
             })
         };
-        
+
         // Pop from stack
         context.effect_stack.pop();
-        
+
         // Update statistics
         context.stats.total_calls += 1;
         *context.stats.calls_by_effect.entry(effect_id).or_insert(0) += 1;
         context.stats.total_execution_time_ms += start_time.elapsed().as_millis() as u64;
-        
+
         if result.is_err() {
             context.stats.failed_calls += 1;
         }
-        
+
         // Check if operation is pure
         if let Some(effect) = self.effects.get(&effect_id) {
             if let Some(operation) = effect.get_operation(operation_name) {
@@ -670,34 +685,36 @@ impl EffectSystem {
                 }
             }
         }
-        
+
         result
     }
-    
+
     /// Get effect by ID
     pub fn get_effect(&self, effect_id: EffectId) -> Option<&EffectDefinition> {
         self.effects.get(&effect_id)
     }
-    
+
     /// Get effect by name
     pub fn get_effect_by_name(&self, name: &str) -> Option<&EffectDefinition> {
         self.effects.values().find(|effect| effect.name == name)
     }
-    
+
     /// Get effect name by ID
     pub fn get_effect_name(&self, effect_id: EffectId) -> Option<&str> {
-        self.effects.get(&effect_id).map(|effect| effect.name.as_str())
+        self.effects
+            .get(&effect_id)
+            .map(|effect| effect.name.as_str())
     }
-    
+
     /// Get all effects
     pub fn get_all_effects(&self) -> Vec<&EffectDefinition> {
         self.effects.values().collect()
     }
-    
+
     /// Get effect execution statistics
     pub fn get_execution_stats(&self) -> EffectSystemStats {
         let thread_id = std::thread::current().id();
-        
+
         if let Some(context) = self.execution_contexts.get(&thread_id) {
             EffectSystemStats {
                 total_effects: self.effects.len(),
@@ -714,7 +731,7 @@ impl EffectSystem {
             }
         }
     }
-    
+
     /// Clear execution context for current thread
     pub fn clear_context(&mut self) {
         let thread_id = std::thread::current().id();
@@ -776,7 +793,7 @@ impl IOReadImplementation {
     pub fn new() -> Self {
         Self { mock_data: None }
     }
-    
+
     pub fn with_mock_data(mut self, data: String) -> Self {
         self.mock_data = Some(data);
         self
@@ -799,11 +816,11 @@ impl EffectImplementation for IOReadImplementation {
             }
         }
     }
-    
+
     fn operation_name(&self) -> &str {
         "Read"
     }
-    
+
     fn cost(&self) -> EffectCost {
         EffectCost::Expensive
     }
@@ -822,7 +839,7 @@ impl IOWriteImplementation {
             output_buffer: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    
+
     pub fn get_output(&self) -> Vec<String> {
         self.output_buffer.lock().unwrap().clone()
     }
@@ -841,11 +858,11 @@ impl EffectImplementation for IOWriteImplementation {
             })
         }
     }
-    
+
     fn operation_name(&self) -> &str {
         "Write"
     }
-    
+
     fn cost(&self) -> EffectCost {
         EffectCost::Expensive
     }
@@ -854,147 +871,182 @@ impl EffectImplementation for IOWriteImplementation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_effect_definition_creation() {
         let effect = EffectDefinition::new("IO".to_string(), Position::new(1, 1, 0));
-        
+
         assert_eq!(effect.name, "IO");
         assert!(effect.metadata.is_public); // Capital I = public
         assert!(effect.operations.is_empty());
     }
-    
+
     #[test]
     fn test_effect_operation_creation() {
         let operation = EffectOperation::new(
             "Read".to_string(),
             vec![EffectParameter {
                 name: "path".to_string(),
-                param_type: Type { name: "String".to_string(), is_nullable: false, generics: Vec::new() },
+                param_type: Type {
+                    name: "String".to_string(),
+                    is_nullable: false,
+                    generics: Vec::new(),
+                },
                 is_mutable: false,
                 default_value: None,
             }],
-            Type { name: "String".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "String".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             Position::new(1, 1, 0),
         );
-        
+
         assert_eq!(operation.name, "Read");
         assert_eq!(operation.parameters.len(), 1);
         assert!(!operation.is_pure);
     }
-    
+
     #[test]
     fn test_effect_system_registration() {
         let mut system = EffectSystem::new();
-        
+
         let mut effect = EffectDefinition::new("TestEffect".to_string(), Position::new(1, 1, 0));
         let operation = EffectOperation::new(
             "TestOp".to_string(),
             Vec::new(),
-            Type { name: "Unit".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "Unit".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             Position::new(1, 1, 0),
         );
         effect.add_operation(operation);
-        
+
         let effect_id = system.register_effect(effect).unwrap();
-        
+
         assert!(system.get_effect(effect_id).is_some());
         assert_eq!(system.get_effect_name(effect_id), Some("TestEffect"));
     }
-    
+
     #[test]
     fn test_effect_handler_creation() {
         let effect_id = EffectId::new(1);
-        let mut handler = EffectHandler::new(effect_id, "TestHandler".to_string(), Position::new(1, 1, 0));
-        
+        let mut handler =
+            EffectHandler::new(effect_id, "TestHandler".to_string(), Position::new(1, 1, 0));
+
         let implementation = IOReadImplementation::new().with_mock_data("test data".to_string());
         handler.add_implementation("Read".to_string(), implementation);
-        
+
         assert!(handler.can_handle("Read"));
         assert!(!handler.can_handle("Write"));
     }
-    
+
     #[test]
     fn test_io_effect_implementation() {
         let read_impl = IOReadImplementation::new().with_mock_data("test content".to_string());
-        let result = read_impl.execute(vec![AsyncValue::String("/test/path".to_string())]).unwrap();
-        
+        let result = read_impl
+            .execute(vec![AsyncValue::String("/test/path".to_string())])
+            .unwrap();
+
         assert_eq!(result, AsyncValue::String("test content".to_string()));
         assert_eq!(read_impl.operation_name(), "Read");
         assert_eq!(read_impl.cost(), EffectCost::Expensive);
     }
-    
+
     #[test]
     fn test_io_write_implementation() {
         let write_impl = IOWriteImplementation::new();
         let result = write_impl.execute(vec![AsyncValue::String("test output".to_string())]);
-        
+
         assert!(result.is_ok());
         assert_eq!(write_impl.get_output(), vec!["test output"]);
     }
-    
+
     #[test]
     fn test_effect_system_call() {
         let mut system = EffectSystem::new();
-        
+
         // Create IO effect
         let mut io_effect = EffectDefinition::new("IO".to_string(), Position::new(1, 1, 0))
             .with_safety_level(EffectSafetyLevel::IO);
-        
+
         let read_op = EffectOperation::new(
             "Read".to_string(),
             vec![EffectParameter {
                 name: "path".to_string(),
-                param_type: Type { name: "String".to_string(), is_nullable: false, generics: Vec::new() },
+                param_type: Type {
+                    name: "String".to_string(),
+                    is_nullable: false,
+                    generics: Vec::new(),
+                },
                 is_mutable: false,
                 default_value: None,
             }],
-            Type { name: "String".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "String".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             Position::new(1, 1, 0),
-        ).with_cost(EffectCost::Expensive);
-        
+        )
+        .with_cost(EffectCost::Expensive);
+
         io_effect.add_operation(read_op);
         let effect_id = system.register_effect(io_effect).unwrap();
-        
+
         // Create handler
-        let mut handler = EffectHandler::new(effect_id, "IOHandler".to_string(), Position::new(1, 1, 0));
+        let mut handler =
+            EffectHandler::new(effect_id, "IOHandler".to_string(), Position::new(1, 1, 0));
         let read_impl = IOReadImplementation::new().with_mock_data("file content".to_string());
         handler.add_implementation("Read".to_string(), read_impl);
-        
+
         system.register_handler(handler).unwrap();
-        
+
         // Call effect
-        let result = system.call_effect(
-            effect_id,
-            "Read",
-            vec![AsyncValue::String("/test/file".to_string())],
-            Position::new(1, 1, 0),
-        ).unwrap();
-        
+        let result = system
+            .call_effect(
+                effect_id,
+                "Read",
+                vec![AsyncValue::String("/test/file".to_string())],
+                Position::new(1, 1, 0),
+            )
+            .unwrap();
+
         assert_eq!(result, AsyncValue::String("file content".to_string()));
-        
+
         let stats = system.get_execution_stats();
         assert_eq!(stats.execution_stats.total_calls, 1);
     }
-    
+
     #[test]
     fn test_effect_signature() {
         let mut effect = EffectDefinition::new("TestEffect".to_string(), Position::new(1, 1, 0));
         effect.add_type_parameter("T".to_string());
-        
+
         let operation = EffectOperation::new(
             "Process".to_string(),
             vec![EffectParameter {
                 name: "input".to_string(),
-                param_type: Type { name: "T".to_string(), is_nullable: false, generics: Vec::new() },
+                param_type: Type {
+                    name: "T".to_string(),
+                    is_nullable: false,
+                    generics: Vec::new(),
+                },
                 is_mutable: false,
                 default_value: None,
             }],
-            Type { name: "T".to_string(), is_nullable: false, generics: Vec::new() },
+            Type {
+                name: "T".to_string(),
+                is_nullable: false,
+                generics: Vec::new(),
+            },
             Position::new(1, 1, 0),
         );
         effect.add_operation(operation);
-        
+
         let signature = effect.signature();
         assert!(signature.contains("TestEffect<T>"));
         assert!(signature.contains("fun Process(input: T): T"));

@@ -1,11 +1,11 @@
 //! Value representation for the Seen interpreter
 
+use seen_concurrency::types::{ActorRef, Channel, Promise, TaskId};
+use seen_effects::{EffectDefinition, EffectId};
+use seen_reactive::{Flow, Observable, ReactiveProperty};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::{Serialize, Deserialize};
-use seen_concurrency::types::{Promise, TaskId, ActorRef, Channel};
-use seen_effects::{EffectId, EffectDefinition};
-use seen_reactive::{Observable, Flow, ReactiveProperty};
 
 /// Values that can be computed by the interpreter
 #[derive(Debug, Clone)]
@@ -128,7 +128,8 @@ impl Value {
                 format!("[{}]", elements.join(", "))
             }
             Value::Struct { name, fields } => {
-                let field_strs: Vec<String> = fields.iter()
+                let field_strs: Vec<String> = fields
+                    .iter()
                     .map(|(k, v)| format!("{}: {}", k, v.to_string()))
                     .collect();
                 format!("{}({})", name, field_strs.join(", "))
@@ -194,10 +195,21 @@ impl Value {
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Character(a), Value::Character(b)) => a == b,
-            (Value::Struct { name: n1, fields: f1 }, Value::Struct { name: n2, fields: f2 }) => {
-                n1 == n2 && f1.len() == f2.len() && f1.iter().all(|(k, v)| {
-                    f2.get(k).map_or(false, |v2| v.equals(v2))
-                })
+            (
+                Value::Struct {
+                    name: n1,
+                    fields: f1,
+                },
+                Value::Struct {
+                    name: n2,
+                    fields: f2,
+                },
+            ) => {
+                n1 == n2
+                    && f1.len() == f2.len()
+                    && f1
+                        .iter()
+                        .all(|(k, v)| f2.get(k).map_or(false, |v2| v.equals(v2)))
             }
             (Value::Null, Value::Null) => true,
             (Value::Unit, Value::Unit) => true,
@@ -216,7 +228,11 @@ impl Value {
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a + *b as f64)),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
-            _ => Err(format!("Cannot add {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot add {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -227,7 +243,11 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a - *b as f64)),
-            _ => Err(format!("Cannot subtract {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot subtract {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -238,7 +258,11 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 * b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a * *b as f64)),
-            _ => Err(format!("Cannot multiply {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot multiply {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -273,7 +297,11 @@ impl Value {
                     Ok(Value::Float(a / *b as f64))
                 }
             }
-            _ => Err(format!("Cannot divide {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot divide {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -285,7 +313,11 @@ impl Value {
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Boolean((*a as f64) < *b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Boolean(*a < (*b as f64))),
             (Value::String(a), Value::String(b)) => Ok(Value::Boolean(a < b)),
-            _ => Err(format!("Cannot compare {} and {}", self.type_name(), other.type_name())),
+            _ => Err(format!(
+                "Cannot compare {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
         }
     }
 
@@ -318,7 +350,7 @@ mod tests {
     fn test_value_arithmetic() {
         let a = Value::Integer(5);
         let b = Value::Integer(3);
-        
+
         assert_eq!(a.add(&b).unwrap(), Value::Integer(8));
         assert_eq!(a.subtract(&b).unwrap(), Value::Integer(2));
         assert_eq!(a.multiply(&b).unwrap(), Value::Integer(15));
@@ -352,19 +384,36 @@ impl PartialEq for Value {
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Null, Value::Null) => true,
             (Value::Unit, Value::Unit) => true,
-            (Value::Struct { name: n1, fields: f1 }, Value::Struct { name: n2, fields: f2 }) => {
-                n1 == n2 && f1 == f2
-            }
+            (
+                Value::Struct {
+                    name: n1,
+                    fields: f1,
+                },
+                Value::Struct {
+                    name: n2,
+                    fields: f2,
+                },
+            ) => n1 == n2 && f1 == f2,
             (Value::Function { name: n1, .. }, Value::Function { name: n2, .. }) => n1 == n2,
             (Value::Promise(a), Value::Promise(b)) => std::sync::Arc::ptr_eq(a, b),
             (Value::Task(a), Value::Task(b)) => a == b,
             (Value::Channel(a), Value::Channel(b)) => Arc::ptr_eq(a, b),
             (Value::Actor(a), Value::Actor(b)) => a.id == b.id,
             (Value::Effect(a), Value::Effect(b)) => Arc::ptr_eq(a, b),
-            (Value::EffectHandle { effect_id: id1, .. }, Value::EffectHandle { effect_id: id2, .. }) => id1 == id2,
+            (
+                Value::EffectHandle { effect_id: id1, .. },
+                Value::EffectHandle { effect_id: id2, .. },
+            ) => id1 == id2,
             (Value::Observable(a), Value::Observable(b)) => Arc::ptr_eq(a, b),
             (Value::Flow(a), Value::Flow(b)) => Arc::ptr_eq(a, b),
-            (Value::ReactiveProperty { property_id: id1, .. }, Value::ReactiveProperty { property_id: id2, .. }) => id1 == id2,
+            (
+                Value::ReactiveProperty {
+                    property_id: id1, ..
+                },
+                Value::ReactiveProperty {
+                    property_id: id2, ..
+                },
+            ) => id1 == id2,
             _ => false,
         }
     }

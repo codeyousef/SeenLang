@@ -6,12 +6,12 @@
 //! - select expressions with when clauses
 //! - Proper type safety and error handling
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, Condvar};
-use std::time::{Duration, Instant};
-use seen_parser::ast::Type;
+use crate::types::{AsyncError, AsyncResult, AsyncValue, ChannelId, TaskId};
 use seen_lexer::position::Position;
-use crate::types::{AsyncValue, AsyncError, AsyncResult, ChannelId, TaskId};
+use seen_parser::ast::Type;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 /// Channel for type-safe message passing between tasks
 #[derive(Debug)]
@@ -109,16 +109,16 @@ pub struct ChannelManager {
 pub trait ChannelTrait: Send + Sync + std::fmt::Debug {
     /// Get channel ID
     fn id(&self) -> ChannelId;
-    
+
     /// Get channel capacity
     fn capacity(&self) -> Option<usize>;
-    
+
     /// Get current buffer size
     fn buffer_size(&self) -> usize;
-    
+
     /// Check if channel is closed
     fn is_closed(&self) -> bool;
-    
+
     /// Close the channel
     fn close(&self) -> Result<(), String>;
 }
@@ -145,7 +145,7 @@ impl SelectId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     /// Get the numeric ID
     pub fn id(&self) -> u64 {
         self.0
@@ -166,9 +166,7 @@ pub enum SelectCase {
         value: AsyncValue,
     },
     /// Timeout case
-    Timeout {
-        duration: Duration,
-    },
+    Timeout { duration: Duration },
 }
 
 impl<T> Channel<T>
@@ -178,7 +176,7 @@ where
     /// Create a new channel with optional capacity
     pub fn new(capacity: Option<usize>) -> (ChannelSender<T>, ChannelReceiver<T>) {
         let id = ChannelId::new(rand::random::<u64>());
-        
+
         let channel = Arc::new(Channel {
             id,
             capacity,
@@ -189,23 +187,21 @@ where
             receiver_count: Arc::new(Mutex::new(1)), // Initial receiver
             state: Arc::new(Mutex::new(ChannelState::Open)),
         });
-        
+
         let sender = ChannelSender {
             channel: channel.clone(),
         };
-        
-        let receiver = ChannelReceiver {
-            channel,
-        };
-        
+
+        let receiver = ChannelReceiver { channel };
+
         (sender, receiver)
     }
-    
+
     /// Create an unbounded channel
     pub fn unbounded() -> (ChannelSender<T>, ChannelReceiver<T>) {
         Self::new(None)
     }
-    
+
     /// Create a bounded channel with specified capacity
     pub fn bounded(capacity: usize) -> (ChannelSender<T>, ChannelReceiver<T>) {
         Self::new(Some(capacity))
@@ -222,34 +218,34 @@ where
             Ok(buffer) => buffer,
             Err(_) => return SendResult::Error("Failed to lock buffer".to_string()),
         };
-        
+
         let state = match self.channel.state.lock() {
             Ok(state) => state,
             Err(_) => return SendResult::Error("Failed to lock state".to_string()),
         };
-        
+
         match *state {
             ChannelState::Closed => return SendResult::Closed,
             ChannelState::Error(ref msg) => return SendResult::Error(msg.clone()),
             ChannelState::Open => {}
         }
-        
+
         // Check capacity
         if let Some(capacity) = self.channel.capacity {
             if buffer.len() >= capacity {
                 return SendResult::WouldBlock;
             }
         }
-        
+
         // Add to buffer
         buffer.push_back(value);
-        
+
         // Notify waiting receivers
         self.channel.receiver_cv.notify_one();
-        
+
         SendResult::Sent
     }
-    
+
     /// Send a value to the channel (blocking)
     pub fn send(&self, value: T) -> Result<(), AsyncError> {
         loop {
@@ -269,34 +265,39 @@ where
                 }
                 SendResult::WouldBlock => {
                     // Wait for space to become available
-                    let _guard = self.channel.sender_cv.wait_while(
-                        self.channel.buffer.lock().unwrap(),
-                        |buffer| {
+                    let _guard = self
+                        .channel
+                        .sender_cv
+                        .wait_while(self.channel.buffer.lock().unwrap(), |buffer| {
                             if let Some(capacity) = self.channel.capacity {
                                 buffer.len() >= capacity
                             } else {
                                 false // Unbounded channels never block on send
                             }
-                        },
-                    ).unwrap();
+                        })
+                        .unwrap();
                     // Try again
                 }
             }
         }
     }
-    
+
     /// Close the sending half of the channel
     pub fn close(&self) -> Result<(), AsyncError> {
-        let mut state = self.channel.state.lock().map_err(|_| AsyncError::ChannelError {
-            reason: "Failed to lock state".to_string(),
-            position: Position::new(0, 0, 0),
-        })?;
-        
+        let mut state = self
+            .channel
+            .state
+            .lock()
+            .map_err(|_| AsyncError::ChannelError {
+                reason: "Failed to lock state".to_string(),
+                position: Position::new(0, 0, 0),
+            })?;
+
         *state = ChannelState::Closed;
-        
+
         // Notify all waiting receivers
         self.channel.receiver_cv.notify_all();
-        
+
         Ok(())
     }
 }
@@ -311,18 +312,18 @@ where
             Ok(buffer) => buffer,
             Err(_) => return ReceiveResult::Error("Failed to lock buffer".to_string()),
         };
-        
+
         let state = match self.channel.state.lock() {
             Ok(state) => state,
             Err(_) => return ReceiveResult::Error("Failed to lock state".to_string()),
         };
-        
+
         if let Some(value) = buffer.pop_front() {
             // Notify waiting senders that space is available
             self.channel.sender_cv.notify_one();
             return ReceiveResult::Received(value);
         }
-        
+
         // Buffer is empty
         match *state {
             ChannelState::Closed => ReceiveResult::Closed,
@@ -330,7 +331,7 @@ where
             ChannelState::Open => ReceiveResult::WouldBlock,
         }
     }
-    
+
     /// Receive a value from the channel (blocking)
     pub fn receive(&self) -> Result<T, AsyncError> {
         loop {
@@ -350,20 +351,23 @@ where
                 }
                 ReceiveResult::WouldBlock => {
                     // Wait for a message to arrive
-                    let _guard = self.channel.receiver_cv.wait_while(
-                        self.channel.buffer.lock().unwrap(),
-                        |buffer| buffer.is_empty(),
-                    ).unwrap();
+                    let _guard = self
+                        .channel
+                        .receiver_cv
+                        .wait_while(self.channel.buffer.lock().unwrap(), |buffer| {
+                            buffer.is_empty()
+                        })
+                        .unwrap();
                     // Try again
                 }
             }
         }
     }
-    
+
     /// Receive with timeout
     pub fn receive_timeout(&self, timeout: Duration) -> Result<Option<T>, AsyncError> {
         let start_time = Instant::now();
-        
+
         loop {
             match self.try_receive() {
                 ReceiveResult::Received(value) => return Ok(Some(value)),
@@ -384,13 +388,17 @@ where
                     if elapsed >= timeout {
                         return Ok(None); // Timeout
                     }
-                    
+
                     let remaining = timeout - elapsed;
-                    let _result = self.channel.receiver_cv.wait_timeout_while(
-                        self.channel.buffer.lock().unwrap(),
-                        remaining,
-                        |buffer| buffer.is_empty(),
-                    ).unwrap();
+                    let _result = self
+                        .channel
+                        .receiver_cv
+                        .wait_timeout_while(
+                            self.channel.buffer.lock().unwrap(),
+                            remaining,
+                            |buffer| buffer.is_empty(),
+                        )
+                        .unwrap();
                     // Try again
                 }
             }
@@ -405,27 +413,30 @@ where
     fn id(&self) -> ChannelId {
         self.id
     }
-    
+
     fn capacity(&self) -> Option<usize> {
         self.capacity
     }
-    
+
     fn buffer_size(&self) -> usize {
         self.buffer.lock().unwrap().len()
     }
-    
+
     fn is_closed(&self) -> bool {
         matches!(*self.state.lock().unwrap(), ChannelState::Closed)
     }
-    
+
     fn close(&self) -> Result<(), String> {
-        let mut state = self.state.lock().map_err(|_| "Failed to lock state".to_string())?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Failed to lock state".to_string())?;
         *state = ChannelState::Closed;
-        
+
         // Notify all waiting tasks
         self.receiver_cv.notify_all();
         self.sender_cv.notify_all();
-        
+
         Ok(())
     }
 }
@@ -440,49 +451,60 @@ impl ChannelManager {
             next_select_id: 1,
         }
     }
-    
+
     /// Create a new typed channel
-    pub fn create_channel<T>(&mut self, capacity: Option<usize>) -> (ChannelSender<T>, ChannelReceiver<T>)
+    pub fn create_channel<T>(
+        &mut self,
+        capacity: Option<usize>,
+    ) -> (ChannelSender<T>, ChannelReceiver<T>)
     where
         T: Clone + Send + Sync + 'static,
     {
         let (sender, receiver) = Channel::new(capacity);
-        
+
         // Channels are managed through sender/receiver handles
         // Central registration not needed for type-safe channel operations
-        
+
         (sender, receiver)
     }
-    
+
     /// Create a select operation
-    pub fn create_select(&mut self, operations: Vec<SelectCase>, timeout: Option<Duration>) -> SelectId {
+    pub fn create_select(
+        &mut self,
+        operations: Vec<SelectCase>,
+        timeout: Option<Duration>,
+    ) -> SelectId {
         let select_id = SelectId::new(self.next_select_id);
         self.next_select_id += 1;
-        
+
         let select_op = SelectOperation {
             id: select_id,
             operations,
             timeout,
             waiting_task: None,
         };
-        
+
         self.select_operations.insert(select_id, select_op);
         select_id
     }
-    
+
     /// Execute a select operation
     pub fn execute_select(&mut self, select_id: SelectId) -> Result<SelectResult, AsyncError> {
-        let select_op = self.select_operations.get(&select_id).ok_or_else(|| {
-            AsyncError::ChannelError {
-                reason: "Select operation not found".to_string(),
-                position: Position::new(0, 0, 0),
-            }
-        })?;
-        
+        let select_op =
+            self.select_operations
+                .get(&select_id)
+                .ok_or_else(|| AsyncError::ChannelError {
+                    reason: "Select operation not found".to_string(),
+                    position: Position::new(0, 0, 0),
+                })?;
+
         // For now, just try the first available operation
         for case in &select_op.operations {
             match case {
-                SelectCase::Receive { channel_id, pattern } => {
+                SelectCase::Receive {
+                    channel_id,
+                    pattern,
+                } => {
                     if let Some(channel) = self.channels.get(channel_id) {
                         // Try to receive from channel
                         // Type-erased channels require runtime type checking
@@ -491,7 +513,7 @@ impl ChannelManager {
                 }
                 SelectCase::Send { channel_id, value } => {
                     if let Some(channel) = self.channels.get(channel_id) {
-                        // Try to send to channel  
+                        // Try to send to channel
                         // Type-erased channels require runtime type checking
                         continue;
                     }
@@ -502,16 +524,16 @@ impl ChannelManager {
                 }
             }
         }
-        
+
         // No operations were ready
         Ok(SelectResult::WouldBlock)
     }
-    
+
     /// Get channel by ID
     pub fn get_channel(&self, id: ChannelId) -> Option<&dyn ChannelTrait> {
         self.channels.get(&id).map(|c| c.as_ref())
     }
-    
+
     /// Close a channel
     pub fn close_channel(&mut self, id: ChannelId) -> Result<(), AsyncError> {
         if let Some(channel) = self.channels.get(&id) {
@@ -544,9 +566,7 @@ pub enum SelectResult {
         pattern: String,
     },
     /// A send operation completed
-    Sent {
-        channel_id: ChannelId,
-    },
+    Sent { channel_id: ChannelId },
     /// Timeout occurred
     Timeout,
     /// No operations were ready
@@ -562,7 +582,7 @@ pub fn create_channel_from_type(
 ) -> Result<(AsyncValue, AsyncValue), AsyncError> {
     // For now, create a generic channel that holds AsyncValue
     let (sender, receiver) = Channel::<AsyncValue>::new(capacity);
-    
+
     Ok((
         AsyncValue::Channel(Arc::new(crate::types::Channel {
             id: sender.channel.id,
@@ -588,84 +608,84 @@ mod tests {
     use super::*;
     use std::thread;
     use std::time::Duration;
-    
+
     #[test]
     fn test_unbounded_channel() {
         let (sender, receiver) = Channel::<i32>::unbounded();
-        
+
         // Send some values
         assert_eq!(sender.try_send(1), SendResult::Sent);
         assert_eq!(sender.try_send(2), SendResult::Sent);
         assert_eq!(sender.try_send(3), SendResult::Sent);
-        
+
         // Receive them
         assert_eq!(receiver.try_receive(), ReceiveResult::Received(1));
         assert_eq!(receiver.try_receive(), ReceiveResult::Received(2));
         assert_eq!(receiver.try_receive(), ReceiveResult::Received(3));
         assert_eq!(receiver.try_receive(), ReceiveResult::WouldBlock);
     }
-    
+
     #[test]
     fn test_bounded_channel() {
         let (sender, receiver) = Channel::<i32>::bounded(2);
-        
+
         // Fill the channel
         assert_eq!(sender.try_send(1), SendResult::Sent);
         assert_eq!(sender.try_send(2), SendResult::Sent);
         assert_eq!(sender.try_send(3), SendResult::WouldBlock); // Channel full
-        
+
         // Receive one value to make space
         assert_eq!(receiver.try_receive(), ReceiveResult::Received(1));
-        
+
         // Now we can send again
         assert_eq!(sender.try_send(3), SendResult::Sent);
     }
-    
+
     #[test]
     fn test_channel_close() {
         let (sender, receiver) = Channel::<i32>::unbounded();
-        
+
         // Send a value
         assert_eq!(sender.try_send(42), SendResult::Sent);
-        
+
         // Close the channel
         sender.close().unwrap();
-        
+
         // Can still receive existing values
         assert_eq!(receiver.try_receive(), ReceiveResult::Received(42));
-        
+
         // But no more values available and channel is closed
         assert_eq!(receiver.try_receive(), ReceiveResult::Closed);
-        
+
         // Cannot send after close
         assert_eq!(sender.try_send(1), SendResult::Closed);
     }
-    
+
     #[test]
     fn test_channel_manager() {
         let mut manager = ChannelManager::new();
-        
+
         let (sender, _receiver) = manager.create_channel::<i32>(Some(10));
         let _channel_id = sender.channel.id;
-        
+
         // Channel registration and management is handled through sender/receiver
         // Direct manager operations not needed with current architecture
     }
-    
+
     #[test]
     fn test_blocking_operations() {
         let (sender, receiver) = Channel::<i32>::unbounded();
-        
+
         // Test in separate thread to avoid deadlock
         let sender_thread = thread::spawn(move || {
             thread::sleep(Duration::from_millis(10));
             sender.send(42).unwrap();
         });
-        
+
         // This should block until sender sends
         let received = receiver.receive().unwrap();
         assert_eq!(received, 42);
-        
+
         sender_thread.join().unwrap();
     }
 }
