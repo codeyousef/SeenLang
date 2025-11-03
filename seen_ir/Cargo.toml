@@ -7,7 +7,7 @@ description = "Intermediate representation for the Seen programming language"
 [features]
 default = []
 # Enable LLVM backend; select the installed LLVM version feature on inkwell
-llvm = ["dep:inkwell", "inkwell/llvm15-0"]
+llvm = ["dep:inkwell", "inkwell/llvm15-0-prefer-dynamic"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -15,6 +15,7 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 seen_parser = { path = "../seen_parser" }
 inkwell = { version = "0.6", optional = true, default-features = false }
+which = "4"
 
 [dev-dependencies]
 proptest = { workspace = true }

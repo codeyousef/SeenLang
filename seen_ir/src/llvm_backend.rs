@@ -55,6 +55,7 @@ pub struct LlvmBackend<'ctx> {
     // Arg globals
     g_argc: Option<inkwell::values::GlobalValue<'ctx>>,
     g_argv: Option<inkwell::values::GlobalValue<'ctx>>,
+    fallthrough_bb: Option<LlvmBasicBlock<'ctx>>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -91,6 +92,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             reg_slots: HashMap::new(),
             g_argc: None,
             g_argv: None,
+            fallthrough_bb: None,
         }
     }
 
@@ -120,6 +122,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             .ok_or_else(|| anyhow!("Create target machine failed"))?;
 
         let obj_path = out_path.with_extension("o");
+        eprintln!("LLVM backend: writing object file {:?}", obj_path);
         tm.write_to_file(&self.module, FileType::Object, &obj_path)
             .map_err(|e| anyhow!("Write object failed: {e:?}"))?;
 
@@ -127,13 +130,22 @@ impl<'ctx> LlvmBackend<'ctx> {
             return Ok(());
         }
 
-        // Link to executable via system linker (clang)
-        let status = std::process::Command::new("clang")
+        // Link to executable via system linker (honor SEEN_LLVM_LINKER or fallback to cc/clang)
+        let linker = std::env::var("SEEN_LLVM_LINKER")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| {
+                if which::which("cc").is_ok() { "cc".to_string() } else { "clang".to_string() }
+            });
+        eprintln!("LLVM backend: invoking linker {}", linker);
+        let status = std::process::Command::new(&linker)
             .arg(&obj_path)
             .arg("-o")
             .arg(out_path)
+            .arg("-no-pie")
+            .arg("-lm")
             .status()
-            .context("Spawning linker (clang)")?;
+            .with_context(|| format!("Spawning linker ({})", linker))?;
         if !status.success() {
             return Err(anyhow!("Linking failed with status {status}"));
         }
@@ -297,14 +309,20 @@ impl<'ctx> LlvmBackend<'ctx> {
             emit_order.push(entry_name.clone());
         }
         for name in &block_names {
-            if Some(name) != func.cfg.entry_block.as_ref() { emit_order.push(name.clone()); }
+            if Some(name) != func.cfg.entry_block.as_ref() {
+                emit_order.push(name.clone());
+            }
         }
 
-        for name in &emit_order {
+        for (idx, name) in emit_order.iter().enumerate() {
             let bb = self.blocks.get(name).cloned().unwrap();
             if self.builder.get_insert_block().map(|b| b != bb).unwrap_or(true) {
                 self.builder.position_at_end(bb);
             }
+
+            self.fallthrough_bb = emit_order
+                .get(idx + 1)
+                .and_then(|next| self.blocks.get(next).cloned());
 
             let b = func.cfg.blocks.get(name).unwrap();
             for inst in &b.instructions {
@@ -313,6 +331,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             if let Some(term) = &b.terminator {
                 self.emit_instruction(term, fn_map)?;
             }
+            self.fallthrough_bb = None;
         }
 
         Ok(())
@@ -330,23 +349,42 @@ impl<'ctx> LlvmBackend<'ctx> {
             Instruction::Jump(target) => {
                 let dst = *self.blocks.get(&target.0).ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
                 self.builder.build_unconditional_branch(dst)?;
+                self.builder.clear_insertion_position();
             }
             Instruction::JumpIf { condition, target } => {
                 let cond = self.eval_value(condition, fn_map)?;
                 let i1 = self.as_bool(cond)?;
                 let dst = *self.blocks.get(&target.0).ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                let cont = self.ctx.append_basic_block(self.current_fn.unwrap(), "cont");
-                self.builder.build_conditional_branch(i1, dst, cont)?;
-                self.builder.position_at_end(cont);
+                let false_bb = match self.fallthrough_bb {
+                    Some(block) => block,
+                    None => {
+                        let fb = self.ctx.append_basic_block(self.current_fn.unwrap(), "fallthrough");
+                        self.builder.position_at_end(fb);
+                        self.builder.build_unreachable()?;
+                        self.builder.clear_insertion_position();
+                        fb
+                    }
+                };
+                self.builder.build_conditional_branch(i1, dst, false_bb)?;
+                self.builder.clear_insertion_position();
             }
             Instruction::JumpIfNot { condition, target } => {
                 let cond = self.eval_value(condition, fn_map)?;
                 let i1 = self.as_bool(cond)?;
                 let dst = *self.blocks.get(&target.0).ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                let cont = self.ctx.append_basic_block(self.current_fn.unwrap(), "cont");
+                let true_bb = match self.fallthrough_bb {
+                    Some(block) => block,
+                    None => {
+                        let fb = self.ctx.append_basic_block(self.current_fn.unwrap(), "fallthrough");
+                        self.builder.position_at_end(fb);
+                        self.builder.build_unreachable()?;
+                        self.builder.clear_insertion_position();
+                        fb
+                    }
+                };
                 let not = self.builder.build_not(i1, "not")?;
-                self.builder.build_conditional_branch(not, dst, cont)?;
-                self.builder.position_at_end(cont);
+                self.builder.build_conditional_branch(not, dst, true_bb)?;
+                self.builder.clear_insertion_position();
             }
             Instruction::Return(val_opt) => {
                 if let Some(v) = val_opt { 
@@ -355,6 +393,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 } else {
                     self.builder.build_return(None)?;
                 }
+                self.builder.clear_insertion_position();
             }
             Instruction::Move { source, dest } => {
                 let v = self.eval_value(source, fn_map)?;
@@ -688,11 +727,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
 
                 // Normal call by name
-                let f = match target {
+                let f_opt = match target {
                     IRValue::Variable(name) => fn_map.get(name).cloned(),
                     IRValue::Function { name, .. } => fn_map.get(name).cloned(),
                     _ => None,
-                }.ok_or_else(|| anyhow!("Unknown call target"))?;
+                };
+                let f = match f_opt {
+                    Some(func) => func,
+                    None => return Err(anyhow!("Unknown call target {:?}", target)),
+                };
 
                 let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
                 for a in args {
