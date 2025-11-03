@@ -5,7 +5,6 @@ edition = "2021"
 description = "Tooling ecosystem (LSP, VS Code extension support) for Seen"
 
 [dependencies]
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 

@@ -6,7 +6,6 @@ description = "Lexical analyzer for the Seen programming language"
 
 [dependencies]
 # Core dependencies
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }

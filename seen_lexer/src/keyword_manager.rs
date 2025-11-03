@@ -3,13 +3,13 @@
 //! Implements dynamic keyword loading from TOML files to support
 //! multiple human languages without hardcoded values.
 
-use anyhow::{anyhow, Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use seen_support::{SeenError, SeenErrorKind, SeenResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TomlLanguageFile {
@@ -242,12 +242,24 @@ impl KeywordManager {
     }
 
     /// Load keywords from a TOML file for a specific language
-    pub fn load_from_toml_file<P: AsRef<Path>>(&mut self, path: P, language: &str) -> Result<()> {
-        let content = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read TOML file: {:?}", path.as_ref()))?;
+    pub fn load_from_toml_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        language: &str,
+    ) -> SeenResult<()> {
+        let content = fs::read_to_string(&path).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Failed to read TOML file {:?}: {}", path.as_ref(), err),
+            )
+        })?;
 
-        let toml_data: TomlLanguageFile = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse TOML file: {:?}", path.as_ref()))?;
+        let toml_data: TomlLanguageFile = toml::from_str(&content).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Failed to parse TOML file {:?}: {}", path.as_ref(), err),
+            )
+        })?;
 
         self.load_from_toml_data(toml_data, language)
     }
@@ -257,15 +269,13 @@ impl KeywordManager {
         &mut self,
         toml_data: TomlLanguageFile,
         language: &str,
-    ) -> Result<()> {
+    ) -> SeenResult<()> {
         let mut keyword_map = HashMap::new();
         let mut reverse_map = HashMap::new();
 
         // Parse keywords from TOML
         for (keyword_text, keyword_type_str) in toml_data.keywords {
-            let keyword_type = self
-                .parse_keyword_type(&keyword_type_str)
-                .with_context(|| format!("Unknown keyword type: {}", keyword_type_str))?;
+            let keyword_type = self.parse_keyword_type(&keyword_type_str)?;
 
             keyword_map.insert(keyword_text.clone(), keyword_type.clone());
             reverse_map.insert(keyword_type, keyword_text);
@@ -285,7 +295,7 @@ impl KeywordManager {
     }
 
     /// Parse keyword type string into KeywordType enum
-    fn parse_keyword_type(&self, type_str: &str) -> Result<KeywordType> {
+    fn parse_keyword_type(&self, type_str: &str) -> SeenResult<KeywordType> {
         match type_str {
             "KeywordFun" => Ok(KeywordType::KeywordFun),
             "KeywordIf" => Ok(KeywordType::KeywordIf),
@@ -380,7 +390,10 @@ impl KeywordManager {
             "KeywordExtension" => Ok(KeywordType::KeywordExtension),
             "KeywordLoop" => Ok(KeywordType::KeywordLoop),
             "KeywordExternal" => Ok(KeywordType::KeywordExternal),
-            _ => Err(anyhow!("Unknown keyword type: {}", type_str)),
+            _ => Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Unknown keyword type: {}", type_str),
+            )),
         }
     }
 
@@ -454,11 +467,14 @@ impl KeywordManager {
     }
 
     /// Switch to a different language
-    pub fn switch_language(&mut self, language: &str) -> Result<()> {
+    pub fn switch_language(&mut self, language: &str) -> SeenResult<()> {
         let languages = self.languages.read().unwrap();
 
         if !languages.contains_key(language) {
-            return Err(anyhow!("Language '{}' not loaded", language));
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Language '{}' not loaded", language),
+            ));
         }
 
         let mut current_lang = self.current_language.write().unwrap();
@@ -468,7 +484,7 @@ impl KeywordManager {
     }
 
     /// Validate that all loaded languages have the required keywords
-    pub fn validate_all_languages(&self) -> Result<()> {
+    pub fn validate_all_languages(&self) -> SeenResult<()> {
         let languages = self.languages.read().unwrap();
 
         // Define required keywords that every language must have
@@ -488,10 +504,12 @@ impl KeywordManager {
         for (lang_name, lang_keywords) in languages.iter() {
             for required_keyword in &required_keywords {
                 if !lang_keywords.reverse_map.contains_key(required_keyword) {
-                    return Err(anyhow!(
-                        "Language '{}' is missing required keyword: {:?}",
-                        lang_name,
-                        required_keyword
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        format!(
+                            "Language '{}' is missing required keyword: {:?}",
+                            lang_name, required_keyword
+                        ),
                     ));
                 }
             }
@@ -501,7 +519,7 @@ impl KeywordManager {
     }
 
     /// Load keywords from the standard languages directory
-    pub fn load_from_toml(&mut self, language: &str) -> Result<()> {
+    pub fn load_from_toml(&mut self, language: &str) -> SeenResult<()> {
         // Try multiple possible paths for the languages directory
         let possible_paths = vec![
             format!("languages/{}.toml", language),
@@ -515,9 +533,12 @@ impl KeywordManager {
             }
         }
 
-        Err(anyhow!(
-            "Could not find language file for '{}' in any expected location",
-            language
+        Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Could not find language file for '{}' in any expected location",
+                language
+            ),
         ))
     }
 
@@ -539,11 +560,14 @@ impl KeywordManager {
     }
 
     /// Set fallback language
-    pub fn set_fallback_language(&mut self, language: &str) -> Result<()> {
+    pub fn set_fallback_language(&mut self, language: &str) -> SeenResult<()> {
         let languages = self.languages.read().unwrap();
 
         if !languages.contains_key(language) {
-            return Err(anyhow!("Fallback language '{}' not loaded", language));
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Fallback language '{}' not loaded", language),
+            ));
         }
 
         self.fallback_language = language.to_string();
