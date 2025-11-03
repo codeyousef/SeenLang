@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "seen_support",
     "seen_cli",
     "seen_lexer",
     "seen_parser", 
@@ -19,6 +20,7 @@ members = [
 ]
 
 [workspace.dependencies]
+seen_support = { path = "seen_support" }
 # Testing framework dependencies
 proptest = "1.7.0"
 pretty_assertions = "1.4.1"

@@ -15,6 +15,7 @@ env_logger = { workspace = true }
 
 # Seen language components
 seen_lexer = { path = "../seen_lexer" }
+seen_support = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

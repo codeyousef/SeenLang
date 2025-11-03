@@ -270,6 +270,17 @@ impl TypeChecker {
                 return_type: Some(Type::String),
             },
         );
+        env.define_function(
+            "__Abort".to_string(),
+            FunctionSignature {
+                name: "__Abort".to_string(),
+                parameters: vec![Parameter {
+                    name: "message".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
 
         Self {
             env,

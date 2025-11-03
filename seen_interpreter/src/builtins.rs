@@ -51,6 +51,7 @@ impl BuiltinRegistry {
         registry.register("__ExecuteProgram", builtin_execute_program, 1);
         registry.register("__ExecuteCommand", builtin_execute_command, 1);
         registry.register("__FormatSeenCode", builtin_format_seen_code, 1);
+        registry.register("__Abort", builtin_abort, 1);
 
         registry
     }
@@ -188,6 +189,21 @@ fn builtin_max(args: &[Value], position: Position) -> InterpreterResult<Value> {
             position,
         )),
     }
+}
+
+fn builtin_abort(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    let message = match args.first() {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => {
+            return Err(InterpreterError::type_error(
+                format!("__Abort expects a String, got {}", other.type_name()),
+                position,
+            ))
+        }
+        None => String::from("Execution aborted"),
+    };
+
+    Err(InterpreterError::abort(message, position))
 }
 
 fn builtin_floor(args: &[Value], position: Position) -> InterpreterResult<Value> {

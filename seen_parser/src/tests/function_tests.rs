@@ -23,7 +23,9 @@ fn parse_expression_with_visibility(
     let lexer = Lexer::with_config(
         input.to_string(),
         Arc::new(keyword_manager),
-        LexerConfig { visibility_policy: policy },
+        LexerConfig {
+            visibility_policy: policy,
+        },
     );
     let mut parser = Parser::new_with_visibility(lexer, policy);
     let program = parser.parse_program()?;
@@ -244,7 +246,10 @@ fn test_function_visibility_caps_policy() {
 
     match internal {
         Expression::Function { is_public, .. } => {
-            assert!(!is_public, "lowercase should remain private under caps policy")
+            assert!(
+                !is_public,
+                "lowercase should remain private under caps policy"
+            )
         }
         other => panic!("Expected function expression, got {:?}", other),
     }
@@ -252,19 +257,17 @@ fn test_function_visibility_caps_policy() {
 
 #[test]
 fn test_function_visibility_explicit_policy() {
-    let exported = parse_expression_with_visibility(
-        "pub fun ExportMe() {}",
-        VisibilityPolicy::Explicit,
-    )
-    .expect("should parse exported function with explicit visibility");
-    let internal = parse_expression_with_visibility(
-        "fun ExportMe() {}",
-        VisibilityPolicy::Explicit,
-    )
-    .expect("should parse internal function without pub");
+    let exported =
+        parse_expression_with_visibility("pub fun ExportMe() {}", VisibilityPolicy::Explicit)
+            .expect("should parse exported function with explicit visibility");
+    let internal =
+        parse_expression_with_visibility("fun ExportMe() {}", VisibilityPolicy::Explicit)
+            .expect("should parse internal function without pub");
 
     match exported {
-        Expression::Function { is_public, .. } => assert!(is_public, "pub should mark function public"),
+        Expression::Function { is_public, .. } => {
+            assert!(is_public, "pub should mark function public")
+        }
         other => panic!("Expected function expression, got {:?}", other),
     }
 

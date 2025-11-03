@@ -128,10 +128,10 @@ pub enum Expression {
         return_type: Option<Type>,
         body: Box<Expression>,
         is_async: bool,
-        receiver: Option<Receiver>,  // For method syntax
-        uses_effects: Vec<String>,   // Effects this function uses
-        is_pure: bool,               // Pure function (no side effects)
-        is_external: bool,           // External function (FFI)
+        receiver: Option<Receiver>, // For method syntax
+        uses_effects: Vec<String>,  // Effects this function uses
+        is_pure: bool,              // Pure function (no side effects)
+        is_external: bool,          // External function (FFI)
         is_public: bool,
         doc_comment: Option<String>, // Documentation comment
         pos: Position,

@@ -4,6 +4,7 @@
 //! which serves as an intermediary between the AST and the target code generation.
 //! The IR is designed to be platform-agnostic and suitable for optimization passes.
 
+use seen_support::{SeenError, SeenErrorKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -183,6 +184,12 @@ impl fmt::Display for IRError {
 impl std::error::Error for IRError {}
 
 pub type IRResult<T> = Result<T, IRError>;
+
+impl From<IRError> for SeenError {
+    fn from(error: IRError) -> Self {
+        SeenError::new(SeenErrorKind::Ir, error.to_string())
+    }
+}
 
 #[cfg(test)]
 mod tests {

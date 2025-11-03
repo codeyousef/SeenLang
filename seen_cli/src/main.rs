@@ -2,13 +2,13 @@
 //!
 //! This is the main entry point for the Seen language compiler and toolchain.
 
-use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use seen_interpreter::Interpreter;
 use seen_ir::{IRGenerator, IROptimizer, OptimizationLevel};
 use seen_lexer::{KeywordManager, Lexer, LexerConfig, TokenType, VisibilityPolicy};
 use seen_memory_manager::MemoryManager;
 use seen_parser::{Expression, Parser as SeenParser, Program, Type};
+use seen_support::{SeenError, SeenErrorKind, SeenResult};
 use seen_typechecker::TypeChecker;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
@@ -215,14 +215,14 @@ impl ProjectConfig {
     }
 }
 
-fn lexer_config_for(path: &Path) -> Result<LexerConfig> {
+fn lexer_config_for(path: &Path) -> SeenResult<LexerConfig> {
     let project_config = load_project_config(path)?;
     Ok(LexerConfig {
         visibility_policy: project_config.visibility_policy(),
     })
 }
 
-fn load_project_config(starting_path: &Path) -> Result<ProjectConfig> {
+fn load_project_config(starting_path: &Path) -> SeenResult<ProjectConfig> {
     let mut dir = if starting_path.is_dir() {
         starting_path.to_path_buf()
     } else {
@@ -235,11 +235,25 @@ fn load_project_config(starting_path: &Path) -> Result<ProjectConfig> {
     loop {
         let candidate = dir.join("Seen.toml");
         if candidate.exists() {
-            let content = fs::read_to_string(&candidate).with_context(|| {
-                format!("Failed to read project config: {}", candidate.display())
+            let content = fs::read_to_string(&candidate).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!(
+                        "Failed to read project config {}: {}",
+                        candidate.display(),
+                        err
+                    ),
+                )
             })?;
-            let config: ProjectConfig = toml::from_str(&content).with_context(|| {
-                format!("Failed to parse project config: {}", candidate.display())
+            let config: ProjectConfig = toml::from_str(&content).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Tooling,
+                    format!(
+                        "Failed to parse project config {}: {}",
+                        candidate.display(),
+                        err
+                    ),
+                )
             })?;
             return Ok(config);
         }
@@ -252,7 +266,7 @@ fn load_project_config(starting_path: &Path) -> Result<ProjectConfig> {
     Ok(ProjectConfig::default())
 }
 
-fn main() -> Result<()> {
+fn main() -> SeenResult<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
     let cli = Cli::parse();
@@ -261,8 +275,20 @@ fn main() -> Result<()> {
     let mut keyword_manager = KeywordManager::new();
     keyword_manager
         .load_from_toml(&cli.language)
-        .with_context(|| format!("Failed to load language: {}", cli.language))?;
-    keyword_manager.switch_language(&cli.language)?;
+        .map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Failed to load language {}: {}", cli.language, err),
+            )
+        })?;
+    keyword_manager
+        .switch_language(&cli.language)
+        .map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Failed to switch language {}: {}", cli.language, err),
+            )
+        })?;
     let keyword_manager = Arc::new(keyword_manager);
 
     match cli.command {
@@ -335,7 +361,7 @@ fn compile_file(
     output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
-) -> Result<()> {
+) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {}",
         input.display(),
@@ -343,8 +369,12 @@ fn compile_file(
     );
 
     // Read source file
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
@@ -352,7 +382,7 @@ fn compile_file(
     // Lex and parse
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast_parsed = parser.parse_program().context("Failed to parse source")?;
+    let ast_parsed = parser.parse_program().map_err(SeenError::from)?;
 
     // Bundle imports (merge imported modules into a single program)
     let ast = bundle_imports(
@@ -373,10 +403,21 @@ fn compile_file(
             eprintln!("Type error: {}", error);
         }
         if !bootstrap_mode {
-            anyhow::bail!(
-                "Type checking failed with {} errors",
-                type_result.errors.len()
-            );
+            let primary = type_result
+                .errors
+                .first()
+                .cloned()
+                .map(SeenError::from)
+                .unwrap_or_else(|| {
+                    SeenError::new(
+                        SeenErrorKind::TypeChecker,
+                        format!(
+                            "Type checking failed with {} errors",
+                            type_result.errors.len()
+                        ),
+                    )
+                });
+            return Err(primary);
         } else {
             eprintln!(
                 "[bootstrap] Proceeding despite {} type errors",
@@ -393,10 +434,21 @@ fn compile_file(
             eprintln!("Memory error: {}", error);
         }
         if !bootstrap_mode {
-            anyhow::bail!(
-                "Memory analysis failed with {} errors",
-                memory_result.get_errors().len()
-            );
+            let primary = memory_result
+                .get_errors()
+                .first()
+                .cloned()
+                .map(SeenError::from)
+                .unwrap_or_else(|| {
+                    SeenError::new(
+                        SeenErrorKind::Memory,
+                        format!(
+                            "Memory analysis failed with {} errors",
+                            memory_result.get_errors().len()
+                        ),
+                    )
+                });
+            return Err(primary);
         } else {
             eprintln!(
                 "[bootstrap] Proceeding despite {} memory analysis errors",
@@ -412,9 +464,7 @@ fn compile_file(
 
     // Generate IR
     let mut ir_generator = IRGenerator::new();
-    let ir_program = ir_generator
-        .generate(&ast)
-        .context("Failed to generate IR")?;
+    let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
 
     println!("Generated IR with {} modules", ir_program.modules.len());
 
@@ -424,7 +474,7 @@ fn compile_file(
     let mut optimized_ir = ir_program;
     optimizer
         .optimize_program(&mut optimized_ir)
-        .context("Failed to optimize IR")?;
+        .map_err(SeenError::from)?;
 
     println!("Applied optimization level {}", opt_level);
 
@@ -432,8 +482,16 @@ fn compile_file(
     let ir_text = format!("{}", optimized_ir);
     let default_output = PathBuf::from("a.ir");
     let output_path = output.unwrap_or(&default_output);
-    fs::write(output_path, ir_text)
-        .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
+    fs::write(output_path, ir_text).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to write output file {}: {}",
+                output_path.display(),
+                err
+            ),
+        )
+    })?;
     println!("Generated IR: {}", output_path.display());
     println!("Build completed (Rust backend: IR)");
 
@@ -446,21 +504,25 @@ fn compile_file_llvm(
     opt_level: u8,
     emit_ll: bool,
     keyword_manager: Arc<KeywordManager>,
-) -> Result<()> {
+) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
         input.display(),
         opt_level
     );
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     // Lex + parse
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast_parsed = parser.parse_program().context("Failed to parse source")?;
+    let ast_parsed = parser.parse_program().map_err(SeenError::from)?;
 
     // Bundle imports
     let ast = bundle_imports(
@@ -477,23 +539,32 @@ fn compile_file_llvm(
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
         }
-        anyhow::bail!(
-            "Type checking failed with {} errors",
-            type_result.errors.len()
-        );
+        let primary = type_result
+            .errors
+            .first()
+            .cloned()
+            .map(SeenError::from)
+            .unwrap_or_else(|| {
+                SeenError::new(
+                    SeenErrorKind::TypeChecker,
+                    format!(
+                        "Type checking failed with {} errors",
+                        type_result.errors.len()
+                    ),
+                )
+            });
+        return Err(primary);
     }
 
     // Generate + optimize IR
     let mut ir_generator = IRGenerator::new();
-    let ir_program = ir_generator
-        .generate(&ast)
-        .context("Failed to generate IR")?;
+    let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
     let optimization_level = OptimizationLevel::from_level(opt_level);
     let mut optimizer = IROptimizer::new(optimization_level);
     let mut optimized_ir = ir_program;
     optimizer
         .optimize_program(&mut optimized_ir)
-        .context("Failed to optimize IR")?;
+        .map_err(SeenError::from)?;
 
     // LLVM codegen
     #[cfg(feature = "llvm")]
@@ -506,14 +577,26 @@ fn compile_file_llvm(
             let ll_path = out_path;
             backend
                 .emit_llvm_ir(&optimized_ir, ll_path)
-                .with_context(|| format!("Failed to emit LLVM IR to {}", ll_path.display()))?;
+                .map_err(|err| {
+                    SeenError::new(
+                        SeenErrorKind::Ir,
+                        format!("Failed to emit LLVM IR to {}: {}", ll_path.display(), err),
+                    )
+                })?;
             println!("Generated LLVM IR: {}", ll_path.display());
         } else {
             let target_exe = out_path.clone();
             backend
                 .emit_executable(&optimized_ir, &target_exe, LinkOutput::Executable)
-                .with_context(|| {
-                    format!("Failed to produce executable {}", target_exe.display())
+                .map_err(|err| {
+                    SeenError::new(
+                        SeenErrorKind::Ir,
+                        format!(
+                            "Failed to produce executable {}: {}",
+                            target_exe.display(),
+                            err
+                        ),
+                    )
                 })?;
             println!("Generated executable: {}", target_exe.display());
         }
@@ -522,7 +605,10 @@ fn compile_file_llvm(
     #[cfg(not(feature = "llvm"))]
     {
         let _ = (output, emit_ll);
-        anyhow::bail!("LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm");
+        Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            "LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm",
+        ))
     }
 }
 
@@ -532,7 +618,7 @@ fn bundle_imports(
     input_path: &Path,
     keyword_manager: Arc<KeywordManager>,
     visibility_policy: VisibilityPolicy,
-) -> Result<Program> {
+) -> SeenResult<Program> {
     let base_dir = input_path
         .parent()
         .map(|p| p.to_path_buf())
@@ -567,8 +653,15 @@ fn bundle_imports(
                     let mut loaded = false;
                     for cand in candidates {
                         if cand.exists() {
-                            let src = fs::read_to_string(&cand).with_context(|| {
-                                format!("Failed to read imported module: {}", cand.display())
+                            let src = fs::read_to_string(&cand).map_err(|err| {
+                                SeenError::new(
+                                    SeenErrorKind::Io,
+                                    format!(
+                                        "Failed to read imported module {}: {}",
+                                        cand.display(),
+                                        err
+                                    ),
+                                )
                             })?;
                             let lex = Lexer::with_config(
                                 src,
@@ -576,9 +669,7 @@ fn bundle_imports(
                                 LexerConfig { visibility_policy },
                             );
                             let mut p = SeenParser::new_with_visibility(lex, visibility_policy);
-                            let parsed = p
-                                .parse_program()
-                                .context("Failed to parse imported module")?;
+                            let parsed = p.parse_program().map_err(|err| SeenError::from(err))?;
                             queue.push_back(parsed);
                             loaded = true;
                             break;
@@ -598,17 +689,21 @@ fn bundle_imports(
     Ok(merged)
 }
 
-fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>) -> Result<()> {
+fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
     // Read source file
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     // Lex and parse
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let parsed = parser.parse_program().context("Failed to parse source")?;
+    let parsed = parser.parse_program().map_err(SeenError::from)?;
     // Bundle imports so interpreter sees imported functions
     let ast = bundle_imports(parsed, input, keyword_manager.clone(), visibility_policy)?;
 
@@ -619,10 +714,16 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
         }
-        anyhow::bail!(
-            "Type checking failed with {} errors",
-            type_result.errors.len()
-        );
+        if let Some(primary) = type_result.errors.first().cloned() {
+            return Err(SeenError::from(primary));
+        }
+        return Err(SeenError::new(
+            SeenErrorKind::TypeChecker,
+            format!(
+                "Type checking failed with {} errors",
+                type_result.errors.len()
+            ),
+        ));
     }
 
     // Interpret the program
@@ -636,7 +737,7 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
         }
         std::env::set_var("SEEN_PROGRAM_ARGS", s);
     }
-    let result = interpreter.interpret(&ast).context("Runtime error")?;
+    let result = interpreter.interpret(&ast).map_err(SeenError::from)?;
 
     // Only print result if it's not Unit
     if !matches!(result, seen_interpreter::Value::Unit) {
@@ -646,19 +747,23 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     Ok(())
 }
 
-fn check_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> Result<()> {
+fn check_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
     println!("Checking {}", input.display());
 
     // Read source file
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     // Lex and parse
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast = parser.parse_program().context("Failed to parse source")?;
+    let ast = parser.parse_program().map_err(SeenError::from)?;
 
     // Type check
     let mut type_checker = TypeChecker::new();
@@ -667,29 +772,43 @@ fn check_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> Result<()> 
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
         }
-        anyhow::bail!(
-            "Type checking failed with {} errors",
-            type_result.errors.len()
-        );
+        if let Some(primary) = type_result.errors.first().cloned() {
+            return Err(SeenError::from(primary));
+        }
+        return Err(SeenError::new(
+            SeenErrorKind::TypeChecker,
+            format!(
+                "Type checking failed with {} errors",
+                type_result.errors.len()
+            ),
+        ));
     }
 
     println!("✓ No errors found");
     Ok(())
 }
 
-fn generate_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>) -> Result<()> {
+fn generate_ir(
+    input: &Path,
+    opt_level: u8,
+    keyword_manager: Arc<KeywordManager>,
+) -> SeenResult<()> {
     println!("Generating IR for {}", input.display());
 
     // Read source file
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     // Lex and parse
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast = parser.parse_program().context("Failed to parse source")?;
+    let ast = parser.parse_program().map_err(SeenError::from)?;
 
     // Type check
     let mut type_checker = TypeChecker::new();
@@ -698,17 +817,21 @@ fn generate_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
         }
-        anyhow::bail!(
-            "Type checking failed with {} errors",
-            type_result.errors.len()
-        );
+        if let Some(primary) = type_result.errors.first().cloned() {
+            return Err(SeenError::from(primary));
+        }
+        return Err(SeenError::new(
+            SeenErrorKind::TypeChecker,
+            format!(
+                "Type checking failed with {} errors",
+                type_result.errors.len()
+            ),
+        ));
     }
 
     // Generate IR
     let mut ir_generator = IRGenerator::new();
-    let ir_program = ir_generator
-        .generate(&ast)
-        .context("Failed to generate IR")?;
+    let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
 
     println!("\n=== Generated IR ===");
     println!("{}", ir_program);
@@ -720,7 +843,7 @@ fn generate_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>
         let mut optimized_ir = ir_program;
         optimizer
             .optimize_program(&mut optimized_ir)
-            .context("Failed to optimize IR")?;
+            .map_err(SeenError::from)?;
 
         println!("\n=== Optimized IR (level {}) ===", opt_level);
         println!("{}", optimized_ir);
@@ -733,33 +856,44 @@ fn determinism_check(
     input: &Path,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
-) -> Result<()> {
+) -> SeenResult<()> {
     use sha2::{Digest, Sha256};
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
 
-    let run_once = |input: &Path| -> Result<String> {
-        let source = fs::read_to_string(input)
-            .with_context(|| format!("Failed to read source file: {}", input.display()))?;
-        let lexer =
-            Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
+    let run_once = |input: &Path| -> SeenResult<String> {
+        let source = fs::read_to_string(input).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read source file {}: {}", input.display(), err),
+            )
+        })?;
+        let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
         let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-        let ast = parser.parse_program()?;
+        let ast = parser.parse_program().map_err(SeenError::from)?;
         let ast = bundle_imports(ast, input, keyword_manager.clone(), visibility_policy)?;
         let mut type_checker = TypeChecker::new();
         let type_result = type_checker.check_program(&ast);
         if !type_result.errors.is_empty() {
-            anyhow::bail!(
-                "Type checking failed with {} errors",
-                type_result.errors.len()
-            );
+            if let Some(primary) = type_result.errors.first().cloned() {
+                return Err(SeenError::from(primary));
+            }
+            return Err(SeenError::new(
+                SeenErrorKind::TypeChecker,
+                format!(
+                    "Type checking failed with {} errors",
+                    type_result.errors.len()
+                ),
+            ));
         }
         let mut ir_generator = IRGenerator::new();
-        let ir_program = ir_generator.generate(&ast)?;
+        let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
         let optimization_level = OptimizationLevel::from_level(opt_level);
         let mut optimizer = IROptimizer::new(optimization_level);
         let mut optimized_ir = ir_program;
-        optimizer.optimize_program(&mut optimized_ir)?;
+        optimizer
+            .optimize_program(&mut optimized_ir)
+            .map_err(SeenError::from)?;
         Ok(format!("{}", optimized_ir))
     };
 
@@ -780,11 +914,18 @@ fn determinism_check(
         println!("Determinism: OK (Stage2 == Stage3)");
         Ok(())
     } else {
-        anyhow::bail!("Determinism: FAILED (hash mismatch)")
+        Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            "Determinism: FAILED (hash mismatch)",
+        ))
     }
 }
 
-fn run_repl(keyword_manager: Arc<KeywordManager>, show_ast: bool, show_types: bool) -> Result<()> {
+fn run_repl(
+    keyword_manager: Arc<KeywordManager>,
+    show_ast: bool,
+    show_types: bool,
+) -> SeenResult<()> {
     let mut interpreter = Interpreter::new();
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -892,7 +1033,7 @@ fn evaluate_line(
     interpreter: &mut Interpreter,
     show_ast: bool,
     show_types: bool,
-) -> Result<Option<seen_interpreter::Value>> {
+) -> SeenResult<Option<seen_interpreter::Value>> {
     // Lex and parse
     let lexer = Lexer::with_config(
         line.to_string(),
@@ -900,7 +1041,7 @@ fn evaluate_line(
         LexerConfig::default(),
     );
     let mut parser = SeenParser::new(lexer);
-    let ast = parser.parse_program()?;
+    let ast = parser.parse_program().map_err(SeenError::from)?;
 
     if show_ast {
         println!("AST: {:#?}", ast);
@@ -913,10 +1054,16 @@ fn evaluate_line(
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
         }
-        anyhow::bail!(
-            "Type checking failed with {} errors",
-            type_result.errors.len()
-        );
+        if let Some(primary) = type_result.errors.first().cloned() {
+            return Err(SeenError::from(primary));
+        }
+        return Err(SeenError::new(
+            SeenErrorKind::TypeChecker,
+            format!(
+                "Type checking failed with {} errors",
+                type_result.errors.len()
+            ),
+        ));
     }
 
     if show_types {
@@ -924,43 +1071,58 @@ fn evaluate_line(
     }
 
     // Interpret
-    let result = interpreter.interpret(&ast)?;
+    let result = interpreter.interpret(&ast).map_err(SeenError::from)?;
     Ok(Some(result))
 }
 
-fn format_file(input: &Path, in_place: bool) -> Result<()> {
+fn format_file(input: &Path, in_place: bool) -> SeenResult<()> {
     println!("Formatting {} (in-place: {})", input.display(), in_place);
 
     // Read source file
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     // Create keyword manager
     let mut keyword_manager = KeywordManager::new();
-    keyword_manager
-        .load_from_toml("en")
-        .with_context(|| "Failed to load keywords")?;
-    keyword_manager
-        .switch_language("en")
-        .with_context(|| "Failed to switch to English keywords")?;
+    keyword_manager.load_from_toml("en").map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to load keywords: {}", err),
+        )
+    })?;
+    keyword_manager.switch_language("en").map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to switch to English keywords: {}", err),
+        )
+    })?;
     let lexer_config = lexer_config_for(input)?;
 
     // Parse the source code
     let visibility_policy = lexer_config.visibility_policy;
-    let lexer =
-        Lexer::with_config(source.clone(), Arc::new(keyword_manager), lexer_config);
+    let lexer = Lexer::with_config(source.clone(), Arc::new(keyword_manager), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let program = parser
-        .parse_program()
-        .with_context(|| "Failed to parse source code for formatting")?;
+    let program = parser.parse_program().map_err(|err| SeenError::from(err))?;
 
     // Format the code
     let formatted_code = format_program(&program);
 
     if in_place {
         // Write back to the original file
-        fs::write(input, formatted_code)
-            .with_context(|| format!("Failed to write formatted code to: {}", input.display()))?;
+        fs::write(input, formatted_code).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Failed to write formatted code to {}: {}",
+                    input.display(),
+                    err
+                ),
+            )
+        })?;
         println!("Formatted {} in place", input.display());
     } else {
         // Output to stdout
@@ -970,7 +1132,7 @@ fn format_file(input: &Path, in_place: bool) -> Result<()> {
     Ok(())
 }
 
-fn run_tests(path: Option<&Path>) -> Result<()> {
+fn run_tests(path: Option<&Path>) -> SeenResult<()> {
     let base_path = path.unwrap_or_else(|| Path::new("."));
 
     // Discover test files
@@ -989,12 +1151,18 @@ fn run_tests(path: Option<&Path>) -> Result<()> {
 
     // Create keyword manager
     let mut keyword_manager = KeywordManager::new();
-    keyword_manager
-        .load_from_toml("en")
-        .with_context(|| "Failed to load keywords")?;
-    keyword_manager
-        .switch_language("en")
-        .with_context(|| "Failed to switch to English keywords")?;
+    keyword_manager.load_from_toml("en").map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to load keywords: {}", err),
+        )
+    })?;
+    keyword_manager.switch_language("en").map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to switch to English keywords: {}", err),
+        )
+    })?;
 
     let keyword_manager = Arc::new(keyword_manager);
 
@@ -1040,22 +1208,31 @@ fn run_tests(path: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-fn parse_file(input: &Path, format: &str, keyword_manager: Arc<KeywordManager>) -> Result<()> {
+fn parse_file(input: &Path, format: &str, keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
     // Read source file
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     // Lex and parse
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast = parser.parse_program().context("Failed to parse source")?;
+    let ast = parser.parse_program().map_err(SeenError::from)?;
 
     // Output AST
     match format {
         "json" => {
-            let json = serde_json::to_string_pretty(&ast)?;
+            let json = serde_json::to_string_pretty(&ast).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Tooling,
+                    format!("Failed to serialize AST to JSON: {}", err),
+                )
+            })?;
             println!("{}", json);
         }
         "pretty" | _ => {
@@ -1066,10 +1243,14 @@ fn parse_file(input: &Path, format: &str, keyword_manager: Arc<KeywordManager>) 
     Ok(())
 }
 
-fn lex_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> Result<()> {
+fn lex_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
     // Read source file
-    let source = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read source file: {}", input.display()))?;
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
 
     // Lex the source
     let lexer_config = lexer_config_for(input)?;
@@ -1077,7 +1258,7 @@ fn lex_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> Result<()> {
     let mut tokens = Vec::new();
 
     loop {
-        let token = lexer.next_token().context("Failed to tokenize source")?;
+        let token = lexer.next_token().map_err(SeenError::from)?;
 
         let is_eof = matches!(token.token_type, TokenType::EOF);
         tokens.push(token);
@@ -1337,7 +1518,7 @@ impl CodeFormatter {
 }
 
 /// Discover test files in the given directory tree
-fn discover_test_files(base_path: &Path) -> Result<Vec<PathBuf>> {
+fn discover_test_files(base_path: &Path) -> SeenResult<Vec<PathBuf>> {
     let mut test_files = Vec::new();
 
     if base_path.is_file() && is_test_file(base_path) {
@@ -1367,9 +1548,9 @@ fn is_test_file(path: &Path) -> bool {
 }
 
 /// Recursively search for test files
-fn search_test_files_recursive(dir: &Path, test_files: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+fn search_test_files_recursive(dir: &Path, test_files: &mut Vec<PathBuf>) -> SeenResult<()> {
+    for entry in fs::read_dir(dir).map_err(SeenError::from)? {
+        let entry = entry.map_err(SeenError::from)?;
         let path = entry.path();
 
         if path.is_dir() {
@@ -1382,19 +1563,24 @@ fn search_test_files_recursive(dir: &Path, test_files: &mut Vec<PathBuf>) -> Res
 }
 
 /// Run tests in a single file
-fn run_test_file(test_file: &Path, keyword_manager: Arc<KeywordManager>) -> Result<(usize, usize)> {
+fn run_test_file(
+    test_file: &Path,
+    keyword_manager: Arc<KeywordManager>,
+) -> SeenResult<(usize, usize)> {
     // Read the test file
-    let source = fs::read_to_string(test_file)
-        .with_context(|| format!("Failed to read test file: {}", test_file.display()))?;
+    let source = fs::read_to_string(test_file).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read test file {}: {}", test_file.display(), err),
+        )
+    })?;
 
     // Parse the test file
     let lexer_config = lexer_config_for(test_file)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let program = parser
-        .parse_program()
-        .with_context(|| format!("Failed to parse test file: {}", test_file.display()))?;
+    let program = parser.parse_program().map_err(|err| SeenError::from(err))?;
 
     // Extract test functions (functions that start with "test_" or end with "_test")
     let test_functions = extract_test_functions(&program);
@@ -1455,7 +1641,7 @@ fn run_single_test(
     interpreter: &mut Interpreter,
     test_func: &Expression,
     _program: &Program,
-) -> Result<()> {
+) -> SeenResult<()> {
     // Create a test program that just calls this test function
     let test_program = Program {
         expressions: vec![
@@ -1483,7 +1669,7 @@ fn run_single_test(
     // Run the test
     match interpreter.interpret(&test_program) {
         Ok(_) => Ok(()),
-        Err(e) => Err(anyhow::anyhow!("Test execution failed: {}", e)),
+        Err(e) => Err(SeenError::from(e)),
     }
 }
 

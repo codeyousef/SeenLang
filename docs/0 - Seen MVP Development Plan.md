@@ -24,7 +24,7 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
 - [ ] **Unicode NFC + visibility policy**
   - Normalize identifiers/literals to NFC during lexing.
   - Support `Seen.toml` switches for `caps`/`explicit` visibility and error when source disagrees.
-- [ ] **Result/Abort error model**
+- [x] **Result/Abort error model**
   - Wire a consistent `Result<T, E>` type across compiler crates.
   - Add an `abort` intrinsic for unrecoverable failures and ensure diagnostics surface it.
 - [ ] **Operator precedence & formatter lock**

@@ -7,6 +7,7 @@
 use crate::ownership::{OwnershipAnalyzer, OwnershipError, OwnershipInfo, OwnershipMode};
 use crate::regions::{RegionAnalyzer, RegionError, RegionId, RegionManager};
 use seen_parser::ast::*;
+use seen_support::{ErrorLocation, SeenError, SeenErrorKind};
 use seen_typechecker::{TypeCheckResult, TypeChecker};
 use std::collections::HashMap;
 
@@ -158,6 +159,56 @@ impl From<RegionError> for MemoryError {
 impl From<seen_typechecker::TypeError> for MemoryError {
     fn from(err: seen_typechecker::TypeError) -> Self {
         MemoryError::Type(err)
+    }
+}
+
+impl From<MemoryError> for SeenError {
+    fn from(error: MemoryError) -> Self {
+        match error {
+            MemoryError::Ownership(err) => SeenError::new(SeenErrorKind::Memory, err.to_string()),
+            MemoryError::Region(err) => SeenError::new(SeenErrorKind::Memory, err.to_string()),
+            MemoryError::Type(err) => err.into(),
+            MemoryError::MemoryLeak {
+                variable,
+                region,
+                position,
+            } => SeenError::with_location(
+                SeenErrorKind::Memory,
+                format!(
+                    "Potential leak: variable '{}' may escape region {:?}",
+                    variable, region
+                ),
+                ErrorLocation::new(
+                    position.line as u32,
+                    position.column as u32,
+                    position.offset as u32,
+                ),
+            ),
+            MemoryError::UseAfterFree {
+                variable, used_at, ..
+            } => SeenError::with_location(
+                SeenErrorKind::Memory,
+                format!("Use after free detected for '{}'", variable),
+                ErrorLocation::new(
+                    used_at.line as u32,
+                    used_at.column as u32,
+                    used_at.offset as u32,
+                ),
+            ),
+            MemoryError::DoubleFree {
+                variable,
+                second_free,
+                ..
+            } => SeenError::with_location(
+                SeenErrorKind::Memory,
+                format!("Double free detected for '{}'", variable),
+                ErrorLocation::new(
+                    second_free.line as u32,
+                    second_free.column as u32,
+                    second_free.offset as u32,
+                ),
+            ),
+        }
     }
 }
 

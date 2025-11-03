@@ -14,6 +14,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 seen_parser = { path = "../seen_parser" }
+seen_support = { workspace = true }
 inkwell = { version = "0.6", optional = true, default-features = false }
 which = "4"
 

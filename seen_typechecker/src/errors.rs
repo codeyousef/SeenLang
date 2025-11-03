@@ -2,6 +2,7 @@
 
 use crate::types::Type;
 use seen_lexer::Position;
+use seen_support::{ErrorLocation, SeenError, SeenErrorKind};
 use thiserror::Error;
 
 /// Errors that can occur during type checking
@@ -244,4 +245,42 @@ pub fn undefined_variable(name: String, position: Position) -> TypeError {
 /// Helper function to create an undefined function error
 pub fn undefined_function(name: String, position: Position) -> TypeError {
     TypeError::UndefinedFunction { name, position }
+}
+
+impl From<TypeError> for SeenError {
+    fn from(error: TypeError) -> Self {
+        let location = match &error {
+            TypeError::TypeMismatch { position, .. }
+            | TypeError::UndefinedVariable { position, .. }
+            | TypeError::UndefinedFunction { position, .. }
+            | TypeError::ArgumentCountMismatch { position, .. }
+            | TypeError::InvalidOperation { position, .. }
+            | TypeError::ImmutableAssignment { position, .. }
+            | TypeError::DuplicateVariable { position, .. }
+            | TypeError::DuplicateFunction { position, .. }
+            | TypeError::NullSafety { position, .. }
+            | TypeError::IndexOutOfBounds { position, .. }
+            | TypeError::InvalidIndexType { position, .. }
+            | TypeError::ReturnTypeMismatch { position, .. }
+            | TypeError::MissingReturn { position, .. }
+            | TypeError::GenericConstraintViolation { position, .. }
+            | TypeError::InferenceFailed { position }
+            | TypeError::CircularDependency { position }
+            | TypeError::DuplicateType { position, .. }
+            | TypeError::DuplicateField { position, .. }
+            | TypeError::UnknownType { position, .. }
+            | TypeError::UnknownField { position, .. }
+            | TypeError::MissingField { position, .. }
+            | TypeError::NotAStruct { position, .. } => Some(ErrorLocation::new(
+                position.line as u32,
+                position.column as u32,
+                position.offset as u32,
+            )),
+        };
+
+        SeenError::with_optional_location(
+            SeenError::new(SeenErrorKind::TypeChecker, error.to_string()),
+            location,
+        )
+    }
 }

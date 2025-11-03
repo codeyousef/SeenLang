@@ -1,6 +1,7 @@
 //! Error types for the lexer
 
 use crate::position::Position;
+use seen_support::{ErrorLocation, SeenError, SeenErrorKind};
 use thiserror::Error;
 
 pub type LexerResult<T> = Result<T, LexerError>;
@@ -43,6 +44,29 @@ impl From<std::io::Error> for LexerError {
         LexerError::IoError {
             message: error.to_string(),
         }
+    }
+}
+
+impl From<LexerError> for SeenError {
+    fn from(error: LexerError) -> Self {
+        let location = match &error {
+            LexerError::UnexpectedCharacter { position, .. }
+            | LexerError::UnterminatedString { position }
+            | LexerError::InvalidNumber { position, .. }
+            | LexerError::InvalidUnicodeEscape { position }
+            | LexerError::InvalidInterpolation { position, .. }
+            | LexerError::UnterminatedComment { position } => Some(ErrorLocation::new(
+                position.line as u32,
+                position.column as u32,
+                position.offset as u32,
+            )),
+            _ => None,
+        };
+
+        SeenError::with_optional_location(
+            SeenError::new(SeenErrorKind::Lexer, error.to_string()),
+            location,
+        )
     }
 }
 
