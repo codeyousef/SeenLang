@@ -15,9 +15,11 @@ use inkwell::module::Module as LlvmModule;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType};
+use inkwell::types::{
+    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType,
+};
 use inkwell::values::{
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue,
+    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue,
 };
 use inkwell::OptimizationLevel as LlvmOptLevel;
 
@@ -39,6 +41,7 @@ pub struct LlvmBackend<'ctx> {
     i64_t: IntType<'ctx>,
     bool_t: IntType<'ctx>,
     i8_ptr_t: PointerType<'ctx>,
+    handle_ty: Option<StructType<'ctx>>,
 
     // Runtime/extern declarations
     printf: Option<FunctionValue<'ctx>>,
@@ -60,6 +63,8 @@ pub struct LlvmBackend<'ctx> {
     g_argc: Option<inkwell::values::GlobalValue<'ctx>>,
     g_argv: Option<inkwell::values::GlobalValue<'ctx>>,
     fallthrough_bb: Option<LlvmBasicBlock<'ctx>>,
+    task_counter: Option<GlobalValue<'ctx>>,
+    actor_counter: Option<GlobalValue<'ctx>>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -82,6 +87,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             i64_t,
             bool_t,
             i8_ptr_t,
+            handle_ty: None,
             printf: None,
             strlen: None,
             strcmp: None,
@@ -97,6 +103,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             g_argc: None,
             g_argv: None,
             fallthrough_bb: None,
+            task_counter: None,
+            actor_counter: None,
         }
     }
 
@@ -1114,6 +1122,74 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 }
 
+                if let IRValue::Function { name, .. } = target {
+                    match name.as_str() {
+                        "__spawn_task" => {
+                            if let Some(arg0) = args.get(0) {
+                                let _ = self.eval_value(arg0, fn_map)?;
+                            }
+                            let counter = self.ensure_task_counter();
+                            let handle = self.runtime_spawn_handle(counter)?;
+                            if let Some(r) = result {
+                                self.assign_value(r, handle);
+                            }
+                            return Ok(());
+                        }
+                        "__spawn_actor" => {
+                            if let Some(arg0) = args.get(0) {
+                                let _ = self.eval_value(arg0, fn_map)?;
+                            }
+                            let counter = self.ensure_actor_counter();
+                            let handle = self.runtime_spawn_handle(counter)?;
+                            if let Some(r) = result {
+                                self.assign_value(r, handle);
+                            }
+                            return Ok(());
+                        }
+                        "__await" => {
+                            if let Some(arg0) = args.get(0) {
+                                let handle_val = self.eval_value(arg0, fn_map)?;
+                                let handle_ptr = self.as_cstr_ptr(handle_val)?;
+                                let handle_ty = self.ty_handle();
+                                let struct_ptr = self
+                                    .builder
+                                    .build_pointer_cast(
+                                        handle_ptr,
+                                        handle_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                                        "await_handle",
+                                    )
+                                    .map_err(|e| anyhow!("{e:?}"))?;
+                                let gen_gep = self
+                                    .builder
+                                    .build_struct_gep(handle_ty, struct_ptr, 1, "await_gen")
+                                    .map_err(|e| anyhow!("{e:?}"))?;
+                                let gen_val = self
+                                    .builder
+                                    .build_load(self.ctx.i32_type(), gen_gep, "await_gen_val")
+                                    .map_err(|e| anyhow!("{e:?}"))?
+                                    .into_int_value();
+                                let next = self
+                                    .builder
+                                    .build_int_add(
+                                        gen_val,
+                                        self.ctx.i32_type().const_int(1, false),
+                                        "await_gen_next",
+                                    )
+                                    .map_err(|e| anyhow!("{e:?}"))?;
+                                self.builder
+                                    .build_store(gen_gep, next.as_basic_value_enum())
+                                    .map_err(|e| anyhow!("{e:?}"))?;
+                            }
+                            if let Some(r) = result {
+                                let zero = self.ctx.i32_type().const_zero();
+                                self.assign_value(r, zero.as_basic_value_enum());
+                            }
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Normal call by name
                 let f_opt = match target {
                     IRValue::Variable(name) => fn_map.get(name).cloned(),
@@ -1668,6 +1744,98 @@ impl<'ctx> LlvmBackend<'ctx> {
             .struct_type(&[self.bool_t.into(), self.i8_ptr_t.into()], false)
     }
 
+    fn ty_handle(&mut self) -> StructType<'ctx> {
+        if let Some(ty) = self.handle_ty {
+            ty
+        } else {
+            let ty = self.ctx.struct_type(
+                &[self.ctx.i32_type().into(), self.ctx.i32_type().into()],
+                false,
+            );
+            self.handle_ty = Some(ty);
+            ty
+        }
+    }
+
+    fn ensure_counter(
+        &mut self,
+        slot: &mut Option<GlobalValue<'ctx>>,
+        name: &str,
+    ) -> GlobalValue<'ctx> {
+        if let Some(g) = slot {
+            *g
+        } else {
+            let g = self.module.add_global(self.ctx.i32_type(), None, name);
+            g.set_initializer(&self.ctx.i32_type().const_zero());
+            *slot = Some(g);
+            g
+        }
+    }
+
+    fn ensure_task_counter(&mut self) -> GlobalValue<'ctx> {
+        self.ensure_counter(&mut self.task_counter, "__task_slot_counter")
+    }
+
+    fn ensure_actor_counter(&mut self) -> GlobalValue<'ctx> {
+        self.ensure_counter(&mut self.actor_counter, "__actor_slot_counter")
+    }
+
+    fn runtime_spawn_handle(&mut self, counter: GlobalValue<'ctx>) -> Result<BasicValueEnum<'ctx>> {
+        let i32_t = self.ctx.i32_type();
+        let slot_ptr = counter.as_pointer_value();
+        let cur_val = self
+            .builder
+            .build_load(i32_t, slot_ptr, "slot_cur")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let cur = cur_val.into_int_value();
+        let next = self
+            .builder
+            .build_int_add(cur, i32_t.const_int(1, false), "slot_next")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        self.builder
+            .build_store(slot_ptr, next.as_basic_value_enum())
+            .map_err(|e| anyhow!("{e:?}"))?;
+
+        let handle_ty = self.ty_handle();
+        let malloc = self.get_malloc();
+        let size = self.i64_t.const_int(8, false); // two i32 fields
+        let raw = self
+            .builder
+            .build_call(malloc, &[size.into()], "malloc_handle")?;
+        let raw_ptr = raw
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("malloc returned void"))?
+            .into_pointer_value();
+        let handle_ptr = self
+            .builder
+            .build_pointer_cast(
+                raw_ptr,
+                handle_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                "handle_cast",
+            )
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let slot_gep = self
+            .builder
+            .build_struct_gep(handle_ty, handle_ptr, 0, "slot_gep")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        self.builder
+            .build_store(slot_gep, cur.as_basic_value_enum())
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let gen_gep = self
+            .builder
+            .build_struct_gep(handle_ty, handle_ptr, 1, "gen_gep")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        self.builder
+            .build_store(gen_gep, i32_t.const_zero().as_basic_value_enum())
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let raw_i8 = self
+            .builder
+            .build_pointer_cast(handle_ptr, self.i8_ptr_t, "handle_ret")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        Ok(raw_i8.as_basic_value_enum())
+    }
+
     fn declare_c_fn(
         &self,
         name: &str,
@@ -1693,5 +1861,21 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
         let ty = self.ctx.void_type().fn_type(params, varargs);
         self.module.add_function(name, ty, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handle_struct_is_i32_pair() {
+        let mut backend = LlvmBackend::new();
+        let ty = backend.ty_handle();
+        let fields = ty.get_field_types();
+        assert_eq!(fields.len(), 2);
+        assert!(fields
+            .iter()
+            .all(|f| f.into_int_type().get_bit_width() == 32));
     }
 }

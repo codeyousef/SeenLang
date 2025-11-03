@@ -1,61 +1,77 @@
-# Seen Language — **Alpha** Plan (Multi‑Platform Updated)
+# Seen Language — **Alpha** Plan (Multi‑Platform + SIMD)
 
-Alpha focuses on stabilization and ecosystem readiness **across Linux, Windows, macOS, Android, iOS, and Web (JS/WASM)**.
+Alpha focuses on stabilization and ecosystem readiness **across Linux, Windows, macOS, Android, iOS, and Web** and **expands the SIMD program** beyond the MVP baseline.
 
 ---
 
 ## 1) Objectives
-- Freeze syntax/semantics; polish diagnostics and IDE experience.
-- Validate cross‑platform builds with a runnable **mini‑engine**.
-- Roll out package registry + plugin ABI; harden CI/CD.
+
+* Freeze syntax/semantics; polish diagnostics and IDE.
+* Ship a runnable **mini‑engine** on all targets.
+* Launch package registry + plugin ABI with signed/notarized artifacts.
+* **Elevate SIMD**: multi‑versioned codegen and vectorization reporting.
 
 ---
 
-## 2) Tracks (Delta‑aware)
+## 2) Tracks
 
 ### A) Language Stability & Ergonomics
-- Macro hygiene (attribute + item/proc); better error spans across expansions.
-- Region/borrow visualizations in diagnostics; `seen doctor`.
-- `seen fmt` team‑wide config; CI `--check` gate.
+
+* Macro hygiene (attribute + item/proc); better error spans.
+* Region/borrow visualizations; `seen doctor`.
+* `seen fmt` project config; CI `--check`.
 
 ### B) Engine Integration (All Targets)
-- **Mini‑engine** repo `seen-engine-min` using: window/input, audio, file IO, job system.
-- **Backends:** Vulkan (Linux/Win/Android), Metal (macOS/iOS), WebGPU (Web). MoltenVK optional.
-- **Shaders:** `seen build shaders` cross‑compiles SPIR‑V/WGSL to MSL/DXIL/WGSL.
 
-**Definition of Done (Engine Alpha):**
-- Deterministic fixed‑step loop; input/gamepad; audio tone; hot‑reload (VFS watcher).  
-- **Zero validation errors** on canonical scenes on all targets.
+* `seen-engine-min` repo using window/input, audio, VFS, jobs.
+* Backends: Vulkan/Metal/WebGPU; shader cross‑compile in `seen build shaders`.
+* DoD: **zero validation errors** on canonical scenes.
 
 ### C) Ecosystem Infrastructure
-- Online **package registry** (login/publish/search); lockfile checksums; vendor mode.  
-- **Plugin ABI** versioning + loader; capability flags (fs/net/time).  
-- Signed artifacts (Win .exe/.dll, macOS notarized app; Android AAB; iOS IPA).
+
+* Package registry (login/publish/search), lockfile checksums, vendor mode.
+* Plugin ABI versioning, capability flags; signed AAB/IPA/mac notarization/Win signing.
 
 ### D) Tooling & CI Matrix
-- Incremental/cached builds; `seen trace` → `seen replay` CLI.  
-- **CI Matrix**: Linux (x64/arm64), Windows (x64/arm64), macOS (U2), Android (arm64), iOS (device+sim), Web (Emscripten).  
-- Store headers for Web demos (COOP/COEP), Android/iOS manifest templates.
 
-### E) Documentation & Education
-- **Seen Book (Alpha)** with platform chapters: Linux/Win/macOS/Android/iOS/Web.  
-- Vulkan/Metal/WebGPU guides; mini‑engine and plugin tutorials.
+* Incremental & cached builds; `seen trace` → `seen replay` CLI.
+* CI matrix covering 6 targets; headers/templates (COOP/COEP; Android/iOS manifests).
 
 ---
 
-## 3) Alpha DoD (Updated)
-| Area | Requirement |
-|------|-------------|
-| Language | Syntax & core semantics frozen; macro hygiene stable. |
-| Engine | Mini‑engine runs on all 6 targets; zero validation errors; deterministic replay verified. |
-| Ecosystem | Registry online; plugin ABI stable; signed/notarized packages. |
-| Tooling | Incremental builds; trace/replay; CI matrix green. |
-| Docs | Seen Book (Alpha) live; platform bring‑up guides complete. |
+## 3) SIMD Track (Alpha)
+
+### C1. Compiler & Backend
+
+* **Multi‑versioned codegen + runtime CPU feature dispatch**: emit scalar/SSE/AVX2/AVX‑512 (or AVX10 path), NEON/SVE, and select best at process start.
+* **Vectorization reports v1**: `--simd-report` shows loops vectorized/not and short reasons (dependence/alignment/cost).
+
+### C2. Language Surface & Stdlib
+
+* **Portable vector types** expanded (wider sets), lane‑wise ops, masks, blends.
+* **SIMD numerics utils**: reductions, prefix sums, min/max, common transforms.
+
+### C3. Memory & Layout
+
+* **SoA/AoS transforms (opt‑in)**: an optimizer pass guided by access patterns; source remains AoS if desired.
+* **Prefetch/alignment hints** via attributes (pure hints): `#[prefetch(read)]`, `#[align_to(32)]`.
+
+### C4. Tooling & Flags
+
+* `--target-cpu=` families documented; `--simd=` policy integrated with `--deterministic`.
+* WASM target ensures `-sSIMD=1 -sPTHREADS=1` where supported.
+
+### C5. Acceptance
+
+* Engine math paths and JSON/scan pipelines show SIMD codegen (verified by IR/obj inspection); scalar equivalence confirmed.
 
 ---
 
-## 4) Transition to Beta
-- Gather multi‑platform feedback; prioritize perf issues (mobile/web).  
-- Promote `seen-std` foundation crate; broaden official plugins.  
-- Begin Beta with performance and scale as primary focus.
+## 4) Alpha DoD (Updated)
 
+| Area      | Requirement                                                            |
+| --------- | ---------------------------------------------------------------------- |
+| Language  | Syntax frozen; macro hygiene stable; SIMD types/intrinsics available.  |
+| Engine    | Mini‑engine runs on all targets; zero validation errors; replay works. |
+| Ecosystem | Registry online; plugin ABI stable; signed/notarized packages.         |
+| Tooling   | CI matrix green; trace/replay; `--simd-report` available.              |

@@ -1,55 +1,78 @@
-# Seen Language — **Beta** Plan (Multi‑Platform Updated)
+# Seen Language — **Beta** Plan (Multi‑Platform + SIMD)
 
-Beta emphasizes **performance, parity, and robustness** across Linux, Windows, macOS, Android, iOS, and Web (JS/WASM).
+Beta emphasizes performance, parity, and robustness across platforms and fully **industrializes SIMD**.
 
 ---
 
 ## 1) Objectives
-- Optimize compilers/backends (x86_64, RV64, Metal, Vulkan, WebGPU) and stdlib.
-- Harden determinism and long‑run stability across platforms.
-- Expand `seen-std`, official plugins, and engine scale.
+
+* Optimize compiler/backends (x86_64, RV64, Metal/Vulkan/WebGPU) and stdlib.
+* Harden determinism and long‑run stability on desktop/mobile/web.
+* Expand `seen-std`, official plugins, and engine scale.
+* **SIMD**: full ISA coverage and expert controls.
 
 ---
 
 ## 2) Tracks
 
 ### A) Compiler & Runtime Optimization
-- LTO/PGO pipelines; sanitizer integrations; cross‑module inlining.
-- SIMD passes for x86 (SSE/AVX) and RVV; WebAssembly SIMD/threads tuning.
-- Memory/layout audits for mobile/web constraints (allocator arenas, small‑footprint modes).
+
+* LTO/PGO; sanitizers; cross‑module inlining; improved dependency pruning.
+* Memory/layout audits for mobile/web (allocator arenas, low‑footprint modes).
 
 ### B) Ecosystem Maturity
-- **`seen-std`**: collections (stable iteration), math, io, serde, concurrency utils.  
-- Certified plugin catalog: graphics (Vulkan/Metal/WebGPU), physics, audio, networking.
+
+* `seen-std` grows: collections (stable iteration), math, io, serde, concurrency utils.
+* Certified plugin catalog (graphics, physics, audio, networking).
 
 ### C) Platform & Engine Scaling
-- Backend parity: D3D12 (Windows) or DXC path for DXIL; Metal/MSL features (argument buffers); WebGPU stability.
-- ECS parallelism across archetypes; 10k+ jobs/frame in job system.  
-- Mobile: thermal budgets, memory caps, lifecycle resiliency.
 
-### D) DX & Tooling
-- `seen trace` GUI (timeline/spans/GPU markers); gdb/lldb pretty‑printers.  
-- Advanced LSP: refactors, code actions, semantic tokens; project‑wide formatting policies.
+* Backend parity: DX12/DXC on Windows; MSL argument buffers; WebGPU stability.
+* ECS parallelism; 10k+ jobs/frame target; mobile thermal/memory policies.
 
-### E) Determinism & CI
-- Multi‑arch determinism suite; WASM identical outputs under `--deterministic`.  
-- Long‑run soak tests for ECS/Render‑graph; perf regression alerts.
+### D) Tooling & DX
+
+* `seen trace` GUI; gdb/lldb pretty‑printers; advanced LSP (refactors/actions/semantic tokens).
 
 ---
 
-## 3) Beta DoD (Updated)
-| Area | Requirement |
-|------|-------------|
-| Compiler | LTO/PGO; SIMD (x86/RVV/WASM); sanitizers; stable profiles. |
-| Runtime | `seen-std` stable; low‑footprint/mobile modes. |
-| Engine | Backend parity (Vulkan/Metal/WebGPU/DX12); 10k+ jobs/frame; ECS parallel safety. |
-| Tooling | Trace GUI; IDE/LSP full features; debugger bridges. |
-| Determinism | Cross‑platform determinism suite green. |
-| CI | Matrix covers 6 targets with scale tests. |
+## 3) SIMD Track (Beta)
+
+### B1. Compiler & Backend
+
+* **Portable lowering** to **x86 (AVX2/AVX‑512/AVX10)**, **ARM (NEON/SVE/SVE2)**, **RISC‑V (RVV 1.0)**, and **WASM SIMD**.
+* **Auto‑vectorizer cost model** tuned for lane utilization & bandwidth.
+* **Expert hints**: `#[vectorize]`, `#[no_vectorize]`, `#[lane_width(N)]` — hints only.
+* **Inline intrinsics/asm** as an escape hatch with strict typing.
+
+### B2. Stdlib & Data Paths
+
+* Vectorized primitives for JSON/UTF‑8 scan, deflate/brotli blocks, image swizzles.
+* Vectorized crypto/checksums (AES/SHA via AES‑NI/ARMv8 crypto/RVV equivalents; CRC/Adler) where legal.
+
+### B3. Data Layout & Transform Passes
+
+* **Automatic SoA/AoS transforms** (opt‑in) guided by profiling metadata.
+* **Prefetch planning** pass; document cache‑line assumptions.
+
+### B4. Tooling & WASM
+
+* `--simd-report=full` with loop IDs, dependence reasons, lane fill %, chosen width.
+* Web builds default to WASM SIMD + threads when headers permit.
+
+### B5. QA & Determinism
+
+* Equivalence tests (scalar vs SIMD) across x86/ARM/RVV/WASM; property‑based numerics tests where bit‑exactness matters.
+* Determinism profiles validated per target; CI regresses on vectorization correctness (not performance).
 
 ---
 
-## 4) Transition to Release
-- Freeze IR/ABI candidates; complete reproducible build guarantees per target.  
-- Audit plugins/packages; finalize documentation; prepare governance & LTS.
+## 4) Beta DoD (Updated)
 
+| Area        | Requirement                                                                      |
+| ----------- | -------------------------------------------------------------------------------- |
+| Compiler    | Full ISA coverage; expert SIMD controls; portable lowering; determinism honored. |
+| Runtime     | `seen-std` stable; vectorized core paths available with scalar fallbacks.        |
+| Engine      | Backend parity + stable performance envelopes; mobile/web constraints respected. |
+| Tooling     | `--simd-report=full`; trace GUI; IDE integration.                                |
+| Determinism | Scalar/SIMD equivalence validated across targets.                                |
