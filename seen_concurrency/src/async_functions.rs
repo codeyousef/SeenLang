@@ -346,7 +346,10 @@ impl AsyncFunction {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        let task_id = TaskId::new(timestamp ^ (pos.line as u64));
+        let raw = timestamp ^ (pos.line as u64);
+        let slot = (raw & 0xFFFF_FFFF) as u32;
+        let generation = ((raw >> 32) & 0xFFFF_FFFF) as u32;
+        let task_id = TaskId::new(slot, generation);
 
         // Register the task in the runtime if available
         if let Some(runtime) = &context.runtime {

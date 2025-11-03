@@ -31,8 +31,9 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
   - Freeze word/operator precedence tables in the parser.
   - Extend formatter/pretty-printer so it enforces the frozen precedence (no drift across runs).
 - [ ] **RAII `defer` + generational refs runtime**
-  - Implement runtime support for `defer` blocks in interpreter + LLVM backend.
-  - Add generational handle checks when dereferencing opaque IDs.
+  - ✅ Interpreter defer stack + scope unwinding complete (`seen_interpreter` + tests).
+  - ✅ Task runtime now uses generational handles with stale-handle tests in `seen_concurrency`.
+  - ⏳ Extend generational validation to channel/actor handles and mirror support in LLVM backend.
 - [ ] **Deterministic IR emission**
   - Ensure IR generator/optimizer emit sorted structures (no HashMap iteration).
   - Add regression test that hashes IR for the same input twice and matches.

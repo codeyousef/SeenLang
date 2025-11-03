@@ -1,43 +1,32 @@
 # Repository Guidelines
 
-These contributor guidelines are specific to this repository’s layout and tooling. Keep changes focused and minimal; prefer small, reviewable patches.
+## Project Structure & Module Organization
+- `seen_*` crates contain the Rust pipeline: lexer, parser, typechecker, IR, interpreter, CLI, etc. Treat each crate as an independent lib with local tests.
+- `compiler_seen/` holds the self-hosting compiler written in Seen; bootstrap targets live under `compiler_seen/src`.
+- `docs/` carries plans and onboarding references (`docs/0 - Seen MVP Development Plan.md`, `docs/quickstart.md`).
+- `examples/` and `tests/` provide runnable samples and cross-crate regression suites. Keep new assets minimal and committed as source, not build outputs.
 
-## Project Structure & Modules
-- `seen_*`: Rust crates (lexer, parser, typechecker, IR, CLI, etc.).
-- `compiler_seen/`: Self‑hosting compiler pieces written in Seen.
-- `docs/`: Plans and guides (see `docs/SELF_HOSTING_PLAN.md`, `docs/quickstart.md`).
-- `examples/`, `tests/`: Samples and tests.
+## Build, Test, and Development Commands
+- `cargo build -p seen_cli --release [--features llvm]` builds the primary CLI (enable `llvm` when exercising the LLVM backend).
+- `cargo test` runs the entire workspace; use `cargo test -p crate_name` for targeted loops.
+- Interpreter/CLI smoke: `target/release/seen_cli run examples/hello.seen`, `... build compiler_seen/src/main.seen --backend llvm --output stage1_seen`.
+- Determinism helpers: `seen determinism <file.seen> -O2` (Rust pipeline) and `scripts/self_host_llvm.sh` for staged bootstrap checks.
 
-## Build, Test, Dev Commands
-- Build CLI: `cargo build -p seen_cli --release`
-- Run: `seen run <file.seen>` (interprets)
-- Check: `seen check <file.seen>` (syntax + types)
-- Emit IR: `seen build <file.seen> --output a.ir`
-- Build native (LLVM): `seen build <file.seen> --backend llvm --output a.out`
-- Unit tests (workspace): `cargo test`
-
-## Coding Style & Naming
-- Rust: rustfmt default; 4‑space indent; modules use `snake_case`; types `CamelCase`.
-- Seen: `fun` for functions; `CamelCase` types; files end with `.seen`.
-- Keep functions small; prefer clear names over brevity.
+## Coding Style & Naming Conventions
+- Rust follows rustfmt defaults (4-space indent, module `snake_case`, types `CamelCase`). Run `cargo fmt` before submitting.
+- Seen source uses `fun`/`let`, `CamelCase` types, and UTF-8 identifiers normalized to NFC (lexer enforces this). Keep files small and expression-oriented.
+- Prefer explicit visibility: configure per-project via `Seen.toml` (`visibility = "caps"` or `"explicit"`); parser rejects mismatches.
 
 ## Testing Guidelines
-- Rust: add tests near code (`mod tests {}`) or under `tests/`.
-- Seen: keep examples minimal and runnable via `seen run` or `seen check`.
-- Name tests for behavior (e.g., `parses_imports_ok`).
+- Add crate-local unit tests (`mod tests {}`) alongside new logic. Integration tests live under `<crate>/tests`.
+- Exercise parser/IR changes with targeted fixtures; confirm runtime features via interpreter tests (see `seen_interpreter/tests`).
+- For bootstrap work, regenerate stage artifacts and compare hashes (Stage2 vs Stage3) once LLVM path stabilizes.
 
-## Commit & PR Guidelines
-- Use Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
-- PRs: include a clear description, linked issues, and repro steps. Add before/after where applicable.
+## Commit & Pull Request Guidelines
+- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`). Keep patches surgical—avoid sweeping refactors across crates unless planned.
+- PRs must describe motivation, reproduction steps, and before/after behavior. Link issues, attach determinism/hash output where relevant.
+- Never commit generated binaries or `target/` directories; rely on `.gitignore` defaults.
 
-## Agent‑Specific Instructions (Agents Ignore)
-- Do not commit binaries or generated artifacts; ignore:
-  - `target/`, `**/target/`, `stage1.c`, `stage*.seen`, `*.exe`, `*.o`.
-- Avoid editing performance/benchmark dumps or large generated files.
-- When bootstrapping, do not rewrite historical docs; update `docs/SELF_HOSTING_PLAN.md` instead.
-- Keep changes surgical: avoid renames, global refactors, or file moves unless requested.
-
-## Security & Config Tips
-- No secrets in sources or scripts.
-- Keep dependencies pinned via `Cargo.lock`.
-- Prefer local builds; only symlink `seen` into PATH if you understand the impact.
+## Security & Configuration Tips
+- Keep host dependencies pinned via `Cargo.lock`; LLVM builds require LLVM 15 (`llvm-config-15`, `LLVM_SYS_150_PREFIX`).
+- Do not embed secrets in scripts or tests. When invoking external tooling (`__ExecuteCommand`, `__WriteFile`), sanitize inputs and limit scope to workspace temp paths.

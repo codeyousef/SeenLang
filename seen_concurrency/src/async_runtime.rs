@@ -69,15 +69,29 @@ pub struct TaskScheduler {
     current_task: Option<TaskId>,
 }
 
+/// Entry inside the task registry arena
+#[derive(Debug)]
+struct TaskSlot {
+    generation: u32,
+    task: Option<AsyncTask>,
+    result: Option<AsyncResult>,
+}
+
+impl TaskSlot {
+    fn new() -> Self {
+        Self {
+            generation: 0,
+            task: None,
+            result: None,
+        }
+    }
+}
+
 /// Registry for tracking all tasks in the system
 #[derive(Debug)]
 pub struct TaskRegistry {
-    /// All tasks indexed by ID
-    tasks: HashMap<TaskId, AsyncTask>,
-    /// Next available task ID
-    next_task_id: u64,
-    /// Completed task results
-    completed_results: HashMap<TaskId, AsyncResult>,
+    slots: Vec<TaskSlot>,
+    free_list: Vec<u32>,
 }
 
 /// Promise resolver for handling Promise completion and chaining
@@ -437,70 +451,146 @@ impl TaskRegistry {
     /// Create a new task registry
     pub fn new() -> Self {
         Self {
-            tasks: HashMap::new(),
-            next_task_id: 1,
-            completed_results: HashMap::new(),
+            slots: Vec::new(),
+            free_list: Vec::new(),
         }
     }
 
-    /// Create a new unique task ID
+    /// Allocate a new task handle (slot + generation)
     pub fn create_task_id(&mut self) -> TaskId {
-        let id = TaskId::new(self.next_task_id);
-        self.next_task_id += 1;
-        id
+        let slot = if let Some(slot) = self.free_list.pop() {
+            slot
+        } else {
+            let slot = self.slots.len() as u32;
+            self.slots.push(TaskSlot::new());
+            slot
+        };
+
+        let generation = self.slots[slot as usize].generation;
+        TaskId::new(slot, generation)
     }
 
-    /// Register a new task
+    /// Register a task in the arena
     pub fn register_task(&mut self, task: AsyncTask) {
-        self.tasks.insert(task.id, task);
+        let slot_idx = task.id.slot() as usize;
+        let generation = task.id.generation();
+
+        let slot = self
+            .slots
+            .get_mut(slot_idx)
+            .expect("task slot missing during registration");
+
+        if slot.generation != generation {
+            panic!("attempted to register task with stale handle");
+        }
+
+        if slot.task.is_some() {
+            panic!("task slot already occupied");
+        }
+
+        slot.task = Some(task);
     }
 
-    /// Get a task by ID
+    /// Get an immutable reference to a task if the handle is current
     pub fn get_task(&self, task_id: TaskId) -> Option<&AsyncTask> {
-        self.tasks.get(&task_id)
+        self.slot(task_id).and_then(|slot| slot.task.as_ref())
     }
 
-    /// Get a mutable task by ID
+    /// Get a mutable reference to a task if the handle is current
     pub fn get_task_mut(&mut self, task_id: TaskId) -> Option<&mut AsyncTask> {
-        self.tasks.get_mut(&task_id)
+        self.slot_mut(task_id).and_then(|slot| slot.task.as_mut())
     }
 
-    /// Store task result
+    /// Store the result for a completed task
     pub fn store_result(&mut self, task_id: TaskId, result: AsyncResult) {
-        self.completed_results.insert(task_id, result);
+        if let Some(slot) = self.slot_mut(task_id) {
+            slot.result = Some(result);
+        }
     }
 
-    /// Get task result
+    /// Fetch the result for a task handle
     pub fn get_result(&self, task_id: TaskId) -> Option<&AsyncResult> {
-        self.completed_results.get(&task_id)
+        self.slot(task_id).and_then(|slot| slot.result.as_ref())
     }
 
-    /// Get all completed tasks
+    /// Return all task IDs that have completed and still have a stored result
     pub fn get_completed_tasks(&self) -> Vec<TaskId> {
-        self.tasks
+        self.slots
             .iter()
-            .filter(|(_, task)| matches!(task.state, TaskState::Completed))
-            .map(|(id, _)| *id)
+            .enumerate()
+            .filter_map(|(idx, slot)| {
+                if slot
+                    .task
+                    .as_ref()
+                    .map_or(false, |task| matches!(task.state, TaskState::Completed))
+                    && slot.result.is_some()
+                {
+                    Some(TaskId::new(idx as u32, slot.generation))
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
-    /// Get active task count
+    /// Count active tasks
     pub fn active_task_count(&self) -> usize {
-        self.tasks.len() - self.completed_results.len()
+        self.slots
+            .iter()
+            .filter(|slot| {
+                slot.task
+                    .as_ref()
+                    .map_or(false, |task| !matches!(task.state, TaskState::Completed))
+            })
+            .count()
     }
 
-    /// Get completed task count
+    /// Count completed tasks that still retain results
     pub fn completed_task_count(&self) -> usize {
-        self.completed_results.len()
+        self.slots
+            .iter()
+            .filter(|slot| slot.result.is_some())
+            .count()
     }
 
-    /// Clean up completed tasks
+    /// Remove completed tasks, bumping generation to invalidate stale handles
     pub fn cleanup_completed_tasks(&mut self) {
-        let completed_tasks: Vec<TaskId> = self.completed_results.keys().cloned().collect();
-        for task_id in completed_tasks {
-            self.tasks.remove(&task_id);
-            self.completed_results.remove(&task_id);
+        for (idx, slot) in self.slots.iter_mut().enumerate() {
+            let should_cleanup = slot
+                .task
+                .as_ref()
+                .map_or(false, |task| matches!(task.state, TaskState::Completed))
+                && slot.result.is_some();
+
+            if should_cleanup {
+                slot.task = None;
+                slot.result = None;
+                slot.generation = slot.generation.wrapping_add(1);
+                self.free_list.push(idx as u32);
+            }
         }
+    }
+
+    fn slot(&self, task_id: TaskId) -> Option<&TaskSlot> {
+        self.slots.get(task_id.slot() as usize).and_then(|slot| {
+            if slot.generation == task_id.generation() {
+                Some(slot)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn slot_mut(&mut self, task_id: TaskId) -> Option<&mut TaskSlot> {
+        self.slots
+            .get_mut(task_id.slot() as usize)
+            .and_then(|slot| {
+                if slot.generation == task_id.generation() {
+                    Some(slot)
+                } else {
+                    None
+                }
+            })
     }
 }
 
@@ -615,7 +705,7 @@ mod tests {
     fn test_task_scheduler() {
         let mut scheduler = TaskScheduler::new();
 
-        let task_id = TaskId::new(1);
+        let task_id = TaskId::new(1, 0);
         scheduler.schedule_task(task_id, TaskPriority::High);
 
         assert!(scheduler.has_ready_tasks());
@@ -627,17 +717,50 @@ mod tests {
         let mut registry = TaskRegistry::new();
 
         let task_id = registry.create_task_id();
-        assert_eq!(task_id.id(), 1);
+        assert_eq!(task_id.slot(), 0);
+        assert_eq!(task_id.generation(), 0);
 
         let second_id = registry.create_task_id();
-        assert_eq!(second_id.id(), 2);
+        assert_eq!(second_id.slot(), 1);
+        assert_eq!(second_id.generation(), 0);
+    }
+
+    #[test]
+    fn task_registry_invalidates_stale_handles() {
+        let mut registry = TaskRegistry::new();
+        let task_id = registry.create_task_id();
+
+        let task = AsyncTask {
+            id: task_id,
+            state: TaskState::Completed,
+            priority: TaskPriority::Normal,
+            function: Box::new(TestAsyncFunction {
+                name: "noop".to_string(),
+                result: AsyncValue::Unit,
+            }),
+            created_at: Position::new(0, 0, 0),
+            dependencies: Vec::new(),
+            waker: None,
+        };
+
+        registry.register_task(task);
+        registry.store_result(task_id, Ok(AsyncValue::Unit));
+        assert!(registry.get_task(task_id).is_some());
+
+        registry.cleanup_completed_tasks();
+
+        assert!(registry.get_task(task_id).is_none());
+
+        let recycled_id = registry.create_task_id();
+        assert_eq!(recycled_id.slot(), task_id.slot());
+        assert_ne!(recycled_id.generation(), task_id.generation());
     }
 
     #[test]
     fn test_promise_resolver() {
         let mut resolver = PromiseResolver::new();
 
-        let task_id = TaskId::new(1);
+        let task_id = TaskId::new(1, 0);
         let promise = Promise::new(task_id);
 
         resolver.register_promise(task_id, promise);

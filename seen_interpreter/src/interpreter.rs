@@ -120,7 +120,65 @@ impl Interpreter {
             }
         }
 
+        // Execute any deferred work registered at the top level. Keep draining until empty
+        loop {
+            let deferred = self
+                .runtime
+                .take_current_deferred()
+                .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))?;
+            if deferred.is_empty() {
+                break;
+            }
+            self.run_deferred(deferred)?;
+        }
+
         Ok(last_value)
+    }
+
+    /// Execute deferred expressions in reverse order, collecting the first error if any
+    fn run_deferred(&mut self, deferred: Vec<Expression>) -> InterpreterResult<()> {
+        let mut first_error: Option<InterpreterError> = None;
+
+        let saved_break = self.break_flag;
+        let saved_continue = self.continue_flag;
+        let saved_return_flag = self.return_flag;
+        let saved_return_value = self.return_value.take();
+
+        self.break_flag = false;
+        self.continue_flag = false;
+        self.return_flag = false;
+        self.return_value = None;
+
+        for expr in deferred.into_iter().rev() {
+            if let Err(err) = self.interpret_expression(&expr) {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+        }
+
+        let deferred_return_flag = self.return_flag;
+        let deferred_return_value = self.return_value.take();
+
+        self.break_flag = saved_break;
+        self.continue_flag = saved_continue;
+
+        if saved_return_flag {
+            self.return_flag = true;
+            self.return_value = saved_return_value;
+        } else if deferred_return_flag {
+            self.return_flag = true;
+            self.return_value = deferred_return_value;
+        } else {
+            self.return_flag = false;
+            self.return_value = None;
+        }
+
+        if let Some(err) = first_error {
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
     /// Interpret an expression
@@ -640,10 +698,12 @@ impl Interpreter {
                 Ok(Value::Unit)
             }
 
-            Expression::Defer { body, .. } => {
-                // In a full implementation, would register for cleanup at scope end
-                // For now, execute immediately as a placeholder
-                self.interpret_expression(body)
+            Expression::Defer { body, pos } => {
+                let deferred_expr = (**body).clone();
+                self.runtime
+                    .register_defer(deferred_expr)
+                    .map_err(|e| InterpreterError::runtime(e.to_string(), *pos))?;
+                Ok(Value::Unit)
             }
 
             // Unhandled expressions - provide meaningful error messages
@@ -760,13 +820,13 @@ impl Interpreter {
         body: &Expression,
     ) -> InterpreterResult<Value> {
         let iter_val = self.interpret_expression(iterable)?;
-        let mut last_value = Value::Unit;
 
         // Push new scope for loop variable
         self.runtime.push_environment(false);
 
         let result = match iter_val {
             Value::Array(arr) => {
+                let mut last_value = Value::Unit;
                 for item in arr {
                     self.runtime.define_variable(variable.to_string(), item);
                     last_value = self.interpret_expression(body)?;
@@ -786,6 +846,7 @@ impl Interpreter {
                 Ok(last_value)
             }
             Value::String(s) => {
+                let mut last_value = Value::Unit;
                 for ch in s.chars() {
                     self.runtime
                         .define_variable(variable.to_string(), Value::Character(ch));
@@ -811,12 +872,31 @@ impl Interpreter {
             )),
         };
 
-        // Pop loop scope
-        self.runtime
-            .pop_environment()
+        let deferred = self
+            .runtime
+            .take_current_deferred()
             .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))?;
+        let defer_result = self.run_deferred(deferred);
 
-        result
+        // Pop loop scope
+        let pop_result = self
+            .runtime
+            .pop_environment()
+            .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()));
+        if let Err(err) = pop_result {
+            return Err(err);
+        }
+
+        match result {
+            Ok(value) => {
+                if let Err(err) = defer_result {
+                    Err(err)
+                } else {
+                    Ok(value)
+                }
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Interpret a block expression
@@ -824,8 +904,15 @@ impl Interpreter {
         self.runtime.push_environment(false);
 
         let mut last_value = Value::Unit;
+        let mut block_error: Option<InterpreterError> = None;
         for expr in expressions {
-            last_value = self.interpret_expression(expr)?;
+            match self.interpret_expression(expr) {
+                Ok(val) => last_value = val,
+                Err(err) => {
+                    block_error = Some(err);
+                    break;
+                }
+            }
 
             // Check for early exit
             if self.break_flag || self.continue_flag || self.return_flag {
@@ -833,11 +920,31 @@ impl Interpreter {
             }
         }
 
-        self.runtime
-            .pop_environment()
+        let deferred = self
+            .runtime
+            .take_current_deferred()
             .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))?;
+        if let Err(err) = self.run_deferred(deferred) {
+            if block_error.is_none() {
+                block_error = Some(err);
+            }
+        }
 
-        Ok(last_value)
+        if let Err(err) = self
+            .runtime
+            .pop_environment()
+            .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))
+        {
+            if block_error.is_none() {
+                block_error = Some(err);
+            }
+        }
+
+        if let Some(err) = block_error {
+            Err(err)
+        } else {
+            Ok(last_value)
+        }
     }
 
     /// Interpret a function/method call
@@ -978,6 +1085,13 @@ impl Interpreter {
             // Execute function body
             let result = self.interpret_expression(&body);
 
+            // Run any deferred expressions registered in this scope
+            let deferred = self
+                .runtime
+                .take_current_deferred()
+                .map_err(|e| InterpreterError::runtime(e.to_string(), pos.clone()))?;
+            let defer_result = self.run_deferred(deferred);
+
             // Get return value if any
             let return_value = if self.return_flag {
                 self.return_flag = false;
@@ -996,7 +1110,13 @@ impl Interpreter {
                 .map_err(|e| InterpreterError::runtime(e.to_string(), pos))?;
 
             match result {
-                Ok(val) => Ok(return_value.unwrap_or(val)),
+                Ok(val) => {
+                    if let Err(err) = defer_result {
+                        Err(err)
+                    } else {
+                        Ok(return_value.unwrap_or(val))
+                    }
+                }
                 Err(e) => Err(e),
             }
         } else {

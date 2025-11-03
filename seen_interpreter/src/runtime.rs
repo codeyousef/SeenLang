@@ -7,6 +7,7 @@ use seen_concurrency::{
     channels::ChannelManager,
 };
 use seen_effects::{AdvancedRuntime, AdvancedRuntimeConfig};
+use seen_parser::Expression;
 use seen_reactive::{ReactiveRuntime, ReactiveRuntimeConfig};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -41,6 +42,7 @@ pub struct Environment {
     variables: HashMap<String, Value>,
     parent: Option<Box<Environment>>,
     is_function_scope: bool,
+    deferred: Vec<Expression>,
 }
 
 impl Environment {
@@ -50,6 +52,7 @@ impl Environment {
             variables: HashMap::new(),
             parent: None,
             is_function_scope: false,
+            deferred: Vec::new(),
         }
     }
 
@@ -59,6 +62,7 @@ impl Environment {
             variables: HashMap::new(),
             parent: Some(Box::new(parent)),
             is_function_scope,
+            deferred: Vec::new(),
         }
     }
 
@@ -88,6 +92,16 @@ impl Environment {
         } else {
             Err(RuntimeError::UndefinedVariable(name.to_string()))
         }
+    }
+
+    /// Register a deferred expression to be executed when scope ends
+    pub fn register_defer(&mut self, expr: Expression) {
+        self.deferred.push(expr);
+    }
+
+    /// Drain deferred expressions in the order they were registered
+    pub fn take_deferred(&mut self) -> Vec<Expression> {
+        self.deferred.drain(..).collect()
     }
 }
 
@@ -156,6 +170,25 @@ impl Runtime {
         }
         self.environment_stack.pop();
         Ok(())
+    }
+
+    /// Register a deferred expression in the current environment
+    pub fn register_defer(&mut self, expr: Expression) -> Result<(), RuntimeError> {
+        if let Some(env) = self.environment_stack.last_mut() {
+            env.register_defer(expr);
+            Ok(())
+        } else {
+            Err(RuntimeError::StackUnderflow)
+        }
+    }
+
+    /// Take deferred expressions from the current environment without popping it
+    pub fn take_current_deferred(&mut self) -> Result<Vec<Expression>, RuntimeError> {
+        if let Some(env) = self.environment_stack.last_mut() {
+            Ok(env.take_deferred())
+        } else {
+            Err(RuntimeError::StackUnderflow)
+        }
     }
 
     /// Define a variable in the current environment

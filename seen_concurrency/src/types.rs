@@ -7,17 +7,46 @@ use std::sync::{Arc, Mutex};
 
 /// Unique identifier for async tasks
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TaskId(u64);
+pub struct TaskId {
+    slot: u32,
+    generation: u32,
+}
 
 impl TaskId {
-    /// Create a new task ID
-    pub fn new(id: u64) -> Self {
-        Self(id)
+    /// Create a new task ID from slot/generation parts
+    pub fn new(slot: u32, generation: u32) -> Self {
+        Self { slot, generation }
     }
 
-    /// Get the numeric ID
+    /// Create a placeholder task ID (used for synthetic promises)
+    pub fn placeholder() -> Self {
+        Self {
+            slot: u32::MAX,
+            generation: u32::MAX,
+        }
+    }
+
+    /// Slot index backing this ID
+    pub fn slot(&self) -> u32 {
+        self.slot
+    }
+
+    /// Generation component for stale-handle detection
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// Raw 64-bit value (generation in upper 32 bits, slot in lower)
     pub fn id(&self) -> u64 {
-        self.0
+        ((self.generation as u64) << 32) | self.slot as u64
+    }
+
+    /// Produce the next generation for this slot
+    pub fn next_generation(self) -> Self {
+        Self {
+            slot: self.slot,
+            generation: self.generation.wrapping_add(1),
+        }
     }
 }
 
@@ -227,7 +256,7 @@ impl Promise {
     /// Create a resolved promise
     pub fn resolved(value: AsyncValue) -> Self {
         Self {
-            task_id: TaskId::new(0), // Synthetic ID for resolved promises
+            task_id: TaskId::placeholder(), // Synthetic ID for resolved promises
             state: PromiseState::Resolved,
             value: Some(value),
             error: None,
@@ -237,7 +266,7 @@ impl Promise {
     /// Create a rejected promise
     pub fn rejected(error: String) -> Self {
         Self {
-            task_id: TaskId::new(0), // Synthetic ID for rejected promises
+            task_id: TaskId::placeholder(), // Synthetic ID for rejected promises
             state: PromiseState::Rejected,
             value: None,
             error: Some(error),
@@ -512,13 +541,15 @@ mod tests {
 
     #[test]
     fn test_task_id_creation() {
-        let id = TaskId::new(42);
-        assert_eq!(id.id(), 42);
+        let id = TaskId::new(42, 7);
+        assert_eq!(id.slot(), 42);
+        assert_eq!(id.generation(), 7);
+        assert_eq!(id.id(), ((7u64) << 32) | 42);
     }
 
     #[test]
     fn test_task_handle() {
-        let task_id = TaskId::new(1);
+        let task_id = TaskId::new(1, 0);
         let handle = TaskHandle::new(task_id);
 
         assert_eq!(handle.task_id(), Some(task_id));
@@ -539,7 +570,7 @@ mod tests {
 
     #[test]
     fn test_promise_creation() {
-        let task_id = TaskId::new(1);
+        let task_id = TaskId::new(1, 0);
         let promise = Promise::new(task_id);
 
         assert!(promise.is_pending());
@@ -550,7 +581,7 @@ mod tests {
 
     #[test]
     fn test_promise_resolution() {
-        let task_id = TaskId::new(1);
+        let task_id = TaskId::new(1, 0);
         let mut promise = Promise::new(task_id);
 
         let value = AsyncValue::Integer(42);
@@ -562,7 +593,7 @@ mod tests {
 
     #[test]
     fn test_promise_rejection() {
-        let task_id = TaskId::new(1);
+        let task_id = TaskId::new(1, 0);
         let mut promise = Promise::new(task_id);
 
         let error = "test error".to_string();
