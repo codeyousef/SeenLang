@@ -52,16 +52,12 @@ pub struct MessageHandler {
 /// Running actor instance
 #[derive(Debug)]
 pub struct ActorInstance {
-    /// Unique actor identifier
-    pub id: ActorId,
-    /// Actor type name
-    pub actor_type: String,
+    /// Actor handle with generational tracking
+    pub handle: ActorRef,
     /// Actor definition reference
     pub definition: Arc<ActorDefinition>,
     /// Actor state (mutable variables)
     pub state: HashMap<String, AsyncValue>,
-    /// Actor mailbox for receiving messages
-    pub mailbox: Arc<Mailbox>,
     /// Actor execution state
     pub execution_state: ActorExecutionState,
     /// Current supervisor actor
@@ -163,8 +159,8 @@ pub struct ActorSystem {
     actors: HashMap<ActorId, ActorInstance>,
     /// Actor definitions (types)
     definitions: HashMap<String, Arc<ActorDefinition>>,
-    /// Next available actor ID
-    next_actor_id: u64,
+    /// Next request identifier (used for request/reply correlation)
+    next_request_id: u64,
     /// System supervisor (root actor)
     system_supervisor: Option<ActorId>,
     /// Dead letter queue for undeliverable messages
@@ -294,12 +290,12 @@ impl ActorInstance {
             capacity: Some(1000), // Default capacity
         });
 
+        let handle = ActorRef::new(id, definition.name.clone(), Arc::clone(&mailbox));
+
         Self {
-            id,
-            actor_type: definition.name.clone(),
+            handle,
             definition,
             state: initial_state,
-            mailbox,
             execution_state: ActorExecutionState::Ready,
             supervisor: None,
             children: Vec::new(),
@@ -311,6 +307,26 @@ impl ActorInstance {
                 created_at: SystemTime::now(),
             },
         }
+    }
+
+    /// Actor identifier shortcut
+    pub fn id(&self) -> ActorId {
+        self.handle.id()
+    }
+
+    /// Actor type name
+    pub fn actor_type(&self) -> &str {
+        self.handle.actor_type()
+    }
+
+    /// Access the mailbox if the handle is still valid
+    pub fn mailbox(&self) -> Result<Arc<Mailbox>, String> {
+        self.handle.mailbox()
+    }
+
+    /// Invalidate the underlying handle (used when actor stops)
+    pub fn invalidate(&self) {
+        self.handle.invalidate();
     }
 
     /// Process a message using the appropriate handler
@@ -443,11 +459,7 @@ impl ActorInstance {
 
     /// Get actor reference
     pub fn actor_ref(&self) -> ActorRef {
-        ActorRef {
-            id: self.id,
-            actor_type: self.actor_type.clone(),
-            mailbox: self.mailbox.clone(),
-        }
+        self.handle.refreshed()
     }
 }
 
@@ -457,7 +469,7 @@ impl ActorSystem {
         Self {
             actors: HashMap::new(),
             definitions: HashMap::new(),
-            next_actor_id: 1,
+            next_request_id: 1,
             system_supervisor: None,
             dead_letters: VecDeque::new(),
             config: ActorSystemConfig::default(),
@@ -469,7 +481,7 @@ impl ActorSystem {
         Self {
             actors: HashMap::new(),
             definitions: HashMap::new(),
-            next_actor_id: 1,
+            next_request_id: 1,
             system_supervisor: None,
             dead_letters: VecDeque::new(),
             config,
@@ -518,8 +530,7 @@ impl ActorSystem {
             .clone();
 
         // Create new actor ID
-        let actor_id = ActorId::new(self.next_actor_id);
-        self.next_actor_id += 1;
+        let actor_id = ActorId::allocate();
 
         // Initialize actor state from parameters
         let initial_state = self.initialize_actor_state(&definition, init_params)?;
@@ -529,7 +540,7 @@ impl ActorSystem {
         let actor_ref = actor.actor_ref();
 
         // Register actor
-        self.actors.insert(actor_id, actor);
+        self.actors.insert(actor_ref.id(), actor);
 
         Ok(actor_ref)
     }
@@ -559,8 +570,8 @@ impl ActorSystem {
         payload: AsyncValue,
         requester: ActorId,
     ) -> Result<u64, AsyncError> {
-        let request_id = self.next_actor_id; // Reuse ID counter for requests
-        self.next_actor_id += 1;
+        let request_id = self.next_request_id; // Reuse counter for request correlation
+        self.next_request_id += 1;
 
         let actor_message = ActorMessage {
             sender: Some(requester),
@@ -581,25 +592,34 @@ impl ActorSystem {
         message: ActorMessage,
     ) -> Result<(), AsyncError> {
         if let Some(actor) = self.actors.get(&target) {
-            // Check mailbox capacity
-            let mut mailbox = actor.mailbox.messages.lock().unwrap();
+            if let Ok(mailbox_arc) = actor.mailbox() {
+                // Check mailbox capacity
+                let mut mailbox = mailbox_arc.messages.lock().unwrap();
 
-            if let Some(capacity) = actor.mailbox.capacity {
-                if mailbox.len() >= capacity {
-                    // Mailbox full - add to dead letters
-                    self.dead_letters.push_back(message);
-                    if self.dead_letters.len() > self.config.dead_letter_capacity {
-                        self.dead_letters.pop_front();
+                if let Some(capacity) = mailbox_arc.capacity {
+                    if mailbox.len() >= capacity {
+                        // Mailbox full - add to dead letters
+                        self.dead_letters.push_back(message);
+                        if self.dead_letters.len() > self.config.dead_letter_capacity {
+                            self.dead_letters.pop_front();
+                        }
+                        return Err(AsyncError::ActorError {
+                            reason: "Actor mailbox is full".to_string(),
+                            position: Position::new(0, 0, 0),
+                        });
                     }
-                    return Err(AsyncError::ActorError {
-                        reason: "Actor mailbox is full".to_string(),
-                        position: Position::new(0, 0, 0),
-                    });
                 }
-            }
 
-            mailbox.push_back(message);
-            Ok(())
+                mailbox.push_back(message);
+                Ok(())
+            } else {
+                // Handle stale references by dropping message into dead letters
+                self.dead_letters.push_back(message);
+                Err(AsyncError::ActorError {
+                    reason: "Actor handle is no longer valid".to_string(),
+                    position: Position::new(0, 0, 0),
+                })
+            }
         } else {
             // Actor not found - add to dead letters
             self.dead_letters.push_back(message);
@@ -628,12 +648,16 @@ impl ActorSystem {
 
         // Get messages from mailbox
         let messages = if let Some(actor) = self.actors.get(&actor_id) {
-            let mut mailbox = actor.mailbox.messages.lock().unwrap();
-            let mut messages = Vec::new();
-            while let Some(message) = mailbox.pop_front() {
-                messages.push(message);
+            if let Ok(mailbox_arc) = actor.mailbox() {
+                let mut mailbox = mailbox_arc.messages.lock().unwrap();
+                let mut messages = Vec::new();
+                while let Some(message) = mailbox.pop_front() {
+                    messages.push(message);
+                }
+                messages
+            } else {
+                Vec::new()
             }
-            messages
         } else {
             return Ok(0);
         };
@@ -702,12 +726,13 @@ impl ActorSystem {
     /// Stop an actor
     pub fn stop_actor(&mut self, actor_id: ActorId) -> Result<(), AsyncError> {
         if let Some(mut actor) = self.actors.remove(&actor_id) {
+            actor.invalidate();
             actor.execution_state = ActorExecutionState::Stopped;
             // Actor has been stopped - notify supervisor if present
             if let Some(supervisor) = actor.supervisor {
                 let stopped_msg = ActorMessage {
-                    sender: Some(actor.id),
-                    content: AsyncValue::String(format!("ActorStopped: {:?}", actor.id)),
+                    sender: Some(actor.id()),
+                    content: AsyncValue::String(format!("ActorStopped: {:?}", actor.id())),
                     timestamp: std::time::SystemTime::now(),
                     priority: TaskPriority::Normal,
                 };
@@ -717,7 +742,7 @@ impl ActorSystem {
             // Notify children that parent is stopping
             for child_id in actor.children.clone() {
                 let parent_stopped = ActorMessage {
-                    sender: Some(actor.id),
+                    sender: Some(actor.id()),
                     content: AsyncValue::String("ParentStopped".to_string()),
                     timestamp: std::time::SystemTime::now(),
                     priority: TaskPriority::High,
@@ -860,7 +885,7 @@ mod tests {
 
         // Spawn actor
         let actor_ref = system.spawn_actor("TestActor", Vec::new()).unwrap();
-        assert_eq!(actor_ref.actor_type, "TestActor");
+        assert_eq!(actor_ref.actor_type(), "TestActor");
         assert_eq!(system.actors.len(), 1);
     }
 
@@ -881,7 +906,7 @@ mod tests {
 
         // Send message
         let result = system.send_message(
-            actor_ref.id,
+            actor_ref.id(),
             "TestMessage".to_string(),
             AsyncValue::String("payload".to_string()),
         );

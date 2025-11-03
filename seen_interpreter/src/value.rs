@@ -43,7 +43,7 @@ pub enum Value {
     /// Task ID for spawned tasks
     Task(TaskId),
     /// Channel for message passing
-    Channel(Arc<Channel>),
+    Channel(Channel),
     /// Actor reference for actor model concurrency
     Actor(ActorRef),
     /// Effect definition
@@ -147,8 +147,8 @@ impl Value {
                 }
             }
             Value::Task(task_id) => format!("<Task {}>", task_id.id()),
-            Value::Channel(channel) => format!("<Channel {}>", channel.id.id()),
-            Value::Actor(actor_ref) => format!("<Actor {}>", actor_ref.id.id()),
+            Value::Channel(channel) => format!("<Channel {}>", channel.id().id()),
+            Value::Actor(actor_ref) => format!("<Actor {}>", actor_ref.id().id()),
             Value::Effect(effect) => format!("<Effect {}>", effect.name),
             Value::EffectHandle { effect_id, .. } => format!("<EffectHandle {}>", effect_id.id()),
             Value::Observable(_) => "<Observable>".to_string(),
@@ -397,8 +397,8 @@ impl PartialEq for Value {
             (Value::Function { name: n1, .. }, Value::Function { name: n2, .. }) => n1 == n2,
             (Value::Promise(a), Value::Promise(b)) => std::sync::Arc::ptr_eq(a, b),
             (Value::Task(a), Value::Task(b)) => a == b,
-            (Value::Channel(a), Value::Channel(b)) => Arc::ptr_eq(a, b),
-            (Value::Actor(a), Value::Actor(b)) => a.id == b.id,
+            (Value::Channel(a), Value::Channel(b)) => a == b,
+            (Value::Actor(a), Value::Actor(b)) => a == b,
             (Value::Effect(a), Value::Effect(b)) => Arc::ptr_eq(a, b),
             (
                 Value::EffectHandle { effect_id: id1, .. },

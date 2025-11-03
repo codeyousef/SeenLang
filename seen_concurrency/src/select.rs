@@ -524,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_select_expression_creation() {
-        let channel_id = ChannelId::new(1);
+        let channel_id = ChannelId::new(1, 0);
         let handler = Expression::IntegerLiteral {
             value: 42,
             pos: Position::new(1, 1, 0),
@@ -546,7 +546,7 @@ mod tests {
         assert!(empty_select.validate().is_err());
 
         // Select with cases should pass
-        let channel_id = ChannelId::new(1);
+        let channel_id = ChannelId::new(1, 0);
         let cases = vec![SelectCase::Receive {
             channel_id,
             pattern: "value".to_string(),
@@ -563,8 +563,8 @@ mod tests {
 
     #[test]
     fn test_select_builder_syntax() {
-        let channel_id1 = ChannelId::new(1);
-        let channel_id2 = ChannelId::new(2);
+        let channel_id1 = ChannelId::new(1, 0);
+        let channel_id2 = ChannelId::new(2, 0);
         let handler = Expression::IntegerLiteral {
             value: 42,
             pos: Position::new(1, 1, 0),

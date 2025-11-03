@@ -3,6 +3,7 @@
 use seen_lexer::position::Position;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Unique identifier for async tasks
@@ -138,7 +139,7 @@ pub enum AsyncValue {
     /// Promise for future value
     Promise(Arc<Promise>),
     /// Channel for communication
-    Channel(Arc<Channel>),
+    Channel(Channel),
     /// Actor reference
     Actor(ActorRef),
     /// Error value representing a failed operation
@@ -163,8 +164,8 @@ impl PartialEq for AsyncValue {
             (AsyncValue::Pending, AsyncValue::Pending) => true,
             // For complex types with Arc, compare by pointer identity
             (AsyncValue::Promise(a), AsyncValue::Promise(b)) => Arc::ptr_eq(a, b),
-            (AsyncValue::Channel(a), AsyncValue::Channel(b)) => Arc::ptr_eq(a, b),
-            (AsyncValue::Actor(a), AsyncValue::Actor(b)) => a.id == b.id,
+            (AsyncValue::Channel(a), AsyncValue::Channel(b)) => a == b,
+            (AsyncValue::Actor(a), AsyncValue::Actor(b)) => a == b,
             _ => false,
         }
     }
@@ -320,36 +321,235 @@ impl Promise {
     }
 }
 
-/// Channel for async message passing
+/// Shared state for a channel; kept behind an `Arc` so handles can cheaply clone.
 #[derive(Debug)]
-pub struct Channel {
-    /// Channel ID
-    pub id: ChannelId,
-    /// Channel capacity (None for unbounded)
-    pub capacity: Option<usize>,
-    /// Channel state
-    pub state: ChannelState,
-    /// Message queue
-    pub queue: Arc<Mutex<VecDeque<AsyncValue>>>,
-    /// Sender count
-    pub sender_count: usize,
-    /// Receiver count
-    pub receiver_count: usize,
+struct ChannelInner {
+    slot: u32,
+    capacity: Option<usize>,
+    state: Mutex<ChannelState>,
+    queue: Mutex<VecDeque<AsyncValue>>,
+    generation: AtomicU32,
 }
+
+impl ChannelInner {
+    fn new(slot: u32, capacity: Option<usize>, generation: u32) -> Self {
+        Self {
+            slot,
+            capacity,
+            state: Mutex::new(ChannelState::Open),
+            queue: Mutex::new(VecDeque::new()),
+            generation: AtomicU32::new(generation),
+        }
+    }
+}
+
+/// Channel handle for async message passing with generational safety.
+#[derive(Debug, Clone)]
+pub struct Channel {
+    inner: Arc<ChannelInner>,
+    expected_generation: u32,
+}
+
+impl Channel {
+    fn ensure_fresh(&self) -> Result<(), String> {
+        let current = self.inner.generation.load(Ordering::SeqCst);
+        if current != self.expected_generation {
+            Err("Stale channel handle".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Create a new channel handle for the provided identifier/capacity.
+    pub fn new(id: ChannelId, capacity: Option<usize>) -> Self {
+        let inner = Arc::new(ChannelInner::new(id.slot(), capacity, id.generation()));
+        Self {
+            inner,
+            expected_generation: id.generation(),
+        }
+    }
+
+    fn refresh(&self) -> Self {
+        let generation = self.inner.generation.load(Ordering::SeqCst);
+        Self {
+            inner: Arc::clone(&self.inner),
+            expected_generation: generation,
+        }
+    }
+
+    /// Access the channel identifier (slot + current generation).
+    pub fn id(&self) -> ChannelId {
+        ChannelId::new(
+            self.inner.slot,
+            self.inner.generation.load(Ordering::SeqCst),
+        )
+    }
+
+    /// Channel capacity (None for unbounded).
+    pub fn capacity(&self) -> Option<usize> {
+        self.inner.capacity
+    }
+
+    /// Send a value to the channel (blocking semantics).
+    pub fn send(&self, value: AsyncValue) -> Result<(), String> {
+        self.ensure_fresh()?;
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Channel state poisoned".to_string())?;
+
+        match &mut *state {
+            ChannelState::Open => {
+                let mut queue = self
+                    .inner
+                    .queue
+                    .lock()
+                    .map_err(|_| "Channel queue poisoned".to_string())?;
+
+                if let Some(cap) = self.inner.capacity {
+                    if queue.len() >= cap {
+                        return Err("Channel is full".to_string());
+                    }
+                }
+
+                queue.push_back(value);
+                Ok(())
+            }
+            ChannelState::Closed => Err("Channel is closed".to_string()),
+            ChannelState::Error(err) => Err(err.clone()),
+        }
+    }
+
+    /// Try to receive a value from the channel without blocking.
+    pub fn try_recv(&self) -> Result<AsyncValue, String> {
+        self.ensure_fresh()?;
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Channel state poisoned".to_string())?;
+
+        match &*state {
+            ChannelState::Open => {
+                let mut queue = self
+                    .inner
+                    .queue
+                    .lock()
+                    .map_err(|_| "Channel queue poisoned".to_string())?;
+                queue
+                    .pop_front()
+                    .ok_or_else(|| "No message available".to_string())
+            }
+            ChannelState::Closed => {
+                let mut queue = self
+                    .inner
+                    .queue
+                    .lock()
+                    .map_err(|_| "Channel queue poisoned".to_string())?;
+                queue
+                    .pop_front()
+                    .ok_or_else(|| "Channel is closed".to_string())
+            }
+            ChannelState::Error(err) => Err(err.clone()),
+        }
+    }
+
+    /// Mark the channel as closed and invalidate existing handles.
+    pub fn close(&self) {
+        if self.ensure_fresh().is_err() {
+            return;
+        }
+
+        if let Ok(mut state) = self.inner.state.lock() {
+            *state = ChannelState::Closed;
+            self.inner.generation.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Check if the channel currently has zero buffered messages.
+    pub fn is_empty(&self) -> bool {
+        if self.ensure_fresh().is_err() {
+            return true;
+        }
+        self.inner
+            .queue
+            .lock()
+            .map(|queue| queue.is_empty())
+            .unwrap_or(true)
+    }
+
+    /// Buffered message count (0 on stale handles).
+    pub fn len(&self) -> usize {
+        if self.ensure_fresh().is_err() {
+            return 0;
+        }
+        self.inner
+            .queue
+            .lock()
+            .map(|queue| queue.len())
+            .unwrap_or(0)
+    }
+
+    /// Internal helper to propagate an updated generation after structural changes.
+    pub fn with_refreshed_generation(&self) -> Self {
+        self.refresh()
+    }
+}
+
+impl PartialEq for Channel {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+            && self.expected_generation == other.expected_generation
+    }
+}
+
+impl Eq for Channel {}
 
 /// Unique identifier for channels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChannelId(u64);
+pub struct ChannelId {
+    slot: u32,
+    generation: u32,
+}
 
 impl ChannelId {
-    /// Create a new channel ID
-    pub fn new(id: u64) -> Self {
-        Self(id)
+    /// Allocate a brand-new channel identifier.
+    pub fn allocate() -> Self {
+        static NEXT_SLOT: AtomicU32 = AtomicU32::new(1);
+        let slot = NEXT_SLOT.fetch_add(1, Ordering::SeqCst);
+        Self {
+            slot,
+            generation: 0,
+        }
     }
 
-    /// Get the numeric ID
+    /// Construct from explicit slot/generation parts.
+    pub fn new(slot: u32, generation: u32) -> Self {
+        Self { slot, generation }
+    }
+
+    /// Slot component of the identifier.
+    pub fn slot(&self) -> u32 {
+        self.slot
+    }
+
+    /// Generation component of the identifier.
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// Encode as a u64 (generation in the high 32 bits).
     pub fn id(&self) -> u64 {
-        self.0
+        ((self.generation as u64) << 32) | self.slot as u64
+    }
+
+    /// Produce the next generation for this slot.
+    pub fn next_generation(self) -> Self {
+        Self {
+            slot: self.slot,
+            generation: self.generation.wrapping_add(1),
+        }
     }
 }
 
@@ -364,121 +564,144 @@ pub enum ChannelState {
     Error(String),
 }
 
-impl Channel {
-    /// Create a new channel
-    pub fn new(id: ChannelId, capacity: Option<usize>) -> Self {
+/// Shared state for an actor reference with generational tracking
+#[derive(Debug)]
+struct ActorInner {
+    slot: u32,
+    actor_type: String,
+    mailbox: Arc<Mailbox>,
+    generation: AtomicU32,
+}
+
+impl ActorInner {
+    fn new(slot: u32, actor_type: String, mailbox: Arc<Mailbox>, generation: u32) -> Self {
         Self {
-            id,
-            capacity,
-            state: ChannelState::Open,
-            queue: Arc::new(Mutex::new(VecDeque::new())),
-            sender_count: 0,
-            receiver_count: 0,
+            slot,
+            actor_type,
+            mailbox,
+            generation: AtomicU32::new(generation),
         }
-    }
-
-    /// Send a value to the channel (blocking)
-    pub fn send(&self, value: AsyncValue) -> Result<(), String> {
-        match self.state {
-            ChannelState::Open => {
-                let mut queue = self.queue.lock().unwrap();
-
-                // Check capacity constraints
-                if let Some(cap) = self.capacity {
-                    if queue.len() >= cap {
-                        return Err("Channel is full".to_string());
-                    }
-                }
-
-                // Add message to queue
-                queue.push_back(value);
-                Ok(())
-            }
-            ChannelState::Closed => Err("Channel is closed".to_string()),
-            ChannelState::Error(ref err) => Err(err.clone()),
-        }
-    }
-
-    /// Try to receive a value from the channel (non-blocking)
-    pub fn try_recv(&self) -> Result<AsyncValue, String> {
-        match self.state {
-            ChannelState::Open => {
-                let mut queue = self.queue.lock().unwrap();
-
-                // Try to get a message from the queue
-                if let Some(value) = queue.pop_front() {
-                    Ok(value)
-                } else {
-                    Err("No message available".to_string())
-                }
-            }
-            ChannelState::Closed => {
-                // Even if closed, return any remaining messages
-                let mut queue = self.queue.lock().unwrap();
-                if let Some(value) = queue.pop_front() {
-                    Ok(value)
-                } else {
-                    Err("Channel is closed".to_string())
-                }
-            }
-            ChannelState::Error(ref err) => Err(err.clone()),
-        }
-    }
-
-    /// Close the channel
-    pub fn close(&mut self) {
-        self.state = ChannelState::Closed;
-    }
-
-    /// Check if the channel is empty
-    pub fn is_empty(&self) -> bool {
-        self.queue.lock().unwrap().is_empty()
-    }
-
-    /// Get the current number of messages in the queue
-    pub fn len(&self) -> usize {
-        self.queue.lock().unwrap().len()
-    }
-
-    /// Check if the channel is at capacity
-    pub fn is_full(&self) -> bool {
-        if let Some(cap) = self.capacity {
-            self.len() >= cap
-        } else {
-            false // Unbounded channels are never full
-        }
-    }
-
-    /// Check if channel is open
-    pub fn is_open(&self) -> bool {
-        matches!(self.state, ChannelState::Open)
     }
 }
 
 /// Actor reference for message-based concurrency
 #[derive(Debug, Clone)]
 pub struct ActorRef {
-    /// Actor ID
-    pub id: ActorId,
-    /// Actor type name
-    pub actor_type: String,
-    /// Mailbox for receiving messages
-    pub mailbox: Arc<Mailbox>,
+    inner: Arc<ActorInner>,
+    expected_generation: u32,
 }
+
+impl ActorRef {
+    fn ensure_fresh(&self) -> Result<(), String> {
+        let current = self.inner.generation.load(Ordering::SeqCst);
+        if current != self.expected_generation {
+            Err("Stale actor handle".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Create a new actor reference from its components.
+    pub fn new(id: ActorId, actor_type: String, mailbox: Arc<Mailbox>) -> Self {
+        let inner = Arc::new(ActorInner::new(
+            id.slot(),
+            actor_type,
+            mailbox,
+            id.generation(),
+        ));
+        Self {
+            inner,
+            expected_generation: id.generation(),
+        }
+    }
+
+    /// Actor identifier for this handle.
+    pub fn id(&self) -> ActorId {
+        ActorId::new(
+            self.inner.slot,
+            self.inner.generation.load(Ordering::SeqCst),
+        )
+    }
+
+    /// Actor type name (for diagnostics).
+    pub fn actor_type(&self) -> &str {
+        &self.inner.actor_type
+    }
+
+    /// Access the actor mailbox (cloned Arc).
+    pub fn mailbox(&self) -> Result<Arc<Mailbox>, String> {
+        self.ensure_fresh()?;
+        Ok(Arc::clone(&self.inner.mailbox))
+    }
+
+    /// Invalidate this handle (e.g., when actor stops).
+    pub fn invalidate(&self) {
+        self.inner.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Produce a refreshed handle tracking the current generation.
+    pub fn refreshed(&self) -> Self {
+        let generation = self.inner.generation.load(Ordering::SeqCst);
+        Self {
+            inner: Arc::clone(&self.inner),
+            expected_generation: generation,
+        }
+    }
+}
+
+impl PartialEq for ActorRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+            && self.expected_generation == other.expected_generation
+    }
+}
+
+impl Eq for ActorRef {}
 
 /// Unique identifier for actors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ActorId(u64);
+pub struct ActorId {
+    slot: u32,
+    generation: u32,
+}
 
 impl ActorId {
-    /// Create a new actor ID
-    pub fn new(id: u64) -> Self {
-        Self(id)
+    /// Allocate a unique actor identifier.
+    pub fn allocate() -> Self {
+        static NEXT_SLOT: AtomicU32 = AtomicU32::new(1);
+        let slot = NEXT_SLOT.fetch_add(1, Ordering::SeqCst);
+        Self {
+            slot,
+            generation: 0,
+        }
     }
 
-    /// Get the numeric ID
+    /// Construct from explicit slot/generation components.
+    pub fn new(slot: u32, generation: u32) -> Self {
+        Self { slot, generation }
+    }
+
+    /// Slot component of the identifier.
+    pub fn slot(&self) -> u32 {
+        self.slot
+    }
+
+    /// Generation component of the identifier.
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// Encode as a 64-bit identifier.
     pub fn id(&self) -> u64 {
-        self.0
+        ((self.generation as u64) << 32) | self.slot as u64
+    }
+
+    /// Produce the next generation for this actor slot.
+    pub fn next_generation(self) -> Self {
+        Self {
+            slot: self.slot,
+            generation: self.generation.wrapping_add(1),
+        }
     }
 }
 
@@ -538,6 +761,8 @@ pub enum ActorOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
 
     #[test]
     fn test_task_id_creation() {
@@ -624,13 +849,37 @@ mod tests {
 
     #[test]
     fn test_channel_id() {
-        let id = ChannelId::new(123);
-        assert_eq!(id.id(), 123);
+        let id = ChannelId::new(123, 5);
+        assert_eq!(id.slot(), 123);
+        assert_eq!(id.generation(), 5);
+        assert_eq!(id.id(), ((5u64) << 32) | 123);
     }
 
     #[test]
     fn test_actor_id() {
-        let id = ActorId::new(456);
-        assert_eq!(id.id(), 456);
+        let id = ActorId::new(456, 2);
+        assert_eq!(id.slot(), 456);
+        assert_eq!(id.generation(), 2);
+        assert_eq!(id.id(), ((2u64) << 32) | 456);
+    }
+
+    #[test]
+    fn channel_handle_invalidated_on_close() {
+        let id = ChannelId::allocate();
+        let channel = Channel::new(id, None);
+        channel.close();
+        let result = channel.try_recv();
+        assert!(matches!(result, Err(err) if err.contains("Stale")));
+    }
+
+    #[test]
+    fn actor_ref_invalidated_blocks_mailbox_access() {
+        let mailbox = Arc::new(Mailbox {
+            messages: Mutex::new(VecDeque::new()),
+            capacity: None,
+        });
+        let actor_ref = ActorRef::new(ActorId::new(10, 0), "TestActor".to_string(), mailbox);
+        actor_ref.invalidate();
+        assert!(actor_ref.mailbox().is_err());
     }
 }

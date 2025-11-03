@@ -88,8 +88,6 @@ pub struct Interpreter {
     return_value: Option<Value>,
     /// Task counter for generating unique task IDs
     task_counter: std::sync::atomic::AtomicU64,
-    /// Actor counter for generating unique actor IDs
-    actor_counter: std::sync::atomic::AtomicU64,
 }
 
 impl Interpreter {
@@ -103,7 +101,6 @@ impl Interpreter {
             return_flag: false,
             return_value: None,
             task_counter: std::sync::atomic::AtomicU64::new(1),
-            actor_counter: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -1400,20 +1397,12 @@ impl Interpreter {
         pos: Position,
     ) -> InterpreterResult<Value> {
         // Generate unique actor ID
-        let actor_id_value = self
-            .actor_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let actor_id = seen_concurrency::types::ActorId::new(actor_id_value);
-
-        let actor_system = self.runtime.actor_system();
-        let actor_ref = seen_concurrency::types::ActorRef {
-            id: actor_id,
-            actor_type: name.to_string(),
-            mailbox: Arc::new(seen_concurrency::types::Mailbox {
-                messages: std::sync::Mutex::new(std::collections::VecDeque::new()),
-                capacity: None,
-            }),
-        };
+        let actor_id = seen_concurrency::types::ActorId::allocate();
+        let mailbox = Arc::new(seen_concurrency::types::Mailbox {
+            messages: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            capacity: None,
+        });
+        let actor_ref = seen_concurrency::types::ActorRef::new(actor_id, name.to_string(), mailbox);
 
         Ok(Value::Actor(actor_ref))
     }
@@ -1445,14 +1434,19 @@ impl Interpreter {
                 };
 
                 // Add message to actor's mailbox
-                if let Ok(mut mailbox) = actor_ref.mailbox.messages.lock() {
-                    mailbox.push_back(message);
-                    Ok(Value::Boolean(true)) // Success
-                } else {
-                    Err(InterpreterError::runtime(
-                        "Failed to access actor mailbox",
-                        pos,
-                    ))
+                match actor_ref.mailbox() {
+                    Ok(mailbox_arc) => {
+                        if let Ok(mut mailbox) = mailbox_arc.messages.lock() {
+                            mailbox.push_back(message);
+                            Ok(Value::Boolean(true)) // Success
+                        } else {
+                            Err(InterpreterError::runtime(
+                                "Failed to access actor mailbox",
+                                pos,
+                            ))
+                        }
+                    }
+                    Err(err) => Err(InterpreterError::runtime(&err, pos)),
                 }
             }
             Value::Channel(channel) => {
@@ -1493,7 +1487,7 @@ impl Interpreter {
                 Value::Array(values)
             }
             AsyncValue::Promise(promise) => Value::Promise(Arc::clone(promise)),
-            AsyncValue::Channel(channel) => Value::Channel(Arc::clone(channel)),
+            AsyncValue::Channel(channel) => Value::Channel(channel.clone()),
             AsyncValue::Actor(actor) => Value::Actor(actor.clone()),
             AsyncValue::Error => Value::Null, // Map error to null for now
             AsyncValue::Pending => Value::Unit, // Map pending to unit
@@ -1858,7 +1852,7 @@ impl Interpreter {
                 AsyncValue::Array(async_values)
             }
             Value::Promise(promise) => AsyncValue::Promise(Arc::clone(promise)),
-            Value::Channel(channel) => AsyncValue::Channel(Arc::clone(channel)),
+            Value::Channel(channel) => AsyncValue::Channel(channel.clone()),
             Value::Actor(actor) => AsyncValue::Actor(actor.clone()),
             _ => AsyncValue::Unit, // Other types map to Unit for now
         }

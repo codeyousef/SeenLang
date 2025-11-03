@@ -97,8 +97,6 @@ pub enum ReceiveResult<T> {
 pub struct ChannelManager {
     /// All channels indexed by ID
     channels: HashMap<ChannelId, Box<dyn ChannelTrait>>,
-    /// Next available channel ID
-    next_channel_id: u64,
     /// Select operation registry
     select_operations: HashMap<SelectId, SelectOperation>,
     /// Next available select ID
@@ -175,7 +173,7 @@ where
 {
     /// Create a new channel with optional capacity
     pub fn new(capacity: Option<usize>) -> (ChannelSender<T>, ChannelReceiver<T>) {
-        let id = ChannelId::new(rand::random::<u64>());
+        let id = ChannelId::allocate();
 
         let channel = Arc::new(Channel {
             id,
@@ -446,7 +444,6 @@ impl ChannelManager {
     pub fn new() -> Self {
         Self {
             channels: HashMap::new(),
-            next_channel_id: 1,
             select_operations: HashMap::new(),
             next_select_id: 1,
         }
@@ -583,23 +580,12 @@ pub fn create_channel_from_type(
     // For now, create a generic channel that holds AsyncValue
     let (sender, receiver) = Channel::<AsyncValue>::new(capacity);
 
+    let sender_handle = crate::types::Channel::new(sender.channel.id, capacity);
+    let receiver_handle = crate::types::Channel::new(receiver.channel.id, capacity);
+
     Ok((
-        AsyncValue::Channel(Arc::new(crate::types::Channel {
-            id: sender.channel.id,
-            capacity,
-            state: crate::types::ChannelState::Open,
-            queue: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
-            sender_count: 1,
-            receiver_count: 1,
-        })),
-        AsyncValue::Channel(Arc::new(crate::types::Channel {
-            id: receiver.channel.id,
-            capacity,
-            state: crate::types::ChannelState::Open,
-            queue: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
-            sender_count: 1,
-            receiver_count: 1,
-        })),
+        AsyncValue::Channel(sender_handle),
+        AsyncValue::Channel(receiver_handle),
     ))
 }
 

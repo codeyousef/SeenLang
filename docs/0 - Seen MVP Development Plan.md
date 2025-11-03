@@ -33,7 +33,9 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
 - [ ] **RAII `defer` + generational refs runtime**
   - ✅ Interpreter defer stack + scope unwinding complete (`seen_interpreter` + tests).
   - ✅ Task runtime now uses generational handles with stale-handle tests in `seen_concurrency`.
-  - ⏳ Extend generational validation to channel/actor handles and mirror support in LLVM backend.
+  - ✅ Channel handles: generational IDs + validation in runtime/interpreter.
+  - ✅ Actor handles: generational IDs and stale-handle detection integrated with actor system.
+  - [ ] LLVM backend/runtime parity so compiled stages enforce the same invariants.
 - [ ] **Deterministic IR emission**
   - Ensure IR generator/optimizer emit sorted structures (no HashMap iteration).
   - Add regression test that hashes IR for the same input twice and matches.
