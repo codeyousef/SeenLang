@@ -7,7 +7,9 @@ use seen_interpreter::Interpreter;
 use seen_ir::{IRGenerator, IROptimizer, OptimizationLevel};
 use seen_lexer::{KeywordManager, Lexer, LexerConfig, TokenType, VisibilityPolicy};
 use seen_memory_manager::MemoryManager;
-use seen_parser::{Expression, Parser as SeenParser, Program, Type};
+use seen_parser::{
+    precedence, BinaryOperator, Expression, Parser as SeenParser, Program, Type, UnaryOperator,
+};
 use seen_support::{SeenError, SeenErrorKind, SeenResult};
 use seen_typechecker::TypeChecker;
 use serde::Deserialize;
@@ -1297,16 +1299,12 @@ impl CodeFormatter {
     }
 
     fn format_program(&mut self, program: &Program) -> String {
-        for expression in &program.expressions {
+        for (idx, expression) in program.expressions.iter().enumerate() {
+            if idx > 0 {
+                self.output.push('\n');
+            }
             self.format_expression(expression);
-            self.output.push('\n');
         }
-
-        // Remove trailing newline
-        if self.output.ends_with('\n') {
-            self.output.pop();
-        }
-
         self.output.clone()
     }
 
@@ -1412,7 +1410,7 @@ impl CodeFormatter {
             } => {
                 self.add_indent();
                 self.output.push_str("if ");
-                self.format_expression(condition);
+                self.format_expression_prec(condition, precedence::PRIMARY);
                 self.output.push_str(" {\n");
                 self.indent_level += 1;
                 self.format_expression(then_branch);
@@ -1432,44 +1430,11 @@ impl CodeFormatter {
                 }
             }
 
-            Expression::Call { callee, args, .. } => {
-                self.format_expression(callee);
-                self.output.push('(');
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        self.output.push_str(", ");
-                    }
-                    self.format_expression(arg);
-                }
-                self.output.push(')');
-            }
-
-            Expression::Identifier { name, .. } => {
-                self.output.push_str(name);
-            }
-
-            Expression::StringLiteral { value, .. } => {
-                self.output.push('"');
-                self.output.push_str(value);
-                self.output.push('"');
-            }
-
-            Expression::IntegerLiteral { value, .. } => {
-                self.output.push_str(&value.to_string());
-            }
-
-            Expression::BooleanLiteral { value, .. } => {
-                self.output.push_str(if *value { "true" } else { "false" });
-            }
-
-            Expression::BinaryOp {
-                left, op, right, ..
-            } => {
-                self.format_expression(left);
-                self.output.push(' ');
-                self.output.push_str(&format!("{:?}", op).to_lowercase());
-                self.output.push(' ');
-                self.format_expression(right);
+            Expression::Assignment { target, value, .. } => {
+                self.add_indent();
+                self.format_expression_prec(target, precedence::LOGICAL_OR);
+                self.output.push_str(" = ");
+                self.format_expression_prec(value, precedence::LOGICAL_OR);
             }
 
             Expression::Return { value, .. } => {
@@ -1477,19 +1442,389 @@ impl CodeFormatter {
                 self.output.push_str("return");
                 if let Some(val) = value {
                     self.output.push(' ');
-                    self.format_expression(val);
+                    self.format_expression_prec(val, precedence::LOGICAL_OR);
                 }
             }
 
-            // Add more expression types as needed
             _ => {
-                // For unhandled expressions, add a placeholder comment
-                self.output
-                    .push_str(&format!("/* {} */", std::any::type_name::<Expression>()));
+                self.add_indent();
+                self.format_expression_prec(expr, precedence::PRIMARY);
             }
         }
 
         self
+    }
+
+    fn format_expression_prec(&mut self, expr: &Expression, parent_prec: u8) -> &mut Self {
+        match expr {
+            Expression::BinaryOp {
+                left, op, right, ..
+            } => self.format_binary_expression(left, op, right, parent_prec),
+            Expression::Elvis {
+                nullable, default, ..
+            } => self.format_elvis_expression(nullable, default, parent_prec),
+            Expression::UnaryOp { op, operand, .. } => {
+                self.format_unary_expression(op, operand, parent_prec)
+            }
+            Expression::Call { callee, args, .. } => {
+                self.format_call_expression(callee, args, parent_prec)
+            }
+            Expression::MemberAccess {
+                object,
+                member,
+                is_safe,
+                ..
+            } => self.format_member_access(object, member, *is_safe, parent_prec),
+            Expression::IndexAccess { object, index, .. } => {
+                self.format_index_expression(object, index, parent_prec)
+            }
+            Expression::ForceUnwrap { nullable, .. } => {
+                let prec = precedence::CALL;
+                let needs_paren = prec < parent_prec;
+                if needs_paren {
+                    self.output.push('(');
+                }
+                self.format_expression_prec(nullable, prec);
+                self.output.push_str("!!");
+                if needs_paren {
+                    self.output.push(')');
+                }
+                self
+            }
+            Expression::Identifier { name, .. } => {
+                self.output.push_str(name);
+                self
+            }
+            Expression::StringLiteral { value, .. } => {
+                self.output.push('"');
+                self.output.push_str(value);
+                self.output.push('"');
+                self
+            }
+            Expression::IntegerLiteral { value, .. } => {
+                self.output.push_str(&value.to_string());
+                self
+            }
+            Expression::FloatLiteral { value, .. } => {
+                self.output.push_str(&value.to_string());
+                self
+            }
+            Expression::BooleanLiteral { value, .. } => {
+                self.output.push_str(if *value { "true" } else { "false" });
+                self
+            }
+            Expression::NullLiteral { .. } => {
+                self.output.push_str("null");
+                self
+            }
+            Expression::ArrayLiteral { elements, .. } => {
+                self.output.push('[');
+                for (i, element) in elements.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.format_expression_prec(element, precedence::PRIMARY);
+                }
+                self.output.push(']');
+                self
+            }
+            Expression::CharLiteral { value, .. } => {
+                self.output.push('\'');
+                self.output.push(*value);
+                self.output.push('\'');
+                self
+            }
+            Expression::Comptime { body, .. } => {
+                self.output.push_str("comptime ");
+                self.format_expression_prec(body, precedence::PRIMARY);
+                self
+            }
+            Expression::Block { expressions, .. } => {
+                self.output.push_str("{\n");
+                self.indent_level += 1;
+                for (idx, expression) in expressions.iter().enumerate() {
+                    if idx > 0 {
+                        self.output.push('\n');
+                    }
+                    self.format_expression(expression);
+                }
+                self.indent_level -= 1;
+                self.output.push('\n');
+                self.add_indent();
+                self.output.push('}');
+                self
+            }
+            Expression::Assignment { target, value, .. } => self.format_binary_like(
+                target,
+                value,
+                parent_prec,
+                precedence::LOGICAL_OR,
+                "=",
+                true,
+                false,
+            ),
+            _ => {
+                self.output
+                    .push_str(&format!("/* {} */", std::any::type_name::<Expression>()));
+                self
+            }
+        }
+    }
+
+    fn format_binary_expression(
+        &mut self,
+        left: &Expression,
+        op: &BinaryOperator,
+        right: &Expression,
+        parent_prec: u8,
+    ) -> &mut Self {
+        let symbol = op.symbol();
+        let prec = op.precedence();
+        let needs_paren = prec < parent_prec;
+        if needs_paren {
+            self.output.push('(');
+        }
+        self.format_child_expression(left, prec, ChildSide::Left, op.is_right_associative());
+        if op.requires_spacing() {
+            self.output.push(' ');
+            self.output.push_str(symbol);
+            self.output.push(' ');
+        } else {
+            self.output.push_str(symbol);
+        }
+        self.format_child_expression(right, prec, ChildSide::Right, op.is_right_associative());
+        if needs_paren {
+            self.output.push(')');
+        }
+        self
+    }
+
+    fn format_elvis_expression(
+        &mut self,
+        nullable: &Expression,
+        default: &Expression,
+        parent_prec: u8,
+    ) -> &mut Self {
+        let prec = precedence::ELVIS;
+        let needs_paren = prec < parent_prec;
+        if needs_paren {
+            self.output.push('(');
+        }
+        self.format_child_expression(nullable, prec, ChildSide::Left, false);
+        self.output.push_str(" ?: ");
+        self.format_child_expression(default, prec, ChildSide::Right, false);
+        if needs_paren {
+            self.output.push(')');
+        }
+        self
+    }
+
+    fn format_unary_expression(
+        &mut self,
+        op: &UnaryOperator,
+        operand: &Expression,
+        parent_prec: u8,
+    ) -> &mut Self {
+        let prec = precedence::UNARY;
+        let needs_paren = prec < parent_prec;
+        if needs_paren {
+            self.output.push('(');
+        }
+        self.output.push_str(op.symbol());
+        if op.requires_trailing_space() {
+            self.output.push(' ');
+        }
+        let operand_prec = Self::expression_precedence(operand);
+        let child_parent = if operand_prec < prec {
+            operand_prec
+        } else {
+            prec
+        };
+        self.format_expression_prec(operand, child_parent);
+        if needs_paren {
+            self.output.push(')');
+        }
+        self
+    }
+
+    fn format_call_expression(
+        &mut self,
+        callee: &Expression,
+        args: &[Expression],
+        parent_prec: u8,
+    ) -> &mut Self {
+        let prec = precedence::CALL;
+        let needs_paren = prec < parent_prec;
+        if needs_paren {
+            self.output.push('(');
+        }
+
+        let callee_prec = Self::expression_precedence(callee);
+        let callee_parent = if callee_prec < prec {
+            callee_prec
+        } else {
+            prec
+        };
+        self.format_expression_prec(callee, callee_parent);
+
+        self.output.push('(');
+        for (idx, arg) in args.iter().enumerate() {
+            if idx > 0 {
+                self.output.push_str(", ");
+            }
+            self.format_expression_prec(arg, precedence::PRIMARY);
+        }
+        self.output.push(')');
+
+        if needs_paren {
+            self.output.push(')');
+        }
+        self
+    }
+
+    fn format_member_access(
+        &mut self,
+        object: &Expression,
+        member: &str,
+        is_safe: bool,
+        parent_prec: u8,
+    ) -> &mut Self {
+        let prec = precedence::CALL;
+        let needs_paren = prec < parent_prec;
+        if needs_paren {
+            self.output.push('(');
+        }
+
+        let object_prec = Self::expression_precedence(object);
+        let object_parent = if object_prec < prec {
+            object_prec
+        } else {
+            prec
+        };
+        self.format_expression_prec(object, object_parent);
+
+        if is_safe {
+            self.output.push_str("?.");
+        } else {
+            self.output.push('.');
+        }
+        self.output.push_str(member);
+
+        if needs_paren {
+            self.output.push(')');
+        }
+        self
+    }
+
+    fn format_index_expression(
+        &mut self,
+        object: &Expression,
+        index: &Expression,
+        parent_prec: u8,
+    ) -> &mut Self {
+        let prec = precedence::CALL;
+        let needs_paren = prec < parent_prec;
+        if needs_paren {
+            self.output.push('(');
+        }
+
+        let object_prec = Self::expression_precedence(object);
+        let object_parent = if object_prec < prec {
+            object_prec
+        } else {
+            prec
+        };
+        self.format_expression_prec(object, object_parent);
+
+        self.output.push('[');
+        self.format_expression_prec(index, precedence::PRIMARY);
+        self.output.push(']');
+
+        if needs_paren {
+            self.output.push(')');
+        }
+        self
+    }
+
+    fn format_binary_like(
+        &mut self,
+        left: &Expression,
+        right: &Expression,
+        parent_prec: u8,
+        prec: u8,
+        symbol: &str,
+        spaced: bool,
+        right_associative: bool,
+    ) -> &mut Self {
+        let needs_paren = prec < parent_prec;
+        if needs_paren {
+            self.output.push('(');
+        }
+        self.format_child_expression(left, prec, ChildSide::Left, right_associative);
+        if spaced {
+            self.output.push(' ');
+            self.output.push_str(symbol);
+            self.output.push(' ');
+        } else {
+            self.output.push_str(symbol);
+        }
+        self.format_child_expression(right, prec, ChildSide::Right, right_associative);
+        if needs_paren {
+            self.output.push(')');
+        }
+        self
+    }
+
+    fn format_child_expression(
+        &mut self,
+        expr: &Expression,
+        parent_prec: u8,
+        side: ChildSide,
+        parent_is_right_associative: bool,
+    ) {
+        let child_prec = Self::expression_precedence(expr);
+        let needs_paren = match side {
+            ChildSide::Left => {
+                child_prec < parent_prec
+                    || (child_prec == parent_prec && parent_is_right_associative)
+            }
+            ChildSide::Right => {
+                child_prec < parent_prec
+                    || (child_prec == parent_prec && !parent_is_right_associative)
+            }
+        };
+
+        let next_parent = if needs_paren { child_prec } else { parent_prec };
+
+        if needs_paren {
+            self.output.push('(');
+        }
+        self.format_expression_prec(expr, next_parent);
+        if needs_paren {
+            self.output.push(')');
+        }
+    }
+
+    fn expression_precedence(expr: &Expression) -> u8 {
+        match expr {
+            Expression::BinaryOp { op, .. } => op.precedence(),
+            Expression::Elvis { .. } => precedence::ELVIS,
+            Expression::UnaryOp { .. } => precedence::UNARY,
+            Expression::Call { .. }
+            | Expression::MemberAccess { .. }
+            | Expression::IndexAccess { .. }
+            | Expression::ForceUnwrap { .. } => precedence::CALL,
+            Expression::Assignment { .. } => precedence::LOGICAL_OR,
+            Expression::ArrayLiteral { .. }
+            | Expression::Identifier { .. }
+            | Expression::IntegerLiteral { .. }
+            | Expression::FloatLiteral { .. }
+            | Expression::BooleanLiteral { .. }
+            | Expression::StringLiteral { .. }
+            | Expression::CharLiteral { .. }
+            | Expression::NullLiteral { .. } => precedence::PRIMARY,
+            _ => precedence::PRIMARY,
+        }
     }
 
     fn add_indent(&mut self) {
@@ -1515,6 +1850,12 @@ impl CodeFormatter {
         }
         self
     }
+}
+
+#[derive(Copy, Clone)]
+enum ChildSide {
+    Left,
+    Right,
 }
 
 /// Discover test files in the given directory tree

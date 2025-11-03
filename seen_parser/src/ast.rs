@@ -11,6 +11,32 @@ pub struct Program {
     pub expressions: Vec<Expression>,
 }
 
+/// Shared operator precedence levels used by the parser and formatter.
+pub mod precedence {
+    /// Lowest precedence level (logical OR).
+    pub const LOGICAL_OR: u8 = 10;
+    /// Logical AND precedence.
+    pub const LOGICAL_AND: u8 = 20;
+    /// Equality operators (==, !=).
+    pub const EQUALITY: u8 = 30;
+    /// Comparison operators (<, <=, >, >=).
+    pub const COMPARISON: u8 = 40;
+    /// Range operators (`..`, `..<`).
+    pub const RANGE: u8 = 45;
+    /// Elvis operator (`?:`).
+    pub const ELVIS: u8 = 50;
+    /// Additive operators (+, -).
+    pub const ADDITIVE: u8 = 60;
+    /// Multiplicative operators (*, /, %).
+    pub const MULTIPLICATIVE: u8 = 70;
+    /// Prefix unary operators (not, -).
+    pub const UNARY: u8 = 80;
+    /// Call/member access/primary expressions.
+    pub const CALL: u8 = 90;
+    /// Primary literals/identifiers.
+    pub const PRIMARY: u8 = 100;
+}
+
 /// Core expression type - everything in Seen is an expression
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Expression {
@@ -501,10 +527,83 @@ pub enum BinaryOperator {
     ExclusiveRange, // ..<
 }
 
+impl BinaryOperator {
+    /// String representation used when regenerating source.
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            BinaryOperator::Add => "+",
+            BinaryOperator::Subtract => "-",
+            BinaryOperator::Multiply => "*",
+            BinaryOperator::Divide => "/",
+            BinaryOperator::Modulo => "%",
+            BinaryOperator::Equal => "==",
+            BinaryOperator::NotEqual => "!=",
+            BinaryOperator::Less => "<",
+            BinaryOperator::Greater => ">",
+            BinaryOperator::LessEqual => "<=",
+            BinaryOperator::GreaterEqual => ">=",
+            BinaryOperator::And => "and",
+            BinaryOperator::Or => "or",
+            BinaryOperator::InclusiveRange => "..",
+            BinaryOperator::ExclusiveRange => "..<",
+        }
+    }
+
+    /// Integer precedence (higher value binds tighter).
+    pub fn precedence(&self) -> u8 {
+        use precedence::*;
+        match self {
+            BinaryOperator::Or => LOGICAL_OR,
+            BinaryOperator::And => LOGICAL_AND,
+            BinaryOperator::Equal | BinaryOperator::NotEqual => EQUALITY,
+            BinaryOperator::Less
+            | BinaryOperator::Greater
+            | BinaryOperator::LessEqual
+            | BinaryOperator::GreaterEqual => COMPARISON,
+            BinaryOperator::InclusiveRange | BinaryOperator::ExclusiveRange => RANGE,
+            BinaryOperator::Add | BinaryOperator::Subtract => ADDITIVE,
+            BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo => {
+                MULTIPLICATIVE
+            }
+        }
+    }
+
+    /// Returns `true` if the operator associates to the right.
+    pub fn is_right_associative(&self) -> bool {
+        matches!(
+            self,
+            BinaryOperator::InclusiveRange | BinaryOperator::ExclusiveRange
+        )
+    }
+
+    /// Returns `true` if spaces should surround this operator when printing.
+    pub fn requires_spacing(&self) -> bool {
+        !matches!(
+            self,
+            BinaryOperator::InclusiveRange | BinaryOperator::ExclusiveRange
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnaryOperator {
     Not,    // logical not
     Negate, // arithmetic negation
+}
+
+impl UnaryOperator {
+    /// String representation for the unary operator.
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            UnaryOperator::Not => "not",
+            UnaryOperator::Negate => "-",
+        }
+    }
+
+    /// Whether a trailing space should follow the operator.
+    pub fn requires_trailing_space(&self) -> bool {
+        matches!(self, UnaryOperator::Not)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

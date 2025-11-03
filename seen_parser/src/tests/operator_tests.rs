@@ -1,6 +1,6 @@
 //! Tests for operator parsing (binary, unary, nullable)
 
-use crate::{BinaryOperator, Expression, ParseResult, Parser, UnaryOperator};
+use crate::{precedence, BinaryOperator, Expression, ParseResult, Parser, UnaryOperator};
 use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
@@ -94,6 +94,26 @@ fn test_parse_word_operator_not() {
         }
         _ => panic!("Expected 'not' operator"),
     }
+}
+
+#[test]
+fn test_binary_operator_precedence_table() {
+    assert!(BinaryOperator::And.precedence() > BinaryOperator::Or.precedence());
+    assert!(BinaryOperator::Add.precedence() > BinaryOperator::And.precedence());
+    assert!(BinaryOperator::Multiply.precedence() > BinaryOperator::Add.precedence());
+    assert_eq!(
+        BinaryOperator::InclusiveRange.precedence(),
+        precedence::RANGE
+    );
+    assert_eq!(BinaryOperator::Or.precedence(), precedence::LOGICAL_OR);
+}
+
+#[test]
+fn test_binary_operator_symbols() {
+    assert_eq!(BinaryOperator::Add.symbol(), "+");
+    assert_eq!(BinaryOperator::InclusiveRange.symbol(), "..");
+    assert_eq!(BinaryOperator::ExclusiveRange.symbol(), "..<");
+    assert_eq!(BinaryOperator::And.symbol(), "and");
 }
 
 #[test]

@@ -10,10 +10,7 @@ fn run_command_propagates_abort_errors() -> Result<(), Box<dyn std::error::Error
     let dir = tempdir()?;
     let program_path = dir.path().join("abort_test.seen");
 
-    fs::write(
-        &program_path,
-        r#"__Abort("integration abort marker")"#,
-    )?;
+    fs::write(&program_path, r#"__Abort("integration abort marker")"#)?;
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"));
     cmd.arg("run").arg(&program_path);

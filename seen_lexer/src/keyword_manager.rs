@@ -4,12 +4,12 @@
 //! multiple human languages without hardcoded values.
 
 use indexmap::IndexMap;
+use seen_support::{SeenError, SeenErrorKind, SeenResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use seen_support::{SeenError, SeenErrorKind, SeenResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TomlLanguageFile {

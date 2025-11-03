@@ -21,13 +21,13 @@ This replaces previous MVP notes. It merges **Pre‑Bootstrap (PB)**, **Pre‑Se
 ## 2) Phase PB — Pre‑Bootstrap (In Progress)
 Pre‑bootstrap should make the Rust toolchain a stable foundation before we attempt Stage‑1. These items were previously marked complete but are still missing. Break them down and check them off as we implement them:
 
-- [ ] **Unicode NFC + visibility policy**
+- [x] **Unicode NFC + visibility policy**
   - Normalize identifiers/literals to NFC during lexing.
   - Support `Seen.toml` switches for `caps`/`explicit` visibility and error when source disagrees.
 - [x] **Result/Abort error model**
   - Wire a consistent `Result<T, E>` type across compiler crates.
   - Add an `abort` intrinsic for unrecoverable failures and ensure diagnostics surface it.
-- [ ] **Operator precedence & formatter lock**
+- [x] **Operator precedence & formatter lock**
   - Freeze word/operator precedence tables in the parser.
   - Extend formatter/pretty-printer so it enforces the frozen precedence (no drift across runs).
 - [ ] **RAII `defer` + generational refs runtime**
