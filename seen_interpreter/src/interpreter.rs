@@ -26,6 +26,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 /// Wrapper for Seen expressions to be executed as async functions
 #[derive(Debug, Clone)]
@@ -1565,54 +1567,65 @@ impl Interpreter {
             ));
         }
 
-        // Try each case in order (simplified deterministic selection)
+        // Evaluate channel expressions once and retain cloned handles for fairness iteration.
+        let mut evaluated_cases = Vec::new();
         for case in cases {
-            // Evaluate the channel expression
             let channel_value = self.interpret_expression(&case.channel)?;
-
             match channel_value {
                 Value::Channel(channel) => {
-                    match channel.try_recv_with_status() {
-                        ChannelReceiveStatus::Received(async_value) => {
-                            let received_value = match async_value {
-                                AsyncValue::Integer(i) => Value::Integer(i),
-                                AsyncValue::String(s) => Value::String(s),
-                                AsyncValue::Boolean(b) => Value::Boolean(b),
-                                AsyncValue::Unit => Value::Unit,
-                                other => self.async_value_to_value(&other),
-                            };
-
-                            if self.match_pattern(&case.pattern, &received_value) {
-                                return self.interpret_expression(&case.handler);
-                            }
-                        }
-                        ChannelReceiveStatus::WouldBlock => {
-                            // No messages available; try next case
-                            continue;
-                        }
-                        ChannelReceiveStatus::Closed => {
-                            // Treat closed channels as non-ready in select
-                            continue;
-                        }
-                        ChannelReceiveStatus::Error(err) => {
-                            return Err(InterpreterError::runtime(
-                                format!("Channel receive failed: {}", err),
-                                pos.clone(),
-                            ));
-                        }
-                    }
+                    evaluated_cases.push((channel, &case.pattern, &case.handler));
                 }
                 _ => {
                     return Err(InterpreterError::runtime(
                         "Select case must be a channel",
-                        pos,
+                        pos.clone(),
                     ));
                 }
             }
         }
 
-        // If no case matched, return Unit (in a real implementation, this would block)
-        Ok(Value::Unit)
+        let len = evaluated_cases.len();
+        let mut start_index = 0usize;
+
+        loop {
+            let mut any_open = false;
+
+            for offset in 0..len {
+                let idx = (start_index + offset) % len;
+                let (channel, pattern, handler) = &evaluated_cases[idx];
+
+                match channel.try_recv_with_status() {
+                    ChannelReceiveStatus::Received(async_value) => {
+                        let received_value = self.async_value_to_value(&async_value);
+                        if self.match_pattern(pattern, &received_value) {
+                            return self.interpret_expression(handler);
+                        }
+                        // Pattern did not match; continue checking other cases.
+                    }
+                    ChannelReceiveStatus::WouldBlock => {
+                        any_open = true;
+                    }
+                    ChannelReceiveStatus::Closed => {
+                        // Closed channels should not contribute to liveness.
+                    }
+                    ChannelReceiveStatus::Error(err) => {
+                        return Err(InterpreterError::runtime(
+                            format!("Channel receive failed: {}", err),
+                            pos.clone(),
+                        ));
+                    }
+                }
+            }
+
+            if !any_open {
+                // All channels are closed or returned pattern mismatches; no further progression.
+                return Ok(Value::Unit);
+            }
+
+            start_index = (start_index + 1) % len;
+            // Cooperative back-off to avoid spinning when no cases are ready yet.
+            thread::sleep(Duration::from_millis(1));
+        }
     }
 
     /// Extract emission values from flow body
@@ -2163,7 +2176,8 @@ impl Default for Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use seen_concurrency::types::{Channel, ChannelId};
+    use seen_concurrency::types::{AsyncValue, Channel, ChannelId};
+    use seen_parser::ast::Pattern;
     use std::thread;
     use std::time::Duration;
 
@@ -2235,5 +2249,47 @@ mod tests {
                 other
             ),
         }
+    }
+
+    #[test]
+    fn select_waits_until_channel_receives() {
+        let mut interpreter = Interpreter::new();
+        let channel = Channel::new(ChannelId::allocate(), Some(1));
+        let sender_channel = channel.clone();
+
+        interpreter
+            .runtime
+            .define_variable("rx".to_string(), Value::Channel(channel));
+        interpreter
+            .runtime
+            .define_variable("val".to_string(), Value::Null);
+
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(10));
+            let _ = sender_channel.send_with_status(AsyncValue::Integer(42));
+        });
+
+        let select_expr = Expression::Select {
+            cases: vec![seen_parser::ast::SelectCase {
+                channel: Box::new(Expression::Identifier {
+                    name: "rx".to_string(),
+                    is_public: false,
+                    pos: Position::start(),
+                }),
+                pattern: Pattern::Identifier("val".to_string()),
+                handler: Box::new(Expression::Identifier {
+                    name: "val".to_string(),
+                    is_public: false,
+                    pos: Position::start(),
+                }),
+            }],
+            pos: Position::start(),
+        };
+
+        let result = interpreter
+            .interpret_expression(&select_expr)
+            .expect("select should resolve once value is available");
+
+        assert_eq!(result, Value::Integer(42));
     }
 }

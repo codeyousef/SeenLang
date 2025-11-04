@@ -84,7 +84,8 @@ interpreter/runtime, and buffered sends can be awaited safely. LLVM lowering and
     without mis-parsing trailing lambdas.
   - Channel send/receive now surface async futures backed by the cooperative runtime; `await channel.send(...)`
     resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups. The IR/LLVM pipeline now
-    lowers `send` into stubbed channel futures so native builds no longer choke on the syntax.
+    lowers both `send` and `receive/select` constructs, removing prior LLVM crashes (select currently folds into a
+    deterministic handler execution stub pending real wake semantics).
   - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
     jobs namespace.
 
