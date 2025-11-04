@@ -718,6 +718,8 @@ impl TypeChecker {
                 message,
                 pos,
             } => self.check_send_expression(target, message, *pos),
+            Expression::Receive { handler, .. } => self.check_expression(handler),
+            Expression::Select { .. } => Type::Unit,
 
             // Blocks
             Expression::Block { expressions, .. } => self.check_block_expression(expressions),

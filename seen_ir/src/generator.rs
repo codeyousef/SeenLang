@@ -409,6 +409,8 @@ impl IRGenerator {
             Expression::Send {
                 message, target, ..
             } => self.generate_send_expression(message, target),
+            Expression::Receive { handler, .. } => self.generate_expression(handler),
+            Expression::Select { cases, .. } => self.generate_select_expression(cases),
             // Handle other expression types...
             _ => Err(IRError::Other(format!(
                 "Unsupported expression type: {:?}",
@@ -2318,6 +2320,23 @@ impl IRGenerator {
         Ok((result_value, instructions))
     }
 
+    fn generate_select_expression(
+        &mut self,
+        cases: &[seen_parser::ast::SelectCase],
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let mut instructions = Vec::new();
+
+        for case in cases {
+            let (_, channel_instrs) = self.generate_expression(&case.channel)?;
+            instructions.extend(channel_instrs);
+
+            let (_, handler_instrs) = self.generate_expression(&case.handler)?;
+            instructions.extend(handler_instrs);
+        }
+
+        Ok((IRValue::Void, instructions))
+    }
+
     fn generate_send_expression(
         &mut self,
         message: &Expression,
@@ -2485,5 +2504,34 @@ mod tests {
             )),
             "expected instructions to include __channel_send_future call"
         );
+    }
+
+    #[test]
+    fn generate_select_expression_compiles_each_branch() {
+        let mut generator = IRGenerator::new();
+        let channel_ident = Expression::Identifier {
+            name: "ch".to_string(),
+            is_public: false,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let handler_expr = Expression::IntegerLiteral {
+            value: 7,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let select = Expression::Select {
+            cases: vec![seen_parser::ast::SelectCase {
+                channel: Box::new(channel_ident.clone()),
+                pattern: seen_parser::ast::Pattern::Wildcard,
+                handler: Box::new(handler_expr.clone()),
+            }],
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+
+        let (value, instructions) = generator
+            .generate_expression(&select)
+            .expect("select expression should lower");
+
+        assert_eq!(value, IRValue::Void);
+        assert!(instructions.is_empty());
     }
 }
