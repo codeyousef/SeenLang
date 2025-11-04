@@ -105,7 +105,10 @@ extensions.
   * SoA/AoS helpers documented.
 * **Acceptance:** Build logs include per‑function SIMD decisions; deterministic mode disables SIMD; scalar and vector results match.
 
-### PSH‑8. Deterministic Self‑Host
+### PSH-8. Deterministic Self-Host
+
+*Status:* ✅ Linux complete — LLVM backend fixes and Stage‑1 tooling produce matching Stage2/Stage3 hashes on Linux (via
+`llc` + `cc`); macOS/Windows CI verification queued.
 
 * **Inputs:** all previous subsystems.
 * **Outputs:** successful Stage0→Stage1→Stage2→Stage3 build pipeline with identical Stage2/Stage3 hashes.

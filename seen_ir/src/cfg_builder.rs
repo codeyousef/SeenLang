@@ -2,7 +2,6 @@
 //! This fixes the issue where multiple jumps in sequence were being lost
 
 use crate::instruction::{BasicBlock, ControlFlowGraph, Instruction, Label};
-use std::collections::HashMap;
 
 /// Build a proper CFG from a linear sequence of instructions
 /// This correctly handles:
@@ -127,6 +126,10 @@ pub fn build_cfg_from_instructions(instructions: Vec<Instruction>) -> ControlFlo
 /// handled as terminators
 pub fn split_block_at_jump(cfg: &mut ControlFlowGraph, block_label: &str) -> bool {
     if let Some(block) = cfg.blocks.remove(block_label) {
+        let order_position = cfg
+            .block_order
+            .iter()
+            .position(|label| label == block_label);
         let mut new_blocks = Vec::new();
         let mut current_instructions = Vec::new();
         let original_label = block.label.clone();
@@ -173,9 +176,23 @@ pub fn split_block_at_jump(cfg: &mut ControlFlowGraph, block_label: &str) -> boo
         }
 
         // Add all new blocks back to CFG
+        let mut new_labels: Vec<String> = Vec::new();
         for new_block in new_blocks {
             let label_name = new_block.label.0.clone();
-            cfg.blocks.insert(label_name, new_block);
+            cfg.blocks.insert(label_name.clone(), new_block);
+            new_labels.push(label_name);
+        }
+
+        if let Some(idx) = order_position {
+            // Remove the old label position
+            cfg.block_order.remove(idx);
+            // Insert new labels preserving order
+            for (offset, label_name) in new_labels.into_iter().enumerate() {
+                cfg.block_order.insert(idx + offset, label_name);
+            }
+        } else {
+            // Fallback: append new labels if original position not found
+            cfg.block_order.extend(new_labels);
         }
 
         return true;

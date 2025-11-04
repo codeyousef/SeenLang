@@ -182,8 +182,7 @@ fun stage1OutputLabel(path: String) -> String {
 }
 
 fun makeStage1TempSource(outputPath: String) -> String {
-    let timestamp = getTimestamp()
-    return "/tmp/seen_stage1_" + timestamp + ".seen"
+    return "/tmp/seen_stage1_build.seen"
 }
 
 fun buildStage1EmitLlCommand(tempSourcePath: String, tempLlPath: String) -> String {
@@ -191,11 +190,11 @@ fun buildStage1EmitLlCommand(tempSourcePath: String, tempLlPath: String) -> Stri
 }
 
 fun buildStage1EmitObjectCommand(tempLlPath: String, tempObjPath: String) -> String {
-    return "/usr/lib/llvm15/bin/llc " + tempLlPath + " -filetype=obj -o " + tempObjPath
+    return "llc -opaque-pointers " + tempLlPath + " -filetype=obj -o " + tempObjPath
 }
 
 fun buildStage1LinkCommand(tempObjPath: String, outputPath: String) -> String {
-    return "cc " + tempObjPath + " -o " + outputPath
+    return "cc " + tempObjPath + " -no-pie -lm -o " + outputPath
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) -> Int {

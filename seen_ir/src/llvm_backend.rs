@@ -25,6 +25,7 @@ use inkwell::OptimizationLevel as LlvmOptLevel;
 
 use crate::function::IRFunction;
 use crate::instruction::{BasicBlock, Instruction};
+use crate::module::IRModule;
 use crate::value::{IRType, IRValue};
 use crate::IRProgram;
 
@@ -194,16 +195,24 @@ impl<'ctx> LlvmBackend<'ctx> {
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
         // Predeclare all functions
         let mut fn_map: HashMap<String, FunctionValue<'ctx>> = HashMap::new();
-        for module in &prog.modules {
-            for (_name, func) in &module.functions {
+        let mut modules: Vec<&IRModule> = prog.modules.iter().collect();
+        modules.sort_by(|a, b| a.name.cmp(&b.name));
+        for module in &modules {
+            let mut fn_names: Vec<&String> = module.functions.keys().collect();
+            fn_names.sort();
+            for name in fn_names {
+                let func = module.functions.get(name).expect("function declared");
                 let f = self.declare_function(func)?;
                 fn_map.insert(func.name.clone(), f);
             }
         }
 
         // Define each function
-        for module in &prog.modules {
-            for (_name, func) in &module.functions {
+        for module in &modules {
+            let mut fn_names: Vec<&String> = module.functions.keys().collect();
+            fn_names.sort();
+            for name in fn_names {
+                let func = module.functions.get(name).expect("function declared");
                 let f = *fn_map.get(&func.name).expect("declared");
                 self.define_function(func, f, &fn_map)?;
             }
@@ -316,8 +325,13 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.reg_slots.clear();
 
         // Create all basic blocks first
-        let mut block_names: Vec<_> = func.cfg.blocks.keys().cloned().collect();
-        block_names.sort_by(|a, b| block_sort_key(a).cmp(&block_sort_key(b)));
+        let block_names: Vec<_> = if !func.cfg.block_order.is_empty() {
+            func.cfg.block_order.clone()
+        } else {
+            let mut names: Vec<_> = func.cfg.blocks.keys().cloned().collect();
+            names.sort_by(|a, b| block_sort_key(a).cmp(&block_sort_key(b)));
+            names
+        };
 
         // LLVM starts execution at the first basic block appended to the function.
         // Ensure that the semantic entry block is created first so execution
@@ -460,6 +474,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.emit_instruction(term, fn_map)?;
             }
             self.fallthrough_bb = None;
+            self.reg_values.clear();
+            self.var_values.clear();
         }
 
         Ok(())
@@ -537,11 +553,21 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.builder.clear_insertion_position();
             }
             Instruction::Return(val_opt) => {
-                if let Some(v) = val_opt {
-                    let bv = self.eval_value(v, fn_map)?;
-                    self.builder.build_return(Some(&bv))?;
-                } else {
-                    self.builder.build_return(None)?;
+                let current_fn = self
+                    .current_fn
+                    .ok_or_else(|| anyhow!("return outside of function"))?;
+                let ret_ty_opt = current_fn.get_type().get_return_type();
+                match (val_opt, ret_ty_opt) {
+                    (Some(v), Some(ret_ty)) => {
+                        let mut bv = self.eval_value(v, fn_map)?;
+                        if bv.get_type() != ret_ty {
+                            bv = self.cast_basic_to_type(bv, ret_ty)?;
+                        }
+                        self.builder.build_return(Some(&bv))?;
+                    }
+                    (Some(_), None) | (None, _) => {
+                        self.builder.build_return(None)?;
+                    }
                 }
                 self.builder.clear_insertion_position();
             }
@@ -556,6 +582,50 @@ impl<'ctx> LlvmBackend<'ctx> {
             Instruction::Load { source, dest } => {
                 let v = self.eval_value(source, fn_map)?;
                 self.assign_value(dest, v)?;
+            }
+            Instruction::Unary {
+                op,
+                operand,
+                result,
+            } => {
+                let val = self.eval_value(operand, fn_map)?;
+                let res = match op {
+                    crate::instruction::UnaryOp::Not => {
+                        let bool_val = self.as_bool(val)?;
+                        self.builder
+                            .build_not(bool_val, "not")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .as_basic_value_enum()
+                    }
+                    crate::instruction::UnaryOp::Negate => {
+                        if let BasicValueEnum::FloatValue(fv) = val {
+                            self.builder
+                                .build_float_neg(fv, "fneg")
+                                .map_err(|e| anyhow!("{e:?}"))?
+                                .as_basic_value_enum()
+                        } else {
+                            let int_val = self.as_i64(val)?;
+                            self.builder
+                                .build_int_neg(int_val, "ineg")
+                                .map_err(|e| anyhow!("{e:?}"))?
+                                .as_basic_value_enum()
+                        }
+                    }
+                    crate::instruction::UnaryOp::BitwiseNot => {
+                        let int_val = self.as_i64(val)?;
+                        self.builder
+                            .build_not(int_val, "bnot")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .as_basic_value_enum()
+                    }
+                    crate::instruction::UnaryOp::Reference
+                    | crate::instruction::UnaryOp::Dereference => {
+                        return Err(anyhow!(
+                            "Reference/dereference unary ops are not yet supported in LLVM backend"
+                        ));
+                    }
+                };
+                self.assign_value(result, res)?;
             }
             Instruction::Binary {
                 op,
@@ -899,7 +969,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                             let data_ptr = self.builder.build_struct_gep(ty, arr_ptr, 1, "datap")?;
                             self.builder.build_store(data_ptr, argv)?;
                             if let Some(r) = result {
-                                self.assign_value(r, arr_ptr.as_basic_value_enum())?;
+                                let arr_int = self
+                                    .builder
+                                    .build_ptr_to_int(
+                                        arr_ptr,
+                                        self.i64_t,
+                                        "strarray_int",
+                                    )
+                                    .map_err(|e| anyhow!("{e:?}"))?
+                                    .as_basic_value_enum();
+                                self.assign_value(r, arr_int)?;
                             }
                             return Ok(());
                         }
@@ -1340,25 +1419,49 @@ impl<'ctx> LlvmBackend<'ctx> {
                 result,
             } => {
                 let sv = self.eval_value(struct_val, fn_map)?;
-                if sv.is_pointer_value() {
-                    // Support CommandResult{ success: i1, output: i8* }
-                    let ty = self.ty_cmd_result();
-                    let ptr = sv.into_pointer_value();
-                    let idx = match field.as_str() {
-                        "success" => 0u32,
-                        "output" => 1u32,
-                        _ => 0u32,
-                    };
-                    let gep = self.builder.build_struct_gep(ty, ptr, idx, "fld")?;
-                    let loaded = if idx == 0 {
-                        self.builder.build_load(self.bool_t, gep, "succ")?
-                    } else {
-                        self.builder.build_load(self.i8_ptr_t, gep, "out")?
-                    };
-                    self.assign_value(result, loaded.as_basic_value_enum())?;
+                // Support CommandResult{ success: i1, output: i8* }
+                let ty = self.ty_cmd_result();
+                let ptr = if sv.is_pointer_value() {
+                    sv.into_pointer_value()
+                } else if sv.is_int_value() {
+                    self.builder
+                        .build_int_to_ptr(
+                            sv.into_int_value(),
+                            ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "cmd_field_ptr",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?
+                } else if sv.is_struct_value() {
+                    let tmp = self.alloca_for_type(
+                        sv.into_struct_value().get_type().as_basic_type_enum(),
+                        "cmd_field_stack",
+                    )?;
+                    self.builder.build_store(tmp, sv)?;
+                    self.builder
+                        .build_pointer_cast(
+                            tmp,
+                            ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "cmd_field_ptr_stack",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?
                 } else {
-                    return Err(anyhow!("Unsupported field access value"));
-                }
+                    return Err(anyhow!(format!(
+                        "Unsupported field access value for {:?}",
+                        struct_val
+                    )));
+                };
+                let idx = match field.as_str() {
+                    "success" => 0u32,
+                    "output" => 1u32,
+                    _ => 0u32,
+                };
+                let gep = self.builder.build_struct_gep(ty, ptr, idx, "fld")?;
+                let loaded = if idx == 0 {
+                    self.builder.build_load(self.bool_t, gep, "succ")?
+                } else {
+                    self.builder.build_load(self.i8_ptr_t, gep, "out")?
+                };
+                self.assign_value(result, loaded.as_basic_value_enum())?;
             }
             _ => {
                 // Many IR ops are not required for bootstrap subset; ignore nops etc.
@@ -1384,22 +1487,20 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             IRValue::Void => Ok(self.i64_t.const_zero().as_basic_value_enum()),
             IRValue::Register(r) => {
-                if let Some(val) = self.reg_values.get(r).cloned() {
-                    return Ok(val);
-                }
                 if let Some(slot) = self.reg_slots.get(r).copied() {
                     let loaded =
                         self.builder
                             .build_load(self.i64_t, slot, &format!("load_r{}", r))?;
                     return Ok(loaded.as_basic_value_enum());
                 }
+                if let Some(val) = self.reg_values.get(r).cloned() {
+                    return Ok(val);
+                }
                 Err(anyhow!("Unknown register %r{r}"))
             }
             IRValue::Variable(name) => {
                 if let Some(slot) = self.var_slots.get(name).copied() {
                     let loaded = self.load_from_slot(name, slot)?;
-                    self.var_values
-                        .insert(name.clone(), loaded.clone());
                     return Ok(loaded);
                 }
                 if let Some(v) = self.var_values.get(name).cloned() {
@@ -1426,8 +1527,6 @@ impl<'ctx> LlvmBackend<'ctx> {
     fn assign_value(&mut self, dest: &IRValue, v: BasicValueEnum<'ctx>) -> Result<()> {
         match dest {
             IRValue::Register(r) => {
-                // Update immediate map
-                self.reg_values.insert(*r, v.clone());
                 // Also persist through the reg slot if available
                 if let Some(slot) = self.reg_slots.get(r).copied() {
                     let reg_val = v.clone();
@@ -1865,10 +1964,14 @@ impl<'ctx> LlvmBackend<'ctx> {
                 "cpy2",
             )
             .map_err(|e| anyhow!("{e:?}"))?;
-        // null terminate
+        // null terminate at dest[l_len + r_len]
+        let total_minus_one = self
+            .builder
+            .build_int_sub(total, one, "last_index")
+            .map_err(|e| anyhow!("{e:?}"))?;
         let end_ptr = unsafe {
             self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[total], "end")?
+                .build_gep(self.ctx.i8_type(), dest, &[total_minus_one], "end")?
         };
         let zero = self.ctx.i8_type().const_int(0, false);
         self.builder.build_store(end_ptr, zero)?;
@@ -1882,34 +1985,46 @@ impl<'ctx> LlvmBackend<'ctx> {
     ) -> Result<inkwell::values::IntValue<'ctx>> {
         let s_len = self.call_strlen(s)?;
         let suf_len = self.call_strlen(suffix)?;
-        // if suf_len > s_len -> false
-        let gt =
-            self.builder
-                .build_int_compare(inkwell::IntPredicate::UGT, suf_len, s_len, "gt")?;
-        let fnv = self.current_fn.unwrap();
-        let then_bb = self.ctx.append_basic_block(fnv, "ends_then");
-        let cont_bb = self.ctx.append_basic_block(fnv, "ends_cont");
-        self.builder
-            .build_conditional_branch(gt, then_bb, cont_bb)?;
-        self.builder.position_at_end(then_bb);
-        let false_v = self.bool_t.const_zero();
-        self.builder.build_return(Some(&false_v))?; // early return from helper block is not ideal inlined; keep simple
-        self.builder.position_at_end(cont_bb);
-        // Compare last suf_len bytes
-        let start = self.builder.build_int_sub(s_len, suf_len, "start")?;
+        let suf_gt = self
+            .builder
+            .build_int_compare(inkwell::IntPredicate::UGT, suf_len, s_len, "suf_gt")?;
+        let len_ok = self
+            .builder
+            .build_not(suf_gt, "len_ok")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let start = self
+            .builder
+            .build_int_sub(s_len, suf_len, "start")
+            .map_err(|e| anyhow!("{e:?}"))?;
         let off = unsafe {
             self.builder
-                .build_gep(self.ctx.i8_type(), s, &[start], "s_off")?
+                .build_gep(self.ctx.i8_type(), s, &[start], "s_off")
+                .map_err(|e| anyhow!("{e:?}"))?
         };
-        // memcmp(off, suffix, suf_len) == 0; implement simple loop avoided -> fallback: compare char by char omitted
-        // For simplicity, return true if suf_len == 0
-        let is_zero = self.builder.build_int_compare(
-            inkwell::IntPredicate::EQ,
-            suf_len,
-            self.i64_t.const_zero(),
-            "z",
-        )?;
-        Ok(is_zero)
+        let cmp = self.call_strcmp(off, suffix)?;
+        let zero32 = self.ctx.i32_type().const_zero();
+        let cmp_eq = self
+            .builder
+            .build_int_compare(inkwell::IntPredicate::EQ, cmp, zero32, "ends_eq")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let suf_zero = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                suf_len,
+                self.i64_t.const_zero(),
+                "suf_zero",
+            )
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let eq_or_zero = self
+            .builder
+            .build_or(cmp_eq, suf_zero, "ends_match")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let result = self
+            .builder
+            .build_and(len_ok, eq_or_zero, "ends_res")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        Ok(result)
     }
 
     fn runtime_substring(

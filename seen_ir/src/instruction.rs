@@ -557,6 +557,7 @@ impl fmt::Display for BasicBlock {
 pub struct ControlFlowGraph {
     pub blocks: HashMap<String, BasicBlock>,
     pub entry_block: Option<String>,
+    pub block_order: Vec<String>,
 }
 
 impl ControlFlowGraph {
@@ -564,6 +565,7 @@ impl ControlFlowGraph {
         Self {
             blocks: HashMap::new(),
             entry_block: None,
+            block_order: Vec::new(),
         }
     }
 
@@ -571,6 +573,9 @@ impl ControlFlowGraph {
         let label_name = block.label.0.clone();
         if self.entry_block.is_none() {
             self.entry_block = Some(label_name.clone());
+        }
+        if !self.blocks.contains_key(&label_name) {
+            self.block_order.push(label_name.clone());
         }
         self.blocks.insert(label_name, block);
     }
@@ -621,10 +626,7 @@ impl fmt::Display for ControlFlowGraph {
         }
 
         // Display blocks in a consistent order
-        let mut block_names: Vec<_> = self.blocks.keys().collect();
-        block_names.sort();
-
-        for name in block_names {
+        for name in &self.block_order {
             if let Some(block) = self.blocks.get(name) {
                 writeln!(f, "{}", block)?;
             }
