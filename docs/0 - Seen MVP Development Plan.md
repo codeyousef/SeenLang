@@ -36,15 +36,13 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
   - ✅ Channel handles: generational IDs + validation in runtime/interpreter.
   - ✅ Actor handles: generational IDs and stale-handle detection integrated with actor system.
   - ✅ LLVM backend/runtime parity so compiled stages enforce the same invariants.
-- [ ] **Deterministic IR emission**
-  - Ensure IR generator/optimizer emit sorted structures (no HashMap iteration).
-  - Add regression test that hashes IR for the same input twice and matches.
-- [ ] **Runtime split**
-  - Carve shared code into `seen_core` (compiler) vs `seen_std` (future runtime) crates.
-  - Update CLI to depend only on `seen_core`.
-- [ ] **CLI determinism profile**
-  - Introduce `--profile deterministic` (or similar) that locks randomness, timestamps, temp paths.
-  - Document usage in quickstart/plan.
+- [x] **Deterministic IR emission**
+  - IR generator/optimizer now emit sorted structures; regression tests hash IR display output deterministically.
+- [x] **Runtime split**
+  - Shared compiler surface exposed via new `seen_core` crate; CLI consumes `seen_core` instead of wiring per-crate
+    deps.
+- [x] **CLI determinism profile**
+  - `--profile deterministic` pins timestamps/temp roots via env, documented in quickstart + MVP plan.
 
 ## 3) Phase PSH — Pre‑Self‑Host (WIP)
 

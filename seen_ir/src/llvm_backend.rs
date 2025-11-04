@@ -1757,27 +1757,30 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn ensure_counter(
-        &mut self,
-        slot: &mut Option<GlobalValue<'ctx>>,
-        name: &str,
-    ) -> GlobalValue<'ctx> {
-        if let Some(g) = slot {
-            *g
+    fn ensure_task_counter(&mut self) -> GlobalValue<'ctx> {
+        if let Some(counter) = self.task_counter {
+            counter
         } else {
-            let g = self.module.add_global(self.ctx.i32_type(), None, name);
-            g.set_initializer(&self.ctx.i32_type().const_zero());
-            *slot = Some(g);
-            g
+            let counter = self
+                .module
+                .add_global(self.ctx.i32_type(), None, "__task_slot_counter");
+            counter.set_initializer(&self.ctx.i32_type().const_zero());
+            self.task_counter = Some(counter);
+            counter
         }
     }
 
-    fn ensure_task_counter(&mut self) -> GlobalValue<'ctx> {
-        self.ensure_counter(&mut self.task_counter, "__task_slot_counter")
-    }
-
     fn ensure_actor_counter(&mut self) -> GlobalValue<'ctx> {
-        self.ensure_counter(&mut self.actor_counter, "__actor_slot_counter")
+        if let Some(counter) = self.actor_counter {
+            counter
+        } else {
+            let counter = self
+                .module
+                .add_global(self.ctx.i32_type(), None, "__actor_slot_counter");
+            counter.set_initializer(&self.ctx.i32_type().const_zero());
+            self.actor_counter = Some(counter);
+            counter
+        }
     }
 
     fn runtime_spawn_handle(&mut self, counter: GlobalValue<'ctx>) -> Result<BasicValueEnum<'ctx>> {

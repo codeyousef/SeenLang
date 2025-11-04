@@ -400,7 +400,9 @@ impl fmt::Display for IRFunction {
         if !self.locals.is_empty() {
             writeln!(f)?;
             writeln!(f, "  ; Local variables")?;
-            for local in self.locals.values() {
+            let mut locals: Vec<&LocalVariable> = self.locals.values().collect();
+            locals.sort_by(|a, b| a.name.cmp(&b.name));
+            for local in locals {
                 write!(f, "  ")?;
                 if local.is_mutable {
                     write!(f, "mut ")?;
@@ -645,5 +647,20 @@ mod tests {
 
         assert_eq!(graph.callees("main"), vec!["helper"]);
         assert_eq!(graph.callers("helper"), vec!["main"]);
+    }
+
+    #[test]
+    fn function_locals_display_deterministic() {
+        let mut func_a = IRFunction::new("demo", IRType::Void);
+        func_a.add_local(LocalVariable::new("beta", IRType::Integer));
+        func_a.add_local(LocalVariable::new("alpha", IRType::Integer));
+
+        let mut func_b = IRFunction::new("demo", IRType::Void);
+        func_b.add_local(LocalVariable::new("alpha", IRType::Integer));
+        func_b.add_local(LocalVariable::new("beta", IRType::Integer));
+
+        let display_a = format!("{}", func_a);
+        let display_b = format!("{}", func_b);
+        assert_eq!(display_a, display_b);
     }
 }

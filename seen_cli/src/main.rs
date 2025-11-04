@@ -2,22 +2,31 @@
 //!
 //! This is the main entry point for the Seen language compiler and toolchain.
 
-use clap::{Parser, Subcommand};
-use seen_interpreter::Interpreter;
-use seen_ir::{IRGenerator, IROptimizer, OptimizationLevel};
-use seen_lexer::{KeywordManager, Lexer, LexerConfig, TokenType, VisibilityPolicy};
-use seen_memory_manager::MemoryManager;
-use seen_parser::{
-    precedence, BinaryOperator, Expression, Parser as SeenParser, Program, Type, UnaryOperator,
+use clap::{Parser, Subcommand, ValueEnum};
+use seen_core::{
+    precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, Interpreter, KeywordManager,
+    Lexer, LexerConfig, MemoryManager, OptimizationLevel, Position, Program, SeenError,
+    SeenErrorKind, SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator, Value,
+    VisibilityPolicy,
 };
-use seen_support::{SeenError, SeenErrorKind, SeenResult};
-use seen_typechecker::TypeChecker;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum Profile {
+    Default,
+    Deterministic,
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Profile::Default
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "seen")]
@@ -30,6 +39,10 @@ struct Cli {
     /// Language for keywords (en, ar, es, fr, etc.)
     #[arg(short = 'l', long, default_value = "en", global = true)]
     language: String,
+
+    /// Execution profile (use `deterministic` for reproducible builds)
+    #[arg(long, value_enum, default_value_t = Profile::Default, global = true)]
+    profile: Profile,
 }
 
 #[derive(Subcommand)]
@@ -273,6 +286,8 @@ fn main() -> SeenResult<()> {
 
     let cli = Cli::parse();
 
+    apply_profile(cli.profile)?;
+
     // Load keyword manager with specified language
     let mut keyword_manager = KeywordManager::new();
     keyword_manager
@@ -356,6 +371,46 @@ fn main() -> SeenResult<()> {
     }
 
     Ok(())
+}
+
+fn apply_profile(profile: Profile) -> SeenResult<()> {
+    match profile {
+        Profile::Default => {
+            std::env::set_var("SEEN_PROFILE", "default");
+            std::env::remove_var("SEEN_DETERMINISTIC");
+            Ok(())
+        }
+        Profile::Deterministic => {
+            let cwd = std::env::current_dir().map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Tooling,
+                    format!("Failed to resolve current directory: {}", err),
+                )
+            })?;
+            let deterministic_root = cwd.join(".seen").join("tmp");
+            fs::create_dir_all(&deterministic_root).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Tooling,
+                    format!(
+                        "Failed to create deterministic temp directory {}: {}",
+                        deterministic_root.display(),
+                        err
+                    ),
+                )
+            })?;
+            let deterministic_root = deterministic_root
+                .canonicalize()
+                .unwrap_or(deterministic_root);
+            let temp_dir = deterministic_root.to_string_lossy().to_string();
+            for var in ["TMPDIR", "TEMP", "TMP"] {
+                std::env::set_var(var, &temp_dir);
+            }
+            std::env::set_var("SEEN_PROFILE", "deterministic");
+            std::env::set_var("SEEN_DETERMINISTIC", "1");
+            std::env::set_var("SOURCE_DATE_EPOCH", "0");
+            Ok(())
+        }
+    }
 }
 
 fn compile_file(
@@ -571,7 +626,7 @@ fn compile_file_llvm(
     // LLVM codegen
     #[cfg(feature = "llvm")]
     {
-        use seen_ir::llvm_backend::{LinkOutput, LlvmBackend};
+        use seen_core::{LinkOutput, LlvmBackend};
         let mut backend = LlvmBackend::new();
         let default_exe = PathBuf::from("a.out");
         let out_path = output.unwrap_or(&default_exe);
@@ -742,7 +797,7 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     let result = interpreter.interpret(&ast).map_err(SeenError::from)?;
 
     // Only print result if it's not Unit
-    if !matches!(result, seen_interpreter::Value::Unit) {
+    if !matches!(result, Value::Unit) {
         println!("{}", result);
     }
 
@@ -994,7 +1049,7 @@ fn run_repl(
                     show_types,
                 ) {
                     Ok(Some(result)) => {
-                        if !matches!(result, seen_interpreter::Value::Unit) {
+                        if !matches!(result, Value::Unit) {
                             println!("=> {}", result);
                         }
                     }
@@ -1014,7 +1069,7 @@ fn run_repl(
                 show_types,
             ) {
                 Ok(Some(result)) => {
-                    if !matches!(result, seen_interpreter::Value::Unit) {
+                    if !matches!(result, Value::Unit) {
                         println!("=> {}", result);
                     }
                 }
@@ -1035,7 +1090,7 @@ fn evaluate_line(
     interpreter: &mut Interpreter,
     show_ast: bool,
     show_types: bool,
-) -> SeenResult<Option<seen_interpreter::Value>> {
+) -> SeenResult<Option<Value>> {
     // Lex and parse
     let lexer = Lexer::with_config(
         line.to_string(),
@@ -1991,14 +2046,14 @@ fn run_single_test(
                 callee: Box::new(Expression::Identifier {
                     name: get_function_name(test_func),
                     is_public: false,
-                    pos: seen_lexer::Position {
+                    pos: Position {
                         line: 1,
                         column: 1,
                         offset: 0,
                     },
                 }),
                 args: vec![],
-                pos: seen_lexer::Position {
+                pos: Position {
                     line: 1,
                     column: 1,
                     offset: 0,

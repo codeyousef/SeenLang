@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "seen_support",
     "seen_cli",
+    "seen_core",
     "seen_lexer",
     "seen_parser", 
     "seen_typechecker",

@@ -1,32 +1,49 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `seen_*` crates contain the Rust pipeline: lexer, parser, typechecker, IR, interpreter, CLI, etc. Treat each crate as an independent lib with local tests.
-- `compiler_seen/` holds the self-hosting compiler written in Seen; bootstrap targets live under `compiler_seen/src`.
-- `docs/` carries plans and onboarding references (`docs/0 - Seen MVP Development Plan.md`, `docs/quickstart.md`).
-- `examples/` and `tests/` provide runnable samples and cross-crate regression suites. Keep new assets minimal and committed as source, not build outputs.
+
+- `seen_*` crates house the Rust toolchain (lexer, parser, typechecker, IR, interpreter, LSP). Each crate owns its unit
+  tests and should stay independently buildable.
+- `compiler_seen/` contains the self-hosted compiler implemented in Seen; bootstrap entry points live under
+  `compiler_seen/src`.
+- `docs/` is the source of onboarding material (e.g., `docs/0 - Seen MVP Development Plan.md`, `docs/quickstart.md`)
+  plus living design notes.
+- `examples/` and `tests/` bundle runnable samples and cross-crate regression suites. Do not check in build artifacts.
 
 ## Build, Test, and Development Commands
-- `cargo build -p seen_cli --release [--features llvm]` builds the primary CLI (enable `llvm` when exercising the LLVM backend).
-- `cargo test` runs the entire workspace; use `cargo test -p crate_name` for targeted loops.
-- Interpreter/CLI smoke: `target/release/seen_cli run examples/hello.seen`, `... build compiler_seen/src/main.seen --backend llvm --output stage1_seen`.
-- Determinism helpers: `seen determinism <file.seen> -O2` (Rust pipeline) and `scripts/self_host_llvm.sh` for staged bootstrap checks.
+
+- `cargo build -p seen_cli --release [--features llvm]` produces the primary CLI; enable `llvm` to activate the LLVM
+  backend.
+- `cargo test` exercises the full workspace; use `cargo test -p <crate>` for focused loops.
+- `target/release/seen_cli run PATH.seen` executes programs with the interpreter;
+  `... build PATH.seen --backend llvm --output <bin>` drives the LLVM pipeline.
+- `seen determinism PATH.seen -O2` runs the determinism pass to compare IR hashes.
 
 ## Coding Style & Naming Conventions
-- Rust follows rustfmt defaults (4-space indent, module `snake_case`, types `CamelCase`). Run `cargo fmt` before submitting.
-- Seen source uses `fun`/`let`, `CamelCase` types, and UTF-8 identifiers normalized to NFC (lexer enforces this). Keep files small and expression-oriented.
-- Prefer explicit visibility: configure per-project via `Seen.toml` (`visibility = "caps"` or `"explicit"`); parser rejects mismatches.
+
+- Rust code follows rustfmt defaults (4-space indent, `snake_case` modules, `CamelCase` types). Run `cargo fmt` before
+  submitting patches.
+- Seen source uses `fun`/`let`, `CamelCase` types, and NFC-normalized UTF-8 identifiers. Respect project `Seen.toml`
+  visibility policy (`caps` vs `explicit` pub modifiers).
+- Keep modules small and expression-oriented; prefer explicit visibility over implicit exports when `Seen.toml` requests
+  it.
 
 ## Testing Guidelines
-- Add crate-local unit tests (`mod tests {}`) alongside new logic. Integration tests live under `<crate>/tests`.
-- Exercise parser/IR changes with targeted fixtures; confirm runtime features via interpreter tests (see `seen_interpreter/tests`).
-- For bootstrap work, regenerate stage artifacts and compare hashes (Stage2 vs Stage3) once LLVM path stabilizes.
+
+- Add crate-local unit tests (`mod tests {}`) beside new Rust logic and Seen fixtures under `<crate>/tests`.
+- For parser/IR updates, add targeted fixtures and regenerate determinism hashes to confirm stability.
+- Exercise bootstrap flows with `scripts/self_host_llvm.sh` once the LLVM backend is touched.
 
 ## Commit & Pull Request Guidelines
-- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`). Keep patches surgical—avoid sweeping refactors across crates unless planned.
-- PRs must describe motivation, reproduction steps, and before/after behavior. Link issues, attach determinism/hash output where relevant.
-- Never commit generated binaries or `target/` directories; rely on `.gitignore` defaults.
+
+- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`) and keep patches focused.
+- PRs must explain motivation, repro steps, and before/after behavior. Attach determinism or hash output when relevant.
+- Never commit generated binaries or `target/` artifacts; rely on `.gitignore` defaults and keep dependencies pinned via
+  `Cargo.lock`.
 
 ## Security & Configuration Tips
-- Keep host dependencies pinned via `Cargo.lock`; LLVM builds require LLVM 15 (`llvm-config-15`, `LLVM_SYS_150_PREFIX`).
-- Do not embed secrets in scripts or tests. When invoking external tooling (`__ExecuteCommand`, `__WriteFile`), sanitize inputs and limit scope to workspace temp paths.
+
+- LLVM tooling must target version 15 (`llvm-config-15`, `LLVM_SYS_150_PREFIX=/usr/lib/llvm-15`). Verify with
+  `llvm-config-15 --version`.
+- Never embed secrets in scripts or tests. Sanitize inputs passed to external tooling (`__ExecuteCommand`,
+  `__WriteFile`) and limit operations to workspace paths.

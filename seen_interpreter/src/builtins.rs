@@ -308,6 +308,13 @@ fn builtin_get_command_line_args(_args: &[Value], _position: Position) -> Interp
 }
 
 fn builtin_get_timestamp(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    if std::env::var("SEEN_DETERMINISTIC")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        let epoch = std::env::var("SOURCE_DATE_EPOCH").unwrap_or_else(|_| "0".to_string());
+        return Ok(Value::String(epoch));
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
@@ -382,6 +389,32 @@ fn builtin_execute_command(args: &[Value], _position: Position) -> InterpreterRe
 fn builtin_format_seen_code(args: &[Value], _position: Position) -> InterpreterResult<Value> {
     // Placeholder: return input as-is
     Ok(Value::String(args[0].to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deterministic_timestamp_uses_source_date_epoch() {
+        std::env::set_var("SEEN_DETERMINISTIC", "1");
+        std::env::set_var("SOURCE_DATE_EPOCH", "12345");
+        let ts = builtin_get_timestamp(&[], Position::start())
+            .expect("timestamp builtin should succeed");
+        assert_eq!(ts, Value::String("12345".to_string()));
+        std::env::remove_var("SOURCE_DATE_EPOCH");
+        std::env::remove_var("SEEN_DETERMINISTIC");
+    }
+
+    #[test]
+    fn deterministic_timestamp_defaults_to_zero() {
+        std::env::set_var("SEEN_DETERMINISTIC", "1");
+        std::env::remove_var("SOURCE_DATE_EPOCH");
+        let ts = builtin_get_timestamp(&[], Position::start())
+            .expect("timestamp builtin should succeed");
+        assert_eq!(ts, Value::String("0".to_string()));
+        std::env::remove_var("SEEN_DETERMINISTIC");
+    }
 }
 
 impl Default for BuiltinRegistry {

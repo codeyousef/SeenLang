@@ -38,6 +38,13 @@ Install (macOS):
 
 Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 
+## Deterministic Profile
+
+- Pass `--profile deterministic` to any `seen` command to pin timestamps and temp directories for reproducible builds.
+- Example: `seen --profile deterministic build compiler_seen/src/main.seen --backend llvm --output stage1_seen`
+- The flag exports `SOURCE_DATE_EPOCH=0` and uses `.seen/tmp` for temp files. Reset to the default profile by omitting
+  the flag.
+
 ## Run the Verifier
 - Determinism of the pipeline (IR text): `seen determinism compiler_seen/src/main.seen -O2`
 - Full self‑hosting (LLVM backend):

@@ -93,8 +93,12 @@ impl fmt::Display for IRProgram {
 
         if !self.global_variables.is_empty() {
             writeln!(f, "\n; Global Variables")?;
-            for (name, value) in &self.global_variables {
-                writeln!(f, "@{} = {}", name, value)?;
+            let mut names: Vec<&String> = self.global_variables.keys().collect();
+            names.sort();
+            for name in names {
+                if let Some(value) = self.global_variables.get(name) {
+                    writeln!(f, "@{} = {}", name, value)?;
+                }
             }
         }
 
@@ -227,5 +231,28 @@ mod tests {
             found: IRType::String,
         };
         assert!(error.to_string().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn ir_program_globals_display_deterministic() {
+        let mut program_a = IRProgram::new();
+        program_a
+            .global_variables
+            .insert("beta".to_string(), IRValue::Integer(2));
+        program_a
+            .global_variables
+            .insert("alpha".to_string(), IRValue::Integer(1));
+
+        let mut program_b = IRProgram::new();
+        program_b
+            .global_variables
+            .insert("alpha".to_string(), IRValue::Integer(1));
+        program_b
+            .global_variables
+            .insert("beta".to_string(), IRValue::Integer(2));
+
+        let display_a = format!("{}", program_a);
+        let display_b = format!("{}", program_b);
+        assert_eq!(display_a, display_b);
     }
 }
