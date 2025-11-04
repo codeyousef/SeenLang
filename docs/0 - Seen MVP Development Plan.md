@@ -77,23 +77,27 @@ async runtime.
 ### PSH‑3. Minimal Channels & Job System
 
 *Status:* ⏳ In progress — the Rayon-backed job pool remains in place, channel futures now flow through the Rust
-interpreter/runtime, and buffered sends can be awaited safely. LLVM lowering and end-user documentation are still open.
+interpreter/runtime, and buffered sends can be awaited safely. Interpreter-side `select` now races live channels fairly
+instead of short-circuiting, while LLVM/backend work still needs full wake + future wiring.
 
 * **Progress this iteration:**
   - Introduced a Rayon worker pool with `parallel_for` integration tests; parser/interpreter handle the construct
     without mis-parsing trailing lambdas.
   - Channel send/receive now surface async futures backed by the cooperative runtime; `await channel.send(...)`
-    resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups. The IR/LLVM pipeline now
-    lowers both `send` and `receive/select` constructs, removing prior LLVM crashes (select currently folds into a
-    deterministic handler execution stub pending real wake semantics).
+    resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups. Interpreter `select`
+    now blocks fairly across channels and only returns once a handler matches, with dedicated regression coverage.
+  - IR/LLVM lowering handles both `send` and `receive/select` expressions (preventing earlier crashes) but continues to
+    rely on placeholder helpers until real wake semantics land in the backend.
   - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
     jobs namespace.
 
 * **Remaining tasks:**
-  1. Extend the LLVM backend (and select lowering) to emit the same channel receive/select futures, ensuring diagnostics
-     survive IR→LLVM translation.
-  2. Document concurrency patterns and add regression tests that cover scoped job draining and channel back-pressure in
-     multi-stage builds.
+  1. Extend channel runtime/async infrastructure (ChannelManager/AsyncRuntime/select executor) so receive/select futures
+     integrate with wakers instead of polling stubs, and surface those hooks to the interpreter and CLI.
+  2. Wire the LLVM backend to call the real channel send/receive/select helpers (no placeholders) and ensure Stage
+     builds/IR determinism checks continue to pass.
+  3. Document concurrency patterns (scoped jobs, channel futures/select) and add regression tests that cover scoped job
+     draining plus multi-stage channel workflows.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
 
