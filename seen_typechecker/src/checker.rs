@@ -294,6 +294,13 @@ impl TypeChecker {
         };
         env.define_type("Phantom".to_string(), phantom_type);
 
+        let channel_type = Type::Struct {
+            name: "Channel".to_string(),
+            fields: HashMap::new(),
+            generics: vec![Type::Generic("T".to_string())],
+        };
+        env.define_type("Channel".to_string(), channel_type);
+
         Self {
             env,
             result: TypeCheckResult::new(),
@@ -706,6 +713,11 @@ impl TypeChecker {
                 body,
                 pos,
             } => self.check_parallel_for(binding, iterable, body, *pos),
+            Expression::Send {
+                target,
+                message,
+                pos,
+            } => self.check_send_expression(target, message, *pos),
 
             // Blocks
             Expression::Block { expressions, .. } => self.check_block_expression(expressions),
@@ -935,6 +947,40 @@ impl TypeChecker {
         }
 
         Type::Unit
+    }
+
+    fn check_send_expression(
+        &mut self,
+        target: &Expression,
+        message: &Expression,
+        pos: Position,
+    ) -> Type {
+        let target_type = self.check_expression(target);
+        let _ = self.check_expression(message);
+
+        let promise_bool = Type::Struct {
+            name: "Promise".to_string(),
+            fields: HashMap::new(),
+            generics: vec![Type::Bool],
+        };
+
+        match target_type.non_nullable() {
+            Type::Struct { name, .. } if name == "Channel" => promise_bool,
+            Type::Unknown => promise_bool,
+            _ => {
+                let expected_channel = Type::Struct {
+                    name: "Channel".to_string(),
+                    fields: HashMap::new(),
+                    generics: vec![Type::Unknown],
+                };
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: expected_channel,
+                    actual: target_type.clone(),
+                    position: pos,
+                });
+                promise_bool
+            }
+        }
     }
 
     /// Type check a function call

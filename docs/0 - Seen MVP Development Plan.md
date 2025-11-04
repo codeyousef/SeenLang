@@ -76,20 +76,20 @@ async runtime.
 
 ### PSH‑3. Minimal Channels & Job System
 
-*Status:* ⏳ In progress — the Rayon-backed job pool and `parallel_for` plumbing are live, and channel back-pressure
-now raises deterministic diagnostics. `jobs.scope` and async channel futures still need implementation.
+*Status:* ⏳ In progress — the Rayon-backed job pool remains in place, channel futures now flow through the Rust
+interpreter/runtime, and buffered sends can be awaited safely. LLVM lowering and end-user documentation are still open.
 
 * **Progress this iteration:**
   - Introduced a Rayon worker pool with `parallel_for` integration tests; parser/interpreter handle the construct
     without mis-parsing trailing lambdas.
-  - Channel send/receive paths expose `WouldBlock`/`Closed` via new status enums, and interpreter unit tests cover the
-    runtime errors.
+  - Channel send/receive now surface async futures backed by the cooperative runtime; `await channel.send(...)`
+    resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups.
   - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
     jobs namespace.
 
 * **Remaining tasks:**
-  1. Wire bounded-capacity channels into the async runtime (send/recv futures, select integration) and carry the
-     diagnostics through the LLVM backend.
+  1. Extend the LLVM backend (and select lowering) to emit the same channel send/receive futures, ensuring diagnostics
+     survive IR→LLVM translation.
   2. Document concurrency patterns and add regression tests that cover scoped job draining and channel back-pressure in
      multi-stage builds.
 

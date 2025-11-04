@@ -8,8 +8,7 @@ use seen_concurrency::{
     async_runtime::AsyncExecutionContext,
     async_runtime::AsyncFunction as AsyncFunctionTrait,
     types::{
-        AsyncError, AsyncResult, AsyncValue, ChannelReceiveStatus, ChannelSendStatus, TaskId,
-        TaskPriority,
+        AsyncError, AsyncResult, AsyncValue, Channel, ChannelReceiveStatus, TaskId, TaskPriority,
     },
 };
 use seen_effects::{
@@ -73,6 +72,42 @@ impl AsyncFunctionTrait for SeenAsyncFunction {
 
     fn name(&self) -> &str {
         "SeenExpression"
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ChannelSendAsyncFunction {
+    channel: Channel,
+    value: AsyncValue,
+    position: Position,
+}
+
+impl AsyncFunctionTrait for ChannelSendAsyncFunction {
+    fn execute(
+        &self,
+        _context: &mut AsyncExecutionContext,
+    ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+        let channel = self.channel.clone();
+        let value = self.value.clone();
+        let pos = self.position.clone();
+
+        Box::pin(async move {
+            channel.send_future(value).await.map_err(|error| match error {
+                AsyncError::ChannelError { reason, .. } => AsyncError::ChannelError {
+                    reason,
+                    position: pos.clone(),
+                },
+                AsyncError::RuntimeError { message, .. } => AsyncError::RuntimeError {
+                    message,
+                    position: pos.clone(),
+                },
+                other => other,
+            })
+        })
+    }
+
+    fn name(&self) -> &str {
+        "ChannelSend"
     }
 }
 
@@ -1208,44 +1243,54 @@ impl Interpreter {
 
         match promise_value {
             Value::Promise(promise) => {
-                // Execute the promise using the async runtime
-                let async_runtime = self.runtime.async_runtime();
-                let mut runtime = async_runtime.lock().unwrap();
+                if promise.is_resolved() {
+                    if let Some(value) = promise.value() {
+                        return Ok(self.async_value_to_value(value));
+                    }
+                }
 
-                // Check if we can execute the promise synchronously
-                // For promises that are already resolved, get their value
-                // For pending promises, run a single iteration to try to resolve them
-                runtime.run_single_iteration().map_err(|e| {
+                if promise.is_rejected() {
+                    let reason = promise
+                        .get_error()
+                        .cloned()
+                        .unwrap_or_else(|| "Promise rejected".to_string());
+                    return Err(InterpreterError::runtime(reason, pos));
+                }
+
+                let async_runtime = self.runtime.async_runtime();
+                let mut runtime = async_runtime.lock().map_err(|_| {
+                    InterpreterError::runtime(
+                        "Failed to acquire async runtime lock",
+                        pos.clone(),
+                    )
+                })?;
+
+                let task_id = promise.task_id();
+                let async_result = runtime.wait_for_task(task_id).map_err(|e| {
                     InterpreterError::runtime(
                         format!("Async execution failed: {:?}", e),
                         pos.clone(),
                     )
                 })?;
 
-                // In a real async context, promises would contain their resolved values
-                // For now, we'll use the async value conversion system
-                let async_result = runtime.run_until_complete().map_err(|e| {
-                    InterpreterError::runtime(
-                        format!("Async completion failed: {:?}", e),
-                        pos.clone(),
-                    )
-                })?;
                 Ok(self.async_value_to_value(&async_result))
             }
             Value::Task(task_id) => {
-                // Execute and wait for task completion using async runtime
                 let async_runtime = self.runtime.async_runtime();
-                let mut runtime = async_runtime.lock().unwrap();
+                let mut runtime = async_runtime.lock().map_err(|_| {
+                    InterpreterError::runtime(
+                        "Failed to acquire async runtime lock",
+                        pos.clone(),
+                    )
+                })?;
 
-                // Run the async runtime until all pending tasks complete
-                let async_result = runtime.run_until_complete().map_err(|e| {
+                let async_result = runtime.wait_for_task(task_id).map_err(|e| {
                     InterpreterError::runtime(
                         format!("Task execution failed: {:?}", e),
                         pos.clone(),
                     )
                 })?;
 
-                // Convert the async result to an interpreter value
                 Ok(self.async_value_to_value(&async_result))
             }
             _ => Err(InterpreterError::runtime(
@@ -1703,30 +1748,25 @@ impl Interpreter {
                 }
             }
             Value::Channel(channel) => {
-                // Send to channel
-                let async_value = match message_value {
-                    Value::Integer(i) => AsyncValue::Integer(i),
-                    Value::String(s) => AsyncValue::String(s),
-                    Value::Boolean(b) => AsyncValue::Boolean(b),
-                    Value::Unit => AsyncValue::Unit,
-                    _ => AsyncValue::Error, // Fallback for unsupported types
+                let async_runtime = self.runtime.async_runtime();
+                let mut runtime = async_runtime.lock().map_err(|_| {
+                    InterpreterError::runtime(
+                        "Failed to acquire async runtime lock",
+                        pos.clone(),
+                    )
+                })?;
+
+                let async_value = self.value_to_async_value(&message_value);
+                let send_task = ChannelSendAsyncFunction {
+                    channel: channel.with_refreshed_generation(),
+                    value: async_value,
+                    position: pos.clone(),
                 };
 
-                match channel.send_with_status(async_value) {
-                    ChannelSendStatus::Sent => Ok(Value::Boolean(true)),
-                    ChannelSendStatus::WouldBlock => Err(InterpreterError::runtime(
-                        "Channel send would block (buffer full)",
-                        pos.clone(),
-                    )),
-                    ChannelSendStatus::Closed => Err(InterpreterError::runtime(
-                        "Channel send failed: channel is closed",
-                        pos.clone(),
-                    )),
-                    ChannelSendStatus::Error(err) => Err(InterpreterError::runtime(
-                        format!("Channel send failed: {}", err),
-                        pos,
-                    )),
-                }
+                let promise = runtime.execute_async_function(Box::new(send_task));
+                drop(runtime);
+
+                Ok(Value::Promise(Arc::new(promise)))
             }
             _ => Err(InterpreterError::runtime(
                 "Can only send to actors or channels",
@@ -2130,6 +2170,8 @@ impl Default for Interpreter {
 mod tests {
     use super::*;
     use seen_concurrency::types::{Channel, ChannelId};
+    use std::thread;
+    use std::time::Duration;
 
     fn send_expression(value: i64, pos: Position) -> Expression {
         Expression::Send {
@@ -2153,32 +2195,51 @@ mod tests {
     }
 
     #[test]
-    fn channel_send_would_block_emits_runtime_error() {
+    fn channel_send_waits_until_capacity_is_available() {
         let mut interpreter = Interpreter::new();
         let channel = Channel::new(ChannelId::allocate(), Some(1));
+        let background_channel = channel.clone();
+
         interpreter
             .runtime
             .define_variable("tx".to_string(), Value::Channel(channel));
 
         let pos = Position::start();
-        let send_ok = send_expression(1, pos.clone());
-        interpreter
-            .interpret_expression(&send_ok)
-            .expect("first send should succeed");
 
-        let send_err = send_expression(2, pos.clone());
-        let error = interpreter
-            .interpret_expression(&send_err)
-            .expect_err("second send should fail");
+        let first_send = Expression::Await {
+            expr: Box::new(send_expression(1, pos.clone())),
+            pos: pos.clone(),
+        };
+        let first_result = interpreter
+            .interpret_expression(&first_send)
+            .expect("first send should resolve");
+        match first_result {
+            Value::Boolean(true) => {}
+            other => panic!("expected awaited send to yield true, got {:?}", other),
+        }
 
-        match error {
-            InterpreterError::RuntimeError { message, .. } => {
-                assert!(
-                    message.contains("would block"),
-                    "expected would-block message, got {message}"
-                );
-            }
-            other => panic!("expected runtime error, got {:?}", other),
+        let second_send = Expression::Await {
+            expr: Box::new(send_expression(2, pos.clone())),
+            pos: pos.clone(),
+        };
+
+        let drain_handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(20));
+            let _ = background_channel.try_recv_with_status();
+        });
+
+        let second_result = interpreter
+            .interpret_expression(&second_send)
+            .expect("second send should resolve once capacity frees");
+
+        drain_handle.join().expect("drain thread should succeed");
+
+        match second_result {
+            Value::Boolean(true) => {}
+            other => panic!(
+                "expected awaited send to yield true after draining, got {:?}",
+                other
+            ),
         }
     }
 }

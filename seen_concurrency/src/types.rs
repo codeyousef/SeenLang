@@ -3,8 +3,11 @@
 use seen_lexer::position::Position;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 
 /// Unique identifier for async tasks
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -329,6 +332,8 @@ struct ChannelInner {
     state: Mutex<ChannelState>,
     queue: Mutex<VecDeque<AsyncValue>>,
     generation: AtomicU32,
+    waiting_senders: Mutex<Vec<Waker>>,
+    waiting_receivers: Mutex<Vec<Waker>>,
 }
 
 impl ChannelInner {
@@ -339,6 +344,36 @@ impl ChannelInner {
             state: Mutex::new(ChannelState::Open),
             queue: Mutex::new(VecDeque::new()),
             generation: AtomicU32::new(generation),
+            waiting_senders: Mutex::new(Vec::new()),
+            waiting_receivers: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn register_sender_waker(&self, waker: &Waker) {
+        if let Ok(mut waiters) = self.waiting_senders.lock() {
+            waiters.push(waker.clone());
+        }
+    }
+
+    fn register_receiver_waker(&self, waker: &Waker) {
+        if let Ok(mut waiters) = self.waiting_receivers.lock() {
+            waiters.push(waker.clone());
+        }
+    }
+
+    fn notify_sender_waiters(&self) {
+        if let Ok(mut waiters) = self.waiting_senders.lock() {
+            for waker in waiters.drain(..) {
+                waker.wake_by_ref();
+            }
+        }
+    }
+
+    fn notify_receiver_waiters(&self) {
+        if let Ok(mut waiters) = self.waiting_receivers.lock() {
+            for waker in waiters.drain(..) {
+                waker.wake_by_ref();
+            }
         }
     }
 }
@@ -376,6 +411,26 @@ impl Channel {
         } else {
             Ok(())
         }
+    }
+
+    fn register_sender_waker(&self, waker: &Waker) -> Result<(), String> {
+        self.ensure_fresh()?;
+        self.inner.register_sender_waker(waker);
+        Ok(())
+    }
+
+    fn register_receiver_waker(&self, waker: &Waker) -> Result<(), String> {
+        self.ensure_fresh()?;
+        self.inner.register_receiver_waker(waker);
+        Ok(())
+    }
+
+    fn notify_senders(&self) {
+        self.inner.notify_sender_waiters();
+    }
+
+    fn notify_receivers(&self) {
+        self.inner.notify_receiver_waiters();
     }
 
     /// Create a new channel handle for the provided identifier/capacity.
@@ -440,6 +495,8 @@ impl Channel {
                 }
 
                 queue.push_back(value);
+                drop(queue);
+                self.notify_receivers();
                 ChannelSendStatus::Sent
             }
             ChannelState::Closed => ChannelSendStatus::Closed,
@@ -492,10 +549,15 @@ impl Channel {
                     }
                 };
 
-                match queue.pop_front() {
+                let result = match queue.pop_front() {
                     Some(value) => ChannelReceiveStatus::Received(value),
                     None => ChannelReceiveStatus::WouldBlock,
+                };
+                drop(queue);
+                if matches!(result, ChannelReceiveStatus::Received(_)) {
+                    self.notify_senders();
                 }
+                result
             }
             ChannelState::Closed => {
                 let mut queue = match self.inner.queue.lock() {
@@ -505,10 +567,13 @@ impl Channel {
                     }
                 };
 
-                match queue.pop_front() {
+                let result = match queue.pop_front() {
                     Some(value) => ChannelReceiveStatus::Received(value),
                     None => ChannelReceiveStatus::Closed,
-                }
+                };
+                drop(queue);
+                self.notify_senders();
+                result
             }
             ChannelState::Error(err) => ChannelReceiveStatus::Error(err.clone()),
         }
@@ -523,6 +588,9 @@ impl Channel {
         if let Ok(mut state) = self.inner.state.lock() {
             *state = ChannelState::Closed;
             self.inner.generation.fetch_add(1, Ordering::SeqCst);
+            drop(state);
+            self.notify_senders();
+            self.notify_receivers();
         }
     }
 
@@ -554,6 +622,16 @@ impl Channel {
     pub fn with_refreshed_generation(&self) -> Self {
         self.refresh()
     }
+
+    /// Create a future that resolves when the value is successfully sent.
+    pub fn send_future(&self, value: AsyncValue) -> ChannelSendFuture {
+        ChannelSendFuture::new(self.clone(), value)
+    }
+
+    /// Create a future that resolves with the next value received on the channel.
+    pub fn receive_future(&self) -> ChannelReceiveFuture {
+        ChannelReceiveFuture::new(self.clone())
+    }
 }
 
 impl PartialEq for Channel {
@@ -564,6 +642,94 @@ impl PartialEq for Channel {
 }
 
 impl Eq for Channel {}
+
+pub struct ChannelSendFuture {
+    channel: Channel,
+    value: Option<AsyncValue>,
+}
+
+impl ChannelSendFuture {
+    fn new(channel: Channel, value: AsyncValue) -> Self {
+        Self {
+            channel,
+            value: Some(value),
+        }
+    }
+}
+
+impl Future for ChannelSendFuture {
+    type Output = AsyncResult;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Some(value) = self.value.clone() else {
+            return Poll::Ready(Ok(AsyncValue::Boolean(true)));
+        };
+
+        match self.channel.send_with_status(value.clone()) {
+            ChannelSendStatus::Sent => {
+                self.value = None;
+                Poll::Ready(Ok(AsyncValue::Boolean(true)))
+            }
+            ChannelSendStatus::WouldBlock => {
+                if let Err(err) = self.channel.register_sender_waker(cx.waker()) {
+                    Poll::Ready(Err(AsyncError::ChannelError {
+                        reason: err,
+                        position: Position::new(0, 0, 0),
+                    }))
+                } else {
+                    self.value = Some(value);
+                    Poll::Pending
+                }
+            }
+            ChannelSendStatus::Closed => Poll::Ready(Err(AsyncError::ChannelError {
+                reason: "Channel is closed".to_string(),
+                position: Position::new(0, 0, 0),
+            })),
+            ChannelSendStatus::Error(err) => Poll::Ready(Err(AsyncError::ChannelError {
+                reason: err,
+                position: Position::new(0, 0, 0),
+            })),
+        }
+    }
+}
+
+pub struct ChannelReceiveFuture {
+    channel: Channel,
+}
+
+impl ChannelReceiveFuture {
+    fn new(channel: Channel) -> Self {
+        Self { channel }
+    }
+}
+
+impl Future for ChannelReceiveFuture {
+    type Output = AsyncResult;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.channel.try_recv_with_status() {
+            ChannelReceiveStatus::Received(value) => Poll::Ready(Ok(value)),
+            ChannelReceiveStatus::WouldBlock => {
+                if let Err(err) = self.channel.register_receiver_waker(cx.waker()) {
+                    Poll::Ready(Err(AsyncError::ChannelError {
+                        reason: err,
+                        position: Position::new(0, 0, 0),
+                    }))
+                } else {
+                    Poll::Pending
+                }
+            }
+            ChannelReceiveStatus::Closed => Poll::Ready(Err(AsyncError::ChannelError {
+                reason: "Channel is closed".to_string(),
+                position: Position::new(0, 0, 0),
+            })),
+            ChannelReceiveStatus::Error(err) => Poll::Ready(Err(AsyncError::ChannelError {
+                reason: err,
+                position: Position::new(0, 0, 0),
+            })),
+        }
+    }
+}
 
 /// Unique identifier for channels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -821,7 +987,11 @@ pub enum ActorOperation {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+    use std::pin::Pin;
     use std::sync::Mutex;
+    use std::task::{Context, RawWaker, RawWakerVTable, Waker};
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_task_id_creation() {
@@ -970,5 +1140,79 @@ mod tests {
             "expected closed or error status, got {:?}",
             status
         );
+    }
+
+    #[test]
+    fn channel_send_future_completes_when_capacity_frees() {
+        let id = ChannelId::allocate();
+        let channel = Channel::new(id, Some(1));
+
+        assert_eq!(
+            channel.send_with_status(AsyncValue::Integer(1)),
+            ChannelSendStatus::Sent
+        );
+
+        let mut future = channel.send_future(AsyncValue::Integer(2));
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        assert!(matches!(
+            Pin::new(&mut future).poll(&mut context),
+            Poll::Pending
+        ));
+
+        let receiver_channel = channel.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(10));
+            let _ = receiver_channel.try_recv_with_status();
+        })
+            .join()
+            .unwrap();
+
+        match Pin::new(&mut future).poll(&mut context) {
+            Poll::Ready(Ok(AsyncValue::Boolean(result))) => assert!(result),
+            other => panic!("expected ready boolean result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn channel_receive_future_completes_when_value_available() {
+        let id = ChannelId::allocate();
+        let channel = Channel::new(id, Some(1));
+
+        let mut future = channel.receive_future();
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        assert!(matches!(
+            Pin::new(&mut future).poll(&mut context),
+            Poll::Pending
+        ));
+
+        let sender_channel = channel.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(10));
+            let _ = sender_channel.send_with_status(AsyncValue::Integer(99));
+        })
+            .join()
+            .unwrap();
+
+        match Pin::new(&mut future).poll(&mut context) {
+            Poll::Ready(Ok(AsyncValue::Integer(value))) => assert_eq!(value, 99),
+            other => panic!("expected ready integer value, got {:?}", other),
+        }
+    }
+
+    fn noop_waker() -> Waker {
+        fn clone(_: *const ()) -> RawWaker {
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+        fn wake(_: *const ()) {}
+        fn wake_by_ref(_: *const ()) {}
+        fn drop(_: *const ()) {}
+
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+
+        unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) }
     }
 }
