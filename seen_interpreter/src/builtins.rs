@@ -394,26 +394,55 @@ fn builtin_format_seen_code(args: &[Value], _position: Position) -> InterpreterR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn deterministic_timestamp_uses_source_date_epoch() {
+        let _guard = env_lock().lock().unwrap();
+        let previous_epoch = std::env::var("SOURCE_DATE_EPOCH").ok();
+        let previous_flag = std::env::var("SEEN_DETERMINISTIC").ok();
+
         std::env::set_var("SEEN_DETERMINISTIC", "1");
         std::env::set_var("SOURCE_DATE_EPOCH", "12345");
         let ts = builtin_get_timestamp(&[], Position::start())
             .expect("timestamp builtin should succeed");
         assert_eq!(ts, Value::String("12345".to_string()));
-        std::env::remove_var("SOURCE_DATE_EPOCH");
-        std::env::remove_var("SEEN_DETERMINISTIC");
+
+        match previous_epoch {
+            Some(value) => std::env::set_var("SOURCE_DATE_EPOCH", value),
+            None => std::env::remove_var("SOURCE_DATE_EPOCH"),
+        }
+        match previous_flag {
+            Some(value) => std::env::set_var("SEEN_DETERMINISTIC", value),
+            None => std::env::remove_var("SEEN_DETERMINISTIC"),
+        }
     }
 
     #[test]
     fn deterministic_timestamp_defaults_to_zero() {
+        let _guard = env_lock().lock().unwrap();
+        let previous_epoch = std::env::var("SOURCE_DATE_EPOCH").ok();
+        let previous_flag = std::env::var("SEEN_DETERMINISTIC").ok();
+
         std::env::set_var("SEEN_DETERMINISTIC", "1");
         std::env::remove_var("SOURCE_DATE_EPOCH");
         let ts = builtin_get_timestamp(&[], Position::start())
             .expect("timestamp builtin should succeed");
         assert_eq!(ts, Value::String("0".to_string()));
-        std::env::remove_var("SEEN_DETERMINISTIC");
+
+        match previous_epoch {
+            Some(value) => std::env::set_var("SOURCE_DATE_EPOCH", value),
+            None => std::env::remove_var("SOURCE_DATE_EPOCH"),
+        }
+        match previous_flag {
+            Some(value) => std::env::set_var("SEEN_DETERMINISTIC", value),
+            None => std::env::remove_var("SEEN_DETERMINISTIC"),
+        }
     }
 }
 

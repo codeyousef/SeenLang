@@ -76,14 +76,22 @@ async runtime.
 
 ### PSH‑3. Minimal Channels & Job System
 
-*Status:* ⏳ Pending — channel primitives land in `seen_concurrency`, but there is no scoped job pool or parallel_for
-yet.
+*Status:* ⏳ In progress — the Rayon-backed job pool and `parallel_for` plumbing are live, and channel back-pressure
+now raises deterministic diagnostics. `jobs.scope` and async channel futures still need implementation.
 
-* **Outstanding tasks:**
-  1. Implement a job pool with cooperative work stealing and expose `parallel_for` / `jobs.scope` APIs in Seen code.
-  2. Wire bounded-capacity channels to the async runtime (send/recv futures, select integration) and add stress tests.
-  3. Surface send/receive back-pressure diagnostics (`WouldBlock`, `Closed`) in the interpreter and LLVM runtime.
-  4. Document concurrency patterns and add regression tests that ensure scoped jobs drain before exit.
+* **Progress this iteration:**
+  - Introduced a Rayon worker pool with `parallel_for` integration tests; parser/interpreter handle the construct
+    without mis-parsing trailing lambdas.
+  - Channel send/receive paths expose `WouldBlock`/`Closed` via new status enums, and interpreter unit tests cover the
+    runtime errors.
+
+* **Remaining tasks:**
+  1. Add a `jobs.scope { ... }` API (parser, type checker, runtime) so scoped jobs join before exit and emit diagnostics
+     when handles escape.
+  2. Wire bounded-capacity channels into the async runtime (send/recv futures, select integration) and carry the
+     diagnostics through the LLVM backend.
+  3. Document concurrency patterns and add regression tests that cover scoped job draining and channel back-pressure in
+     multi-stage builds.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
 

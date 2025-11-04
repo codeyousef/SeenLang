@@ -76,6 +76,7 @@ fn test_parse_nested_generic_type() {
 #[test]
 fn test_parse_generic_variable_declaration() {
     let expr = parse_expression("let numbers: Array<Int> = [1, 2, 3]").unwrap();
+    dbg!(&expr);
     match expr {
         Expression::Let {
             type_annotation: Some(t),
@@ -128,27 +129,20 @@ fn test_parse_generic_function_return_type() {
 
 #[test]
 fn test_parse_generic_constructor_call() {
-    // NOTE: Current implementation limitation - generic constructor calls
-    // like HashMap<String, Int>() are parsed as binary operations
-    // This needs to be enhanced in a future update to support
-    // generic type expressions in expression contexts
+    // NOTE: Generic arguments are currently parsed and discarded, so the
+    // constructor shows up as a plain call expression. Once expression-level
+    // generics are represented explicitly, this test can be tightened.
     let expr = parse_expression("HashMap<String, Int>()").unwrap();
 
-    // For now, just verify it parses to something (binary op due to < >)
-    // This test documents current behavior until we implement proper
-    // generic type expressions in expression contexts
     match expr {
-        Expression::BinaryOp {
-            left,
-            op: crate::BinaryOperator::Less,
-            ..
-        } => match left.as_ref() {
-            Expression::Identifier { name, .. } => {
-                assert_eq!(name, "HashMap");
+        Expression::Call { callee, args, .. } => {
+            match callee.as_ref() {
+                Expression::Identifier { name, .. } => assert_eq!(name, "HashMap"),
+                other => panic!("Expected HashMap identifier, got {:?}", other),
             }
-            _ => panic!("Expected HashMap identifier"),
-        },
-        _ => panic!("Expected binary operation (current parsing limitation)"),
+            assert!(args.is_empty(), "Constructor should have no positional args in this snippet");
+        }
+        other => panic!("Expected call expression, got {:?}", other),
     }
 }
 

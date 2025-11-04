@@ -7,7 +7,10 @@ use crate::value::Value;
 use seen_concurrency::{
     async_runtime::AsyncExecutionContext,
     async_runtime::AsyncFunction as AsyncFunctionTrait,
-    types::{AsyncError, AsyncResult, AsyncValue, TaskId, TaskPriority},
+    types::{
+        AsyncError, AsyncResult, AsyncValue, ChannelReceiveStatus, ChannelSendStatus, TaskId,
+        TaskPriority,
+    },
 };
 use seen_effects::{
     effects::{
@@ -1515,20 +1518,33 @@ impl Interpreter {
 
             match channel_value {
                 Value::Channel(channel) => {
-                    // Try to receive from channel (non-blocking)
-                    // Try to receive from channel
-                    if let Ok(async_value) = channel.try_recv() {
-                        let received_value = match async_value {
-                            AsyncValue::Integer(i) => Value::Integer(i),
-                            AsyncValue::String(s) => Value::String(s),
-                            AsyncValue::Boolean(b) => Value::Boolean(b),
-                            AsyncValue::Unit => Value::Unit,
-                            _ => Value::Unit, // Fallback for other types
-                        };
-                        // Pattern match the received value
-                        if self.match_pattern(&case.pattern, &received_value) {
-                            // Execute the handler
-                            return self.interpret_expression(&case.handler);
+                    match channel.try_recv_with_status() {
+                        ChannelReceiveStatus::Received(async_value) => {
+                            let received_value = match async_value {
+                                AsyncValue::Integer(i) => Value::Integer(i),
+                                AsyncValue::String(s) => Value::String(s),
+                                AsyncValue::Boolean(b) => Value::Boolean(b),
+                                AsyncValue::Unit => Value::Unit,
+                                other => self.async_value_to_value(&other),
+                            };
+
+                            if self.match_pattern(&case.pattern, &received_value) {
+                                return self.interpret_expression(&case.handler);
+                            }
+                        }
+                        ChannelReceiveStatus::WouldBlock => {
+                            // No messages available; try next case
+                            continue;
+                        }
+                        ChannelReceiveStatus::Closed => {
+                            // Treat closed channels as non-ready in select
+                            continue;
+                        }
+                        ChannelReceiveStatus::Error(err) => {
+                            return Err(InterpreterError::runtime(
+                                format!("Channel receive failed: {}", err),
+                                pos.clone(),
+                            ));
                         }
                     }
                 }
@@ -1684,10 +1700,18 @@ impl Interpreter {
                     _ => AsyncValue::Error, // Fallback for unsupported types
                 };
 
-                match channel.send(async_value) {
-                    Ok(_) => Ok(Value::Boolean(true)),
-                    Err(e) => Err(InterpreterError::runtime(
-                        &format!("Channel send failed: {}", e),
+                match channel.send_with_status(async_value) {
+                    ChannelSendStatus::Sent => Ok(Value::Boolean(true)),
+                    ChannelSendStatus::WouldBlock => Err(InterpreterError::runtime(
+                        "Channel send would block (buffer full)",
+                        pos.clone(),
+                    )),
+                    ChannelSendStatus::Closed => Err(InterpreterError::runtime(
+                        "Channel send failed: channel is closed",
+                        pos.clone(),
+                    )),
+                    ChannelSendStatus::Error(err) => Err(InterpreterError::runtime(
+                        format!("Channel send failed: {}", err),
                         pos,
                     )),
                 }
@@ -2093,10 +2117,56 @@ impl Default for Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use seen_concurrency::types::{Channel, ChannelId};
+
+    fn send_expression(value: i64, pos: Position) -> Expression {
+        Expression::Send {
+            message: Box::new(Expression::IntegerLiteral {
+                value,
+                pos: pos.clone(),
+            }),
+            target: Box::new(Expression::Identifier {
+                name: "tx".to_string(),
+                is_public: false,
+                pos,
+            }),
+            pos: Position::start(),
+        }
+    }
 
     #[test]
     fn test_interpreter_creation() {
         let interpreter = Interpreter::new();
         let _ = interpreter; // Use the value
+    }
+
+    #[test]
+    fn channel_send_would_block_emits_runtime_error() {
+        let mut interpreter = Interpreter::new();
+        let channel = Channel::new(ChannelId::allocate(), Some(1));
+        interpreter
+            .runtime
+            .define_variable("tx".to_string(), Value::Channel(channel));
+
+        let pos = Position::start();
+        let send_ok = send_expression(1, pos.clone());
+        interpreter
+            .interpret_expression(&send_ok)
+            .expect("first send should succeed");
+
+        let send_err = send_expression(2, pos.clone());
+        let error = interpreter
+            .interpret_expression(&send_err)
+            .expect_err("second send should fail");
+
+        match error {
+            InterpreterError::RuntimeError { message, .. } => {
+                assert!(
+                    message.contains("would block"),
+                    "expected would-block message, got {message}"
+                );
+            }
+            other => panic!("expected runtime error, got {:?}", other),
+        }
     }
 }

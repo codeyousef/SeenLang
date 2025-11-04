@@ -350,6 +350,24 @@ pub struct Channel {
     expected_generation: u32,
 }
 
+/// Result of attempting to send a value into a channel.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChannelSendStatus {
+    Sent,
+    WouldBlock,
+    Closed,
+    Error(String),
+}
+
+/// Result of attempting to receive a value from a channel.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChannelReceiveStatus {
+    Received(AsyncValue),
+    WouldBlock,
+    Closed,
+    Error(String),
+}
+
 impl Channel {
     fn ensure_fresh(&self) -> Result<(), String> {
         let current = self.inner.generation.load(Ordering::SeqCst);
@@ -390,68 +408,109 @@ impl Channel {
         self.inner.capacity
     }
 
-    /// Send a value to the channel (blocking semantics).
-    pub fn send(&self, value: AsyncValue) -> Result<(), String> {
-        self.ensure_fresh()?;
-        let mut state = self
-            .inner
-            .state
-            .lock()
-            .map_err(|_| "Channel state poisoned".to_string())?;
+    /// Send a value to the channel (non-blocking) and report detailed status.
+    pub fn send_with_status(&self, value: AsyncValue) -> ChannelSendStatus {
+        if let Err(err) = self.ensure_fresh() {
+            if err.contains("Stale channel handle") {
+                return ChannelSendStatus::Closed;
+            }
+            return ChannelSendStatus::Error(err);
+        }
+
+        let mut state = match self.inner.state.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                return ChannelSendStatus::Error("Channel state poisoned".to_string());
+            }
+        };
 
         match &mut *state {
             ChannelState::Open => {
-                let mut queue = self
-                    .inner
-                    .queue
-                    .lock()
-                    .map_err(|_| "Channel queue poisoned".to_string())?;
+                let mut queue = match self.inner.queue.lock() {
+                    Ok(queue) => queue,
+                    Err(_) => {
+                        return ChannelSendStatus::Error("Channel queue poisoned".to_string());
+                    }
+                };
 
                 if let Some(cap) = self.inner.capacity {
                     if queue.len() >= cap {
-                        return Err("Channel is full".to_string());
+                        return ChannelSendStatus::WouldBlock;
                     }
                 }
 
                 queue.push_back(value);
-                Ok(())
+                ChannelSendStatus::Sent
             }
-            ChannelState::Closed => Err("Channel is closed".to_string()),
-            ChannelState::Error(err) => Err(err.clone()),
+            ChannelState::Closed => ChannelSendStatus::Closed,
+            ChannelState::Error(err) => ChannelSendStatus::Error(err.clone()),
+        }
+    }
+
+    /// Send a value to the channel (blocking semantics).
+    pub fn send(&self, value: AsyncValue) -> Result<(), String> {
+        match self.send_with_status(value) {
+            ChannelSendStatus::Sent => Ok(()),
+            ChannelSendStatus::WouldBlock => Err("Channel is full".to_string()),
+            ChannelSendStatus::Closed => Err("Channel is closed".to_string()),
+            ChannelSendStatus::Error(err) => Err(err),
         }
     }
 
     /// Try to receive a value from the channel without blocking.
     pub fn try_recv(&self) -> Result<AsyncValue, String> {
-        self.ensure_fresh()?;
-        let state = self
-            .inner
-            .state
-            .lock()
-            .map_err(|_| "Channel state poisoned".to_string())?;
+        match self.try_recv_with_status() {
+            ChannelReceiveStatus::Received(value) => Ok(value),
+            ChannelReceiveStatus::WouldBlock => Err("No message available".to_string()),
+            ChannelReceiveStatus::Closed => Err("Channel is closed".to_string()),
+            ChannelReceiveStatus::Error(err) => Err(err),
+        }
+    }
+
+    /// Receive a value from the channel without blocking, returning detailed status.
+    pub fn try_recv_with_status(&self) -> ChannelReceiveStatus {
+        if let Err(err) = self.ensure_fresh() {
+            if err.contains("Stale channel handle") {
+                return ChannelReceiveStatus::Closed;
+            }
+            return ChannelReceiveStatus::Error(err);
+        }
+
+        let state = match self.inner.state.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                return ChannelReceiveStatus::Error("Channel state poisoned".to_string());
+            }
+        };
 
         match &*state {
             ChannelState::Open => {
-                let mut queue = self
-                    .inner
-                    .queue
-                    .lock()
-                    .map_err(|_| "Channel queue poisoned".to_string())?;
-                queue
-                    .pop_front()
-                    .ok_or_else(|| "No message available".to_string())
+                let mut queue = match self.inner.queue.lock() {
+                    Ok(queue) => queue,
+                    Err(_) => {
+                        return ChannelReceiveStatus::Error("Channel queue poisoned".to_string());
+                    }
+                };
+
+                match queue.pop_front() {
+                    Some(value) => ChannelReceiveStatus::Received(value),
+                    None => ChannelReceiveStatus::WouldBlock,
+                }
             }
             ChannelState::Closed => {
-                let mut queue = self
-                    .inner
-                    .queue
-                    .lock()
-                    .map_err(|_| "Channel queue poisoned".to_string())?;
-                queue
-                    .pop_front()
-                    .ok_or_else(|| "Channel is closed".to_string())
+                let mut queue = match self.inner.queue.lock() {
+                    Ok(queue) => queue,
+                    Err(_) => {
+                        return ChannelReceiveStatus::Error("Channel queue poisoned".to_string());
+                    }
+                };
+
+                match queue.pop_front() {
+                    Some(value) => ChannelReceiveStatus::Received(value),
+                    None => ChannelReceiveStatus::Closed,
+                }
             }
-            ChannelState::Error(err) => Err(err.clone()),
+            ChannelState::Error(err) => ChannelReceiveStatus::Error(err.clone()),
         }
     }
 
@@ -869,7 +928,7 @@ mod tests {
         let channel = Channel::new(id, None);
         channel.close();
         let result = channel.try_recv();
-        assert!(matches!(result, Err(err) if err.contains("Stale")));
+        assert!(matches!(result, Err(err) if err.contains("closed")));
     }
 
     #[test]
@@ -881,5 +940,35 @@ mod tests {
         let actor_ref = ActorRef::new(ActorId::new(10, 0), "TestActor".to_string(), mailbox);
         actor_ref.invalidate();
         assert!(actor_ref.mailbox().is_err());
+    }
+
+    #[test]
+    fn channel_send_reports_back_pressure() {
+        let id = ChannelId::allocate();
+        let channel = Channel::new(id, Some(1));
+
+        let first = channel.send_with_status(AsyncValue::Integer(1));
+        assert_eq!(first, ChannelSendStatus::Sent);
+
+        let second = channel.send_with_status(AsyncValue::Integer(2));
+        assert_eq!(second, ChannelSendStatus::WouldBlock);
+    }
+
+    #[test]
+    fn channel_receive_reports_closed() {
+        let id = ChannelId::allocate();
+        let channel = Channel::new(id, Some(1));
+
+        // Close channel without draining to simulate shutdown.
+        channel.close();
+        let status = channel.try_recv_with_status();
+        assert!(
+            matches!(
+                status,
+                ChannelReceiveStatus::Closed | ChannelReceiveStatus::Error(_)
+            ),
+            "expected closed or error status, got {:?}",
+            status
+        );
     }
 }

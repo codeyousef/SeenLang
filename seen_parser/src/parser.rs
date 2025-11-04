@@ -585,6 +585,28 @@ impl Parser {
                         pos,
                     };
                 }
+                TokenType::Less => {
+                    let should_parse_generics = match self.peek_ahead(1) {
+                        Some(next) => matches!(
+                            next.token_type,
+                            TokenType::PublicIdentifier(_)
+                                | TokenType::PrivateIdentifier(_)
+                                | TokenType::Greater
+                                | TokenType::RightShift
+                                | TokenType::LeftBracket
+                                | TokenType::LeftParen
+                                | TokenType::Question
+                        ),
+                        None => false,
+                    };
+
+                    if should_parse_generics {
+                        let _ = self.parse_generic_type_arguments_in_expression()?;
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
                 TokenType::ForceUnwrap => {
                     let pos = self.current.position.clone();
                     self.advance();
@@ -2234,27 +2256,68 @@ impl Parser {
         Ok(params)
     }
 
+    fn parse_generic_type_arguments_in_expression(&mut self) -> ParseResult<Vec<Type>> {
+        let mut generics = Vec::new();
+        self.expect(&TokenType::Less)?;
+
+        while !self.check(&TokenType::Greater)
+            && !self.check(&TokenType::RightShift)
+            && !self.is_at_end()
+        {
+            generics.push(self.parse_type()?);
+
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        if self.check(&TokenType::RightShift) {
+            self.current.token_type = TokenType::Greater;
+            self.current.lexeme = ">".to_string();
+        } else {
+            self.expect(&TokenType::Greater)?;
+        }
+
+        Ok(generics)
+    }
+
     /// Parse interpolated string
     fn parse_interpolated_string(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
 
-        // Be permissive: fold interpolated strings into a plain string literal by
-        // concatenating text parts and eliding expressions. This keeps bootstrapping simple.
         if let TokenType::InterpolatedString(lexer_parts) = &self.current.token_type {
-            let mut combined = String::new();
+            let mut parts = Vec::new();
             for part in lexer_parts {
                 match &part.kind {
-                    seen_lexer::InterpolationKind::Text(t) => combined.push_str(t),
-                    seen_lexer::InterpolationKind::Expression(_e) => {
-                        // Skip expression content or insert a minimal placeholder
-                        // combined.push_str("");
+                    seen_lexer::InterpolationKind::Text(text) => parts.push(
+                        InterpolationPart {
+                            kind: InterpolationKind::Text(text.clone()),
+                            pos: part.position.clone(),
+                        },
+                    ),
+                    seen_lexer::InterpolationKind::Expression(expr_src) => {
+                        let expr = self.parse_interpolation_expression(
+                            expr_src,
+                            part.position.clone(),
+                        )?;
+                        parts.push(InterpolationPart {
+                            kind: InterpolationKind::Expression(Box::new(expr)),
+                            pos: part.position.clone(),
+                        });
                     }
-                    seen_lexer::InterpolationKind::LiteralBrace => combined.push('{'),
+                    seen_lexer::InterpolationKind::LiteralBrace => parts.push(
+                        InterpolationPart {
+                            kind: InterpolationKind::Text(part.content.clone()),
+                            pos: part.position.clone(),
+                        },
+                    ),
                 }
             }
             self.advance();
-            return Ok(Expression::StringLiteral {
-                value: combined,
+            return Ok(Expression::InterpolatedString {
+                parts,
                 pos,
             });
         }
