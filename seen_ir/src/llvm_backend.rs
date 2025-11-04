@@ -734,7 +734,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                     crate::instruction::BinaryOp::BitwiseAnd => {
                         let li = self.as_i64(l.clone())?;
                         let ri = self.as_i64(r.clone())?;
-                        self.builder.build_and(li, ri, "band")?.as_basic_value_enum()
+                        self.builder
+                            .build_and(li, ri, "band")?
+                            .as_basic_value_enum()
                     }
                     crate::instruction::BinaryOp::BitwiseOr => {
                         let li = self.as_i64(l.clone())?;
@@ -744,7 +746,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                     crate::instruction::BinaryOp::BitwiseXor => {
                         let li = self.as_i64(l.clone())?;
                         let ri = self.as_i64(r.clone())?;
-                        self.builder.build_xor(li, ri, "bxor")?.as_basic_value_enum()
+                        self.builder
+                            .build_xor(li, ri, "bxor")?
+                            .as_basic_value_enum()
                     }
                     crate::instruction::BinaryOp::LeftShift => {
                         let li = self.as_i64(l.clone())?;
@@ -801,9 +805,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                             )
                             .map_err(|e| anyhow!("{e:?}"))?
                     };
-                    let len_ptr = self
-                        .builder
-                        .build_struct_gep(ty, arr_ptr, 0, "len_ptr")?;
+                    let len_ptr = self.builder.build_struct_gep(ty, arr_ptr, 0, "len_ptr")?;
                     let len = self.builder.build_load(self.i64_t, len_ptr, "len")?;
                     len.as_basic_value_enum()
                 } else {
@@ -839,9 +841,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                             )
                             .map_err(|e| anyhow!("{e:?}"))?
                     };
-                    let data_ptr_ptr = self
-                        .builder
-                        .build_struct_gep(ty, arr_ptr, 1, "data_ptr")?;
+                    let data_ptr_ptr = self.builder.build_struct_gep(ty, arr_ptr, 1, "data_ptr")?;
                     let data_pp = self.builder.build_load(
                         self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
                         data_ptr_ptr,
@@ -942,9 +942,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     .map_err(|e| anyhow!("{e:?}"))?
                             };
                             let malloc = self.get_malloc();
-                            let arr_call = self
-                                .builder
-                                .build_call(malloc, &[size64.into()], "malloc_strarray")?;
+                            let arr_call = self.builder.build_call(
+                                malloc,
+                                &[size64.into()],
+                                "malloc_strarray",
+                            )?;
                             let raw_ptr = arr_call
                                 .try_as_basic_value()
                                 .left()
@@ -966,16 +968,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                             )?;
                             let len_ptr = self.builder.build_struct_gep(ty, arr_ptr, 0, "lenp")?;
                             self.builder.build_store(len_ptr, len64)?;
-                            let data_ptr = self.builder.build_struct_gep(ty, arr_ptr, 1, "datap")?;
+                            let data_ptr =
+                                self.builder.build_struct_gep(ty, arr_ptr, 1, "datap")?;
                             self.builder.build_store(data_ptr, argv)?;
                             if let Some(r) = result {
                                 let arr_int = self
                                     .builder
-                                    .build_ptr_to_int(
-                                        arr_ptr,
-                                        self.i64_t,
-                                        "strarray_int",
-                                    )
+                                    .build_ptr_to_int(arr_ptr, self.i64_t, "strarray_int")
                                     .map_err(|e| anyhow!("{e:?}"))?
                                     .as_basic_value_enum();
                                 self.assign_value(r, arr_int)?;
@@ -1547,7 +1546,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                             .unwrap_or(self.i64_t.const_zero())
                     } else if reg_val.is_float_value() {
                         self.builder
-                            .build_float_to_signed_int(reg_val.into_float_value(), self.i64_t, "ftoi")
+                            .build_float_to_signed_int(
+                                reg_val.into_float_value(),
+                                self.i64_t,
+                                "ftoi",
+                            )
                             .ok()
                             .unwrap_or(self.i64_t.const_zero())
                     } else if v.is_vector_value() {
@@ -1685,10 +1688,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(loaded.as_basic_value_enum())
     }
 
-    fn basic_type_from_value(
-        &self,
-        value: &BasicValueEnum<'ctx>,
-    ) -> Option<BasicTypeEnum<'ctx>> {
+    fn basic_type_from_value(&self, value: &BasicValueEnum<'ctx>) -> Option<BasicTypeEnum<'ctx>> {
         Some(match value {
             BasicValueEnum::ArrayValue(av) => av.get_type().as_basic_type_enum(),
             BasicValueEnum::FloatValue(fv) => fv.get_type().as_basic_type_enum(),
@@ -1794,10 +1794,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     Err(anyhow!("Mismatched vector store type"))
                 }
             }
-            (
-                BasicValueEnum::ScalableVectorValue(svv),
-                BasicTypeEnum::ScalableVectorType(svt),
-            ) => {
+            (BasicValueEnum::ScalableVectorValue(svv), BasicTypeEnum::ScalableVectorType(svt)) => {
                 if svv.get_type() == svt {
                     Ok(svv.as_basic_value_enum())
                 } else {
@@ -1985,9 +1982,9 @@ impl<'ctx> LlvmBackend<'ctx> {
     ) -> Result<inkwell::values::IntValue<'ctx>> {
         let s_len = self.call_strlen(s)?;
         let suf_len = self.call_strlen(suffix)?;
-        let suf_gt = self
-            .builder
-            .build_int_compare(inkwell::IntPredicate::UGT, suf_len, s_len, "suf_gt")?;
+        let suf_gt =
+            self.builder
+                .build_int_compare(inkwell::IntPredicate::UGT, suf_len, s_len, "suf_gt")?;
         let len_ok = self
             .builder
             .build_not(suf_gt, "len_ok")

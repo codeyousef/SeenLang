@@ -59,26 +59,57 @@ extensions.
 
 ### PSH‑2. Async & Structured Concurrency
 
-* **Inputs:** coroutine design and region model.
-* **Outputs:** `spawn`, `scope`, and `cancel` primitives; suspension prohibited across region borrows; `move` semantics for cross‑task data.
-* **Acceptance:** Compiler emits diagnostics for illegal suspend patterns; unjoined non‑detached tasks cause a compile‑time error.
+*Status:* ✅ Completed — `scope { ... }` now governs spawned tasks, non-detached spawns outside a scope produce compile
+errors, and the interpreter/runtime automatically joins scoped work. A `cancel taskHandle` primitive delegates to the
+async runtime.
+
+* **Highlights:**
+  - Parser/AST recognize `scope` blocks, `spawn detached`, and `cancel` expressions.
+  - Type checker tracks scope depth, enforces that tasks are either scoped or detached, and wires `await`/`cancel`
+    typing.
+  - Interpreter/runtime push/pop scoped task frames, wait on completion, and expose cancellation by forwarding to the
+    async runtime.
+  - New unit coverage validates type errors and runtime defer-order behaviour.
+
+* **Acceptance:** Compiler emits diagnostics for illegal non-scoped spawns; scoped tasks join deterministically at
+  runtime (additional borrow/suspend analysis can build on this foundation).
 
 ### PSH‑3. Minimal Channels & Job System
 
-* **Inputs:** concurrency module.
-* **Outputs:** bounded MPMC channel API and a scoped job pool implementing parallel_for.
+*Status:* ⏳ Pending — channel primitives land in `seen_concurrency`, but there is no scoped job pool or parallel_for
+yet.
+
+* **Outstanding tasks:**
+  1. Implement a job pool with cooperative work stealing and expose `parallel_for` / `jobs.scope` APIs in Seen code.
+  2. Wire bounded-capacity channels to the async runtime (send/recv futures, select integration) and add stress tests.
+  3. Surface send/receive back-pressure diagnostics (`WouldBlock`, `Closed`) in the interpreter and LLVM runtime.
+  4. Document concurrency patterns and add regression tests that ensure scoped jobs drain before exit.
+
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
 
 ### PSH‑4. Embedding & Packaging
 
-* **Inputs:** build driver and runtime.
-* **Outputs:** `#[embed(path)]` attribute for byte inclusion, `seen build --shared` and `--static` to produce `.so`, `.dll`, `.dylib`, and `.a`.
+*Status:* ⏳ Pending — parser/CLI lack `#[embed]`, and build driver has no shared/static output support.
+
+* **Outstanding tasks:**
+  1. Extend the parser + AST to accept `#[embed(path="...")]` on constants; bundle binary blobs into IR/LLVM output.
+  2. Teach the CLI to process `--shared` / `--static` flags and invoke platform linkers appropriately.
+  3. Ensure embedded assets survive Stage1→Stage2 compiles without breaking determinism (new tests + fixtures).
+  4. Update documentation/quickstart with packaging instructions and add integration tests for `.so`, `.dll`, `.dylib`,
+     `.a` generation.
+
 * **Acceptance:** Assets embed correctly and appear in deterministic object sections; all library types build successfully.
 
 ### PSH‑5. Multi‑Platform Target Bring‑Up
 
-* **Inputs:** platform toolchains (Xcode, MSVC, NDK, Emscripten).
-* **Outputs:** cross‑compilation profiles and signing configurations.
+*Status:* ⏳ Pending — no cross-compilation flags, signing, or per-platform build recipes exist in the CLI today.
+
+* **Outstanding tasks:**
+  1. Add `--target <triple>` support to the CLI and map to LLVM target machines/toolchains (MSVC, clang, NDK, wasm-ld).
+  2. Create platform-specific linker pipelines (Windows `.exe/.dll`, macOS Universal2 + codesign, Android `.so/.aab`,
+     iOS `.framework/.ipa`, Web `.wasm` + loader).
+  3. Provide sample projects per platform (textured quad) and automated smoke tests that run on CI/device farms.
+  4. Document toolchain prerequisites (Xcode, MSVC, SDK/NDK, Emscripten) and integrate signing/provisioning scripts.
 
   * Linux: ELF executables and shared libs.
   * Windows: PE/COFF executables and DLLs.
@@ -90,20 +121,31 @@ extensions.
 
 ### PSH‑6. Graphics Backends & Shader Flow
 
-* **Inputs:** SPIR‑V/WGSL toolchains.
-* **Outputs:** integrated `seen build shaders` converting SPIR‑V→MSL (Metal) and SPIR‑V→WGSL (WebGPU).
+*Status:* ⏳ Pending — CLI lacks shader tooling and no SPIR-V/MSL/WGSL flow is implemented yet.
+
+* **Outstanding tasks:**
+  1. Introduce `seen build shaders` (and library API) to ingest SPIR-V, validate, and emit Metal/WGSL variants.
+  2. Integrate toolchains (`spirv-cross`, `dxc`, `naga` or in-tree converters) with deterministic outputs; cache
+     artifacts.
+  3. Add diagnostics that map back to source files/stages (vertex/fragment/compute) with line info.
+  4. Ship sample shader pipelines and unit tests covering error/success paths across Vulkan, Metal, WebGPU.
+
 * **Acceptance:** Invalid shaders produce clear diagnostics with file and stage references; valid shaders compile on all backends.
 
 ### PSH‑7. SIMD Baseline
 
-* **Inputs:** compiler backend, optimizer, and math library.
-* **Outputs:** auto‑vectorization in optimizer, portable vector types (`f32x4`, `i8x16`, etc.), numerics intrinsics (FMA, rsqrt, min/max), SIMD policy flags.
+*Status:* ⏳ Pending — optimizer and CLI do not expose SIMD policies or reports; runtime lacks vector intrinsics.
 
-  * Flags: `--simd=off|auto|max`, `--target-cpu=native`, `--simd-report`.
-  * Determinism mode may force scalar.
-  * Default alignment: 16 bytes.
-  * SoA/AoS helpers documented.
-* **Acceptance:** Build logs include per‑function SIMD decisions; deterministic mode disables SIMD; scalar and vector results match.
+* **Outstanding tasks:**
+  1. Implement portable vector types in the standard library plus lowering logic in IR/LLVM (mapping to native SIMD
+     instructions or scalar fallback).
+  2. Add CLI flags (`--simd=off|auto|max`, `--target-cpu`, `--simd-report`) and ensure deterministic mode forces scalar
+     codegen.
+  3. Extend optimizer passes to drive auto-vectorization decisions and emit per-function reports.
+  4. Add regression tests comparing scalar vs SIMD outputs, plus integration benchmarks for LLVM backends.
+
+* **Acceptance:** Build logs include per-function SIMD decisions; deterministic mode disables SIMD; scalar and vector
+  results match.
 
 ### PSH-8. Deterministic Self-Host
 

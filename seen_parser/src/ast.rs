@@ -348,6 +348,27 @@ pub enum Expression {
     // Spawn expression for concurrency
     Spawn {
         expr: Box<Expression>,
+        detached: bool,
+        pos: Position,
+    },
+
+    // Structured concurrency scope
+    Scope {
+        body: Box<Expression>,
+        pos: Position,
+    },
+
+    // Cancel a spawned task
+    Cancel {
+        task: Box<Expression>,
+        pos: Position,
+    },
+
+    // Parallel job execution
+    ParallelFor {
+        binding: String,
+        iterable: Box<Expression>,
+        body: Box<Expression>,
         pos: Position,
     },
 
@@ -891,6 +912,9 @@ impl Expression {
             Expression::Cast { pos, .. } => pos,
             Expression::Assignment { pos, .. } => pos,
             Expression::Spawn { pos, .. } => pos,
+            Expression::Scope { pos, .. } => pos,
+            Expression::Cancel { pos, .. } => pos,
+            Expression::ParallelFor { pos, .. } => pos,
             Expression::Select { pos, .. } => pos,
             Expression::Send { pos, .. } => pos,
             Expression::Receive { pos, .. } => pos,

@@ -50,6 +50,8 @@ pub enum Type {
         generics: Vec<Type>,
         is_sealed: bool,
     },
+    /// Task handle type with result payload
+    Task(Box<Type>),
     /// Generic type parameter
     Generic(String),
     /// Unit/void type
@@ -210,6 +212,9 @@ impl Type {
             // Array types must have compatible element types
             (Type::Array(a), Type::Array(b)) => a.is_assignable_to(b),
 
+            // Task types must agree on payload
+            (Type::Task(a), Type::Task(b)) => a.is_assignable_to(b),
+
             // Function types must have compatible signatures
             (
                 Type::Function {
@@ -329,6 +334,7 @@ impl Type {
                     format!("{}<{}>", name, args.join(", "))
                 }
             }
+            Type::Task(inner) => format!("Task<{}>", inner.name()),
             Type::Generic(name) => name.clone(),
             Type::Unit => "()".to_string(),
             Type::Unknown => "?".to_string(),

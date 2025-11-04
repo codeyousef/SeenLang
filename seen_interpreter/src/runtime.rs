@@ -5,6 +5,8 @@ use seen_concurrency::{
     actors::ActorSystem,
     async_runtime::{AsyncRuntime, AsyncRuntimeConfig},
     channels::ChannelManager,
+    jobs::JobSystem,
+    types::TaskId,
 };
 use seen_effects::{AdvancedRuntime, AdvancedRuntimeConfig};
 use seen_parser::Expression;
@@ -20,6 +22,7 @@ pub enum RuntimeError {
     StackUnderflow,
     RecursionLimit,
     TypeError(String),
+    AsyncError(String),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -32,6 +35,7 @@ impl std::fmt::Display for RuntimeError {
             RuntimeError::StackUnderflow => write!(f, "Stack underflow"),
             RuntimeError::RecursionLimit => write!(f, "Recursion limit exceeded"),
             RuntimeError::TypeError(msg) => write!(f, "Type error: {}", msg),
+            RuntimeError::AsyncError(msg) => write!(f, "Async runtime error: {}", msg),
         }
     }
 }
@@ -132,6 +136,10 @@ pub struct Runtime {
     advanced_runtime: Arc<Mutex<AdvancedRuntime>>,
     /// Reactive runtime for observables, flows, and reactive properties
     reactive_runtime: Arc<Mutex<ReactiveRuntime>>,
+    /// Structured concurrency task scopes
+    task_scope_stack: Vec<Vec<TaskId>>,
+    /// Job system for parallel job execution
+    job_system: Arc<JobSystem>,
 }
 
 impl Runtime {
@@ -153,6 +161,8 @@ impl Runtime {
             reactive_runtime: Arc::new(Mutex::new(ReactiveRuntime::with_config(
                 ReactiveRuntimeConfig::default(),
             ))),
+            task_scope_stack: Vec::new(),
+            job_system: Arc::new(JobSystem::new()),
         }
     }
 
@@ -170,6 +180,25 @@ impl Runtime {
         }
         self.environment_stack.pop();
         Ok(())
+    }
+
+    /// Push a structured concurrency scope frame
+    pub fn push_task_scope(&mut self) {
+        self.task_scope_stack.push(Vec::new());
+    }
+
+    /// Pop the current structured concurrency scope
+    pub fn pop_task_scope(&mut self) -> Result<Vec<TaskId>, RuntimeError> {
+        self.task_scope_stack
+            .pop()
+            .ok_or(RuntimeError::StackUnderflow)
+    }
+
+    /// Register a spawned task with the current scope if available
+    pub fn register_scope_task(&mut self, task_id: TaskId) {
+        if let Some(scope) = self.task_scope_stack.last_mut() {
+            scope.push(task_id);
+        }
     }
 
     /// Register a deferred expression in the current environment
@@ -270,6 +299,21 @@ impl Runtime {
     /// Get reference to async runtime
     pub fn async_runtime(&self) -> Arc<Mutex<AsyncRuntime>> {
         Arc::clone(&self.async_runtime)
+    }
+
+    /// Cancel a running task via the async runtime
+    pub fn cancel_task(&self, task_id: TaskId) -> Result<bool, RuntimeError> {
+        let runtime_arc = self.async_runtime();
+        let mut runtime = runtime_arc
+            .lock()
+            .map_err(|_| RuntimeError::AsyncError("Failed to acquire async runtime lock".into()))?;
+        runtime
+            .cancel_task(task_id)
+            .map_err(|err| RuntimeError::AsyncError(format!("{:?}", err)))
+    }
+
+    pub fn job_system(&self) -> Arc<JobSystem> {
+        Arc::clone(&self.job_system)
     }
 
     /// Get reference to channel manager

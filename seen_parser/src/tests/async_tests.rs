@@ -147,7 +147,8 @@ fn test_parse_spawn_expression() {
     let expr = parse_expression("spawn { FetchUser(123) }").unwrap();
 
     match expr {
-        Expression::Spawn { expr, .. } => {
+        Expression::Spawn { expr, detached, .. } => {
+            assert!(!detached, "spawn should default to non-detached");
             // Since { FetchUser(123) } has only one expression, it returns that expression directly
             match expr.as_ref() {
                 Expression::Call { .. } => {
@@ -168,6 +169,126 @@ fn test_parse_spawn_expression() {
         }
         other => panic!("Expected spawn expression, got: {:?}", other),
     }
+}
+
+#[test]
+fn test_parse_detached_spawn() {
+    let expr = parse_expression("spawn detached { work() }").unwrap();
+
+    match expr {
+        Expression::Spawn { expr, detached, .. } => {
+            assert!(
+                detached,
+                "spawn detached should mark expression as detached"
+            );
+            match expr.as_ref() {
+                Expression::Call { .. } => {}
+                Expression::Block { expressions, .. } => {
+                    assert_eq!(expressions.len(), 1);
+                }
+                other => panic!("Expected call or block in detached spawn, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected detached spawn expression, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_scope_block() {
+    let expr = parse_expression("scope { spawn { work() } }").unwrap();
+
+    match expr {
+        Expression::Scope { body, .. } => match body.as_ref() {
+            Expression::Block { expressions, .. } => {
+                assert_eq!(expressions.len(), 1);
+            }
+            other => panic!("Expected block inside scope, got: {:?}", other),
+        },
+        other => panic!("Expected scope expression, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_cancel_expression() {
+    let expr = parse_expression("cancel taskHandle").unwrap();
+
+    match expr {
+        Expression::Cancel { task, .. } => match task.as_ref() {
+            Expression::Identifier { name, .. } => assert_eq!(name, "taskHandle"),
+            other => panic!("Expected identifier in cancel, got: {:?}", other),
+        },
+        other => panic!("Expected cancel expression, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_parallel_for() {
+    let expr = parse_expression("parallel_for item in [1, 2] { item }").unwrap();
+
+    match expr {
+        Expression::ParallelFor {
+            binding,
+            iterable,
+            body,
+            ..
+        } => {
+            assert_eq!(binding, "item");
+            match iterable.as_ref() {
+                Expression::ArrayLiteral { elements, .. } => assert_eq!(elements.len(), 2),
+                other => panic!("Expected array literal iterable, got: {:?}", other),
+            }
+            match body.as_ref() {
+                Expression::Block { expressions, .. } => {
+                    assert_eq!(expressions.len(), 1);
+                }
+                other => panic!("Expected block body, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected parallel_for expression, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_parallel_for_with_call_body() {
+    let expr = parse_expression("parallel_for item in [1, 2] { __WriteFile(path, item) }").unwrap();
+
+    match expr {
+        Expression::ParallelFor { body, .. } => match body.as_ref() {
+            Expression::Block { expressions, .. } => {
+                assert_eq!(expressions.len(), 1, "expected single expression in block");
+                match &expressions[0] {
+                    Expression::Call { .. } => {}
+                    other => panic!("expected call expression inside block, got {:?}", other),
+                }
+            }
+            other => panic!("expected block expression, got {:?}", other),
+        },
+        other => panic!("Expected parallel_for expression, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_scope_with_parallel_for_call() {
+    let program = r#"
+        scope {
+            let values = ["1", "2"]
+            parallel_for value in values {
+                __WriteFile(path, value)
+            }
+            __ReadFile(path)
+        }
+    "#;
+
+    let mut keyword_manager = KeywordManager::new();
+    keyword_manager.load_from_toml("en").unwrap();
+    keyword_manager.switch_language("en").unwrap();
+    let lexer = Lexer::new(program.to_string(), Arc::new(keyword_manager));
+    let mut parser = Parser::new(lexer);
+    let parsed = parser.parse_program().expect("program should parse");
+    assert!(
+        !parsed.expressions.is_empty(),
+        "scope program should produce expressions"
+    );
 }
 
 #[test]

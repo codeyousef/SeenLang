@@ -7,7 +7,7 @@ use crate::value::Value;
 use seen_concurrency::{
     async_runtime::AsyncExecutionContext,
     async_runtime::AsyncFunction as AsyncFunctionTrait,
-    types::{ActorRef, AsyncError, AsyncResult, AsyncValue, Promise, TaskId, TaskPriority},
+    types::{AsyncError, AsyncResult, AsyncValue, TaskId, TaskPriority},
 };
 use seen_effects::{
     effects::{
@@ -20,7 +20,6 @@ use seen_parser::{
     BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm, Pattern, Position,
     Program, UnaryOperator,
 };
-use seen_reactive::{properties::PropertyId, Flow, Observable, ReactiveProperty};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -493,7 +492,22 @@ impl Interpreter {
             Expression::Await { expr, pos } => self.interpret_await(expr, *pos),
 
             // Spawn expressions for concurrency
-            Expression::Spawn { expr, pos } => self.interpret_spawn(expr, *pos),
+            Expression::Spawn {
+                expr,
+                detached,
+                pos,
+            } => self.interpret_spawn(expr, *detached, *pos),
+
+            Expression::Scope { body, pos } => self.interpret_scope(body, *pos),
+
+            Expression::Cancel { task, pos } => self.interpret_cancel(task, *pos),
+
+            Expression::ParallelFor {
+                binding,
+                iterable,
+                body,
+                pos,
+            } => self.interpret_parallel_for(binding, iterable, body, *pos),
 
             // Select expressions for channel operations
             Expression::Select { cases, pos } => self.interpret_select(cases, *pos),
@@ -1238,7 +1252,12 @@ impl Interpreter {
     }
 
     /// Interpret spawn expression
-    fn interpret_spawn(&mut self, expr: &Expression, pos: Position) -> InterpreterResult<Value> {
+    fn interpret_spawn(
+        &mut self,
+        expr: &Expression,
+        detached: bool,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
         // Get async runtime
         let async_runtime = self.runtime.async_runtime();
         let mut runtime = async_runtime.lock().unwrap();
@@ -1253,7 +1272,12 @@ impl Interpreter {
         let task_handle = runtime.spawn_task(async_function, TaskPriority::Normal);
 
         match task_handle.task_id() {
-            Some(id) => Ok(Value::Task(id)),
+            Some(id) => {
+                if !detached {
+                    self.runtime.register_scope_task(id);
+                }
+                Ok(Value::Task(id))
+            }
             None => {
                 if let Some(error) = task_handle.get_error() {
                     Err(InterpreterError::runtime(
@@ -1267,6 +1291,207 @@ impl Interpreter {
                     ))
                 }
             }
+        }
+    }
+
+    fn interpret_scope(&mut self, body: &Expression, pos: Position) -> InterpreterResult<Value> {
+        self.runtime.push_task_scope();
+        let evaluation = self.interpret_expression(body);
+        let tasks = match self.runtime.pop_task_scope() {
+            Ok(tasks) => tasks,
+            Err(err) => {
+                return Err(InterpreterError::runtime(err.to_string(), pos));
+            }
+        };
+        let join_result = self.join_scope_tasks(tasks, pos.clone());
+
+        match (evaluation, join_result) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(err), _) => Err(err),
+            (Ok(_), Err(join_err)) => Err(join_err),
+        }
+    }
+
+    fn join_scope_tasks(&mut self, tasks: Vec<TaskId>, pos: Position) -> InterpreterResult<()> {
+        if tasks.is_empty() {
+            return Ok(());
+        }
+
+        let async_runtime = self.runtime.async_runtime();
+        let mut runtime = async_runtime.lock().map_err(|_| {
+            InterpreterError::runtime("Failed to acquire async runtime lock", pos.clone())
+        })?;
+
+        for task_id in tasks {
+            match runtime.wait_for_task(task_id) {
+                Ok(async_value) => {
+                    // Convert result to interpreter value to surface errors if needed
+                    let _ = self.async_value_to_value(&async_value);
+                }
+                Err(err) => {
+                    return Err(InterpreterError::runtime(
+                        format!("Task {:?} failed: {:?}", task_id.id(), err),
+                        pos.clone(),
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn interpret_cancel(
+        &mut self,
+        task_expr: &Expression,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let task_value = self.interpret_expression(task_expr)?;
+        match task_value {
+            Value::Task(task_id) => {
+                let cancelled = self
+                    .runtime
+                    .cancel_task(task_id)
+                    .map_err(|err| InterpreterError::runtime(err.to_string(), pos))?;
+                Ok(Value::Boolean(cancelled))
+            }
+            _ => Err(InterpreterError::runtime(
+                "cancel expects a Task handle",
+                pos,
+            )),
+        }
+    }
+
+    fn interpret_parallel_for(
+        &mut self,
+        binding: &str,
+        iterable: &Expression,
+        body: &Expression,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let iter_val = self.interpret_expression(iterable)?;
+
+        self.runtime.push_environment(false);
+
+        let mut result = Ok(Value::Unit);
+
+        match iter_val {
+            Value::Array(items) => {
+                let job_system = self.runtime.job_system();
+                let mut job_error: Option<InterpreterError> = None;
+                let mut first_iteration = true;
+
+                job_system.parallel_for_sequential(0, items.len(), |idx| {
+                    if job_error.is_some() || self.return_flag {
+                        return;
+                    }
+
+                    let item = items[idx].clone();
+
+                    if first_iteration {
+                        self.runtime.define_variable(binding.to_string(), item);
+                        first_iteration = false;
+                    } else if let Err(_) = self.runtime.set_variable(binding, item.clone()) {
+                        self.runtime.define_variable(binding.to_string(), item);
+                    }
+
+                    if let Err(err) = self.interpret_expression(body) {
+                        job_error = Some(err);
+                        return;
+                    }
+
+                    if self.break_flag {
+                        job_error = Some(InterpreterError::runtime(
+                            "break is not supported inside parallel_for",
+                            pos.clone(),
+                        ));
+                        self.break_flag = false;
+                    }
+
+                    if self.continue_flag {
+                        job_error = Some(InterpreterError::runtime(
+                            "continue is not supported inside parallel_for",
+                            pos.clone(),
+                        ));
+                        self.continue_flag = false;
+                    }
+                });
+
+                if let Some(err) = job_error {
+                    result = Err(err);
+                }
+            }
+            Value::String(s) => {
+                let job_system = self.runtime.job_system();
+                let chars: Vec<Value> = s.chars().map(Value::Character).collect();
+                let mut job_error: Option<InterpreterError> = None;
+                let mut first_iteration = true;
+
+                job_system.parallel_for_sequential(0, chars.len(), |idx| {
+                    if job_error.is_some() || self.return_flag {
+                        return;
+                    }
+
+                    let ch = chars[idx].clone();
+
+                    if first_iteration {
+                        self.runtime.define_variable(binding.to_string(), ch);
+                        first_iteration = false;
+                    } else if let Err(_) = self.runtime.set_variable(binding, ch.clone()) {
+                        self.runtime.define_variable(binding.to_string(), ch);
+                    }
+
+                    if let Err(err) = self.interpret_expression(body) {
+                        job_error = Some(err);
+                        return;
+                    }
+
+                    if self.break_flag {
+                        job_error = Some(InterpreterError::runtime(
+                            "break is not supported inside parallel_for",
+                            pos.clone(),
+                        ));
+                        self.break_flag = false;
+                    }
+
+                    if self.continue_flag {
+                        job_error = Some(InterpreterError::runtime(
+                            "continue is not supported inside parallel_for",
+                            pos.clone(),
+                        ));
+                        self.continue_flag = false;
+                    }
+                });
+
+                if let Some(err) = job_error {
+                    result = Err(err);
+                }
+            }
+            other => {
+                result = Err(InterpreterError::runtime(
+                    format!("Cannot parallel_for over {}", other.type_name()),
+                    pos,
+                ));
+            }
+        }
+
+        let deferred = self
+            .runtime
+            .take_current_deferred()
+            .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))?;
+        let defer_result = self.run_deferred(deferred);
+
+        if let Err(err) = self
+            .runtime
+            .pop_environment()
+            .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))
+        {
+            return Err(err);
+        }
+
+        match (result, defer_result) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(err), _) => Err(err),
+            (_, Err(err)) => Err(err),
         }
     }
 

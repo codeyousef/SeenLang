@@ -132,10 +132,14 @@ pub enum KeywordType {
 
     // Concurrency - Actor model
     KeywordSpawn,
+    KeywordParallelFor,
     KeywordSelect,
     KeywordActor,
     KeywordReceive,
     KeywordSend,
+    KeywordScope,
+    KeywordCancel,
+    KeywordDetached,
     KeywordTo,   // for "send X to actor"
     KeywordFrom, // for "request Y from actor"
     KeywordRequest,
@@ -227,6 +231,10 @@ impl KeywordManager {
         keywords.insert("null".to_string(), "KeywordNull".to_string());
         keywords.insert("async".to_string(), "KeywordAsync".to_string());
         keywords.insert("await".to_string(), "KeywordAwait".to_string());
+        keywords.insert("parallel_for".to_string(), "KeywordParallelFor".to_string());
+        keywords.insert("scope".to_string(), "KeywordScope".to_string());
+        keywords.insert("cancel".to_string(), "KeywordCancel".to_string());
+        keywords.insert("detached".to_string(), "KeywordDetached".to_string());
         keywords.insert("and".to_string(), "KeywordAnd".to_string());
         keywords.insert("or".to_string(), "KeywordOr".to_string());
         keywords.insert("not".to_string(), "KeywordNot".to_string());
@@ -370,6 +378,10 @@ impl KeywordManager {
             "KeywordActor" => Ok(KeywordType::KeywordActor),
             "KeywordReceive" => Ok(KeywordType::KeywordReceive),
             "KeywordSend" => Ok(KeywordType::KeywordSend),
+            "KeywordParallelFor" => Ok(KeywordType::KeywordParallelFor),
+            "KeywordScope" => Ok(KeywordType::KeywordScope),
+            "KeywordCancel" => Ok(KeywordType::KeywordCancel),
+            "KeywordDetached" => Ok(KeywordType::KeywordDetached),
             "KeywordTo" => Ok(KeywordType::KeywordTo),
             "KeywordFrom" => Ok(KeywordType::KeywordFrom),
             "KeywordRequest" => Ok(KeywordType::KeywordRequest),

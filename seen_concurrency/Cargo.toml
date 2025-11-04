@@ -11,6 +11,7 @@ serde = { workspace = true }
 seen_lexer = { path = "../seen_lexer" }
 seen_parser = { path = "../seen_parser" }
 rand = "0.8"
+rayon = "1.7"
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -123,6 +123,8 @@ pub struct TypeChecker {
     current_function_return_type: Option<Type>,
     /// Stack of in-scope generic parameter names
     generic_stack: Vec<Vec<String>>,
+    /// Depth of structured concurrency scopes
+    scope_depth: usize,
 }
 
 impl TypeChecker {
@@ -297,6 +299,7 @@ impl TypeChecker {
             result: TypeCheckResult::new(),
             current_function_return_type: None,
             generic_stack: Vec::new(),
+            scope_depth: 0,
         }
     }
 
@@ -683,6 +686,26 @@ impl TypeChecker {
                 pos,
             } => self.check_if_expression(condition, then_branch, else_branch.as_deref(), *pos),
 
+            // Structured concurrency primitives
+            Expression::Await { expr, pos } => self.check_await_expression(expr, *pos),
+
+            Expression::Spawn {
+                expr,
+                detached,
+                pos,
+            } => self.check_spawn_expression(expr, *detached, *pos),
+
+            Expression::Scope { body, pos } => self.check_scope_expression(body, *pos),
+
+            Expression::Cancel { task, pos } => self.check_cancel_expression(task, *pos),
+
+            Expression::ParallelFor {
+                binding,
+                iterable,
+                body,
+                pos,
+            } => self.check_parallel_for(binding, iterable, body, *pos),
+
             // Blocks
             Expression::Block { expressions, .. } => self.check_block_expression(expressions),
 
@@ -816,6 +839,96 @@ impl TypeChecker {
                 }
             }
         }
+    }
+
+    fn check_await_expression(&mut self, expr: &Expression, pos: Position) -> Type {
+        let awaited_type = self.check_expression(expr);
+        match awaited_type.non_nullable() {
+            Type::Task(inner) => inner.as_ref().clone(),
+            Type::Struct { name, generics, .. } if name == "Promise" && !generics.is_empty() => {
+                generics[0].clone()
+            }
+            Type::Struct { name, .. } if name == "Promise" => Type::Unknown,
+            _ => {
+                self.result.add_error(TypeError::InvalidAwaitTarget {
+                    actual: awaited_type.clone(),
+                    position: pos,
+                });
+                Type::Unknown
+            }
+        }
+    }
+
+    fn check_spawn_expression(&mut self, expr: &Expression, detached: bool, pos: Position) -> Type {
+        let payload_type = self.check_expression(expr);
+        if !detached && self.scope_depth == 0 {
+            self.result
+                .add_error(TypeError::TaskRequiresScope { position: pos });
+        }
+        Type::Task(Box::new(payload_type))
+    }
+
+    fn check_scope_expression(&mut self, body: &Expression, _pos: Position) -> Type {
+        self.scope_depth += 1;
+        let result = self.check_expression(body);
+        self.scope_depth -= 1;
+        result
+    }
+
+    fn check_cancel_expression(&mut self, task: &Expression, pos: Position) -> Type {
+        let task_type = self.check_expression(task);
+        if matches!(task_type.non_nullable(), Type::Task(_)) {
+            Type::Bool
+        } else {
+            self.result.add_error(TypeError::CancelRequiresTask {
+                actual: task_type.clone(),
+                position: pos,
+            });
+            Type::Bool
+        }
+    }
+
+    fn check_parallel_for(
+        &mut self,
+        binding: &str,
+        iterable: &Expression,
+        body: &Expression,
+        pos: Position,
+    ) -> Type {
+        let iterable_type = self.check_expression(iterable);
+        let element_type = match iterable_type.non_nullable() {
+            Type::Array(inner) => inner.as_ref().clone(),
+            Type::String => Type::Char,
+            other => {
+                self.result.add_error(TypeError::InvalidOperation {
+                    operation: "parallel_for iterable".to_string(),
+                    left_type: iterable_type.clone(),
+                    right_type: Type::Unit,
+                    position: pos,
+                });
+                other.clone()
+            }
+        };
+
+        let saved_env = self.env.clone();
+        let mut loop_env = Environment::with_parent(self.env.clone());
+        loop_env.define_variable(binding.to_string(), element_type);
+        self.env = loop_env;
+
+        let body_type = self.check_expression(body);
+
+        self.env = saved_env;
+
+        if !body_type.is_assignable_to(&Type::Unit) {
+            self.result.add_error(TypeError::InvalidOperation {
+                operation: "parallel_for body".to_string(),
+                left_type: body_type,
+                right_type: Type::Unit,
+                position: pos,
+            });
+        }
+
+        Type::Unit
     }
 
     /// Type check a function call

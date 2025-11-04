@@ -637,11 +637,7 @@ fn compile_file_llvm(
                 .map_err(|err| {
                     SeenError::new(
                         SeenErrorKind::Ir,
-                        format!(
-                            "Failed to emit LLVM IR to {}: {:?}",
-                            ll_path.display(),
-                            err
-                        ),
+                        format!("Failed to emit LLVM IR to {}: {:?}", ll_path.display(), err),
                     )
                 })?;
             println!("Generated LLVM IR: {}", ll_path.display());
@@ -1527,6 +1523,51 @@ impl CodeFormatter {
             }
             Expression::Call { callee, args, .. } => {
                 self.format_call_expression(callee, args, parent_prec)
+            }
+            Expression::Await { expr, .. } => {
+                let prec = precedence::UNARY;
+                let needs_paren = prec < parent_prec;
+                if needs_paren {
+                    self.output.push('(');
+                }
+                self.output.push_str("await ");
+                self.format_expression_prec(expr, prec);
+                if needs_paren {
+                    self.output.push(')');
+                }
+                self
+            }
+            Expression::Spawn { expr, detached, .. } => {
+                self.output.push_str("spawn ");
+                if *detached {
+                    self.output.push_str("detached ");
+                }
+                self.format_expression_prec(expr, precedence::PRIMARY);
+                self
+            }
+            Expression::Scope { body, .. } => {
+                self.output.push_str("scope ");
+                self.format_expression_prec(body, precedence::PRIMARY);
+                self
+            }
+            Expression::Cancel { task, .. } => {
+                self.output.push_str("cancel ");
+                self.format_expression_prec(task, precedence::UNARY);
+                self
+            }
+            Expression::ParallelFor {
+                binding,
+                iterable,
+                body,
+                ..
+            } => {
+                self.output.push_str("parallel_for ");
+                self.output.push_str(binding);
+                self.output.push_str(" in ");
+                self.format_expression_prec(iterable, precedence::LOGICAL_OR);
+                self.output.push(' ');
+                self.format_expression_prec(body, precedence::PRIMARY);
+                self
             }
             Expression::MemberAccess {
                 object,

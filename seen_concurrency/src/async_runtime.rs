@@ -9,7 +9,6 @@ use crate::types::{
     AsyncError, AsyncResult, AsyncValue, Promise, TaskHandle, TaskId, TaskPriority, TaskState,
 };
 use seen_lexer::position::Position;
-use seen_parser::ast::Expression;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
@@ -221,6 +220,41 @@ impl AsyncRuntime {
             }
             None => Promise::rejected("Failed to spawn async task".to_string()),
         }
+    }
+
+    /// Block the runtime until the specified task completes and return its result.
+    pub fn wait_for_task(&mut self, task_id: TaskId) -> AsyncResult {
+        loop {
+            if let Some(result) = self.task_registry.take_result(task_id) {
+                self.task_registry.finalize_task(task_id);
+                return result;
+            }
+
+            if self.task_registry.get_task(task_id).is_none() && !self.has_pending_tasks() {
+                return Err(AsyncError::TaskNotFound { task_id });
+            }
+
+            self.run_single_iteration()?;
+        }
+    }
+
+    /// Attempt to cancel a task. Returns true if cancellation was scheduled, false if already completed.
+    pub fn cancel_task(&mut self, task_id: TaskId) -> Result<bool, AsyncError> {
+        if self.task_registry.get_result(task_id).is_some() {
+            return Ok(false);
+        }
+
+        if self.task_registry.get_task(task_id).is_none() {
+            return Err(AsyncError::TaskNotFound { task_id });
+        }
+
+        self.scheduler.cancel_task(task_id);
+        if let Some(task) = self.task_registry.get_task_mut(task_id) {
+            task.state = TaskState::Cancelled;
+        }
+        self.task_registry
+            .store_result(task_id, Err(AsyncError::TaskCancelled { task_id }));
+        Ok(true)
     }
 
     /// Run the event loop until completion
@@ -436,6 +470,16 @@ impl TaskScheduler {
         }
     }
 
+    /// Remove a task from scheduling queues
+    pub fn cancel_task(&mut self, task_id: TaskId) {
+        self.ready_queue.retain(|id| *id != task_id);
+        self.priority_queue.retain(|(_, id)| *id != task_id);
+        self.waiting_tasks.remove(&task_id);
+        if self.current_task == Some(task_id) {
+            self.current_task = None;
+        }
+    }
+
     /// Check if there are ready tasks
     pub fn has_ready_tasks(&self) -> bool {
         !self.ready_queue.is_empty() || !self.priority_queue.is_empty()
@@ -511,6 +555,21 @@ impl TaskRegistry {
     /// Fetch the result for a task handle
     pub fn get_result(&self, task_id: TaskId) -> Option<&AsyncResult> {
         self.slot(task_id).and_then(|slot| slot.result.as_ref())
+    }
+
+    /// Take (and remove) the result for a task handle
+    pub fn take_result(&mut self, task_id: TaskId) -> Option<AsyncResult> {
+        self.slot_mut(task_id).and_then(|slot| slot.result.take())
+    }
+
+    /// Finalize a task slot after its result has been consumed
+    pub fn finalize_task(&mut self, task_id: TaskId) {
+        if let Some(slot) = self.slot_mut(task_id) {
+            slot.task = None;
+            slot.result = None;
+            slot.generation = slot.generation.wrapping_add(1);
+            self.free_list.push(task_id.slot());
+        }
     }
 
     /// Return all task IDs that have completed and still have a stored result

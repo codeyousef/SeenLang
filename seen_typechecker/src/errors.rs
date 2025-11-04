@@ -140,6 +140,12 @@ pub enum TypeError {
         type_name: String,
         position: Position,
     },
+    #[error("await expects a Task or Promise, found {actual} at {position}")]
+    InvalidAwaitTarget { actual: Type, position: Position },
+    #[error("Non-detached tasks must be created inside a scope at {position}")]
+    TaskRequiresScope { position: Position },
+    #[error("cancel expects a Task handle, found {actual} at {position}")]
+    CancelRequiresTask { actual: Type, position: Position },
 }
 
 /// Kind of type error for categorization
@@ -186,7 +192,10 @@ impl TypeError {
             | TypeError::MissingField { position, .. }
             | TypeError::NotAStruct { position, .. }
             | TypeError::GenericArityMismatch { position, .. }
-            | TypeError::SealedTypeExtension { position, .. } => *position,
+            | TypeError::SealedTypeExtension { position, .. }
+            | TypeError::InvalidAwaitTarget { position, .. }
+            | TypeError::TaskRequiresScope { position, .. }
+            | TypeError::CancelRequiresTask { position, .. } => *position,
         }
     }
 
@@ -216,7 +225,10 @@ impl TypeError {
             }
             TypeError::GenericConstraintViolation { .. }
             | TypeError::GenericArityMismatch { .. } => TypeErrorKind::GenericError,
-            TypeError::SealedTypeExtension { .. } => TypeErrorKind::InvalidOperation,
+            TypeError::SealedTypeExtension { .. }
+            | TypeError::InvalidAwaitTarget { .. }
+            | TypeError::TaskRequiresScope { .. }
+            | TypeError::CancelRequiresTask { .. } => TypeErrorKind::InvalidOperation,
             TypeError::InferenceFailed { .. } => TypeErrorKind::InferenceError,
             TypeError::CircularDependency { .. } => TypeErrorKind::CircularDependency,
         }
@@ -292,7 +304,10 @@ impl From<TypeError> for SeenError {
             | TypeError::MissingField { position, .. }
             | TypeError::NotAStruct { position, .. }
             | TypeError::GenericArityMismatch { position, .. }
-            | TypeError::SealedTypeExtension { position, .. } => Some(ErrorLocation::new(
+            | TypeError::SealedTypeExtension { position, .. }
+            | TypeError::InvalidAwaitTarget { position, .. }
+            | TypeError::TaskRequiresScope { position, .. }
+            | TypeError::CancelRequiresTask { position, .. } => Some(ErrorLocation::new(
                 position.line as u32,
                 position.column as u32,
                 position.offset as u32,

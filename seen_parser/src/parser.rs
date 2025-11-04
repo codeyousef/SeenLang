@@ -24,6 +24,7 @@ pub struct Parser {
     visibility_policy: VisibilityPolicy,
     pending_visibility: Option<bool>,
     pending_visibility_pos: Option<Position>,
+    allow_trailing_lambda: bool,
 }
 
 impl Parser {
@@ -58,6 +59,7 @@ impl Parser {
             visibility_policy,
             pending_visibility: None,
             pending_visibility_pos: None,
+            allow_trailing_lambda: true,
         }
     }
 
@@ -511,7 +513,7 @@ impl Parser {
             match &self.current.token_type {
                 TokenType::LeftBrace => {
                     // Check if this is a trailing lambda (list.Map { it * 2 })
-                    if self.is_trailing_lambda_context(&expr) {
+                    if self.allow_trailing_lambda && self.is_trailing_lambda_context(&expr) {
                         let pos = expr.position().clone(); // Get position before moving
                         let lambda_arg = self.parse_lambda()?;
                         expr = Expression::Call {
@@ -634,6 +636,18 @@ impl Parser {
                 expr: Box::new(expr),
                 pos,
             });
+        }
+
+        if self.check_keyword(KeywordType::KeywordScope) {
+            return self.parse_scope();
+        }
+
+        if self.check_keyword(KeywordType::KeywordCancel) {
+            return self.parse_cancel();
+        }
+
+        if self.check_keyword(KeywordType::KeywordParallelFor) {
+            return self.parse_parallel_for();
         }
 
         // Literals
@@ -1968,11 +1982,23 @@ impl Parser {
 
     /// Parse block expression
     fn parse_block(&mut self) -> ParseResult<Expression> {
+        self.parse_block_internal(true, true)
+    }
+
+    fn parse_strict_block(&mut self) -> ParseResult<Expression> {
+        self.parse_block_internal(false, false)
+    }
+
+    fn parse_block_internal(
+        &mut self,
+        allow_lambda: bool,
+        flatten_single: bool,
+    ) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.expect(&TokenType::LeftBrace)?;
 
         // Check if this is actually a lambda disguised as a block
-        if self.is_lambda_in_braces() {
+        if allow_lambda && self.is_lambda_in_braces() {
             // This is a lambda like { x -> x + 1 }
             // We need to parse it as a lambda, not just the body
             return self.parse_lambda_after_brace(pos);
@@ -1998,16 +2024,22 @@ impl Parser {
 
         self.expect(&TokenType::RightBrace)?;
 
-        // If there's only one expression, return it directly
-        // This allows blocks like { 42 } to evaluate to just 42
         match expressions.len() {
-            0 => Ok(Expression::Block {
-                expressions: Vec::new(),
-                pos,
-            }),
-            1 => Ok(expressions.into_iter().next().unwrap()),
+            0 => Ok(Expression::Block { expressions, pos }),
+            1 if flatten_single => Ok(expressions.into_iter().next().unwrap()),
             _ => Ok(Expression::Block { expressions, pos }),
         }
+    }
+
+    fn with_trailing_lambda_disabled<T, F>(&mut self, f: F) -> ParseResult<T>
+    where
+        F: FnOnce(&mut Self) -> ParseResult<T>,
+    {
+        let previous = self.allow_trailing_lambda;
+        self.allow_trailing_lambda = false;
+        let result = f(self);
+        self.allow_trailing_lambda = previous;
+        result
     }
 
     /// Parse block body (returns last expression value)
@@ -2906,8 +2938,82 @@ impl Parser {
     fn parse_spawn(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'spawn'
-        let expr = Box::new(self.parse_expression()?);
-        Ok(Expression::Spawn { expr, pos })
+
+        let detached = if self.check_keyword(KeywordType::KeywordDetached) {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
+        let expr = if self.check(&TokenType::LeftBrace) {
+            let block_expr = self.parse_block()?;
+            match block_expr {
+                Expression::Block { .. } => block_expr,
+                other => Expression::Block {
+                    expressions: vec![other],
+                    pos,
+                },
+            }
+        } else {
+            self.parse_expression()?
+        };
+        Ok(Expression::Spawn {
+            expr: Box::new(expr),
+            detached,
+            pos,
+        })
+    }
+
+    fn parse_scope(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'scope'
+        let block_expr = self.parse_block()?;
+        let body = match block_expr {
+            Expression::Block { .. } => block_expr,
+            other => Expression::Block {
+                expressions: vec![other],
+                pos: pos.clone(),
+            },
+        };
+        Ok(Expression::Scope {
+            body: Box::new(body),
+            pos,
+        })
+    }
+
+    fn parse_cancel(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'cancel'
+        let target = Box::new(self.parse_expression()?);
+        Ok(Expression::Cancel { task: target, pos })
+    }
+
+    fn parse_parallel_for(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.advance(); // consume 'parallel_for'
+
+        let binding = self.expect_identifier()?;
+        self.expect_keyword(KeywordType::KeywordIn)?;
+        let iterable_expr =
+            self.with_trailing_lambda_disabled(|parser| parser.parse_expression())?;
+        let iterable = Box::new(iterable_expr);
+
+        let body_expr = self.parse_strict_block()?;
+        let body = match body_expr {
+            Expression::Block { .. } => body_expr,
+            other => Expression::Block {
+                expressions: vec![other],
+                pos: pos.clone(),
+            },
+        };
+
+        Ok(Expression::ParallelFor {
+            binding,
+            iterable,
+            body: Box::new(body),
+            pos,
+        })
     }
 
     fn parse_select(&mut self) -> ParseResult<Expression> {

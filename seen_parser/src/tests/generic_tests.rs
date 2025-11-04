@@ -10,7 +10,14 @@ fn parse_expression(input: &str) -> Result<Expression, crate::ParseError> {
     keyword_manager.switch_language("en").unwrap();
     let lexer = Lexer::new(input.to_string(), Arc::new(keyword_manager));
     let mut parser = Parser::new(lexer);
-    parser.parse_expression()
+    let program = parser.parse_program()?;
+    program
+        .expressions
+        .into_iter()
+        .next()
+        .ok_or_else(|| crate::ParseError::UnexpectedEof {
+            pos: seen_lexer::Position::new(1, 1, 0),
+        })
 }
 
 fn parse_type(input: &str) -> Result<Type, crate::ParseError> {

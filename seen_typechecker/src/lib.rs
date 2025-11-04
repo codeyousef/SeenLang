@@ -88,6 +88,7 @@ mod tests {
     use super::*;
 
     mod smart_casting_simple;
+    mod structured_concurrency_tests;
 
     #[test]
     fn test_type_check_result_creation() {
