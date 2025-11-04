@@ -1318,6 +1318,20 @@ impl<'ctx> LlvmBackend<'ctx> {
 
                 if let IRValue::Function { name, .. } = target {
                     match name.as_str() {
+                        "__channel_send_future" => {
+                            if let Some(arg0) = args.get(0) {
+                                let _ = self.eval_value(arg0, fn_map)?;
+                            }
+                            if let Some(arg1) = args.get(1) {
+                                let _ = self.eval_value(arg1, fn_map)?;
+                            }
+                            let counter = self.ensure_task_counter();
+                            let handle = self.runtime_spawn_handle(counter)?;
+                            if let Some(r) = result {
+                                self.assign_value(r, handle)?;
+                            }
+                            return Ok(());
+                        }
                         "__spawn_task" => {
                             if let Some(arg0) = args.get(0) {
                                 let _ = self.eval_value(arg0, fn_map)?;
@@ -1375,8 +1389,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     .map_err(|e| anyhow!("{e:?}"))?;
                             }
                             if let Some(r) = result {
-                                let zero = self.ctx.i32_type().const_zero();
-                                self.assign_value(r, zero.as_basic_value_enum())?;
+                                let success = self.bool_t.const_int(1, false);
+                                self.assign_value(r, success.as_basic_value_enum())?;
                             }
                             return Ok(());
                         }

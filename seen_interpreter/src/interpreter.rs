@@ -92,17 +92,20 @@ impl AsyncFunctionTrait for ChannelSendAsyncFunction {
         let pos = self.position.clone();
 
         Box::pin(async move {
-            channel.send_future(value).await.map_err(|error| match error {
-                AsyncError::ChannelError { reason, .. } => AsyncError::ChannelError {
-                    reason,
-                    position: pos.clone(),
-                },
-                AsyncError::RuntimeError { message, .. } => AsyncError::RuntimeError {
-                    message,
-                    position: pos.clone(),
-                },
-                other => other,
-            })
+            channel
+                .send_future(value)
+                .await
+                .map_err(|error| match error {
+                    AsyncError::ChannelError { reason, .. } => AsyncError::ChannelError {
+                        reason,
+                        position: pos.clone(),
+                    },
+                    AsyncError::RuntimeError { message, .. } => AsyncError::RuntimeError {
+                        message,
+                        position: pos.clone(),
+                    },
+                    other => other,
+                })
         })
     }
 
@@ -1259,10 +1262,7 @@ impl Interpreter {
 
                 let async_runtime = self.runtime.async_runtime();
                 let mut runtime = async_runtime.lock().map_err(|_| {
-                    InterpreterError::runtime(
-                        "Failed to acquire async runtime lock",
-                        pos.clone(),
-                    )
+                    InterpreterError::runtime("Failed to acquire async runtime lock", pos.clone())
                 })?;
 
                 let task_id = promise.task_id();
@@ -1278,10 +1278,7 @@ impl Interpreter {
             Value::Task(task_id) => {
                 let async_runtime = self.runtime.async_runtime();
                 let mut runtime = async_runtime.lock().map_err(|_| {
-                    InterpreterError::runtime(
-                        "Failed to acquire async runtime lock",
-                        pos.clone(),
-                    )
+                    InterpreterError::runtime("Failed to acquire async runtime lock", pos.clone())
                 })?;
 
                 let async_result = runtime.wait_for_task(task_id).map_err(|e| {
@@ -1750,10 +1747,7 @@ impl Interpreter {
             Value::Channel(channel) => {
                 let async_runtime = self.runtime.async_runtime();
                 let mut runtime = async_runtime.lock().map_err(|_| {
-                    InterpreterError::runtime(
-                        "Failed to acquire async runtime lock",
-                        pos.clone(),
-                    )
+                    InterpreterError::runtime("Failed to acquire async runtime lock", pos.clone())
                 })?;
 
                 let async_value = self.value_to_async_value(&message_value);

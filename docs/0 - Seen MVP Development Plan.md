@@ -83,12 +83,13 @@ interpreter/runtime, and buffered sends can be awaited safely. LLVM lowering and
   - Introduced a Rayon worker pool with `parallel_for` integration tests; parser/interpreter handle the construct
     without mis-parsing trailing lambdas.
   - Channel send/receive now surface async futures backed by the cooperative runtime; `await channel.send(...)`
-    resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups.
+    resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups. The IR/LLVM pipeline now
+    lowers `send` into stubbed channel futures so native builds no longer choke on the syntax.
   - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
     jobs namespace.
 
 * **Remaining tasks:**
-  1. Extend the LLVM backend (and select lowering) to emit the same channel send/receive futures, ensuring diagnostics
+  1. Extend the LLVM backend (and select lowering) to emit the same channel receive/select futures, ensuring diagnostics
      survive IR→LLVM translation.
   2. Document concurrency patterns and add regression tests that cover scoped job draining and channel back-pressure in
      multi-stage builds.

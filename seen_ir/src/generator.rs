@@ -405,6 +405,10 @@ impl IRGenerator {
             Expression::StreamOperation {
                 stream, operation, ..
             } => self.generate_stream_operation(stream, operation),
+            Expression::Await { expr, .. } => self.generate_await_expression(expr),
+            Expression::Send {
+                message, target, ..
+            } => self.generate_send_expression(message, target),
             // Handle other expression types...
             _ => Err(IRError::Other(format!(
                 "Unsupported expression type: {:?}",
@@ -2295,6 +2299,48 @@ impl IRGenerator {
 
         Ok((result, instructions))
     }
+
+    fn generate_await_expression(
+        &mut self,
+        awaited: &Expression,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let (value, mut instructions) = self.generate_expression(awaited)?;
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+        instructions.push(Instruction::Call {
+            target: IRValue::Function {
+                name: "__await".to_string(),
+                parameters: Vec::new(),
+            },
+            args: vec![value],
+            result: Some(result_value.clone()),
+        });
+        Ok((result_value, instructions))
+    }
+
+    fn generate_send_expression(
+        &mut self,
+        message: &Expression,
+        target: &Expression,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let (message_value, mut instructions) = self.generate_expression(message)?;
+        let (target_value, target_instructions) = self.generate_expression(target)?;
+        instructions.extend(target_instructions);
+
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+
+        instructions.push(Instruction::Call {
+            target: IRValue::Function {
+                name: "__channel_send_future".to_string(),
+                parameters: Vec::new(),
+            },
+            args: vec![target_value, message_value],
+            result: Some(result_value.clone()),
+        });
+
+        Ok((result_value, instructions))
+    }
 }
 
 impl Default for IRGenerator {
@@ -2376,5 +2422,68 @@ mod tests {
         let program = result.unwrap();
         assert!(!program.modules.is_empty());
         assert_eq!(program.entry_point, Some("main".to_string()));
+    }
+
+    #[test]
+    fn generate_await_expression_emits_builtin_call() {
+        let mut generator = IRGenerator::new();
+        let awaited = Expression::Identifier {
+            name: "promise".to_string(),
+            is_public: false,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let expr = Expression::Await {
+            expr: Box::new(awaited),
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+
+        let (value, instructions) = generator
+            .generate_expression(&expr)
+            .expect("await expression should lower");
+        assert!(matches!(value, IRValue::Register(_)));
+        assert!(
+            instructions.iter().any(|inst| matches!(
+                inst,
+                Instruction::Call {
+                    target: IRValue::Function { name, .. },
+                    ..
+                } if name == "__await"
+            )),
+            "expected instructions to include __await call"
+        );
+    }
+
+    #[test]
+    fn generate_send_expression_emits_channel_future_call() {
+        let mut generator = IRGenerator::new();
+        let message = Expression::IntegerLiteral {
+            value: 1,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let target = Expression::Identifier {
+            name: "tx".to_string(),
+            is_public: false,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let expr = Expression::Send {
+            message: Box::new(message),
+            target: Box::new(target),
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+
+        let (value, instructions) = generator
+            .generate_expression(&expr)
+            .expect("send expression should lower");
+        assert!(matches!(value, IRValue::Register(_)));
+        assert!(
+            instructions.iter().any(|inst| matches!(
+                inst,
+                Instruction::Call {
+                    target: IRValue::Function { name, .. },
+                    ..
+                } if name == "__channel_send_future"
+            )),
+            "expected instructions to include __channel_send_future call"
+        );
     }
 }
