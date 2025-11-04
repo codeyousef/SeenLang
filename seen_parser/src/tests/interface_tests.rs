@@ -38,6 +38,25 @@ fn test_parse_simple_interface() {
 }
 
 #[test]
+fn test_parse_sealed_interface() {
+    let expr = parse_top_level_item("sealed interface State {}").unwrap();
+
+    match expr {
+        Expression::Interface {
+            name,
+            is_sealed,
+            generics,
+            ..
+        } => {
+            assert_eq!(name, "State");
+            assert!(is_sealed);
+            assert!(generics.is_empty());
+        }
+        other => panic!("Expected sealed interface, got: {:?}", other),
+    }
+}
+
+#[test]
 fn test_parse_interface_with_method() {
     let expr = parse_top_level_item(
         r#"

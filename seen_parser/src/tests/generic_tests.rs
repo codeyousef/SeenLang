@@ -155,6 +155,28 @@ fn test_parse_multiple_generic_parameters() {
 }
 
 #[test]
+fn test_parse_struct_with_generics() {
+    let expr = parse_expression("struct CommandBuffer<S> { phantom: Phantom<S> }").unwrap();
+    match expr {
+        Expression::StructDefinition {
+            name,
+            generics,
+            fields,
+            ..
+        } => {
+            assert_eq!(name, "CommandBuffer");
+            assert_eq!(generics, vec!["S".to_string()]);
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].name, "phantom");
+            assert_eq!(fields[0].field_type.name, "Phantom");
+            assert_eq!(fields[0].field_type.generics.len(), 1);
+            assert_eq!(fields[0].field_type.generics[0].name, "S");
+        }
+        other => panic!("Expected struct definition, got: {:?}", other),
+    }
+}
+
+#[test]
 fn test_parse_generic_with_nullable() {
     let type_result = parse_type("Array<String?>").unwrap();
     assert_eq!(type_result.name, "Array");

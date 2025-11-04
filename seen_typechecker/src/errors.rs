@@ -125,6 +125,21 @@ pub enum TypeError {
         type_name: String,
         position: Position,
     },
+
+    #[error("Type '{type_name}' expects {expected} type argument(s), but {actual} were provided at {position}"
+    )]
+    GenericArityMismatch {
+        type_name: String,
+        expected: usize,
+        actual: usize,
+        position: Position,
+    },
+
+    #[error("Type '{type_name}' is sealed and cannot be extended at {position}")]
+    SealedTypeExtension {
+        type_name: String,
+        position: Position,
+    },
 }
 
 /// Kind of type error for categorization
@@ -169,7 +184,9 @@ impl TypeError {
             | TypeError::UnknownType { position, .. }
             | TypeError::UnknownField { position, .. }
             | TypeError::MissingField { position, .. }
-            | TypeError::NotAStruct { position, .. } => *position,
+            | TypeError::NotAStruct { position, .. }
+            | TypeError::GenericArityMismatch { position, .. }
+            | TypeError::SealedTypeExtension { position, .. } => *position,
         }
     }
 
@@ -197,7 +214,9 @@ impl TypeError {
             TypeError::ReturnTypeMismatch { .. } | TypeError::MissingReturn { .. } => {
                 TypeErrorKind::ReturnError
             }
-            TypeError::GenericConstraintViolation { .. } => TypeErrorKind::GenericError,
+            TypeError::GenericConstraintViolation { .. }
+            | TypeError::GenericArityMismatch { .. } => TypeErrorKind::GenericError,
+            TypeError::SealedTypeExtension { .. } => TypeErrorKind::InvalidOperation,
             TypeError::InferenceFailed { .. } => TypeErrorKind::InferenceError,
             TypeError::CircularDependency { .. } => TypeErrorKind::CircularDependency,
         }
@@ -271,7 +290,9 @@ impl From<TypeError> for SeenError {
             | TypeError::UnknownType { position, .. }
             | TypeError::UnknownField { position, .. }
             | TypeError::MissingField { position, .. }
-            | TypeError::NotAStruct { position, .. } => Some(ErrorLocation::new(
+            | TypeError::NotAStruct { position, .. }
+            | TypeError::GenericArityMismatch { position, .. }
+            | TypeError::SealedTypeExtension { position, .. } => Some(ErrorLocation::new(
                 position.line as u32,
                 position.column as u32,
                 position.offset as u32,

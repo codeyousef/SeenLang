@@ -1,10 +1,10 @@
 //! Tests for smart casting functionality in the Seen type checker
 
-use crate::*;
-use crate::types::Type;
 use crate::checker::TypeChecker;
-use seen_parser::ast::*;
+use crate::types::Type;
+use crate::*;
 use seen_lexer::Position;
+use seen_parser::ast::*;
 
 #[cfg(test)]
 mod tests {
@@ -30,7 +30,8 @@ mod tests {
                 let mut fields = std::collections::HashMap::new();
                 fields.insert("Name".to_string(), Type::String);
                 fields
-            }
+            },
+            generics: Vec::new(),
         };
         checker.env.define_type("User".to_string(), user_struct.clone());
         
@@ -82,7 +83,8 @@ mod tests {
                 let mut fields = std::collections::HashMap::new();
                 fields.insert("Name".to_string(), Type::String);
                 fields
-            }
+            },
+            generics: Vec::new(),
         };
         let profile_struct = Type::Struct {
             name: "Profile".to_string(),
@@ -90,7 +92,8 @@ mod tests {
                 let mut fields = std::collections::HashMap::new();
                 fields.insert("Bio".to_string(), Type::String);
                 fields
-            }
+            },
+            generics: Vec::new(),
         };
         
         checker.env.define_type("User".to_string(), user_struct.clone());
@@ -153,7 +156,8 @@ mod tests {
                 let mut fields = std::collections::HashMap::new();
                 fields.insert("Name".to_string(), Type::String);
                 fields
-            }
+            },
+            generics: Vec::new(),
         };
         checker.env.define_type("User".to_string(), user_struct.clone());
         
@@ -189,7 +193,8 @@ mod tests {
                 let mut fields = std::collections::HashMap::new();
                 fields.insert("Name".to_string(), Type::String);
                 fields
-            }
+            },
+            generics: Vec::new(),
         };
         checker.env.define_type("User".to_string(), user_struct.clone());
         

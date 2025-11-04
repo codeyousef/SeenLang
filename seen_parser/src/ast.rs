@@ -215,6 +215,7 @@ pub enum Expression {
     // Struct definition
     StructDefinition {
         name: String,
+        generics: Vec<String>,
         fields: Vec<StructField>,
         doc_comment: Option<String>,
         pos: Position,
@@ -223,6 +224,7 @@ pub enum Expression {
     // Enum definition
     EnumDefinition {
         name: String,
+        generics: Vec<String>,
         variants: Vec<EnumVariant>,
         doc_comment: Option<String>,
         pos: Position,
@@ -470,7 +472,9 @@ pub enum Expression {
     // Removed duplicate Extension - using the earlier definition with Vec<Method>
     Interface {
         name: String,
+        generics: Vec<String>,
         methods: Vec<InterfaceMethod>,
+        is_sealed: bool,
         pos: Position,
     },
 

@@ -48,7 +48,10 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
 
 Goal: Complete all components needed to compile the compiler with itself and produce identical Stage2/Stage3 binaries.
 
-### PSH‑1. Typestates & Phantom Types
+### PSH-1. Typestates & Phantom Types
+
+*Status:* ✅ Completed — Phantom generics flow through the parser/typechecker, and sealed traits reject external
+extensions.
 
 * **Inputs:** type system and trait engine.
 * **Outputs:** phantom parameters for state modeling and sealed traits to prevent invalid transitions (used later in Vulkan wrappers).

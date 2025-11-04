@@ -216,6 +216,11 @@ impl Parser {
             return self.parse_type_alias();
         }
 
+        // Handle sealed declarations (class/interface)
+        if self.check_keyword(KeywordType::KeywordSealed) {
+            return self.parse_sealed_declaration();
+        }
+
         // Check for struct definitions
         if self.check_keyword(KeywordType::KeywordStruct) {
             return self.parse_struct_definition();
@@ -228,12 +233,7 @@ impl Parser {
 
         // Check for interface definitions
         if self.check_keyword(KeywordType::KeywordInterface) {
-            return self.parse_interface();
-        }
-
-        // Check for sealed class definitions
-        if self.check_keyword(KeywordType::KeywordSealed) {
-            return self.parse_sealed_class();
+            return self.parse_interface(false);
         }
 
         // Check for class definitions
@@ -1459,7 +1459,6 @@ impl Parser {
 
         let name = self.expect_identifier()?;
         let is_public = self.resolve_visibility(&name);
-        let is_public = self.resolve_visibility(&name);
 
         let type_annotation = if self.check(&TokenType::Colon) {
             self.advance();
@@ -2181,6 +2180,26 @@ impl Parser {
         self.expect(&TokenType::RightBrace)?;
 
         Ok(Expression::StructLiteral { name, fields, pos })
+    }
+
+    fn parse_generic_parameter_list(&mut self) -> ParseResult<Vec<String>> {
+        let mut params = Vec::new();
+
+        self.expect(&TokenType::Less)?;
+
+        while !self.check(&TokenType::Greater) && !self.is_at_end() {
+            let param = self.expect_identifier()?;
+            params.push(param);
+
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(&TokenType::Greater)?;
+        Ok(params)
     }
 
     /// Parse interpolated string
@@ -3185,6 +3204,11 @@ impl Parser {
         self.advance(); // consume 'struct'
 
         let name = self.expect_identifier()?;
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenType::LeftBrace)?;
 
         let mut fields = Vec::new();
@@ -3232,6 +3256,7 @@ impl Parser {
 
         Ok(Expression::StructDefinition {
             name,
+            generics,
             fields,
             doc_comment: None,
             pos,
@@ -3243,6 +3268,11 @@ impl Parser {
         self.advance(); // consume 'enum'
 
         let name = self.expect_identifier()?;
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenType::LeftBrace)?;
 
         let mut variants = Vec::new();
@@ -3305,6 +3335,7 @@ impl Parser {
 
         Ok(Expression::EnumDefinition {
             name,
+            generics,
             variants,
             doc_comment: None,
             pos,
@@ -3596,10 +3627,15 @@ impl Parser {
         })
     }
 
-    fn parse_interface(&mut self) -> ParseResult<Expression> {
+    fn parse_interface(&mut self, is_sealed: bool) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
-        self.advance(); // consume 'interface'
+        self.expect_keyword(KeywordType::KeywordInterface)?;
         let name = self.expect_identifier()?;
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
 
         self.expect(&TokenType::LeftBrace)?;
         let mut methods = Vec::new();
@@ -3652,7 +3688,13 @@ impl Parser {
         }
 
         self.expect(&TokenType::RightBrace)?;
-        Ok(Expression::Interface { name, methods, pos })
+        Ok(Expression::Interface {
+            name,
+            generics,
+            methods,
+            is_sealed,
+            pos,
+        })
     }
 
     fn parse_class(&mut self) -> ParseResult<Expression> {
@@ -3936,30 +3978,29 @@ impl Parser {
         })
     }
 
-    /// Parse sealed class
-    fn parse_sealed_class(&mut self) -> ParseResult<Expression> {
+    /// Parse sealed declaration (class or interface)
+    fn parse_sealed_declaration(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'sealed'
 
-        if !self.check_keyword(KeywordType::KeywordClass) {
-            return Err(ParseError::UnexpectedToken {
-                expected: "class".to_string(),
+        if self.check_keyword(KeywordType::KeywordClass) {
+            let mut class_expr = self.parse_class_definition()?;
+            if let Expression::ClassDefinition {
+                ref mut is_sealed, ..
+            } = class_expr
+            {
+                *is_sealed = true;
+            }
+            Ok(class_expr)
+        } else if self.check_keyword(KeywordType::KeywordInterface) {
+            self.parse_interface(true)
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: "class or interface".to_string(),
                 found: self.current.token_type.clone(),
-                pos: self.current.position.clone(),
-            });
+                pos,
+            })
         }
-
-        // Parse as regular class but mark as sealed
-        let mut class_expr = self.parse_class_definition()?;
-
-        if let Expression::ClassDefinition {
-            ref mut is_sealed, ..
-        } = class_expr
-        {
-            *is_sealed = true;
-        }
-
-        Ok(class_expr)
     }
 
     /// Parse companion object

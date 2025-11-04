@@ -121,6 +121,8 @@ pub struct TypeChecker {
     pub result: TypeCheckResult,
     /// Current function return type (for return type checking)
     current_function_return_type: Option<Type>,
+    /// Stack of in-scope generic parameter names
+    generic_stack: Vec<Vec<String>>,
 }
 
 impl TypeChecker {
@@ -282,10 +284,19 @@ impl TypeChecker {
             },
         );
 
+        // Built-in Phantom type for typestate modeling
+        let phantom_type = Type::Struct {
+            name: "Phantom".to_string(),
+            fields: HashMap::new(),
+            generics: vec![Type::Generic("T".to_string())],
+        };
+        env.define_type("Phantom".to_string(), phantom_type);
+
         Self {
             env,
             result: TypeCheckResult::new(),
             current_function_return_type: None,
+            generic_stack: Vec::new(),
         }
     }
 
@@ -303,7 +314,7 @@ impl TypeChecker {
                 let mut checker_params = Vec::new();
                 for p in params {
                     let pty = if let Some(ta) = &p.type_annotation {
-                        Type::from(ta)
+                        self.resolve_ast_type(ta, Position::start())
                     } else {
                         Type::Unknown
                     };
@@ -315,7 +326,7 @@ impl TypeChecker {
                 // Return type (default Unit)
                 let ret = return_type
                     .as_ref()
-                    .map(|t| Type::from(t))
+                    .map(|t| self.resolve_ast_type(t, Position::start()))
                     .or(Some(Type::Unit));
                 let sig = FunctionSignature {
                     name: name.clone(),
@@ -326,6 +337,245 @@ impl TypeChecker {
                     self.env.define_function(name.clone(), sig);
                 }
             }
+        }
+    }
+
+    fn with_generics<F, R>(&mut self, generics: &[String], f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        if !generics.is_empty() {
+            self.generic_stack.push(generics.to_vec());
+            let result = f(self);
+            self.generic_stack.pop();
+            result
+        } else {
+            f(self)
+        }
+    }
+
+    fn is_generic_name(&self, name: &str) -> bool {
+        self.generic_stack
+            .iter()
+            .rev()
+            .any(|scope| scope.iter().any(|g| g == name))
+    }
+
+    fn resolve_ast_type(&mut self, ast_type: &seen_parser::Type, pos: Position) -> Type {
+        if self.is_generic_name(&ast_type.name) && ast_type.generics.is_empty() {
+            let base = Type::Generic(ast_type.name.clone());
+            return if ast_type.is_nullable {
+                Type::Nullable(Box::new(base))
+            } else {
+                base
+            };
+        }
+
+        let resolved_args: Vec<Type> = ast_type
+            .generics
+            .iter()
+            .map(|g| self.resolve_ast_type(g, pos))
+            .collect();
+
+        let mut base = match ast_type.name.as_str() {
+            "Int" => Type::Int,
+            "UInt" => Type::UInt,
+            "Float" => Type::Float,
+            "Bool" => Type::Bool,
+            "String" => Type::String,
+            "Char" => Type::Char,
+            "()" => Type::Unit,
+            "Array" | "List" | "Vec" => {
+                if resolved_args.len() == 1 {
+                    Type::Array(Box::new(resolved_args[0].clone()))
+                } else {
+                    self.result.add_error(TypeError::GenericArityMismatch {
+                        type_name: ast_type.name.clone(),
+                        expected: 1,
+                        actual: resolved_args.len(),
+                        position: pos,
+                    });
+                    Type::Unknown
+                }
+            }
+            _ => {
+                if let Some(def) = self.env.get_type(&ast_type.name).cloned() {
+                    return self.instantiate_type(def, &resolved_args, pos);
+                }
+
+                Type::Struct {
+                    name: ast_type.name.clone(),
+                    fields: HashMap::new(),
+                    generics: resolved_args.clone(),
+                }
+            }
+        };
+
+        if ast_type.is_nullable {
+            base = Type::Nullable(Box::new(base));
+        }
+
+        base
+    }
+
+    fn instantiate_type(&mut self, definition: Type, args: &[Type], pos: Position) -> Type {
+        match definition {
+            Type::Struct {
+                name,
+                fields,
+                generics,
+            } => {
+                if generics.len() != args.len() {
+                    self.result.add_error(TypeError::GenericArityMismatch {
+                        type_name: name.clone(),
+                        expected: generics.len(),
+                        actual: args.len(),
+                        position: pos,
+                    });
+                    return Type::Unknown;
+                }
+
+                let mut mapping = HashMap::new();
+                for (param, arg) in generics.iter().zip(args.iter()) {
+                    if let Type::Generic(param_name) = param {
+                        mapping.insert(param_name.clone(), arg.clone());
+                    }
+                }
+
+                let substituted_fields = fields
+                    .into_iter()
+                    .map(|(field, ty)| (field, self.substitute_generics(&ty, &mapping)))
+                    .collect();
+
+                Type::Struct {
+                    name,
+                    fields: substituted_fields,
+                    generics: args.to_vec(),
+                }
+            }
+            Type::Enum {
+                name,
+                variants,
+                generics,
+            } => {
+                if generics.len() != args.len() {
+                    self.result.add_error(TypeError::GenericArityMismatch {
+                        type_name: name.clone(),
+                        expected: generics.len(),
+                        actual: args.len(),
+                        position: pos,
+                    });
+                    return Type::Unknown;
+                }
+
+                Type::Enum {
+                    name,
+                    variants,
+                    generics: args.to_vec(),
+                }
+            }
+            Type::Interface {
+                name,
+                methods,
+                generics,
+                is_sealed,
+            } => {
+                if generics.len() != args.len() {
+                    self.result.add_error(TypeError::GenericArityMismatch {
+                        type_name: name.clone(),
+                        expected: generics.len(),
+                        actual: args.len(),
+                        position: pos,
+                    });
+                    return Type::Unknown;
+                }
+
+                Type::Interface {
+                    name,
+                    methods,
+                    generics: args.to_vec(),
+                    is_sealed,
+                }
+            }
+            other => other,
+        }
+    }
+
+    fn substitute_generics(&self, ty: &Type, mapping: &HashMap<String, Type>) -> Type {
+        match ty {
+            Type::Generic(name) => mapping.get(name).cloned().unwrap_or_else(|| ty.clone()),
+            Type::Array(inner) => Type::Array(Box::new(self.substitute_generics(inner, mapping))),
+            Type::Nullable(inner) => {
+                Type::Nullable(Box::new(self.substitute_generics(inner, mapping)))
+            }
+            Type::Struct {
+                name,
+                fields,
+                generics,
+            } => {
+                let new_fields = fields
+                    .iter()
+                    .map(|(field, ty)| (field.clone(), self.substitute_generics(ty, mapping)))
+                    .collect();
+                let new_generics = generics
+                    .iter()
+                    .map(|g| self.substitute_generics(g, mapping))
+                    .collect();
+                Type::Struct {
+                    name: name.clone(),
+                    fields: new_fields,
+                    generics: new_generics,
+                }
+            }
+            Type::Enum {
+                name,
+                variants,
+                generics,
+            } => {
+                let new_generics = generics
+                    .iter()
+                    .map(|g| self.substitute_generics(g, mapping))
+                    .collect();
+                Type::Enum {
+                    name: name.clone(),
+                    variants: variants.clone(),
+                    generics: new_generics,
+                }
+            }
+            Type::Interface {
+                name,
+                methods,
+                generics,
+                is_sealed,
+            } => {
+                let new_generics = generics
+                    .iter()
+                    .map(|g| self.substitute_generics(g, mapping))
+                    .collect();
+                Type::Interface {
+                    name: name.clone(),
+                    methods: methods.clone(),
+                    generics: new_generics,
+                    is_sealed: *is_sealed,
+                }
+            }
+            Type::Function {
+                params,
+                return_type,
+                is_async,
+            } => {
+                let new_params: Vec<Type> = params
+                    .iter()
+                    .map(|p| self.substitute_generics(p, mapping))
+                    .collect();
+                let new_return = self.substitute_generics(return_type, mapping);
+                Type::Function {
+                    params: new_params,
+                    return_type: Box::new(new_return),
+                    is_async: *is_async,
+                }
+            }
+            _ => ty.clone(),
         }
     }
 
@@ -413,8 +663,12 @@ impl TypeChecker {
 
             // Struct definition
             Expression::StructDefinition {
-                name, fields, pos, ..
-            } => self.check_struct_definition(name, fields, *pos),
+                name,
+                generics,
+                fields,
+                pos,
+                ..
+            } => self.check_struct_definition(name, generics, fields, *pos),
 
             // Struct literal
             Expression::StructLiteral { name, fields, pos } => {
@@ -463,9 +717,19 @@ impl TypeChecker {
             } => self.check_function_definition(name, params, return_type, body, *pos),
 
             // Interface definition
-            Expression::Interface { name, methods, pos } => {
-                self.check_interface_definition(name, methods, *pos)
-            }
+            Expression::Interface {
+                name,
+                generics,
+                methods,
+                is_sealed,
+                pos,
+            } => self.check_interface_definition(name, generics, methods, *is_sealed, *pos),
+
+            Expression::Extension {
+                target_type,
+                methods,
+                pos,
+            } => self.check_extension(target_type, methods, *pos),
 
             // For now, treat other expression types as unknown
             _ => Type::Unknown,
@@ -722,27 +986,25 @@ impl TypeChecker {
     fn check_struct_definition(
         &mut self,
         name: &str,
+        generics: &[String],
         fields: &[seen_parser::ast::StructField],
-        _pos: Position,
+        pos: Position,
     ) -> Type {
-        // Create struct type with field information
-        let mut field_types = std::collections::HashMap::new();
-        for field in fields {
-            let field_type = Type::from(&field.field_type);
-            field_types.insert(field.name.clone(), field_type);
-        }
+        let struct_type = self.with_generics(generics, |checker| {
+            let mut field_types = HashMap::new();
+            for field in fields {
+                let field_type = checker.resolve_ast_type(&field.field_type, pos);
+                field_types.insert(field.name.clone(), field_type);
+            }
 
-        // Register the struct type
-        let struct_type = Type::Struct {
-            name: name.to_string(),
-            fields: field_types,
-            generics: Vec::new(), // No generics support yet
-        };
+            Type::Struct {
+                name: name.to_string(),
+                fields: field_types,
+                generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
+            }
+        });
 
-        // Store struct definition in environment
-        self.env.define_type(name.to_string(), struct_type.clone());
-
-        // Struct definitions evaluate to Unit
+        self.env.define_type(name.to_string(), struct_type);
         Type::Unit
     }
 
@@ -814,6 +1076,35 @@ impl TypeChecker {
             });
             Type::Unknown
         }
+    }
+
+    fn check_extension(
+        &mut self,
+        target_type: &seen_parser::Type,
+        methods: &[Method],
+        pos: Position,
+    ) -> Type {
+        let target = self.resolve_ast_type(target_type, pos);
+        let base = target.non_nullable().clone();
+
+        if let Type::Interface { name, .. } = base {
+            if let Some(Type::Interface {
+                            is_sealed: true, ..
+                        }) = self.env.get_type(&name)
+            {
+                self.result.add_error(TypeError::SealedTypeExtension {
+                    type_name: name,
+                    position: pos,
+                });
+            }
+        }
+
+        for method in methods {
+            // Best-effort: type check method body in current environment
+            self.check_expression(&method.body);
+        }
+
+        Type::Unit
     }
 
     /// Type check if expression with smart casting support
@@ -964,7 +1255,7 @@ impl TypeChecker {
         let value_type = self.check_expression(value);
 
         let declared_type = if let Some(type_ann) = type_annotation {
-            let declared = Type::from(type_ann);
+            let declared = self.resolve_ast_type(type_ann, pos);
             if !value_type.is_assignable_to(&declared) {
                 self.result.add_error(TypeError::TypeMismatch {
                     expected: declared.clone(),
@@ -1057,19 +1348,19 @@ impl TypeChecker {
         let mut checker_params = Vec::new();
         for param in params {
             let param_type = if let Some(param_type_ast) = &param.type_annotation {
-                Type::from(param_type_ast)
+                self.resolve_ast_type(param_type_ast, pos)
             } else {
                 Type::Unknown
             };
             checker_params.push(crate::Parameter {
                 name: param.name.clone(),
-                param_type,
+                param_type: param_type.clone(),
             });
         }
 
         // Convert return type
         let checker_return_type = if let Some(ret_type_ast) = return_type {
-            Some(Type::from(ret_type_ast))
+            Some(self.resolve_ast_type(ret_type_ast, pos))
         } else {
             Some(Type::Unit) // Default to Unit if no return type specified
         };
@@ -1077,7 +1368,7 @@ impl TypeChecker {
         // Create function signature
         let signature = FunctionSignature {
             name: name.to_string(),
-            parameters: checker_params,
+            parameters: checker_params.clone(),
             return_type: checker_return_type.clone(),
         };
 
@@ -1091,13 +1382,8 @@ impl TypeChecker {
         let mut function_env = Environment::with_parent(self.env.clone());
 
         // Add parameters to function scope
-        for param in params {
-            let param_type = if let Some(param_type_ast) = &param.type_annotation {
-                Type::from(param_type_ast)
-            } else {
-                Type::Unknown
-            };
-            function_env.define_variable(param.name.clone(), param_type);
+        for (param, checker_param) in params.iter().zip(checker_params.iter()) {
+            function_env.define_variable(param.name.clone(), checker_param.param_type.clone());
         }
 
         // Set current environment to function scope
@@ -1133,55 +1419,56 @@ impl TypeChecker {
     fn check_interface_definition(
         &mut self,
         name: &str,
+        generics: &[String],
         methods: &[InterfaceMethod],
+        is_sealed: bool,
         pos: Position,
     ) -> Type {
-        // Collect method signatures
         let mut method_names = Vec::new();
-        for method in methods {
-            method_names.push(method.name.clone());
 
-            // Convert parameters to our type system
-            let mut params = Vec::new();
-            for param in &method.params {
-                let param_type = if let Some(type_ann) = &param.type_annotation {
-                    Type::from(type_ann)
+        self.with_generics(generics, |checker| {
+            for method in methods {
+                method_names.push(method.name.clone());
+
+                let mut params = Vec::new();
+                for param in &method.params {
+                    let param_type = if let Some(type_ann) = &param.type_annotation {
+                        checker.resolve_ast_type(type_ann, pos)
+                    } else {
+                        Type::Unknown
+                    };
+                    params.push(crate::Parameter {
+                        name: param.name.clone(),
+                        param_type,
+                    });
+                }
+
+                let return_type = if let Some(ret_type) = &method.return_type {
+                    Some(checker.resolve_ast_type(ret_type, pos))
                 } else {
-                    Type::Unknown
+                    Some(Type::Unit)
                 };
-                params.push(crate::Parameter {
-                    name: param.name.clone(),
-                    param_type,
-                });
+
+                let signature = FunctionSignature {
+                    name: format!("{}::{}", name, method.name),
+                    parameters: params,
+                    return_type,
+                };
+
+                checker
+                    .env
+                    .define_function(format!("{}::{}", name, method.name), signature);
             }
+        });
 
-            // Convert return type
-            let return_type = if let Some(ret_type) = &method.return_type {
-                Some(Type::from(ret_type))
-            } else {
-                Some(Type::Unit)
-            };
-
-            // Store method signature
-            let signature = FunctionSignature {
-                name: format!("{}::{}", name, method.name),
-                parameters: params,
-                return_type,
-            };
-
-            self.env
-                .define_function(format!("{}::{}", name, method.name), signature);
-        }
-
-        // Create and register the interface type
         let interface_type = Type::Interface {
             name: name.to_string(),
             methods: method_names,
-            generics: self.extract_generic_types_from_interface(methods),
+            generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
+            is_sealed,
         };
 
-        self.env
-            .define_type(name.to_string(), interface_type.clone());
+        self.env.define_type(name.to_string(), interface_type);
 
         Type::Unit
     }
@@ -1198,44 +1485,6 @@ impl TypeChecker {
                 }
             }
             _ => format!("{:?}", type_),
-        }
-    }
-
-    /// Extract generic types from interface methods
-    fn extract_generic_types_from_interface(&self, methods: &[InterfaceMethod]) -> Vec<String> {
-        let mut generics = std::collections::HashSet::new();
-
-        for method in methods {
-            // Extract generics from parameters
-            for param in &method.params {
-                if let Some(param_type) = &param.type_annotation {
-                    self.collect_generic_types_from_ast_type(param_type, &mut generics);
-                }
-            }
-
-            // Extract generics from return type
-            if let Some(return_type) = &method.return_type {
-                self.collect_generic_types_from_ast_type(return_type, &mut generics);
-            }
-        }
-
-        generics.into_iter().collect()
-    }
-
-    /// Collect generic type names from AST Type
-    fn collect_generic_types_from_ast_type(
-        &self,
-        ast_type: &seen_parser::Type,
-        generics: &mut std::collections::HashSet<String>,
-    ) {
-        // If the type name starts with uppercase and is a single letter, it's likely a generic
-        if ast_type.name.len() == 1 && ast_type.name.chars().next().unwrap().is_uppercase() {
-            generics.insert(ast_type.name.clone());
-        }
-
-        // Recursively check generic parameters
-        for generic_param in &ast_type.generics {
-            self.collect_generic_types_from_ast_type(generic_param, generics);
         }
     }
 }

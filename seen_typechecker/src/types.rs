@@ -35,19 +35,20 @@ pub enum Type {
     Struct {
         name: String,
         fields: HashMap<String, Type>,
-        generics: Vec<String>,
+        generics: Vec<Type>,
     },
     /// User-defined enum type
     Enum {
         name: String,
         variants: Vec<String>,
-        generics: Vec<String>,
+        generics: Vec<Type>,
     },
     /// Interface/trait type
     Interface {
         name: String,
         methods: Vec<String>,
-        generics: Vec<String>,
+        generics: Vec<Type>,
+        is_sealed: bool,
     },
     /// Generic type parameter
     Generic(String),
@@ -195,6 +196,8 @@ impl Type {
     /// Check if two types are compatible for assignment
     pub fn is_assignable_to(&self, other: &Type) -> bool {
         match (self, other) {
+            (Type::Generic(_), _) => true,
+            (_, Type::Generic(_)) => true,
             // Exact match
             (a, b) if a == b => true,
 
@@ -225,6 +228,57 @@ impl Type {
                     && r1.is_assignable_to(r2)
             }
 
+            (
+                Type::Struct {
+                    name: n1,
+                    generics: g1,
+                    ..
+                },
+                Type::Struct {
+                    name: n2,
+                    generics: g2,
+                    ..
+                },
+            ) => {
+                n1 == n2
+                    && g1.len() == g2.len()
+                    && g1.iter().zip(g2).all(|(a, b)| a.is_assignable_to(b))
+            }
+
+            (
+                Type::Enum {
+                    name: n1,
+                    generics: g1,
+                    ..
+                },
+                Type::Enum {
+                    name: n2,
+                    generics: g2,
+                    ..
+                },
+            ) => {
+                n1 == n2
+                    && g1.len() == g2.len()
+                    && g1.iter().zip(g2).all(|(a, b)| a.is_assignable_to(b))
+            }
+
+            (
+                Type::Interface {
+                    name: n1,
+                    generics: g1,
+                    ..
+                },
+                Type::Interface {
+                    name: n2,
+                    generics: g2,
+                    ..
+                },
+            ) => {
+                n1 == n2
+                    && g1.len() == g2.len()
+                    && g1.iter().zip(g2).all(|(a, b)| a.is_assignable_to(b))
+            }
+
             // Unknown type is compatible with anything (for inference)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
 
@@ -251,9 +305,30 @@ impl Type {
                 let param_names: Vec<String> = params.iter().map(|p| p.name()).collect();
                 format!("({}) -> {}", param_names.join(", "), return_type.name())
             }
-            Type::Struct { name, .. } => name.clone(),
-            Type::Enum { name, .. } => name.clone(),
-            Type::Interface { name, .. } => name.clone(),
+            Type::Struct { name, generics, .. } => {
+                if generics.is_empty() {
+                    name.clone()
+                } else {
+                    let args: Vec<String> = generics.iter().map(|g| g.name()).collect();
+                    format!("{}<{}>", name, args.join(", "))
+                }
+            }
+            Type::Enum { name, generics, .. } => {
+                if generics.is_empty() {
+                    name.clone()
+                } else {
+                    let args: Vec<String> = generics.iter().map(|g| g.name()).collect();
+                    format!("{}<{}>", name, args.join(", "))
+                }
+            }
+            Type::Interface { name, generics, .. } => {
+                if generics.is_empty() {
+                    name.clone()
+                } else {
+                    let args: Vec<String> = generics.iter().map(|g| g.name()).collect();
+                    format!("{}<{}>", name, args.join(", "))
+                }
+            }
             Type::Generic(name) => name.clone(),
             Type::Unit => "()".to_string(),
             Type::Unknown => "?".to_string(),
@@ -298,16 +373,8 @@ impl TypeInfo {
 /// Convert from parser AST types to type checker types
 impl From<&seen_parser::ast::Type> for Type {
     fn from(ast_type: &seen_parser::ast::Type) -> Self {
-        // Map generic collection types (Array/List/Vec<T>) via generics vector if present
-        if !ast_type.generics.is_empty() {
-            let elem_ty = Type::from(&ast_type.generics[0]);
-            match ast_type.name.as_str() {
-                "Array" | "List" | "Vec" => return Type::Array(Box::new(elem_ty)),
-                _ => {}
-            }
-        }
-
-        let base_type = match ast_type.name.as_str() {
+        // Primitive types
+        let mut base_type = match ast_type.name.as_str() {
             "Int" => Type::Int,
             "UInt" => Type::UInt,
             "Float" => Type::Float,
@@ -316,29 +383,35 @@ impl From<&seen_parser::ast::Type> for Type {
             "Char" => Type::Char,
             "()" => Type::Unit,
             _ => {
-                // Handle array types
-                if (ast_type.name.starts_with("Array<") && ast_type.name.ends_with('>'))
-                    || (ast_type.name.starts_with("List<") && ast_type.name.ends_with('>'))
-                    || (ast_type.name.starts_with("Vec<") && ast_type.name.ends_with('>'))
+                // Single-letter uppercase identifiers are treated as generics by convention
+                if ast_type.generics.is_empty()
+                    && ast_type.name.len() == 1
+                    && ast_type
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_uppercase())
+                    .unwrap_or(false)
                 {
-                    // Extract element type from Array<T>
-                    let start = ast_type.name.find('<').unwrap_or(0) + 1;
-                    let end = ast_type.name.len() - 1;
-                    let element_name = &ast_type.name[start..end];
-                    let element_type = Type::from(&seen_parser::ast::Type::new(element_name));
-                    Type::Array(Box::new(element_type))
+                    Type::Generic(ast_type.name.clone())
                 } else {
-                    // User-defined type
-                    Type::Struct {
-                        name: ast_type.name.clone(),
-                        fields: std::collections::HashMap::new(),
-                        generics: Vec::new(),
+                    let mut resolved_generics: Vec<Type> =
+                        ast_type.generics.iter().map(Type::from).collect();
+
+                    match ast_type.name.as_str() {
+                        "Array" | "List" | "Vec" if !resolved_generics.is_empty() => {
+                            Type::Array(Box::new(resolved_generics.remove(0)))
+                        }
+                        _ => Type::Struct {
+                            name: ast_type.name.clone(),
+                            fields: HashMap::new(),
+                            generics: resolved_generics,
+                        },
                     }
                 }
             }
         };
 
-        // Apply nullable wrapper if needed
         if ast_type.is_nullable {
             Type::Nullable(Box::new(base_type))
         } else {
