@@ -372,6 +372,11 @@ pub enum Expression {
         pos: Position,
     },
 
+    JobsScope {
+        body: Box<Expression>,
+        pos: Position,
+    },
+
     // Select expression for channel operations
     Select {
         cases: Vec<SelectCase>,
@@ -913,6 +918,7 @@ impl Expression {
             Expression::Assignment { pos, .. } => pos,
             Expression::Spawn { pos, .. } => pos,
             Expression::Scope { pos, .. } => pos,
+            Expression::JobsScope { pos, .. } => pos,
             Expression::Cancel { pos, .. } => pos,
             Expression::ParallelFor { pos, .. } => pos,
             Expression::Select { pos, .. } => pos,

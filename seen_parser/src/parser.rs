@@ -864,6 +864,24 @@ impl Parser {
             return self.parse_array();
         }
 
+        if self.check_identifier_value("jobs") {
+            if let Some(dot_token) = self.peek_ahead(1) {
+                if matches!(dot_token.token_type, TokenType::Dot) {
+                    if let Some(scope_token) = self.peek_ahead(2) {
+                        let scope_match = match &scope_token.token_type {
+                            TokenType::PrivateIdentifier(name)
+                            | TokenType::PublicIdentifier(name) => name == "scope",
+                            TokenType::Keyword(KeywordType::KeywordScope) => true,
+                            _ => false,
+                        };
+                        if scope_match {
+                            return self.parse_jobs_scope();
+                        }
+                    }
+                }
+            }
+        }
+
         // Identifiers
         if let TokenType::PublicIdentifier(name) = &self.current.token_type {
             let name = name.clone();
@@ -2291,35 +2309,26 @@ impl Parser {
             let mut parts = Vec::new();
             for part in lexer_parts {
                 match &part.kind {
-                    seen_lexer::InterpolationKind::Text(text) => parts.push(
-                        InterpolationPart {
-                            kind: InterpolationKind::Text(text.clone()),
-                            pos: part.position.clone(),
-                        },
-                    ),
+                    seen_lexer::InterpolationKind::Text(text) => parts.push(InterpolationPart {
+                        kind: InterpolationKind::Text(text.clone()),
+                        pos: part.position.clone(),
+                    }),
                     seen_lexer::InterpolationKind::Expression(expr_src) => {
-                        let expr = self.parse_interpolation_expression(
-                            expr_src,
-                            part.position.clone(),
-                        )?;
+                        let expr =
+                            self.parse_interpolation_expression(expr_src, part.position.clone())?;
                         parts.push(InterpolationPart {
                             kind: InterpolationKind::Expression(Box::new(expr)),
                             pos: part.position.clone(),
                         });
                     }
-                    seen_lexer::InterpolationKind::LiteralBrace => parts.push(
-                        InterpolationPart {
-                            kind: InterpolationKind::Text(part.content.clone()),
-                            pos: part.position.clone(),
-                        },
-                    ),
+                    seen_lexer::InterpolationKind::LiteralBrace => parts.push(InterpolationPart {
+                        kind: InterpolationKind::Text(part.content.clone()),
+                        pos: part.position.clone(),
+                    }),
                 }
             }
             self.advance();
-            return Ok(Expression::InterpolatedString {
-                parts,
-                pos,
-            });
+            return Ok(Expression::InterpolatedString { parts, pos });
         }
 
         // Fallback (should not happen): treat current token as empty string
@@ -3040,6 +3049,38 @@ impl Parser {
             },
         };
         Ok(Expression::Scope {
+            body: Box::new(body),
+            pos,
+        })
+    }
+
+    fn parse_jobs_scope(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone(); // current is 'jobs'
+        self.advance(); // consume 'jobs'
+        self.expect(&TokenType::Dot)?;
+        if self.check_keyword(KeywordType::KeywordScope) {
+            self.advance();
+        } else {
+            let scope_ident = self.expect_identifier()?;
+            if scope_ident != "scope" {
+                return Err(ParseError::UnexpectedToken {
+                    found: TokenType::PrivateIdentifier(scope_ident),
+                    expected: "scope".to_string(),
+                    pos: pos.clone(),
+                });
+            }
+        }
+
+        let block_expr = self.parse_block()?;
+        let body = match block_expr {
+            Expression::Block { .. } => block_expr,
+            other => Expression::Block {
+                expressions: vec![other],
+                pos: pos.clone(),
+            },
+        };
+
+        Ok(Expression::JobsScope {
             body: Box::new(body),
             pos,
         })

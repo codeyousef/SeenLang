@@ -502,6 +502,7 @@ impl Interpreter {
             } => self.interpret_spawn(expr, *detached, *pos),
 
             Expression::Scope { body, pos } => self.interpret_scope(body, *pos),
+            Expression::JobsScope { body, pos } => self.interpret_jobs_scope(body, *pos),
 
             Expression::Cancel { task, pos } => self.interpret_cancel(task, *pos),
 
@@ -1313,6 +1314,17 @@ impl Interpreter {
             (Err(err), _) => Err(err),
             (Ok(_), Err(join_err)) => Err(join_err),
         }
+    }
+
+    fn interpret_jobs_scope(
+        &mut self,
+        body: &Expression,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        // Jobs scope currently mirrors task scope semantics. When the job system
+        // supports explicit job handles we can extend this path to gather and wait
+        // on outstanding jobs before unwinding the scope.
+        self.interpret_scope(body, pos)
     }
 
     fn join_scope_tasks(&mut self, tasks: Vec<TaskId>, pos: Position) -> InterpreterResult<()> {

@@ -696,6 +696,7 @@ impl TypeChecker {
             } => self.check_spawn_expression(expr, *detached, *pos),
 
             Expression::Scope { body, pos } => self.check_scope_expression(body, *pos),
+            Expression::JobsScope { body, pos } => self.check_jobs_scope(body, *pos),
 
             Expression::Cancel { task, pos } => self.check_cancel_expression(task, *pos),
 
@@ -873,6 +874,11 @@ impl TypeChecker {
         let result = self.check_expression(body);
         self.scope_depth -= 1;
         result
+    }
+
+    fn check_jobs_scope(&mut self, body: &Expression, pos: Position) -> Type {
+        // jobs.scope shares the same structured concurrency semantics as scope for now.
+        self.check_scope_expression(body, pos)
     }
 
     fn check_cancel_expression(&mut self, task: &Expression, pos: Position) -> Type {

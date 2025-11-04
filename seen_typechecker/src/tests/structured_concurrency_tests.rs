@@ -60,6 +60,35 @@ fn spawn_inside_scope_is_allowed() {
 }
 
 #[test]
+fn spawn_inside_jobs_scope_is_allowed() {
+    let mut checker = TypeChecker::new();
+    let pos = pos();
+    let jobs_scope_expr = Expression::JobsScope {
+        body: Box::new(Expression::Block {
+            expressions: vec![Expression::Spawn {
+                expr: Box::new(Expression::IntegerLiteral { value: 1, pos }),
+                detached: false,
+                pos,
+            }],
+            pos,
+        }),
+        pos,
+    };
+
+    checker.check_expression(&jobs_scope_expr);
+
+    assert!(
+        checker
+            .result
+            .errors
+            .iter()
+            .all(|err| !matches!(err, TypeError::TaskRequiresScope { .. })),
+        "Did not expect TaskRequiresScope error inside jobs.scope: {:?}",
+        checker.result.errors
+    );
+}
+
+#[test]
 fn cancel_requires_task() {
     let mut checker = TypeChecker::new();
     let cancel_expr = Expression::Cancel {

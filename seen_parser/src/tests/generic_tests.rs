@@ -140,7 +140,10 @@ fn test_parse_generic_constructor_call() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "HashMap"),
                 other => panic!("Expected HashMap identifier, got {:?}", other),
             }
-            assert!(args.is_empty(), "Constructor should have no positional args in this snippet");
+            assert!(
+                args.is_empty(),
+                "Constructor should have no positional args in this snippet"
+            );
         }
         other => panic!("Expected call expression, got {:?}", other),
     }

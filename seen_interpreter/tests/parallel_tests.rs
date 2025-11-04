@@ -55,3 +55,19 @@ fn parallel_for_writes_each_item() {
 
     let _ = fs::remove_file(&path);
 }
+
+#[test]
+fn jobs_scope_executes_body() {
+    let value = run_program(
+        r#"
+        jobs.scope {
+            21 + 21
+        }
+    "#,
+    );
+    assert_eq!(
+        value.to_string(),
+        "42",
+        "expected jobs.scope to return last expression"
+    );
+}

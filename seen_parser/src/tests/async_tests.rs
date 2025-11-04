@@ -326,6 +326,20 @@ fn test_parse_async_lambda() {
 }
 
 #[test]
+fn test_parse_jobs_scope() {
+    let expr = parse_expression("jobs.scope { 42 }").unwrap();
+    match expr {
+        Expression::JobsScope { body, .. } => match body.as_ref() {
+            Expression::Block { expressions, .. } => {
+                assert_eq!(expressions.len(), 1);
+            }
+            other => panic!("Expected block body, got {:?}", other),
+        },
+        other => panic!("Expected jobs.scope expression, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_parse_nested_await() {
     let expr = parse_expression("await (await getUser()).getProfile()").unwrap();
 

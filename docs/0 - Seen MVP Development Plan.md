@@ -84,13 +84,13 @@ now raises deterministic diagnostics. `jobs.scope` and async channel futures sti
     without mis-parsing trailing lambdas.
   - Channel send/receive paths expose `WouldBlock`/`Closed` via new status enums, and interpreter unit tests cover the
     runtime errors.
+  - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
+    jobs namespace.
 
 * **Remaining tasks:**
-  1. Add a `jobs.scope { ... }` API (parser, type checker, runtime) so scoped jobs join before exit and emit diagnostics
-     when handles escape.
-  2. Wire bounded-capacity channels into the async runtime (send/recv futures, select integration) and carry the
+  1. Wire bounded-capacity channels into the async runtime (send/recv futures, select integration) and carry the
      diagnostics through the LLVM backend.
-  3. Document concurrency patterns and add regression tests that cover scoped job draining and channel back-pressure in
+  2. Document concurrency patterns and add regression tests that cover scoped job draining and channel back-pressure in
      multi-stage builds.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
