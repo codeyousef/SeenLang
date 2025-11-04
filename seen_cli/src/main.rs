@@ -637,7 +637,11 @@ fn compile_file_llvm(
                 .map_err(|err| {
                     SeenError::new(
                         SeenErrorKind::Ir,
-                        format!("Failed to emit LLVM IR to {}: {}", ll_path.display(), err),
+                        format!(
+                            "Failed to emit LLVM IR to {}: {:?}",
+                            ll_path.display(),
+                            err
+                        ),
                     )
                 })?;
             println!("Generated LLVM IR: {}", ll_path.display());
@@ -649,7 +653,7 @@ fn compile_file_llvm(
                     SeenError::new(
                         SeenErrorKind::Ir,
                         format!(
-                            "Failed to produce executable {}: {}",
+                            "Failed to produce executable {}: {:?}",
                             target_exe.display(),
                             err
                         ),

@@ -5,65 +5,75 @@
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
-    
     if args.size() < 2 {
         printUsage()
         return 1
     }
     
     let command = args[1]
-    
     if command == "build" {
         if args.size() < 3 {
             println("Error: build command requires a source file")
             println("Usage: seen build <source.seen> [output]")
             return 1
         }
-        
+
         let sourceFile = args[2]
         let outputFile = if args.size() > 3 { args[3] } else { getDefaultOutput(sourceFile) }
-        
+
         return buildCommand(sourceFile, outputFile)
-    } else if command == "check" {
+    }
+
+    if command == "check" {
         if args.size() < 3 {
             println("Error: check command requires a source file")
             println("Usage: seen check <source.seen>")
             return 1
         }
-        
+
         return checkCommand(args[2])
-    } else if command == "run" {
+    }
+
+    if command == "run" {
         if args.size() < 3 {
             println("Error: run command requires a source file")
             println("Usage: seen run <source.seen>")
             return 1
         }
-        
+
         return runCommand(args[2])
-    } else if command == "format" {
+    }
+
+    if command == "format" {
         if args.size() < 3 {
             println("Error: format command requires a source file")
             println("Usage: seen format <source.seen>")
             return 1
         }
-        
+
         return formatCommand(args[2])
-    } else if command == "init" {
+    }
+
+    if command == "init" {
         let projectName = if args.size() > 2 { args[2] } else { "new_project" }
         return initCommand(projectName)
-    } else if command == "--version" or command == "-v" {
+    }
+
+    if command == "--version" or command == "-v" {
         println("Seen Compiler v2.0.0 (Self-hosted)")
         println("Language: Seen (س)")
         println("Status: REAL IMPLEMENTATION - Not a stub!")
         return 0
-    } else if command == "--help" or command == "-h" {
+    }
+
+    if command == "--help" or command == "-h" {
         printUsage()
         return 0
-    } else {
-        println("Error: Unknown command '{command}'")
-        printUsage()
-        return 1
     }
+
+    println("Error: Unknown command '{command}'")
+    printUsage()
+    return 1
 }
 
 fun printUsage() {

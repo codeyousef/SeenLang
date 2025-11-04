@@ -1,8 +1,8 @@
 //! IR generation from AST for the Seen programming language
 
 use crate::{
-    function::{IRFunction, Parameter},
-    instruction::{BasicBlock, BinaryOp, Instruction, Label, UnaryOp},
+    function::IRFunction,
+    instruction::{BinaryOp, Instruction, Label, UnaryOp},
     module::IRModule,
     value::{IRType, IRValue},
     IRError, IRProgram, IRResult,
@@ -277,36 +277,38 @@ impl IRGenerator {
             }
         }
 
-        // Create main function with remaining expressions
-        let mut main_function = IRFunction::new("main", IRType::Integer);
-        main_function.is_public = true;
+        // Synthesize a top-level main only when the module hasn't already defined one.
+        if !module.functions.contains_key("main") {
+            let mut main_function = IRFunction::new("main", IRType::Integer);
+            main_function.is_public = true;
 
-        self.context.current_function = Some("main".to_string());
+            self.context.current_function = Some("main".to_string());
 
-        // Create entry block
-        let entry_label = Label::new("entry");
-        self.context.current_block = Some(entry_label.0.clone());
+            // Create entry block
+            let entry_label = Label::new("entry");
+            self.context.current_block = Some(entry_label.0.clone());
 
-        // Generate IR for main expressions
-        let mut all_instructions = vec![Instruction::Label(entry_label)];
-        let mut result_value = IRValue::Integer(0); // Default return value
+            // Generate IR for main expressions
+            let mut all_instructions = vec![Instruction::Label(entry_label)];
+            let mut result_value = IRValue::Integer(0); // Default return value
 
-        for expression in main_expressions {
-            let (value, instructions) = self.generate_expression(expression)?;
-            all_instructions.extend(instructions);
-            result_value = value;
+            for expression in main_expressions {
+                let (value, instructions) = self.generate_expression(expression)?;
+                all_instructions.extend(instructions);
+                result_value = value;
+            }
+
+            // Add return instruction
+            all_instructions.push(Instruction::Return(Some(result_value)));
+
+            // Update function register count
+            main_function.register_count = self.context.register_counter;
+
+            // Build proper CFG from instruction list
+            let cfg = crate::cfg_builder::build_cfg_from_instructions(all_instructions);
+            main_function.cfg = cfg;
+            module.add_function(main_function);
         }
-
-        // Add return instruction
-        all_instructions.push(Instruction::Return(Some(result_value)));
-
-        // Update function register count
-        main_function.register_count = self.context.register_counter;
-
-        // Build proper CFG from instruction list
-        let cfg = crate::cfg_builder::build_cfg_from_instructions(all_instructions);
-        main_function.cfg = cfg;
-        module.add_function(main_function);
 
         program.add_module(module);
         program.set_entry_point("main".to_string());
