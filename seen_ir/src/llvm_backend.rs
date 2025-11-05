@@ -4,7 +4,7 @@
 //! Scope: Implements a minimal but solid subset required to compile the
 //! self‑hosting entry (`compiler_seen/src/main.seen`) and similar programs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::Path;
 
@@ -49,6 +49,8 @@ fn is_string_literal_ir(value: &IRValue) -> bool {
 pub enum LinkOutput {
     Executable,
     ObjectOnly,
+    SharedLibrary,
+    StaticLibrary,
 }
 
 pub struct LlvmBackend<'ctx> {
@@ -182,18 +184,92 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             });
         eprintln!("LLVM backend: invoking linker {}", linker);
-        let status = std::process::Command::new(&linker)
-            .arg(&obj_path)
-            .arg("-o")
-            .arg(out_path)
-            .arg("-no-pie")
-            .arg("-lm")
-            .status()
-            .with_context(|| format!("Spawning linker ({})", linker))?;
-        if !status.success() {
-            return Err(anyhow!("Linking failed with status {status}"));
+        match kind {
+            LinkOutput::Executable => {
+                let status = std::process::Command::new(&linker)
+                    .arg(&obj_path)
+                    .arg("-o")
+                    .arg(out_path)
+                    .arg("-no-pie")
+                    .arg("-lm")
+                    .status()
+                    .with_context(|| format!("Spawning linker ({})", linker))?;
+                if !status.success() {
+                    return Err(anyhow!("Linking failed with status {status}"));
+                }
+                Ok(())
+            }
+            LinkOutput::SharedLibrary => {
+                let mut cmd = std::process::Command::new(&linker);
+                cmd.arg(&obj_path).arg("-o").arg(out_path);
+                if cfg!(target_os = "macos") {
+                    cmd.arg("-dynamiclib");
+                } else if cfg!(target_os = "windows") {
+                    cmd.arg("-shared");
+                } else {
+                    cmd.arg("-shared");
+                }
+                cmd.arg("-lm");
+                let status = cmd
+                    .status()
+                    .with_context(|| format!("Spawning linker ({})", linker))?;
+                if !status.success() {
+                    return Err(anyhow!(
+                        "Shared library linking failed with status {status}"
+                    ));
+                }
+                Ok(())
+            }
+            LinkOutput::StaticLibrary => {
+                #[cfg(target_os = "windows")]
+                let tool = std::env::var("SEEN_LLVM_ARCHIVER")
+                    .ok()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| "lib".to_string());
+                #[cfg(not(target_os = "windows"))]
+                let tool = std::env::var("SEEN_LLVM_ARCHIVER")
+                    .ok()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| "ar".to_string());
+
+                #[cfg(target_os = "windows")]
+                let status = std::process::Command::new(&tool)
+                    .arg("/nologo")
+                    .arg(format!("/OUT:{}", out_path.display()))
+                    .arg(&obj_path)
+                    .status()
+                    .with_context(|| format!("Spawning archiver ({})", tool))?;
+                #[cfg(not(target_os = "windows"))]
+                let status = std::process::Command::new(&tool)
+                    .arg("crus")
+                    .arg(out_path)
+                    .arg(&obj_path)
+                    .status()
+                    .with_context(|| format!("Spawning archiver ({})", tool))?;
+
+                if !status.success() {
+                    return Err(anyhow!("Archiving failed with status {status}"));
+                }
+
+                #[cfg(target_os = "macos")]
+                {
+                    let ranlib = std::env::var("SEEN_LLVM_RANLIB")
+                        .ok()
+                        .filter(|v| !v.is_empty())
+                        .unwrap_or_else(|| "ranlib".to_string());
+                    let status = std::process::Command::new(&ranlib)
+                        .arg(out_path)
+                        .status()
+                        .with_context(|| format!("Spawning ranlib ({})", ranlib))?;
+                    if !status.success() {
+                        return Err(anyhow!("ranlib failed with status {status}"));
+                    }
+                }
+
+                Ok(())
+            }
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
         }
-        Ok(())
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {

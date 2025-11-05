@@ -69,6 +69,14 @@ enum Commands {
         /// Emit LLVM IR (.ll) instead of linking an executable (only with --backend llvm)
         #[arg(long)]
         emit_ll: bool,
+
+        /// Produce a shared library (only valid with --backend llvm)
+        #[arg(long, conflicts_with = "static_lib")]
+        shared: bool,
+
+        /// Produce a static library (only valid with --backend llvm)
+        #[arg(long = "static", conflicts_with = "shared")]
+        static_lib: bool,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -157,6 +165,13 @@ enum Commands {
         #[arg(value_name = "FILE")]
         input: PathBuf,
     },
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum BuildLinkMode {
+    Executable,
+    SharedLibrary,
+    StaticLibrary,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -316,10 +331,40 @@ fn main() -> SeenResult<()> {
             opt_level,
             backend,
             emit_ll,
+            shared,
+            static_lib,
         }) => {
             if backend == "llvm" {
-                compile_file_llvm(&input, output.as_ref(), opt_level, emit_ll, keyword_manager)?;
+                if emit_ll && (shared || static_lib) {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--emit-ll cannot be combined with --shared or --static".to_string(),
+                    ));
+                }
+
+                let link_mode = if shared {
+                    BuildLinkMode::SharedLibrary
+                } else if static_lib {
+                    BuildLinkMode::StaticLibrary
+                } else {
+                    BuildLinkMode::Executable
+                };
+
+                compile_file_llvm(
+                    &input,
+                    output.as_ref(),
+                    opt_level,
+                    emit_ll,
+                    link_mode,
+                    keyword_manager,
+                )?;
             } else {
+                if shared || static_lib {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--shared/--static require the LLVM backend".to_string(),
+                    ));
+                }
                 compile_file(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
         }
@@ -561,6 +606,7 @@ fn compile_file_llvm(
     output: Option<&PathBuf>,
     opt_level: u8,
     emit_ll: bool,
+    link_mode: BuildLinkMode,
     keyword_manager: Arc<KeywordManager>,
 ) -> SeenResult<()> {
     println!(
@@ -629,8 +675,12 @@ fn compile_file_llvm(
     {
         use seen_core::{LinkOutput, LlvmBackend};
         let mut backend = LlvmBackend::new();
-        let default_exe = PathBuf::from("a.out");
-        let out_path = output.unwrap_or(&default_exe);
+        let default_target = if emit_ll {
+            PathBuf::from("a.ll")
+        } else {
+            default_link_output_path(link_mode)
+        };
+        let out_path = output.unwrap_or(&default_target);
         if emit_ll {
             let ll_path = out_path;
             backend
@@ -643,26 +693,29 @@ fn compile_file_llvm(
                 })?;
             println!("Generated LLVM IR: {}", ll_path.display());
         } else {
-            let target_exe = out_path.clone();
+            let target = out_path.clone();
+
+            let link_output = match link_mode {
+                BuildLinkMode::Executable => LinkOutput::Executable,
+                BuildLinkMode::SharedLibrary => LinkOutput::SharedLibrary,
+                BuildLinkMode::StaticLibrary => LinkOutput::StaticLibrary,
+            };
+
             backend
-                .emit_executable(&optimized_ir, &target_exe, LinkOutput::Executable)
+                .emit_executable(&optimized_ir, &target, link_output)
                 .map_err(|err| {
                     SeenError::new(
                         SeenErrorKind::Ir,
-                        format!(
-                            "Failed to produce executable {}: {:?}",
-                            target_exe.display(),
-                            err
-                        ),
+                        format!("Failed to produce output {}: {:?}", target.display(), err),
                     )
                 })?;
-            println!("Generated executable: {}", target_exe.display());
+            println!("Generated artifact: {}", target.display());
         }
         Ok(())
     }
     #[cfg(not(feature = "llvm"))]
     {
-        let _ = (output, emit_ll);
+        let _ = (output, emit_ll, link_mode);
         Err(SeenError::new(
             SeenErrorKind::Tooling,
             "LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm",
@@ -751,6 +804,29 @@ fn bundle_imports(
         }
     }
     Ok(merged)
+}
+
+#[cfg(any(test, feature = "llvm"))]
+fn default_link_output_path(link_mode: BuildLinkMode) -> PathBuf {
+    match link_mode {
+        BuildLinkMode::Executable => PathBuf::from("a.out"),
+        BuildLinkMode::SharedLibrary => {
+            if cfg!(target_os = "macos") {
+                PathBuf::from("liba.dylib")
+            } else if cfg!(target_os = "windows") {
+                PathBuf::from("a.dll")
+            } else {
+                PathBuf::from("liba.so")
+            }
+        }
+        BuildLinkMode::StaticLibrary => {
+            if cfg!(target_os = "windows") {
+                PathBuf::from("a.lib")
+            } else {
+                PathBuf::from("liba.a")
+            }
+        } // Object-only not exposed via CLI
+    }
 }
 
 fn rewrite_embed_attributes(expr: Expression, module_dir: &Path) -> Expression {
@@ -2294,5 +2370,27 @@ mod tests {
             !instructions.is_empty(),
             "expected store instruction for embedded constant"
         );
+    }
+
+    #[test]
+    fn default_shared_path_uses_platform_extension() {
+        let path = default_link_output_path(BuildLinkMode::SharedLibrary);
+        let name = path.to_string_lossy();
+        #[cfg(target_os = "macos")]
+        assert!(name.ends_with(".dylib"));
+        #[cfg(target_os = "windows")]
+        assert!(name.ends_with(".dll"));
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        assert!(name.ends_with(".so"));
+    }
+
+    #[test]
+    fn default_static_path_uses_platform_extension() {
+        let path = default_link_output_path(BuildLinkMode::StaticLibrary);
+        let name = path.to_string_lossy();
+        #[cfg(target_os = "windows")]
+        assert!(name.ends_with(".lib"));
+        #[cfg(not(target_os = "windows"))]
+        assert!(name.ends_with(".a"));
     }
 }
