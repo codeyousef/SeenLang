@@ -1,446 +1,45 @@
-//! Channel-based communication for Seen Language
+//! Channel management primitives for Seen concurrency runtime.
 //!
-//! This module implements channels according to Seen's syntax design:
-//! - let (sender, receiver) = Channel<T>()
-//! - sender.Send(value) and receiver.Receive()
-//! - select expressions with when clauses
-//! - Proper type safety and error handling
+//! This module coordinates channel registration, lookups, and select bookkeeping
+//! for higher-level runtimes. Channel data structures live in `crate::types`
+//! where they already expose futures-aware send/receive helpers. The manager
+//! keeps track of active channels via generational identifiers and hands out
+//! refreshed handles when queried.
 
-use crate::types::{AsyncError, AsyncResult, AsyncValue, ChannelId, TaskId};
+use crate::types::{
+    AsyncError, AsyncValue, Channel, ChannelId, ChannelReceiveStatus, ChannelSendStatus, TaskId,
+};
 use seen_lexer::position::Position;
 use seen_parser::ast::Type;
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Condvar, Mutex};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Channel for type-safe message passing between tasks
-#[derive(Debug)]
-pub struct Channel<T> {
-    /// Unique channel identifier
-    pub id: ChannelId,
-    /// Channel capacity (None for unbounded)
-    pub capacity: Option<usize>,
-    /// Message buffer
-    buffer: Arc<Mutex<VecDeque<T>>>,
-    /// Condition variable for sender notification
-    sender_cv: Arc<Condvar>,
-    /// Condition variable for receiver notification
-    receiver_cv: Arc<Condvar>,
-    /// Number of active senders
-    sender_count: Arc<Mutex<usize>>,
-    /// Number of active receivers
-    receiver_count: Arc<Mutex<usize>>,
-    /// Channel state
-    state: Arc<Mutex<ChannelState>>,
-}
-
-/// Channel states
-#[derive(Debug, Clone, PartialEq)]
-pub enum ChannelState {
-    /// Channel is open for operations
-    Open,
-    /// Channel is closed, no more sends allowed
-    Closed,
-    /// Channel has an error
-    Error(String),
-}
-
-/// Sender half of a channel
+/// Stored channel entry keyed by slot identifier.
 #[derive(Debug, Clone)]
-pub struct ChannelSender<T> {
-    /// Reference to the underlying channel
-    channel: Arc<Channel<T>>,
+struct ChannelEntry {
+    handle: Channel,
 }
 
-impl<T> ChannelSender<T> {
-    /// Get the channel ID
-    pub fn channel_id(&self) -> ChannelId {
-        self.channel.id
+impl ChannelEntry {
+    fn new(handle: Channel) -> Self {
+        Self { handle }
+    }
+
+    fn refreshed(&self) -> Channel {
+        self.handle.with_refreshed_generation()
     }
 }
 
-/// Receiver half of a channel
-#[derive(Debug, Clone)]
-pub struct ChannelReceiver<T> {
-    /// Reference to the underlying channel
-    channel: Arc<Channel<T>>,
-}
-
-/// Result of a channel send operation
-#[derive(Debug, Clone, PartialEq)]
-pub enum SendResult {
-    /// Message sent successfully
-    Sent,
-    /// Channel is full, would block
-    WouldBlock,
-    /// Channel is closed
-    Closed,
-    /// Send operation failed
-    Error(String),
-}
-
-/// Result of a channel receive operation
-#[derive(Debug, Clone, PartialEq)]
-pub enum ReceiveResult<T> {
-    /// Message received successfully
-    Received(T),
-    /// No message available, would block
-    WouldBlock,
-    /// Channel is closed and empty
-    Closed,
-    /// Receive operation failed
-    Error(String),
-}
-
-/// Manager for all channels in the system
-#[derive(Debug)]
+/// Manager for all channels visible to the runtime.
+#[derive(Debug, Default)]
 pub struct ChannelManager {
-    /// All channels indexed by ID
-    channels: HashMap<ChannelId, Box<dyn ChannelTrait>>,
-    /// Select operation registry
+    channels: HashMap<u32, ChannelEntry>,
     select_operations: HashMap<SelectId, SelectOperation>,
-    /// Next available select ID
     next_select_id: u64,
 }
 
-/// Trait for type-erased channel operations
-pub trait ChannelTrait: Send + Sync + std::fmt::Debug {
-    /// Get channel ID
-    fn id(&self) -> ChannelId;
-
-    /// Get channel capacity
-    fn capacity(&self) -> Option<usize>;
-
-    /// Get current buffer size
-    fn buffer_size(&self) -> usize;
-
-    /// Check if channel is closed
-    fn is_closed(&self) -> bool;
-
-    /// Close the channel
-    fn close(&self) -> Result<(), String>;
-}
-
-/// Select operation for waiting on multiple channels
-#[derive(Debug)]
-pub struct SelectOperation {
-    /// Select operation ID
-    pub id: SelectId,
-    /// Channel operations to wait on
-    pub operations: Vec<SelectCase>,
-    /// Timeout for the select operation
-    pub timeout: Option<Duration>,
-    /// Task waiting for the select to complete
-    pub waiting_task: Option<TaskId>,
-}
-
-/// Unique identifier for select operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SelectId(u64);
-
-impl SelectId {
-    /// Create a new select ID
-    pub fn new(id: u64) -> Self {
-        Self(id)
-    }
-
-    /// Get the numeric ID
-    pub fn id(&self) -> u64 {
-        self.0
-    }
-}
-
-/// Individual case in a select operation
-#[derive(Debug, Clone)]
-pub enum SelectCase {
-    /// Receive from channel
-    Receive {
-        channel_id: ChannelId,
-        pattern: String, // Variable name to bind received value
-    },
-    /// Send to channel
-    Send {
-        channel_id: ChannelId,
-        value: AsyncValue,
-    },
-    /// Timeout case
-    Timeout { duration: Duration },
-}
-
-impl<T> Channel<T>
-where
-    T: Clone + Send + Sync + 'static,
-{
-    /// Create a new channel with optional capacity
-    pub fn new(capacity: Option<usize>) -> (ChannelSender<T>, ChannelReceiver<T>) {
-        let id = ChannelId::allocate();
-
-        let channel = Arc::new(Channel {
-            id,
-            capacity,
-            buffer: Arc::new(Mutex::new(VecDeque::new())),
-            sender_cv: Arc::new(Condvar::new()),
-            receiver_cv: Arc::new(Condvar::new()),
-            sender_count: Arc::new(Mutex::new(1)), // Initial sender
-            receiver_count: Arc::new(Mutex::new(1)), // Initial receiver
-            state: Arc::new(Mutex::new(ChannelState::Open)),
-        });
-
-        let sender = ChannelSender {
-            channel: channel.clone(),
-        };
-
-        let receiver = ChannelReceiver { channel };
-
-        (sender, receiver)
-    }
-
-    /// Create an unbounded channel
-    pub fn unbounded() -> (ChannelSender<T>, ChannelReceiver<T>) {
-        Self::new(None)
-    }
-
-    /// Create a bounded channel with specified capacity
-    pub fn bounded(capacity: usize) -> (ChannelSender<T>, ChannelReceiver<T>) {
-        Self::new(Some(capacity))
-    }
-}
-
-impl<T> ChannelSender<T>
-where
-    T: Clone + Send + Sync + 'static,
-{
-    /// Send a value to the channel (non-blocking)
-    pub fn try_send(&self, value: T) -> SendResult {
-        let mut buffer = match self.channel.buffer.lock() {
-            Ok(buffer) => buffer,
-            Err(_) => return SendResult::Error("Failed to lock buffer".to_string()),
-        };
-
-        let state = match self.channel.state.lock() {
-            Ok(state) => state,
-            Err(_) => return SendResult::Error("Failed to lock state".to_string()),
-        };
-
-        match *state {
-            ChannelState::Closed => return SendResult::Closed,
-            ChannelState::Error(ref msg) => return SendResult::Error(msg.clone()),
-            ChannelState::Open => {}
-        }
-
-        // Check capacity
-        if let Some(capacity) = self.channel.capacity {
-            if buffer.len() >= capacity {
-                return SendResult::WouldBlock;
-            }
-        }
-
-        // Add to buffer
-        buffer.push_back(value);
-
-        // Notify waiting receivers
-        self.channel.receiver_cv.notify_one();
-
-        SendResult::Sent
-    }
-
-    /// Send a value to the channel (blocking)
-    pub fn send(&self, value: T) -> Result<(), AsyncError> {
-        loop {
-            match self.try_send(value.clone()) {
-                SendResult::Sent => return Ok(()),
-                SendResult::Closed => {
-                    return Err(AsyncError::ChannelError {
-                        reason: "Channel is closed".to_string(),
-                        position: Position::new(0, 0, 0),
-                    });
-                }
-                SendResult::Error(msg) => {
-                    return Err(AsyncError::ChannelError {
-                        reason: msg,
-                        position: Position::new(0, 0, 0),
-                    });
-                }
-                SendResult::WouldBlock => {
-                    // Wait for space to become available
-                    let _guard = self
-                        .channel
-                        .sender_cv
-                        .wait_while(self.channel.buffer.lock().unwrap(), |buffer| {
-                            if let Some(capacity) = self.channel.capacity {
-                                buffer.len() >= capacity
-                            } else {
-                                false // Unbounded channels never block on send
-                            }
-                        })
-                        .unwrap();
-                    // Try again
-                }
-            }
-        }
-    }
-
-    /// Close the sending half of the channel
-    pub fn close(&self) -> Result<(), AsyncError> {
-        let mut state = self
-            .channel
-            .state
-            .lock()
-            .map_err(|_| AsyncError::ChannelError {
-                reason: "Failed to lock state".to_string(),
-                position: Position::new(0, 0, 0),
-            })?;
-
-        *state = ChannelState::Closed;
-
-        // Notify all waiting receivers
-        self.channel.receiver_cv.notify_all();
-
-        Ok(())
-    }
-}
-
-impl<T> ChannelReceiver<T>
-where
-    T: Clone + Send + Sync + 'static,
-{
-    /// Receive a value from the channel (non-blocking)
-    pub fn try_receive(&self) -> ReceiveResult<T> {
-        let mut buffer = match self.channel.buffer.lock() {
-            Ok(buffer) => buffer,
-            Err(_) => return ReceiveResult::Error("Failed to lock buffer".to_string()),
-        };
-
-        let state = match self.channel.state.lock() {
-            Ok(state) => state,
-            Err(_) => return ReceiveResult::Error("Failed to lock state".to_string()),
-        };
-
-        if let Some(value) = buffer.pop_front() {
-            // Notify waiting senders that space is available
-            self.channel.sender_cv.notify_one();
-            return ReceiveResult::Received(value);
-        }
-
-        // Buffer is empty
-        match *state {
-            ChannelState::Closed => ReceiveResult::Closed,
-            ChannelState::Error(ref msg) => ReceiveResult::Error(msg.clone()),
-            ChannelState::Open => ReceiveResult::WouldBlock,
-        }
-    }
-
-    /// Receive a value from the channel (blocking)
-    pub fn receive(&self) -> Result<T, AsyncError> {
-        loop {
-            match self.try_receive() {
-                ReceiveResult::Received(value) => return Ok(value),
-                ReceiveResult::Closed => {
-                    return Err(AsyncError::ChannelError {
-                        reason: "Channel is closed".to_string(),
-                        position: Position::new(0, 0, 0),
-                    });
-                }
-                ReceiveResult::Error(msg) => {
-                    return Err(AsyncError::ChannelError {
-                        reason: msg,
-                        position: Position::new(0, 0, 0),
-                    });
-                }
-                ReceiveResult::WouldBlock => {
-                    // Wait for a message to arrive
-                    let _guard = self
-                        .channel
-                        .receiver_cv
-                        .wait_while(self.channel.buffer.lock().unwrap(), |buffer| {
-                            buffer.is_empty()
-                        })
-                        .unwrap();
-                    // Try again
-                }
-            }
-        }
-    }
-
-    /// Receive with timeout
-    pub fn receive_timeout(&self, timeout: Duration) -> Result<Option<T>, AsyncError> {
-        let start_time = Instant::now();
-
-        loop {
-            match self.try_receive() {
-                ReceiveResult::Received(value) => return Ok(Some(value)),
-                ReceiveResult::Closed => {
-                    return Err(AsyncError::ChannelError {
-                        reason: "Channel is closed".to_string(),
-                        position: Position::new(0, 0, 0),
-                    });
-                }
-                ReceiveResult::Error(msg) => {
-                    return Err(AsyncError::ChannelError {
-                        reason: msg,
-                        position: Position::new(0, 0, 0),
-                    });
-                }
-                ReceiveResult::WouldBlock => {
-                    let elapsed = start_time.elapsed();
-                    if elapsed >= timeout {
-                        return Ok(None); // Timeout
-                    }
-
-                    let remaining = timeout - elapsed;
-                    let _result = self
-                        .channel
-                        .receiver_cv
-                        .wait_timeout_while(
-                            self.channel.buffer.lock().unwrap(),
-                            remaining,
-                            |buffer| buffer.is_empty(),
-                        )
-                        .unwrap();
-                    // Try again
-                }
-            }
-        }
-    }
-}
-
-impl<T> ChannelTrait for Channel<T>
-where
-    T: Clone + Send + Sync + std::fmt::Debug + 'static,
-{
-    fn id(&self) -> ChannelId {
-        self.id
-    }
-
-    fn capacity(&self) -> Option<usize> {
-        self.capacity
-    }
-
-    fn buffer_size(&self) -> usize {
-        self.buffer.lock().unwrap().len()
-    }
-
-    fn is_closed(&self) -> bool {
-        matches!(*self.state.lock().unwrap(), ChannelState::Closed)
-    }
-
-    fn close(&self) -> Result<(), String> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| "Failed to lock state".to_string())?;
-        *state = ChannelState::Closed;
-
-        // Notify all waiting tasks
-        self.receiver_cv.notify_all();
-        self.sender_cv.notify_all();
-
-        Ok(())
-    }
-}
-
 impl ChannelManager {
-    /// Create a new channel manager
+    /// Create a new channel manager.
     pub fn new() -> Self {
         Self {
             channels: HashMap::new(),
@@ -449,23 +48,41 @@ impl ChannelManager {
         }
     }
 
-    /// Create a new typed channel
-    pub fn create_channel<T>(
-        &mut self,
-        capacity: Option<usize>,
-    ) -> (ChannelSender<T>, ChannelReceiver<T>)
-    where
-        T: Clone + Send + Sync + 'static,
-    {
-        let (sender, receiver) = Channel::new(capacity);
-
-        // Channels are managed through sender/receiver handles
-        // Central registration not needed for type-safe channel operations
-
-        (sender, receiver)
+    /// Register an externally created channel handle with the manager.
+    pub fn register_channel(&mut self, channel: Channel) -> ChannelId {
+        let id = channel.id();
+        self.channels
+            .insert(id.slot(), ChannelEntry::new(channel.clone()));
+        id
     }
 
-    /// Create a select operation
+    /// Allocate a fresh channel with optional capacity and register it.
+    pub fn create_channel(&mut self, capacity: Option<usize>) -> Channel {
+        let id = ChannelId::allocate();
+        let channel = Channel::new(id, capacity);
+        self.register_channel(channel.clone());
+        channel
+    }
+
+    /// Fetch a channel handle by identifier if it exists.
+    pub fn get_channel(&self, id: ChannelId) -> Option<Channel> {
+        self.channels.get(&id.slot()).map(ChannelEntry::refreshed)
+    }
+
+    /// Close and remove a channel from the manager.
+    pub fn close_channel(&mut self, id: ChannelId) -> Result<(), AsyncError> {
+        if let Some(entry) = self.channels.remove(&id.slot()) {
+            entry.handle.close();
+            Ok(())
+        } else {
+            Err(AsyncError::ChannelError {
+                reason: "Channel not found".to_string(),
+                position: Position::new(0, 0, 0),
+            })
+        }
+    }
+
+    /// Create a select operation that can watch multiple channels.
     pub fn create_select(
         &mut self,
         operations: Vec<SelectCase>,
@@ -474,204 +91,214 @@ impl ChannelManager {
         let select_id = SelectId::new(self.next_select_id);
         self.next_select_id += 1;
 
-        let select_op = SelectOperation {
+        let operation = SelectOperation {
             id: select_id,
             operations,
             timeout,
             waiting_task: None,
+            created_at: Instant::now(),
         };
 
-        self.select_operations.insert(select_id, select_op);
+        self.select_operations.insert(select_id, operation);
         select_id
     }
 
-    /// Execute a select operation
+    /// Try to execute a recorded select operation. The current implementation
+    /// is non-blocking and reports readiness or pending status.
     pub fn execute_select(&mut self, select_id: SelectId) -> Result<SelectResult, AsyncError> {
-        let select_op =
-            self.select_operations
-                .get(&select_id)
-                .ok_or_else(|| AsyncError::ChannelError {
-                    reason: "Select operation not found".to_string(),
-                    position: Position::new(0, 0, 0),
-                })?;
+        let select_op = self
+            .select_operations
+            .get(&select_id)
+            .ok_or_else(|| AsyncError::ChannelError {
+                reason: "Select operation not found".to_string(),
+                position: Position::new(0, 0, 0),
+            })?;
 
-        // For now, just try the first available operation
+        if let Some(timeout) = select_op.timeout {
+            if Instant::now().duration_since(select_op.created_at) >= timeout {
+                return Ok(SelectResult::Timeout);
+            }
+        }
+
         for case in &select_op.operations {
             match case {
                 SelectCase::Receive {
                     channel_id,
                     pattern,
                 } => {
-                    if let Some(channel) = self.channels.get(channel_id) {
-                        // Try to receive from channel
-                        // Type-erased channels require runtime type checking
+                    let Some(channel) = self.get_channel(*channel_id) else {
                         continue;
+                    };
+                    match channel.try_recv_with_status() {
+                        ChannelReceiveStatus::Received(value) => {
+                            return Ok(SelectResult::Received {
+                                channel_id: *channel_id,
+                                value,
+                                pattern: pattern.clone(),
+                            });
+                        }
+                        ChannelReceiveStatus::Closed => {
+                            continue;
+                        }
+                        ChannelReceiveStatus::Error(err) => {
+                            return Ok(SelectResult::Error(err));
+                        }
+                        ChannelReceiveStatus::WouldBlock => {
+                            continue;
+                        }
                     }
                 }
                 SelectCase::Send { channel_id, value } => {
-                    if let Some(channel) = self.channels.get(channel_id) {
-                        // Try to send to channel
-                        // Type-erased channels require runtime type checking
+                    let Some(channel) = self.get_channel(*channel_id) else {
                         continue;
+                    };
+                    match channel.send_with_status(value.clone()) {
+                        ChannelSendStatus::Sent => {
+                            return Ok(SelectResult::Sent {
+                                channel_id: *channel_id,
+                            });
+                        }
+                        ChannelSendStatus::Closed => continue,
+                        ChannelSendStatus::Error(err) => {
+                            return Ok(SelectResult::Error(err));
+                        }
+                        ChannelSendStatus::WouldBlock => continue,
                     }
                 }
-                SelectCase::Timeout { duration: _ } => {
-                    // Handle timeout case
-                    continue;
+                SelectCase::Timeout { duration } => {
+                    if duration.is_zero() {
+                        return Ok(SelectResult::Timeout);
+                    }
                 }
             }
         }
 
-        // No operations were ready
         Ok(SelectResult::WouldBlock)
     }
 
-    /// Get channel by ID
-    pub fn get_channel(&self, id: ChannelId) -> Option<&dyn ChannelTrait> {
-        self.channels.get(&id).map(|c| c.as_ref())
+    /// Remove a select operation from the manager.
+    pub fn remove_select(&mut self, select_id: SelectId) {
+        self.select_operations.remove(&select_id);
     }
 
-    /// Close a channel
-    pub fn close_channel(&mut self, id: ChannelId) -> Result<(), AsyncError> {
-        if let Some(channel) = self.channels.get(&id) {
-            channel.close().map_err(|msg| AsyncError::ChannelError {
-                reason: msg,
-                position: Position::new(0, 0, 0),
-            })
-        } else {
-            Err(AsyncError::ChannelError {
-                reason: "Channel not found".to_string(),
-                position: Position::new(0, 0, 0),
-            })
-        }
+    /// Current number of registered channels.
+    pub fn channel_count(&self) -> usize {
+        self.channels.len()
     }
 }
 
-impl Default for ChannelManager {
-    fn default() -> Self {
-        Self::new()
+/// Select operation metadata stored by the manager.
+#[derive(Debug, Clone)]
+pub struct SelectOperation {
+    pub id: SelectId,
+    pub operations: Vec<SelectCase>,
+    pub timeout: Option<Duration>,
+    pub waiting_task: Option<TaskId>,
+    pub created_at: Instant,
+}
+
+/// Unique identifier for select operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SelectId(u64);
+
+impl SelectId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn id(&self) -> u64 {
+        self.0
     }
 }
 
-/// Result of a select operation
+/// Individual case inside a select statement.
+#[derive(Debug, Clone)]
+pub enum SelectCase {
+    Receive {
+        channel_id: ChannelId,
+        pattern: String,
+    },
+    Send {
+        channel_id: ChannelId,
+        value: AsyncValue,
+    },
+    Timeout {
+        duration: Duration,
+    },
+}
+
+/// Result of a select operation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SelectResult {
-    /// A receive operation completed
     Received {
         channel_id: ChannelId,
         value: AsyncValue,
         pattern: String,
     },
-    /// A send operation completed
-    Sent { channel_id: ChannelId },
-    /// Timeout occurred
+    Sent {
+        channel_id: ChannelId,
+    },
     Timeout,
-    /// No operations were ready
     WouldBlock,
-    /// Select operation failed
     Error(String),
 }
 
-/// Helper function to create channels in Seen syntax: Channel<T>()
+/// Helper function used by the interpreter to instantiate channels from type
+/// information. The manager registration is left to the caller because it lives
+/// behind runtime state.
 pub fn create_channel_from_type(
-    channel_type: &Type,
+    _channel_type: &Type,
     capacity: Option<usize>,
 ) -> Result<(AsyncValue, AsyncValue), AsyncError> {
-    // For now, create a generic channel that holds AsyncValue
-    let (sender, receiver) = Channel::<AsyncValue>::new(capacity);
-
-    let sender_handle = crate::types::Channel::new(sender.channel.id, capacity);
-    let receiver_handle = crate::types::Channel::new(receiver.channel.id, capacity);
-
-    Ok((
-        AsyncValue::Channel(sender_handle),
-        AsyncValue::Channel(receiver_handle),
-    ))
+    let id = ChannelId::allocate();
+    let channel = Channel::new(id, capacity);
+    let sender = channel.clone();
+    Ok((AsyncValue::Channel(sender), AsyncValue::Channel(channel)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
-    use std::time::Duration;
+    use crate::types::AsyncValue;
 
     #[test]
-    fn test_unbounded_channel() {
-        let (sender, receiver) = Channel::<i32>::unbounded();
-
-        // Send some values
-        assert_eq!(sender.try_send(1), SendResult::Sent);
-        assert_eq!(sender.try_send(2), SendResult::Sent);
-        assert_eq!(sender.try_send(3), SendResult::Sent);
-
-        // Receive them
-        assert_eq!(receiver.try_receive(), ReceiveResult::Received(1));
-        assert_eq!(receiver.try_receive(), ReceiveResult::Received(2));
-        assert_eq!(receiver.try_receive(), ReceiveResult::Received(3));
-        assert_eq!(receiver.try_receive(), ReceiveResult::WouldBlock);
-    }
-
-    #[test]
-    fn test_bounded_channel() {
-        let (sender, receiver) = Channel::<i32>::bounded(2);
-
-        // Fill the channel
-        assert_eq!(sender.try_send(1), SendResult::Sent);
-        assert_eq!(sender.try_send(2), SendResult::Sent);
-        assert_eq!(sender.try_send(3), SendResult::WouldBlock); // Channel full
-
-        // Receive one value to make space
-        assert_eq!(receiver.try_receive(), ReceiveResult::Received(1));
-
-        // Now we can send again
-        assert_eq!(sender.try_send(3), SendResult::Sent);
-    }
-
-    #[test]
-    fn test_channel_close() {
-        let (sender, receiver) = Channel::<i32>::unbounded();
-
-        // Send a value
-        assert_eq!(sender.try_send(42), SendResult::Sent);
-
-        // Close the channel
-        sender.close().unwrap();
-
-        // Can still receive existing values
-        assert_eq!(receiver.try_receive(), ReceiveResult::Received(42));
-
-        // But no more values available and channel is closed
-        assert_eq!(receiver.try_receive(), ReceiveResult::Closed);
-
-        // Cannot send after close
-        assert_eq!(sender.try_send(1), SendResult::Closed);
-    }
-
-    #[test]
-    fn test_channel_manager() {
+    fn register_and_lookup_channel() {
         let mut manager = ChannelManager::new();
+        let channel = manager.create_channel(Some(1));
+        assert_eq!(manager.channel_count(), 1);
 
-        let (sender, _receiver) = manager.create_channel::<i32>(Some(10));
-        let _channel_id = sender.channel.id;
-
-        // Channel registration and management is handled through sender/receiver
-        // Direct manager operations not needed with current architecture
+        let id = channel.id();
+        let fetched = manager.get_channel(id).expect("channel should exist");
+        assert_eq!(fetched.id().slot(), id.slot());
     }
 
     #[test]
-    fn test_blocking_operations() {
-        let (sender, receiver) = Channel::<i32>::unbounded();
+    fn send_and_receive_through_manager_handle() {
+        let mut manager = ChannelManager::new();
+        let channel = manager.create_channel(Some(1));
+        let id = channel.id();
 
-        // Test in separate thread to avoid deadlock
-        let sender_thread = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(10));
-            sender.send(42).unwrap();
-        });
+        assert_eq!(
+            channel.send_with_status(AsyncValue::Integer(7)),
+            ChannelSendStatus::Sent
+        );
 
-        // This should block until sender sends
-        let received = receiver.receive().unwrap();
-        assert_eq!(received, 42);
+        let fetched = manager.get_channel(id).expect("channel present");
+        match fetched.try_recv_with_status() {
+            ChannelReceiveStatus::Received(value) => {
+                assert_eq!(value, AsyncValue::Integer(7));
+            }
+            other => panic!("expected received value, got {:?}", other),
+        }
+    }
 
-        sender_thread.join().unwrap();
+    #[test]
+    fn closing_channel_removes_registration() {
+        let mut manager = ChannelManager::new();
+        let channel = manager.create_channel(None);
+        let id = channel.id();
+
+        manager.close_channel(id).expect("close succeeds");
+        assert!(manager.get_channel(id).is_none());
     }
 }

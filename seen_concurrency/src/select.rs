@@ -412,15 +412,6 @@ impl SelectExecutor {
     pub fn get_active_selects(&self) -> Vec<SelectId> {
         self.active_selects.keys().cloned().collect()
     }
-
-    /// Create a channel and return its ID
-    pub fn create_channel<T>(&mut self, capacity: Option<usize>) -> ChannelId
-    where
-        T: Clone + Send + Sync + 'static,
-    {
-        let (sender, receiver) = self.channel_manager.create_channel::<T>(capacity);
-        sender.channel_id()
-    }
 }
 
 impl Default for SelectExecutor {

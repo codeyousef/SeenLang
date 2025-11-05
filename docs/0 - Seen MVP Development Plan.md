@@ -43,6 +43,10 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
     deps.
 - [x] **CLI determinism profile**
   - `--profile deterministic` pins timestamps/temp roots via env, documented in quickstart + MVP plan.
+- [ ] **Performance baselines & tooling**
+  - Stand up automated micro/macro benchmark harnesses with runtime, peak memory, binary size, and compile-time capture (per docs/research/10 - Roadmap, Challenges & Validation.md).
+  - Wire compiler build-time sampling into CI (p95 incremental and release builds) and block regressions once thresholds regress beyond 5%.
+  - Publish an initial Rust/C++ parity dashboard so later optimizer work can be measured against a locked baseline.
 
 ## 3) Phase PSH — Pre‑Self‑Host (WIP)
 
@@ -100,6 +104,63 @@ instead of short-circuiting, while LLVM/backend work still needs full wake + fut
      draining plus multi-stage channel workflows.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
+
+### PSH‑3a. Optimization & Auto‑Tuning Pipeline
+
+*Status:* ⏳ Pending — research-backed optimizer workstreams need foundations before self-hosting can lock performance.
+
+* **Outstanding tasks:**
+  1. Integrate an equality-saturation pass (e-graph rewrite set inspired by `egg` / DialEgg) over Seen IR so algebraic simplifications, strength reductions, and fusion emerge deterministically (docs/research/13 - Language Performance.md).
+  2. Prototype ML-driven heuristics (MLGO/Iterative BC-Max) for inlining and register allocation decisions, fed by compiler profiling data captured in PB-Perf (docs/research/13 - Language Performance.md).
+  3. Wrap the hot-loop pipeline with a LENS-style superoptimizer to synthesize short instruction sequences that beat LLVM -O3 while honouring Seen's determinism guarantees (docs/research/13 - Language Performance.md).
+  4. Establish an ML-guided PGO loop that exports training corpora, feeds reward signals, and replays decisions during deterministic builds.
+
+* **Acceptance:** Optimizer reports show e-graph rewrites firing on targeted fixtures, ML heuristics reduce binary size ≥3% on benchmark suite without destabilizing determinism hashes, and superoptimized traces land in CI-perf dashboards.
+
+### PSH‑3b. Memory & Data Layout Efficiency
+
+*Status:* ⏳ Pending — the hybrid generational model needs instrumentation to hit the zero-overhead targets called out in the memory/performance research.
+
+* **Outstanding tasks:**
+  1. Extend the region/arena runtime with Vale-style hybrid generational handles plus validation benches proving no additional runtime checks are emitted on hot paths (docs/research/13 - Language Performance.md; docs/research/3 - GC-Free Memory Management Model for Automated Safety and Intuitive Control.md).
+  2. Surface region strategy hints (`bump`, `stack`, `cxl_near`) in Seen syntax and teach the compiler to auto-select O(1) release strategies when lifetime analysis allows it.
+  3. Flatten compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious layouts, measuring the cited 2.4× speedups on cache-bound fixtures (docs/research/13 - Language Performance.md).
+  4. Audit runtime safety checks, gating them behind debug profiles when static proofs exist, so production binaries keep the "zero memory safety overhead" promise.
+
+* **Acceptance:** Memory-intensive benchmarks report ≥1.5× throughput improvement, region drops are O(1) in profiler traces, and cache miss rates fall in line with the Cornell flattening targets.
+
+### PSH‑3c. Backend Diversification & MLIR Bridge
+
+*Status:* ⏳ Pending — LLVM remains the sole backend; research recommends MLIR/differentiated pipelines to unlock performance headroom.
+
+* **Outstanding tasks:**
+  1. Prototype an MLIR emission path (core dialect + Transform + DialEgg integration) and validate parity with the existing deterministic IR dumps (docs/research/13 - Language Performance.md).
+  2. Bring up alternative codegen backends (Cranelift with ISLE patterns, Tilde sea-of-nodes) behind `--backend` switches for fast-compile and experimentation lanes.
+  3. Ensure backend selection is deterministic (same hash outputs) and CI exercises Stage0→Stage2 via at least one non-LLVM backend each night.
+
+* **Acceptance:** Stage1 builds succeed with MLIR and Cranelift prototypes, deterministic hashes stay stable across backends, and compile-time telemetry matches the “10× faster than LLVM” research targets for fast lanes.
+
+### PSH‑3d. Runtime Scheduling & Concurrency Efficiency
+
+*Status:* ⏳ Pending — concurrency research highlights deeper optimizations beyond current scoped jobs.
+
+* **Outstanding tasks:**
+  1. Teach the async runtime to stack-allocate coroutine frames when escape analysis proves bounded lifetimes, mirroring the coroutine optimization path in docs/research/4 - A Concurrency Model for the Seen Programming Language.md.
+  2. Profile and tune the work-stealing scheduler (queue contention, fairness, back-off) so Rayon replacement remains optional, not mandatory.
+  3. Add instrumentation for task wake latency and starvation, exporting metrics to the PB-Perf dashboard for regression tracking.
+
+* **Acceptance:** Scheduler benchmarks demonstrate lower tail latency and fewer context switches, coroutine-heavy programs drop heap allocations measurably, and starvation alerts remain green in CI.
+
+### PSH‑3e. Hardware-Aware Codegen & Memory Topology
+
+*Status:* ⏳ Pending — the MVP must recognize upcoming ISA and memory innovations to meet the forward-looking performance goals.
+
+* **Outstanding tasks:**
+  1. Model Intel APX register allocation, AVX10 vector widths, and ARM SVE scalable vectors inside the codegen pipeline so SIMD work in PSH‑7 can target per-core capabilities (docs/research/13 - Language Performance.md).
+  2. Add CXL-aware placement hints to the allocator/runtime, keeping hot regions near compute while spilling bulk data to expandable memory (docs/research/13 - Language Performance.md).
+  3. Expose CLI flags (`--cpu-feature`, `--memory-topology`) and ensure deterministic mode locks features to portable baselines.
+
+* **Acceptance:** Hardware-feature smoke tests validate emitted binaries on APX-capable x86 and SVE ARM targets, vector reports enumerate chosen widths, and CXL placement improves memory-bound fixture throughput.
 
 ### PSH‑4. Embedding & Packaging
 
