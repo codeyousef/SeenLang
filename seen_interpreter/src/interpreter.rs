@@ -8,7 +8,8 @@ use seen_concurrency::{
     async_runtime::AsyncExecutionContext,
     async_runtime::AsyncFunction as AsyncFunctionTrait,
     types::{
-        AsyncError, AsyncResult, AsyncValue, Channel, ChannelReceiveStatus, TaskId, TaskPriority,
+        channel_select_future, AsyncError, AsyncResult, AsyncValue, Channel, ChannelReceiveStatus,
+        ChannelSelectCase, ChannelSelectOutcome, TaskId, TaskPriority,
     },
 };
 use seen_effects::{
@@ -113,6 +114,77 @@ impl AsyncFunctionTrait for ChannelSendAsyncFunction {
 
     fn name(&self) -> &str {
         "ChannelSend"
+    }
+}
+
+const SELECT_STATUS_RECEIVED: &str = "received";
+const SELECT_STATUS_SENT: &str = "sent";
+const SELECT_STATUS_CLOSED: &str = "closed";
+const SELECT_STATUS_ALL_CLOSED: &str = "all_closed";
+const SELECT_STATUS_TIMEOUT: &str = "timeout";
+
+#[derive(Debug, Clone)]
+struct ChannelSelectAsyncFunction {
+    cases: Vec<ChannelSelectCase>,
+    timeout: Option<Duration>,
+    position: Position,
+}
+
+impl AsyncFunctionTrait for ChannelSelectAsyncFunction {
+    fn execute(
+        &self,
+        _context: &mut AsyncExecutionContext,
+    ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+        let cases = self.cases.clone();
+        let timeout = self.timeout;
+        let pos = self.position.clone();
+
+        Box::pin(async move {
+            match channel_select_future(cases, timeout).await {
+                Ok(ChannelSelectOutcome::Received { case_index, value }) => {
+                    Ok(AsyncValue::Array(vec![
+                        AsyncValue::Integer(case_index as i64),
+                        value,
+                        AsyncValue::String(SELECT_STATUS_RECEIVED.to_string()),
+                    ]))
+                }
+                Ok(ChannelSelectOutcome::Sent { case_index }) => Ok(AsyncValue::Array(vec![
+                    AsyncValue::Integer(case_index as i64),
+                    AsyncValue::Unit,
+                    AsyncValue::String(SELECT_STATUS_SENT.to_string()),
+                ])),
+                Ok(ChannelSelectOutcome::Closed { case_index }) => Ok(AsyncValue::Array(vec![
+                    AsyncValue::Integer(case_index as i64),
+                    AsyncValue::Unit,
+                    AsyncValue::String(SELECT_STATUS_CLOSED.to_string()),
+                ])),
+                Ok(ChannelSelectOutcome::AllClosed) => Ok(AsyncValue::Array(vec![
+                    AsyncValue::Integer(-1),
+                    AsyncValue::Unit,
+                    AsyncValue::String(SELECT_STATUS_ALL_CLOSED.to_string()),
+                ])),
+                Ok(ChannelSelectOutcome::Timeout) => Ok(AsyncValue::Array(vec![
+                    AsyncValue::Integer(-1),
+                    AsyncValue::Unit,
+                    AsyncValue::String(SELECT_STATUS_TIMEOUT.to_string()),
+                ])),
+                Err(err) => Err(match err {
+                    AsyncError::ChannelError { reason, .. } => AsyncError::ChannelError {
+                        reason,
+                        position: pos.clone(),
+                    },
+                    AsyncError::RuntimeError { message, .. } => AsyncError::RuntimeError {
+                        message,
+                        position: pos.clone(),
+                    },
+                    other => other,
+                }),
+            }
+        })
+    }
+
+    fn name(&self) -> &str {
+        "ChannelSelect"
     }
 }
 
@@ -1567,7 +1639,6 @@ impl Interpreter {
             ));
         }
 
-        // Evaluate channel expressions once and retain cloned handles for fairness iteration.
         let mut evaluated_cases = Vec::new();
         for case in cases {
             let channel_value = self.interpret_expression(&case.channel)?;
@@ -1584,47 +1655,119 @@ impl Interpreter {
             }
         }
 
-        let len = evaluated_cases.len();
-        let mut start_index = 0usize;
+        if evaluated_cases.is_empty() {
+            return Ok(Value::Unit);
+        }
 
         loop {
-            let mut any_open = false;
+            let select_cases: Vec<ChannelSelectCase> = evaluated_cases
+                .iter()
+                .map(|(channel, _, _)| ChannelSelectCase::Receive {
+                    channel: channel.clone(),
+                })
+                .collect();
 
-            for offset in 0..len {
-                let idx = (start_index + offset) % len;
-                let (channel, pattern, handler) = &evaluated_cases[idx];
+            let async_runtime = self.runtime.async_runtime();
+            let promise = {
+                let mut runtime = async_runtime.lock().map_err(|_| {
+                    InterpreterError::runtime("Failed to acquire async runtime lock", pos.clone())
+                })?;
+                let select_fn = ChannelSelectAsyncFunction {
+                    cases: select_cases,
+                    timeout: None,
+                    position: pos.clone(),
+                };
+                runtime.execute_async_function(Box::new(select_fn))
+            };
+            let task_id = promise.task_id();
 
-                match channel.try_recv_with_status() {
-                    ChannelReceiveStatus::Received(async_value) => {
-                        let received_value = self.async_value_to_value(&async_value);
+            let outcome = {
+                let mut runtime = async_runtime.lock().map_err(|_| {
+                    InterpreterError::runtime("Failed to acquire async runtime lock", pos.clone())
+                })?;
+                runtime.wait_for_task(task_id).map_err(|err| {
+                    InterpreterError::runtime(format!("Select failed: {:?}", err), pos.clone())
+                })?
+            };
+
+            let parts = match outcome {
+                AsyncValue::Array(parts) => parts,
+                other => {
+                    return Err(InterpreterError::runtime(
+                        format!("Unexpected select outcome: {:?}", other),
+                        pos.clone(),
+                    ))
+                }
+            };
+
+            if parts.len() != 3 {
+                return Err(InterpreterError::runtime(
+                    "Malformed select outcome",
+                    pos.clone(),
+                ));
+            }
+
+            let case_index = match &parts[0] {
+                AsyncValue::Integer(idx) => *idx,
+                _ => {
+                    return Err(InterpreterError::runtime(
+                        "Invalid select outcome index",
+                        pos.clone(),
+                    ))
+                }
+            };
+
+            let payload = parts[1].clone();
+            let kind = match &parts[2] {
+                AsyncValue::String(kind) => kind.clone(),
+                _ => {
+                    return Err(InterpreterError::runtime(
+                        "Invalid select outcome discriminator",
+                        pos.clone(),
+                    ))
+                }
+            };
+
+            match kind.as_str() {
+                SELECT_STATUS_RECEIVED => {
+                    if case_index < 0 {
+                        return Err(InterpreterError::runtime(
+                            "Select outcome reported negative index",
+                            pos.clone(),
+                        ));
+                    }
+
+                    let case_idx = case_index as usize;
+                    if let Some((_, pattern, handler)) = evaluated_cases.get(case_idx) {
+                        let received_value = self.async_value_to_value(&payload);
                         if self.match_pattern(pattern, &received_value) {
                             return self.interpret_expression(handler);
                         }
-                        // Pattern did not match; continue checking other cases.
-                    }
-                    ChannelReceiveStatus::WouldBlock => {
-                        any_open = true;
-                    }
-                    ChannelReceiveStatus::Closed => {
-                        // Closed channels should not contribute to liveness.
-                    }
-                    ChannelReceiveStatus::Error(err) => {
+                        // Pattern mismatch; continue waiting for another case.
+                    } else {
                         return Err(InterpreterError::runtime(
-                            format!("Channel receive failed: {}", err),
+                            "Select outcome referenced an invalid case",
                             pos.clone(),
                         ));
                     }
                 }
+                SELECT_STATUS_SENT => {
+                    return Ok(Value::Boolean(true));
+                }
+                SELECT_STATUS_CLOSED => {
+                    // One channel closed; loop again to see if others can make progress.
+                    continue;
+                }
+                SELECT_STATUS_ALL_CLOSED | SELECT_STATUS_TIMEOUT => {
+                    return Ok(Value::Unit);
+                }
+                other => {
+                    return Err(InterpreterError::runtime(
+                        format!("Unknown select outcome: {}", other),
+                        pos.clone(),
+                    ));
+                }
             }
-
-            if !any_open {
-                // All channels are closed or returned pattern mismatches; no further progression.
-                return Ok(Value::Unit);
-            }
-
-            start_index = (start_index + 1) % len;
-            // Cooperative back-off to avoid spinning when no cases are ready yet.
-            thread::sleep(Duration::from_millis(1));
         }
     }
 

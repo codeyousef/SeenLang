@@ -7,8 +7,9 @@
 //! refreshed handles when queried.
 
 use crate::types::{
-    AsyncError, AsyncValue, Channel, ChannelId, ChannelReceiveStatus, ChannelSendStatus, TaskId,
+    channel_select_future, ChannelSelectCase, ChannelSelectFuture, ChannelSelectOutcome,
 };
+use crate::types::{AsyncError, AsyncValue, Channel, ChannelId, TaskId};
 use seen_lexer::position::Position;
 use seen_parser::ast::Type;
 use std::collections::HashMap;
@@ -111,8 +112,9 @@ impl ChannelManager {
         &self,
         operations: &[SelectCase],
         timeout: Option<Duration>,
-    ) -> Result<ChannelSelectFuture, AsyncError> {
+    ) -> Result<ManagerSelectFuture, AsyncError> {
         let mut cases = Vec::with_capacity(operations.len());
+        let mut metadata = Vec::with_capacity(operations.len());
         let mut timeout_acc: Option<Duration> = timeout;
 
         for op in operations {
@@ -127,13 +129,12 @@ impl ChannelManager {
                                 reason: format!("Channel {:?} not found", channel_id.id()),
                                 position: Position::new(0, 0, 0),
                             })?;
-                    cases.push(ChannelSelectFutureCase {
+                    cases.push(ChannelSelectCase::Receive {
+                        channel: channel.clone(),
+                    });
+                    metadata.push(SelectCaseMeta {
                         channel_id: *channel_id,
-                        channel,
-                        state: ChannelSelectFutureCaseKind::Receive {
-                            pattern: pattern.clone(),
-                        },
-                        closed: false,
+                        pattern: Some(pattern.clone()),
                     });
                 }
                 SelectCase::Send { channel_id, value } => {
@@ -143,13 +144,13 @@ impl ChannelManager {
                                 reason: format!("Channel {:?} not found", channel_id.id()),
                                 position: Position::new(0, 0, 0),
                             })?;
-                    cases.push(ChannelSelectFutureCase {
+                    cases.push(ChannelSelectCase::Send {
+                        channel: channel.clone(),
+                        value: value.clone(),
+                    });
+                    metadata.push(SelectCaseMeta {
                         channel_id: *channel_id,
-                        channel,
-                        state: ChannelSelectFutureCaseKind::Send {
-                            value: value.clone(),
-                        },
-                        closed: false,
+                        pattern: None,
                     });
                 }
                 SelectCase::Timeout { duration } => {
@@ -161,7 +162,8 @@ impl ChannelManager {
             }
         }
 
-        Ok(ChannelSelectFuture::new(cases, timeout_acc))
+        let inner = channel_select_future(cases, timeout_acc);
+        Ok(ManagerSelectFuture::new(inner, metadata))
     }
 
     /// Try to execute a recorded select operation. The current implementation
@@ -252,137 +254,67 @@ pub enum SelectResult {
     Error(String),
 }
 
-/// Future that resolves when one of the select cases completes.
-pub struct ChannelSelectFuture {
-    cases: Vec<ChannelSelectFutureCase>,
-    timeout_at: Option<Instant>,
-    completed: bool,
-}
-
-struct ChannelSelectFutureCase {
+#[derive(Debug, Clone)]
+struct SelectCaseMeta {
     channel_id: ChannelId,
-    channel: Channel,
-    state: ChannelSelectFutureCaseKind,
-    closed: bool,
+    pattern: Option<String>,
 }
 
-enum ChannelSelectFutureCaseKind {
-    Receive { pattern: String },
-    Send { value: AsyncValue },
+/// Future wrapper that maps raw channel select outcomes back to manager-level results.
+pub struct ManagerSelectFuture {
+    inner: ChannelSelectFuture,
+    metadata: Vec<SelectCaseMeta>,
 }
 
-impl ChannelSelectFuture {
-    fn new(cases: Vec<ChannelSelectFutureCase>, timeout: Option<Duration>) -> Self {
-        let timeout_at = timeout.map(|duration| Instant::now() + duration);
-        Self {
-            cases,
-            timeout_at,
-            completed: false,
+impl ManagerSelectFuture {
+    fn new(inner: ChannelSelectFuture, metadata: Vec<SelectCaseMeta>) -> Self {
+        Self { inner, metadata }
+    }
+
+    fn map_outcome(&self, outcome: ChannelSelectOutcome) -> SelectResult {
+        match outcome {
+            ChannelSelectOutcome::Received { case_index, value } => {
+                if let Some(meta) = self.metadata.get(case_index) {
+                    if let Some(pattern) = &meta.pattern {
+                        SelectResult::Received {
+                            channel_id: meta.channel_id,
+                            value,
+                            pattern: pattern.clone(),
+                        }
+                    } else {
+                        SelectResult::Error("Select receive metadata missing pattern".to_string())
+                    }
+                } else {
+                    SelectResult::Error("Select outcome index out of bounds".to_string())
+                }
+            }
+            ChannelSelectOutcome::Sent { case_index } => {
+                if let Some(meta) = self.metadata.get(case_index) {
+                    SelectResult::Sent {
+                        channel_id: meta.channel_id,
+                    }
+                } else {
+                    SelectResult::Error("Select outcome index out of bounds".to_string())
+                }
+            }
+            ChannelSelectOutcome::Closed { .. } | ChannelSelectOutcome::AllClosed => {
+                SelectResult::WouldBlock
+            }
+            ChannelSelectOutcome::Timeout => SelectResult::Timeout,
         }
     }
 }
 
-impl Future for ChannelSelectFuture {
+impl Future for ManagerSelectFuture {
     type Output = Result<SelectResult, AsyncError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.completed {
-            return Poll::Ready(Ok(SelectResult::WouldBlock));
-        }
-
-        let mut pending = false;
-
-        for idx in 0..self.cases.len() {
-            let mut mark_closed = false;
-            let mut outcome: Option<SelectResult> = None;
-
-            {
-                let case = &mut self.cases[idx];
-                if case.closed {
-                    continue;
-                }
-
-                match &mut case.state {
-                    ChannelSelectFutureCaseKind::Receive { pattern } => {
-                        match case.channel.try_recv_with_status() {
-                            ChannelReceiveStatus::Received(value) => {
-                                outcome = Some(SelectResult::Received {
-                                    channel_id: case.channel_id,
-                                    value,
-                                    pattern: pattern.clone(),
-                                });
-                            }
-                            ChannelReceiveStatus::WouldBlock => {
-                                pending = true;
-                                if case.channel.register_receiver_waker(cx.waker()).is_err() {
-                                    mark_closed = true;
-                                }
-                            }
-                            ChannelReceiveStatus::Closed => {
-                                mark_closed = true;
-                            }
-                            ChannelReceiveStatus::Error(err) => {
-                                outcome = Some(SelectResult::Error(err));
-                            }
-                        }
-                    }
-                    ChannelSelectFutureCaseKind::Send { value } => {
-                        match case.channel.send_with_status(value.clone()) {
-                            ChannelSendStatus::Sent => {
-                                outcome = Some(SelectResult::Sent {
-                                    channel_id: case.channel_id,
-                                });
-                            }
-                            ChannelSendStatus::WouldBlock => {
-                                pending = true;
-                                if case.channel.register_sender_waker(cx.waker()).is_err() {
-                                    mark_closed = true;
-                                }
-                            }
-                            ChannelSendStatus::Closed => {
-                                mark_closed = true;
-                            }
-                            ChannelSendStatus::Error(err) => {
-                                outcome = Some(SelectResult::Error(err));
-                            }
-                        }
-                    }
-                }
-            }
-
-            if mark_closed {
-                if let Some(case) = self.cases.get_mut(idx) {
-                    case.closed = true;
-                }
-            }
-
-            if let Some(result) = outcome {
-                self.completed = true;
-                return Poll::Ready(Ok(result));
-            }
-        }
-
-        self.cases.retain(|case| !case.closed);
-
-        if self.cases.is_empty() {
-            self.completed = true;
-            return Poll::Ready(Ok(SelectResult::WouldBlock));
-        }
-
-        if let Some(timeout_at) = self.timeout_at {
-            if Instant::now() >= timeout_at {
-                self.completed = true;
-                return Poll::Ready(Ok(SelectResult::Timeout));
-            } else {
-                pending = true;
-            }
-        }
-
-        if pending {
-            Poll::Pending
-        } else {
-            self.completed = true;
-            Poll::Ready(Ok(SelectResult::WouldBlock))
+        match Pin::new(&mut self.inner).poll(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(result) => match result {
+                Ok(outcome) => Poll::Ready(Ok(self.map_outcome(outcome))),
+                Err(err) => Poll::Ready(Err(err)),
+            },
         }
     }
 }
@@ -417,7 +349,7 @@ fn noop_waker() -> Waker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::AsyncValue;
+    use crate::types::{AsyncValue, ChannelReceiveStatus, ChannelSendStatus};
     use std::task::{Context, Poll};
 
     #[test]

@@ -6,7 +6,7 @@
 //! optimization and runtime efficiency.
 
 use crate::{
-    channels::{ChannelManager, ChannelSelectFuture, SelectCase},
+    channels::{ChannelManager, ManagerSelectFuture, SelectCase},
     types::{
         AsyncError, AsyncResult, AsyncValue, Channel, Promise, TaskHandle, TaskId, TaskPriority,
         TaskState,
@@ -493,7 +493,7 @@ impl AsyncRuntime {
         manager: &ChannelManager,
         operations: &[SelectCase],
         timeout: Option<Duration>,
-    ) -> Result<ChannelSelectFuture, AsyncError> {
+    ) -> Result<ManagerSelectFuture, AsyncError> {
         manager.select_future(operations, timeout)
     }
 }

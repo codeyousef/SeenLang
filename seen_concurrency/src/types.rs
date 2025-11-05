@@ -8,6 +8,8 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Unique identifier for async tasks
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -137,7 +139,7 @@ pub enum AsyncValue {
     Boolean(bool),
     /// String value
     String(String),
-    /// Array of async values
+    /// Array of async values (used for structured results like select outcomes)
     Array(Vec<AsyncValue>),
     /// Promise for future value
     Promise(Arc<Promise>),
@@ -729,6 +731,261 @@ impl Future for ChannelReceiveFuture {
             })),
         }
     }
+}
+
+/// Select case describing either a receive or send operation on a channel.
+#[derive(Debug, Clone)]
+pub enum ChannelSelectCase {
+    /// Wait for the next value on a channel.
+    Receive { channel: Channel },
+    /// Attempt to send a value through a channel.
+    Send { channel: Channel, value: AsyncValue },
+}
+
+/// Outcome produced when a channel select finishes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChannelSelectOutcome {
+    /// A receive case completed with a value.
+    Received {
+        case_index: usize,
+        value: AsyncValue,
+    },
+    /// A send case successfully transmitted its payload.
+    Sent { case_index: usize },
+    /// The matched channel was already closed.
+    Closed { case_index: usize },
+    /// All cases are closed; nothing further can make progress.
+    AllClosed,
+    /// The optional timeout elapsed before a case became ready.
+    Timeout,
+}
+
+#[derive(Debug, Clone)]
+enum ChannelSelectKind {
+    Receive,
+    Send { value: AsyncValue },
+}
+
+#[derive(Debug, Clone)]
+struct ChannelSelectCaseState {
+    channel: Channel,
+    kind: ChannelSelectKind,
+}
+
+impl ChannelSelectCaseState {
+    fn new(case: ChannelSelectCase) -> Self {
+        match case {
+            ChannelSelectCase::Receive { channel } => Self {
+                channel,
+                kind: ChannelSelectKind::Receive,
+            },
+            ChannelSelectCase::Send { channel, value } => Self {
+                channel,
+                kind: ChannelSelectKind::Send { value },
+            },
+        }
+    }
+
+    fn poll_case(&self, index: usize, cx: &mut Context<'_>) -> CasePoll {
+        match &self.kind {
+            ChannelSelectKind::Receive => match self.channel.try_recv_with_status() {
+                ChannelReceiveStatus::Received(value) => {
+                    CasePoll::Ready(Ok(ChannelSelectOutcome::Received {
+                        case_index: index,
+                        value,
+                    }))
+                }
+                ChannelReceiveStatus::WouldBlock => {
+                    match self.channel.register_receiver_waker(cx.waker()) {
+                        Ok(()) => CasePoll::Pending,
+                        Err(err) => CasePoll::Ready(Err(AsyncError::ChannelError {
+                            reason: err,
+                            position: Position::new(0, 0, 0),
+                        })),
+                    }
+                }
+                ChannelReceiveStatus::Closed => CasePoll::Closed,
+                ChannelReceiveStatus::Error(err) => {
+                    CasePoll::Ready(Err(AsyncError::ChannelError {
+                        reason: err,
+                        position: Position::new(0, 0, 0),
+                    }))
+                }
+            },
+            ChannelSelectKind::Send { value } => match self.channel.send_with_status(value.clone())
+            {
+                ChannelSendStatus::Sent => {
+                    CasePoll::Ready(Ok(ChannelSelectOutcome::Sent { case_index: index }))
+                }
+                ChannelSendStatus::WouldBlock => {
+                    match self.channel.register_sender_waker(cx.waker()) {
+                        Ok(()) => CasePoll::Pending,
+                        Err(err) => CasePoll::Ready(Err(AsyncError::ChannelError {
+                            reason: err,
+                            position: Position::new(0, 0, 0),
+                        })),
+                    }
+                }
+                ChannelSendStatus::Closed => {
+                    CasePoll::Ready(Ok(ChannelSelectOutcome::Closed { case_index: index }))
+                }
+                ChannelSendStatus::Error(err) => CasePoll::Ready(Err(AsyncError::ChannelError {
+                    reason: err,
+                    position: Position::new(0, 0, 0),
+                })),
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+enum CasePoll {
+    Ready(Result<ChannelSelectOutcome, AsyncError>),
+    Pending,
+    Closed,
+}
+
+#[derive(Debug)]
+struct ChannelSelectTimeout {
+    duration: Duration,
+    start: Instant,
+    armed: bool,
+}
+
+impl ChannelSelectTimeout {
+    fn new(duration: Duration) -> Self {
+        Self {
+            duration,
+            start: Instant::now(),
+            armed: false,
+        }
+    }
+
+    fn expired(&self) -> bool {
+        self.start.elapsed() >= self.duration
+    }
+
+    fn remaining(&self) -> Duration {
+        let elapsed = self.start.elapsed();
+        if elapsed >= self.duration {
+            Duration::from_secs(0)
+        } else {
+            self.duration - elapsed
+        }
+    }
+
+    fn reset(&mut self) {
+        self.start = Instant::now();
+        self.armed = false;
+    }
+
+    fn arm(&mut self, waker: &Waker) {
+        if self.armed || self.expired() {
+            return;
+        }
+
+        let delay = self.remaining();
+        let waker = waker.clone();
+        self.armed = true;
+
+        thread::spawn(move || {
+            thread::sleep(delay);
+            waker.wake();
+        });
+    }
+}
+
+/// Future that resolves when one of the channel select cases completes.
+#[derive(Debug)]
+pub struct ChannelSelectFuture {
+    cases: Vec<ChannelSelectCaseState>,
+    start_index: usize,
+    timeout: Option<ChannelSelectTimeout>,
+}
+
+impl ChannelSelectFuture {
+    /// Create a new select future from the provided cases.
+    pub fn new(cases: Vec<ChannelSelectCase>, timeout: Option<Duration>) -> Self {
+        let states = cases.into_iter().map(ChannelSelectCaseState::new).collect();
+        Self {
+            cases: states,
+            start_index: 0,
+            timeout: timeout.map(ChannelSelectTimeout::new),
+        }
+    }
+
+    fn advance_start(&mut self) {
+        if !self.cases.is_empty() {
+            self.start_index = (self.start_index + 1) % self.cases.len();
+        }
+    }
+
+    fn reset_timeout(&mut self) {
+        if let Some(timeout) = &mut self.timeout {
+            timeout.reset();
+        }
+    }
+}
+
+impl Future for ChannelSelectFuture {
+    type Output = Result<ChannelSelectOutcome, AsyncError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.cases.is_empty() {
+            return Poll::Ready(Ok(ChannelSelectOutcome::AllClosed));
+        }
+
+        let len = self.cases.len();
+        let mut pending_cases = false;
+        let mut closed_cases = 0usize;
+
+        for offset in 0..len {
+            let idx = (self.start_index + offset) % len;
+            match self.cases[idx].poll_case(idx, cx) {
+                CasePoll::Ready(result) => {
+                    self.reset_timeout();
+                    self.start_index = (idx + 1) % len;
+                    return Poll::Ready(result);
+                }
+                CasePoll::Pending => {
+                    pending_cases = true;
+                }
+                CasePoll::Closed => {
+                    closed_cases += 1;
+                }
+            }
+        }
+
+        if closed_cases == len {
+            self.reset_timeout();
+            return Poll::Ready(Ok(ChannelSelectOutcome::AllClosed));
+        }
+
+        if let Some(timeout) = &mut self.timeout {
+            if timeout.expired() {
+                timeout.reset();
+                return Poll::Ready(Ok(ChannelSelectOutcome::Timeout));
+            }
+            timeout.arm(cx.waker());
+        }
+
+        if pending_cases {
+            self.advance_start();
+            Poll::Pending
+        } else {
+            // Should not reach here frequently, but ensures progress if all cases closed except one.
+            self.reset_timeout();
+            Poll::Ready(Ok(ChannelSelectOutcome::AllClosed))
+        }
+    }
+}
+
+/// Helper to construct a select future from cases and optional timeout.
+pub fn channel_select_future(
+    cases: Vec<ChannelSelectCase>,
+    timeout: Option<Duration>,
+) -> ChannelSelectFuture {
+    ChannelSelectFuture::new(cases, timeout)
 }
 
 /// Unique identifier for channels
@@ -1361,6 +1618,91 @@ mod tests {
             [AsyncValue::Integer(17)],
             "expected consumer to record forwarded value"
         );
+    }
+
+    #[derive(Debug)]
+    struct SelectOutcomeFunction {
+        cases: Vec<ChannelSelectCase>,
+    }
+
+    impl AsyncFunction for SelectOutcomeFunction {
+        fn execute(
+            &self,
+            _context: &mut AsyncExecutionContext,
+        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+            let cases = self.cases.clone();
+            Box::pin(async move {
+                match channel_select_future(cases, None).await? {
+                    ChannelSelectOutcome::Received { case_index, value } => {
+                        Ok(AsyncValue::Array(vec![
+                            AsyncValue::Integer(case_index as i64),
+                            value,
+                            AsyncValue::String("received".to_string()),
+                        ]))
+                    }
+                    ChannelSelectOutcome::AllClosed => Ok(AsyncValue::Array(vec![
+                        AsyncValue::Integer(-1),
+                        AsyncValue::Unit,
+                        AsyncValue::String("closed".to_string()),
+                    ])),
+                    other => Ok(AsyncValue::Array(vec![
+                        AsyncValue::Integer(-1),
+                        AsyncValue::Unit,
+                        AsyncValue::String(format!("{:?}", other)),
+                    ])),
+                }
+            })
+        }
+
+        fn name(&self) -> &str {
+            "select-outcome-test"
+        }
+    }
+
+    #[test]
+    fn channel_select_future_detects_first_ready_case() {
+        let mut runtime = AsyncRuntime::new();
+        let primary = Channel::new(ChannelId::allocate(), Some(1));
+        let secondary = Channel::new(ChannelId::allocate(), Some(1));
+
+        let select_cases = vec![
+            ChannelSelectCase::Receive {
+                channel: primary.clone(),
+            },
+            ChannelSelectCase::Receive {
+                channel: secondary.clone(),
+            },
+        ];
+
+        let handle = runtime.spawn_task(
+            Box::new(SelectOutcomeFunction {
+                cases: select_cases,
+            }),
+            TaskPriority::Normal,
+        );
+        let task_id = handle
+            .task_id()
+            .expect("select task should have a valid identifier");
+
+        let sender = primary.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(20));
+            let _ = sender.send_with_status(AsyncValue::Integer(77));
+        });
+
+        let result = runtime
+            .wait_for_task(task_id)
+            .expect("select task should complete");
+
+        match result {
+            AsyncValue::Array(values) => {
+                assert_eq!(values.len(), 3);
+                assert_eq!(values[0], AsyncValue::Integer(0));
+                assert_eq!(values[1], AsyncValue::Integer(77));
+                assert_eq!(values[2], AsyncValue::String("received".to_string()));
+            }
+            other => panic!("unexpected select result: {:?}", other),
+        }
     }
 
     fn noop_waker() -> Waker {

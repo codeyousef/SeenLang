@@ -80,29 +80,27 @@ async runtime.
 
 ### PSH‑3. Minimal Channels & Job System
 
-*Status:* ⏳ In progress — the interpreter exposes async channel primitives, but the CLI and LLVM paths still fall back
-to placeholders so end-to-end programs cannot yet observe the runtime wiring.
+*Status:* ⏳ In validation — channel futures now run on the shared async runtime with fair, waker-driven `select`
+outcomes, and interpreter coverage exercises scoped jobs plus multi-stage pipelines. CLI/LLVM wiring remains the final
+gap before we can call the phase entirely closed.
 
 * **Progress this iteration:**
-  - Added a stop-gap `Channel()` interpreter builtin so tests can construct handles while we spec the eventual
-    `Channel<T>(capacity)` surface that should yield distinct tx/rx endpoints.
-  - Tightened `select` type-checking so branch handlers share a consistent result type and per-branch bindings are
-    scoped, smoothing the path toward pattern-aware receive semantics.
-  - Documented the outstanding gaps in the MVP plan so the follow-up work is tracked alongside the research-derived
-    performance requirements.
+  - Refactored `ChannelManager` to sit atop the generational channel handles and expose a `channel_select_future`
+    wrapper so every consumer (interpreter, CLI, Stage builds) shares the same async machinery.
+  - Replaced the interpreter's polling `select` with the new future, binding patterns deterministically and bubbling
+    send/receive outcomes through structured results.
+  - Added regression coverage for scoped jobs waiting on channel-driven tasks and for multi-stage pipelines that route
+    values through multiple futures before completion.
+  - Documented structured concurrency patterns (`docs/concurrency-patterns.md`) so onboarding material reflects the
+    runtime contract, and linked it from the quickstart guide.
 
 * **Remaining tasks:**
-  1. Extend channel runtime/async infrastructure into the CLI and Stage builds (drive channel futures through the
-     command runner and `seen_cli` entry points, then add interpreter + compiled regression coverage).
-  2. Wire the LLVM backend to call the real channel send/receive/select helpers (no placeholders) and ensure Stage
-     builds/IR determinism checks continue to pass.
-  3. Promote a first-class channel constructor in the language surface (tx/rx pair creation, optional capacity) and
-     teach the type checker to bind received payloads so user code can pattern-match on values instead of using
-     wildcards.
-  4. Ensure `seen run` preserves program stdout/stderr once async channels feed through the CLI layer, then expand the
-     regression to cover compiled binaries once the FFI bridge lands.
-  5. ✅ Documentation and interpreter regressions landed; expand coverage to Stage runtime once the FFI layer is
-     implemented.
+  1. Surface a first-class `Channel<T>(capacity)` constructor in the language (tx/rx tuple) and teach the type checker
+     to bind received payloads so select handlers can destructure values directly.
+  2. Thread channel futures through `seen_cli` and Stage builds, adding CLI/LLVM regression coverage to confirm the
+     compiled pipeline observes the same semantics as the interpreter.
+  3. Verify CLI stdout/stderr handling once channel-driven programs run under the command runner, then capture Stage
+     determinism hashes to ensure the new runtime plumbing does not perturb reproducibility.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe
 channel traffic with the same guarantees as the interpreter.
