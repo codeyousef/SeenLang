@@ -80,36 +80,32 @@ async runtime.
 
 ### PSH‑3. Minimal Channels & Job System
 
-*Status:* ⏳ In progress — the Rayon-backed job pool remains in place, channel futures now flow through the Rust
-interpreter/runtime, and buffered sends can be awaited safely. Interpreter-side `select` now races live channels fairly
-instead of short-circuiting, while LLVM/backend work still needs full wake + future wiring.
+*Status:* ⏳ In progress — the interpreter exposes async channel primitives, but the CLI and LLVM paths still fall back
+to placeholders so end-to-end programs cannot yet observe the runtime wiring.
 
 * **Progress this iteration:**
-  - Introduced a Rayon worker pool with `parallel_for` integration tests; parser/interpreter handle the construct
-    without mis-parsing trailing lambdas.
-  - Channel send/receive now surface async futures backed by the cooperative runtime; `await channel.send(...)`
-    resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups. Interpreter `select`
-    now blocks fairly across channels and only returns once a handler matches, with dedicated regression coverage.
-  - IR/LLVM lowering handles both `send` and `receive/select` expressions (preventing earlier crashes) but continues to
-    rely on placeholder helpers until real wake semantics land in the backend.
-  - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
-    jobs namespace.
-  - Channel manager now exposes a waker-driven `select` future; interpreter `select` uses canonical wakers instead of
-    busy waits and the async runtime surfaces the helper for stage integration.
-  - Authored a concurrency patterns guide and new interpreter regression covering multi-channel select fairness; this
-    seeds the documentation and regression matrix requested in the MVP plan.
-  - CLI regression (`seen_cli/tests/channel_select.rs`) exercises `seen run` end-to-end with concurrent channel
-    handlers to ensure the command surface routes through the waker-aware runtime.
+  - Added a stop-gap `Channel()` interpreter builtin so tests can construct handles while we spec the eventual
+    `Channel<T>(capacity)` surface that should yield distinct tx/rx endpoints.
+  - Tightened `select` type-checking so branch handlers share a consistent result type and per-branch bindings are
+    scoped, smoothing the path toward pattern-aware receive semantics.
+  - Documented the outstanding gaps in the MVP plan so the follow-up work is tracked alongside the research-derived
+    performance requirements.
 
 * **Remaining tasks:**
   1. Extend channel runtime/async infrastructure into the CLI and Stage builds (drive channel futures through the
-     command runner and seen_cli entrypoints, plus add end-to-end regression coverage).
+     command runner and `seen_cli` entry points, then add interpreter + compiled regression coverage).
   2. Wire the LLVM backend to call the real channel send/receive/select helpers (no placeholders) and ensure Stage
      builds/IR determinism checks continue to pass.
-  3. ✅ Documentation and interpreter regressions landed; expand coverage to Stage runtime once the FFI layer is
+  3. Promote a first-class channel constructor in the language surface (tx/rx pair creation, optional capacity) and
+     teach the type checker to bind received payloads so user code can pattern-match on values instead of using
+     wildcards.
+  4. Ensure `seen run` preserves program stdout/stderr once async channels feed through the CLI layer, then expand the
+     regression to cover compiled binaries once the FFI bridge lands.
+  5. ✅ Documentation and interpreter regressions landed; expand coverage to Stage runtime once the FFI layer is
      implemented.
 
-* **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
+* **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe
+channel traffic with the same guarantees as the interpreter.
 
 ### PSH‑3a. Optimization & Auto‑Tuning Pipeline
 

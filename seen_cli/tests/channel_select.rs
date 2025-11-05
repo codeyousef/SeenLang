@@ -1,4 +1,3 @@
-use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -10,7 +9,7 @@ fn run_channel_select_example() {
     let workspace_root = manifest_dir.parent().expect("workspace root").to_path_buf();
     let sample = workspace_root.join("seen_cli/tests/fixtures/channel_select.seen");
 
-    let assert = Command::from(cargo_bin("seen_cli"))
+    let assert = Command::cargo_bin("seen_cli")
         .expect("binary exists")
         .current_dir(&workspace_root)
         .args(["run", sample.to_string_lossy().as_ref()])

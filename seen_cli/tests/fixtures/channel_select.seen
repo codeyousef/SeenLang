@@ -1,37 +1,39 @@
 fun Main() -> Int {
-    let (tx1, rx1) = Channel<Int>()
-    let (tx2, rx2) = Channel<Int>()
+    let ch1 = Channel()
+    let ch2 = Channel()
 
     scope {
         spawn {
-            await tx1.Send(1)
+            await send 1 to ch1
         }
         spawn {
-            await tx2.Send(2)
+            await send 2 to ch2
         }
 
         let first = select {
-            rx1 <- value => {
-                println(value)
-                value
-            }
-            rx2 <- value => {
-                println(value)
-                value
+            ch1 -> _ => {
+                println("1")
+                1
+            },
+            ch2 -> _ => {
+                println("2")
+                2
             }
         }
 
         let second = select {
-            rx1 <- value => {
-                println(value)
-                value
-            }
-            rx2 <- value => {
-                println(value)
-                value
+            ch1 -> _ => {
+                println("1")
+                1
+            },
+            ch2 -> _ => {
+                println("2")
+                2
             }
         }
 
         second + first
     }
 }
+
+Main()

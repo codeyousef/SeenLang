@@ -285,6 +285,18 @@ impl TypeChecker {
                 return_type: Some(Type::Unit),
             },
         );
+        env.define_function(
+            "Channel".to_string(),
+            FunctionSignature {
+                name: "Channel".to_string(),
+                parameters: Vec::new(),
+                return_type: Some(Type::Struct {
+                    name: "Channel".to_string(),
+                    fields: HashMap::new(),
+                    generics: vec![Type::Unknown],
+                }),
+            },
+        );
 
         // Built-in Phantom type for typestate modeling
         let phantom_type = Type::Struct {
@@ -719,7 +731,7 @@ impl TypeChecker {
                 pos,
             } => self.check_send_expression(target, message, *pos),
             Expression::Receive { handler, .. } => self.check_expression(handler),
-            Expression::Select { .. } => Type::Unit,
+            Expression::Select { cases, pos } => self.check_select_expression(cases, *pos),
 
             // Blocks
             Expression::Block { expressions, .. } => self.check_block_expression(expressions),
@@ -982,6 +994,82 @@ impl TypeChecker {
                 });
                 promise_bool
             }
+        }
+    }
+
+    fn check_select_expression(&mut self, cases: &[SelectCase], pos: Position) -> Type {
+        if cases.is_empty() {
+            self.result.add_error(TypeError::InvalidOperation {
+                operation: "select".to_string(),
+                left_type: Type::Unit,
+                right_type: Type::Unit,
+                position: pos,
+            });
+            return Type::Unit;
+        }
+
+        let mut accumulated: Option<Type> = None;
+        let expected_channel = Type::Struct {
+            name: "Channel".to_string(),
+            fields: HashMap::new(),
+            generics: vec![Type::Unknown],
+        };
+
+        for case in cases {
+            let channel_type = self.check_expression(&case.channel);
+            if !matches!(channel_type.non_nullable(), Type::Struct { name, .. } if name == "Channel")
+            {
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: expected_channel.clone(),
+                    actual: channel_type.clone(),
+                    position: pos,
+                });
+            }
+
+            let saved_env = self.env.clone();
+            self.env = Environment::with_parent(saved_env.clone());
+            self.bind_pattern(&case.pattern, Type::Unknown);
+            let handler_type = self.check_expression(&case.handler);
+            self.env = saved_env;
+
+            if let Some(expected) = &accumulated {
+                if !handler_type.is_assignable_to(expected) {
+                    self.result.add_error(TypeError::TypeMismatch {
+                        expected: expected.clone(),
+                        actual: handler_type.clone(),
+                        position: pos,
+                    });
+                }
+            } else {
+                accumulated = Some(handler_type.clone());
+            }
+        }
+
+        accumulated.unwrap_or(Type::Unit)
+    }
+
+    fn bind_pattern(&mut self, pattern: &Pattern, ty: Type) {
+        match pattern {
+            Pattern::Identifier(name) => {
+                self.env.define_variable(name.clone(), ty);
+            }
+            Pattern::Wildcard => {}
+            Pattern::Array(elements) => {
+                for element in elements {
+                    self.bind_pattern(element.as_ref(), Type::Unknown);
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for (_, field_pattern) in fields {
+                    self.bind_pattern(field_pattern.as_ref(), Type::Unknown);
+                }
+            }
+            Pattern::Enum { fields, .. } => {
+                for field_pattern in fields {
+                    self.bind_pattern(field_pattern.as_ref(), Type::Unknown);
+                }
+            }
+            Pattern::Range { .. } | Pattern::Literal(_) => {}
         }
     }
 
