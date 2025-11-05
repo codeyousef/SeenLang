@@ -81,6 +81,21 @@ F3. Fat Libraries With Dispatch
 Acceptance: The packaging places variant slices in a deterministic structure and the dispatch records the selected variant.
 
 ────────────────────────────────────────────────────────────────────────
+G) Performance Certification & Observatory
+
+G1. Benchmark Canonization
+• Publish a v1.0 “performance canon” suite with automated runs across desktop, mobile, and web, comparing Seen outputs against Rust/C++ baselines for runtime, peak memory, binary size, and compile time (docs/research/10 & 13).
+Acceptance: The public performance portal (exported from the evolving `docs/performance-dashboard.md`) shows the suite, target metrics, and parity deltas; CI fails when regressions exceed agreed thresholds.
+
+G2. Optimizer Provenance Lock
+• Version and hash the equality-saturation rule sets, ML heuristic models, and LENS-derived superoptimizer recipes; record them in release metadata and expose via `seen --diagnose-optimizer`.
+Acceptance: Rebuilding with the recorded artifacts reproduces identical optimizer decisions; provenance hashes appear in the release notes.
+
+G3. Hardware & Topology Validation
+• Certify APX/AVX10, SVE/SVE2, RVV, and WASM SIMD codegen as well as CXL-aware placement policies; document supported configurations and fallback behaviour.
+Acceptance: Automated validation runs pass on reference hardware (or emulation) and produce signed reports archived with the release.
+
+────────────────────────────────────────────────────────────────────────
 Release Definition of Done
 
 • “spec‑v1.0” and compatibility policy are published and referenced by the compiler.
@@ -93,3 +108,4 @@ Release Definition of Done
 • LTS channel is active and switchable.
 • Governance documents and the RFC process are public.
 • SIMD intrinsics surface is frozen and documented; feature detection ABI is documented; fat libraries are packaged deterministically.
+• Performance canon, optimizer provenance, and hardware/topology validation reports are published and passing.

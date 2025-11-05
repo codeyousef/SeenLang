@@ -43,6 +43,10 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
     deps.
 - [x] **CLI determinism profile**
   - `--profile deterministic` pins timestamps/temp roots via env, documented in quickstart + MVP plan.
+- [x] **Performance baselines & tooling**
+  - ✅ `perf_baseline` harness (`tools/perf_baseline`) and default suite (`scripts/perf_baseline.toml`) collect runtime, peak RSS, binary sizes, and compile timings; `docs/performance-baseline.md` documents usage and `scripts/perf_baseline_report.json` seeds the baseline dataset.
+  - ✅ CI now runs the baseline suite on every push/PR via the `Performance Baseline` workflow job, caching cargo artifacts, invoking the harness with `--baseline`, and uploading `target/perf/latest.json`; failures occur when mean runtimes regress past configured thresholds.
+  - ✅ Initial Rust/C++ parity dashboard (`docs/performance-dashboard.md`) renders the seeded baseline report into a table so future C++ targets can be compared side-by-side.
 
 ## 3) Phase PSH — Pre‑Self‑Host (WIP)
 
@@ -76,40 +80,97 @@ async runtime.
 
 ### PSH‑3. Minimal Channels & Job System
 
-*Status:* ⏳ In progress — the Rayon-backed job pool remains in place, channel futures now flow through the Rust
-interpreter/runtime, and buffered sends can be awaited safely. Interpreter-side `select` now races live channels fairly
-instead of short-circuiting, while LLVM/backend work still needs full wake + future wiring.
+*Status:* ⏳ In progress — the interpreter exposes async channel primitives, but the CLI and LLVM paths still fall back
+to placeholders so end-to-end programs cannot yet observe the runtime wiring.
 
 * **Progress this iteration:**
-  - Introduced a Rayon worker pool with `parallel_for` integration tests; parser/interpreter handle the construct
-    without mis-parsing trailing lambdas.
-  - Channel send/receive now surface async futures backed by the cooperative runtime; `await channel.send(...)`
-    resolves once capacity frees and unit tests cover buffered back-pressure plus wakeups. Interpreter `select`
-    now blocks fairly across channels and only returns once a handler matches, with dedicated regression coverage.
-  - IR/LLVM lowering handles both `send` and `receive/select` expressions (preventing earlier crashes) but continues to
-    rely on placeholder helpers until real wake semantics land in the backend.
-  - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
-    jobs namespace.
+  - Added a stop-gap `Channel()` interpreter builtin so tests can construct handles while we spec the eventual
+    `Channel<T>(capacity)` surface that should yield distinct tx/rx endpoints.
+  - Tightened `select` type-checking so branch handlers share a consistent result type and per-branch bindings are
+    scoped, smoothing the path toward pattern-aware receive semantics.
+  - Documented the outstanding gaps in the MVP plan so the follow-up work is tracked alongside the research-derived
+    performance requirements.
 
 * **Remaining tasks:**
-  1. Extend channel runtime/async infrastructure (ChannelManager/AsyncRuntime/select executor) so receive/select futures
-     integrate with wakers instead of polling stubs, and surface those hooks to the interpreter and CLI.
+  1. Extend channel runtime/async infrastructure into the CLI and Stage builds (drive channel futures through the
+     command runner and `seen_cli` entry points, then add interpreter + compiled regression coverage).
   2. Wire the LLVM backend to call the real channel send/receive/select helpers (no placeholders) and ensure Stage
      builds/IR determinism checks continue to pass.
-  3. Document concurrency patterns (scoped jobs, channel futures/select) and add regression tests that cover scoped job
-     draining plus multi-stage channel workflows.
+  3. Promote a first-class channel constructor in the language surface (tx/rx pair creation, optional capacity) and
+     teach the type checker to bind received payloads so user code can pattern-match on values instead of using
+     wildcards.
+  4. Ensure `seen run` preserves program stdout/stderr once async channels feed through the CLI layer, then expand the
+     regression to cover compiled binaries once the FFI bridge lands.
+  5. ✅ Documentation and interpreter regressions landed; expand coverage to Stage runtime once the FFI layer is
+     implemented.
 
-* **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
+* **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe
+channel traffic with the same guarantees as the interpreter.
+
+### PSH‑3a. Optimization & Auto‑Tuning Pipeline
+
+*Status:* ⏳ Pending — research-backed optimizer workstreams need foundations before self-hosting can lock performance.
+
+* **Outstanding tasks:**
+  1. Integrate an equality-saturation pass (e-graph rewrite set inspired by `egg` / DialEgg) over Seen IR so algebraic simplifications, strength reductions, and fusion emerge deterministically (docs/research/13 - Language Performance.md).
+  2. Prototype ML-driven heuristics (MLGO/Iterative BC-Max) for inlining and register allocation decisions, fed by compiler profiling data captured in PB-Perf (docs/research/13 - Language Performance.md).
+  3. Wrap the hot-loop pipeline with a LENS-style superoptimizer to synthesize short instruction sequences that beat LLVM -O3 while honouring Seen's determinism guarantees (docs/research/13 - Language Performance.md).
+  4. Establish an ML-guided PGO loop that exports training corpora, feeds reward signals, and replays decisions during deterministic builds.
+
+* **Acceptance:** Optimizer reports show e-graph rewrites firing on targeted fixtures, ML heuristics reduce binary size ≥3% on benchmark suite without destabilizing determinism hashes, and superoptimized traces land in CI-perf dashboards.
+
+### PSH‑3b. Memory & Data Layout Efficiency
+
+*Status:* ⏳ Pending — the hybrid generational model needs instrumentation to hit the zero-overhead targets called out in the memory/performance research.
+
+* **Outstanding tasks:**
+  1. Extend the region/arena runtime with Vale-style hybrid generational handles plus validation benches proving no additional runtime checks are emitted on hot paths (docs/research/13 - Language Performance.md; docs/research/3 - GC-Free Memory Management Model for Automated Safety and Intuitive Control.md).
+  2. Surface region strategy hints (`bump`, `stack`, `cxl_near`) in Seen syntax and teach the compiler to auto-select O(1) release strategies when lifetime analysis allows it.
+  3. Flatten compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious layouts, measuring the cited 2.4× speedups on cache-bound fixtures (docs/research/13 - Language Performance.md).
+  4. Audit runtime safety checks, gating them behind debug profiles when static proofs exist, so production binaries keep the "zero memory safety overhead" promise.
+
+* **Acceptance:** Memory-intensive benchmarks report ≥1.5× throughput improvement, region drops are O(1) in profiler traces, and cache miss rates fall in line with the Cornell flattening targets.
+
+### PSH‑3c. Backend Diversification & MLIR Bridge
+
+*Status:* ⏳ Pending — LLVM remains the sole backend; research recommends MLIR/differentiated pipelines to unlock performance headroom.
+
+* **Outstanding tasks:**
+  1. Prototype an MLIR emission path (core dialect + Transform + DialEgg integration) and validate parity with the existing deterministic IR dumps (docs/research/13 - Language Performance.md).
+  2. Bring up alternative codegen backends (Cranelift with ISLE patterns, Tilde sea-of-nodes) behind `--backend` switches for fast-compile and experimentation lanes.
+  3. Ensure backend selection is deterministic (same hash outputs) and CI exercises Stage0→Stage2 via at least one non-LLVM backend each night.
+
+* **Acceptance:** Stage1 builds succeed with MLIR and Cranelift prototypes, deterministic hashes stay stable across backends, and compile-time telemetry matches the “10× faster than LLVM” research targets for fast lanes.
+
+### PSH‑3d. Runtime Scheduling & Concurrency Efficiency
+
+*Status:* ⏳ Pending — concurrency research highlights deeper optimizations beyond current scoped jobs.
+
+* **Outstanding tasks:**
+  1. Teach the async runtime to stack-allocate coroutine frames when escape analysis proves bounded lifetimes, mirroring the coroutine optimization path in docs/research/4 - A Concurrency Model for the Seen Programming Language.md.
+  2. Profile and tune the work-stealing scheduler (queue contention, fairness, back-off) so Rayon replacement remains optional, not mandatory.
+  3. Add instrumentation for task wake latency and starvation, exporting metrics to the PB-Perf dashboard for regression tracking.
+
+* **Acceptance:** Scheduler benchmarks demonstrate lower tail latency and fewer context switches, coroutine-heavy programs drop heap allocations measurably, and starvation alerts remain green in CI.
+
+### PSH‑3e. Hardware-Aware Codegen & Memory Topology
+
+*Status:* ⏳ Pending — the MVP must recognize upcoming ISA and memory innovations to meet the forward-looking performance goals.
+
+* **Outstanding tasks:**
+  1. Model Intel APX register allocation, AVX10 vector widths, and ARM SVE scalable vectors inside the codegen pipeline so SIMD work in PSH‑7 can target per-core capabilities (docs/research/13 - Language Performance.md).
+  2. Add CXL-aware placement hints to the allocator/runtime, keeping hot regions near compute while spilling bulk data to expandable memory (docs/research/13 - Language Performance.md).
+  3. Expose CLI flags (`--cpu-feature`, `--memory-topology`) and ensure deterministic mode locks features to portable baselines.
+
+* **Acceptance:** Hardware-feature smoke tests validate emitted binaries on APX-capable x86 and SVE ARM targets, vector reports enumerate chosen widths, and CXL placement improves memory-bound fixture throughput.
 
 ### PSH‑4. Embedding & Packaging
 
 *Status:* ⏳ Pending — parser/CLI lack `#[embed]`, and build driver has no shared/static output support.
 
 * **Outstanding tasks:**
-  1. Extend the parser + AST to accept `#[embed(path="...")]` on constants; bundle binary blobs into IR/LLVM output.
-  2. Teach the CLI to process `--shared` / `--static` flags and invoke platform linkers appropriately.
-  3. Ensure embedded assets survive Stage1→Stage2 compiles without breaking determinism (new tests + fixtures).
-  4. Update documentation/quickstart with packaging instructions and add integration tests for `.so`, `.dll`, `.dylib`,
+  1. Ensure embedded assets survive Stage1→Stage2 compiles without breaking determinism (new tests + fixtures).
+  2. Update documentation/quickstart with packaging instructions and add integration tests for `.so`, `.dll`, `.dylib`,
      `.a` generation.
 
 * **Acceptance:** Assets embed correctly and appear in deterministic object sections; all library types build successfully.

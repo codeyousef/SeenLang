@@ -2,6 +2,7 @@
 
 use crate::errors::{InterpreterError, InterpreterResult};
 use crate::value::Value;
+use seen_concurrency::types::{Channel, ChannelId};
 use seen_parser::Position;
 use std::collections::HashMap;
 use std::fs;
@@ -52,6 +53,7 @@ impl BuiltinRegistry {
         registry.register("__ExecuteCommand", builtin_execute_command, 1);
         registry.register("__FormatSeenCode", builtin_format_seen_code, 1);
         registry.register("__Abort", builtin_abort, 1);
+        registry.register("Channel", builtin_channel, 0);
 
         registry
     }
@@ -189,6 +191,11 @@ fn builtin_max(args: &[Value], position: Position) -> InterpreterResult<Value> {
             position,
         )),
     }
+}
+
+fn builtin_channel(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let channel = Channel::new(ChannelId::allocate(), None);
+    Ok(Value::Channel(channel))
 }
 
 fn builtin_abort(args: &[Value], position: Position) -> InterpreterResult<Value> {

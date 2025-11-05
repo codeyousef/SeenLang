@@ -10,6 +10,7 @@ Alpha focuses on stabilization and ecosystem readiness **across Linux, Windows, 
 * Ship a runnable **mini‑engine** on all targets.
 * Launch package registry + plugin ABI with signed/notarized artifacts.
 * **Elevate SIMD**: multi‑versioned codegen and vectorization reporting.
+* Establish research-backed performance infrastructure ahead of Beta (per docs/research/10 & 13).
 
 ---
 
@@ -36,6 +37,15 @@ Alpha focuses on stabilization and ecosystem readiness **across Linux, Windows, 
 
 * Incremental & cached builds; `seen trace` → `seen replay` CLI.
 * CI matrix covering 6 targets; headers/templates (COOP/COEP; Android/iOS manifests).
+* Nightly `perf-baseline` workflow (extending the MVP "Performance Baseline" job) exporting runtime/peak memory/compile-time dashboards, wiring results into `docs/performance-dashboard.md`, and flagging ±3% regressions.
+
+### E) Performance & Optimization Foundations
+
+* Lock in the MVP equality-saturation prototype with a curated rule library and golden IR fixtures (docs/research/13 - Language Performance.md).
+* Stand up ML data pipelines (feature capture, reward logs) for MLGO/Iterative BC-Max style heuristics; integrate with deterministic replay.
+* Land the MLIR + Transform/DialEgg bridge and Cranelift/Tilde experimental backends behind feature flags for rapid iteration.
+* Extend Vale-inspired region/arena instrumentation with cache-oblivious layout probes and 32-bit index arenas for compiler hot structures (docs/research/3 & 13).
+* Add APX/AVX10/SVE capability detection smoke tests and CXL-aware allocator hooks, wiring hardware telemetry into the perf dashboards.
 
 ---
 
@@ -74,4 +84,5 @@ Alpha focuses on stabilization and ecosystem readiness **across Linux, Windows, 
 | Language  | Syntax frozen; macro hygiene stable; SIMD types/intrinsics available.  |
 | Engine    | Mini‑engine runs on all targets; zero validation errors; replay works. |
 | Ecosystem | Registry online; plugin ABI stable; signed/notarized packages.         |
-| Tooling   | CI matrix green; trace/replay; `--simd-report` available.              |
+| Tooling   | CI matrix green; trace/replay; `--simd-report` available; perf dashboards live. |
+| Perf R&D  | E-graph pilot, ML data capture, alternative backends, and hardware probes operational behind feature flags. |

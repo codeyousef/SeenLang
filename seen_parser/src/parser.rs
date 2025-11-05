@@ -139,8 +139,24 @@ impl Parser {
 
     /// Parse a top-level item (function, statement, or expression)
     pub fn parse_top_level_item(&mut self) -> ParseResult<Expression> {
+        let attributes = self.parse_outer_attributes()?;
+        self.skip_whitespace();
+
         let had_pub = self.consume_visibility_modifier();
         let pub_pos = self.pending_visibility_pos.clone();
+        self.skip_whitespace();
+
+        if !attributes.is_empty() && !self.check_keyword(KeywordType::KeywordConst) {
+            let attr_pos = attributes
+                .first()
+                .map(|attr| attr.pos)
+                .unwrap_or_else(|| self.current.position.clone());
+            return Err(ParseError::UnexpectedToken {
+                expected: "const declaration after attribute".to_string(),
+                found: self.current.token_type.clone(),
+                pos: attr_pos,
+            });
+        }
 
         // Check for import statements
         if self.check_keyword(KeywordType::KeywordImport) {
@@ -188,7 +204,7 @@ impl Parser {
                     pos: pub_pos.unwrap_or_else(|| self.current.position.clone()),
                 });
             }
-            return self.parse_const_declaration();
+            return self.parse_const_declaration(attributes);
         }
 
         // Check for function definitions
@@ -254,6 +270,17 @@ impl Parser {
                 expected: "declaration after `pub`".to_string(),
                 found: self.current.token_type.clone(),
                 pos: pub_pos.unwrap_or_else(|| self.current.position.clone()),
+            });
+        }
+        if !attributes.is_empty() {
+            let attr_pos = attributes
+                .first()
+                .map(|attr| attr.pos)
+                .unwrap_or_else(|| self.current.position.clone());
+            return Err(ParseError::UnexpectedToken {
+                expected: "const declaration after attribute".to_string(),
+                found: self.current.token_type.clone(),
+                pos: attr_pos,
             });
         }
         self.parse_expression()
@@ -4163,7 +4190,7 @@ impl Parser {
     }
 
     /// Parse constant declaration
-    fn parse_const_declaration(&mut self) -> ParseResult<Expression> {
+    fn parse_const_declaration(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'const'
 
@@ -4184,6 +4211,7 @@ impl Parser {
             name,
             type_annotation,
             value: Box::new(value),
+            attributes,
             pos,
         })
     }
@@ -4370,6 +4398,139 @@ impl Parser {
         }
 
         Ok(annotations)
+    }
+
+    /// Parse outer attributes like `#[embed(...)]` that precede declarations.
+    fn parse_outer_attributes(&mut self) -> ParseResult<Vec<Attribute>> {
+        let mut attributes = Vec::new();
+
+        while self.is_attribute_start() {
+            let mut block = self.parse_attribute_block()?;
+            attributes.append(&mut block);
+            self.skip_whitespace();
+        }
+
+        Ok(attributes)
+    }
+
+    /// Check if the current location starts an attribute (`#[`).
+    fn is_attribute_start(&mut self) -> bool {
+        if !self.check(&TokenType::Hash) {
+            return false;
+        }
+
+        matches!(
+            self.peek_ahead(1),
+            Some(token) if matches!(token.token_type, TokenType::LeftBracket)
+        )
+    }
+
+    /// Parse a single attribute block `#[...]`, which may contain multiple attributes.
+    fn parse_attribute_block(&mut self) -> ParseResult<Vec<Attribute>> {
+        let mut attributes = Vec::new();
+
+        self.advance(); // consume '#'
+        self.expect(&TokenType::LeftBracket)?;
+
+        loop {
+            let pos = self.current.position.clone();
+            let name = self.expect_identifier()?;
+            let mut args = Vec::new();
+
+            if self.check(&TokenType::LeftParen) {
+                self.advance(); // consume '('
+
+                if !self.check(&TokenType::RightParen) {
+                    loop {
+                        args.push(self.parse_attribute_argument()?);
+
+                        if self.check(&TokenType::Comma) {
+                            self.advance();
+                            if self.check(&TokenType::RightParen) {
+                                break;
+                            }
+                            continue;
+                        }
+                        break;
+                    }
+                }
+
+                self.expect(&TokenType::RightParen)?;
+            }
+
+            attributes.push(Attribute { name, args, pos });
+
+            if self.check(&TokenType::Comma) {
+                self.advance();
+                if self.check(&TokenType::RightBracket) {
+                    break;
+                }
+                continue;
+            }
+            break;
+        }
+
+        self.expect(&TokenType::RightBracket)?;
+        Ok(attributes)
+    }
+
+    /// Parse a single attribute argument.
+    fn parse_attribute_argument(&mut self) -> ParseResult<AttributeArgument> {
+        if matches!(
+            self.current.token_type,
+            TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_)
+        ) {
+            if let Some(next) = self.peek_ahead(1) {
+                if matches!(next.token_type, TokenType::Assign) {
+                    let name = self.expect_identifier()?;
+                    self.expect(&TokenType::Assign)?;
+                    let value = self.parse_attribute_value()?;
+                    return Ok(AttributeArgument::Named { name, value });
+                }
+            }
+        }
+
+        let value = self.parse_attribute_value()?;
+        Ok(AttributeArgument::Positional(value))
+    }
+
+    /// Parse the value of an attribute argument (string, number, bool, identifier).
+    fn parse_attribute_value(&mut self) -> ParseResult<AttributeValue> {
+        let result = match &self.current.token_type {
+            TokenType::StringLiteral(value) => {
+                let string_value = value.clone();
+                self.advance();
+                AttributeValue::String(string_value)
+            }
+            TokenType::IntegerLiteral(value) => {
+                let int_value = *value;
+                self.advance();
+                AttributeValue::Integer(int_value)
+            }
+            TokenType::FloatLiteral(value) => {
+                let float_value = *value;
+                self.advance();
+                AttributeValue::Float(float_value)
+            }
+            TokenType::BoolLiteral(value) => {
+                let bool_value = *value;
+                self.advance();
+                AttributeValue::Boolean(bool_value)
+            }
+            TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_) => {
+                let ident = self.expect_identifier()?;
+                AttributeValue::Identifier(ident)
+            }
+            _ => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "attribute value".to_string(),
+                    found: self.current.token_type.clone(),
+                    pos: self.current.position.clone(),
+                });
+            }
+        };
+
+        Ok(result)
     }
 
     /// Convert when expression without value to if-else chain

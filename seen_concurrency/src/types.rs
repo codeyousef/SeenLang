@@ -413,13 +413,13 @@ impl Channel {
         }
     }
 
-    fn register_sender_waker(&self, waker: &Waker) -> Result<(), String> {
+    pub fn register_sender_waker(&self, waker: &Waker) -> Result<(), String> {
         self.ensure_fresh()?;
         self.inner.register_sender_waker(waker);
         Ok(())
     }
 
-    fn register_receiver_waker(&self, waker: &Waker) -> Result<(), String> {
+    pub fn register_receiver_waker(&self, waker: &Waker) -> Result<(), String> {
         self.ensure_fresh()?;
         self.inner.register_receiver_waker(waker);
         Ok(())
@@ -1167,8 +1167,8 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
             let _ = receiver_channel.try_recv_with_status();
         })
-            .join()
-            .unwrap();
+        .join()
+        .unwrap();
 
         match Pin::new(&mut future).poll(&mut context) {
             Poll::Ready(Ok(AsyncValue::Boolean(result))) => assert!(result),
@@ -1195,8 +1195,8 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
             let _ = sender_channel.send_with_status(AsyncValue::Integer(99));
         })
-            .join()
-            .unwrap();
+        .join()
+        .unwrap();
 
         match Pin::new(&mut future).poll(&mut context) {
             Poll::Ready(Ok(AsyncValue::Integer(value))) => assert_eq!(value, 99),

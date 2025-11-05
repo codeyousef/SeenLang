@@ -11,6 +11,36 @@ pub struct Program {
     pub expressions: Vec<Expression>,
 }
 
+/// Attribute applied to declarations like constants.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Attribute {
+    /// Attribute identifier (e.g. "embed").
+    pub name: String,
+    /// Attribute arguments, positional or named.
+    pub args: Vec<AttributeArgument>,
+    /// Source position of the attribute.
+    pub pos: Position,
+}
+
+/// Individual attribute argument.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AttributeArgument {
+    /// Named argument form: `name = value`.
+    Named { name: String, value: AttributeValue },
+    /// Positional argument form: `value`.
+    Positional(AttributeValue),
+}
+
+/// Supported attribute argument values.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AttributeValue {
+    String(String),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+    Identifier(String),
+}
+
 /// Shared operator precedence levels used by the parser and formatter.
 pub mod precedence {
     /// Lowest precedence level (logical OR).
@@ -126,6 +156,7 @@ pub enum Expression {
         name: String,
         type_annotation: Option<Type>,
         value: Box<Expression>,
+        attributes: Vec<Attribute>,
         pos: Position,
     },
 

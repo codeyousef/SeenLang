@@ -3,6 +3,7 @@
 //! This is the main entry point for the Seen language compiler and toolchain.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, Interpreter, KeywordManager,
     Lexer, LexerConfig, MemoryManager, OptimizationLevel, Position, Program, SeenError,
@@ -68,6 +69,14 @@ enum Commands {
         /// Emit LLVM IR (.ll) instead of linking an executable (only with --backend llvm)
         #[arg(long)]
         emit_ll: bool,
+
+        /// Produce a shared library (only valid with --backend llvm)
+        #[arg(long, conflicts_with = "static_lib")]
+        shared: bool,
+
+        /// Produce a static library (only valid with --backend llvm)
+        #[arg(long = "static", conflicts_with = "shared")]
+        static_lib: bool,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -156,6 +165,13 @@ enum Commands {
         #[arg(value_name = "FILE")]
         input: PathBuf,
     },
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum BuildLinkMode {
+    Executable,
+    SharedLibrary,
+    StaticLibrary,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -315,10 +331,40 @@ fn main() -> SeenResult<()> {
             opt_level,
             backend,
             emit_ll,
+            shared,
+            static_lib,
         }) => {
             if backend == "llvm" {
-                compile_file_llvm(&input, output.as_ref(), opt_level, emit_ll, keyword_manager)?;
+                if emit_ll && (shared || static_lib) {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--emit-ll cannot be combined with --shared or --static".to_string(),
+                    ));
+                }
+
+                let link_mode = if shared {
+                    BuildLinkMode::SharedLibrary
+                } else if static_lib {
+                    BuildLinkMode::StaticLibrary
+                } else {
+                    BuildLinkMode::Executable
+                };
+
+                compile_file_llvm(
+                    &input,
+                    output.as_ref(),
+                    opt_level,
+                    emit_ll,
+                    link_mode,
+                    keyword_manager,
+                )?;
             } else {
+                if shared || static_lib {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--shared/--static require the LLVM backend".to_string(),
+                    ));
+                }
                 compile_file(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
         }
@@ -560,6 +606,7 @@ fn compile_file_llvm(
     output: Option<&PathBuf>,
     opt_level: u8,
     emit_ll: bool,
+    link_mode: BuildLinkMode,
     keyword_manager: Arc<KeywordManager>,
 ) -> SeenResult<()> {
     println!(
@@ -628,8 +675,12 @@ fn compile_file_llvm(
     {
         use seen_core::{LinkOutput, LlvmBackend};
         let mut backend = LlvmBackend::new();
-        let default_exe = PathBuf::from("a.out");
-        let out_path = output.unwrap_or(&default_exe);
+        let default_target = if emit_ll {
+            PathBuf::from("a.ll")
+        } else {
+            default_link_output_path(link_mode)
+        };
+        let out_path = output.unwrap_or(&default_target);
         if emit_ll {
             let ll_path = out_path;
             backend
@@ -642,26 +693,29 @@ fn compile_file_llvm(
                 })?;
             println!("Generated LLVM IR: {}", ll_path.display());
         } else {
-            let target_exe = out_path.clone();
+            let target = out_path.clone();
+
+            let link_output = match link_mode {
+                BuildLinkMode::Executable => LinkOutput::Executable,
+                BuildLinkMode::SharedLibrary => LinkOutput::SharedLibrary,
+                BuildLinkMode::StaticLibrary => LinkOutput::StaticLibrary,
+            };
+
             backend
-                .emit_executable(&optimized_ir, &target_exe, LinkOutput::Executable)
+                .emit_executable(&optimized_ir, &target, link_output)
                 .map_err(|err| {
                     SeenError::new(
                         SeenErrorKind::Ir,
-                        format!(
-                            "Failed to produce executable {}: {:?}",
-                            target_exe.display(),
-                            err
-                        ),
+                        format!("Failed to produce output {}: {:?}", target.display(), err),
                     )
                 })?;
-            println!("Generated executable: {}", target_exe.display());
+            println!("Generated artifact: {}", target.display());
         }
         Ok(())
     }
     #[cfg(not(feature = "llvm"))]
     {
-        let _ = (output, emit_ll);
+        let _ = (output, emit_ll, link_mode);
         Err(SeenError::new(
             SeenErrorKind::Tooling,
             "LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm",
@@ -680,14 +734,14 @@ fn bundle_imports(
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let mut queue: VecDeque<Program> = VecDeque::new();
-    queue.push_back(program);
+    let mut queue: VecDeque<(Program, PathBuf)> = VecDeque::new();
+    queue.push_back((program, base_dir.clone()));
     let mut visited: HashSet<String> = HashSet::new();
     let mut merged = Program {
         expressions: Vec::new(),
     };
 
-    while let Some(prog) = queue.pop_front() {
+    while let Some((prog, module_dir)) = queue.pop_front() {
         for expr in prog.expressions {
             match &expr {
                 Expression::Import { module_path, .. } => {
@@ -727,7 +781,11 @@ fn bundle_imports(
                             );
                             let mut p = SeenParser::new_with_visibility(lex, visibility_policy);
                             let parsed = p.parse_program().map_err(|err| SeenError::from(err))?;
-                            queue.push_back(parsed);
+                            let module_base = cand
+                                .parent()
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| base_dir.clone());
+                            queue.push_back((parsed, module_base));
                             loaded = true;
                             break;
                         }
@@ -739,11 +797,106 @@ fn bundle_imports(
                         );
                     }
                 }
-                _ => merged.expressions.push(expr),
+                _ => merged
+                    .expressions
+                    .push(rewrite_embed_attributes(expr, &module_dir)),
             }
         }
     }
     Ok(merged)
+}
+
+#[cfg(any(test, feature = "llvm"))]
+fn default_link_output_path(link_mode: BuildLinkMode) -> PathBuf {
+    match link_mode {
+        BuildLinkMode::Executable => PathBuf::from("a.out"),
+        BuildLinkMode::SharedLibrary => {
+            if cfg!(target_os = "macos") {
+                PathBuf::from("liba.dylib")
+            } else if cfg!(target_os = "windows") {
+                PathBuf::from("a.dll")
+            } else {
+                PathBuf::from("liba.so")
+            }
+        }
+        BuildLinkMode::StaticLibrary => {
+            if cfg!(target_os = "windows") {
+                PathBuf::from("a.lib")
+            } else {
+                PathBuf::from("liba.a")
+            }
+        } // Object-only not exposed via CLI
+    }
+}
+
+fn rewrite_embed_attributes(expr: Expression, module_dir: &Path) -> Expression {
+    match expr {
+        Expression::Const {
+            name,
+            type_annotation,
+            value,
+            attributes,
+            pos,
+        } => {
+            let rewritten_attrs = attributes
+                .into_iter()
+                .map(|attr| rewrite_embed_attribute(attr, module_dir))
+                .collect();
+            Expression::Const {
+                name,
+                type_annotation,
+                value,
+                attributes: rewritten_attrs,
+                pos,
+            }
+        }
+        other => other,
+    }
+}
+
+fn rewrite_embed_attribute(attr: Attribute, module_dir: &Path) -> Attribute {
+    let Attribute { name, args, pos } = attr;
+
+    if name != "embed" {
+        return Attribute { name, args, pos };
+    }
+
+    let rewritten_args = args
+        .into_iter()
+        .map(|arg| match arg {
+            AttributeArgument::Named { name, value } if name == "path" => {
+                AttributeArgument::Named {
+                    name,
+                    value: resolve_embed_path(value, module_dir),
+                }
+            }
+            other => other,
+        })
+        .collect();
+
+    Attribute {
+        name,
+        args: rewritten_args,
+        pos,
+    }
+}
+
+fn resolve_embed_path(value: AttributeValue, module_dir: &Path) -> AttributeValue {
+    match value {
+        AttributeValue::String(original) => {
+            let candidate = module_dir.join(&original);
+            let resolved = if Path::new(&original).is_absolute() {
+                PathBuf::from(original)
+            } else {
+                candidate
+            };
+
+            let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+
+            AttributeValue::String(canonical.to_string_lossy().to_string())
+        }
+        other => other,
+    }
 }
 
 fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
@@ -2120,5 +2273,124 @@ fn get_function_name(expr: &Expression) -> String {
         name.clone()
     } else {
         "unknown".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use seen_core::ir::IRValue;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn make_embed_const(path: AttributeValue) -> Expression {
+        Expression::Const {
+            name: "DATA".to_string(),
+            type_annotation: None,
+            value: Box::new(Expression::IntegerLiteral {
+                value: 0,
+                pos: Position::new(0, 0, 0),
+            }),
+            attributes: vec![Attribute {
+                name: "embed".to_string(),
+                args: vec![AttributeArgument::Named {
+                    name: "path".to_string(),
+                    value: path,
+                }],
+                pos: Position::new(0, 0, 0),
+            }],
+            pos: Position::new(0, 0, 0),
+        }
+    }
+
+    #[test]
+    fn rewrite_embed_attribute_resolves_relative_path() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let asset_path = temp_dir.path().join("asset.bin");
+        fs::write(&asset_path, [0u8; 4]).expect("write asset");
+
+        let expr = make_embed_const(AttributeValue::String("asset.bin".to_string()));
+        let rewritten = rewrite_embed_attributes(expr, temp_dir.path());
+
+        match rewritten {
+            Expression::Const { attributes, .. } => {
+                let path_arg = attributes
+                    .first()
+                    .and_then(|attr| {
+                        attr.args.iter().find_map(|arg| match arg {
+                            AttributeArgument::Named { name, value } if name == "path" => {
+                                if let AttributeValue::String(path) = value {
+                                    Some(path.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })
+                    })
+                    .expect("path argument present");
+
+                let expected = asset_path
+                    .canonicalize()
+                    .expect("canonicalize asset")
+                    .to_string_lossy()
+                    .to_string();
+
+                assert_eq!(path_arg, expected);
+            }
+            other => panic!("expected const expression, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ir_generator_produces_byte_array_for_embed_const() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let asset_path = temp_dir.path().join("embed.bin");
+        let bytes = vec![0xAA, 0xBB, 0xCC];
+        fs::write(&asset_path, &bytes).expect("write bytes");
+
+        let absolute = asset_path
+            .canonicalize()
+            .expect("canonicalize asset")
+            .to_string_lossy()
+            .to_string();
+        let expr = make_embed_const(AttributeValue::String(absolute));
+
+        let mut generator = IRGenerator::new();
+        let (value, instructions) = generator
+            .generate_expression(&expr)
+            .expect("generate expression");
+
+        match value {
+            IRValue::ByteArray(data) => assert_eq!(data, bytes),
+            other => panic!("expected byte array, got {:?}", other),
+        }
+
+        assert!(
+            !instructions.is_empty(),
+            "expected store instruction for embedded constant"
+        );
+    }
+
+    #[test]
+    fn default_shared_path_uses_platform_extension() {
+        let path = default_link_output_path(BuildLinkMode::SharedLibrary);
+        let name = path.to_string_lossy();
+        #[cfg(target_os = "macos")]
+        assert!(name.ends_with(".dylib"));
+        #[cfg(target_os = "windows")]
+        assert!(name.ends_with(".dll"));
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        assert!(name.ends_with(".so"));
+    }
+
+    #[test]
+    fn default_static_path_uses_platform_extension() {
+        let path = default_link_output_path(BuildLinkMode::StaticLibrary);
+        let name = path.to_string_lossy();
+        #[cfg(target_os = "windows")]
+        assert!(name.ends_with(".lib"));
+        #[cfg(not(target_os = "windows"))]
+        assert!(name.ends_with(".a"));
     }
 }

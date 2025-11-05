@@ -4,14 +4,15 @@
 //! Scope: Implements a minimal but solid subset required to compile the
 //! self‑hosting entry (`compiler_seen/src/main.seen`) and similar programs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
 use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
-use inkwell::module::Module as LlvmModule;
+use inkwell::module::{Linkage, Module as LlvmModule};
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
@@ -20,6 +21,7 @@ use inkwell::types::{
 };
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue,
+    UnnamedAddress,
 };
 use inkwell::OptimizationLevel as LlvmOptLevel;
 
@@ -47,6 +49,8 @@ fn is_string_literal_ir(value: &IRValue) -> bool {
 pub enum LinkOutput {
     Executable,
     ObjectOnly,
+    SharedLibrary,
+    StaticLibrary,
 }
 
 pub struct LlvmBackend<'ctx> {
@@ -81,6 +85,7 @@ pub struct LlvmBackend<'ctx> {
     fallthrough_bb: Option<LlvmBasicBlock<'ctx>>,
     task_counter: Option<GlobalValue<'ctx>>,
     actor_counter: Option<GlobalValue<'ctx>>,
+    byte_array_globals: HashMap<Vec<u8>, GlobalValue<'ctx>>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -122,6 +127,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             fallthrough_bb: None,
             task_counter: None,
             actor_counter: None,
+            byte_array_globals: HashMap::new(),
         }
     }
 
@@ -178,18 +184,92 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             });
         eprintln!("LLVM backend: invoking linker {}", linker);
-        let status = std::process::Command::new(&linker)
-            .arg(&obj_path)
-            .arg("-o")
-            .arg(out_path)
-            .arg("-no-pie")
-            .arg("-lm")
-            .status()
-            .with_context(|| format!("Spawning linker ({})", linker))?;
-        if !status.success() {
-            return Err(anyhow!("Linking failed with status {status}"));
+        match kind {
+            LinkOutput::Executable => {
+                let status = std::process::Command::new(&linker)
+                    .arg(&obj_path)
+                    .arg("-o")
+                    .arg(out_path)
+                    .arg("-no-pie")
+                    .arg("-lm")
+                    .status()
+                    .with_context(|| format!("Spawning linker ({})", linker))?;
+                if !status.success() {
+                    return Err(anyhow!("Linking failed with status {status}"));
+                }
+                Ok(())
+            }
+            LinkOutput::SharedLibrary => {
+                let mut cmd = std::process::Command::new(&linker);
+                cmd.arg(&obj_path).arg("-o").arg(out_path);
+                if cfg!(target_os = "macos") {
+                    cmd.arg("-dynamiclib");
+                } else if cfg!(target_os = "windows") {
+                    cmd.arg("-shared");
+                } else {
+                    cmd.arg("-shared");
+                }
+                cmd.arg("-lm");
+                let status = cmd
+                    .status()
+                    .with_context(|| format!("Spawning linker ({})", linker))?;
+                if !status.success() {
+                    return Err(anyhow!(
+                        "Shared library linking failed with status {status}"
+                    ));
+                }
+                Ok(())
+            }
+            LinkOutput::StaticLibrary => {
+                #[cfg(target_os = "windows")]
+                let tool = std::env::var("SEEN_LLVM_ARCHIVER")
+                    .ok()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| "lib".to_string());
+                #[cfg(not(target_os = "windows"))]
+                let tool = std::env::var("SEEN_LLVM_ARCHIVER")
+                    .ok()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| "ar".to_string());
+
+                #[cfg(target_os = "windows")]
+                let status = std::process::Command::new(&tool)
+                    .arg("/nologo")
+                    .arg(format!("/OUT:{}", out_path.display()))
+                    .arg(&obj_path)
+                    .status()
+                    .with_context(|| format!("Spawning archiver ({})", tool))?;
+                #[cfg(not(target_os = "windows"))]
+                let status = std::process::Command::new(&tool)
+                    .arg("crus")
+                    .arg(out_path)
+                    .arg(&obj_path)
+                    .status()
+                    .with_context(|| format!("Spawning archiver ({})", tool))?;
+
+                if !status.success() {
+                    return Err(anyhow!("Archiving failed with status {status}"));
+                }
+
+                #[cfg(target_os = "macos")]
+                {
+                    let ranlib = std::env::var("SEEN_LLVM_RANLIB")
+                        .ok()
+                        .filter(|v| !v.is_empty())
+                        .unwrap_or_else(|| "ranlib".to_string());
+                    let status = std::process::Command::new(&ranlib)
+                        .arg(out_path)
+                        .status()
+                        .with_context(|| format!("Spawning ranlib ({})", ranlib))?;
+                    if !status.success() {
+                        return Err(anyhow!("ranlib failed with status {status}"));
+                    }
+                }
+
+                Ok(())
+            }
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
         }
-        Ok(())
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
@@ -1525,6 +1605,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 // Materialize arrays on demand in consumers; here return opaque null as placeholder
                 Ok(self.i8_ptr_t.const_null().as_basic_value_enum())
             }
+            IRValue::ByteArray(data) => self.byte_array_ptr(data),
             IRValue::Null => Ok(self.i8_ptr_t.const_null().as_basic_value_enum()),
             IRValue::Function { name, .. } => {
                 let f = fn_map
@@ -1535,6 +1616,48 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRValue::Float(fv) => Ok(self.ctx.f64_type().const_float(*fv).as_basic_value_enum()),
             _ => Err(anyhow!("Unsupported IRValue in LLVM backend: {v:?}")),
         }
+    }
+
+    fn byte_array_ptr(&mut self, data: &[u8]) -> Result<BasicValueEnum<'ctx>> {
+        let global = self.byte_array_global(data)?;
+        let cast = self
+            .builder
+            .build_pointer_cast(global.as_pointer_value(), self.i8_ptr_t, "embed_ptr")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        Ok(cast.as_basic_value_enum())
+    }
+
+    fn byte_array_global(&mut self, data: &[u8]) -> Result<GlobalValue<'ctx>> {
+        if let Some(global) = self.byte_array_globals.get(data) {
+            return Ok(*global);
+        }
+
+        let byte_ty = self.ctx.i8_type();
+        let (array_ty, initializer) = if data.is_empty() {
+            let arr_ty = byte_ty.array_type(1);
+            let init = byte_ty.const_array(&[byte_ty.const_zero()]);
+            (arr_ty, init)
+        } else {
+            let len = u32::try_from(data.len())
+                .map_err(|_| anyhow!("Embedded blob exceeds maximum supported size"))?;
+            let arr_ty = byte_ty.array_type(len);
+            let const_vals: Vec<_> = data
+                .iter()
+                .map(|b| byte_ty.const_int(*b as u64, false))
+                .collect();
+            let init = byte_ty.const_array(&const_vals);
+            (arr_ty, init)
+        };
+
+        let symbol = format!("__seen_embed_{}", self.byte_array_globals.len());
+        let global = self.module.add_global(array_ty, None, &symbol);
+        global.set_initializer(&initializer);
+        global.set_constant(true);
+        global.set_linkage(Linkage::Private);
+        global.set_unnamed_address(UnnamedAddress::Global);
+        global.set_alignment(1);
+        self.byte_array_globals.insert(data.to_vec(), global);
+        Ok(global)
     }
 
     fn assign_value(&mut self, dest: &IRValue, v: BasicValueEnum<'ctx>) -> Result<()> {
@@ -1673,7 +1796,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             BasicTypeEnum::VectorType(vt) => self.builder.build_alloca(vt, name),
             BasicTypeEnum::ScalableVectorType(svt) => self.builder.build_alloca(svt, name),
         }
-            .map_err(|e| anyhow!("{e:?}"))?;
+        .map_err(|e| anyhow!("{e:?}"))?;
         Ok(slot)
     }
 
@@ -1698,7 +1821,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.builder.build_load(svt, slot, &load_name)
             }
         }
-            .map_err(|e| anyhow!("{e:?}"))?;
+        .map_err(|e| anyhow!("{e:?}"))?;
         Ok(loaded.as_basic_value_enum())
     }
 

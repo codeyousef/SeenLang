@@ -18,3 +18,4 @@ seen_support = { workspace = true }
 proptest = { workspace = true }
 pretty_assertions = { workspace = true }
 seen_lexer = { path = "../seen_lexer" }
+tempfile = { workspace = true }

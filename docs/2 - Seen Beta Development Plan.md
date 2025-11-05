@@ -19,6 +19,8 @@ Beta emphasizes performance, parity, and robustness across platforms and fully *
 
 * LTO/PGO; sanitizers; cross‑module inlining; improved dependency pruning.
 * Memory/layout audits for mobile/web (allocator arenas, low‑footprint modes).
+* Productionize equality-saturation pipelines with expanded rule sets, staged superoptimizer passes, and MLGO/BC-Max derived heuristics with deterministic replay (docs/research/13 - Language Performance.md).
+* Harden MLIR/Cranelift/Tilde backends for fast lanes; ensure APX/AVX10/SVE/RVV codegen parity and CXL-aware allocation strategies.
 
 ### B) Ecosystem Maturity
 
@@ -33,6 +35,14 @@ Beta emphasizes performance, parity, and robustness across platforms and fully *
 ### D) Tooling & DX
 
 * `seen trace` GUI; gdb/lldb pretty‑printers; advanced LSP (refactors/actions/semantic tokens).
+* Perf triage console combining benchmark dashboards, optimizer reports, and hardware telemetry.
+
+### E) Performance Governance & Benchmarks
+
+* Promote `perf-baseline` into gated CI with per-target SLOs (runtime, peak memory, binary size, compile time) and automatic regression bisection.
+* Publish Rust/C++ parity report with nightly trend lines by extending `docs/performance-dashboard.md`; expose data to package/engine teams.
+* Automate ML training loops (offline reinforcement/supervised) and schedule periodic retraining with deterministic snapshots.
+* Capture APX/AVX10/SVE/RVV and CXL regression suites, including mobile thermal envelopes, and feed results into release readiness dashboards.
 
 ---
 
@@ -71,8 +81,8 @@ Beta emphasizes performance, parity, and robustness across platforms and fully *
 
 | Area        | Requirement                                                                      |
 | ----------- | -------------------------------------------------------------------------------- |
-| Compiler    | Full ISA coverage; expert SIMD controls; portable lowering; determinism honored. |
+| Compiler    | Full ISA coverage; expert SIMD controls; portable lowering; determinism honored; optimizer stack production-ready. |
 | Runtime     | `seen-std` stable; vectorized core paths available with scalar fallbacks.        |
 | Engine      | Backend parity + stable performance envelopes; mobile/web constraints respected. |
-| Tooling     | `--simd-report=full`; trace GUI; IDE integration.                                |
-| Determinism | Scalar/SIMD equivalence validated across targets.                                |
+| Tooling     | `--simd-report=full`; trace GUI; IDE integration; perf triage console active.    |
+| Determinism | Scalar/SIMD equivalence validated across targets; perf CI gates enforced.        |
