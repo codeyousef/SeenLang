@@ -106,8 +106,8 @@ instead of short-circuiting, while LLVM/backend work still needs full wake + fut
 *Status:* ⏳ Pending — parser/CLI lack `#[embed]`, and build driver has no shared/static output support.
 
 * **Outstanding tasks:**
-  1. Extend the parser + AST to accept `#[embed(path="...")]` on constants; bundle binary blobs into IR/LLVM output.
-  2. Teach the CLI to process `--shared` / `--static` flags and invoke platform linkers appropriately.
+  1. Extend the parser + AST to accept `#[embed(path="...")]` on constants; bundle binary blobs into IR/LLVM output. ✅ Parser/AST/interpreter and LLVM backend now materialize embedded byte buffers with regression coverage.
+  2. Teach the CLI to process `--shared` / `--static` flags and invoke platform linkers appropriately. ✅ CLI supports shared/static targets via LLVM backend wiring.
   3. Ensure embedded assets survive Stage1→Stage2 compiles without breaking determinism (new tests + fixtures).
   4. Update documentation/quickstart with packaging instructions and add integration tests for `.so`, `.dll`, `.dylib`,
      `.a` generation.
