@@ -37,7 +37,7 @@ Alpha focuses on stabilization and ecosystem readiness **across Linux, Windows, 
 
 * Incremental & cached builds; `seen trace` → `seen replay` CLI.
 * CI matrix covering 6 targets; headers/templates (COOP/COEP; Android/iOS manifests).
-* Nightly `perf-baseline` workflow exporting runtime/peak memory/compile-time dashboards and flagging ±3% regressions.
+* Nightly `perf-baseline` workflow (extending the MVP "Performance Baseline" job) exporting runtime/peak memory/compile-time dashboards, wiring results into `docs/performance-dashboard.md`, and flagging ±3% regressions.
 
 ### E) Performance & Optimization Foundations
 

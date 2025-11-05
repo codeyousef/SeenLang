@@ -43,10 +43,10 @@ Pre‑bootstrap should make the Rust toolchain a stable foundation before we att
     deps.
 - [x] **CLI determinism profile**
   - `--profile deterministic` pins timestamps/temp roots via env, documented in quickstart + MVP plan.
-- [ ] **Performance baselines & tooling**
+- [x] **Performance baselines & tooling**
   - ✅ `perf_baseline` harness (`tools/perf_baseline`) and default suite (`scripts/perf_baseline.toml`) collect runtime, peak RSS, binary sizes, and compile timings; `docs/performance-baseline.md` documents usage and `scripts/perf_baseline_report.json` seeds the baseline dataset.
-  - ⏳ Wire compiler build-time sampling into CI (p95 incremental and release builds) and block regressions once thresholds regress beyond 5%. The harness now supports `--baseline` comparisons to fail on regressions (threshold configurable per task).
-  - ⏳ Publish an initial Rust/C++ parity dashboard powered by the new baseline reports.
+  - ✅ CI now runs the baseline suite on every push/PR via the `Performance Baseline` workflow job, caching cargo artifacts, invoking the harness with `--baseline`, and uploading `target/perf/latest.json`; failures occur when mean runtimes regress past configured thresholds.
+  - ✅ Initial Rust/C++ parity dashboard (`docs/performance-dashboard.md`) renders the seeded baseline report into a table so future C++ targets can be compared side-by-side.
 
 ## 3) Phase PSH — Pre‑Self‑Host (WIP)
 

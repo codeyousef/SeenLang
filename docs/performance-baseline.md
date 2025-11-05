@@ -76,3 +76,23 @@ well as the maximum peak RSS observed.
 These targets can be extended as new workloads become relevant. CI pipelines can
 invoke the harness and compare the emitted JSON against stored baselines to gate
 regressions.
+
+## CI integration
+
+`ci.yml` now includes a **Performance Baseline** job that:
+
+1. Checks out the workspace and installs the stable toolchain.
+2. Re-uses the shared cargo cache so the release compilation step is not overly
+   expensive.
+3. Executes `cargo run -p perf_baseline -- --config scripts/perf_baseline.toml \
+   --baseline scripts/perf_baseline_report.json --output target/perf/latest.json \
+   --json-stdout`.
+4. Publishes `target/perf/latest.json` as the `perf-baseline-report` workflow
+   artifact.
+
+The run fails automatically if the recorded mean latency for any task exceeds
+its configured threshold relative to the baseline JSON.
+
+For a higher-level summary, the new `docs/performance-dashboard.md` file
+renders the same baseline metrics into a parity table that we can extend with
+C++ measurements once they are available.

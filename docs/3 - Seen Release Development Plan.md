@@ -85,7 +85,7 @@ G) Performance Certification & Observatory
 
 G1. Benchmark Canonization
 • Publish a v1.0 “performance canon” suite with automated runs across desktop, mobile, and web, comparing Seen outputs against Rust/C++ baselines for runtime, peak memory, binary size, and compile time (docs/research/10 & 13).
-Acceptance: The public performance portal shows the suite, target metrics, and parity deltas; CI fails when regressions exceed agreed thresholds.
+Acceptance: The public performance portal (exported from the evolving `docs/performance-dashboard.md`) shows the suite, target metrics, and parity deltas; CI fails when regressions exceed agreed thresholds.
 
 G2. Optimizer Provenance Lock
 • Version and hash the equality-saturation rule sets, ML heuristic models, and LENS-derived superoptimizer recipes; record them in release metadata and expose via `seen --diagnose-optimizer`.

@@ -40,7 +40,7 @@ Beta emphasizes performance, parity, and robustness across platforms and fully *
 ### E) Performance Governance & Benchmarks
 
 * Promote `perf-baseline` into gated CI with per-target SLOs (runtime, peak memory, binary size, compile time) and automatic regression bisection.
-* Publish Rust/C++ parity report with nightly trend lines; expose data to package/engine teams.
+* Publish Rust/C++ parity report with nightly trend lines by extending `docs/performance-dashboard.md`; expose data to package/engine teams.
 * Automate ML training loops (offline reinforcement/supervised) and schedule periodic retraining with deterministic snapshots.
 * Capture APX/AVX10/SVE/RVV and CXL regression suites, including mobile thermal envelopes, and feed results into release readiness dashboards.
 
