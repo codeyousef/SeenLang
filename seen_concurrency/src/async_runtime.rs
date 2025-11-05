@@ -471,7 +471,7 @@ impl AsyncRuntime {
         &self,
         channel: Channel,
         value: AsyncValue,
-    ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
         Box::pin(channel.send_future(value))
     }
 
@@ -479,7 +479,7 @@ impl AsyncRuntime {
     pub fn channel_receive_future(
         &self,
         channel: Channel,
-    ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
         Box::pin(channel.receive_future())
     }
 }

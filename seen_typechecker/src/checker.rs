@@ -1256,8 +1256,8 @@ impl TypeChecker {
 
         if let Type::Interface { name, .. } = base {
             if let Some(Type::Interface {
-                            is_sealed: true, ..
-                        }) = self.env.get_type(&name)
+                is_sealed: true, ..
+            }) = self.env.get_type(&name)
             {
                 self.result.add_error(TypeError::SealedTypeExtension {
                     type_name: name,

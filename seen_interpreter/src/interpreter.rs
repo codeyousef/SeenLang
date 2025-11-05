@@ -88,7 +88,7 @@ impl AsyncFunctionTrait for ChannelSendAsyncFunction {
     fn execute(
         &self,
         _context: &mut AsyncExecutionContext,
-    ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
         let channel = self.channel.clone();
         let value = self.value.clone();
         let pos = self.position.clone();

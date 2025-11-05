@@ -393,11 +393,11 @@ impl From<&seen_parser::ast::Type> for Type {
                 if ast_type.generics.is_empty()
                     && ast_type.name.len() == 1
                     && ast_type
-                    .name
-                    .chars()
-                    .next()
-                    .map(|c| c.is_ascii_uppercase())
-                    .unwrap_or(false)
+                        .name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_ascii_uppercase())
+                        .unwrap_or(false)
                 {
                     Type::Generic(ast_type.name.clone())
                 } else {

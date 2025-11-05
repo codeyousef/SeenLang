@@ -1673,7 +1673,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             BasicTypeEnum::VectorType(vt) => self.builder.build_alloca(vt, name),
             BasicTypeEnum::ScalableVectorType(svt) => self.builder.build_alloca(svt, name),
         }
-            .map_err(|e| anyhow!("{e:?}"))?;
+        .map_err(|e| anyhow!("{e:?}"))?;
         Ok(slot)
     }
 
@@ -1698,7 +1698,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.builder.build_load(svt, slot, &load_name)
             }
         }
-            .map_err(|e| anyhow!("{e:?}"))?;
+        .map_err(|e| anyhow!("{e:?}"))?;
         Ok(loaded.as_basic_value_enum())
     }
 
