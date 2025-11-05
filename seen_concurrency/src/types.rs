@@ -986,10 +986,11 @@ pub enum ActorOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::async_runtime::{AsyncExecutionContext, AsyncFunction, AsyncRuntime};
     use std::collections::VecDeque;
     use std::pin::Pin;
-    use std::sync::Mutex;
-    use std::task::{Context, RawWaker, RawWakerVTable, Waker};
+    use std::sync::{Arc, Mutex};
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
     use std::thread;
     use std::time::Duration;
 
@@ -1201,6 +1202,165 @@ mod tests {
             Poll::Ready(Ok(AsyncValue::Integer(value))) => assert_eq!(value, 99),
             other => panic!("expected ready integer value, got {:?}", other),
         }
+    }
+
+    #[derive(Debug, Clone)]
+    struct PipelineProducer {
+        channel: Channel,
+        value: AsyncValue,
+    }
+
+    impl AsyncFunction for PipelineProducer {
+        fn execute(
+            &self,
+            _context: &mut AsyncExecutionContext,
+        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+            let channel = self.channel.clone();
+            let value = self.value.clone();
+            Box::pin(async move {
+                match channel.send_future(value).await {
+                    Ok(_) => Ok(AsyncValue::Unit),
+                    Err(err) => Err(err),
+                }
+            })
+        }
+
+        fn name(&self) -> &str {
+            "pipeline-producer"
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct PipelineForwarder {
+        input: Channel,
+        output: Channel,
+    }
+
+    impl AsyncFunction for PipelineForwarder {
+        fn execute(
+            &self,
+            _context: &mut AsyncExecutionContext,
+        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+            let input = self.input.clone();
+            let output = self.output.clone();
+            Box::pin(async move {
+                let value = match input.receive_future().await {
+                    Ok(value) => value,
+                    Err(err) => return Err(err),
+                };
+                match output.send_future(value.clone()).await {
+                    Ok(_) => Ok(AsyncValue::Unit),
+                    Err(err) => Err(err),
+                }
+            })
+        }
+
+        fn name(&self) -> &str {
+            "pipeline-forwarder"
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct PipelineConsumer {
+        input: Channel,
+        collected: Arc<Mutex<Vec<AsyncValue>>>,
+    }
+
+    impl AsyncFunction for PipelineConsumer {
+        fn execute(
+            &self,
+            _context: &mut AsyncExecutionContext,
+        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+            let input = self.input.clone();
+            let collected = Arc::clone(&self.collected);
+            Box::pin(async move {
+                let value = match input.receive_future().await {
+                    Ok(value) => value,
+                    Err(err) => return Err(err),
+                };
+
+                if let Ok(mut guard) = collected.lock() {
+                    guard.push(value.clone());
+                }
+
+                Ok(value)
+            })
+        }
+
+        fn name(&self) -> &str {
+            "pipeline-consumer"
+        }
+    }
+
+    #[test]
+    fn channel_values_flow_through_multiple_stages() {
+        let mut runtime = AsyncRuntime::new();
+
+        let stage1 = Channel::new(ChannelId::allocate(), Some(1));
+        let stage2 = Channel::new(ChannelId::allocate(), Some(1));
+        let collected = Arc::new(Mutex::new(Vec::new()));
+
+        let producer_handle = runtime.spawn_task(
+            Box::new(PipelineProducer {
+                channel: stage1.clone(),
+                value: AsyncValue::Integer(17),
+            }),
+            TaskPriority::Normal,
+        );
+        let forward_handle = runtime.spawn_task(
+            Box::new(PipelineForwarder {
+                input: stage1,
+                output: stage2.clone(),
+            }),
+            TaskPriority::Normal,
+        );
+        let consumer_handle = runtime.spawn_task(
+            Box::new(PipelineConsumer {
+                input: stage2,
+                collected: Arc::clone(&collected),
+            }),
+            TaskPriority::Normal,
+        );
+
+        let producer_id = producer_handle
+            .task_id()
+            .expect("producer task should have an id");
+        let forward_id = forward_handle
+            .task_id()
+            .expect("forwarder task should have an id");
+        let consumer_id = consumer_handle
+            .task_id()
+            .expect("consumer task should have an id");
+
+        runtime
+            .run_until_complete()
+            .expect("pipeline tasks should complete");
+
+        assert_eq!(
+            runtime
+                .wait_for_task(producer_id)
+                .expect("producer result available"),
+            AsyncValue::Unit
+        );
+        assert_eq!(
+            runtime
+                .wait_for_task(forward_id)
+                .expect("forwarder result available"),
+            AsyncValue::Unit
+        );
+        assert_eq!(
+            runtime
+                .wait_for_task(consumer_id)
+                .expect("consumer result available"),
+            AsyncValue::Integer(17)
+        );
+
+        let guard = collected.lock().expect("collected buffer poisoned");
+        assert_eq!(
+            guard.as_slice(),
+            [AsyncValue::Integer(17)],
+            "expected consumer to record forwarded value"
+        );
     }
 
     fn noop_waker() -> Waker {

@@ -54,3 +54,8 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 ## Troubleshooting
 - If `seen` is not found, run it from the build folder: `./target/release/seen --help`
 - If C compilation fails, ensure prerequisites are installed and follow docs/SELF_HOSTING_PLAN.md to complete bootstrap helpers and bundling.
+
+## Next Steps
+
+- Review `docs/concurrency-patterns.md` for structured concurrency tips covering `jobs.scope`, channel futures, and
+  select patterns that the MVP plan requires.

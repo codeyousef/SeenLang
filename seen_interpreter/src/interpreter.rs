@@ -2179,7 +2179,7 @@ mod tests {
     use seen_concurrency::types::{AsyncValue, Channel, ChannelId};
     use seen_parser::ast::Pattern;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn send_expression(value: i64, pos: Position) -> Expression {
         Expression::Send {
@@ -2291,5 +2291,98 @@ mod tests {
             .expect("select should resolve once value is available");
 
         assert_eq!(result, Value::Integer(42));
+    }
+
+    #[derive(Debug, Clone)]
+    struct DelayedAsyncFunction {
+        gate: Channel,
+        position: Position,
+    }
+
+    impl AsyncFunctionTrait for DelayedAsyncFunction {
+        fn execute(
+            &self,
+            _context: &mut AsyncExecutionContext,
+        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+            let gate = self.gate.clone();
+            let pos = self.position.clone();
+
+            Box::pin(async move {
+                match gate.receive_future().await {
+                    Ok(value) => Ok(value),
+                    Err(AsyncError::ChannelError { reason, .. }) => Err(AsyncError::ChannelError {
+                        reason,
+                        position: pos.clone(),
+                    }),
+                    Err(other) => Err(other),
+                }
+            })
+        }
+
+        fn name(&self) -> &str {
+            "delayed-channel-receive"
+        }
+    }
+
+    #[test]
+    fn jobs_scope_waits_for_spawned_tasks_before_unwinding() {
+        let mut interpreter = Interpreter::new();
+        interpreter.runtime.push_task_scope();
+
+        let gate = Channel::new(ChannelId::allocate(), Some(1));
+        let runtime_gate = gate.clone();
+        let check_gate = gate.clone();
+        let sender_gate = gate.clone();
+        let pos = Position::start();
+
+        let delayed_task = DelayedAsyncFunction {
+            gate: runtime_gate,
+            position: pos.clone(),
+        };
+
+        let async_runtime = interpreter.runtime.async_runtime();
+        let mut runtime = async_runtime
+            .lock()
+            .expect("async runtime lock should be available");
+        let task_handle = runtime.spawn_task(Box::new(delayed_task), TaskPriority::Normal);
+        let task_id = task_handle
+            .task_id()
+            .expect("spawned task should yield an id");
+        drop(runtime);
+
+        interpreter.runtime.register_scope_task(task_id);
+        let tasks = interpreter
+            .runtime
+            .pop_task_scope()
+            .expect("scope stack should contain the registered task");
+
+        let delay = Duration::from_millis(40);
+        let send_delay = delay;
+        let worker = thread::spawn(move || {
+            thread::sleep(send_delay);
+            let _ = sender_gate.send_with_status(AsyncValue::Integer(7));
+        });
+
+        let start = Instant::now();
+        interpreter
+            .join_scope_tasks(tasks, pos.clone())
+            .expect("jobs.scope should join spawned task");
+        let elapsed = start.elapsed();
+
+        worker
+            .join()
+            .expect("sender thread should complete without panicking");
+
+        assert!(
+            elapsed >= delay,
+            "jobs.scope returned too early (elapsed {:?} < {:?})",
+            elapsed,
+            delay
+        );
+
+        match check_gate.try_recv_with_status() {
+            ChannelReceiveStatus::WouldBlock => {}
+            other => panic!("expected gate channel to be drained, got {:?}", other),
+        }
     }
 }
