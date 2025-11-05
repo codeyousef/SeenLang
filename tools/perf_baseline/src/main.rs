@@ -23,6 +23,10 @@ struct Args {
     /// Emit the JSON report to stdout in addition to writing to disk
     #[arg(long)]
     json_stdout: bool,
+
+    /// Optional baseline JSON report; regressions beyond thresholds fail with an error
+    #[arg(long)]
+    baseline: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +52,8 @@ struct TaskConfig {
     artifacts: Vec<PathBuf>,
     #[serde(default)]
     env: HashMap<String, String>,
+    #[serde(default = "default_threshold_pct")]
+    threshold_pct: f64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -66,23 +72,29 @@ fn default_runs() -> u32 {
     3
 }
 
-#[derive(Debug, Serialize)]
+fn default_threshold_pct() -> f64 {
+    5.0
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct PerfReport {
     generated_at: String,
     tasks: Vec<TaskReport>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct TaskReport {
     name: String,
     kind: TaskKind,
+    #[serde(default = "default_threshold_pct")]
+    threshold_pct: f64,
     warmups: u32,
     runs: Vec<RunResult>,
     stats: Option<AggregateStats>,
     artifacts: Vec<ArtifactSize>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct RunResult {
     run_index: usize,
     duration_ms: f64,
@@ -90,7 +102,7 @@ struct RunResult {
     status: Option<i32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct AggregateStats {
     mean_time_ms: f64,
     median_time_ms: f64,
@@ -98,7 +110,7 @@ struct AggregateStats {
     max_peak_memory_kib: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ArtifactSize {
     path: String,
     bytes: u64,
@@ -166,6 +178,18 @@ fn main() -> Result<()> {
         println!("\n{}", report_json);
     }
 
+    if let Some(baseline_path) = &args.baseline {
+        let baseline_bytes = fs::read(baseline_path).with_context(|| {
+            format!(
+                "Failed to read baseline report at {}",
+                baseline_path.display()
+            )
+        })?;
+        let baseline: PerfReport = serde_json::from_slice(&baseline_bytes)
+            .with_context(|| format!("Baseline {} is not valid JSON", baseline_path.display()))?;
+        compare_against_baseline(&report, &baseline)?;
+    }
+
     Ok(())
 }
 
@@ -216,6 +240,7 @@ fn run_task(task: &TaskConfig) -> Result<TaskReport> {
     Ok(TaskReport {
         name: task.name.clone(),
         kind: task.kind,
+        threshold_pct: task.threshold_pct,
         warmups: task.warmups,
         runs: samples
             .into_iter()
@@ -357,4 +382,50 @@ fn run_cargo_clean(task: &TaskConfig) -> Result<()> {
         return Err(anyhow!("cargo clean failed for task '{}'", task.name));
     }
     Ok(())
+}
+
+fn compare_against_baseline(current: &PerfReport, baseline: &PerfReport) -> Result<()> {
+    let baseline_map: HashMap<&str, &TaskReport> = baseline
+        .tasks
+        .iter()
+        .map(|task| (task.name.as_str(), task))
+        .collect();
+
+    let mut regressions = Vec::new();
+
+    for task in &current.tasks {
+        let Some(current_stats) = &task.stats else {
+            continue;
+        };
+        let Some(baseline_task) = baseline_map.get(task.name.as_str()) else {
+            continue;
+        };
+        let Some(baseline_stats) = &baseline_task.stats else {
+            continue;
+        };
+
+        let threshold = task.threshold_pct.max(0.0);
+        let allowed = baseline_stats.mean_time_ms * (1.0 + threshold / 100.0);
+        if current_stats.mean_time_ms > allowed {
+            let delta_pct =
+                ((current_stats.mean_time_ms / baseline_stats.mean_time_ms) - 1.0) * 100.0;
+            regressions.push(format!(
+                "{} mean {:.2}ms exceeded baseline {:.2}ms (+{:.2}% > {:.2}%)",
+                task.name,
+                current_stats.mean_time_ms,
+                baseline_stats.mean_time_ms,
+                delta_pct,
+                threshold
+            ));
+        }
+    }
+
+    if regressions.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Performance regressions detected:\n{}",
+            regressions.join("\n")
+        ))
+    }
 }

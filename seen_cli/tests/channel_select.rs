@@ -7,10 +7,7 @@ use std::process::Command;
 #[test]
 fn run_channel_select_example() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir
-        .parent()
-        .expect("workspace root")
-        .to_path_buf();
+    let workspace_root = manifest_dir.parent().expect("workspace root").to_path_buf();
     let sample = workspace_root.join("seen_cli/tests/fixtures/channel_select.seen");
 
     let assert = Command::from(cargo_bin("seen_cli"))
@@ -20,8 +17,8 @@ fn run_channel_select_example() {
         .assert()
         .success();
 
-    let stdout = String::from_utf8(assert.get_output().stdout.clone())
-        .expect("stdout was not UTF-8");
+    let stdout =
+        String::from_utf8(assert.get_output().stdout.clone()).expect("stdout was not UTF-8");
     let mut lines: Vec<_> = stdout
         .lines()
         .map(|line| line.trim())

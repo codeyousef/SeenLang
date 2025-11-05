@@ -9,6 +9,11 @@ compile tasks) artifact sizes so that we can track regressions over time.
 ```bash
 # Run the default suite defined in scripts/perf_baseline.toml
 cargo run -p perf_baseline -- --config scripts/perf_baseline.toml
+
+# Compare against an existing baseline (fails if mean runtime regresses >5%)
+cargo run -p perf_baseline -- \
+  --config scripts/perf_baseline.toml \
+  --baseline scripts/perf_baseline_report.json
 ```
 
 This generates a JSON report (`scripts/perf_baseline_report.json`) and prints a
@@ -35,6 +40,8 @@ artifacts = ["target/release/seen_cli"]
   median, and p95 timings along with the maximum RSS observed.
 - `clean_before` triggers a `cargo clean` before the first measured run so we
   capture both cold and incremental build behaviour.
+- `threshold_pct` (default 5) controls the allowed mean-runtime regression when
+  comparing against a baseline via `--baseline`.
 - `artifacts` (optional) list files whose sizes should be recorded after the
   task completes.
 
