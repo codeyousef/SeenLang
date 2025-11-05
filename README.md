@@ -694,7 +694,7 @@ Seen Language is released under the [MIT License](LICENSE).
 - Comprehensive test suite (113 tests passing)
 
 ### **🚧 In Progress**
-- Performance benchmarking and validation
+- Performance benchmarking and validation (`cargo run -p perf_baseline -- --config scripts/perf_baseline.toml`)
 - Documentation and examples
 - Community building and feedback collection
 
