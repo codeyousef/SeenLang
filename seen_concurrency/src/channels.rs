@@ -12,6 +12,9 @@ use crate::types::{
 use seen_lexer::position::Position;
 use seen_parser::ast::Type;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::time::{Duration, Instant};
 
 /// Stored channel entry keyed by slot identifier.
@@ -103,6 +106,64 @@ impl ChannelManager {
         select_id
     }
 
+    /// Build a future that resolves when any of the select operations fires.
+    pub fn select_future(
+        &self,
+        operations: &[SelectCase],
+        timeout: Option<Duration>,
+    ) -> Result<ChannelSelectFuture, AsyncError> {
+        let mut cases = Vec::with_capacity(operations.len());
+        let mut timeout_acc: Option<Duration> = timeout;
+
+        for op in operations {
+            match op {
+                SelectCase::Receive {
+                    channel_id,
+                    pattern,
+                } => {
+                    let channel =
+                        self.get_channel(*channel_id)
+                            .ok_or_else(|| AsyncError::ChannelError {
+                                reason: format!("Channel {:?} not found", channel_id.id()),
+                                position: Position::new(0, 0, 0),
+                            })?;
+                    cases.push(ChannelSelectFutureCase {
+                        channel_id: *channel_id,
+                        channel,
+                        state: ChannelSelectFutureCaseKind::Receive {
+                            pattern: pattern.clone(),
+                        },
+                        closed: false,
+                    });
+                }
+                SelectCase::Send { channel_id, value } => {
+                    let channel =
+                        self.get_channel(*channel_id)
+                            .ok_or_else(|| AsyncError::ChannelError {
+                                reason: format!("Channel {:?} not found", channel_id.id()),
+                                position: Position::new(0, 0, 0),
+                            })?;
+                    cases.push(ChannelSelectFutureCase {
+                        channel_id: *channel_id,
+                        channel,
+                        state: ChannelSelectFutureCaseKind::Send {
+                            value: value.clone(),
+                        },
+                        closed: false,
+                    });
+                }
+                SelectCase::Timeout { duration } => {
+                    timeout_acc = Some(match timeout_acc {
+                        Some(existing) => existing.min(*duration),
+                        None => *duration,
+                    });
+                }
+            }
+        }
+
+        Ok(ChannelSelectFuture::new(cases, timeout_acc))
+    }
+
     /// Try to execute a recorded select operation. The current implementation
     /// is non-blocking and reports readiness or pending status.
     pub fn execute_select(&mut self, select_id: SelectId) -> Result<SelectResult, AsyncError> {
@@ -114,66 +175,14 @@ impl ChannelManager {
                     position: Position::new(0, 0, 0),
                 })?;
 
-        if let Some(timeout) = select_op.timeout {
-            if Instant::now().duration_since(select_op.created_at) >= timeout {
-                return Ok(SelectResult::Timeout);
-            }
+        let future = self.select_future(&select_op.operations, select_op.timeout)?;
+        let mut future = Box::pin(future);
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(result) => result,
+            Poll::Pending => Ok(SelectResult::WouldBlock),
         }
-
-        for case in &select_op.operations {
-            match case {
-                SelectCase::Receive {
-                    channel_id,
-                    pattern,
-                } => {
-                    let Some(channel) = self.get_channel(*channel_id) else {
-                        continue;
-                    };
-                    match channel.try_recv_with_status() {
-                        ChannelReceiveStatus::Received(value) => {
-                            return Ok(SelectResult::Received {
-                                channel_id: *channel_id,
-                                value,
-                                pattern: pattern.clone(),
-                            });
-                        }
-                        ChannelReceiveStatus::Closed => {
-                            continue;
-                        }
-                        ChannelReceiveStatus::Error(err) => {
-                            return Ok(SelectResult::Error(err));
-                        }
-                        ChannelReceiveStatus::WouldBlock => {
-                            continue;
-                        }
-                    }
-                }
-                SelectCase::Send { channel_id, value } => {
-                    let Some(channel) = self.get_channel(*channel_id) else {
-                        continue;
-                    };
-                    match channel.send_with_status(value.clone()) {
-                        ChannelSendStatus::Sent => {
-                            return Ok(SelectResult::Sent {
-                                channel_id: *channel_id,
-                            });
-                        }
-                        ChannelSendStatus::Closed => continue,
-                        ChannelSendStatus::Error(err) => {
-                            return Ok(SelectResult::Error(err));
-                        }
-                        ChannelSendStatus::WouldBlock => continue,
-                    }
-                }
-                SelectCase::Timeout { duration } => {
-                    if duration.is_zero() {
-                        return Ok(SelectResult::Timeout);
-                    }
-                }
-            }
-        }
-
-        Ok(SelectResult::WouldBlock)
     }
 
     /// Remove a select operation from the manager.
@@ -243,6 +252,128 @@ pub enum SelectResult {
     Error(String),
 }
 
+/// Future that resolves when one of the select cases completes.
+pub struct ChannelSelectFuture {
+    cases: Vec<ChannelSelectFutureCase>,
+    timeout_at: Option<Instant>,
+    completed: bool,
+}
+
+struct ChannelSelectFutureCase {
+    channel_id: ChannelId,
+    channel: Channel,
+    state: ChannelSelectFutureCaseKind,
+    closed: bool,
+}
+
+enum ChannelSelectFutureCaseKind {
+    Receive { pattern: String },
+    Send { value: AsyncValue },
+}
+
+impl ChannelSelectFuture {
+    fn new(cases: Vec<ChannelSelectFutureCase>, timeout: Option<Duration>) -> Self {
+        let timeout_at = timeout.map(|duration| Instant::now() + duration);
+        Self {
+            cases,
+            timeout_at,
+            completed: false,
+        }
+    }
+}
+
+impl Future for ChannelSelectFuture {
+    type Output = Result<SelectResult, AsyncError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.completed {
+            return Poll::Ready(Ok(SelectResult::WouldBlock));
+        }
+
+        let mut pending = false;
+
+        for case in &mut self.cases {
+            if case.closed {
+                continue;
+            }
+
+            match &mut case.state {
+                ChannelSelectFutureCaseKind::Receive { pattern } => {
+                    match case.channel.try_recv_with_status() {
+                        ChannelReceiveStatus::Received(value) => {
+                            self.completed = true;
+                            return Poll::Ready(Ok(SelectResult::Received {
+                                channel_id: case.channel_id,
+                                value,
+                                pattern: pattern.clone(),
+                            }));
+                        }
+                        ChannelReceiveStatus::WouldBlock => {
+                            pending = true;
+                            if case.channel.register_receiver_waker(cx.waker()).is_err() {
+                                case.closed = true;
+                            }
+                        }
+                        ChannelReceiveStatus::Closed => {
+                            case.closed = true;
+                        }
+                        ChannelReceiveStatus::Error(err) => {
+                            self.completed = true;
+                            return Poll::Ready(Ok(SelectResult::Error(err)));
+                        }
+                    }
+                }
+                ChannelSelectFutureCaseKind::Send { value } => {
+                    match case.channel.send_with_status(value.clone()) {
+                        ChannelSendStatus::Sent => {
+                            self.completed = true;
+                            return Poll::Ready(Ok(SelectResult::Sent {
+                                channel_id: case.channel_id,
+                            }));
+                        }
+                        ChannelSendStatus::WouldBlock => {
+                            pending = true;
+                            if case.channel.register_sender_waker(cx.waker()).is_err() {
+                                case.closed = true;
+                            }
+                        }
+                        ChannelSendStatus::Closed => {
+                            case.closed = true;
+                        }
+                        ChannelSendStatus::Error(err) => {
+                            self.completed = true;
+                            return Poll::Ready(Ok(SelectResult::Error(err)));
+                        }
+                    }
+                }
+            }
+        }
+
+        self.cases.retain(|case| !case.closed);
+
+        if self.cases.is_empty() {
+            self.completed = true;
+            return Poll::Ready(Ok(SelectResult::WouldBlock));
+        }
+
+        if let Some(timeout_at) = self.timeout_at {
+            if Instant::now() >= timeout_at {
+                self.completed = true;
+                return Poll::Ready(Ok(SelectResult::Timeout));
+            } else {
+                pending = true;
+            }
+        }
+
+        if pending {
+            Poll::Pending
+        } else {
+            self.completed = true;
+            Poll::Ready(Ok(SelectResult::WouldBlock))
+        }
+    }
+}
+
 /// Helper function used by the interpreter to instantiate channels from type
 /// information. The manager registration is left to the caller because it lives
 /// behind runtime state.
@@ -256,10 +387,25 @@ pub fn create_channel_from_type(
     Ok((AsyncValue::Channel(sender), AsyncValue::Channel(channel)))
 }
 
+fn noop_waker() -> Waker {
+    unsafe fn clone(data: *const ()) -> RawWaker {
+        RawWaker::new(data, &VTABLE)
+    }
+
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
+
+    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+
+    unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::AsyncValue;
+    use std::task::{Context, Poll};
 
     #[test]
     fn register_and_lookup_channel() {
@@ -300,5 +446,72 @@ mod tests {
 
         manager.close_channel(id).expect("close succeeds");
         assert!(manager.get_channel(id).is_none());
+    }
+
+    #[test]
+    fn select_future_resolves_on_receive() {
+        let mut manager = ChannelManager::new();
+        let channel = manager.create_channel(Some(1));
+        let id = channel.id();
+
+        let cases = [SelectCase::Receive {
+            channel_id: id,
+            pattern: "val".to_string(),
+        }];
+
+        let mut future = Box::pin(manager.select_future(&cases, None).unwrap());
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        assert!(matches!(future.as_mut().poll(&mut cx), Poll::Pending));
+
+        assert_eq!(
+            channel.send_with_status(AsyncValue::Integer(42)),
+            ChannelSendStatus::Sent
+        );
+
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(Ok(SelectResult::Received { value, .. })) => {
+                assert_eq!(value, AsyncValue::Integer(42));
+            }
+            other => panic!("expected received result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn select_future_handles_blocked_send() {
+        let mut manager = ChannelManager::new();
+        let channel = manager.create_channel(Some(1));
+        let id = channel.id();
+
+        // Fill channel to force send branch to block.
+        assert_eq!(
+            channel.send_with_status(AsyncValue::Integer(1)),
+            ChannelSendStatus::Sent
+        );
+
+        let cases = [SelectCase::Send {
+            channel_id: id,
+            value: AsyncValue::Integer(2),
+        }];
+
+        let mut future = Box::pin(manager.select_future(&cases, None).unwrap());
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        assert!(matches!(future.as_mut().poll(&mut cx), Poll::Pending));
+
+        let drain = manager.get_channel(id).expect("channel available");
+        assert!(matches!(
+            drain.try_recv_with_status(),
+            ChannelReceiveStatus::Received(_)
+        ));
+
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(Ok(SelectResult::Sent { channel_id })) => {
+                assert_eq!(channel_id, id);
+            }
+            other => panic!("expected send result, got {:?}", other),
+        }
     }
 }

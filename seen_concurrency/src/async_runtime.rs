@@ -5,9 +5,12 @@
 //! The runtime is designed for zero-cost abstractions with compile-time
 //! optimization and runtime efficiency.
 
-use crate::types::{
-    AsyncError, AsyncResult, AsyncValue, Channel, Promise, TaskHandle, TaskId, TaskPriority,
-    TaskState,
+use crate::{
+    channels::{ChannelManager, ChannelSelectFuture, SelectCase},
+    types::{
+        AsyncError, AsyncResult, AsyncValue, Channel, Promise, TaskHandle, TaskId, TaskPriority,
+        TaskState,
+    },
 };
 use seen_lexer::position::Position;
 use std::collections::{HashMap, VecDeque};
@@ -15,6 +18,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
+use std::time::Duration;
 
 /// Main async runtime for executing Seen async operations
 #[derive(Debug)]
@@ -481,6 +485,16 @@ impl AsyncRuntime {
         channel: Channel,
     ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
         Box::pin(channel.receive_future())
+    }
+
+    /// Create a future that resolves when a select expression completes.
+    pub fn channel_select_future(
+        &self,
+        manager: &ChannelManager,
+        operations: &[SelectCase],
+        timeout: Option<Duration>,
+    ) -> Result<ChannelSelectFuture, AsyncError> {
+        manager.select_future(operations, timeout)
     }
 }
 
