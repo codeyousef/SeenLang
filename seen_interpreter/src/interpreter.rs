@@ -2446,6 +2446,91 @@ mod tests {
     }
 
     #[test]
+    fn select_handles_multiple_channels() {
+        let mut interpreter = Interpreter::new();
+        let ch1 = Channel::new(ChannelId::allocate(), Some(1));
+        let ch2 = Channel::new(ChannelId::allocate(), Some(1));
+
+        interpreter
+            .runtime
+            .define_variable("rx1".to_string(), Value::Channel(ch1.clone()));
+        interpreter
+            .runtime
+            .define_variable("rx2".to_string(), Value::Channel(ch2.clone()));
+
+        interpreter
+            .runtime
+            .define_variable("value".to_string(), Value::Null);
+
+        let sender_one = ch1.clone();
+        let sender_two = ch2.clone();
+
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(2));
+            let _ = sender_one.send_with_status(AsyncValue::Integer(1));
+        });
+
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(5));
+            let _ = sender_two.send_with_status(AsyncValue::Integer(2));
+        });
+
+        let select_expr = Expression::Select {
+            cases: vec![
+                seen_parser::ast::SelectCase {
+                    channel: Box::new(Expression::Identifier {
+                        name: "rx1".to_string(),
+                        is_public: false,
+                        pos: Position::start(),
+                    }),
+                    pattern: Pattern::Identifier("value".to_string()),
+                    handler: Box::new(Expression::Identifier {
+                        name: "value".to_string(),
+                        is_public: false,
+                        pos: Position::start(),
+                    }),
+                },
+                seen_parser::ast::SelectCase {
+                    channel: Box::new(Expression::Identifier {
+                        name: "rx2".to_string(),
+                        is_public: false,
+                        pos: Position::start(),
+                    }),
+                    pattern: Pattern::Identifier("value".to_string()),
+                    handler: Box::new(Expression::Identifier {
+                        name: "value".to_string(),
+                        is_public: false,
+                        pos: Position::start(),
+                    }),
+                },
+            ],
+            pos: Position::start(),
+        };
+
+        let first_result = interpreter
+            .interpret_expression(&select_expr)
+            .expect("first select should resolve");
+        let first_int = match first_result {
+            Value::Integer(i) => i,
+            other => panic!("expected integer from first select, got {:?}", other),
+        };
+        let first_is_one = first_int == 1;
+
+        let second_result = interpreter
+            .interpret_expression(&select_expr)
+            .expect("second select should resolve");
+        let second_int = match second_result {
+            Value::Integer(i) => i,
+            other => panic!("expected integer from second select, got {:?}", other),
+        };
+        let second_is_one = second_int == 1;
+        assert_ne!(
+            first_is_one, second_is_one,
+            "expected selects to consume both channel values"
+        );
+    }
+
+    #[test]
     fn embed_const_loads_bytes() {
         let dir = tempdir().expect("create temp dir");
         let asset_path = dir.path().join("embed.bin");

@@ -292,60 +292,73 @@ impl Future for ChannelSelectFuture {
 
         let mut pending = false;
 
-        for case in &mut self.cases {
-            if case.closed {
-                continue;
+        for idx in 0..self.cases.len() {
+            let mut mark_closed = false;
+            let mut outcome: Option<SelectResult> = None;
+
+            {
+                let case = &mut self.cases[idx];
+                if case.closed {
+                    continue;
+                }
+
+                match &mut case.state {
+                    ChannelSelectFutureCaseKind::Receive { pattern } => {
+                        match case.channel.try_recv_with_status() {
+                            ChannelReceiveStatus::Received(value) => {
+                                outcome = Some(SelectResult::Received {
+                                    channel_id: case.channel_id,
+                                    value,
+                                    pattern: pattern.clone(),
+                                });
+                            }
+                            ChannelReceiveStatus::WouldBlock => {
+                                pending = true;
+                                if case.channel.register_receiver_waker(cx.waker()).is_err() {
+                                    mark_closed = true;
+                                }
+                            }
+                            ChannelReceiveStatus::Closed => {
+                                mark_closed = true;
+                            }
+                            ChannelReceiveStatus::Error(err) => {
+                                outcome = Some(SelectResult::Error(err));
+                            }
+                        }
+                    }
+                    ChannelSelectFutureCaseKind::Send { value } => {
+                        match case.channel.send_with_status(value.clone()) {
+                            ChannelSendStatus::Sent => {
+                                outcome = Some(SelectResult::Sent {
+                                    channel_id: case.channel_id,
+                                });
+                            }
+                            ChannelSendStatus::WouldBlock => {
+                                pending = true;
+                                if case.channel.register_sender_waker(cx.waker()).is_err() {
+                                    mark_closed = true;
+                                }
+                            }
+                            ChannelSendStatus::Closed => {
+                                mark_closed = true;
+                            }
+                            ChannelSendStatus::Error(err) => {
+                                outcome = Some(SelectResult::Error(err));
+                            }
+                        }
+                    }
+                }
             }
 
-            match &mut case.state {
-                ChannelSelectFutureCaseKind::Receive { pattern } => {
-                    match case.channel.try_recv_with_status() {
-                        ChannelReceiveStatus::Received(value) => {
-                            self.completed = true;
-                            return Poll::Ready(Ok(SelectResult::Received {
-                                channel_id: case.channel_id,
-                                value,
-                                pattern: pattern.clone(),
-                            }));
-                        }
-                        ChannelReceiveStatus::WouldBlock => {
-                            pending = true;
-                            if case.channel.register_receiver_waker(cx.waker()).is_err() {
-                                case.closed = true;
-                            }
-                        }
-                        ChannelReceiveStatus::Closed => {
-                            case.closed = true;
-                        }
-                        ChannelReceiveStatus::Error(err) => {
-                            self.completed = true;
-                            return Poll::Ready(Ok(SelectResult::Error(err)));
-                        }
-                    }
+            if mark_closed {
+                if let Some(case) = self.cases.get_mut(idx) {
+                    case.closed = true;
                 }
-                ChannelSelectFutureCaseKind::Send { value } => {
-                    match case.channel.send_with_status(value.clone()) {
-                        ChannelSendStatus::Sent => {
-                            self.completed = true;
-                            return Poll::Ready(Ok(SelectResult::Sent {
-                                channel_id: case.channel_id,
-                            }));
-                        }
-                        ChannelSendStatus::WouldBlock => {
-                            pending = true;
-                            if case.channel.register_sender_waker(cx.waker()).is_err() {
-                                case.closed = true;
-                            }
-                        }
-                        ChannelSendStatus::Closed => {
-                            case.closed = true;
-                        }
-                        ChannelSendStatus::Error(err) => {
-                            self.completed = true;
-                            return Poll::Ready(Ok(SelectResult::Error(err)));
-                        }
-                    }
-                }
+            }
+
+            if let Some(result) = outcome {
+                self.completed = true;
+                return Poll::Ready(Ok(result));
             }
         }
 

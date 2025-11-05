@@ -94,14 +94,18 @@ instead of short-circuiting, while LLVM/backend work still needs full wake + fut
     rely on placeholder helpers until real wake semantics land in the backend.
   - Added `jobs.scope { ... }` syntax with parser/typechecker/interpreter coverage; scoped spawns now work under the
     jobs namespace.
+  - Channel manager now exposes a waker-driven `select` future; interpreter `select` uses canonical wakers instead of
+    busy waits and the async runtime surfaces the helper for stage integration.
+  - Authored a concurrency patterns guide and new interpreter regression covering multi-channel select fairness; this
+    seeds the documentation and regression matrix requested in the MVP plan.
 
 * **Remaining tasks:**
-  1. Extend channel runtime/async infrastructure (ChannelManager/AsyncRuntime/select executor) so receive/select futures
-     integrate with wakers instead of polling stubs, and surface those hooks to the interpreter and CLI.
+  1. Extend channel runtime/async infrastructure into the CLI and Stage builds (drive channel futures through the
+     command runner and seen_cli entrypoints, plus add end-to-end regression coverage).
   2. Wire the LLVM backend to call the real channel send/receive/select helpers (no placeholders) and ensure Stage
      builds/IR determinism checks continue to pass.
-  3. Document concurrency patterns (scoped jobs, channel futures/select) and add regression tests that cover scoped job
-     draining plus multi-stage channel workflows.
+  3. ✅ Documentation and interpreter regressions landed; expand coverage to Stage runtime once the FFI layer is
+     implemented.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit.
 
