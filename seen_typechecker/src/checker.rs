@@ -285,16 +285,53 @@ impl TypeChecker {
                 return_type: Some(Type::Unit),
             },
         );
+        let channel_generic_type = Type::Struct {
+            name: "Channel".to_string(),
+            fields: HashMap::new(),
+            generics: vec![Type::Generic("T".to_string())],
+        };
+
+        let mut channel_endpoints_fields_generic = HashMap::new();
+        channel_endpoints_fields_generic.insert("Sender".to_string(), channel_generic_type.clone());
+        channel_endpoints_fields_generic
+            .insert("Receiver".to_string(), channel_generic_type.clone());
+
+        let channel_endpoints_generic = Type::Struct {
+            name: "ChannelEndpoints".to_string(),
+            fields: channel_endpoints_fields_generic,
+            generics: vec![Type::Generic("T".to_string())],
+        };
+
+        let mut channel_endpoints_fields_unknown = HashMap::new();
+        channel_endpoints_fields_unknown.insert(
+            "Sender".to_string(),
+            Type::Struct {
+                name: "Channel".to_string(),
+                fields: HashMap::new(),
+                generics: vec![Type::Unknown],
+            },
+        );
+        channel_endpoints_fields_unknown.insert(
+            "Receiver".to_string(),
+            Type::Struct {
+                name: "Channel".to_string(),
+                fields: HashMap::new(),
+                generics: vec![Type::Unknown],
+            },
+        );
+
+        let channel_endpoints_return = Type::Struct {
+            name: "ChannelEndpoints".to_string(),
+            fields: channel_endpoints_fields_unknown,
+            generics: vec![Type::Unknown],
+        };
+
         env.define_function(
             "Channel".to_string(),
             FunctionSignature {
                 name: "Channel".to_string(),
                 parameters: Vec::new(),
-                return_type: Some(Type::Struct {
-                    name: "Channel".to_string(),
-                    fields: HashMap::new(),
-                    generics: vec![Type::Unknown],
-                }),
+                return_type: Some(channel_endpoints_return),
             },
         );
 
@@ -306,12 +343,8 @@ impl TypeChecker {
         };
         env.define_type("Phantom".to_string(), phantom_type);
 
-        let channel_type = Type::Struct {
-            name: "Channel".to_string(),
-            fields: HashMap::new(),
-            generics: vec![Type::Generic("T".to_string())],
-        };
-        env.define_type("Channel".to_string(), channel_type);
+        env.define_type("Channel".to_string(), channel_generic_type);
+        env.define_type("ChannelEndpoints".to_string(), channel_endpoints_generic);
 
         Self {
             env,
@@ -1082,6 +1115,52 @@ impl TypeChecker {
     ) -> Type {
         // Complete call checking with full type resolution
         if let Expression::Identifier { name, .. } = callee {
+            if name == "Channel" {
+                if args.len() > 1 {
+                    self.result.add_error(TypeError::ArgumentCountMismatch {
+                        name: name.clone(),
+                        expected: 1,
+                        actual: args.len(),
+                        position: pos,
+                    });
+                }
+
+                if let Some(arg) = args.get(0) {
+                    let capacity_type = self.check_expression(arg);
+                    if !capacity_type.is_assignable_to(&Type::Int) {
+                        self.result.add_error(TypeError::TypeMismatch {
+                            expected: Type::Int,
+                            actual: capacity_type,
+                            position: pos,
+                        });
+                    }
+                }
+
+                let mut fields = HashMap::new();
+                fields.insert(
+                    "Sender".to_string(),
+                    Type::Struct {
+                        name: "Channel".to_string(),
+                        fields: HashMap::new(),
+                        generics: vec![Type::Unknown],
+                    },
+                );
+                fields.insert(
+                    "Receiver".to_string(),
+                    Type::Struct {
+                        name: "Channel".to_string(),
+                        fields: HashMap::new(),
+                        generics: vec![Type::Unknown],
+                    },
+                );
+
+                return Type::Struct {
+                    name: "ChannelEndpoints".to_string(),
+                    fields,
+                    generics: vec![Type::Unknown],
+                };
+            }
+
             if let Some(signature) = self.env.get_function(name).cloned() {
                 // Check argument count
                 if args.len() != signature.parameters.len() {

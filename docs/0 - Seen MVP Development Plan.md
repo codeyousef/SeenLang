@@ -91,15 +91,15 @@ gap before we can call the phase entirely closed.
     send/receive outcomes through structured results.
   - Added regression coverage for scoped jobs waiting on channel-driven tasks and for multi-stage pipelines that route
     values through multiple futures before completion.
+  - Promoted a first-class `Channel()` constructor that returns `Sender`/`Receiver` endpoints, including optional
+    capacity support, plus type-checker and documentation updates so user code can adopt the new surface immediately.
   - Documented structured concurrency patterns (`docs/concurrency-patterns.md`) so onboarding material reflects the
     runtime contract, and linked it from the quickstart guide.
 
 * **Remaining tasks:**
-  1. Surface a first-class `Channel<T>(capacity)` constructor in the language (tx/rx tuple) and teach the type checker
-     to bind received payloads so select handlers can destructure values directly.
-  2. Thread channel futures through `seen_cli` and Stage builds, adding CLI/LLVM regression coverage to confirm the
+  1. Thread channel futures through `seen_cli` and Stage builds, adding CLI/LLVM regression coverage to confirm the
      compiled pipeline observes the same semantics as the interpreter.
-  3. Verify CLI stdout/stderr handling once channel-driven programs run under the command runner, then capture Stage
+  2. Verify CLI stdout/stderr handling once channel-driven programs run under the command runner, then capture Stage
      determinism hashes to ensure the new runtime plumbing does not perturb reproducibility.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe

@@ -13,9 +13,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Type signature for built-in functions
 pub type BuiltinFunction = fn(&[Value], Position) -> InterpreterResult<Value>;
 
+#[derive(Copy, Clone)]
+enum BuiltinArity {
+    Exact(usize),
+    Range { min: usize, max: Option<usize> },
+}
+
 /// Registry of built-in functions
 pub struct BuiltinRegistry {
-    functions: HashMap<String, (BuiltinFunction, usize)>, // (function, arity)
+    functions: HashMap<String, (BuiltinFunction, BuiltinArity)>,
 }
 
 impl BuiltinRegistry {
@@ -26,41 +32,55 @@ impl BuiltinRegistry {
         };
 
         // Register all built-in functions
-        registry.register("print", builtin_print, 1);
-        registry.register("println", builtin_println, 1);
-        registry.register("len", builtin_len, 1);
-        registry.register("type_of", builtin_type_of, 1);
-        registry.register("to_string", builtin_to_string, 1);
-        registry.register("parse_int", builtin_parse_int, 1);
-        registry.register("parse_float", builtin_parse_float, 1);
-        registry.register("abs", builtin_abs, 1);
-        registry.register("min", builtin_min, 2);
-        registry.register("max", builtin_max, 2);
-        registry.register("floor", builtin_floor, 1);
-        registry.register("ceil", builtin_ceil, 1);
-        registry.register("round", builtin_round, 1);
-        registry.register("sqrt", builtin_sqrt, 1);
-        registry.register("pow", builtin_pow, 2);
+        registry.register_exact("print", builtin_print, 1);
+        registry.register_exact("println", builtin_println, 1);
+        registry.register_exact("len", builtin_len, 1);
+        registry.register_exact("type_of", builtin_type_of, 1);
+        registry.register_exact("to_string", builtin_to_string, 1);
+        registry.register_exact("parse_int", builtin_parse_int, 1);
+        registry.register_exact("parse_float", builtin_parse_float, 1);
+        registry.register_exact("abs", builtin_abs, 1);
+        registry.register_exact("min", builtin_min, 2);
+        registry.register_exact("max", builtin_max, 2);
+        registry.register_exact("floor", builtin_floor, 1);
+        registry.register_exact("ceil", builtin_ceil, 1);
+        registry.register_exact("round", builtin_round, 1);
+        registry.register_exact("sqrt", builtin_sqrt, 1);
+        registry.register_exact("pow", builtin_pow, 2);
 
         // System/IO builtins (double-underscore to avoid name clashes with user code)
-        registry.register("__GetCommandLineArgs", builtin_get_command_line_args, 0);
-        registry.register("__GetTimestamp", builtin_get_timestamp, 0);
-        registry.register("__ReadFile", builtin_read_file, 1);
-        registry.register("__WriteFile", builtin_write_file, 2);
-        registry.register("__CreateDirectory", builtin_create_directory, 1);
-        registry.register("__DeleteFile", builtin_delete_file, 1);
-        registry.register("__ExecuteProgram", builtin_execute_program, 1);
-        registry.register("__ExecuteCommand", builtin_execute_command, 1);
-        registry.register("__FormatSeenCode", builtin_format_seen_code, 1);
-        registry.register("__Abort", builtin_abort, 1);
-        registry.register("Channel", builtin_channel, 0);
+        registry.register_exact("__GetCommandLineArgs", builtin_get_command_line_args, 0);
+        registry.register_exact("__GetTimestamp", builtin_get_timestamp, 0);
+        registry.register_exact("__ReadFile", builtin_read_file, 1);
+        registry.register_exact("__WriteFile", builtin_write_file, 2);
+        registry.register_exact("__CreateDirectory", builtin_create_directory, 1);
+        registry.register_exact("__DeleteFile", builtin_delete_file, 1);
+        registry.register_exact("__ExecuteProgram", builtin_execute_program, 1);
+        registry.register_exact("__ExecuteCommand", builtin_execute_command, 1);
+        registry.register_exact("__FormatSeenCode", builtin_format_seen_code, 1);
+        registry.register_exact("__Abort", builtin_abort, 1);
+        registry.register_range("Channel", builtin_channel, 0, Some(1));
 
         registry
     }
 
     /// Register a built-in function
-    fn register(&mut self, name: &str, function: BuiltinFunction, arity: usize) {
-        self.functions.insert(name.to_string(), (function, arity));
+    fn register_exact(&mut self, name: &str, function: BuiltinFunction, arity: usize) {
+        self.functions
+            .insert(name.to_string(), (function, BuiltinArity::Exact(arity)));
+    }
+
+    fn register_range(
+        &mut self,
+        name: &str,
+        function: BuiltinFunction,
+        min: usize,
+        max: Option<usize>,
+    ) {
+        self.functions.insert(
+            name.to_string(),
+            (function, BuiltinArity::Range { min, max }),
+        );
     }
 
     /// Check if a function is a built-in
@@ -71,13 +91,27 @@ impl BuiltinRegistry {
     /// Call a built-in function
     pub fn call(&self, name: &str, args: &[Value], position: Position) -> InterpreterResult<Value> {
         if let Some((function, expected_arity)) = self.functions.get(name) {
-            if args.len() != *expected_arity {
-                return Err(InterpreterError::argument_count_mismatch(
-                    name.to_string(),
-                    *expected_arity,
-                    args.len(),
-                    position,
-                ));
+            match expected_arity {
+                BuiltinArity::Exact(n) => {
+                    if args.len() != *n {
+                        return Err(InterpreterError::argument_count_mismatch(
+                            name.to_string(),
+                            *n,
+                            args.len(),
+                            position,
+                        ));
+                    }
+                }
+                BuiltinArity::Range { min, max } => {
+                    if args.len() < *min || max.map_or(false, |max| args.len() > max) {
+                        return Err(InterpreterError::argument_count_mismatch(
+                            name.to_string(),
+                            max.unwrap_or(*min),
+                            args.len(),
+                            position,
+                        ));
+                    }
+                }
             }
             function(args, position)
         } else {
@@ -193,9 +227,48 @@ fn builtin_max(args: &[Value], position: Position) -> InterpreterResult<Value> {
     }
 }
 
-fn builtin_channel(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
-    let channel = Channel::new(ChannelId::allocate(), None);
-    Ok(Value::Channel(channel))
+fn builtin_channel(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    if args.len() > 1 {
+        return Err(InterpreterError::argument_count_mismatch(
+            "Channel".to_string(),
+            1,
+            args.len(),
+            position,
+        ));
+    }
+
+    let capacity = if let Some(arg) = args.get(0) {
+        let capacity_value = match arg {
+            Value::Integer(v) => *v,
+            other => {
+                return Err(InterpreterError::type_error(
+                    format!("Channel capacity must be Int, got {}", other.type_name()),
+                    position,
+                ))
+            }
+        };
+
+        if capacity_value < 0 {
+            return Err(InterpreterError::runtime(
+                "Channel capacity must be non-negative",
+                position,
+            ));
+        }
+
+        Some(capacity_value as usize)
+    } else {
+        None
+    };
+
+    let channel = Channel::new(ChannelId::allocate(), capacity);
+    let mut fields = HashMap::new();
+    fields.insert("Sender".to_string(), Value::Channel(channel.clone()));
+    fields.insert("Receiver".to_string(), Value::Channel(channel));
+
+    Ok(Value::Struct {
+        name: "ChannelEndpoints".to_string(),
+        fields,
+    })
 }
 
 fn builtin_abort(args: &[Value], position: Position) -> InterpreterResult<Value> {
@@ -401,6 +474,7 @@ fn builtin_format_seen_code(args: &[Value], _position: Position) -> InterpreterR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use seen_concurrency::types::{AsyncValue, ChannelReceiveStatus, ChannelSendStatus};
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
@@ -450,6 +524,66 @@ mod tests {
             Some(value) => std::env::set_var("SEEN_DETERMINISTIC", value),
             None => std::env::remove_var("SEEN_DETERMINISTIC"),
         }
+    }
+
+    #[test]
+    fn channel_builtin_returns_endpoints_struct() {
+        let endpoints = builtin_channel(&[], Position::start()).expect("Channel() should succeed");
+
+        let Value::Struct { name, fields } = endpoints else {
+            panic!("expected Channel to return struct endpoints");
+        };
+        assert_eq!(name, "ChannelEndpoints");
+        assert!(matches!(fields.get("Sender"), Some(Value::Channel(_))));
+        assert!(matches!(fields.get("Receiver"), Some(Value::Channel(_))));
+    }
+
+    #[test]
+    fn channel_builtin_honours_capacity_argument() {
+        let endpoints = builtin_channel(&[Value::Integer(1)], Position::start())
+            .expect("Channel(1) should succeed");
+
+        let Value::Struct { fields, .. } = endpoints else {
+            panic!("expected Channel to return struct endpoints");
+        };
+
+        let sender_channel = match fields.get("Sender") {
+            Some(Value::Channel(ch)) => ch.clone(),
+            other => panic!("unexpected sender field: {:?}", other),
+        };
+
+        assert_eq!(
+            sender_channel.send_with_status(AsyncValue::Integer(1)),
+            ChannelSendStatus::Sent
+        );
+        assert_eq!(
+            sender_channel.send_with_status(AsyncValue::Integer(2)),
+            ChannelSendStatus::WouldBlock
+        );
+
+        let receiver_channel = match fields.get("Receiver") {
+            Some(Value::Channel(ch)) => ch.clone(),
+            other => panic!("unexpected receiver field: {:?}", other),
+        };
+
+        match receiver_channel.try_recv_with_status() {
+            ChannelReceiveStatus::Received(value) => {
+                assert_eq!(value, AsyncValue::Integer(1));
+            }
+            other => panic!("expected to receive value, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn channel_builtin_rejects_negative_capacity() {
+        let err = builtin_channel(&[Value::Integer(-1)], Position::start())
+            .expect_err("Channel(-1) should fail");
+        assert!(
+            err.to_string()
+                .contains("Channel capacity must be non-negative"),
+            "unexpected error: {}",
+            err
+        );
     }
 }
 

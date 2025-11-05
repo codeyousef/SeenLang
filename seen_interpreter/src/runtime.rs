@@ -173,6 +173,14 @@ impl Runtime {
         self.environment_stack.push(new_env);
     }
 
+    /// Snapshot the current lexical environment.
+    pub fn snapshot_environment(&self) -> Environment {
+        self.environment_stack
+            .last()
+            .cloned()
+            .unwrap_or_else(Environment::new)
+    }
+
     /// Pop an environment
     pub fn pop_environment(&mut self) -> Result<(), RuntimeError> {
         if self.environment_stack.len() <= 1 {
@@ -180,6 +188,12 @@ impl Runtime {
         }
         self.environment_stack.pop();
         Ok(())
+    }
+
+    /// Replace the root environment stack with a captured snapshot.
+    pub fn initialize_with_environment(&mut self, env: Environment) {
+        self.environment_stack.clear();
+        self.environment_stack.push(env);
     }
 
     /// Push a structured concurrency scope frame

@@ -2,7 +2,7 @@
 
 use crate::builtins::BuiltinRegistry;
 use crate::errors::{InterpreterError, InterpreterResult};
-use crate::runtime::Runtime;
+use crate::runtime::{Environment, Runtime};
 use crate::value::Value;
 use seen_concurrency::{
     async_runtime::AsyncExecutionContext,
@@ -35,6 +35,7 @@ use std::time::Duration;
 struct SeenAsyncFunction {
     expression: Expression,
     position: Position,
+    environment: Environment,
 }
 
 impl AsyncFunctionTrait for SeenAsyncFunction {
@@ -44,10 +45,14 @@ impl AsyncFunctionTrait for SeenAsyncFunction {
     ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
         let expr = self.expression.clone();
         let pos = self.position.clone();
+        let captured_env = self.environment.clone();
 
         Box::pin(async move {
             // Create a new interpreter instance for this task
             let mut interpreter = Interpreter::new();
+            interpreter
+                .runtime
+                .initialize_with_environment(captured_env);
 
             match interpreter.interpret_expression(&expr) {
                 Ok(value) => {
@@ -1382,10 +1387,14 @@ impl Interpreter {
         let async_runtime = self.runtime.async_runtime();
         let mut runtime = async_runtime.lock().unwrap();
 
+        // Capture the current lexical environment for the spawned task
+        let captured_env = self.runtime.snapshot_environment();
+
         // Create async function wrapper for the expression
         let async_function = Box::new(SeenAsyncFunction {
             expression: expr.clone(),
             position: pos.clone(),
+            environment: captured_env,
         });
 
         // Spawn the task with normal priority

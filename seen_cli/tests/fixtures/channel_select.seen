@@ -1,6 +1,11 @@
 fun Main() -> Int {
-    let ch1 = Channel()
-    let ch2 = Channel()
+    let endpoints1 = Channel()
+    let ch1 = endpoints1.Sender
+    let rx1 = endpoints1.Receiver
+
+    let endpoints2 = Channel()
+    let ch2 = endpoints2.Sender
+    let rx2 = endpoints2.Receiver
 
     scope {
         spawn {
@@ -11,22 +16,22 @@ fun Main() -> Int {
         }
 
         let first = select {
-            ch1 -> _ => {
+            rx1 -> _ => {
                 println("1")
                 1
             },
-            ch2 -> _ => {
+            rx2 -> _ => {
                 println("2")
                 2
             }
         }
 
         let second = select {
-            ch1 -> _ => {
+            rx1 -> _ => {
                 println("1")
                 1
             },
-            ch2 -> _ => {
+            rx2 -> _ => {
                 println("2")
                 2
             }

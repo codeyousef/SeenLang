@@ -12,10 +12,10 @@ the runtime drains the outstanding tasks before unwinding the scope frame.
 
 ```seen
 jobs.scope {
-    spawn {
-        let (tx, _) = Channel<Int>();
-        await tx.Send(42);
-    };
+    let endpoints = Channel();
+    let tx = endpoints.Sender;
+
+    spawn { await tx.Send(42); };
     1
 }
 ```
@@ -34,7 +34,9 @@ Seen channels surface futures for both send and receive operations. A bounded ch
 registers wakers so that `await tx.Send(value)` resumes as soon as capacity frees.
 
 ```seen
-let (tx, rx) = Channel<Int>(capacity = 1);
+let endpoints = Channel();
+let tx = endpoints.Sender;
+let rx = endpoints.Receiver;
 
 jobs.scope {
     spawn { await tx.Send(7); };
@@ -52,6 +54,8 @@ jobs.scope {
 
 Implementation notes:
 
+- `Channel()` returns a `ChannelEndpoints` struct; access `.Sender` and `.Receiver` for the tx/rx halves. Pass an
+  optional capacity (`Channel(4)`) to create bounded channels.
 - Channel handles are generational. Dropping or closing a channel invalidates older handles, and wakers wake pending
   futures with an error when this happens.
 - Send futures return `Boolean(true)` on success. Receive futures return the delivered `AsyncValue`.
@@ -62,8 +66,13 @@ Implementation notes:
 Timeout arms are optional and run after the requested `Duration`.
 
 ```seen
-let (input, output) = Channel<String>();
-let (fallback_tx, fallback_rx) = Channel<String>();
+let primary = Channel();
+let input = primary.Sender;
+let output = primary.Receiver;
+
+let fallback = Channel();
+let fallback_tx = fallback.Sender;
+let fallback_rx = fallback.Receiver;
 
 jobs.scope {
     spawn { await output.Send("ok"); };
