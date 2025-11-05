@@ -106,13 +106,13 @@ impl ChannelManager {
     /// Try to execute a recorded select operation. The current implementation
     /// is non-blocking and reports readiness or pending status.
     pub fn execute_select(&mut self, select_id: SelectId) -> Result<SelectResult, AsyncError> {
-        let select_op = self
-            .select_operations
-            .get(&select_id)
-            .ok_or_else(|| AsyncError::ChannelError {
-                reason: "Select operation not found".to_string(),
-                position: Position::new(0, 0, 0),
-            })?;
+        let select_op =
+            self.select_operations
+                .get(&select_id)
+                .ok_or_else(|| AsyncError::ChannelError {
+                    reason: "Select operation not found".to_string(),
+                    position: Position::new(0, 0, 0),
+                })?;
 
         if let Some(timeout) = select_op.timeout {
             if Instant::now().duration_since(select_op.created_at) >= timeout {

@@ -419,7 +419,7 @@ impl Channel {
         Ok(())
     }
 
-    fn register_receiver_waker(&self, waker: &Waker) -> Result<(), String> {
+    pub fn register_receiver_waker(&self, waker: &Waker) -> Result<(), String> {
         self.ensure_fresh()?;
         self.inner.register_receiver_waker(waker);
         Ok(())

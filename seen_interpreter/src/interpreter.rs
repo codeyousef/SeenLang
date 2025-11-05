@@ -26,7 +26,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::task::{RawWaker, RawWakerVTable, Waker};
 use std::thread;
 use std::time::Duration;
 
@@ -76,6 +77,72 @@ impl AsyncFunctionTrait for SeenAsyncFunction {
     fn name(&self) -> &str {
         "SeenExpression"
     }
+}
+
+/// Shared notifier used to bridge channel wakers back to the interpreter's select loop.
+struct ThreadNotify {
+    flag: Mutex<bool>,
+    condvar: Condvar,
+}
+
+impl ThreadNotify {
+    fn new() -> Self {
+        Self {
+            flag: Mutex::new(false),
+            condvar: Condvar::new(),
+        }
+    }
+
+    /// Reset the internal flag so the next wake can be observed.
+    fn reset(&self) {
+        if let Ok(mut guard) = self.flag.lock() {
+            *guard = false;
+        }
+    }
+
+    /// Block the current thread until a wake notification arrives.
+    fn wait(&self) {
+        let mut guard = self.flag.lock().expect("notify mutex poisoned");
+        while !*guard {
+            guard = self.condvar.wait(guard).expect("notify condvar poisoned");
+        }
+        *guard = false;
+    }
+
+    fn notify(&self) {
+        if let Ok(mut guard) = self.flag.lock() {
+            *guard = true;
+            self.condvar.notify_one();
+        }
+    }
+}
+
+fn make_thread_waker(notify: Arc<ThreadNotify>) -> Waker {
+    unsafe fn clone(data: *const ()) -> RawWaker {
+        let arc = Arc::from_raw(data as *const ThreadNotify);
+        let cloned = arc.clone();
+        let _ = Arc::into_raw(arc); // keep original alive
+        RawWaker::new(Arc::into_raw(cloned) as *const (), &VTABLE)
+    }
+
+    unsafe fn wake(data: *const ()) {
+        let arc = Arc::from_raw(data as *const ThreadNotify);
+        arc.notify();
+    }
+
+    unsafe fn wake_by_ref(data: *const ()) {
+        let arc = Arc::from_raw(data as *const ThreadNotify);
+        arc.notify();
+        let _ = Arc::into_raw(arc); // retain ownership
+    }
+
+    unsafe fn drop(data: *const ()) {
+        let _ = Arc::from_raw(data as *const ThreadNotify);
+    }
+
+    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+
+    unsafe { Waker::from_raw(RawWaker::new(Arc::into_raw(notify) as *const (), &VTABLE)) }
 }
 
 #[derive(Debug, Clone)]
@@ -1585,14 +1652,23 @@ impl Interpreter {
             ));
         }
 
-        // Evaluate channel expressions once and retain cloned handles for fairness iteration.
-        let mut evaluated_cases = Vec::new();
+        struct EvaluatedCase<'a> {
+            channel: Channel,
+            pattern: &'a Pattern,
+            handler: &'a Expression,
+            closed: bool,
+        }
+
+        let mut evaluated_cases: Vec<EvaluatedCase<'_>> = Vec::with_capacity(cases.len());
         for case in cases {
             let channel_value = self.interpret_expression(&case.channel)?;
             match channel_value {
-                Value::Channel(channel) => {
-                    evaluated_cases.push((channel, &case.pattern, &case.handler));
-                }
+                Value::Channel(channel) => evaluated_cases.push(EvaluatedCase {
+                    channel,
+                    pattern: &case.pattern,
+                    handler: &case.handler,
+                    closed: false,
+                }),
                 _ => {
                     return Err(InterpreterError::runtime(
                         "Select case must be a channel",
@@ -1602,29 +1678,36 @@ impl Interpreter {
             }
         }
 
-        let len = evaluated_cases.len();
+        let notify = Arc::new(ThreadNotify::new());
+        let waker = make_thread_waker(Arc::clone(&notify));
         let mut start_index = 0usize;
 
-        loop {
+        while !evaluated_cases.is_empty() {
+            notify.reset();
+            let len = evaluated_cases.len();
             let mut any_open = false;
+            let mut progress = false;
 
             for offset in 0..len {
                 let idx = (start_index + offset) % len;
-                let (channel, pattern, handler) = &evaluated_cases[idx];
+                let case = &mut evaluated_cases[idx];
 
-                match channel.try_recv_with_status() {
+                match case.channel.try_recv_with_status() {
                     ChannelReceiveStatus::Received(async_value) => {
+                        progress = true;
                         let received_value = self.async_value_to_value(&async_value);
-                        if self.match_pattern(pattern, &received_value) {
-                            return self.interpret_expression(handler);
+                        if self.match_pattern(case.pattern, &received_value) {
+                            return self.interpret_expression(case.handler);
                         }
-                        // Pattern did not match; continue checking other cases.
                     }
                     ChannelReceiveStatus::WouldBlock => {
                         any_open = true;
+                        if case.channel.register_receiver_waker(&waker).is_err() {
+                            case.closed = true;
+                        }
                     }
                     ChannelReceiveStatus::Closed => {
-                        // Closed channels should not contribute to liveness.
+                        case.closed = true;
                     }
                     ChannelReceiveStatus::Error(err) => {
                         return Err(InterpreterError::runtime(
@@ -1635,15 +1718,26 @@ impl Interpreter {
                 }
             }
 
-            if !any_open {
-                // All channels are closed or returned pattern mismatches; no further progression.
+            evaluated_cases.retain(|case| !case.closed);
+            if evaluated_cases.is_empty() {
                 return Ok(Value::Unit);
             }
 
-            start_index = (start_index + 1) % len;
-            // Cooperative back-off to avoid spinning when no cases are ready yet.
-            thread::sleep(Duration::from_millis(1));
+            start_index %= evaluated_cases.len();
+            start_index = (start_index + 1) % evaluated_cases.len();
+
+            if progress {
+                continue;
+            }
+
+            if !any_open {
+                return Ok(Value::Unit);
+            }
+
+            notify.wait();
         }
+
+        Ok(Value::Unit)
     }
 
     /// Extract emission values from flow body
