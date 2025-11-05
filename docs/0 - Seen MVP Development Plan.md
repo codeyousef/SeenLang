@@ -98,6 +98,8 @@ instead of short-circuiting, while LLVM/backend work still needs full wake + fut
     busy waits and the async runtime surfaces the helper for stage integration.
   - Authored a concurrency patterns guide and new interpreter regression covering multi-channel select fairness; this
     seeds the documentation and regression matrix requested in the MVP plan.
+  - CLI regression (`seen_cli/tests/channel_select.rs`) exercises `seen run` end-to-end with concurrent channel
+    handlers to ensure the command surface routes through the waker-aware runtime.
 
 * **Remaining tasks:**
   1. Extend channel runtime/async infrastructure into the CLI and Stage builds (drive channel futures through the

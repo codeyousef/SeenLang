@@ -1,3 +1,4 @@
+use assert_cmd::cargo::cargo_bin;
 use assert_cmd::Command;
 use std::fs;
 use std::path::PathBuf;
@@ -31,8 +32,7 @@ fun Main() -> Int {
         .expect("workspace root")
         .to_path_buf();
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::from(cargo_bin("seen_cli"))
         .current_dir(workspace_root)
         .args(["determinism", source.to_string_lossy().as_ref(), "-O0"])
         .assert()
