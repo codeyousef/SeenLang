@@ -172,6 +172,7 @@ pub enum IRValue {
     Char(char),
     String(String),
     StringConstant(usize), // Index into string table
+    ByteArray(Vec<u8>),
     Array(Vec<IRValue>),
     Struct {
         type_name: String,
@@ -200,6 +201,13 @@ impl IRValue {
             IRValue::Boolean(_) => IRType::Boolean,
             IRValue::Char(_) => IRType::Char,
             IRValue::String(_) | IRValue::StringConstant(_) => IRType::String,
+            IRValue::ByteArray(bytes) => {
+                if bytes.is_empty() {
+                    IRType::Array(Box::new(IRType::Void))
+                } else {
+                    IRType::Array(Box::new(IRType::Integer))
+                }
+            }
             IRValue::Array(values) => {
                 if let Some(first) = values.first() {
                     IRType::Array(Box::new(first.get_type()))
@@ -254,6 +262,7 @@ impl IRValue {
                 | IRValue::Char(_)
                 | IRValue::String(_)
                 | IRValue::StringConstant(_)
+                | IRValue::ByteArray(_)
                 | IRValue::Null
         )
     }
@@ -290,6 +299,14 @@ impl IRValue {
             IRValue::Char(c) => format!("'{}'", c.escape_default()),
             IRValue::String(s) => format!("\"{}\"", s.escape_default()),
             IRValue::StringConstant(index) => format!("@str.{}", index),
+            IRValue::ByteArray(bytes) => {
+                let hex = bytes
+                    .iter()
+                    .map(|b| format!("{:02X}", b))
+                    .collect::<Vec<_>>()
+                    .join("");
+                format!("bytes[{}]({})", bytes.len(), hex)
+            }
             IRValue::Array(elements) => {
                 if elements.is_empty() {
                     "[]".to_string()

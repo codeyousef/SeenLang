@@ -3,6 +3,7 @@
 //! This is the main entry point for the Seen language compiler and toolchain.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, Interpreter, KeywordManager,
     Lexer, LexerConfig, MemoryManager, OptimizationLevel, Position, Program, SeenError,
@@ -680,14 +681,14 @@ fn bundle_imports(
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let mut queue: VecDeque<Program> = VecDeque::new();
-    queue.push_back(program);
+    let mut queue: VecDeque<(Program, PathBuf)> = VecDeque::new();
+    queue.push_back((program, base_dir.clone()));
     let mut visited: HashSet<String> = HashSet::new();
     let mut merged = Program {
         expressions: Vec::new(),
     };
 
-    while let Some(prog) = queue.pop_front() {
+    while let Some((prog, module_dir)) = queue.pop_front() {
         for expr in prog.expressions {
             match &expr {
                 Expression::Import { module_path, .. } => {
@@ -727,7 +728,11 @@ fn bundle_imports(
                             );
                             let mut p = SeenParser::new_with_visibility(lex, visibility_policy);
                             let parsed = p.parse_program().map_err(|err| SeenError::from(err))?;
-                            queue.push_back(parsed);
+                            let module_base = cand
+                                .parent()
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| base_dir.clone());
+                            queue.push_back((parsed, module_base));
                             loaded = true;
                             break;
                         }
@@ -739,11 +744,83 @@ fn bundle_imports(
                         );
                     }
                 }
-                _ => merged.expressions.push(expr),
+                _ => merged
+                    .expressions
+                    .push(rewrite_embed_attributes(expr, &module_dir)),
             }
         }
     }
     Ok(merged)
+}
+
+fn rewrite_embed_attributes(expr: Expression, module_dir: &Path) -> Expression {
+    match expr {
+        Expression::Const {
+            name,
+            type_annotation,
+            value,
+            attributes,
+            pos,
+        } => {
+            let rewritten_attrs = attributes
+                .into_iter()
+                .map(|attr| rewrite_embed_attribute(attr, module_dir))
+                .collect();
+            Expression::Const {
+                name,
+                type_annotation,
+                value,
+                attributes: rewritten_attrs,
+                pos,
+            }
+        }
+        other => other,
+    }
+}
+
+fn rewrite_embed_attribute(attr: Attribute, module_dir: &Path) -> Attribute {
+    let Attribute { name, args, pos } = attr;
+
+    if name != "embed" {
+        return Attribute { name, args, pos };
+    }
+
+    let rewritten_args = args
+        .into_iter()
+        .map(|arg| match arg {
+            AttributeArgument::Named { name, value } if name == "path" => {
+                AttributeArgument::Named {
+                    name,
+                    value: resolve_embed_path(value, module_dir),
+                }
+            }
+            other => other,
+        })
+        .collect();
+
+    Attribute {
+        name,
+        args: rewritten_args,
+        pos,
+    }
+}
+
+fn resolve_embed_path(value: AttributeValue, module_dir: &Path) -> AttributeValue {
+    match value {
+        AttributeValue::String(original) => {
+            let candidate = module_dir.join(&original);
+            let resolved = if Path::new(&original).is_absolute() {
+                PathBuf::from(original)
+            } else {
+                candidate
+            };
+
+            let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+
+            AttributeValue::String(canonical.to_string_lossy().to_string())
+        }
+        other => other,
+    }
 }
 
 fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
@@ -2120,5 +2197,102 @@ fn get_function_name(expr: &Expression) -> String {
         name.clone()
     } else {
         "unknown".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use seen_core::ir::IRValue;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn make_embed_const(path: AttributeValue) -> Expression {
+        Expression::Const {
+            name: "DATA".to_string(),
+            type_annotation: None,
+            value: Box::new(Expression::IntegerLiteral {
+                value: 0,
+                pos: Position::new(0, 0, 0),
+            }),
+            attributes: vec![Attribute {
+                name: "embed".to_string(),
+                args: vec![AttributeArgument::Named {
+                    name: "path".to_string(),
+                    value: path,
+                }],
+                pos: Position::new(0, 0, 0),
+            }],
+            pos: Position::new(0, 0, 0),
+        }
+    }
+
+    #[test]
+    fn rewrite_embed_attribute_resolves_relative_path() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let asset_path = temp_dir.path().join("asset.bin");
+        fs::write(&asset_path, [0u8; 4]).expect("write asset");
+
+        let expr = make_embed_const(AttributeValue::String("asset.bin".to_string()));
+        let rewritten = rewrite_embed_attributes(expr, temp_dir.path());
+
+        match rewritten {
+            Expression::Const { attributes, .. } => {
+                let path_arg = attributes
+                    .first()
+                    .and_then(|attr| {
+                        attr.args.iter().find_map(|arg| match arg {
+                            AttributeArgument::Named { name, value } if name == "path" => {
+                                if let AttributeValue::String(path) = value {
+                                    Some(path.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })
+                    })
+                    .expect("path argument present");
+
+                let expected = asset_path
+                    .canonicalize()
+                    .expect("canonicalize asset")
+                    .to_string_lossy()
+                    .to_string();
+
+                assert_eq!(path_arg, expected);
+            }
+            other => panic!("expected const expression, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ir_generator_produces_byte_array_for_embed_const() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let asset_path = temp_dir.path().join("embed.bin");
+        let bytes = vec![0xAA, 0xBB, 0xCC];
+        fs::write(&asset_path, &bytes).expect("write bytes");
+
+        let absolute = asset_path
+            .canonicalize()
+            .expect("canonicalize asset")
+            .to_string_lossy()
+            .to_string();
+        let expr = make_embed_const(AttributeValue::String(absolute));
+
+        let mut generator = IRGenerator::new();
+        let (value, instructions) = generator
+            .generate_expression(&expr)
+            .expect("generate expression");
+
+        match value {
+            IRValue::ByteArray(data) => assert_eq!(data, bytes),
+            other => panic!("expected byte array, got {:?}", other),
+        }
+
+        assert!(
+            !instructions.is_empty(),
+            "expected store instruction for embedded constant"
+        );
     }
 }

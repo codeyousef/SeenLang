@@ -8,8 +8,12 @@ use crate::{
     IRError, IRProgram, IRResult,
 };
 use seen_parser::Parameter as ASTParameter;
-use seen_parser::{BinaryOperator, Expression, Program, UnaryOperator};
+use seen_parser::{
+    Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression, Program,
+    UnaryOperator,
+};
 use std::collections::HashMap;
+use std::fs;
 
 /// Context for IR generation
 #[derive(Debug)]
@@ -134,7 +138,14 @@ impl GenerationContext {
             IRValue::Integer(_) => IRType::Integer,
             IRValue::Float(_) => IRType::Float,
             IRValue::Boolean(_) => IRType::Boolean,
-            IRValue::StringConstant(_) => IRType::String,
+            IRValue::StringConstant(_) | IRValue::String(_) => IRType::String,
+            IRValue::ByteArray(bytes) => {
+                if bytes.is_empty() {
+                    IRType::Array(Box::new(IRType::Void))
+                } else {
+                    IRType::Array(Box::new(IRType::Integer))
+                }
+            }
             _ => IRType::Void,
         };
         self.set_variable_type(name.to_string(), var_type);
@@ -365,7 +376,12 @@ impl IRGenerator {
                 self.generate_string_interpolation(parts)
             }
             Expression::Let { name, value, .. } => self.generate_let_binding(name, value),
-            Expression::Const { name, value, .. } => self.generate_const_binding(name, value),
+            Expression::Const {
+                name,
+                value,
+                attributes,
+                ..
+            } => self.generate_const_binding(name, value, attributes),
             Expression::Move { operand, .. } => self.generate_move_expression(operand),
             Expression::Borrow { operand, .. } => self.generate_borrow_expression(operand),
             Expression::Comptime { body, .. } => self.generate_comptime_expression(body),
@@ -1159,16 +1175,56 @@ impl IRGenerator {
         Ok((value_val, instructions))
     }
 
+    fn load_embed_bytes(&self, attr: &Attribute) -> IRResult<Vec<u8>> {
+        let path = attr
+            .args
+            .iter()
+            .find_map(|arg| match arg {
+                AttributeArgument::Named { name, value } if name == "path" => {
+                    if let AttributeValue::String(path) = value {
+                        Some(path.clone())
+                    } else {
+                        None
+                    }
+                }
+                AttributeArgument::Positional(AttributeValue::String(path)) => Some(path.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                IRError::Other("embed attribute requires a string `path` argument".to_string())
+            })?;
+
+        fs::read(&path).map_err(|err| {
+            IRError::Other(format!("Failed to read embedded asset '{}': {}", path, err))
+        })
+    }
+
     /// Generate IR for const binding  
     fn generate_const_binding(
         &mut self,
         name: &str,
         value: &Expression,
+        attributes: &[Attribute],
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
-        // For constants, we evaluate at compile time if possible
+        if let Some(embed_attr) = attributes.iter().find(|attr| attr.name == "embed") {
+            let bytes = self.load_embed_bytes(embed_attr)?;
+            let embed_value = IRValue::ByteArray(bytes);
+            let mut instructions = Vec::new();
+            let var_val = IRValue::Variable(name.to_string());
+
+            instructions.push(Instruction::Store {
+                value: embed_value.clone(),
+                dest: var_val,
+            });
+
+            self.context.define_variable(name, embed_value.clone());
+
+            return Ok((embed_value, instructions));
+        }
+
+        // For constants without embed attributes, evaluate normally.
         let (value_val, mut instructions) = self.generate_expression(value)?;
 
-        // Store the constant mapping (similar to let but marked as constant)
         let var_val = IRValue::Variable(name.to_string());
 
         instructions.push(Instruction::Store {
@@ -1176,7 +1232,8 @@ impl IRGenerator {
             dest: var_val,
         });
 
-        // Constants return the bound value like let expressions
+        self.context.define_variable(name, value_val.clone());
+
         Ok((value_val, instructions))
     }
 
