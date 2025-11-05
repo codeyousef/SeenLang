@@ -22,6 +22,8 @@ pub enum Value {
     Character(char),
     /// Array value
     Array(Vec<Value>),
+    /// Raw byte buffer
+    Bytes(Vec<u8>),
     /// Null value
     Null,
     /// Unit value (empty/void)
@@ -75,6 +77,7 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::Array(arr) => !arr.is_empty(),
+            Value::Bytes(bytes) => !bytes.is_empty(),
             Value::Struct { .. } => true,
             Value::Function { .. } => true,
             Value::Promise(promise) => !promise.is_rejected(),
@@ -99,6 +102,7 @@ impl Value {
             Value::String(_) => "String",
             Value::Character(_) => "Char",
             Value::Array(_) => "Array",
+            Value::Bytes(_) => "Bytes",
             Value::Struct { .. } => "Struct",
             Value::Null => "Null",
             Value::Unit => "Unit",
@@ -127,6 +131,7 @@ impl Value {
                 let elements: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
                 format!("[{}]", elements.join(", "))
             }
+            Value::Bytes(bytes) => format!("<bytes {}>", bytes.len()),
             Value::Struct { name, fields } => {
                 let field_strs: Vec<String> = fields
                     .iter()
@@ -394,6 +399,7 @@ impl PartialEq for Value {
                     fields: f2,
                 },
             ) => n1 == n2 && f1 == f2,
+            (Value::Bytes(a), Value::Bytes(b)) => a == b,
             (Value::Function { name: n1, .. }, Value::Function { name: n2, .. }) => n1 == n2,
             (Value::Promise(a), Value::Promise(b)) => std::sync::Arc::ptr_eq(a, b),
             (Value::Task(a), Value::Task(b)) => a == b,

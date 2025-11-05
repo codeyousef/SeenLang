@@ -19,10 +19,11 @@ use seen_effects::{
     EffectDefinition, EffectId, EffectOperation as EffectOp,
 };
 use seen_parser::{
-    BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm, Pattern, Position,
-    Program, UnaryOperator,
+    Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression, InterpolationKind,
+    InterpolationPart, MatchArm, Pattern, Position, Program, UnaryOperator,
 };
 use std::collections::HashMap;
+use std::fs;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -365,6 +366,23 @@ impl Interpreter {
                 let val = self.interpret_expression(value)?;
                 self.runtime.define_variable(name.clone(), val.clone());
                 Ok(val)
+            }
+            Expression::Const {
+                name,
+                value,
+                attributes,
+                pos,
+                ..
+            } => {
+                let const_value =
+                    if let Some(embed_attr) = attributes.iter().find(|attr| attr.name == "embed") {
+                        self.evaluate_embed_attribute(embed_attr, *pos)?
+                    } else {
+                        self.interpret_expression(value)?
+                    };
+                self.runtime
+                    .define_variable(name.clone(), const_value.clone());
+                Ok(const_value)
             }
 
             // Assignment
@@ -2146,6 +2164,36 @@ impl Interpreter {
         }
     }
 
+    fn evaluate_embed_attribute(
+        &self,
+        attr: &Attribute,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let path = attr
+            .args
+            .iter()
+            .find_map(|arg| match arg {
+                AttributeArgument::Named { name, value } if name == "path" => match value {
+                    AttributeValue::String(path) => Some(path.clone()),
+                    _ => None,
+                },
+                AttributeArgument::Positional(AttributeValue::String(path)) => Some(path.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                InterpreterError::runtime("embed attribute missing string `path` argument", pos)
+            })?;
+
+        let bytes = fs::read(&path).map_err(|err| {
+            InterpreterError::runtime(
+                format!("failed to read embedded asset '{}': {}", path, err),
+                pos,
+            )
+        })?;
+
+        Ok(Value::Bytes(bytes))
+    }
+
     /// Convert Value to AsyncValue for reactive runtime
     fn value_to_async_value(&self, value: &Value) -> AsyncValue {
         match value {
@@ -2157,6 +2205,13 @@ impl Interpreter {
             Value::Array(arr) => {
                 let async_values: Vec<AsyncValue> =
                     arr.iter().map(|v| self.value_to_async_value(v)).collect();
+                AsyncValue::Array(async_values)
+            }
+            Value::Bytes(bytes) => {
+                let async_values: Vec<AsyncValue> = bytes
+                    .iter()
+                    .map(|b| AsyncValue::Integer(*b as i64))
+                    .collect();
                 AsyncValue::Array(async_values)
             }
             Value::Promise(promise) => AsyncValue::Promise(Arc::clone(promise)),
@@ -2178,8 +2233,11 @@ mod tests {
     use super::*;
     use seen_concurrency::types::{AsyncValue, Channel, ChannelId};
     use seen_parser::ast::Pattern;
+    use seen_parser::{Attribute, AttributeArgument, AttributeValue};
+    use std::fs;
     use std::thread;
     use std::time::Duration;
+    use tempfile::tempdir;
 
     fn send_expression(value: i64, pos: Position) -> Expression {
         Expression::Send {
@@ -2291,5 +2349,59 @@ mod tests {
             .expect("select should resolve once value is available");
 
         assert_eq!(result, Value::Integer(42));
+    }
+
+    #[test]
+    fn embed_const_loads_bytes() {
+        let dir = tempdir().expect("create temp dir");
+        let asset_path = dir.path().join("embed.bin");
+        let bytes = vec![0x01, 0x02, 0xFF];
+        fs::write(&asset_path, &bytes).expect("write embed asset");
+
+        let attr = Attribute {
+            name: "embed".to_string(),
+            args: vec![AttributeArgument::Named {
+                name: "path".to_string(),
+                value: AttributeValue::String(
+                    asset_path
+                        .canonicalize()
+                        .expect("canonicalize asset")
+                        .to_string_lossy()
+                        .to_string(),
+                ),
+            }],
+            pos: Position::start(),
+        };
+
+        let const_expr = Expression::Const {
+            name: "DATA".to_string(),
+            type_annotation: None,
+            value: Box::new(Expression::IntegerLiteral {
+                value: 0,
+                pos: Position::start(),
+            }),
+            attributes: vec![attr],
+            pos: Position::start(),
+        };
+
+        let read_expr = Expression::Identifier {
+            name: "DATA".to_string(),
+            is_public: false,
+            pos: Position::start(),
+        };
+
+        let program = Program {
+            expressions: vec![const_expr, read_expr],
+        };
+
+        let mut interpreter = Interpreter::new();
+        let result = interpreter
+            .interpret(&program)
+            .expect("embed const should evaluate");
+
+        match result {
+            Value::Bytes(buf) => assert_eq!(buf, bytes),
+            other => panic!("expected Value::Bytes, got {:?}", other),
+        }
     }
 }
