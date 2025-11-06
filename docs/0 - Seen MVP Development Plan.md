@@ -194,8 +194,9 @@ live while macOS/Windows remain deferred until host machines are available.
   2. 🔄 Create platform-specific linker pipelines for Linux (ELF exe/so), WebAssembly (wasm-ld), and Android NDK `.so`
      packaging; queue macOS/Windows code paths once non-Linux builders are provisioned.
     * Linux executables/shared libs now default to platform extensions; wasm targets drive `wasm-ld` with deterministic
-      exports and optional JS/HTML loader generation; Android triples resolve dedicated NDK toolchains via
-      `ANDROID_NDK_HOME` / `ANDROID_API_LEVEL`, with `.aab` packaging still pending.
+      exports, optional JS/HTML loader generation, and fail-fast diagnostics when `wasm-ld` is missing; Android triples
+      resolve dedicated NDK toolchains via `ANDROID_NDK_HOME` / `ANDROID_API_LEVEL`, with `.aab` packaging still
+      pending.
   * The CLI automatically switches Android builds to shared-library mode when no explicit `--shared/--static` flag is
     provided and surfaces actionable errors if `ANDROID_NDK_HOME` is missing.
   3. 🔄 Provide sample projects per Linux/Web/Android target (textured quad) and automated smoke tests that run in

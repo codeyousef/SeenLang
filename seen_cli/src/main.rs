@@ -758,6 +758,19 @@ fn compile_file_llvm(
             ));
         }
     }
+
+    if let Some(triple) = target_triple {
+        if is_android_target(triple) {
+            let ndk_home = std::env::var("ANDROID_NDK_HOME").ok();
+            let ndk_home = ndk_home.as_deref().map(str::trim).filter(|v| !v.is_empty());
+            if ndk_home.is_none() {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "ANDROID_NDK_HOME must be set to cross-compile for Android targets".to_string(),
+                ));
+            }
+        }
+    }
     let source = fs::read_to_string(input).map_err(|err| {
         SeenError::new(
             SeenErrorKind::Io,

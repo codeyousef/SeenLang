@@ -2647,7 +2647,16 @@ mod tests {
             .generate_expression(&select)
             .expect("select expression should lower");
 
-        assert_eq!(value, IRValue::Void);
-        assert!(instructions.is_empty());
+        // The select expression now yields a register containing the arm result.
+        assert!(
+            matches!(value, IRValue::Register(_)),
+            "expected select to return a register, got {:?}",
+            value
+        );
+
+        assert!(
+            instructions.iter().any(|inst| matches!(inst, Instruction::ChannelSelect { .. })),
+            "expected ChannelSelect instruction to be emitted"
+        );
     }
 }

@@ -470,12 +470,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
-        let program = env::var("SEEN_LLVM_LINKER")
-            .ok()
-            .filter(|p| !p.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| which::which("wasm-ld").ok())
-            .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+        let program = Self::lookup_wasm_linker()?;
         eprintln!("LLVM backend: invoking wasm linker {:?}", program);
         let mut cmd = std::process::Command::new(&program);
         cmd.arg(obj_path);
@@ -638,6 +633,37 @@ impl<'ctx> LlvmBackend<'ctx> {
             ));
         }
         Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!(
+                        "SEEN_LLVM_LINKER={} was not found on PATH",
+                        explicit
+                    );
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
     }
 
     fn android_clang_path(triple: &str) -> Result<PathBuf> {
