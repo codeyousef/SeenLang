@@ -1,6 +1,7 @@
 // Minimal CLI sample for Linux builds
 
 fun main() -> Int {
-    print("Hello from Seen running on Linux!\n")
-    return 0
+    let a = 2
+    let b = 3
+    return a + b
 }
