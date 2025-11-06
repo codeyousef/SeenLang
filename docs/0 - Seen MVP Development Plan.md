@@ -97,17 +97,18 @@ gap before we can call the phase entirely closed.
     runtime contract, and linked it from the quickstart guide.
 
 * **Remaining tasks:**
-  1. **IR support for channel constructs** — extend the IR generator to lower `scope`, `spawn`, `select`, `send`, and
-     `Channel()` expressions into deterministic instruction forms (new opcodes or intrinsic calls) while preserving
-     current interpreter semantics.
-  2. **LLVM channel runtime surface** — introduce a compiled runtime module (Rust/C shim) that exposes channel/task
-     primitives compatible with the interpreter (`seen_channel_new`, `seen_channel_send`, `seen_channel_recv`,
-     `seen_channel_select`, scoped join helpers) and ship it alongside CLI/Stage artifacts.
-  3. **LLVM lowering for channel intrinsics** — teach `seen_ir::llvm_backend` to translate the new IR operations into
-     calls against the channel runtime, including struct construction for channel endpoints, scope join logic, and
-     select-case pattern handling.
-  4. **CLI + Stage wiring & regression coverage** — once lowering/runtime support lands, update `seen_cli` and the
-     self-host pipeline to run channel-driven programs via the LLVM backend, add CLI/Stage tests, and record
+  1. ✅ **IR support for channel constructs** — `seen_ir` now models `scope`, `jobs_scope`, `spawn`, and `select` with
+     dedicated instruction variants so deterministic backends can consume channel-heavy programs.
+  2. ✅ **LLVM channel runtime surface (stubs)** — the backend injects placeholder `seen_channel_*`/`seen_spawn`/scope
+     helpers so Stage builds link while real runtime shims are developed.
+  3. 🚧 **LLVM lowering for channel intrinsics** — translate the new IR instructions into calls that coordinate with the
+     runtime surface (channel creation, send/receive/select, scope joins, task handles). This work must preserve the
+     interpreter’s semantics, especially for pattern binding within `select` arms.
+  4. 🚧 **Runtime implementation & linking** — replace the stubs with actual channel/task support by sharing or
+     reimplementing `seen_concurrency` pieces, ensure the compiled artifact links the runtime on every platform, and
+     propagate handles/results back into Seen values.
+  5. 🚧 **CLI + Stage wiring & regression coverage** — once lowering/runtime integration is complete, update `seen_cli`
+     and the self-host pipeline to run channel-driven programs via the LLVM backend, add CLI/Stage tests, and record
      determinism hashes plus stdout/stderr validation.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe

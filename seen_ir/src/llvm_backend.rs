@@ -309,6 +309,116 @@ impl<'ctx> LlvmBackend<'ctx> {
         {
             self.declare_main_wrapper();
         }
+
+        self.inject_channel_runtime_stubs()?;
+        Ok(())
+    }
+
+    fn inject_channel_runtime_stubs(&mut self) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self| {
+                    backend
+                        .builder
+                        .build_return(None)
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self| {
+                    backend
+                        .builder
+                        .build_return(None)
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()))
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+        ];
+
+        for (name, ty, body) in stub_specs {
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            body(self)?;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
         Ok(())
     }
 
