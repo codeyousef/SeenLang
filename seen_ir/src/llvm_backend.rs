@@ -651,10 +651,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 } else if let Ok(found) = which::which(&path) {
                     return Ok(found);
                 } else {
-                    bail!(
-                        "SEEN_LLVM_LINKER={} was not found on PATH",
-                        explicit
-                    );
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
                 }
             }
         }

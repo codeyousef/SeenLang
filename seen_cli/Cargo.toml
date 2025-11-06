@@ -27,6 +27,9 @@ serde_json = { workspace = true }
 # For terminal coloring
 colored = { workspace = true }
 
+# Bundling utilities
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+
 # Hashing for determinism checks
 sha2 = "0.10"
 

@@ -2655,7 +2655,9 @@ mod tests {
         );
 
         assert!(
-            instructions.iter().any(|inst| matches!(inst, Instruction::ChannelSelect { .. })),
+            instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::ChannelSelect { .. })),
             "expected ChannelSelect instruction to be emitted"
         );
     }

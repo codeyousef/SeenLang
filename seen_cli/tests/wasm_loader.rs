@@ -64,7 +64,10 @@ fn wasm_loader_reports_missing_wasm_linker() {
     let missing_linker = dir.path().join("missing-wasm-ld");
 
     let mut cmd = Command::cargo_bin("seen_cli").expect("binary exists");
-    cmd.env("SEEN_LLVM_LINKER", missing_linker.to_string_lossy().as_ref())
+    cmd.env(
+        "SEEN_LLVM_LINKER",
+        missing_linker.to_string_lossy().as_ref(),
+    )
         .arg("build")
         .arg(program_path)
         .arg("--backend")
@@ -73,7 +76,52 @@ fn wasm_loader_reports_missing_wasm_linker() {
         .arg("wasm32-unknown-unknown")
         .arg("--wasm-loader");
 
+    cmd.assert().failure().stderr(contains("SEEN_LLVM_LINKER"));
+}
+
+#[test]
+fn bundle_requires_wasm_loader() {
+    if !cfg!(feature = "llvm") {
+        eprintln!("skipping bundle_requires_wasm_loader because LLVM feature is disabled");
+        return;
+    }
+
+    let dir = tempdir().expect("temp dir");
+    let program_path = write_program(&dir);
+
+    let mut cmd = Command::cargo_bin("seen_cli").expect("binary exists");
+    cmd.arg("build")
+        .arg(program_path)
+        .arg("--backend")
+        .arg("llvm")
+        .arg("--target")
+        .arg("wasm32-unknown-unknown")
+        .arg("--bundle");
+
     cmd.assert()
         .failure()
-        .stderr(contains("SEEN_LLVM_LINKER points to"));
+        .stderr(contains("--bundle requires --wasm-loader"));
+}
+
+#[test]
+fn bundle_requires_wasm_target() {
+    if !cfg!(feature = "llvm") {
+        eprintln!("skipping bundle_requires_wasm_target because LLVM feature is disabled");
+        return;
+    }
+
+    let dir = tempdir().expect("temp dir");
+    let program_path = write_program(&dir);
+
+    let mut cmd = Command::cargo_bin("seen_cli").expect("binary exists");
+    cmd.arg("build")
+        .arg(program_path)
+        .arg("--backend")
+        .arg("llvm")
+        .arg("--wasm-loader")
+        .arg("--bundle");
+
+    cmd.assert()
+        .failure()
+        .stderr(contains("--bundle requires --target wasm32"));
 }

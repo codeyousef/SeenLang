@@ -194,15 +194,19 @@ live while macOS/Windows remain deferred until host machines are available.
   2. 🔄 Create platform-specific linker pipelines for Linux (ELF exe/so), WebAssembly (wasm-ld), and Android NDK `.so`
      packaging; queue macOS/Windows code paths once non-Linux builders are provisioned.
     * Linux executables/shared libs now default to platform extensions; wasm targets drive `wasm-ld` with deterministic
-      exports, optional JS/HTML loader generation, and fail-fast diagnostics when `wasm-ld` is missing; Android triples
+      exports, optional JS/HTML loader generation, optional `--bundle` archives, and fail-fast diagnostics when
+      `wasm-ld` is missing; Android triples
       resolve dedicated NDK toolchains via `ANDROID_NDK_HOME` / `ANDROID_API_LEVEL`, with `.aab` packaging still
       pending.
-  * The CLI automatically switches Android builds to shared-library mode when no explicit `--shared/--static` flag is
-    provided and surfaces actionable errors if `ANDROID_NDK_HOME` is missing.
+    * The CLI automatically switches Android builds to shared-library mode when no explicit `--shared/--static` flag is
+      provided and surfaces actionable errors if `ANDROID_NDK_HOME` is missing. A helper script (
+      `scripts/bundle_android.sh`)
+      now generates minimal `.aab` bundles from Seen sources.
   3. 🔄 Provide sample projects per Linux/Web/Android target (textured quad) and automated smoke tests that run in
      CI/device farms.
     * Added `examples/linux/hello_cli`, `examples/web/hello_wasm`, and `examples/android/hello_ndk` as starter
-      fixtures (CI smoke runs to follow).
+      fixtures, plus CLI regression tests covering Linux IR output, wasm emit/bundle flows, and Android env validation
+      (CI/device smoke runs still outstanding).
   4. 🔄 Document Linux/Web/Android toolchain prerequisites (clang/LLD, wasm-ld, Android SDK/NDK) and integrate
      signing/provisioning scripts where applicable.
     * Quickstart now lists wasm/Android dependencies and the new `--wasm-loader` flag; dedicated packaging walkthroughs

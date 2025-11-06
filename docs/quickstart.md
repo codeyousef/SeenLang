@@ -60,9 +60,13 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 - WebAssembly starter (use with `--target wasm32-unknown-unknown --wasm-loader`): `examples/web/hello_wasm`
     - Produce `.wasm` + loader:
       `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader examples/web/hello_wasm/main.seen --output hello.wasm`
+    - Bundle wasm/js/html into a zip:
+      `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader --bundle examples/web/hello_wasm/main.seen --output hello.wasm`
 - Android NDK starter (requires `ANDROID_NDK_HOME`): `examples/android/hello_ndk`
     - Build shared lib:
       `seen build --backend llvm --target aarch64-linux-android --output libhello_android.so examples/android/hello_ndk/main.seen`
+    - Package into a minimal `.aab` bundle:
+      `scripts/bundle_android.sh ./target/release/seen_cli examples/android/hello_ndk/main.seen android_hello.aab`
 
 ## Deterministic Profile
 

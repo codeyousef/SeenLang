@@ -15,6 +15,8 @@ use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::fs;
+#[cfg(feature = "llvm")]
+use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -103,6 +105,10 @@ enum Commands {
         /// Emit a JavaScript loader for wasm targets (only valid with --backend llvm and --target wasm32-*)
         #[arg(long)]
         wasm_loader: bool,
+
+        /// Bundle wasm outputs (wasm/js/html) into a .zip archive (requires --wasm-loader)
+        #[arg(long)]
+        bundle: bool,
 
         /// Produce a shared library (only valid with --backend llvm)
         #[arg(long, conflicts_with = "static_lib")]
@@ -370,6 +376,7 @@ fn main() -> SeenResult<()> {
             backend,
             emit_ll,
                  wasm_loader,
+                 bundle,
                  target,
             shared,
             static_lib,
@@ -409,6 +416,7 @@ fn main() -> SeenResult<()> {
                     keyword_manager,
                     target.as_deref(),
                     wasm_loader,
+                    bundle,
                 )?;
             }
             Backend::Ir => {
@@ -416,6 +424,12 @@ fn main() -> SeenResult<()> {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
                         "--wasm-loader requires the LLVM backend".to_string(),
+                    ));
+                }
+                if bundle {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--bundle requires the LLVM backend".to_string(),
                     ));
                 }
                 if let Some(target) = target {
@@ -437,6 +451,12 @@ fn main() -> SeenResult<()> {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
                         "--wasm-loader requires the LLVM backend".to_string(),
+                    ));
+                }
+                if bundle {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--bundle requires the LLVM backend".to_string(),
                     ));
                 }
                 if let Some(target) = target {
@@ -725,6 +745,7 @@ fn compile_file_llvm(
     keyword_manager: Arc<KeywordManager>,
     target_triple: Option<&str>,
     wasm_loader: bool,
+    bundle: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -732,15 +753,16 @@ fn compile_file_llvm(
         opt_level
     );
 
+    let triple_str = target_triple.unwrap_or("");
+    let bundling_wasm = bundle && is_wasm_target(triple_str);
+    let bundling_android = bundle && is_android_target(triple_str);
+
     if wasm_loader {
-        match target_triple {
-            Some(triple) if is_wasm_target(triple) => {}
-            _ => {
-                return Err(SeenError::new(
-                    SeenErrorKind::Tooling,
-                    "--wasm-loader requires --target wasm32-...".to_string(),
-                ));
-            }
+        if !is_wasm_target(triple_str) {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                "--wasm-loader requires --target wasm32-...".to_string(),
+            ));
         }
         if emit_ll {
             return Err(SeenError::new(
@@ -755,6 +777,41 @@ fn compile_file_llvm(
             return Err(SeenError::new(
                 SeenErrorKind::Tooling,
                 "--wasm-loader only supports executable outputs".to_string(),
+            ));
+        }
+    }
+
+    if bundle {
+        if bundling_wasm {
+            if !wasm_loader {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "--bundle requires --wasm-loader".to_string(),
+                ));
+            }
+            if emit_ll {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "--bundle cannot be combined with --emit-ll".to_string(),
+                ));
+            }
+        } else if bundling_android {
+            if emit_ll {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "Android bundling does not support --emit-ll".to_string(),
+                ));
+            }
+            if !matches!(link_mode, BuildLinkMode::SharedLibrary) {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "Android bundling requires a shared library output".to_string(),
+                ));
+            }
+        } else {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                "--bundle currently supports wasm32 and android cross builds".to_string(),
             ));
         }
     }
@@ -837,7 +894,23 @@ fn compile_file_llvm(
         } else {
             default_link_output_path(link_mode, target_triple)
         };
-        let out_path = output.unwrap_or(&default_target);
+        let mut out_path = output.cloned().unwrap_or(default_target);
+        let mut compile_out_path = out_path.clone();
+        if bundling_android {
+            if out_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("aab"))
+                .unwrap_or(false)
+            {
+                compile_out_path = out_path.with_extension("so");
+            } else {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "Android bundling requires --output <name>.aab".to_string(),
+                ));
+            }
+        }
         if let Some(triple) = target_triple {
             println!("Configuring LLVM backend for target {}", triple);
         }
@@ -846,7 +919,7 @@ fn compile_file_llvm(
             ..Default::default()
         };
         if emit_ll {
-            let ll_path = out_path;
+            let ll_path = compile_out_path.as_path();
             backend
                 .emit_llvm_ir(&optimized_ir, ll_path, target_options)
                 .map_err(|err| {
@@ -857,7 +930,7 @@ fn compile_file_llvm(
                 })?;
             println!("Generated LLVM IR: {}", ll_path.display());
         } else {
-            let target = out_path.clone();
+            let target = compile_out_path.clone();
 
             let link_output = match link_mode {
                 BuildLinkMode::Executable => LinkOutput::Executable,
@@ -873,16 +946,34 @@ fn compile_file_llvm(
                         format!("Failed to produce output {}: {:?}", target.display(), err),
                     )
                 })?;
-            println!("Generated artifact: {}", target.display());
+            let artifact_path = if bundling_android { &out_path } else { &target };
+            println!("Generated artifact: {}", artifact_path.display());
             if wasm_loader {
                 emit_wasm_loader(&target)?;
+            }
+            if bundle {
+                if bundling_wasm {
+                    bundle_wasm_artifacts(&target)?;
+                } else if bundling_android {
+                    bundle_android_artifacts(&target, &out_path)?;
+                    if target != out_path {
+                        let _ = fs::remove_file(&target);
+                    }
+                }
             }
         }
         Ok(())
     }
     #[cfg(not(feature = "llvm"))]
     {
-        let _ = (output, emit_ll, link_mode, target_triple, wasm_loader);
+        let _ = (
+            output,
+            emit_ll,
+            link_mode,
+            target_triple,
+            wasm_loader,
+            bundle,
+        );
         Err(SeenError::new(
             SeenErrorKind::Tooling,
             "LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm",
@@ -989,6 +1080,8 @@ fn default_link_output_path(link_mode: BuildLinkMode, target_triple: Option<&str
         BuildLinkMode::SharedLibrary => {
             if is_wasm_target(triple) {
                 PathBuf::from("module.wasm")
+            } else if is_android_target(triple) {
+                PathBuf::from("liba.so")
             } else if is_macos_target(triple) {
                 PathBuf::from("liba.dylib")
             } else if is_windows_target(triple) {
@@ -1095,6 +1188,148 @@ main().catch((err) => console.error('Error bootstrapping Seen wasm module:', err
         js_path.display(),
         html_path.display()
     );
+    Ok(())
+}
+
+#[cfg(feature = "llvm")]
+fn bundle_wasm_artifacts(wasm_path: &Path) -> SeenResult<()> {
+    use std::fs;
+    use std::io::Write;
+    use zip::write::FileOptions;
+    use zip::CompressionMethod;
+
+    let js_path = wasm_path.with_extension("js");
+    let html_path = wasm_path.with_extension("html");
+    for asset in [&js_path, wasm_path, &html_path] {
+        if !asset.exists() {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "Cannot bundle wasm artifacts: {} is missing",
+                    asset.display()
+                ),
+            ));
+        }
+    }
+
+    let zip_path = wasm_path.with_extension("zip");
+    let zip_file = fs::File::create(&zip_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to create wasm bundle {}: {}",
+                zip_path.display(),
+                err
+            ),
+        )
+    })?;
+
+    let mut writer = zip::ZipWriter::new(zip_file);
+    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    for asset in [&js_path, wasm_path, &html_path] {
+        let name = asset
+            .file_name()
+            .ok_or_else(|| {
+                SeenError::new(
+                    SeenErrorKind::Tooling,
+                    format!("Failed to derive file name for {}", asset.display()),
+                )
+            })?
+            .to_string_lossy()
+            .to_string();
+        let contents = fs::read(asset).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read {}: {}", asset.display(), err),
+            )
+        })?;
+        writer
+            .start_file(name, options)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(&contents)
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    }
+
+    writer
+        .finish()
+        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+
+    println!("Generated wasm bundle: {}", zip_path.display());
+    Ok(())
+}
+
+#[cfg(feature = "llvm")]
+fn bundle_android_artifacts(shared_lib: &Path, bundle_path: &Path) -> SeenResult<()> {
+    use std::io::Write;
+    use zip::write::FileOptions;
+    use zip::CompressionMethod;
+
+    let lib_bytes = fs::read(shared_lib).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read {}: {}", shared_lib.display(), err),
+        )
+    })?;
+
+    let bundle_file = File::create(bundle_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to create Android bundle {}: {}",
+                bundle_path.display(),
+                err
+            ),
+        )
+    })?;
+
+    let mut writer = zip::ZipWriter::new(bundle_file);
+    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    const BUNDLE_CONFIG: &[u8] = b"modules {\n  name: \"base\"\n  module_type: BUNDLE_MODULE\n}\n";
+    writer
+        .start_file("BundleConfig.pb", options)
+        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+    writer
+        .write_all(BUNDLE_CONFIG)
+        .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+
+    const MANIFEST: &str = r#"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"
+    package=\"com.example.seenapp\">
+    <application android:label=\"SeenApp\">
+        <activity android:name=\".MainActivity\" android:exported=\"true\">
+            <intent-filter>
+                <action android:name=\"android.intent.action.MAIN\" />
+                <category android:name=\"android.intent.category.LAUNCHER\" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+"#;
+
+    writer
+        .start_file("base/manifest/AndroidManifest.xml", options)
+        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+    writer
+        .write_all(MANIFEST.as_bytes())
+        .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+
+    writer
+        .start_file(
+            "base/lib/arm64-v8a/libapp.so",
+            FileOptions::default().compression_method(CompressionMethod::Stored),
+        )
+        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+    writer
+        .write_all(&lib_bytes)
+        .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+
+    writer
+        .finish()
+        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+
+    println!("Generated Android bundle: {}", bundle_path.display());
     Ok(())
 }
 
