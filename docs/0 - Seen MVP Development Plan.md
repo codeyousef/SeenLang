@@ -124,7 +124,7 @@ channel traffic with the same guarantees as the interpreter.
 * **Outstanding tasks:**
   1. ✅ Extend the region/arena runtime with Vale-style hybrid generational handles plus validation benches proving no additional runtime checks are emitted on hot paths (`seen_memory_manager/src/handles.rs`, `seen_memory_manager/benches/hybrid_handles.rs`).
   2. ✅ Surface region strategy hints (`bump`, `stack`, `cxl_near`) in Seen syntax and teach the compiler to auto-select O(1) release strategies when lifetime analysis allows it (`seen_parser/src/ast.rs`, `seen_parser/src/parser.rs`, `seen_memory_manager/src/regions.rs`, `docs/spec/regions.md`).
-  3. 🚧 Continue flattening compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious layouts—region runtime now stores regions in a 32-bit contiguous arena; AST/IR arena work and performance baselines remain (docs/research/13 - Language Performance.md).
+  3. 🚧 Continue flattening compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious layouts—region runtime now stores regions in a 32-bit contiguous arena; IR modules, functions, CFGs, and program globals now use arena storage. Remaining HashMaps (LLVM backend caches, pass-local optimizer maps, metadata/export symbol tables) are intentionally retained for keyed lookups; document rationale in follow-up design notes (docs/research/13 - Language Performance.md).
   4. Audit runtime safety checks, gating them behind debug profiles when static proofs exist, so production binaries keep the "zero memory safety overhead" promise.
 
 * **Acceptance:** Memory-intensive benchmarks report ≥1.5× throughput improvement, region drops are O(1) in profiler traces, and cache miss rates fall in line with the Cornell flattening targets.
@@ -134,7 +134,7 @@ channel traffic with the same guarantees as the interpreter.
 *Status:* ⏳ Pending — LLVM remains the sole backend; research recommends MLIR/differentiated pipelines to unlock performance headroom.
 
 * **Outstanding tasks:**
-  1. Prototype an MLIR emission path (core dialect + Transform + DialEgg integration) and validate parity with the existing deterministic IR dumps (docs/research/13 - Language Performance.md).
+  1. 🚧 Prototype an MLIR emission path (core dialect + Transform + DialEgg integration) and validate parity with the existing deterministic IR dumps (docs/research/13 - Language Performance.md). The `seen_mlir` crate now lowers arithmetic, calls, control flow, and aggregate/memory instructions to textual MLIR with deterministic literal formatting plus unit coverage (`seen_mlir/src/lib.rs`), and `seen_cli --backend mlir` can dump that output; next steps are wiring custom dialect definitions, Transform/DialEgg pipelines, and integrating the CLI path into determinism/Stage workflows.
   2. Bring up alternative codegen backends (Cranelift with ISLE patterns, Tilde sea-of-nodes) behind `--backend` switches for fast-compile and experimentation lanes.
   3. Ensure backend selection is deterministic (same hash outputs) and CI exercises Stage0→Stage2 via at least one non-LLVM backend each night.
 

@@ -17,7 +17,8 @@ members = [
     "seen_effects",
     "seen_advanced",
     "seen_tooling",
-    "seen_self_hosting"
+    "seen_self_hosting",
+    "seen_mlir"
     ,"tools/perf_baseline"
 ]
 

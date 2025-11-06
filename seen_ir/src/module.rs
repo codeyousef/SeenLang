@@ -140,6 +140,12 @@ pub struct Export {
     pub alias: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModuleMetadata {
+    pub key: String,
+    pub value: String,
+}
+
 /// IR Module representation
 #[derive(Debug, Clone)]
 pub struct IRModule {
@@ -159,7 +165,8 @@ pub struct IRModule {
     pub exports: Vec<Export>,
     pub dependencies: Vec<String>, // Module names this depends on
     pub version: Option<String>,
-    pub metadata: HashMap<String, String>, // Arbitrary metadata
+    pub metadata: Vec<ModuleMetadata>,
+    metadata_lookup: HashMap<String, u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -175,7 +182,7 @@ struct IRModuleSerde {
     exports: Vec<Export>,
     dependencies: Vec<String>,
     version: Option<String>,
-    metadata: HashMap<String, String>,
+    metadata: Vec<ModuleMetadata>,
 }
 
 impl Serialize for IRModule {
@@ -225,6 +232,7 @@ impl<'de> Deserialize<'de> for IRModule {
             dependencies: data.dependencies,
             version: data.version,
             metadata: data.metadata,
+            metadata_lookup: HashMap::new(),
         };
         module.rebuild_indices();
         Ok(module)
@@ -250,7 +258,8 @@ impl IRModule {
             exports: Vec::new(),
             dependencies: Vec::new(),
             version: None,
-            metadata: HashMap::new(),
+            metadata: Vec::new(),
+            metadata_lookup: HashMap::new(),
         };
         module
     }
@@ -329,7 +338,26 @@ impl IRModule {
     }
 
     pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.metadata.insert(key.into(), value.into());
+        let key = key.into();
+        let value = value.into();
+        if let Some(index) = self.metadata_lookup.get(&key).cloned() {
+            self.metadata[index as usize].value = value;
+        } else {
+            let index = self.metadata.len() as u32;
+            self.metadata_lookup.insert(key.clone(), index);
+            self.metadata.push(ModuleMetadata { key, value });
+        }
+    }
+
+    pub fn metadata_iter(&self) -> impl Iterator<Item = &ModuleMetadata> {
+        self.metadata.iter()
+    }
+
+    pub fn metadata_value(&self, key: &str) -> Option<&str> {
+        self.metadata_lookup
+            .get(key)
+            .and_then(|idx| self.metadata.get(*idx as usize))
+            .map(|meta| meta.value.as_str())
     }
 
     /// Get a function by name
@@ -449,6 +477,11 @@ impl IRModule {
         for (idx, alias) in self.type_aliases.iter().enumerate() {
             self.type_alias_lookup
                 .insert(alias.name.clone(), idx as u32);
+        }
+
+        self.metadata_lookup.clear();
+        for (idx, meta) in self.metadata.iter().enumerate() {
+            self.metadata_lookup.insert(meta.key.clone(), idx as u32);
         }
     }
 
@@ -702,6 +735,15 @@ impl fmt::Display for IRModule {
             }
         }
 
+        if !self.metadata.is_empty() {
+            writeln!(f, "\n; Metadata")?;
+            let mut entries: Vec<&ModuleMetadata> = self.metadata.iter().collect();
+            entries.sort_by(|a, b| a.key.cmp(&b.key));
+            for meta in entries {
+                writeln!(f, "{} = {}", meta.key, meta.value)?;
+            }
+        }
+
         Ok(())
     }
 }
@@ -793,6 +835,33 @@ mod tests {
         assert_eq!(module.imports.len(), 1);
         assert_eq!(module.exports.len(), 1);
         assert!(module.dependencies.contains(&"std.math".to_string()));
+    }
+
+    #[test]
+    fn test_module_metadata_arena() {
+        let mut module = IRModule::new("test");
+        module.set_metadata("zeta", "2");
+        module.set_metadata("alpha", "1");
+        module.set_metadata("zeta", "3");
+
+        let mut entries: Vec<_> = module
+            .metadata_iter()
+            .map(|m| (m.key.clone(), m.value.clone()))
+            .collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            entries,
+            vec![
+                ("alpha".to_string(), "1".to_string()),
+                ("zeta".to_string(), "3".to_string())
+            ]
+        );
+        assert_eq!(module.metadata_value("zeta"), Some("3"));
+        assert_eq!(module.metadata_value("missing"), None);
+
+        let display = format!("{}", module);
+        let meta_section = "\n; Metadata\nalpha = 1\nzeta = 3\n";
+        assert!(display.contains(meta_section));
     }
 
     #[test]

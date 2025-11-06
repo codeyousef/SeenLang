@@ -29,12 +29,19 @@ pub use optimizer::{IROptimizer, OptimizationLevel};
 pub use value::{IRType, IRValue};
 
 /// A complete IR program consisting of multiple modules
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct IRProgram {
     pub modules: Vec<IRModule>,
     pub entry_point: Option<String>, // Function name to start execution
-    pub global_variables: HashMap<String, IRValue>,
+    pub global_variables: Vec<GlobalVariableEntry>,
+    global_lookup: HashMap<String, u32>,
     pub string_table: Vec<String>, // For string constants
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalVariableEntry {
+    pub name: String,
+    pub value: IRValue,
 }
 
 impl IRProgram {
@@ -42,7 +49,8 @@ impl IRProgram {
         Self {
             modules: Vec::new(),
             entry_point: None,
-            global_variables: HashMap::new(),
+            global_variables: Vec::new(),
+            global_lookup: HashMap::new(),
             string_table: Vec::new(),
         }
     }
@@ -56,7 +64,14 @@ impl IRProgram {
     }
 
     pub fn add_global(&mut self, name: String, value: IRValue) {
-        self.global_variables.insert(name, value);
+        if let Some(index) = self.global_lookup.get(&name).cloned() {
+            self.global_variables[index as usize].value = value;
+        } else {
+            let index = self.global_variables.len() as u32;
+            self.global_lookup.insert(name.clone(), index);
+            self.global_variables
+                .push(GlobalVariableEntry { name, value });
+        }
     }
 
     pub fn add_string_constant(&mut self, s: String) -> usize {
@@ -68,11 +83,74 @@ impl IRProgram {
     pub fn get_string(&self, index: usize) -> Option<&String> {
         self.string_table.get(index)
     }
+
+    pub fn get_global(&self, name: &str) -> Option<&IRValue> {
+        self.global_lookup
+            .get(name)
+            .and_then(|idx| self.global_variables.get(*idx as usize))
+            .map(|entry| &entry.value)
+    }
+
+    pub fn globals_iter(&self) -> impl Iterator<Item = &GlobalVariableEntry> {
+        self.global_variables.iter()
+    }
+
+    pub fn has_global(&self, name: &str) -> bool {
+        self.global_lookup.contains_key(name)
+    }
+
+    pub fn rebuild_global_lookup(&mut self) {
+        self.global_lookup.clear();
+        for (idx, entry) in self.global_variables.iter().enumerate() {
+            self.global_lookup.insert(entry.name.clone(), idx as u32);
+        }
+    }
 }
 
 impl Default for IRProgram {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct IRProgramSerde {
+    modules: Vec<IRModule>,
+    entry_point: Option<String>,
+    global_variables: Vec<GlobalVariableEntry>,
+    string_table: Vec<String>,
+}
+
+impl Serialize for IRProgram {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        IRProgramSerde {
+            modules: self.modules.clone(),
+            entry_point: self.entry_point.clone(),
+            global_variables: self.global_variables.clone(),
+            string_table: self.string_table.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for IRProgram {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = IRProgramSerde::deserialize(deserializer)?;
+        let mut program = IRProgram {
+            modules: data.modules,
+            entry_point: data.entry_point,
+            global_variables: data.global_variables,
+            global_lookup: HashMap::new(),
+            string_table: data.string_table,
+        };
+        program.rebuild_global_lookup();
+        Ok(program)
     }
 }
 
@@ -93,12 +171,10 @@ impl fmt::Display for IRProgram {
 
         if !self.global_variables.is_empty() {
             writeln!(f, "\n; Global Variables")?;
-            let mut names: Vec<&String> = self.global_variables.keys().collect();
-            names.sort();
-            for name in names {
-                if let Some(value) = self.global_variables.get(name) {
-                    writeln!(f, "@{} = {}", name, value)?;
-                }
+            let mut entries: Vec<&GlobalVariableEntry> = self.global_variables.iter().collect();
+            entries.sort_by(|a, b| a.name.cmp(&b.name));
+            for entry in entries {
+                writeln!(f, "@{} = {}", entry.name, entry.value)?;
             }
         }
 
@@ -236,20 +312,12 @@ mod tests {
     #[test]
     fn ir_program_globals_display_deterministic() {
         let mut program_a = IRProgram::new();
-        program_a
-            .global_variables
-            .insert("beta".to_string(), IRValue::Integer(2));
-        program_a
-            .global_variables
-            .insert("alpha".to_string(), IRValue::Integer(1));
+        program_a.add_global("beta".to_string(), IRValue::Integer(2));
+        program_a.add_global("alpha".to_string(), IRValue::Integer(1));
 
         let mut program_b = IRProgram::new();
-        program_b
-            .global_variables
-            .insert("alpha".to_string(), IRValue::Integer(1));
-        program_b
-            .global_variables
-            .insert("beta".to_string(), IRValue::Integer(2));
+        program_b.add_global("alpha".to_string(), IRValue::Integer(1));
+        program_b.add_global("beta".to_string(), IRValue::Integer(2));
 
         let display_a = format!("{}", program_a);
         let display_b = format!("{}", program_b);

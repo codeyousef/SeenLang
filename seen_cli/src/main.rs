@@ -5,13 +5,15 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
-    precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, Interpreter, KeywordManager,
-    Lexer, LexerConfig, MemoryManager, OptimizationLevel, Position, Program, SeenError,
-    SeenErrorKind, SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator, Value,
-    VisibilityPolicy,
+    precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, IRProgram, Interpreter,
+    KeywordManager, Lexer, LexerConfig, MemoryManager, OptimizationLevel, Position, Program,
+    SeenError, SeenErrorKind, SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator,
+    Value, VisibilityPolicy,
 };
+use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -26,6 +28,30 @@ enum Profile {
 impl Default for Profile {
     fn default() -> Self {
         Profile::Default
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum Backend {
+    Ir,
+    Mlir,
+    Llvm,
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        Backend::Ir
+    }
+}
+
+impl fmt::Display for Backend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Backend::Ir => "ir",
+            Backend::Mlir => "mlir",
+            Backend::Llvm => "llvm",
+        };
+        write!(f, "{}", label)
     }
 }
 
@@ -62,9 +88,9 @@ enum Commands {
         #[arg(short = 'O', long, default_value = "0")]
         opt_level: u8,
 
-        /// Backend to use: "ir" (emit textual IR) or "llvm" (native binary via LLVM)
-        #[arg(long, default_value = "ir")]
-        backend: String,
+        /// Backend to use: "ir" (emit textual IR), "mlir" (experimental MLIR export), or "llvm" (native binary via LLVM)
+        #[arg(long, default_value_t = Backend::Ir)]
+        backend: Backend,
 
         /// Emit LLVM IR (.ll) instead of linking an executable (only with --backend llvm)
         #[arg(long)]
@@ -333,8 +359,8 @@ fn main() -> SeenResult<()> {
             emit_ll,
             shared,
             static_lib,
-        }) => {
-            if backend == "llvm" {
+        }) => match backend {
+            Backend::Llvm => {
                 if emit_ll && (shared || static_lib) {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
@@ -358,16 +384,27 @@ fn main() -> SeenResult<()> {
                     link_mode,
                     keyword_manager,
                 )?;
-            } else {
+            }
+            Backend::Ir => {
                 if shared || static_lib {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
                         "--shared/--static require the LLVM backend".to_string(),
                     ));
                 }
-                compile_file(&input, output.as_ref(), opt_level, keyword_manager)?;
+                compile_file_ir(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
-        }
+            Backend::Mlir => {
+                if emit_ll || shared || static_lib {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--emit-ll/--shared/--static are not supported with the MLIR backend"
+                            .to_string(),
+                    ));
+                }
+                compile_file_mlir(&input, output.as_ref(), opt_level, keyword_manager)?;
+            }
+        },
 
         Some(Commands::Run { input, args }) => {
             run_file(&input, &args, keyword_manager)?;
@@ -459,19 +496,17 @@ fn apply_profile(profile: Profile) -> SeenResult<()> {
     }
 }
 
-fn compile_file(
+fn generate_optimized_ir(
     input: &Path,
-    output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
-) -> SeenResult<()> {
+) -> SeenResult<IRProgram> {
     println!(
         "Compiling {} with optimization level {}",
         input.display(),
         opt_level
     );
 
-    // Read source file
     let source = fs::read_to_string(input).map_err(|err| {
         SeenError::new(
             SeenErrorKind::Io,
@@ -482,12 +517,10 @@ fn compile_file(
     let lexer_config = lexer_config_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
 
-    // Lex and parse
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let ast_parsed = parser.parse_program().map_err(SeenError::from)?;
 
-    // Bundle imports (merge imported modules into a single program)
     let ast = bundle_imports(
         ast_parsed,
         input,
@@ -495,10 +528,8 @@ fn compile_file(
         visibility_policy,
     )?;
 
-    // Bootstrap mode removed (C backend is gone)
     let bootstrap_mode = false;
 
-    // Type check
     let mut type_checker = TypeChecker::new();
     let type_result = type_checker.check_program(&ast);
     if !type_result.errors.is_empty() {
@@ -529,7 +560,6 @@ fn compile_file(
         }
     }
 
-    // Memory analysis
     let mut memory_manager = MemoryManager::new();
     let memory_result = memory_manager.analyze_program(&ast);
     if memory_result.has_errors() {
@@ -560,18 +590,15 @@ fn compile_file(
         }
     }
 
-    // Apply memory optimizations
     for optimization in memory_result.get_optimizations() {
         println!("Memory optimization: {}", optimization);
     }
 
-    // Generate IR
     let mut ir_generator = IRGenerator::new();
     let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
 
     println!("Generated IR with {} modules", ir_program.modules.len());
 
-    // Optimize IR
     let optimization_level = OptimizationLevel::from_level(opt_level);
     let mut optimizer = IROptimizer::new(optimization_level);
     let mut optimized_ir = ir_program;
@@ -581,7 +608,16 @@ fn compile_file(
 
     println!("Applied optimization level {}", opt_level);
 
-    // Emit IR text as build artifact
+    Ok(optimized_ir)
+}
+
+fn compile_file_ir(
+    input: &Path,
+    output: Option<&PathBuf>,
+    opt_level: u8,
+    keyword_manager: Arc<KeywordManager>,
+) -> SeenResult<()> {
+    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
     let ir_text = format!("{}", optimized_ir);
     let default_output = PathBuf::from("a.ir");
     let output_path = output.unwrap_or(&default_output);
@@ -598,6 +634,31 @@ fn compile_file(
     println!("Generated IR: {}", output_path.display());
     println!("Build completed (Rust backend: IR)");
 
+    Ok(())
+}
+
+fn compile_file_mlir(
+    input: &Path,
+    output: Option<&PathBuf>,
+    opt_level: u8,
+    keyword_manager: Arc<KeywordManager>,
+) -> SeenResult<()> {
+    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
+    let mlir_text = program_to_mlir(&optimized_ir);
+    let default_output = PathBuf::from("a.mlir");
+    let output_path = output.unwrap_or(&default_output);
+    fs::write(output_path, mlir_text).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to write MLIR output file {}: {}",
+                output_path.display(),
+                err
+            ),
+        )
+    })?;
+    println!("Generated MLIR: {}", output_path.display());
+    println!("Build completed (Rust backend: MLIR)");
     Ok(())
 }
 
