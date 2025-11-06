@@ -57,6 +57,15 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 
 - Linux CLI starter: `examples/linux/hello_cli`
     - Build IR: `seen build examples/linux/hello_cli/main.seen --output hello.ir`
+  - Emit a shared library (default host triple):
+    `seen build --backend llvm --shared examples/linux/hello_cli/main.seen --output libhello_cli.so`
+  - Emit a static library:
+    `seen build --backend llvm --static examples/linux/hello_cli/main.seen --output libhello_cli.a`
+- Cross-platform libraries:
+    - Windows `.dll`:
+      `seen build --backend llvm --target x86_64-pc-windows-gnu --shared examples/linux/hello_cli/main.seen --output hello.dll`
+    - macOS `.dylib`:
+      `seen build --backend llvm --target x86_64-apple-darwin --shared examples/linux/hello_cli/main.seen --output libhello_cli.dylib`
 - WebAssembly starter (use with `--target wasm32-unknown-unknown --wasm-loader`): `examples/web/hello_wasm`
     - Produce `.wasm` + loader:
       `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader examples/web/hello_wasm/main.seen --output hello.wasm`

@@ -302,7 +302,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             return Ok(());
         }
 
-        let triple_string = target_triple.to_string();
+        let triple_string = target_triple
+            .as_str()
+            .to_str()
+            .unwrap_or_else(|_| "")
+            .to_string();
         self.link_artifact(kind, &obj_path, out_path, &triple_string)
     }
 

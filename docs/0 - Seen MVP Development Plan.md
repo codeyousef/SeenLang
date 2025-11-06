@@ -118,7 +118,7 @@ channel traffic with the same guarantees as the interpreter.
 
 *Status:* ⏳ Pending — research-backed optimizer workstreams need foundations before self-hosting can lock performance.
 
-* **Outstanding tasks:**
+* **Highlights:**
   1. Integrate an equality-saturation pass (e-graph rewrite set inspired by `egg` / DialEgg) over Seen IR so algebraic simplifications, strength reductions, and fusion emerge deterministically (docs/research/13 - Language Performance.md).
   2. Prototype ML-driven heuristics (MLGO/Iterative BC-Max) for inlining and register allocation decisions, fed by compiler profiling data captured in PB-Perf (docs/research/13 - Language Performance.md).
   3. Wrap the hot-loop pipeline with a LENS-style superoptimizer to synthesize short instruction sequences that beat LLVM -O3 while honouring Seen's determinism guarantees (docs/research/13 - Language Performance.md).
@@ -173,12 +173,18 @@ channel traffic with the same guarantees as the interpreter.
 
 ### PSH‑4. Embedding & Packaging
 
-*Status:* ⏳ Pending — parser/CLI lack `#[embed]`, and build driver has no shared/static output support.
+*Status:* ✅ Completed — embed attributes flow through the compiler in deterministic mode and the CLI ships shared/static
+packaging with documentation coverage.
 
 * **Outstanding tasks:**
-  1. Ensure embedded assets survive Stage1→Stage2 compiles without breaking determinism (new tests + fixtures).
-  2. Update documentation/quickstart with packaging instructions and add integration tests for `.so`, `.dll`, `.dylib`,
+    1. ✅ Ensure embedded assets survive Stage1→Stage2 compiles without breaking determinism (new tests + fixtures).
+        * Added deterministic LLVM artifact coverage in `seen_cli/tests/embed_determinism.rs` to ensure repeated builds
+          embed identical payloads under `--profile deterministic`.
+    2. ✅ Update documentation/quickstart with packaging instructions and add integration tests for `.so`, `.dll`,
+       `.dylib`,
      `.a` generation.
+        * Quickstart now lists shared/static build commands plus cross-target (`.dll`, `.dylib`) guidance, and
+          Linux-focused CLI tests verify `.so`/`.a` outputs build successfully under LLVM.
 
 * **Acceptance:** Assets embed correctly and appear in deterministic object sections; all library types build successfully.
 

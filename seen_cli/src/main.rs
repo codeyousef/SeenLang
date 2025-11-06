@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
 use std::sync::Arc;
-use zip::CompressionMethod;
 #[cfg(feature = "llvm")]
 use zip::CompressionMethod;
 

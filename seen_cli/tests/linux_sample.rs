@@ -82,3 +82,93 @@ fn android_target_requires_ndk_home() {
         None => std::env::remove_var("ANDROID_NDK_HOME"),
     }
 }
+
+#[test]
+fn linux_shared_library_builds() {
+    if !cfg!(feature = "llvm") {
+        eprintln!("skipping linux_shared_library_builds because LLVM feature is disabled");
+        return;
+    }
+
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .to_path_buf();
+    let sample = workspace
+        .join("examples")
+        .join("linux")
+        .join("hello_cli")
+        .join("main.seen");
+    assert!(sample.exists(), "linux sample should exist at {:?}", sample);
+
+    let temp = tempdir().expect("create temp dir");
+    let output = temp.path().join("libhello_cli.so");
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace)
+        .args([
+            "build",
+            sample.to_string_lossy().as_ref(),
+            "--backend",
+            "llvm",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--shared",
+            "--output",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        output.exists(),
+        "shared library output should exist at {:?}",
+        output
+    );
+}
+
+#[test]
+fn linux_static_library_builds() {
+    if !cfg!(feature = "llvm") {
+        eprintln!("skipping linux_static_library_builds because LLVM feature is disabled");
+        return;
+    }
+
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .to_path_buf();
+    let sample = workspace
+        .join("examples")
+        .join("linux")
+        .join("hello_cli")
+        .join("main.seen");
+    assert!(sample.exists(), "linux sample should exist at {:?}", sample);
+
+    let temp = tempdir().expect("create temp dir");
+    let output = temp.path().join("libhello_cli.a");
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace)
+        .args([
+            "build",
+            sample.to_string_lossy().as_ref(),
+            "--backend",
+            "llvm",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--static",
+            "--output",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        output.exists(),
+        "static library output should exist at {:?}",
+        output
+    );
+}
