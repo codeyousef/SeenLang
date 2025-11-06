@@ -1471,7 +1471,7 @@ mod tests {
         fn execute(
             &self,
             _context: &mut AsyncExecutionContext,
-        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+        ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
             let channel = self.channel.clone();
             let value = self.value.clone();
             Box::pin(async move {
@@ -1497,7 +1497,7 @@ mod tests {
         fn execute(
             &self,
             _context: &mut AsyncExecutionContext,
-        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+        ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
             let input = self.input.clone();
             let output = self.output.clone();
             Box::pin(async move {
@@ -1527,7 +1527,7 @@ mod tests {
         fn execute(
             &self,
             _context: &mut AsyncExecutionContext,
-        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+        ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
             let input = self.input.clone();
             let collected = Arc::clone(&self.collected);
             Box::pin(async move {
@@ -1629,7 +1629,7 @@ mod tests {
         fn execute(
             &self,
             _context: &mut AsyncExecutionContext,
-        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+        ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
             let cases = self.cases.clone();
             Box::pin(async move {
                 match channel_select_future(cases, None).await? {

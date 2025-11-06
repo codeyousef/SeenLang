@@ -94,7 +94,7 @@ impl AsyncFunctionTrait for ChannelSendAsyncFunction {
     fn execute(
         &self,
         _context: &mut AsyncExecutionContext,
-    ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
         let channel = self.channel.clone();
         let value = self.value.clone();
         let pos = self.position.clone();
@@ -139,7 +139,7 @@ impl AsyncFunctionTrait for ChannelSelectAsyncFunction {
     fn execute(
         &self,
         _context: &mut AsyncExecutionContext,
-    ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
         let cases = self.cases.clone();
         let timeout = self.timeout;
         let pos = self.position.clone();
@@ -2455,7 +2455,7 @@ mod tests {
         fn execute(
             &self,
             _context: &mut AsyncExecutionContext,
-        ) -> Pin<Box<dyn Future<Output=AsyncResult> + Send>> {
+        ) -> Pin<Box<dyn Future<Output = AsyncResult> + Send>> {
             let gate = self.gate.clone();
             let pos = self.position.clone();
 
