@@ -1,0 +1,6 @@
+// Minimal CLI sample for Linux builds
+
+fun main() -> Int {
+    print("Hello from Seen running on Linux!\n")
+    return 0
+}

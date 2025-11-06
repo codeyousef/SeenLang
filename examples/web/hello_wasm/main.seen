@@ -1,0 +1,6 @@
+// Minimal WebAssembly sample for wasm32 targets
+
+fun main() -> Int {
+    print("Hello from Seen WebAssembly!\n")
+    return 0
+}

@@ -6,9 +6,10 @@
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::env;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
@@ -72,13 +73,33 @@ enum LinkerFlavor {
     ClangLike,
     WasmLd,
     Custom,
+    AndroidClang,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use inkwell::targets::TargetTriple;
+    use std::env;
+    use std::fs;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_env_lock<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let guard = env_lock().lock().expect("lock env mutex");
+        let result = f();
+        drop(guard);
+        result
+    }
 
     #[test]
     fn object_file_extension_matches_target() {
@@ -106,6 +127,62 @@ mod tests {
             LlvmBackend::linker_post_args("x86_64-unknown-linux-gnu", LinkOutput::Executable);
         assert!(flags.contains(&"-lm".to_string()));
         assert!(flags.contains(&"-no-pie".to_string()));
+    }
+
+    #[test]
+    fn android_clang_path_errors_without_ndk() {
+        with_env_lock(|| {
+            let original = env::var("ANDROID_NDK_HOME").ok();
+            env::remove_var("ANDROID_NDK_HOME");
+            let result = LlvmBackend::android_clang_path("aarch64-linux-android");
+            assert!(result.is_err());
+            match original {
+                Some(val) => env::set_var("ANDROID_NDK_HOME", val),
+                None => env::remove_var("ANDROID_NDK_HOME"),
+            }
+        });
+    }
+
+    #[test]
+    fn android_clang_path_resolves_with_mock_ndk() {
+        with_env_lock(|| {
+            let tmp = tempdir().expect("temp dir");
+            let ndk_home = tmp.path();
+            let bin_dir = ndk_home
+                .join("toolchains")
+                .join("llvm")
+                .join("prebuilt")
+                .join(LlvmBackend::default_ndk_host_tag())
+                .join("bin");
+            fs::create_dir_all(&bin_dir).expect("create bin dir");
+            let clang_path = bin_dir.join("aarch64-linux-android21-clang");
+            fs::write(&clang_path, b"").expect("write mock clang");
+
+            let original_home = env::var("ANDROID_NDK_HOME").ok();
+            let original_host = env::var("ANDROID_NDK_HOST").ok();
+            let original_api = env::var("ANDROID_API_LEVEL").ok();
+
+            env::set_var("ANDROID_NDK_HOME", ndk_home);
+            env::remove_var("ANDROID_NDK_HOST");
+            env::remove_var("ANDROID_API_LEVEL");
+
+            let resolved = LlvmBackend::android_clang_path("aarch64-linux-android")
+                .expect("resolve clang path");
+            assert_eq!(resolved, clang_path);
+
+            match original_home {
+                Some(val) => env::set_var("ANDROID_NDK_HOME", val),
+                None => env::remove_var("ANDROID_NDK_HOME"),
+            }
+            match original_host {
+                Some(val) => env::set_var("ANDROID_NDK_HOST", val),
+                None => env::remove_var("ANDROID_NDK_HOST"),
+            }
+            match original_api {
+                Some(val) => env::set_var("ANDROID_API_LEVEL", val),
+                None => env::remove_var("ANDROID_API_LEVEL"),
+            }
+        });
     }
 }
 
@@ -365,7 +442,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
-        let tool = Self::select_archiver(triple);
+        let tool = Self::select_archiver(triple)?;
         eprintln!("LLVM backend: invoking archiver {}", tool.display());
         let mut cmd = std::process::Command::new(&tool);
         if triple.contains("windows")
@@ -383,7 +460,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Self::exec_command(cmd, "archive static library")?;
 
         if triple.contains("apple") {
-            let ranlib = Self::select_ranlib();
+            let ranlib = Self::select_ranlib(triple)?;
             let mut cmd = std::process::Command::new(&ranlib);
             cmd.arg(out_path);
             Self::exec_command(cmd, "ranlib static library")?;
@@ -393,7 +470,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
-        let program = std::env::var("SEEN_LLVM_LINKER")
+        let program = env::var("SEEN_LLVM_LINKER")
             .ok()
             .filter(|p| !p.is_empty())
             .map(PathBuf::from)
@@ -407,6 +484,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         cmd.arg("--no-entry");
         cmd.arg("--allow-undefined");
         cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
         if matches!(kind, LinkOutput::SharedLibrary) {
             cmd.arg("--shared");
         }
@@ -414,7 +494,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
-        if let Ok(explicit) = std::env::var("SEEN_LLVM_LINKER") {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
             if !explicit.is_empty() {
                 return Ok(LinkerInvocation {
                     program: PathBuf::from(explicit),
@@ -432,6 +512,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 program,
                 args: Vec::new(),
                 flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
             });
         }
 
@@ -457,33 +546,40 @@ impl<'ctx> LlvmBackend<'ctx> {
         })
     }
 
-    fn select_archiver(triple: &str) -> PathBuf {
-        if let Ok(explicit) = std::env::var("SEEN_LLVM_ARCHIVER") {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
             if !explicit.is_empty() {
-                return PathBuf::from(explicit);
+                return Ok(PathBuf::from(explicit));
             }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
         }
 
         if triple.contains("windows") {
-            which::which("llvm-ar")
+            Ok(which::which("llvm-ar")
                 .ok()
-                .unwrap_or_else(|| PathBuf::from("lib"))
+                .unwrap_or_else(|| PathBuf::from("lib")))
         } else {
-            which::which("llvm-ar")
+            Ok(which::which("llvm-ar")
                 .ok()
-                .unwrap_or_else(|| PathBuf::from("ar"))
+                .unwrap_or_else(|| PathBuf::from("ar")))
         }
     }
 
-    fn select_ranlib() -> PathBuf {
-        if let Ok(explicit) = std::env::var("SEEN_LLVM_RANLIB") {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
             if !explicit.is_empty() {
-                return PathBuf::from(explicit);
+                return Ok(PathBuf::from(explicit));
             }
         }
-        which::which("llvm-ranlib")
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
             .ok()
-            .unwrap_or_else(|| PathBuf::from("ranlib"))
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
     }
 
     fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
@@ -509,7 +605,9 @@ impl<'ctx> LlvmBackend<'ctx> {
     fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
         match kind {
             LinkOutput::Executable => {
-                if triple.contains("linux") {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
                     vec!["-no-pie".to_string(), "-lm".to_string()]
                 } else if triple.contains("apple") {
                     vec!["-lm".to_string()]
@@ -518,7 +616,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             }
             LinkOutput::SharedLibrary => {
-                if triple.contains("linux") {
+                if triple.contains("android") || triple.contains("linux") {
                     vec!["-lm".to_string()]
                 } else {
                     vec![]
@@ -540,6 +638,92 @@ impl<'ctx> LlvmBackend<'ctx> {
             ));
         }
         Ok(())
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
     }
 
     fn inject_channel_runtime_stubs(&mut self) -> Result<()> {

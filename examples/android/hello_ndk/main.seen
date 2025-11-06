@@ -1,0 +1,8 @@
+// Minimal Android JNI-ready sample (compile to shared library)
+
+extern fun seen_print(message: String)
+
+fun main() -> Int {
+    seen_print("Hello from Seen on Android!\n")
+    return 0
+}

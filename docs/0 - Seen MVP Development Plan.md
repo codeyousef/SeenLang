@@ -184,26 +184,36 @@ channel traffic with the same guarantees as the interpreter.
 
 ### PSH‑5. Multi‑Platform Target Bring‑Up
 
-*Status:* 🔄 In progress — CLI now accepts `--target <triple>` and wires LLVM toolchains/clangers; per-platform
-packaging, signing, and fixtures remain outstanding.
+*Status:* 🔄 In progress — CLI now accepts `--target <triple>` and wires LLVM toolchains/clangers; Linux/Web flows are
+live while macOS/Windows remain deferred until host machines are available.
 
 * **Outstanding tasks:**
-  1. ✅ Add `--target <triple>` support to the CLI and map to LLVM target machines/toolchains (MSVC, clang, NDK,
-     wasm-ld).
+  1. ✅ Add `--target <triple>` support to the CLI and map to LLVM target machines/toolchains (clang, wasm-ld, NDK).
     * `seen build` now forwards triples to LLVM, emits target-specific objects, and selects appropriate
       linkers/archivers (with `clang`/`wasm-ld` fallbacks and `SEEN_LLVM_*` overrides).
-  2. Create platform-specific linker pipelines (Windows `.exe/.dll`, macOS Universal2 + codesign, Android `.so/.aab`,
-     iOS `.framework/.ipa`, Web `.wasm` + loader).
-  3. Provide sample projects per platform (textured quad) and automated smoke tests that run on CI/device farms.
-  4. Document toolchain prerequisites (Xcode, MSVC, SDK/NDK, Emscripten) and integrate signing/provisioning scripts.
+  2. 🔄 Create platform-specific linker pipelines for Linux (ELF exe/so), WebAssembly (wasm-ld), and Android NDK `.so`
+     packaging; queue macOS/Windows code paths once non-Linux builders are provisioned.
+    * Linux executables/shared libs now default to platform extensions; wasm targets drive `wasm-ld` with deterministic
+      exports and optional JS/HTML loader generation; Android triples resolve dedicated NDK toolchains via
+      `ANDROID_NDK_HOME` / `ANDROID_API_LEVEL`, with `.aab` packaging still pending.
+  3. 🔄 Provide sample projects per Linux/Web/Android target (textured quad) and automated smoke tests that run in
+     CI/device farms.
+    * Added `examples/linux/hello_cli`, `examples/web/hello_wasm`, and `examples/android/hello_ndk` as starter
+      fixtures (CI smoke runs to follow).
+  4. 🔄 Document Linux/Web/Android toolchain prerequisites (clang/LLD, wasm-ld, Android SDK/NDK) and integrate
+     signing/provisioning scripts where applicable.
+    * Quickstart now lists wasm/Android dependencies and the new `--wasm-loader` flag; dedicated packaging walkthroughs
+      remain to be authored.
 
-  * Linux: ELF executables and shared libs.
-  * Windows: PE/COFF executables and DLLs.
-  * macOS: Universal2 dylibs and app bundles (codesigned).
+  * Linux: ELF executables and shared libs (active work with CLI defaults).
+  * Windows: PE/COFF executables and DLLs _(deferred until Windows hosts available)_.
+  * macOS: Universal2 dylibs and app bundles (codesigned) _(deferred until macOS hosts available)_.
   * Android: `.so` + `.aab` via NDK.
-  * iOS: `.framework` + `.ipa`.
+  * iOS: `.framework` + `.ipa` _(deferred)_.
   * Web: `.wasm` + JS loader (COOP/COEP headers).
-* **Acceptance:** Each target produces a build artifact; execution of simple samples (textured quad) succeeds with no validation errors.
+* **Acceptance:** Each active target (Linux/Web/Android) produces a build artifact; execution of simple samples (
+  textured quad) succeeds with no validation errors. Deferred platforms are tracked separately once host infrastructure
+  exists.
 
 ### PSH‑6. Graphics Backends & Shader Flow
 

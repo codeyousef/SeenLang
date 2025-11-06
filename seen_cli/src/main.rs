@@ -100,6 +100,10 @@ enum Commands {
         #[arg(long)]
         emit_ll: bool,
 
+        /// Emit a JavaScript loader for wasm targets (only valid with --backend llvm and --target wasm32-*)
+        #[arg(long)]
+        wasm_loader: bool,
+
         /// Produce a shared library (only valid with --backend llvm)
         #[arg(long, conflicts_with = "static_lib")]
         shared: bool,
@@ -365,6 +369,7 @@ fn main() -> SeenResult<()> {
             opt_level,
             backend,
             emit_ll,
+                 wasm_loader,
                  target,
             shared,
             static_lib,
@@ -393,9 +398,16 @@ fn main() -> SeenResult<()> {
                     link_mode,
                     keyword_manager,
                     target.as_deref(),
+                    wasm_loader,
                 )?;
             }
             Backend::Ir => {
+                if wasm_loader {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--wasm-loader requires the LLVM backend".to_string(),
+                    ));
+                }
                 if let Some(target) = target {
                     eprintln!(
                         "warning: --target={} is ignored by the IR text backend",
@@ -411,6 +423,12 @@ fn main() -> SeenResult<()> {
                 compile_file_ir(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
             Backend::Mlir => {
+                if wasm_loader {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--wasm-loader requires the LLVM backend".to_string(),
+                    ));
+                }
                 if let Some(target) = target {
                     eprintln!(
                         "warning: --target={} is ignored by the experimental MLIR backend",
@@ -696,12 +714,40 @@ fn compile_file_llvm(
     link_mode: BuildLinkMode,
     keyword_manager: Arc<KeywordManager>,
     target_triple: Option<&str>,
+    wasm_loader: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
         input.display(),
         opt_level
     );
+
+    if wasm_loader {
+        match target_triple {
+            Some(triple) if is_wasm_target(triple) => {}
+            _ => {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "--wasm-loader requires --target wasm32-...".to_string(),
+                ));
+            }
+        }
+        if emit_ll {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                "--wasm-loader cannot be combined with --emit-ll".to_string(),
+            ));
+        }
+        if matches!(
+            link_mode,
+            BuildLinkMode::SharedLibrary | BuildLinkMode::StaticLibrary
+        ) {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                "--wasm-loader only supports executable outputs".to_string(),
+            ));
+        }
+    }
     let source = fs::read_to_string(input).map_err(|err| {
         SeenError::new(
             SeenErrorKind::Io,
@@ -766,7 +812,7 @@ fn compile_file_llvm(
         let default_target = if emit_ll {
             PathBuf::from("a.ll")
         } else {
-            default_link_output_path(link_mode)
+            default_link_output_path(link_mode, target_triple)
         };
         let out_path = output.unwrap_or(&default_target);
         if let Some(triple) = target_triple {
@@ -805,12 +851,15 @@ fn compile_file_llvm(
                     )
                 })?;
             println!("Generated artifact: {}", target.display());
+            if wasm_loader {
+                emit_wasm_loader(&target)?;
+            }
         }
         Ok(())
     }
     #[cfg(not(feature = "llvm"))]
     {
-        let _ = (output, emit_ll, link_mode, target_triple);
+        let _ = (output, emit_ll, link_mode, target_triple, wasm_loader);
         Err(SeenError::new(
             SeenErrorKind::Tooling,
             "LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm",
@@ -902,26 +951,124 @@ fn bundle_imports(
 }
 
 #[cfg(any(test, feature = "llvm"))]
-fn default_link_output_path(link_mode: BuildLinkMode) -> PathBuf {
+fn default_link_output_path(link_mode: BuildLinkMode, target_triple: Option<&str>) -> PathBuf {
+    let triple = target_triple.unwrap_or_default();
     match link_mode {
-        BuildLinkMode::Executable => PathBuf::from("a.out"),
+        BuildLinkMode::Executable => {
+            if is_wasm_target(triple) {
+                PathBuf::from("module.wasm")
+            } else if is_windows_target(triple) {
+                PathBuf::from("a.exe")
+            } else {
+                PathBuf::from("a.out")
+            }
+        }
         BuildLinkMode::SharedLibrary => {
-            if cfg!(target_os = "macos") {
+            if is_wasm_target(triple) {
+                PathBuf::from("module.wasm")
+            } else if is_macos_target(triple) {
                 PathBuf::from("liba.dylib")
-            } else if cfg!(target_os = "windows") {
+            } else if is_windows_target(triple) {
                 PathBuf::from("a.dll")
             } else {
                 PathBuf::from("liba.so")
             }
         }
         BuildLinkMode::StaticLibrary => {
-            if cfg!(target_os = "windows") {
+            if is_windows_target(triple) {
                 PathBuf::from("a.lib")
             } else {
                 PathBuf::from("liba.a")
             }
         } // Object-only not exposed via CLI
     }
+}
+
+fn is_wasm_target(triple: &str) -> bool {
+    !triple.is_empty() && triple.contains("wasm32")
+}
+
+#[cfg(any(test, feature = "llvm"))]
+fn is_windows_target(triple: &str) -> bool {
+    !triple.is_empty() && triple.contains("windows")
+}
+
+#[cfg(any(test, feature = "llvm"))]
+fn is_macos_target(triple: &str) -> bool {
+    !triple.is_empty() && (triple.contains("apple") || triple.contains("darwin"))
+}
+
+#[cfg(any(test, feature = "llvm"))]
+fn emit_wasm_loader(wasm_path: &Path) -> SeenResult<()> {
+    let wasm_file = wasm_path.file_name().ok_or_else(|| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Unable to derive wasm file name from output path {}",
+                wasm_path.display()
+            ),
+        )
+    })?;
+
+    let js_path = wasm_path.with_extension("js");
+    let html_path = wasm_path.with_extension("html");
+    let module_name = wasm_file.to_string_lossy();
+    let js_content = format!(
+        "async function main() {{
+    const response = await fetch('{module_name}');
+    const bytes = await response.arrayBuffer();
+    const {{ instance }} = await WebAssembly.instantiate(bytes, {{}});
+    if (instance.exports.seen_main) {{
+        instance.exports.seen_main();
+    }} else {{
+        console.warn('seen_main export not found; available exports:', Object.keys(instance.exports));
+    }}
+}}
+
+main().catch((err) => console.error('Error bootstrapping Seen wasm module:', err));
+"
+    );
+    let html_content = format!(
+        "<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\" />
+    <title>Seen Wasm Loader</title>
+</head>
+<body>
+    <script type=\"module\" src=\"{js}\"></script>
+</body>
+</html>
+",
+        js = js_path
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("module.js"))
+            .to_string_lossy()
+    );
+
+    fs::write(&js_path, js_content).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to write wasm loader {}: {}", js_path.display(), err),
+        )
+    })?;
+    fs::write(&html_path, html_content).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to write wasm HTML bootstrap {}: {}",
+                html_path.display(),
+                err
+            ),
+        )
+    })?;
+
+    println!(
+        "Generated wasm loader: {} (HTML bootstrap: {})",
+        js_path.display(),
+        html_path.display()
+    );
+    Ok(())
 }
 
 fn rewrite_embed_attributes(expr: Expression, module_dir: &Path) -> Expression {
@@ -2450,7 +2597,7 @@ mod tests {
 
     #[test]
     fn default_shared_path_uses_platform_extension() {
-        let path = default_link_output_path(BuildLinkMode::SharedLibrary);
+        let path = default_link_output_path(BuildLinkMode::SharedLibrary, None);
         let name = path.to_string_lossy();
         #[cfg(target_os = "macos")]
         assert!(name.ends_with(".dylib"));
@@ -2462,11 +2609,35 @@ mod tests {
 
     #[test]
     fn default_static_path_uses_platform_extension() {
-        let path = default_link_output_path(BuildLinkMode::StaticLibrary);
+        let path = default_link_output_path(BuildLinkMode::StaticLibrary, None);
         let name = path.to_string_lossy();
         #[cfg(target_os = "windows")]
         assert!(name.ends_with(".lib"));
         #[cfg(not(target_os = "windows"))]
         assert!(name.ends_with(".a"));
+    }
+
+    #[test]
+    fn wasm_target_defaults_to_wasm_extension() {
+        let path =
+            default_link_output_path(BuildLinkMode::Executable, Some("wasm32-unknown-unknown"));
+        assert_eq!(path.to_string_lossy(), "module.wasm");
+    }
+
+    #[test]
+    fn emit_wasm_loader_writes_js_and_html() {
+        let temp_dir = tempdir().expect("temp dir");
+        let wasm_path = temp_dir.path().join("hello.wasm");
+        fs::write(&wasm_path, b"").expect("touch wasm file");
+
+        emit_wasm_loader(&wasm_path).expect("emit loader");
+
+        let js = wasm_path.with_extension("js");
+        let html = wasm_path.with_extension("html");
+        assert!(js.exists(), "js loader should exist");
+        assert!(html.exists(), "html bootstrap should exist");
+
+        let js_contents = fs::read_to_string(js).expect("read js");
+        assert!(js_contents.contains("hello.wasm"));
     }
 }

@@ -5,6 +5,10 @@ This guide gets you installing Seen, verifying prerequisites, and running a basi
 ## Prerequisites
 - Rust toolchain: `rustc`, `cargo`
 - LLVM 15 toolchain for the LLVM backend: `llvm-15-dev`, `clang-15`
+- Optional target tooling:
+    - WebAssembly: ensure `wasm-ld` from LLVM 15 is on `PATH`.
+    - Android: install Android NDK (r25 or newer) and export `ANDROID_NDK_HOME`; override the default API level via
+      `ANDROID_API_LEVEL` if you need a different minimum SDK.
 
 Check installed tools:
 - `command -v cargo && cargo --version`
@@ -34,16 +38,26 @@ Install (macOS):
 - Emit textual IR (default backend): `seen build compiler_seen/src/main.seen --output stage1.ir`
 - Build native with LLVM (requires feature build): `seen build compiler_seen/src/main.seen --backend llvm --output stage1_seen`
 - Cross-compile with LLVM (automatic toolchain selection):
-    - Linux → Windows (MSVC LLD):
-      `seen build compiler_seen/src/main.seen --backend llvm --target x86_64-pc-windows-msvc --output stage1.exe`
+    - Linux → AArch64 (clang/LLD):
+      `seen build compiler_seen/src/main.seen --backend llvm --target aarch64-unknown-linux-gnu --output stage1_aarch64`
     - WebAssembly (wasm-ld):
       `seen build compiler_seen/src/main.seen --backend llvm --target wasm32-unknown-unknown --output stage1.wasm`
+        - Add `--wasm-loader` to emit companion JS/HTML loaders next to the `.wasm` binary.
+    - Android (NDK clang/LLD):
+      `seen build compiler_seen/src/main.seen --backend llvm --target aarch64-linux-android --output libstage1_android.so`
+        - Requires `ANDROID_NDK_HOME` (r25+) and optional `ANDROID_API_LEVEL`.
     - Override linker/archiver via `SEEN_LLVM_LINKER`, `SEEN_LLVM_ARCHIVER`, `SEEN_LLVM_RANLIB` if your toolchain lives
       in a non-standard location.
 - Run directly via interpreter (pure Rust):
   - `seen run compiler_seen/src/main.seen`
 
 Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
+
+## Sample Projects
+
+- Linux CLI starter: `examples/linux/hello_cli`
+- WebAssembly starter (use with `--target wasm32-unknown-unknown --wasm-loader`): `examples/web/hello_wasm`
+- Android NDK starter (requires `ANDROID_NDK_HOME`): `examples/android/hello_ndk`
 
 ## Deterministic Profile
 
