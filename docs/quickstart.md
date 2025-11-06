@@ -61,6 +61,9 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
     `seen build --backend llvm --shared examples/linux/hello_cli/main.seen --output libhello_cli.so`
   - Emit a static library:
     `seen build --backend llvm --static examples/linux/hello_cli/main.seen --output libhello_cli.a`
+- Formatting helper:
+    - Apply in place: `seen format path/to/file.seen --in-place`
+    - Check without writing: `seen format path/to/file.seen --check`
 - Cross-platform libraries:
     - Windows `.dll`:
       `seen build --backend llvm --target x86_64-pc-windows-gnu --shared examples/linux/hello_cli/main.seen --output hello.dll`

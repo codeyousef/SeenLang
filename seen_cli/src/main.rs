@@ -189,6 +189,10 @@ enum Commands {
         /// Format in place
         #[arg(short, long)]
         in_place: bool,
+
+        /// Check if the file is already formatted (no changes written)
+        #[arg(long, conflicts_with = "in_place")]
+        check: bool,
     },
 
     /// Run tests
@@ -501,8 +505,12 @@ fn main() -> SeenResult<()> {
             run_repl(keyword_manager, show_ast, show_types)?;
         }
 
-        Some(Commands::Format { input, in_place }) => {
-            format_file(&input, in_place)?;
+        Some(Commands::Format {
+                 input,
+                 in_place,
+                 check,
+             }) => {
+            format_file(&input, in_place, check)?;
         }
 
         Some(Commands::Test { path }) => {
@@ -2183,8 +2191,13 @@ fn evaluate_line(
     Ok(Some(result))
 }
 
-fn format_file(input: &Path, in_place: bool) -> SeenResult<()> {
-    println!("Formatting {} (in-place: {})", input.display(), in_place);
+fn format_file(input: &Path, in_place: bool, check: bool) -> SeenResult<()> {
+    println!(
+        "Formatting {} (in-place: {}, check: {})",
+        input.display(),
+        in_place,
+        check
+    );
 
     // Read source file
     let source = fs::read_to_string(input).map_err(|err| {
@@ -2219,7 +2232,21 @@ fn format_file(input: &Path, in_place: bool) -> SeenResult<()> {
     // Format the code
     let formatted_code = format_program(&program);
 
-    if in_place {
+    if check {
+        if source == formatted_code {
+            println!("{} is already formatted", input.display());
+            return Ok(());
+        } else {
+            println!("{} would be reformatted", input.display());
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "{} is not formatted; rerun with --in-place to apply changes",
+                    input.display()
+                ),
+            ));
+        }
+    } else if in_place {
         // Write back to the original file
         fs::write(input, formatted_code).map_err(|err| {
             SeenError::new(
