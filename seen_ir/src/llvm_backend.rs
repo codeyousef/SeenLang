@@ -1561,6 +1561,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
                 self.assign_value(result, loaded.as_basic_value_enum())?;
             }
+            Instruction::Scoped { .. }
+            | Instruction::Spawn { .. }
+            | Instruction::ChannelSelect { .. } => {
+                return Err(anyhow!(
+                    "LLVM backend does not yet lower channel concurrency instructions"
+                ));
+            }
             _ => {
                 // Many IR ops are not required for bootstrap subset; ignore nops etc.
             }

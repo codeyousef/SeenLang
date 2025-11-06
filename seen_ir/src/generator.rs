@@ -2,7 +2,7 @@
 
 use crate::{
     function::IRFunction,
-    instruction::{BinaryOp, Instruction, Label, UnaryOp},
+    instruction::{BinaryOp, IRSelectArm, Instruction, Label, ScopeKind, UnaryOp},
     module::IRModule,
     value::{IRType, IRValue},
     IRError, IRProgram, IRResult,
@@ -427,6 +427,11 @@ impl IRGenerator {
             } => self.generate_send_expression(message, target),
             Expression::Receive { handler, .. } => self.generate_expression(handler),
             Expression::Select { cases, .. } => self.generate_select_expression(cases),
+            Expression::Scope { body, .. } => self.generate_scope_expression(body),
+            Expression::JobsScope { body, .. } => self.generate_jobs_scope_expression(body),
+            Expression::Spawn { expr, detached, .. } => {
+                self.generate_spawn_expression(expr, *detached)
+            }
             // Handle other expression types...
             _ => Err(IRError::Other(format!(
                 "Unsupported expression type: {:?}",
@@ -2382,16 +2387,70 @@ impl IRGenerator {
         cases: &[seen_parser::ast::SelectCase],
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let mut instructions = Vec::new();
+        let mut arms = Vec::with_capacity(cases.len());
 
         for case in cases {
-            let (_, channel_instrs) = self.generate_expression(&case.channel)?;
+            let (channel_value, channel_instrs) = self.generate_expression(&case.channel)?;
             instructions.extend(channel_instrs);
 
-            let (_, handler_instrs) = self.generate_expression(&case.handler)?;
-            instructions.extend(handler_instrs);
+            arms.push(IRSelectArm {
+                channel: channel_value,
+                pattern: case.pattern.clone(),
+                handler: (*case.handler).clone(),
+            });
         }
 
-        Ok((IRValue::Void, instructions))
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+        instructions.push(Instruction::ChannelSelect {
+            cases: arms,
+            result: result_value.clone(),
+        });
+
+        Ok((result_value, instructions))
+    }
+
+    fn generate_scope_expression(
+        &mut self,
+        body: &Expression,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+        let instruction = Instruction::Scoped {
+            kind: ScopeKind::Task,
+            body: Box::new(body.clone()),
+            result: result_value.clone(),
+        };
+        Ok((result_value, vec![instruction]))
+    }
+
+    fn generate_jobs_scope_expression(
+        &mut self,
+        body: &Expression,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+        let instruction = Instruction::Scoped {
+            kind: ScopeKind::Jobs,
+            body: Box::new(body.clone()),
+            result: result_value.clone(),
+        };
+        Ok((result_value, vec![instruction]))
+    }
+
+    fn generate_spawn_expression(
+        &mut self,
+        expr: &Expression,
+        detached: bool,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+        let instruction = Instruction::Spawn {
+            body: Box::new(expr.clone()),
+            detached,
+            result: result_value.clone(),
+        };
+        Ok((result_value, vec![instruction]))
     }
 
     fn generate_send_expression(

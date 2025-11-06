@@ -1,6 +1,7 @@
 //! IR instruction system for the Seen programming language
 
 use crate::value::{IRType, IRValue};
+use seen_parser::{Expression as AstExpression, Pattern};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -99,6 +100,20 @@ impl fmt::Display for UnaryOp {
 }
 
 /// IR Instructions
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ScopeKind {
+    Task,
+    Jobs,
+}
+
+/// IR representation of a channel select arm.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IRSelectArm {
+    pub channel: IRValue,
+    pub pattern: Pattern,
+    pub handler: AstExpression,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
     // Control flow
@@ -253,6 +268,22 @@ pub enum Instruction {
     Debug {
         message: String,
         value: Option<IRValue>,
+    },
+
+    // Concurrency primitives
+    Scoped {
+        kind: ScopeKind,
+        body: Box<AstExpression>,
+        result: IRValue,
+    },
+    Spawn {
+        body: Box<AstExpression>,
+        detached: bool,
+        result: IRValue,
+    },
+    ChannelSelect {
+        cases: Vec<IRSelectArm>,
+        result: IRValue,
     },
 
     // No-op for optimization
@@ -470,6 +501,21 @@ impl fmt::Display for Instruction {
                 } else {
                     write!(f, "  debug \"{}\"", message)
                 }
+            }
+            Instruction::Scoped { kind, result, .. } => {
+                write!(f, "  scoped.{:?} -> {}", kind, result)
+            }
+            Instruction::Spawn {
+                detached, result, ..
+            } => {
+                if *detached {
+                    write!(f, "  spawn.detached -> {}", result)
+                } else {
+                    write!(f, "  spawn -> {}", result)
+                }
+            }
+            Instruction::ChannelSelect { cases, result } => {
+                write!(f, "  select[{} cases] -> {}", cases.len(), result)
             }
             Instruction::Nop => write!(f, "  nop"),
         }

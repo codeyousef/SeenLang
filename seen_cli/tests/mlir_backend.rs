@@ -57,3 +57,44 @@ fun Main(input: Int) -> Int {
         "expected a function lowering in MLIR output"
     );
 }
+
+#[test]
+fn mlir_backend_determinism_succeeds() {
+    let dir = tempdir().expect("create temp dir");
+    let source_path = dir.path().join("main.seen");
+    fs::write(
+        &source_path,
+        r#"
+fun Increment(value: Int) -> Int {
+    value + 1
+}
+
+fun Main(x: Int) -> Int {
+    if x > 10 {
+        Increment(x)
+    } else {
+        10
+    }
+}
+"#,
+    )
+    .expect("write source");
+
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .to_path_buf();
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(workspace_root)
+        .args([
+            "determinism",
+            source_path.to_string_lossy().as_ref(),
+            "-O0",
+            "--backend",
+            "mlir",
+        ])
+        .assert()
+        .success();
+}

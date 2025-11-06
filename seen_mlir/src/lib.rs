@@ -1,4 +1,4 @@
-use seen_ir::instruction::Instruction;
+use seen_ir::instruction::{Instruction, ScopeKind};
 use seen_ir::module::IRModule;
 use seen_ir::{IRFunction, IRProgram, IRType};
 use std::collections::BTreeMap;
@@ -491,6 +491,39 @@ fn instruction_to_mlir(
             } else {
                 format!("\"seen.debug\"() {{message = {}}} : () -> ()", escaped)
             }
+        }
+        Instruction::Scoped { kind, result, .. } => {
+            let res_name = value_result(result);
+            let res_ty = value_type(result, None);
+            let kind_str = match kind {
+                ScopeKind::Task => "task",
+                ScopeKind::Jobs => "jobs",
+            };
+            format!(
+                "{} = \"seen.scope\"() {{kind = \"{}\"}} : () -> {}",
+                res_name, kind_str, res_ty
+            )
+        }
+        Instruction::Spawn {
+            detached, result, ..
+        } => {
+            let res_name = value_result(result);
+            let res_ty = value_type(result, None);
+            let mode = if *detached { "detached" } else { "scoped" };
+            format!(
+                "{} = \"seen.spawn\"() {{mode = \"{}\"}} : () -> {}",
+                res_name, mode, res_ty
+            )
+        }
+        Instruction::ChannelSelect { cases, result } => {
+            let res_name = value_result(result);
+            let res_ty = value_type(result, None);
+            format!(
+                "{} = \"seen.select\"() {{cases = {}}} : () -> {}",
+                res_name,
+                cases.len(),
+                res_ty
+            )
         }
         Instruction::Label(label) => format!("// label {}", sanitize_label(&label.0)),
         Instruction::Nop => "\"seen.nop\"() : () -> ()".to_string(),

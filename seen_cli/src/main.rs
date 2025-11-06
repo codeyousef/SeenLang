@@ -114,6 +114,10 @@ enum Commands {
         /// Optimization level
         #[arg(short = 'O', long, default_value = "0")]
         opt_level: u8,
+
+        /// Backend to hash for determinism
+        #[arg(long, default_value_t = Backend::Ir)]
+        backend: Backend,
     },
 
     /// Run a Seen source file directly
@@ -437,8 +441,12 @@ fn main() -> SeenResult<()> {
             parse_file(&input, &format, keyword_manager)?;
         }
 
-        Some(Commands::Determinism { input, opt_level }) => {
-            determinism_check(&input, opt_level, keyword_manager)?;
+        Some(Commands::Determinism {
+            input,
+            opt_level,
+            backend,
+        }) => {
+            determinism_check(&input, opt_level, backend, keyword_manager)?;
         }
 
         Some(Commands::Lex { input }) => {
@@ -1126,57 +1134,38 @@ fn generate_ir(
 fn determinism_check(
     input: &Path,
     opt_level: u8,
+    backend: Backend,
     keyword_manager: Arc<KeywordManager>,
 ) -> SeenResult<()> {
     use sha2::{Digest, Sha256};
-    let lexer_config = lexer_config_for(input)?;
-    let visibility_policy = lexer_config.visibility_policy;
 
-    let run_once = |input: &Path| -> SeenResult<String> {
-        let source = fs::read_to_string(input).map_err(|err| {
-            SeenError::new(
-                SeenErrorKind::Io,
-                format!("Failed to read source file {}: {}", input.display(), err),
-            )
-        })?;
-        let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
-        let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-        let ast = parser.parse_program().map_err(SeenError::from)?;
-        let ast = bundle_imports(ast, input, keyword_manager.clone(), visibility_policy)?;
-        let mut type_checker = TypeChecker::new();
-        let type_result = type_checker.check_program(&ast);
-        if !type_result.errors.is_empty() {
-            if let Some(primary) = type_result.errors.first().cloned() {
-                return Err(SeenError::from(primary));
-            }
-            return Err(SeenError::new(
-                SeenErrorKind::TypeChecker,
-                format!(
-                    "Type checking failed with {} errors",
-                    type_result.errors.len()
-                ),
-            ));
-        }
-        let mut ir_generator = IRGenerator::new();
-        let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
-        let optimization_level = OptimizationLevel::from_level(opt_level);
-        let mut optimizer = IROptimizer::new(optimization_level);
-        let mut optimized_ir = ir_program;
-        optimizer
-            .optimize_program(&mut optimized_ir)
-            .map_err(SeenError::from)?;
-        Ok(format!("{}", optimized_ir))
+    if backend == Backend::Llvm {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            "Determinism for the LLVM backend requires artifact inspection; rerun with --backend ir or --backend mlir"
+                .to_string(),
+        ));
+    }
+
+    let run_once = || -> SeenResult<String> {
+        let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager.clone())?;
+        let text = match backend {
+            Backend::Ir => format!("{}", optimized_ir),
+            Backend::Mlir => program_to_mlir(&optimized_ir),
+            Backend::Llvm => unreachable!(),
+        };
+        Ok(text)
     };
 
-    let ir1 = run_once(input)?;
-    let ir2 = run_once(input)?;
+    let text1 = run_once()?;
+    let text2 = run_once()?;
 
     let mut h1 = Sha256::new();
-    h1.update(ir1.as_bytes());
+    h1.update(text1.as_bytes());
     let hash1 = format!("{:x}", h1.finalize());
 
     let mut h2 = Sha256::new();
-    h2.update(ir2.as_bytes());
+    h2.update(text2.as_bytes());
     let hash2 = format!("{:x}", h2.finalize());
 
     println!("Stage2 hash: {}", hash1);

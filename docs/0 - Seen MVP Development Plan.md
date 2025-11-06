@@ -97,10 +97,18 @@ gap before we can call the phase entirely closed.
     runtime contract, and linked it from the quickstart guide.
 
 * **Remaining tasks:**
-  1. Thread channel futures through `seen_cli` and Stage builds, adding CLI/LLVM regression coverage to confirm the
-     compiled pipeline observes the same semantics as the interpreter.
-  2. Verify CLI stdout/stderr handling once channel-driven programs run under the command runner, then capture Stage
-     determinism hashes to ensure the new runtime plumbing does not perturb reproducibility.
+  1. **IR support for channel constructs** — extend the IR generator to lower `scope`, `spawn`, `select`, `send`, and
+     `Channel()` expressions into deterministic instruction forms (new opcodes or intrinsic calls) while preserving
+     current interpreter semantics.
+  2. **LLVM channel runtime surface** — introduce a compiled runtime module (Rust/C shim) that exposes channel/task
+     primitives compatible with the interpreter (`seen_channel_new`, `seen_channel_send`, `seen_channel_recv`,
+     `seen_channel_select`, scoped join helpers) and ship it alongside CLI/Stage artifacts.
+  3. **LLVM lowering for channel intrinsics** — teach `seen_ir::llvm_backend` to translate the new IR operations into
+     calls against the channel runtime, including struct construction for channel endpoints, scope join logic, and
+     select-case pattern handling.
+  4. **CLI + Stage wiring & regression coverage** — once lowering/runtime support lands, update `seen_cli` and the
+     self-host pipeline to run channel-driven programs via the LLVM backend, add CLI/Stage tests, and record
+     determinism hashes plus stdout/stderr validation.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe
 channel traffic with the same guarantees as the interpreter.
