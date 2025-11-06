@@ -14,12 +14,6 @@ pub fn build_cfg_from_instructions(instructions: Vec<Instruction>) -> ControlFlo
     let mut block_count = 0;
 
     // Helper to finish the current block and add it to CFG
-    let finish_current_block = |current_block: Option<BasicBlock>, cfg: &mut ControlFlowGraph| {
-        if let Some(block) = current_block {
-            cfg.add_block(block);
-        }
-    };
-
     for instruction in instructions {
         match instruction {
             // Labels start new blocks
@@ -104,16 +98,20 @@ pub fn build_cfg_from_instructions(instructions: Vec<Instruction>) -> ControlFlo
     // If no entry block was set, use the first block
     if cfg.entry_block.is_none() && !cfg.blocks.is_empty() {
         // Find the first block (either "entry" or "block_0")
-        if cfg.blocks.contains_key("entry") {
+        if cfg.contains_block("entry") {
             cfg.entry_block = Some("entry".to_string());
-        } else if cfg.blocks.contains_key("block_0") {
+        } else if cfg.contains_block("block_0") {
             cfg.entry_block = Some("block_0".to_string());
         } else {
-            // Use the first block in sorted order
-            let mut keys: Vec<_> = cfg.blocks.keys().cloned().collect();
-            keys.sort();
-            if let Some(first) = keys.first() {
-                cfg.entry_block = Some(first.clone());
+            let candidate = if let Some(first) = cfg.block_order.first().cloned() {
+                Some(first)
+            } else if let Some(block) = cfg.blocks_iter().next() {
+                Some(block.label.0.clone())
+            } else {
+                None
+            };
+            if let Some(label) = candidate {
+                cfg.entry_block = Some(label);
             }
         }
     }
@@ -125,80 +123,78 @@ pub fn build_cfg_from_instructions(instructions: Vec<Instruction>) -> ControlFlo
 /// This is needed when we discover jump instructions that weren't properly
 /// handled as terminators
 pub fn split_block_at_jump(cfg: &mut ControlFlowGraph, block_label: &str) -> bool {
-    if let Some(block) = cfg.blocks.remove(block_label) {
-        let order_position = cfg
-            .block_order
-            .iter()
-            .position(|label| label == block_label);
-        let mut new_blocks = Vec::new();
-        let mut current_instructions = Vec::new();
-        let original_label = block.label.clone();
-        let mut block_counter = 0;
+    let order_position = cfg
+        .block_order
+        .iter()
+        .position(|label| label == block_label);
 
-        for instruction in block.instructions {
-            match instruction {
-                Instruction::Jump(_)
-                | Instruction::JumpIf { .. }
-                | Instruction::JumpIfNot { .. } => {
-                    // This is a terminator - finish current block
-                    let label = if block_counter == 0 {
-                        original_label.clone()
-                    } else {
-                        Label::new(format!("{}_{}", original_label.0, block_counter))
-                    };
+    let block = cfg
+        .get_block(block_label)
+        .cloned()
+        .expect("block index but missing block");
+    let mut new_blocks = Vec::new();
+    let mut current_instructions = Vec::new();
+    let original_label = block.label.clone();
+    let mut block_counter = 0;
 
-                    let mut new_block = BasicBlock::new(label);
-                    new_block.instructions = current_instructions.clone();
-                    new_block.terminator = Some(instruction);
-                    new_blocks.push(new_block);
+    for instruction in block.instructions {
+        match instruction {
+            Instruction::Jump(_) | Instruction::JumpIf { .. } | Instruction::JumpIfNot { .. } => {
+                let label = if block_counter == 0 {
+                    original_label.clone()
+                } else {
+                    Label::new(format!("{}_{}", original_label.0, block_counter))
+                };
 
-                    current_instructions.clear();
-                    block_counter += 1;
-                }
-                _ => {
-                    current_instructions.push(instruction);
-                }
+                let mut new_block = BasicBlock::new(label);
+                new_block.instructions = current_instructions.clone();
+                new_block.terminator = Some(instruction);
+                new_blocks.push(new_block);
+
+                current_instructions.clear();
+                block_counter += 1;
+            }
+            _ => {
+                current_instructions.push(instruction);
             }
         }
-
-        // Handle remaining instructions and original terminator
-        if !current_instructions.is_empty() || block.terminator.is_some() {
-            let label = if block_counter == 0 {
-                original_label
-            } else {
-                Label::new(format!("{}_{}", original_label.0, block_counter))
-            };
-
-            let mut new_block = BasicBlock::new(label);
-            new_block.instructions = current_instructions;
-            new_block.terminator = block.terminator;
-            new_blocks.push(new_block);
-        }
-
-        // Add all new blocks back to CFG
-        let mut new_labels: Vec<String> = Vec::new();
-        for new_block in new_blocks {
-            let label_name = new_block.label.0.clone();
-            cfg.blocks.insert(label_name.clone(), new_block);
-            new_labels.push(label_name);
-        }
-
-        if let Some(idx) = order_position {
-            // Remove the old label position
-            cfg.block_order.remove(idx);
-            // Insert new labels preserving order
-            for (offset, label_name) in new_labels.into_iter().enumerate() {
-                cfg.block_order.insert(idx + offset, label_name);
-            }
-        } else {
-            // Fallback: append new labels if original position not found
-            cfg.block_order.extend(new_labels);
-        }
-
-        return true;
     }
 
-    false
+    if !current_instructions.is_empty() || block.terminator.is_some() {
+        let label = if block_counter == 0 {
+            original_label
+        } else {
+            Label::new(format!("{}_{}", original_label.0, block_counter))
+        };
+
+        let mut new_block = BasicBlock::new(label);
+        new_block.instructions = current_instructions;
+        new_block.terminator = block.terminator;
+        new_blocks.push(new_block);
+    }
+
+    if new_blocks.is_empty() {
+        return false;
+    }
+
+    let first_block = new_blocks.remove(0);
+    if cfg.replace_block(block_label, first_block).is_none() {
+        return false;
+    }
+
+    if let Some(idx) = order_position {
+        let mut insert_pos = idx + 1;
+        for block in new_blocks {
+            cfg.insert_block_at_order(insert_pos, block);
+            insert_pos += 1;
+        }
+    } else {
+        for block in new_blocks {
+            cfg.add_block(block);
+        }
+    }
+
+    true
 }
 
 #[cfg(test)]
@@ -250,8 +246,7 @@ mod tests {
 
         // Check that we have a block for the Jump after JumpIf
         assert!(cfg
-            .blocks
-            .keys()
+            .block_names()
             .any(|k| k != "loop_start" && k != "loop_body" && k != "loop_end"));
 
         // Check loop_body block

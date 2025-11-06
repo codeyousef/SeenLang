@@ -2,7 +2,7 @@
 
 use crate::{
     function::IRFunction,
-    instruction::{BasicBlock, BinaryOp, Instruction, UnaryOp},
+    instruction::{BinaryOp, Instruction, UnaryOp},
     module::IRModule,
     value::{IRType, IRValue},
     IRProgram, IRResult,
@@ -128,7 +128,7 @@ impl IROptimizer {
 
     /// Constant folding optimization
     fn constant_folding(&mut self, function: &mut IRFunction) -> IRResult<()> {
-        for block in function.cfg.blocks.values_mut() {
+        for block in function.cfg.blocks_iter_mut() {
             let mut new_instructions = Vec::new();
 
             for instruction in &block.instructions {
@@ -240,7 +240,7 @@ impl IROptimizer {
 
     /// Eliminate redundant move instructions
     fn eliminate_redundant_moves(&mut self, function: &mut IRFunction) -> IRResult<()> {
-        for block in function.cfg.blocks.values_mut() {
+        for block in function.cfg.blocks_iter_mut() {
             let mut new_instructions = Vec::new();
 
             for instruction in &block.instructions {
@@ -262,7 +262,7 @@ impl IROptimizer {
 
     /// Eliminate no-op instructions
     fn eliminate_nops(&mut self, function: &mut IRFunction) -> IRResult<()> {
-        for block in function.cfg.blocks.values_mut() {
+        for block in function.cfg.blocks_iter_mut() {
             let original_len = block.instructions.len();
             block
                 .instructions
@@ -281,7 +281,7 @@ impl IROptimizer {
         let mut used_values = HashSet::new();
 
         // Mark values used in instructions
-        for block in function.cfg.blocks.values() {
+        for block in function.cfg.blocks_iter() {
             for instruction in &block.instructions {
                 self.mark_used_values(instruction, &mut used_values);
             }
@@ -291,7 +291,7 @@ impl IROptimizer {
         }
 
         // Remove instructions that produce unused values
-        for block in function.cfg.blocks.values_mut() {
+        for block in function.cfg.blocks_iter_mut() {
             let mut new_instructions = Vec::new();
 
             for instruction in &block.instructions {
@@ -312,7 +312,7 @@ impl IROptimizer {
 
     /// Strength reduction (replace expensive operations with cheaper ones)
     fn strength_reduction(&mut self, function: &mut IRFunction) -> IRResult<()> {
-        for block in function.cfg.blocks.values_mut() {
+        for block in function.cfg.blocks_iter_mut() {
             let mut new_instructions = Vec::new();
 
             for instruction in &block.instructions {
@@ -376,7 +376,7 @@ impl IROptimizer {
     /// Common subexpression elimination
     fn common_subexpression_elimination(&mut self, function: &mut IRFunction) -> IRResult<()> {
         // This is a simplified CSE that works within basic blocks
-        for block in function.cfg.blocks.values_mut() {
+        for block in function.cfg.blocks_iter_mut() {
             let mut expression_map: HashMap<String, IRValue> = HashMap::new();
             let mut new_instructions = Vec::new();
 
@@ -444,7 +444,7 @@ impl IROptimizer {
         let mut invariant_instructions = Vec::new();
 
         // Simple analysis: identify instructions that don't depend on loop variables
-        for block in function.cfg.blocks.values() {
+        for block in function.cfg.blocks_iter() {
             for instruction in &block.instructions {
                 if self.is_loop_invariant(instruction) {
                     invariant_instructions.push(instruction.clone());

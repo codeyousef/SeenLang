@@ -553,9 +553,10 @@ impl fmt::Display for BasicBlock {
 }
 
 /// Control flow graph representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ControlFlowGraph {
-    pub blocks: HashMap<String, BasicBlock>,
+    pub blocks: Vec<BasicBlock>,
+    block_lookup: HashMap<String, u32>,
     pub entry_block: Option<String>,
     pub block_order: Vec<String>,
 }
@@ -563,7 +564,8 @@ pub struct ControlFlowGraph {
 impl ControlFlowGraph {
     pub fn new() -> Self {
         Self {
-            blocks: HashMap::new(),
+            blocks: Vec::new(),
+            block_lookup: HashMap::new(),
             entry_block: None,
             block_order: Vec::new(),
         }
@@ -571,29 +573,109 @@ impl ControlFlowGraph {
 
     pub fn add_block(&mut self, block: BasicBlock) {
         let label_name = block.label.0.clone();
-        if self.entry_block.is_none() {
-            self.entry_block = Some(label_name.clone());
-        }
-        if !self.blocks.contains_key(&label_name) {
+        if let Some(index) = self.block_lookup.get(&label_name).cloned() {
+            self.blocks[index as usize] = block;
+        } else {
+            let index = self.blocks.len() as u32;
+            self.block_lookup.insert(label_name.clone(), index);
+            self.blocks.push(block);
             self.block_order.push(label_name.clone());
+            if self.entry_block.is_none() {
+                self.entry_block = Some(label_name);
+            }
         }
-        self.blocks.insert(label_name, block);
     }
 
     pub fn get_block(&self, label: &str) -> Option<&BasicBlock> {
-        self.blocks.get(label)
+        self.block_lookup
+            .get(label)
+            .and_then(|idx| self.blocks.get(*idx as usize))
     }
 
     pub fn get_block_mut(&mut self, label: &str) -> Option<&mut BasicBlock> {
-        self.blocks.get_mut(label)
+        if let Some(idx) = self.block_lookup.get(label).cloned() {
+            self.blocks.get_mut(idx as usize)
+        } else {
+            None
+        }
+    }
+
+    pub fn contains_block(&self, label: &str) -> bool {
+        self.block_lookup.contains_key(label)
+    }
+
+    pub fn block_index(&self, label: &str) -> Option<u32> {
+        self.block_lookup.get(label).cloned()
+    }
+
+    pub fn replace_block(&mut self, old_label: &str, block: BasicBlock) -> Option<u32> {
+        let index = self.block_lookup.get(old_label).cloned()?;
+        let new_label = block.label.0.clone();
+        self.blocks[index as usize] = block;
+
+        if old_label != new_label {
+            self.block_lookup.remove(old_label);
+            self.block_lookup.insert(new_label.clone(), index);
+
+            if let Some(entry) = self.entry_block.as_mut() {
+                if entry == old_label {
+                    *entry = new_label.clone();
+                }
+            }
+
+            if let Some(pos) = self
+                .block_order
+                .iter_mut()
+                .position(|label| label == old_label)
+            {
+                self.block_order[pos] = new_label;
+            }
+        }
+
+        Some(index)
+    }
+
+    pub fn insert_block_at_order(&mut self, position: usize, block: BasicBlock) -> u32 {
+        let label_name = block.label.0.clone();
+        let index = self.blocks.len() as u32;
+        self.blocks.push(block);
+        self.block_lookup.insert(label_name.clone(), index);
+        if position >= self.block_order.len() {
+            self.block_order.push(label_name.clone());
+        } else {
+            self.block_order.insert(position, label_name.clone());
+        }
+        if self.entry_block.is_none() {
+            self.entry_block = Some(label_name);
+        }
+        index
+    }
+
+    pub fn block_names(&self) -> impl Iterator<Item = &String> {
+        self.block_order.iter()
+    }
+
+    pub fn blocks_iter(&self) -> impl Iterator<Item = &BasicBlock> {
+        self.blocks.iter()
+    }
+
+    pub fn blocks_iter_mut(&mut self) -> impl Iterator<Item = &mut BasicBlock> {
+        self.blocks.iter_mut()
+    }
+
+    pub fn rebuild_lookup(&mut self) {
+        self.block_lookup.clear();
+        for (idx, block) in self.blocks.iter().enumerate() {
+            self.block_lookup.insert(block.label.0.clone(), idx as u32);
+        }
     }
 
     /// Validate the CFG structure
     pub fn validate(&self) -> Result<(), String> {
         // Check that all jump targets exist
-        for block in self.blocks.values() {
+        for block in &self.blocks {
             for successor in block.successors() {
-                if !self.blocks.contains_key(&successor.0) {
+                if !self.block_lookup.contains_key(&successor.0) {
                     return Err(format!(
                         "Invalid jump to non-existent label: {}",
                         successor.0
@@ -604,7 +686,7 @@ impl ControlFlowGraph {
 
         // Check that entry block exists
         if let Some(entry) = &self.entry_block {
-            if !self.blocks.contains_key(entry) {
+            if !self.block_lookup.contains_key(entry) {
                 return Err(format!("Entry block {} does not exist", entry));
             }
         }
@@ -627,12 +709,50 @@ impl fmt::Display for ControlFlowGraph {
 
         // Display blocks in a consistent order
         for name in &self.block_order {
-            if let Some(block) = self.blocks.get(name) {
+            if let Some(block) = self.get_block(name) {
                 writeln!(f, "{}", block)?;
             }
         }
 
         Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ControlFlowGraphSerde {
+    blocks: Vec<BasicBlock>,
+    entry_block: Option<String>,
+    block_order: Vec<String>,
+}
+
+impl Serialize for ControlFlowGraph {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        ControlFlowGraphSerde {
+            blocks: self.blocks.clone(),
+            entry_block: self.entry_block.clone(),
+            block_order: self.block_order.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ControlFlowGraph {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = ControlFlowGraphSerde::deserialize(deserializer)?;
+        let mut cfg = ControlFlowGraph {
+            blocks: data.blocks,
+            block_lookup: HashMap::new(),
+            entry_block: data.entry_block,
+            block_order: data.block_order,
+        };
+        cfg.rebuild_lookup();
+        Ok(cfg)
     }
 }
 

@@ -1,6 +1,6 @@
 //! IR function representation for the Seen programming language
 
-use crate::instruction::{BasicBlock, ControlFlowGraph, Label};
+use crate::instruction::{BasicBlock, ControlFlowGraph};
 use crate::value::{IRType, IRValue};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -81,7 +81,9 @@ pub struct IRFunction {
     pub name: String,
     pub parameters: Vec<Parameter>,
     pub return_type: IRType,
-    pub locals: HashMap<String, LocalVariable>,
+    pub locals: Vec<LocalVariable>,
+    #[serde(skip)]
+    local_lookup: HashMap<String, u32>,
     pub cfg: ControlFlowGraph,
     pub is_public: bool,
     pub is_extern: bool,
@@ -103,7 +105,8 @@ impl IRFunction {
             name: name.into(),
             parameters: Vec::new(),
             return_type,
-            locals: HashMap::new(),
+            locals: Vec::new(),
+            local_lookup: HashMap::new(),
             cfg: ControlFlowGraph::new(),
             is_public: false,
             is_extern: false,
@@ -129,15 +132,46 @@ impl IRFunction {
     }
 
     pub fn add_local(&mut self, local: LocalVariable) {
-        self.locals.insert(local.name.clone(), local);
+        if let Some(index) = self.local_lookup.get(&local.name).cloned() {
+            self.locals[index as usize] = local;
+        } else {
+            let index = self.locals.len() as u32;
+            self.local_lookup.insert(local.name.clone(), index);
+            self.locals.push(local);
+        }
     }
 
     pub fn get_local(&self, name: &str) -> Option<&LocalVariable> {
-        self.locals.get(name)
+        self.local_lookup
+            .get(name)
+            .and_then(|idx| self.locals.get(*idx as usize))
     }
 
     pub fn get_local_mut(&mut self, name: &str) -> Option<&mut LocalVariable> {
-        self.locals.get_mut(name)
+        if let Some(idx) = self.local_lookup.get(name).cloned() {
+            self.locals.get_mut(idx as usize)
+        } else {
+            None
+        }
+    }
+
+    pub fn locals_iter(&self) -> impl Iterator<Item = &LocalVariable> {
+        self.locals.iter()
+    }
+
+    pub fn locals_iter_mut(&mut self) -> impl Iterator<Item = &mut LocalVariable> {
+        self.locals.iter_mut()
+    }
+
+    pub fn has_local(&self, name: &str) -> bool {
+        self.local_lookup.contains_key(name)
+    }
+
+    pub fn rebuild_local_lookup(&mut self) {
+        self.local_lookup.clear();
+        for (idx, local) in self.locals.iter().enumerate() {
+            self.local_lookup.insert(local.name.clone(), idx as u32);
+        }
     }
 
     /// Allocate a new virtual register
@@ -188,11 +222,11 @@ impl IRFunction {
         }
 
         // Check that local variables don't conflict with parameters
-        for local_name in self.locals.keys() {
-            if param_names.contains(local_name) {
+        for local in &self.locals {
+            if param_names.contains(&local.name) {
                 return Err(format!(
                     "Local variable {} conflicts with parameter",
-                    local_name
+                    local.name
                 ));
             }
         }
@@ -209,7 +243,7 @@ impl IRFunction {
         let mut size = 0;
 
         // Add size for local variables
-        for local in self.locals.values() {
+        for local in self.locals.iter() {
             size += local.var_type.size_bytes();
         }
 
@@ -221,7 +255,7 @@ impl IRFunction {
 
     /// Check if this function is a leaf function (doesn't call other functions)
     pub fn is_leaf(&self) -> bool {
-        for block in self.cfg.blocks.values() {
+        for block in self.cfg.blocks_iter() {
             for instruction in &block.instructions {
                 if matches!(instruction, crate::instruction::Instruction::Call { .. }) {
                     return false;
@@ -241,7 +275,7 @@ impl IRFunction {
         use std::collections::HashSet;
         let mut used_registers = HashSet::new();
 
-        for block in self.cfg.blocks.values() {
+        for block in self.cfg.blocks_iter() {
             for instruction in &block.instructions {
                 self.collect_instruction_registers(instruction, &mut used_registers);
             }
@@ -259,7 +293,7 @@ impl IRFunction {
 
     /// Validate type consistency across instructions
     fn validate_type_consistency(&self) -> Result<(), String> {
-        for block in self.cfg.blocks.values() {
+        for block in self.cfg.blocks.iter() {
             for instruction in &block.instructions {
                 self.validate_instruction_types(instruction)?;
             }
@@ -400,9 +434,9 @@ impl fmt::Display for IRFunction {
         if !self.locals.is_empty() {
             writeln!(f)?;
             writeln!(f, "  ; Local variables")?;
-            let mut locals: Vec<&LocalVariable> = self.locals.values().collect();
-            locals.sort_by(|a, b| a.name.cmp(&b.name));
-            for local in locals {
+            let mut locals_sorted: Vec<&LocalVariable> = self.locals.iter().collect();
+            locals_sorted.sort_by(|a, b| a.name.cmp(&b.name));
+            for local in locals_sorted {
                 write!(f, "  ")?;
                 if local.is_mutable {
                     write!(f, "mut ")?;
@@ -491,7 +525,8 @@ impl CallGraph {
         }
     }
 
-    pub fn add_function(&mut self, function: IRFunction) {
+    pub fn add_function(&mut self, mut function: IRFunction) {
+        function.rebuild_local_lookup();
         if let Some(index) = self.function_lookup.get(&function.name).cloned() {
             self.functions[index as usize] = function;
         } else {
@@ -624,7 +659,8 @@ impl<'de> Deserialize<'de> for CallGraph {
             function_lookup: HashMap::new(),
             call_sites: data.call_sites,
         };
-        for (idx, function) in graph.functions.iter().enumerate() {
+        for (idx, function) in graph.functions.iter_mut().enumerate() {
+            function.rebuild_local_lookup();
             graph
                 .function_lookup
                 .insert(function.name.clone(), idx as u32);

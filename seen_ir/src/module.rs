@@ -265,7 +265,8 @@ impl IRModule {
         self
     }
 
-    pub fn add_function(&mut self, function: IRFunction) {
+    pub fn add_function(&mut self, mut function: IRFunction) {
+        function.rebuild_local_lookup();
         if let Some(index) = self.function_lookup.get(&function.name).cloned() {
             self.functions[index as usize] = function;
         } else {
@@ -422,7 +423,8 @@ impl IRModule {
     /// Rebuild lookup tables from the current collections.
     pub fn rebuild_indices(&mut self) {
         self.function_lookup.clear();
-        for (idx, function) in self.functions.iter().enumerate() {
+        for (idx, function) in self.functions.iter_mut().enumerate() {
+            function.rebuild_local_lookup();
             self.function_lookup
                 .insert(function.name.clone(), idx as u32);
         }
@@ -520,7 +522,8 @@ impl IRModule {
         for caller_function in &self.functions {
             let caller_name = &caller_function.name;
             // Scan function CFG for call instructions
-            for (block_label, block) in &caller_function.cfg.blocks {
+            for block in caller_function.cfg.blocks_iter() {
+                let block_label = block.label.0.clone();
                 for instruction in &block.instructions {
                     if let crate::instruction::Instruction::Call {
                         target,
@@ -563,7 +566,7 @@ impl IRModule {
 
         // Calculate code size (approximate)
         for function in &self.functions {
-            for block in function.cfg.blocks.values() {
+            for block in function.cfg.blocks_iter() {
                 stats.instruction_count += block.instructions.len();
                 if block.terminator.is_some() {
                     stats.instruction_count += 1;

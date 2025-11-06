@@ -406,7 +406,11 @@ impl<'ctx> LlvmBackend<'ctx> {
         let block_names: Vec<_> = if !func.cfg.block_order.is_empty() {
             func.cfg.block_order.clone()
         } else {
-            let mut names: Vec<_> = func.cfg.blocks.keys().cloned().collect();
+            let mut names: Vec<_> = func
+                .cfg
+                .blocks_iter()
+                .map(|block| block.label.0.clone())
+                .collect();
             names.sort_by(|a, b| block_sort_key(a).cmp(&block_sort_key(b)));
             names
         };
@@ -443,7 +447,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             let slot = self.alloca_for_type(ty, &format!("param_slot_{}", param.name))?;
             self.var_slots.insert(param.name.clone(), slot);
         }
-        for local in func.locals.values() {
+        for local in func.locals_iter() {
             let ty = self.ir_type_to_llvm(&local.var_type);
             self.var_slot_types.insert(local.name.clone(), ty);
             let slot = self.alloca_for_type(ty, &format!("local_slot_{}", local.name))?;
@@ -544,7 +548,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                 .get(idx + 1)
                 .and_then(|next| self.blocks.get(next).cloned());
 
-            let b = func.cfg.blocks.get(name).unwrap();
+            let b = func
+                .cfg
+                .get_block(name)
+                .expect("basic block must exist in CFG");
             for inst in &b.instructions {
                 self.emit_instruction(inst, fn_map)?;
             }
