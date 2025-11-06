@@ -184,10 +184,14 @@ channel traffic with the same guarantees as the interpreter.
 
 ### PSH‑5. Multi‑Platform Target Bring‑Up
 
-*Status:* ⏳ Pending — no cross-compilation flags, signing, or per-platform build recipes exist in the CLI today.
+*Status:* 🔄 In progress — CLI now accepts `--target <triple>` and wires LLVM toolchains/clangers; per-platform
+packaging, signing, and fixtures remain outstanding.
 
 * **Outstanding tasks:**
-  1. Add `--target <triple>` support to the CLI and map to LLVM target machines/toolchains (MSVC, clang, NDK, wasm-ld).
+  1. ✅ Add `--target <triple>` support to the CLI and map to LLVM target machines/toolchains (MSVC, clang, NDK,
+     wasm-ld).
+    * `seen build` now forwards triples to LLVM, emits target-specific objects, and selects appropriate
+      linkers/archivers (with `clang`/`wasm-ld` fallbacks and `SEEN_LLVM_*` overrides).
   2. Create platform-specific linker pipelines (Windows `.exe/.dll`, macOS Universal2 + codesign, Android `.so/.aab`,
      iOS `.framework/.ipa`, Web `.wasm` + loader).
   3. Provide sample projects per platform (textured quad) and automated smoke tests that run on CI/device farms.

@@ -33,6 +33,13 @@ Install (macOS):
 - Syntax check the bootstrap entry: `seen check compiler_seen/src/main.seen`
 - Emit textual IR (default backend): `seen build compiler_seen/src/main.seen --output stage1.ir`
 - Build native with LLVM (requires feature build): `seen build compiler_seen/src/main.seen --backend llvm --output stage1_seen`
+- Cross-compile with LLVM (automatic toolchain selection):
+    - Linux → Windows (MSVC LLD):
+      `seen build compiler_seen/src/main.seen --backend llvm --target x86_64-pc-windows-msvc --output stage1.exe`
+    - WebAssembly (wasm-ld):
+      `seen build compiler_seen/src/main.seen --backend llvm --target wasm32-unknown-unknown --output stage1.wasm`
+    - Override linker/archiver via `SEEN_LLVM_LINKER`, `SEEN_LLVM_ARCHIVER`, `SEEN_LLVM_RANLIB` if your toolchain lives
+      in a non-standard location.
 - Run directly via interpreter (pure Rust):
   - `seen run compiler_seen/src/main.seen`
 

@@ -80,6 +80,10 @@ enum Commands {
         #[arg(value_name = "FILE")]
         input: PathBuf,
 
+        /// Target triple for cross-compilation (defaults to host target)
+        #[arg(long)]
+        target: Option<String>,
+
         /// Output file path (default: a.ir for IR, a.out for LLVM)
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -361,6 +365,7 @@ fn main() -> SeenResult<()> {
             opt_level,
             backend,
             emit_ll,
+                 target,
             shared,
             static_lib,
         }) => match backend {
@@ -387,9 +392,16 @@ fn main() -> SeenResult<()> {
                     emit_ll,
                     link_mode,
                     keyword_manager,
+                    target.as_deref(),
                 )?;
             }
             Backend::Ir => {
+                if let Some(target) = target {
+                    eprintln!(
+                        "warning: --target={} is ignored by the IR text backend",
+                        target
+                    );
+                }
                 if shared || static_lib {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
@@ -399,6 +411,12 @@ fn main() -> SeenResult<()> {
                 compile_file_ir(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
             Backend::Mlir => {
+                if let Some(target) = target {
+                    eprintln!(
+                        "warning: --target={} is ignored by the experimental MLIR backend",
+                        target
+                    );
+                }
                 if emit_ll || shared || static_lib {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
@@ -677,6 +695,7 @@ fn compile_file_llvm(
     emit_ll: bool,
     link_mode: BuildLinkMode,
     keyword_manager: Arc<KeywordManager>,
+    target_triple: Option<&str>,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -742,7 +761,7 @@ fn compile_file_llvm(
     // LLVM codegen
     #[cfg(feature = "llvm")]
     {
-        use seen_core::{LinkOutput, LlvmBackend};
+        use seen_core::{LinkOutput, LlvmBackend, TargetOptions};
         let mut backend = LlvmBackend::new();
         let default_target = if emit_ll {
             PathBuf::from("a.ll")
@@ -750,10 +769,17 @@ fn compile_file_llvm(
             default_link_output_path(link_mode)
         };
         let out_path = output.unwrap_or(&default_target);
+        if let Some(triple) = target_triple {
+            println!("Configuring LLVM backend for target {}", triple);
+        }
+        let target_options = TargetOptions {
+            triple: target_triple,
+            ..Default::default()
+        };
         if emit_ll {
             let ll_path = out_path;
             backend
-                .emit_llvm_ir(&optimized_ir, ll_path)
+                .emit_llvm_ir(&optimized_ir, ll_path, target_options)
                 .map_err(|err| {
                     SeenError::new(
                         SeenErrorKind::Ir,
@@ -771,7 +797,7 @@ fn compile_file_llvm(
             };
 
             backend
-                .emit_executable(&optimized_ir, &target, link_output)
+                .emit_executable(&optimized_ir, &target, link_output, target_options)
                 .map_err(|err| {
                     SeenError::new(
                         SeenErrorKind::Ir,
@@ -784,7 +810,7 @@ fn compile_file_llvm(
     }
     #[cfg(not(feature = "llvm"))]
     {
-        let _ = (output, emit_ll, link_mode);
+        let _ = (output, emit_ll, link_mode, target_triple);
         Err(SeenError::new(
             SeenErrorKind::Tooling,
             "LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm",

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
@@ -14,7 +14,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
 use inkwell::module::{Linkage, Module as LlvmModule};
 use inkwell::targets::{
-    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple,
 };
 use inkwell::types::{
     BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType,
@@ -51,6 +51,62 @@ pub enum LinkOutput {
     ObjectOnly,
     SharedLibrary,
     StaticLibrary,
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct TargetOptions<'a> {
+    pub triple: Option<&'a str>,
+    pub cpu: Option<&'a str>,
+    pub features: Option<&'a str>,
+}
+
+#[derive(Debug)]
+struct LinkerInvocation {
+    program: PathBuf,
+    args: Vec<String>,
+    flavor: LinkerFlavor,
+}
+
+#[derive(Debug)]
+enum LinkerFlavor {
+    ClangLike,
+    WasmLd,
+    Custom,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use inkwell::targets::TargetTriple;
+
+    #[test]
+    fn object_file_extension_matches_target() {
+        let triple_linux = TargetTriple::create("x86_64-unknown-linux-gnu");
+        let triple_windows = TargetTriple::create("x86_64-pc-windows-msvc");
+        let linux_path = LlvmBackend::object_file_path(Path::new("foo"), &triple_linux);
+        let windows_path = LlvmBackend::object_file_path(Path::new("foo"), &triple_windows);
+        assert!(linux_path.ends_with("foo.o"));
+        assert!(windows_path.ends_with("foo.obj"));
+    }
+
+    #[test]
+    fn shared_library_flags_match_platform() {
+        let linux_flags =
+            LlvmBackend::linker_pre_args("x86_64-unknown-linux-gnu", LinkOutput::SharedLibrary);
+        let mac_flags =
+            LlvmBackend::linker_pre_args("aarch64-apple-darwin", LinkOutput::SharedLibrary);
+        assert!(linux_flags.contains(&"-shared".to_string()));
+        assert!(mac_flags.contains(&"-dynamiclib".to_string()));
+    }
+
+    #[test]
+    fn executable_link_flags_include_libm_on_linux() {
+        let flags =
+            LlvmBackend::linker_post_args("x86_64-unknown-linux-gnu", LinkOutput::Executable);
+        assert!(flags.contains(&"-lm".to_string()));
+        assert!(flags.contains(&"-no-pie".to_string()));
+    }
 }
 
 pub struct LlvmBackend<'ctx> {
@@ -131,7 +187,15 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    pub fn emit_llvm_ir(&mut self, prog: &IRProgram, out_path: &Path) -> Result<()> {
+    pub fn emit_llvm_ir(
+        &mut self,
+        prog: &IRProgram,
+        out_path: &Path,
+        options: TargetOptions<'_>,
+    ) -> Result<()> {
+        let (triple, target_machine) = Self::target_machine_for(options)?;
+        self.configure_module_target(&triple, &target_machine);
+
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
         self.module
@@ -144,132 +208,26 @@ impl<'ctx> LlvmBackend<'ctx> {
         prog: &IRProgram,
         out_path: &Path,
         kind: LinkOutput,
+        options: TargetOptions<'_>,
     ) -> Result<()> {
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
 
         // Build object
-        let target_triple = TargetMachine::get_default_triple();
-        let target = Target::from_triple(&target_triple)
-            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
-        let tm = target
-            .create_target_machine(
-                &target_triple,
-                "generic",
-                "",
-                LlvmOptLevel::Default,
-                RelocMode::Default,
-                CodeModel::Default,
-            )
-            .ok_or_else(|| anyhow!("Create target machine failed"))?;
-
-        let obj_path = out_path.with_extension("o");
+        let (target_triple, target_machine) = Self::target_machine_for(options)?;
+        self.configure_module_target(&target_triple, &target_machine);
+        let obj_path = Self::object_file_path(out_path, &target_triple);
         eprintln!("LLVM backend: writing object file {:?}", obj_path);
-        tm.write_to_file(&self.module, FileType::Object, &obj_path)
+        target_machine
+            .write_to_file(&self.module, FileType::Object, &obj_path)
             .map_err(|e| anyhow!("Write object failed: {e:?}"))?;
 
         if matches!(kind, LinkOutput::ObjectOnly) {
             return Ok(());
         }
 
-        // Link to executable via system linker (honor SEEN_LLVM_LINKER or fallback to cc/clang)
-        let linker = std::env::var("SEEN_LLVM_LINKER")
-            .ok()
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| {
-                if which::which("cc").is_ok() {
-                    "cc".to_string()
-                } else {
-                    "clang".to_string()
-                }
-            });
-        eprintln!("LLVM backend: invoking linker {}", linker);
-        match kind {
-            LinkOutput::Executable => {
-                let status = std::process::Command::new(&linker)
-                    .arg(&obj_path)
-                    .arg("-o")
-                    .arg(out_path)
-                    .arg("-no-pie")
-                    .arg("-lm")
-                    .status()
-                    .with_context(|| format!("Spawning linker ({})", linker))?;
-                if !status.success() {
-                    return Err(anyhow!("Linking failed with status {status}"));
-                }
-                Ok(())
-            }
-            LinkOutput::SharedLibrary => {
-                let mut cmd = std::process::Command::new(&linker);
-                cmd.arg(&obj_path).arg("-o").arg(out_path);
-                if cfg!(target_os = "macos") {
-                    cmd.arg("-dynamiclib");
-                } else if cfg!(target_os = "windows") {
-                    cmd.arg("-shared");
-                } else {
-                    cmd.arg("-shared");
-                }
-                cmd.arg("-lm");
-                let status = cmd
-                    .status()
-                    .with_context(|| format!("Spawning linker ({})", linker))?;
-                if !status.success() {
-                    return Err(anyhow!(
-                        "Shared library linking failed with status {status}"
-                    ));
-                }
-                Ok(())
-            }
-            LinkOutput::StaticLibrary => {
-                #[cfg(target_os = "windows")]
-                let tool = std::env::var("SEEN_LLVM_ARCHIVER")
-                    .ok()
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| "lib".to_string());
-                #[cfg(not(target_os = "windows"))]
-                let tool = std::env::var("SEEN_LLVM_ARCHIVER")
-                    .ok()
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| "ar".to_string());
-
-                #[cfg(target_os = "windows")]
-                let status = std::process::Command::new(&tool)
-                    .arg("/nologo")
-                    .arg(format!("/OUT:{}", out_path.display()))
-                    .arg(&obj_path)
-                    .status()
-                    .with_context(|| format!("Spawning archiver ({})", tool))?;
-                #[cfg(not(target_os = "windows"))]
-                let status = std::process::Command::new(&tool)
-                    .arg("crus")
-                    .arg(out_path)
-                    .arg(&obj_path)
-                    .status()
-                    .with_context(|| format!("Spawning archiver ({})", tool))?;
-
-                if !status.success() {
-                    return Err(anyhow!("Archiving failed with status {status}"));
-                }
-
-                #[cfg(target_os = "macos")]
-                {
-                    let ranlib = std::env::var("SEEN_LLVM_RANLIB")
-                        .ok()
-                        .filter(|v| !v.is_empty())
-                        .unwrap_or_else(|| "ranlib".to_string());
-                    let status = std::process::Command::new(&ranlib)
-                        .arg(out_path)
-                        .status()
-                        .with_context(|| format!("Spawning ranlib ({})", ranlib))?;
-                    if !status.success() {
-                        return Err(anyhow!("ranlib failed with status {status}"));
-                    }
-                }
-
-                Ok(())
-            }
-            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
-        }
+        let triple_string = target_triple.to_string();
+        self.link_artifact(kind, &obj_path, out_path, &triple_string)
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
@@ -311,6 +269,276 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
 
         self.inject_channel_runtime_stubs()?;
+        Ok(())
+    }
+
+    fn target_machine_for(options: TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let features = options.features.unwrap_or("");
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple);
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+            .file_name()
+            .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+            .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib();
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = std::env::var("SEEN_LLVM_LINKER")
+            .ok()
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| which::which("wasm-ld").ok())
+            .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = std::env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> PathBuf {
+        if let Ok(explicit) = std::env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return PathBuf::from(explicit);
+            }
+        }
+
+        if triple.contains("windows") {
+            which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib"))
+        } else {
+            which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar"))
+        }
+    }
+
+    fn select_ranlib() -> PathBuf {
+        if let Ok(explicit) = std::env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return PathBuf::from(explicit);
+            }
+        }
+        which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib"))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
         Ok(())
     }
 
