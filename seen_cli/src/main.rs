@@ -169,6 +169,17 @@ enum Commands {
         opt_level: u8,
     },
 
+    /// Emit optimized IR trace for inspection
+    Trace {
+        /// Input file to trace
+        #[arg(value_name = "FILE")]
+        input: PathBuf,
+
+        /// Optimization level
+        #[arg(short = 'O', long, default_value = "0")]
+        opt_level: u8,
+    },
+
     /// Start an interactive REPL
     Repl {
         /// Show AST for each expression
@@ -496,6 +507,9 @@ fn main() -> SeenResult<()> {
 
         Some(Commands::Ir { input, opt_level }) => {
             generate_ir(&input, opt_level, keyword_manager)?;
+        }
+        Some(Commands::Trace { input, opt_level }) => {
+            trace_ir(&input, opt_level, keyword_manager)?;
         }
 
         Some(Commands::Repl {
@@ -2035,6 +2049,24 @@ fn determinism_check(
             "Determinism: FAILED (hash mismatch)",
         ))
     }
+}
+
+fn trace_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
+    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
+
+    println!(
+        "IR trace for {} (optimization level {})",
+        input.display(),
+        opt_level
+    );
+    for module in &optimized_ir.modules {
+        println!("module {}", module.name);
+        for function in module.functions_iter() {
+            println!("{}", function);
+        }
+    }
+
+    Ok(())
 }
 
 fn run_repl(

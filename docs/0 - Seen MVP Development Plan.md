@@ -296,6 +296,8 @@ Goal: Ship a self‑hosted compiler and minimal ecosystem capable of cross‑pla
 * **Outputs:** `seen fmt --check`, `seen trace`, `seen pkg` (local), CI jobs verifying deterministic builds and cross‑target packaging.
     * ✅ `seen fmt --check` now validates formatting without touching files; CLI tests cover both failure and success
       paths.
+  * ✅ `seen trace` prints optimized IR/control-flow graphs through the CLI so developers can inspect lowering output
+    (`seen trace <file> -O1`).
 * **Acceptance:** Formatter detects violations deterministically; CI matrix completes without errors; reports archived per build.
 
 ### POST‑4. Final Definition of Done
