@@ -56,8 +56,13 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 ## Sample Projects
 
 - Linux CLI starter: `examples/linux/hello_cli`
+    - Build IR: `seen build examples/linux/hello_cli/main.seen --output hello.ir`
 - WebAssembly starter (use with `--target wasm32-unknown-unknown --wasm-loader`): `examples/web/hello_wasm`
+    - Produce `.wasm` + loader:
+      `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader examples/web/hello_wasm/main.seen --output hello.wasm`
 - Android NDK starter (requires `ANDROID_NDK_HOME`): `examples/android/hello_ndk`
+    - Build shared lib:
+      `seen build --backend llvm --target aarch64-linux-android --output libhello_android.so examples/android/hello_ndk/main.seen`
 
 ## Deterministic Profile
 

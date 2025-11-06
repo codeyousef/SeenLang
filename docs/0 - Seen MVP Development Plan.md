@@ -196,6 +196,8 @@ live while macOS/Windows remain deferred until host machines are available.
     * Linux executables/shared libs now default to platform extensions; wasm targets drive `wasm-ld` with deterministic
       exports and optional JS/HTML loader generation; Android triples resolve dedicated NDK toolchains via
       `ANDROID_NDK_HOME` / `ANDROID_API_LEVEL`, with `.aab` packaging still pending.
+  * The CLI automatically switches Android builds to shared-library mode when no explicit `--shared/--static` flag is
+    provided and surfaces actionable errors if `ANDROID_NDK_HOME` is missing.
   3. 🔄 Provide sample projects per Linux/Web/Android target (textured quad) and automated smoke tests that run in
      CI/device farms.
     * Added `examples/linux/hello_cli`, `examples/web/hello_wasm`, and `examples/android/hello_ndk` as starter

@@ -43,6 +43,8 @@ fn android_target_requires_ndk_home() {
         return;
     }
 
+    let original_ndk_home = std::env::var("ANDROID_NDK_HOME").ok();
+
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root")
@@ -57,21 +59,26 @@ fn android_target_requires_ndk_home() {
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("hello_android");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
-        .current_dir(&workspace)
-        .env_remove("ANDROID_NDK_HOME")
-        .args([
-            "build",
-            sample.to_string_lossy().as_ref(),
-            "--backend",
-            "llvm",
-            "--target",
-            "aarch64-linux-android",
-            "--output",
-            output.to_string_lossy().as_ref(),
-        ])
-        .assert()
+    let mut cmd = Command::cargo_bin("seen_cli").expect("binary exists");
+    cmd.current_dir(&workspace);
+    cmd.env_remove("ANDROID_NDK_HOME");
+
+    cmd.args([
+        "build",
+        sample.to_string_lossy().as_ref(),
+        "--backend",
+        "llvm",
+        "--target",
+        "aarch64-linux-android",
+        "--output",
+        output.to_string_lossy().as_ref(),
+    ]);
+    cmd.assert()
         .failure()
         .stderr(contains("ANDROID_NDK_HOME must be set"));
+
+    match original_ndk_home {
+        Some(value) => std::env::set_var("ANDROID_NDK_HOME", value),
+        None => std::env::remove_var("ANDROID_NDK_HOME"),
+    }
 }

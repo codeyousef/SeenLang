@@ -382,13 +382,23 @@ fn main() -> SeenResult<()> {
                     ));
                 }
 
-                let link_mode = if shared {
+                let mut link_mode = if shared {
                     BuildLinkMode::SharedLibrary
                 } else if static_lib {
                     BuildLinkMode::StaticLibrary
                 } else {
                     BuildLinkMode::Executable
                 };
+
+                if let Some(triple) = target.as_deref() {
+                    if is_android_target(triple) && matches!(link_mode, BuildLinkMode::Executable) {
+                        eprintln!(
+                            "info: defaulting to --shared for Android target {}; pass --shared or --static explicitly to override",
+                            triple
+                        );
+                        link_mode = BuildLinkMode::SharedLibrary;
+                    }
+                }
 
                 compile_file_llvm(
                     &input,
@@ -986,6 +996,10 @@ fn default_link_output_path(link_mode: BuildLinkMode, target_triple: Option<&str
 
 fn is_wasm_target(triple: &str) -> bool {
     !triple.is_empty() && triple.contains("wasm32")
+}
+
+fn is_android_target(triple: &str) -> bool {
+    !triple.is_empty() && triple.contains("android")
 }
 
 #[cfg(any(test, feature = "llvm"))]
@@ -2622,6 +2636,13 @@ mod tests {
         let path =
             default_link_output_path(BuildLinkMode::Executable, Some("wasm32-unknown-unknown"));
         assert_eq!(path.to_string_lossy(), "module.wasm");
+    }
+
+    #[test]
+    fn android_targets_default_to_shared_library_paths() {
+        let path =
+            default_link_output_path(BuildLinkMode::SharedLibrary, Some("aarch64-linux-android"));
+        assert!(path.to_string_lossy().ends_with(".so"));
     }
 
     #[test]
