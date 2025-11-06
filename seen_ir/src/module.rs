@@ -141,15 +141,20 @@ pub struct Export {
 }
 
 /// IR Module representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct IRModule {
     pub name: String,
     pub path: Option<String>, // File path or module path
-    pub functions: HashMap<String, IRFunction>,
-    pub constants: HashMap<String, ModuleConstant>,
-    pub global_variables: HashMap<String, GlobalVariable>,
-    pub types: HashMap<String, TypeDefinition>,
-    pub type_aliases: HashMap<String, TypeAlias>,
+    pub functions: Vec<IRFunction>,
+    function_lookup: HashMap<String, u32>,
+    pub constants: Vec<ModuleConstant>,
+    constant_lookup: HashMap<String, u32>,
+    pub global_variables: Vec<GlobalVariable>,
+    global_lookup: HashMap<String, u32>,
+    pub types: Vec<TypeDefinition>,
+    type_lookup: HashMap<String, u32>,
+    pub type_aliases: Vec<TypeAlias>,
+    type_alias_lookup: HashMap<String, u32>,
     pub imports: Vec<Import>,
     pub exports: Vec<Export>,
     pub dependencies: Vec<String>, // Module names this depends on
@@ -157,22 +162,97 @@ pub struct IRModule {
     pub metadata: HashMap<String, String>, // Arbitrary metadata
 }
 
+#[derive(Serialize, Deserialize)]
+struct IRModuleSerde {
+    name: String,
+    path: Option<String>,
+    functions: Vec<IRFunction>,
+    constants: Vec<ModuleConstant>,
+    global_variables: Vec<GlobalVariable>,
+    types: Vec<TypeDefinition>,
+    type_aliases: Vec<TypeAlias>,
+    imports: Vec<Import>,
+    exports: Vec<Export>,
+    dependencies: Vec<String>,
+    version: Option<String>,
+    metadata: HashMap<String, String>,
+}
+
+impl Serialize for IRModule {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        IRModuleSerde {
+            name: self.name.clone(),
+            path: self.path.clone(),
+            functions: self.functions.clone(),
+            constants: self.constants.clone(),
+            global_variables: self.global_variables.clone(),
+            types: self.types.clone(),
+            type_aliases: self.type_aliases.clone(),
+            imports: self.imports.clone(),
+            exports: self.exports.clone(),
+            dependencies: self.dependencies.clone(),
+            version: self.version.clone(),
+            metadata: self.metadata.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for IRModule {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = IRModuleSerde::deserialize(deserializer)?;
+        let mut module = IRModule {
+            name: data.name,
+            path: data.path,
+            functions: data.functions,
+            function_lookup: HashMap::new(),
+            constants: data.constants,
+            constant_lookup: HashMap::new(),
+            global_variables: data.global_variables,
+            global_lookup: HashMap::new(),
+            types: data.types,
+            type_lookup: HashMap::new(),
+            type_aliases: data.type_aliases,
+            type_alias_lookup: HashMap::new(),
+            imports: data.imports,
+            exports: data.exports,
+            dependencies: data.dependencies,
+            version: data.version,
+            metadata: data.metadata,
+        };
+        module.rebuild_indices();
+        Ok(module)
+    }
+}
+
 impl IRModule {
     pub fn new(name: impl Into<String>) -> Self {
-        Self {
+        let module = Self {
             name: name.into(),
             path: None,
-            functions: HashMap::new(),
-            constants: HashMap::new(),
-            global_variables: HashMap::new(),
-            types: HashMap::new(),
-            type_aliases: HashMap::new(),
+            functions: Vec::new(),
+            function_lookup: HashMap::new(),
+            constants: Vec::new(),
+            constant_lookup: HashMap::new(),
+            global_variables: Vec::new(),
+            global_lookup: HashMap::new(),
+            types: Vec::new(),
+            type_lookup: HashMap::new(),
+            type_aliases: Vec::new(),
+            type_alias_lookup: HashMap::new(),
             imports: Vec::new(),
             exports: Vec::new(),
             dependencies: Vec::new(),
             version: None,
             metadata: HashMap::new(),
-        }
+        };
+        module
     }
 
     pub fn with_path(mut self, path: impl Into<String>) -> Self {
@@ -186,24 +266,54 @@ impl IRModule {
     }
 
     pub fn add_function(&mut self, function: IRFunction) {
-        self.functions.insert(function.name.clone(), function);
+        if let Some(index) = self.function_lookup.get(&function.name).cloned() {
+            self.functions[index as usize] = function;
+        } else {
+            let index = self.functions.len() as u32;
+            self.function_lookup.insert(function.name.clone(), index);
+            self.functions.push(function);
+        }
     }
 
     pub fn add_constant(&mut self, constant: ModuleConstant) {
-        self.constants.insert(constant.name.clone(), constant);
+        if let Some(index) = self.constant_lookup.get(&constant.name).cloned() {
+            self.constants[index as usize] = constant;
+        } else {
+            let index = self.constants.len() as u32;
+            self.constant_lookup.insert(constant.name.clone(), index);
+            self.constants.push(constant);
+        }
     }
 
     pub fn add_global(&mut self, global: GlobalVariable) {
-        self.global_variables.insert(global.name.clone(), global);
+        if let Some(index) = self.global_lookup.get(&global.name).cloned() {
+            self.global_variables[index as usize] = global;
+        } else {
+            let index = self.global_variables.len() as u32;
+            self.global_lookup.insert(global.name.clone(), index);
+            self.global_variables.push(global);
+        }
     }
 
     pub fn add_type(&mut self, type_def: TypeDefinition) {
-        self.types.insert(type_def.name.clone(), type_def);
+        if let Some(index) = self.type_lookup.get(&type_def.name).cloned() {
+            self.types[index as usize] = type_def;
+        } else {
+            let index = self.types.len() as u32;
+            self.type_lookup.insert(type_def.name.clone(), index);
+            self.types.push(type_def);
+        }
     }
 
     pub fn add_type_alias(&mut self, type_alias: TypeAlias) {
-        self.type_aliases
-            .insert(type_alias.name.clone(), type_alias);
+        if let Some(index) = self.type_alias_lookup.get(&type_alias.name).cloned() {
+            self.type_aliases[index as usize] = type_alias;
+        } else {
+            let index = self.type_aliases.len() as u32;
+            self.type_alias_lookup
+                .insert(type_alias.name.clone(), index);
+            self.type_aliases.push(type_alias);
+        }
     }
 
     pub fn add_import(&mut self, import: Import) {
@@ -223,17 +333,80 @@ impl IRModule {
 
     /// Get a function by name
     pub fn get_function(&self, name: &str) -> Option<&IRFunction> {
-        self.functions.get(name)
+        self.function_lookup
+            .get(name)
+            .and_then(|index| self.functions.get(*index as usize))
     }
 
     /// Get a mutable reference to a function
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut IRFunction> {
-        self.functions.get_mut(name)
+        if let Some(index) = self.function_lookup.get(name).cloned() {
+            self.functions.get_mut(index as usize)
+        } else {
+            None
+        }
     }
 
     /// Get all public functions
     pub fn public_functions(&self) -> impl Iterator<Item = &IRFunction> {
-        self.functions.values().filter(|f| f.is_public)
+        self.functions.iter().filter(|f| f.is_public)
+    }
+
+    /// Returns true if the module contains a function with the given name.
+    pub fn has_function(&self, name: &str) -> bool {
+        self.function_lookup.contains_key(name)
+    }
+
+    /// Iterate over all functions immutably.
+    pub fn functions_iter(&self) -> impl Iterator<Item = &IRFunction> {
+        self.functions.iter()
+    }
+
+    /// Iterate over all functions mutably.
+    pub fn functions_iter_mut(&mut self) -> impl Iterator<Item = &mut IRFunction> {
+        self.functions.iter_mut()
+    }
+
+    /// Get constant by name.
+    pub fn get_constant(&self, name: &str) -> Option<&ModuleConstant> {
+        self.constant_lookup
+            .get(name)
+            .and_then(|index| self.constants.get(*index as usize))
+    }
+
+    /// Returns true if a constant exists.
+    pub fn has_constant(&self, name: &str) -> bool {
+        self.constant_lookup.contains_key(name)
+    }
+
+    /// Get mutable constant by name.
+    pub fn get_constant_mut(&mut self, name: &str) -> Option<&mut ModuleConstant> {
+        if let Some(index) = self.constant_lookup.get(name).cloned() {
+            self.constants.get_mut(index as usize)
+        } else {
+            None
+        }
+    }
+
+    /// Get global variable by name.
+    pub fn get_global(&self, name: &str) -> Option<&GlobalVariable> {
+        self.global_lookup
+            .get(name)
+            .and_then(|index| self.global_variables.get(*index as usize))
+    }
+
+    /// Returns true if a global exists.
+    pub fn has_global(&self, name: &str) -> bool {
+        self.global_lookup.contains_key(name)
+    }
+
+    /// Get mutable global variable by name.
+    pub fn get_global_mut(&mut self, name: &str) -> Option<&mut GlobalVariable> {
+        if let Some(index) = self.global_lookup.get(name).cloned() {
+            self.global_variables.get_mut(index as usize)
+        } else {
+            None
+        }
     }
 
     /// Get all exported items
@@ -246,14 +419,45 @@ impl IRModule {
         self.exports.iter().any(|e| e.item_name == item_name)
     }
 
+    /// Rebuild lookup tables from the current collections.
+    pub fn rebuild_indices(&mut self) {
+        self.function_lookup.clear();
+        for (idx, function) in self.functions.iter().enumerate() {
+            self.function_lookup
+                .insert(function.name.clone(), idx as u32);
+        }
+
+        self.constant_lookup.clear();
+        for (idx, constant) in self.constants.iter().enumerate() {
+            self.constant_lookup
+                .insert(constant.name.clone(), idx as u32);
+        }
+
+        self.global_lookup.clear();
+        for (idx, global) in self.global_variables.iter().enumerate() {
+            self.global_lookup.insert(global.name.clone(), idx as u32);
+        }
+
+        self.type_lookup.clear();
+        for (idx, ty) in self.types.iter().enumerate() {
+            self.type_lookup.insert(ty.name.clone(), idx as u32);
+        }
+
+        self.type_alias_lookup.clear();
+        for (idx, alias) in self.type_aliases.iter().enumerate() {
+            self.type_alias_lookup
+                .insert(alias.name.clone(), idx as u32);
+        }
+    }
+
     /// Validate the module
     pub fn validate(&self) -> Result<(), String> {
         // Check that all exported items exist
         for export in &self.exports {
-            let exists = self.functions.contains_key(&export.item_name)
-                || self.constants.contains_key(&export.item_name)
-                || self.global_variables.contains_key(&export.item_name)
-                || self.types.contains_key(&export.item_name);
+            let exists = self.function_lookup.contains_key(&export.item_name)
+                || self.constant_lookup.contains_key(&export.item_name)
+                || self.global_lookup.contains_key(&export.item_name)
+                || self.type_lookup.contains_key(&export.item_name);
 
             if !exists {
                 return Err(format!(
@@ -264,7 +468,7 @@ impl IRModule {
         }
 
         // Validate all functions
-        for function in self.functions.values() {
+        for function in &self.functions {
             if let Err(e) = function.validate() {
                 return Err(format!(
                     "Function '{}' validation failed: {}",
@@ -276,27 +480,27 @@ impl IRModule {
         // Check for duplicate names across different namespaces
         let mut all_names = std::collections::HashSet::new();
 
-        for name in self.functions.keys() {
-            if !all_names.insert(name.clone()) {
-                return Err(format!("Duplicate name '{}' in module", name));
+        for function in &self.functions {
+            if !all_names.insert(function.name.clone()) {
+                return Err(format!("Duplicate name '{}' in module", function.name));
             }
         }
 
-        for name in self.constants.keys() {
-            if !all_names.insert(name.clone()) {
-                return Err(format!("Duplicate name '{}' in module", name));
+        for constant in &self.constants {
+            if !all_names.insert(constant.name.clone()) {
+                return Err(format!("Duplicate name '{}' in module", constant.name));
             }
         }
 
-        for name in self.global_variables.keys() {
-            if !all_names.insert(name.clone()) {
-                return Err(format!("Duplicate name '{}' in module", name));
+        for global in &self.global_variables {
+            if !all_names.insert(global.name.clone()) {
+                return Err(format!("Duplicate name '{}' in module", global.name));
             }
         }
 
-        for name in self.types.keys() {
-            if !all_names.insert(name.clone()) {
-                return Err(format!("Duplicate name '{}' in module", name));
+        for ty in &self.types {
+            if !all_names.insert(ty.name.clone()) {
+                return Err(format!("Duplicate name '{}' in module", ty.name));
             }
         }
 
@@ -308,12 +512,13 @@ impl IRModule {
         let mut graph = CallGraph::new();
 
         // Add all functions to the graph
-        for function in self.functions.values() {
+        for function in &self.functions {
             graph.add_function(function.clone());
         }
 
         // Analyze functions to build call sites and edges
-        for (caller_name, caller_function) in &self.functions {
+        for caller_function in &self.functions {
+            let caller_name = &caller_function.name;
             // Scan function CFG for call instructions
             for (block_label, block) in &caller_function.cfg.blocks {
                 for instruction in &block.instructions {
@@ -325,7 +530,7 @@ impl IRModule {
                     {
                         if let crate::IRValue::GlobalVariable(callee_name) = target {
                             // Add call site if target function exists in this module
-                            if self.functions.contains_key(callee_name) {
+                            if self.function_lookup.contains_key(callee_name) {
                                 let call_site = crate::function::CallSite {
                                     caller: caller_name.clone(),
                                     callee: callee_name.clone(),
@@ -357,7 +562,7 @@ impl IRModule {
         stats.export_count = self.exports.len();
 
         // Calculate code size (approximate)
-        for function in self.functions.values() {
+        for function in &self.functions {
             for block in function.cfg.blocks.values() {
                 stats.instruction_count += block.instructions.len();
                 if block.terminator.is_some() {
@@ -416,10 +621,9 @@ impl fmt::Display for IRModule {
         // Type definitions
         if !self.types.is_empty() {
             writeln!(f, "\n; Type definitions")?;
-            let mut keys: Vec<&String> = self.types.keys().collect();
-            keys.sort();
-            for key in keys {
-                let type_def = self.types.get(key).unwrap();
+            let mut entries: Vec<&TypeDefinition> = self.types.iter().collect();
+            entries.sort_by(|a, b| a.name.cmp(&b.name));
+            for type_def in entries {
                 write!(f, "type {} = {}", type_def.name, type_def.type_def)?;
                 if type_def.visibility == Visibility::Public {
                     write!(f, " [public]")?;
@@ -434,10 +638,9 @@ impl fmt::Display for IRModule {
         // Constants
         if !self.constants.is_empty() {
             writeln!(f, "\n; Constants")?;
-            let mut keys: Vec<&String> = self.constants.keys().collect();
-            keys.sort();
-            for key in keys {
-                let constant = self.constants.get(key).unwrap();
+            let mut entries: Vec<&ModuleConstant> = self.constants.iter().collect();
+            entries.sort_by(|a, b| a.name.cmp(&b.name));
+            for constant in entries {
                 write!(
                     f,
                     "const {}: {} = {}",
@@ -453,10 +656,9 @@ impl fmt::Display for IRModule {
         // Global variables
         if !self.global_variables.is_empty() {
             writeln!(f, "\n; Global variables")?;
-            let mut keys: Vec<&String> = self.global_variables.keys().collect();
-            keys.sort();
-            for key in keys {
-                let global = self.global_variables.get(key).unwrap();
+            let mut entries: Vec<&GlobalVariable> = self.global_variables.iter().collect();
+            entries.sort_by(|a, b| a.name.cmp(&b.name));
+            for global in entries {
                 write!(f, "global ")?;
                 if global.is_mutable {
                     write!(f, "mut ")?;
@@ -478,10 +680,9 @@ impl fmt::Display for IRModule {
         // Functions
         if !self.functions.is_empty() {
             writeln!(f, "\n; Functions")?;
-            let mut fn_names: Vec<&String> = self.functions.keys().collect();
-            fn_names.sort();
-            for name in fn_names {
-                let function = self.functions.get(name).unwrap();
+            let mut entries: Vec<&IRFunction> = self.functions.iter().collect();
+            entries.sort_by(|a, b| a.name.cmp(&b.name));
+            for function in entries {
                 writeln!(f, "{}", function)?;
             }
         }
@@ -561,8 +762,11 @@ mod tests {
 
         module.add_constant(constant);
 
-        assert!(module.constants.contains_key("PI"));
-        assert_eq!(module.constants["PI"].visibility, Visibility::Public);
+        assert!(module.has_constant("PI"));
+        assert_eq!(
+            module.get_constant("PI").unwrap().visibility,
+            Visibility::Public
+        );
     }
 
     #[test]
@@ -600,7 +804,7 @@ mod tests {
 
         module.add_global(global);
 
-        let global_ref = &module.global_variables["counter"];
+        let global_ref = module.get_global("counter").expect("global exists");
         assert!(global_ref.is_mutable);
         assert_eq!(global_ref.visibility, Visibility::Public);
         assert!(global_ref.is_thread_local);

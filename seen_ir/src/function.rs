@@ -475,22 +475,30 @@ impl CallSite {
 }
 
 /// Call graph for the entire program
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct CallGraph {
-    pub functions: HashMap<String, IRFunction>,
+    pub functions: Vec<IRFunction>,
+    function_lookup: HashMap<String, u32>,
     pub call_sites: Vec<CallSite>,
 }
 
 impl CallGraph {
     pub fn new() -> Self {
         Self {
-            functions: HashMap::new(),
+            functions: Vec::new(),
+            function_lookup: HashMap::new(),
             call_sites: Vec::new(),
         }
     }
 
     pub fn add_function(&mut self, function: IRFunction) {
-        self.functions.insert(function.name.clone(), function);
+        if let Some(index) = self.function_lookup.get(&function.name).cloned() {
+            self.functions[index as usize] = function;
+        } else {
+            let index = self.functions.len() as u32;
+            self.function_lookup.insert(function.name.clone(), index);
+            self.functions.push(function);
+        }
     }
 
     pub fn add_call_site(&mut self, call_site: CallSite) {
@@ -498,11 +506,25 @@ impl CallGraph {
     }
 
     pub fn get_function(&self, name: &str) -> Option<&IRFunction> {
-        self.functions.get(name)
+        self.function_lookup
+            .get(name)
+            .and_then(|index| self.functions.get(*index as usize))
     }
 
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut IRFunction> {
-        self.functions.get_mut(name)
+        if let Some(index) = self.function_lookup.get(name).cloned() {
+            self.functions.get_mut(index as usize)
+        } else {
+            None
+        }
+    }
+
+    pub fn functions_iter(&self) -> impl Iterator<Item = &IRFunction> {
+        self.functions.iter()
+    }
+
+    pub fn functions_iter_mut(&mut self) -> impl Iterator<Item = &mut IRFunction> {
+        self.functions.iter_mut()
     }
 
     /// Get all functions called by the given function
@@ -529,8 +551,8 @@ impl CallGraph {
         let mut visited = std::collections::HashSet::new();
         let mut rec_stack = std::collections::HashSet::new();
 
-        for function_name in self.functions.keys() {
-            if self.has_cycle_dfs(function_name, &mut visited, &mut rec_stack) {
+        for function in &self.functions {
+            if self.has_cycle_dfs(&function.name, &mut visited, &mut rec_stack) {
                 return true;
             }
         }
@@ -569,6 +591,45 @@ impl CallGraph {
 impl Default for CallGraph {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct CallGraphSerde {
+    functions: Vec<IRFunction>,
+    call_sites: Vec<CallSite>,
+}
+
+impl Serialize for CallGraph {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        CallGraphSerde {
+            functions: self.functions.clone(),
+            call_sites: self.call_sites.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CallGraph {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = CallGraphSerde::deserialize(deserializer)?;
+        let mut graph = CallGraph {
+            functions: data.functions,
+            function_lookup: HashMap::new(),
+            call_sites: data.call_sites,
+        };
+        for (idx, function) in graph.functions.iter().enumerate() {
+            graph
+                .function_lookup
+                .insert(function.name.clone(), idx as u32);
+        }
+        Ok(graph)
     }
 }
 

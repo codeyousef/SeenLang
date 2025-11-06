@@ -2,9 +2,10 @@ use crate::{
     handles::{GenerationalHandle, HybridGenerationalArena},
     ownership::OwnershipInfo,
 };
+use hashbrown::HashMap;
 use seen_lexer::Position;
 use seen_parser::ast::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 
 /// Unique identifier for a memory region
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,7 +68,7 @@ pub struct Region {
     /// Strategy chosen after analysis (may differ from hint when hint is Auto).
     pub selected_strategy: RegionStrategy,
     /// Variables allocated in this region
-    pub allocations: HashMap<String, RegionHandle>,
+    pub allocations: hashbrown::HashMap<String, RegionHandle>,
     /// Slot table that tracks allocation lifetimes
     pub allocation_table: HybridGenerationalArena<AllocationMetadata>,
     /// Child regions that are nested within this region
@@ -182,8 +183,8 @@ impl Region {
 /// Manages all memory regions in a program
 #[derive(Debug)]
 pub struct RegionManager {
-    /// All regions indexed by their ID
-    regions: HashMap<RegionId, Region>,
+    /// All regions stored contiguously by their numeric ID
+    regions: Vec<Region>,
     /// Next available region ID
     next_region_id: u32,
     /// Stack of currently active regions (for nested scopes)
@@ -198,19 +199,14 @@ impl RegionManager {
     /// Create a new region manager
     pub fn new() -> Self {
         let global_id = RegionId::new(0);
-        let mut regions = HashMap::new();
-
-        // Create the global region
-        regions.insert(
+        let mut regions = Vec::new();
+        regions.push(Region::new(
             global_id,
-            Region::new(
-                global_id,
-                "global".to_string(),
-                RegionStrategy::Auto,
-                None,
-                Position::new(0, 0, 0),
-            ),
-        );
+            "global".to_string(),
+            RegionStrategy::Auto,
+            None,
+            Position::new(0, 0, 0),
+        ));
 
         let mut region_stack = VecDeque::new();
         region_stack.push_back(global_id);
@@ -237,10 +233,12 @@ impl RegionManager {
         let parent_id = self.current_region();
         let region = Region::new(region_id, name, strategy_hint, Some(parent_id), pos);
 
-        self.regions.insert(region_id, region);
+        let index = region_id.id() as usize;
+        debug_assert_eq!(index, self.regions.len(), "region ids should be sequential");
+        self.regions.push(region);
 
-        // Add as child to parent region
-        if let Some(parent) = self.regions.get_mut(&parent_id) {
+        let parent_index = parent_id.id() as usize;
+        if let Some(parent) = self.regions.get_mut(parent_index) {
             parent.add_child(region_id);
         }
 
@@ -300,7 +298,8 @@ impl RegionManager {
             return Err(err);
         }
 
-        if let Some(region) = self.regions.get_mut(&region_id) {
+        let index = region_id.id() as usize;
+        if let Some(region) = self.regions.get_mut(index) {
             if !region.is_active {
                 let err = RegionError::RegionInactive {
                     region_id,
@@ -324,50 +323,49 @@ impl RegionManager {
 
     /// Deallocate a specific variable
     pub fn deallocate_variable(&mut self, variable: &str) {
-        for region in self.regions.values_mut() {
+        for region in &mut self.regions {
             region.remove_allocation(variable);
         }
     }
 
     /// Recursively deactivate a region and all its children
     fn deactivate_region_tree(&mut self, region_id: RegionId) {
-        let child_ids = if let Some(region) = self.regions.get(&region_id) {
-            region.child_regions.clone()
-        } else {
-            Vec::new()
-        };
+        let index = region_id.id() as usize;
+        if index >= self.regions.len() {
+            return;
+        }
 
+        let child_ids = self.regions[index].child_regions.clone();
         for child_id in child_ids {
             self.deactivate_region_tree(child_id);
         }
 
-        if let Some(region) = self.regions.get_mut(&region_id) {
-            region.finalize_strategy();
-            region.deactivate();
-        }
+        let region = &mut self.regions[index];
+        region.finalize_strategy();
+        region.deactivate();
     }
 
     /// Get region information by ID
     pub fn get_region(&self, region_id: RegionId) -> Option<&Region> {
-        self.regions.get(&region_id)
+        self.regions.get(region_id.id() as usize)
     }
 
     /// Fetch the selected strategy for a region, if known.
     pub fn region_strategy(&self, region_id: RegionId) -> Option<RegionStrategy> {
         self.regions
-            .get(&region_id)
+            .get(region_id.id() as usize)
             .map(|region| region.selected_strategy())
     }
 
     /// Iterate over all regions (including inactive ones).
     pub fn regions(&self) -> impl Iterator<Item = &Region> {
-        self.regions.values()
+        self.regions.iter()
     }
 
     /// Check if a variable is allocated in any active region
     pub fn is_allocated(&self, variable: &str) -> bool {
         self.regions
-            .values()
+            .iter()
             .any(|region| region.is_active && region.allocations.contains_key(variable))
     }
 
@@ -375,13 +373,14 @@ impl RegionManager {
     pub fn find_variable_region(&self, variable: &str) -> Option<RegionId> {
         self.regions
             .iter()
+            .enumerate()
             .find(|(_, region)| region.is_active && region.allocations.contains_key(variable))
-            .map(|(id, _)| *id)
+            .map(|(id, _)| RegionId::new(id as u32))
     }
 
     /// Retrieve the handle associated with a variable if it is still live.
     pub fn allocation_handle(&self, variable: &str) -> Option<RegionHandle> {
-        self.regions.iter().find_map(|(_, region)| {
+        self.regions.iter().find_map(|region| {
             if region.is_active {
                 region.allocations.get(variable).copied()
             } else {
@@ -392,7 +391,7 @@ impl RegionManager {
 
     /// Resolve allocation metadata from a handle with full validation.
     pub fn resolve_handle(&self, handle: RegionHandle) -> Option<&AllocationMetadata> {
-        let region = self.regions.get(&handle.region())?;
+        let region = self.regions.get(handle.region().id() as usize)?;
         if !region.is_active {
             return None;
         }
@@ -401,7 +400,7 @@ impl RegionManager {
 
     /// Hot-path resolution used by release builds to avoid extra branching.
     pub fn resolve_handle_fast(&self, handle: RegionHandle) -> Option<&AllocationMetadata> {
-        let region = self.regions.get(&handle.region())?;
+        let region = self.regions.get(handle.region().id() as usize)?;
         if !region.is_active {
             return None;
         }
@@ -412,8 +411,9 @@ impl RegionManager {
     pub fn active_regions(&self) -> Vec<RegionId> {
         self.regions
             .iter()
+            .enumerate()
             .filter(|(_, region)| region.is_active)
-            .map(|(id, _)| *id)
+            .map(|(id, _)| RegionId::new(id as u32))
             .collect()
     }
 
@@ -422,11 +422,13 @@ impl RegionManager {
         let mut errors = Vec::new();
 
         // Check for orphaned regions
-        for (region_id, region) in &self.regions {
+        for (index, region) in self.regions.iter().enumerate() {
+            let region_id = RegionId::new(index as u32);
             if let Some(parent_id) = region.parent_region {
-                if !self.regions.contains_key(&parent_id) {
+                let parent_index = parent_id.id() as usize;
+                if parent_index >= self.regions.len() {
                     errors.push(RegionError::OrphanedRegion {
-                        region_id: *region_id,
+                        region_id,
                         missing_parent: parent_id,
                         position: region.created_at,
                     });
@@ -435,11 +437,16 @@ impl RegionManager {
         }
 
         // Check for circular references
-        for region_id in self.regions.keys() {
-            if self.has_circular_reference(*region_id) {
+        for (index, _) in self.regions.iter().enumerate() {
+            let region_id = RegionId::new(index as u32);
+            if self.has_circular_reference(region_id) {
                 errors.push(RegionError::CircularReference {
-                    region_id: *region_id,
-                    position: self.regions[region_id].created_at,
+                    region_id,
+                    position: self
+                        .regions
+                        .get(index)
+                        .map(|region| region.created_at)
+                        .unwrap_or_else(|| Position::new(0, 0, 0)),
                 });
             }
         }
@@ -460,7 +467,7 @@ impl RegionManager {
 
             current = self
                 .regions
-                .get(&id)
+                .get(id.id() as usize)
                 .and_then(|region| region.parent_region);
         }
 

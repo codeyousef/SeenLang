@@ -46,6 +46,7 @@ struct Handle {
 ```
 - Handle tables live in arenas; acquiring/clearing entries bumps the generation counter.
 - Runtime validates handles before dereferencing; stale handles trigger deterministic `Abort::StaleHandle` diagnostics tying back to source.
+- Region IDs (`RegionId`) use 32-bit indices into a contiguous arena, keeping lookups cache-friendly and deterministic across runs.
 
 ## 5. Async & Structured Concurrency Constraints
 - Tasks spawned within `scope { ... }` inherit the parent region stack by value. Regions marked `#[region(shared)]` permit concurrent borrows; otherwise, mutable access is exclusive.

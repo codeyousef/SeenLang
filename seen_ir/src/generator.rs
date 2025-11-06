@@ -289,7 +289,7 @@ impl IRGenerator {
         }
 
         // Synthesize a top-level main only when the module hasn't already defined one.
-        if !module.functions.contains_key("main") {
+        if !module.has_function("main") {
             let mut main_function = IRFunction::new("main", IRType::Integer);
             main_function.is_public = true;
 

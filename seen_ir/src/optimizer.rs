@@ -80,7 +80,7 @@ impl IROptimizer {
 
     /// Optimize a single module
     pub fn optimize_module(&mut self, module: &mut IRModule) -> IRResult<()> {
-        for function in module.functions.values_mut() {
+        for function in module.functions_iter_mut() {
             self.optimize_function(function)?;
         }
         Ok(())

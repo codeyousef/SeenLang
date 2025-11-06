@@ -278,10 +278,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         let mut modules: Vec<&IRModule> = prog.modules.iter().collect();
         modules.sort_by(|a, b| a.name.cmp(&b.name));
         for module in &modules {
-            let mut fn_names: Vec<&String> = module.functions.keys().collect();
-            fn_names.sort();
-            for name in fn_names {
-                let func = module.functions.get(name).expect("function declared");
+            let mut funcs: Vec<&IRFunction> = module.functions_iter().collect();
+            funcs.sort_by(|a, b| a.name.cmp(&b.name));
+            for func in funcs {
                 let f = self.declare_function(func)?;
                 fn_map.insert(func.name.clone(), f);
             }
@@ -289,10 +288,9 @@ impl<'ctx> LlvmBackend<'ctx> {
 
         // Define each function
         for module in &modules {
-            let mut fn_names: Vec<&String> = module.functions.keys().collect();
-            fn_names.sort();
-            for name in fn_names {
-                let func = module.functions.get(name).expect("function declared");
+            let mut funcs: Vec<&IRFunction> = module.functions_iter().collect();
+            funcs.sort_by(|a, b| a.name.cmp(&b.name));
+            for func in funcs {
                 let f = *fn_map.get(&func.name).expect("declared");
                 self.define_function(func, f, &fn_map)?;
             }
