@@ -22,3 +22,4 @@ test-case = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 insta = { workspace = true }
+criterion = { workspace = true }

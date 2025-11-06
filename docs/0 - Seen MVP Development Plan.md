@@ -119,10 +119,10 @@ channel traffic with the same guarantees as the interpreter.
 
 ### PSH‑3b. Memory & Data Layout Efficiency
 
-*Status:* ⏳ Pending — the hybrid generational model needs instrumentation to hit the zero-overhead targets called out in the memory/performance research.
+*Status:* 🔄 In progress — hybrid generational handles now ship in `seen_memory_manager`, with benches validating the zero-overhead hot path; remaining work focuses on region strategy hints, arena flattening, and safety-check gating.
 
 * **Outstanding tasks:**
-  1. Extend the region/arena runtime with Vale-style hybrid generational handles plus validation benches proving no additional runtime checks are emitted on hot paths (docs/research/13 - Language Performance.md; docs/research/3 - GC-Free Memory Management Model for Automated Safety and Intuitive Control.md).
+  1. ✅ Extend the region/arena runtime with Vale-style hybrid generational handles plus validation benches proving no additional runtime checks are emitted on hot paths (`seen_memory_manager/src/handles.rs`, `seen_memory_manager/benches/hybrid_handles.rs`).
   2. Surface region strategy hints (`bump`, `stack`, `cxl_near`) in Seen syntax and teach the compiler to auto-select O(1) release strategies when lifetime analysis allows it.
   3. Flatten compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious layouts, measuring the cited 2.4× speedups on cache-bound fixtures (docs/research/13 - Language Performance.md).
   4. Audit runtime safety checks, gating them behind debug profiles when static proofs exist, so production binaries keep the "zero memory safety overhead" promise.

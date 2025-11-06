@@ -1,10 +1,7 @@
-//! Vale-style region-based memory management
-//!
-//! This module implements regions (memory arenas) that provide deterministic
-//! memory management without garbage collection. Regions allow grouping related
-//! objects and deallocating them together efficiently.
-
-use crate::ownership::{OwnershipError, OwnershipInfo};
+use crate::{
+    handles::{GenerationalHandle, HybridGenerationalArena},
+    ownership::OwnershipInfo,
+};
 use seen_lexer::Position;
 use seen_parser::ast::*;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -25,6 +22,39 @@ impl RegionId {
     }
 }
 
+/// Handle that ties a generational slot to a region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RegionHandle {
+    region: RegionId,
+    slot: GenerationalHandle,
+}
+
+impl RegionHandle {
+    /// Create a handle for `region` and `slot`.
+    pub fn new(region: RegionId, slot: GenerationalHandle) -> Self {
+        Self { region, slot }
+    }
+
+    /// Region that owns the allocation.
+    pub fn region(&self) -> RegionId {
+        self.region
+    }
+
+    /// Raw generational slot.
+    pub fn slot(&self) -> GenerationalHandle {
+        self.slot
+    }
+}
+
+/// Metadata stored for each allocation within a region.
+#[derive(Debug, Clone)]
+pub struct AllocationMetadata {
+    /// Variable or symbol identifier tied to this allocation.
+    pub variable: String,
+    /// Source position where the allocation originated.
+    pub created_at: Position,
+}
+
 /// Represents a memory region that contains related allocations
 #[derive(Debug, Clone)]
 pub struct Region {
@@ -33,7 +63,9 @@ pub struct Region {
     /// Human-readable name for debugging
     pub name: String,
     /// Variables allocated in this region
-    pub allocations: HashSet<String>,
+    pub allocations: HashMap<String, RegionHandle>,
+    /// Slot table that tracks allocation lifetimes
+    pub allocation_table: HybridGenerationalArena<AllocationMetadata>,
     /// Child regions that are nested within this region
     pub child_regions: Vec<RegionId>,
     /// Parent region (if this is a nested region)
@@ -50,7 +82,8 @@ impl Region {
         Self {
             id,
             name,
-            allocations: HashSet::new(),
+            allocations: HashMap::new(),
+            allocation_table: HybridGenerationalArena::new(),
             child_regions: Vec::new(),
             parent_region: parent,
             created_at: pos,
@@ -59,13 +92,24 @@ impl Region {
     }
 
     /// Add an allocation to this region
-    pub fn add_allocation(&mut self, variable: String) {
-        self.allocations.insert(variable);
+    pub fn add_allocation(&mut self, variable: String, created_at: Position) -> RegionHandle {
+        let meta = AllocationMetadata {
+            variable: variable.clone(),
+            created_at,
+        };
+        let slot = self.allocation_table.insert(meta);
+        let handle = RegionHandle::new(self.id, slot);
+        self.allocations.insert(variable, handle);
+        handle
     }
 
     /// Remove an allocation from this region
-    pub fn remove_allocation(&mut self, variable: &str) {
-        self.allocations.remove(variable);
+    pub fn remove_allocation(&mut self, variable: &str) -> Option<AllocationMetadata> {
+        if let Some(handle) = self.allocations.remove(variable) {
+            self.allocation_table.remove(handle.slot())
+        } else {
+            None
+        }
     }
 
     /// Add a child region
@@ -76,6 +120,21 @@ impl Region {
     /// Mark region as inactive (deallocated)
     pub fn deactivate(&mut self) {
         self.is_active = false;
+        self.allocations.clear();
+        self.allocation_table.clear();
+    }
+
+    /// Retrieve metadata for an active allocation.
+    pub fn allocation_metadata(&self, handle: GenerationalHandle) -> Option<&AllocationMetadata> {
+        self.allocation_table.resolve(handle)
+    }
+
+    /// Fast path metadata lookup (elides checks in release mode).
+    pub fn allocation_metadata_fast(
+        &self,
+        handle: GenerationalHandle,
+    ) -> Option<&AllocationMetadata> {
+        self.allocation_table.resolve_fast(handle)
     }
 }
 
@@ -168,11 +227,13 @@ impl RegionManager {
     }
 
     /// Allocate a variable in the current region
-    pub fn allocate_in_current_region(&mut self, variable: String) {
+    pub fn allocate_in_current_region(
+        &mut self,
+        variable: String,
+        position: Position,
+    ) -> Result<RegionHandle, RegionError> {
         let current = self.current_region();
-        if let Some(region) = self.regions.get_mut(&current) {
-            region.add_allocation(variable);
-        }
+        self.allocate_in_region(variable, current, position)
     }
 
     /// Allocate a variable in a specific region
@@ -180,22 +241,37 @@ impl RegionManager {
         &mut self,
         variable: String,
         region_id: RegionId,
-    ) -> Result<(), RegionError> {
+        position: Position,
+    ) -> Result<RegionHandle, RegionError> {
+        if let Some(existing_region) = self.find_variable_region(&variable) {
+            let err = RegionError::MultipleAllocation {
+                variable,
+                regions: vec![existing_region, region_id],
+                position,
+            };
+            self.errors.push(err.clone());
+            return Err(err);
+        }
+
         if let Some(region) = self.regions.get_mut(&region_id) {
             if !region.is_active {
-                return Err(RegionError::RegionInactive {
+                let err = RegionError::RegionInactive {
                     region_id,
                     variable,
-                    position: Position::new(0, 0, 0), // Position tracked from allocation site
-                });
+                    position,
+                };
+                self.errors.push(err.clone());
+                return Err(err);
             }
-            region.add_allocation(variable);
-            Ok(())
+            let handle = region.add_allocation(variable, position);
+            Ok(handle)
         } else {
-            Err(RegionError::RegionNotFound {
+            let err = RegionError::RegionNotFound {
                 region_id,
-                position: Position::new(0, 0, 0), // Position tracked from allocation site
-            })
+                position,
+            };
+            self.errors.push(err.clone());
+            Err(err)
         }
     }
 
@@ -230,15 +306,44 @@ impl RegionManager {
     pub fn is_allocated(&self, variable: &str) -> bool {
         self.regions
             .values()
-            .any(|region| region.is_active && region.allocations.contains(variable))
+            .any(|region| region.is_active && region.allocations.contains_key(variable))
     }
 
     /// Find which region contains a variable
     pub fn find_variable_region(&self, variable: &str) -> Option<RegionId> {
         self.regions
             .iter()
-            .find(|(_, region)| region.is_active && region.allocations.contains(variable))
+            .find(|(_, region)| region.is_active && region.allocations.contains_key(variable))
             .map(|(id, _)| *id)
+    }
+
+    /// Retrieve the handle associated with a variable if it is still live.
+    pub fn allocation_handle(&self, variable: &str) -> Option<RegionHandle> {
+        self.regions.iter().find_map(|(_, region)| {
+            if region.is_active {
+                region.allocations.get(variable).copied()
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Resolve allocation metadata from a handle with full validation.
+    pub fn resolve_handle(&self, handle: RegionHandle) -> Option<&AllocationMetadata> {
+        let region = self.regions.get(&handle.region())?;
+        if !region.is_active {
+            return None;
+        }
+        region.allocation_metadata(handle.slot())
+    }
+
+    /// Hot-path resolution used by release builds to avoid extra branching.
+    pub fn resolve_handle_fast(&self, handle: RegionHandle) -> Option<&AllocationMetadata> {
+        let region = self.regions.get(&handle.region())?;
+        if !region.is_active {
+            return None;
+        }
+        region.allocation_metadata_fast(handle.slot())
     }
 
     /// Get all active regions
@@ -459,7 +564,8 @@ impl RegionAnalyzer {
                 self.analyze_expression(value)?;
 
                 // Then allocate the variable in the current region
-                self.region_manager.allocate_in_current_region(name.clone());
+                self.region_manager
+                    .allocate_in_current_region(name.clone(), *pos)?;
 
                 Ok(())
             }
@@ -612,11 +718,24 @@ mod tests {
     #[test]
     fn test_variable_allocation() {
         let mut manager = RegionManager::new();
+        let pos = Position::new(1, 1, 0);
 
-        manager.allocate_in_current_region("x".to_string());
+        let handle = manager
+            .allocate_in_current_region("x".to_string(), pos)
+            .expect("allocation should succeed");
 
         assert!(manager.is_allocated("x"));
         assert!(manager.find_variable_region("x").is_some());
+        assert_eq!(
+            manager
+                .resolve_handle(handle)
+                .map(|meta| meta.variable.as_str()),
+            Some("x")
+        );
+
+        manager.deallocate_variable("x");
+        assert!(!manager.is_allocated("x"));
+        assert!(manager.resolve_handle(handle).is_none());
     }
 
     #[test]
@@ -674,5 +793,36 @@ mod tests {
 
         // Variable should not be allocated anymore (block exited)
         assert!(!region_manager.is_allocated("y"));
+    }
+
+    #[test]
+    fn handle_generations_change_after_reuse() {
+        let mut manager = RegionManager::new();
+        let pos = Position::new(1, 1, 0);
+
+        let first = manager
+            .allocate_in_current_region("item".to_string(), pos)
+            .unwrap();
+        manager.deallocate_variable("item");
+        let second = manager
+            .allocate_in_current_region("item".to_string(), pos)
+            .unwrap();
+
+        assert_ne!(first.slot().generation(), second.slot().generation());
+    }
+
+    #[test]
+    fn resolve_handle_fast_matches_checked() {
+        let mut manager = RegionManager::new();
+        let pos = Position::new(1, 1, 0);
+
+        let handle = manager
+            .allocate_in_current_region("fast".to_string(), pos)
+            .unwrap();
+
+        let checked = manager.resolve_handle(handle).unwrap().created_at;
+        let fast = manager.resolve_handle_fast(handle).unwrap().created_at;
+
+        assert_eq!(checked, fast);
     }
 }

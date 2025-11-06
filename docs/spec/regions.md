@@ -1,0 +1,49 @@
+# Seen Language — Regions & Memory Management
+
+## 1. Ownership Model
+- **Regions** provide scoped ownership: memory allocated inside a region is released in **O(1)** by destroying the region.
+- **RAII:** Values run `Drop` deterministically at end-of-scope in LIFO order; `defer` statements push cleanup actions onto the same stack.
+- **Generational handles:** Engine-facing APIs use handle tables keyed by `(index, generation)` to detect stale references.
+
+## 2. Region Syntax
+```seen
+region upload {
+  let scratch = allocate_buffer(4 * KB);
+  defer free(scratch);
+
+  use_upload_queue(scratch);
+}
+// scratch freed, region torn down
+```
+- Region names scope lifetime hints in diagnostics.
+- Regions can be nested; inner regions destroy before outer scope exits.
+- `region` blocks integrate with async runtime by emitting suspension points only where proven safe.
+
+## 3. Allocation Strategies
+- Compiler accepts hints via attributes: `#[region(strategy = "bump")]`, `#[region(strategy = "stack")]`, `#[region(strategy = "cxl_near")]`.
+- Static analysis selects the fastest release strategy permitted by lifetime graph; debug builds inject assertions when fallbacks occur.
+- Region descriptors record allocation pressure for profiling (`seen trace --regions`).
+
+## 4. Generational References
+```rust
+struct Handle {
+    index: u32,
+    generation: u32,
+}
+```
+- Handle tables live in arenas; acquiring/clearing entries bumps the generation counter.
+- Runtime validates handles before dereferencing; stale handles trigger deterministic `Abort::StaleHandle` diagnostics tying back to source.
+
+## 5. Async & Structured Concurrency Constraints
+- Tasks spawned within `scope { ... }` inherit the parent region stack by value. Regions marked `#[region(shared)]` permit concurrent borrows; otherwise, mutable access is exclusive.
+- Suspension points (`await`) require all borrowed regions to be in a quiescent state; the compiler enforces `await`-free sections when holding `mut &` references.
+- Cancelling a task runs deferred actions in reverse order before unwinding the region stack; cancellation cannot observe partially-dropped values.
+
+## 6. Profiling & Instrumentation
+- Release builds remove redundant runtime checks when static analysis proves safety.
+- `tools/perf_baseline` captures region drop cost and allocation counts; PASS criteria require sub-microsecond drops for hot regions.
+- Debug builds surface region overflows, double drops, and long-lived allocations via structured diagnostics.
+
+## 7. Determinism Guarantees
+- Region destruction order is fully deterministic; even panic-driven abort paths run deferred actions in registration order.
+- Region layout decisions feed into IR hashing; builds that alter layout cause deterministic hash mismatches to alert CI.

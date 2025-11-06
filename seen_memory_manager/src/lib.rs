@@ -34,18 +34,22 @@
 //! }
 //! ```
 
+pub mod handles;
 pub mod memory_manager;
 pub mod ownership;
 pub mod regions;
 
 // Re-export main types for convenience
+pub use handles::{GenerationalHandle, HybridGenerationalArena};
 pub use memory_manager::{
     MemoryAnalysisResult, MemoryError, MemoryManager, MemoryManagerConfig, MemoryOptimization,
 };
 pub use ownership::{
     OwnershipAnalyzer, OwnershipError, OwnershipInfo, OwnershipMode, VariableOwnership,
 };
-pub use regions::{Region, RegionAnalyzer, RegionError, RegionId, RegionManager};
+pub use regions::{
+    AllocationMetadata, Region, RegionAnalyzer, RegionError, RegionHandle, RegionId, RegionManager,
+};
 
 #[cfg(test)]
 mod tests {
