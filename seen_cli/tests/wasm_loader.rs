@@ -123,5 +123,5 @@ fn bundle_requires_wasm_target() {
 
     cmd.assert()
         .failure()
-        .stderr(contains("--bundle requires --target wasm32"));
+        .stderr(contains("--wasm-loader requires --target wasm32"));
 }

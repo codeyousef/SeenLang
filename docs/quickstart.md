@@ -62,11 +62,17 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
       `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader examples/web/hello_wasm/main.seen --output hello.wasm`
     - Bundle wasm/js/html into a zip:
       `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader --bundle examples/web/hello_wasm/main.seen --output hello.wasm`
-- Android NDK starter (requires `ANDROID_NDK_HOME`): `examples/android/hello_ndk`
+- Android NDK starter (requires `ANDROID_NDK_HOME`; consumes `assets/`, `res/`, `dex/`, and `root/` under the sample):
+  `examples/android/hello_ndk`
     - Build shared lib:
       `seen build --backend llvm --target aarch64-linux-android --output libhello_android.so examples/android/hello_ndk/main.seen`
-    - Package into a minimal `.aab` bundle:
-      `scripts/bundle_android.sh ./target/release/seen_cli examples/android/hello_ndk/main.seen android_hello.aab`
+  - Produce a bundle-ready `.aab` directly from the CLI (adds assets/res/dex automatically, inserts a stub `classes.dex`
+    if none are supplied):
+    `seen build --backend llvm --target aarch64-linux-android --bundle examples/android/hello_ndk/main.seen --output hello_ndk.aab`
+      - Provide `SEEN_ANDROID_KEYSTORE`, `SEEN_ANDROID_KEY_ALIAS`, `SEEN_ANDROID_KEYSTORE_PASS`, and optionally
+        `SEEN_ANDROID_KEY_PASS`/`SEEN_ANDROID_TIMESTAMP_URL` to sign the bundle with `jarsigner` automatically.
+  - Need a shell wrapper? `scripts/bundle_android.sh` mirrors the CLI flow (same env vars, supports `ANDROID_ABI`
+    overrides) when you want to orchestrate additional steps around the build.
 
 ## Deterministic Profile
 

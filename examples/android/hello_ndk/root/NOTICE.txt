@@ -1,0 +1,2 @@
+Seen hello_ndk demo
+Copyright (c) 2025 Seen

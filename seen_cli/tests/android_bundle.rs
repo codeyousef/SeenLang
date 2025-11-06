@@ -83,17 +83,19 @@ fn android_bundle_requires_shared_output() {
     let output = temp.path().join("android_bundle_test");
 
     let mut cmd = Command::cargo_bin("seen_cli").expect("binary exists");
-    cmd.current_dir(&workspace).args([
-        "build",
-        source.to_string_lossy().as_ref(),
-        "--backend",
-        "llvm",
-        "--target",
-        "aarch64-linux-android",
-        "--bundle",
-        "--output",
-        output.to_string_lossy().as_ref(),
-    ]);
+    cmd.current_dir(&workspace)
+        .env("ANDROID_NDK_HOME", temp.path().to_string_lossy().as_ref())
+        .args([
+            "build",
+            source.to_string_lossy().as_ref(),
+            "--backend",
+            "llvm",
+            "--target",
+            "aarch64-linux-android",
+            "--bundle",
+            "--output",
+            output.to_string_lossy().as_ref(),
+        ]);
 
     cmd.assert()
         .failure()

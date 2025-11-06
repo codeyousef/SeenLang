@@ -13,13 +13,20 @@ use seen_core::{
 use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+#[cfg(feature = "llvm")]
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 #[cfg(feature = "llvm")]
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "llvm")]
+use std::process::Command;
 use std::sync::Arc;
+use zip::CompressionMethod;
+#[cfg(feature = "llvm")]
+use zip::CompressionMethod;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum Profile {
@@ -828,6 +835,10 @@ fn compile_file_llvm(
             }
         }
     }
+    let project_dir = input
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
     let source = fs::read_to_string(input).map_err(|err| {
         SeenError::new(
             SeenErrorKind::Io,
@@ -894,7 +905,13 @@ fn compile_file_llvm(
         } else {
             default_link_output_path(link_mode, target_triple)
         };
-        let mut out_path = output.cloned().unwrap_or(default_target);
+        let mut out_path = if let Some(path) = output.cloned() {
+            path
+        } else if bundling_android {
+            PathBuf::from("bundle.aab")
+        } else {
+            default_target
+        };
         let mut compile_out_path = out_path.clone();
         if bundling_android {
             if out_path
@@ -955,7 +972,7 @@ fn compile_file_llvm(
                 if bundling_wasm {
                     bundle_wasm_artifacts(&target)?;
                 } else if bundling_android {
-                    bundle_android_artifacts(&target, &out_path)?;
+                    bundle_android_artifacts(&target, &out_path, &project_dir, target_triple)?;
                     if target != out_path {
                         let _ = fs::remove_file(&target);
                     }
@@ -967,12 +984,12 @@ fn compile_file_llvm(
     #[cfg(not(feature = "llvm"))]
     {
         let _ = (
-            output,
             emit_ll,
             link_mode,
             target_triple,
             wasm_loader,
             bundle,
+            output,
         );
         Err(SeenError::new(
             SeenErrorKind::Tooling,
@@ -1261,12 +1278,54 @@ fn bundle_wasm_artifacts(wasm_path: &Path) -> SeenResult<()> {
 }
 
 #[cfg(feature = "llvm")]
-fn bundle_android_artifacts(shared_lib: &Path, bundle_path: &Path) -> SeenResult<()> {
+const DEFAULT_BUNDLE_CONFIG: &str = r#"modules {
+  name: "base"
+  module_type: BUNDLE_MODULE
+  assets_config {}
+}
+"#;
+
+#[cfg(feature = "llvm")]
+const DEFAULT_ANDROID_MANIFEST: &str = r#"<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.seenapp">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <application android:label="SeenApp" android:hasCode="true">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+"#;
+
+#[cfg(feature = "llvm")]
+const STUB_CLASSES_DEX: &[u8] = include_bytes!("android_stub/classes.dex");
+
+#[cfg(feature = "llvm")]
+fn bundle_android_artifacts(
+    shared_lib: &Path,
+    bundle_path: &Path,
+    project_dir: &Path,
+    target_triple: Option<&str>,
+) -> SeenResult<()> {
     use std::io::Write;
     use zip::write::FileOptions;
     use zip::CompressionMethod;
 
-    let lib_bytes = fs::read(shared_lib).map_err(|err| {
+    if let Some(parent) = bundle_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!("Failed to create directory {}: {}", parent.display(), err),
+                )
+            })?;
+        }
+    }
+
+    let lib_bytes = std::fs::read(shared_lib).map_err(|err| {
         SeenError::new(
             SeenErrorKind::Io,
             format!("Failed to read {}: {}", shared_lib.display(), err),
@@ -1285,39 +1344,70 @@ fn bundle_android_artifacts(shared_lib: &Path, bundle_path: &Path) -> SeenResult
     })?;
 
     let mut writer = zip::ZipWriter::new(bundle_file);
-    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+    let deflated = FileOptions::default().compression_method(CompressionMethod::Deflated);
 
-    const BUNDLE_CONFIG: &[u8] = b"modules {\n  name: \"base\"\n  module_type: BUNDLE_MODULE\n}\n";
-    writer
-        .start_file("BundleConfig.pb", options)
-        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
-    writer
-        .write_all(BUNDLE_CONFIG)
-        .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    let bundle_config_override = project_dir.join("BundleConfig.pb");
+    if bundle_config_override.is_file() {
+        let bytes = std::fs::read(&bundle_config_override).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Failed to read BundleConfig override {}: {}",
+                    bundle_config_override.display(),
+                    err
+                ),
+            )
+        })?;
+        writer
+            .start_file("BundleConfig.pb", deflated)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(&bytes)
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    } else {
+        writer
+            .start_file("BundleConfig.pb", deflated)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(DEFAULT_BUNDLE_CONFIG.as_bytes())
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    }
 
-    const MANIFEST: &str = r#"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"
-    package=\"com.example.seenapp\">
-    <application android:label=\"SeenApp\">
-        <activity android:name=\".MainActivity\" android:exported=\"true\">
-            <intent-filter>
-                <action android:name=\"android.intent.action.MAIN\" />
-                <category android:name=\"android.intent.category.LAUNCHER\" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>
-"#;
+    let manifest_override = project_dir.join("AndroidManifest.xml");
+    if manifest_override.is_file() {
+        let bytes = std::fs::read(&manifest_override).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Failed to read AndroidManifest.xml override {}: {}",
+                    manifest_override.display(),
+                    err
+                ),
+            )
+        })?;
+        writer
+            .start_file("base/manifest/AndroidManifest.xml", deflated)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(&bytes)
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    } else {
+        writer
+            .start_file("base/manifest/AndroidManifest.xml", deflated)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(DEFAULT_ANDROID_MANIFEST.as_bytes())
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    }
 
-    writer
-        .start_file("base/manifest/AndroidManifest.xml", options)
-        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
-    writer
-        .write_all(MANIFEST.as_bytes())
-        .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
-
+    let abi_dir = android_abi_directory(target_triple);
+    let lib_file_name = shared_lib
+        .file_name()
+        .unwrap_or_else(|| OsStr::new("libapp.so"));
+    let lib_entry = format!("base/lib/{}/{}", abi_dir, lib_file_name.to_string_lossy());
     writer
         .start_file(
-            "base/lib/arm64-v8a/libapp.so",
+            lib_entry,
             FileOptions::default().compression_method(CompressionMethod::Stored),
         )
         .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
@@ -1325,11 +1415,335 @@ fn bundle_android_artifacts(shared_lib: &Path, bundle_path: &Path) -> SeenResult
         .write_all(&lib_bytes)
         .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
 
+    let assets_stats =
+        copy_directory_to_bundle(&mut writer, &project_dir.join("assets"), "base/assets")?;
+    let res_stats = copy_directory_to_bundle(&mut writer, &project_dir.join("res"), "base/res")?;
+    let dex_stats = copy_directory_to_bundle(&mut writer, &project_dir.join("dex"), "base/dex")?;
+    let _root_stats =
+        copy_directory_to_bundle(&mut writer, &project_dir.join("root"), "base/root")?;
+
+    let resources_pb = project_dir.join("resources.pb");
+    let alt_resources_pb = project_dir.join("base").join("resources.pb");
+    let resources_source = if resources_pb.is_file() {
+        Some(resources_pb)
+    } else if alt_resources_pb.is_file() {
+        Some(alt_resources_pb)
+    } else {
+        None
+    };
+    if let Some(res_path) = resources_source {
+        let bytes = std::fs::read(&res_path).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Failed to read resources.pb {}: {}",
+                    res_path.display(),
+                    err
+                ),
+            )
+        })?;
+        writer
+            .start_file("base/resources.pb", deflated)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(&bytes)
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    }
+
+    let mut inserted_stub_dex = false;
+    if dex_stats.dex_files == 0 {
+        writer
+            .start_file(
+                "base/dex/classes.dex",
+                FileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(STUB_CLASSES_DEX)
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+        inserted_stub_dex = true;
+    }
+
     writer
         .finish()
         .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
 
-    println!("Generated Android bundle: {}", bundle_path.display());
+    maybe_sign_android_bundle(bundle_path)?;
+
+    if inserted_stub_dex {
+        println!(
+            "Generated Android bundle: {} (note: inserted stub classes.dex; add dex/ to override)",
+            bundle_path.display()
+        );
+    } else {
+        println!("Generated Android bundle: {}", bundle_path.display());
+    }
+
+    if assets_stats.files > 0 {
+        println!(
+            "Bundled {} asset file(s) from {}",
+            assets_stats.files,
+            project_dir.join("assets").display()
+        );
+    }
+    if res_stats.files > 0 {
+        println!(
+            "Bundled {} resource file(s) from {}",
+            res_stats.files,
+            project_dir.join("res").display()
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "llvm")]
+#[derive(Default)]
+struct DirectoryStats {
+    files: usize,
+    dex_files: usize,
+}
+
+#[cfg(feature = "llvm")]
+fn copy_directory_to_bundle(
+    writer: &mut zip::ZipWriter<File>,
+    source_dir: &Path,
+    dest_prefix: &str,
+) -> SeenResult<DirectoryStats> {
+    use zip::write::FileOptions;
+
+    if !source_dir.exists() {
+        return Ok(DirectoryStats::default());
+    }
+    if !source_dir.is_dir() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Expected Android bundle directory {}, but found a non-directory entry",
+                source_dir.display()
+            ),
+        ));
+    }
+
+    let mut files = Vec::new();
+    collect_files_sorted(source_dir, &mut files)?;
+
+    let mut stats = DirectoryStats::default();
+    for file in files {
+        let relative = file.strip_prefix(source_dir).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "Failed to derive relative path for {}: {}",
+                    file.display(),
+                    err
+                ),
+            )
+        })?;
+        let entry = if relative.as_os_str().is_empty() {
+            dest_prefix.trim_end_matches('/').to_string()
+        } else {
+            format!(
+                "{}/{}",
+                dest_prefix.trim_end_matches('/'),
+                path_to_bundle_entry(relative)
+            )
+        };
+        let contents = std::fs::read(&file).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read {}: {}", file.display(), err),
+            )
+        })?;
+
+        let method = compression_for_path(&file);
+        let options = FileOptions::default().compression_method(method);
+        writer
+            .start_file(entry, options)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(&contents)
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+
+        stats.files += 1;
+        if file
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("dex"))
+            .unwrap_or(false)
+        {
+            stats.dex_files += 1;
+        }
+    }
+
+    Ok(stats)
+}
+
+#[cfg(feature = "llvm")]
+fn collect_files_sorted(dir: &Path, out: &mut Vec<PathBuf>) -> SeenResult<()> {
+    let mut entries = std::fs::read_dir(dir)
+        .map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read directory {}: {}", dir.display(), err),
+            )
+        })?
+        .map(|res| res.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to iterate directory {}: {}", dir.display(), err),
+            )
+        })?;
+
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            collect_files_sorted(&path, out)?;
+        } else if path.is_file() {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "llvm")]
+fn path_to_bundle_entry(path: &Path) -> String {
+    path.components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+#[cfg(feature = "llvm")]
+fn compression_for_path(path: &Path) -> CompressionMethod {
+    use zip::CompressionMethod;
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+        if ext.eq_ignore_ascii_case("so")
+            || ext.eq_ignore_ascii_case("dex")
+            || ext.eq_ignore_ascii_case("jar")
+            || ext.eq_ignore_ascii_case("apk")
+            || ext.eq_ignore_ascii_case("aab")
+        {
+            return CompressionMethod::Stored;
+        }
+    }
+    CompressionMethod::Deflated
+}
+
+#[cfg(feature = "llvm")]
+fn android_abi_directory(target_triple: Option<&str>) -> &'static str {
+    if let Some(triple) = target_triple {
+        if triple.contains("aarch64") {
+            return "arm64-v8a";
+        }
+        if triple.contains("armv7") || triple.contains("thumbv7") {
+            return "armeabi-v7a";
+        }
+        if triple.contains("x86_64") {
+            return "x86_64";
+        }
+        if triple.contains("i686") || triple.contains("x86") {
+            return "x86";
+        }
+    }
+    "arm64-v8a"
+}
+
+#[cfg(feature = "llvm")]
+fn maybe_sign_android_bundle(bundle_path: &Path) -> SeenResult<()> {
+    let keystore = match std::env::var("SEEN_ANDROID_KEYSTORE") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => return Ok(()),
+    };
+
+    let alias = std::env::var("SEEN_ANDROID_KEY_ALIAS").unwrap_or_else(|_| "seenapp".to_string());
+    let jarsigner =
+        std::env::var("SEEN_ANDROID_JARSIGNER").unwrap_or_else(|_| "jarsigner".to_string());
+
+    let mut cmd = Command::new(&jarsigner);
+    cmd.arg("-keystore").arg(&keystore);
+
+    if let Ok(store_type) = std::env::var("SEEN_ANDROID_KEYSTORE_TYPE") {
+        if !store_type.trim().is_empty() {
+            cmd.arg("-storetype").arg(store_type);
+        }
+    }
+    if let Ok(provider) = std::env::var("SEEN_ANDROID_KEYSTORE_PROVIDER") {
+        if !provider.trim().is_empty() {
+            cmd.arg("-provider").arg(provider);
+        }
+    }
+
+    if let Ok(storepass) = std::env::var("SEEN_ANDROID_KEYSTORE_PASS") {
+        if !storepass.is_empty() {
+            cmd.arg("-storepass").arg(&storepass);
+            let keypass =
+                std::env::var("SEEN_ANDROID_KEY_PASS").unwrap_or_else(|_| storepass.clone());
+            if !keypass.is_empty() {
+                cmd.arg("-keypass").arg(&keypass);
+            }
+        }
+    } else if let Ok(keypass) = std::env::var("SEEN_ANDROID_KEY_PASS") {
+        if !keypass.is_empty() {
+            cmd.arg("-keypass").arg(&keypass);
+        }
+    }
+
+    if let Ok(sigalg) = std::env::var("SEEN_ANDROID_SIGALG") {
+        if !sigalg.trim().is_empty() {
+            cmd.arg("-sigalg").arg(sigalg);
+        }
+    } else {
+        cmd.arg("-sigalg").arg("SHA256withRSA");
+    }
+
+    if let Ok(digestalg) = std::env::var("SEEN_ANDROID_DIGESTALG") {
+        if !digestalg.trim().is_empty() {
+            cmd.arg("-digestalg").arg(digestalg);
+        }
+    } else {
+        cmd.arg("-digestalg").arg("SHA-256");
+    }
+
+    if let Ok(tsa_url) = std::env::var("SEEN_ANDROID_TIMESTAMP_URL") {
+        if !tsa_url.trim().is_empty() {
+            cmd.arg("-tsa").arg(tsa_url);
+        }
+    }
+
+    cmd.arg(bundle_path);
+    cmd.arg(&alias);
+
+    let status = cmd.status().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to invoke {} for Android bundle signing: {}",
+                jarsigner, err
+            ),
+        )
+    })?;
+
+    if !status.success() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "{} exited with status {} while signing {}",
+                jarsigner,
+                status,
+                bundle_path.display()
+            ),
+        ));
+    }
+
+    println!(
+        "Signed Android bundle {} using keystore {} (alias {})",
+        bundle_path.display(),
+        keystore,
+        alias
+    );
     Ok(())
 }
 
@@ -2767,6 +3181,159 @@ mod tests {
     use seen_core::ir::IRValue;
     use std::fs;
     use tempfile::tempdir;
+
+    #[cfg(feature = "llvm")]
+    mod android_bundle_tests {
+        use super::*;
+        use std::fs::File;
+        use std::io::Read;
+        use zip::ZipArchive;
+
+        #[test]
+        fn bundle_inserts_stub_dex_when_missing() {
+            let temp = tempdir().expect("temp dir");
+            let project_dir = temp.path();
+
+            let shared_lib = project_dir.join("libseen_stub.so");
+            fs::write(&shared_lib, b"fake so").expect("write shared lib");
+            let bundle_path = project_dir.join("app.aab");
+
+            bundle_android_artifacts(
+                &shared_lib,
+                &bundle_path,
+                project_dir,
+                Some("aarch64-linux-android"),
+            )
+                .expect("bundle");
+
+            let file = File::open(&bundle_path).expect("open bundle");
+            let mut archive = ZipArchive::new(file).expect("zip archive");
+
+            let mut manifest = String::new();
+            archive
+                .by_name("base/manifest/AndroidManifest.xml")
+                .expect("manifest entry")
+                .read_to_string(&mut manifest)
+                .expect("read manifest");
+            assert!(
+                manifest.contains("SeenApp"),
+                "expected default manifest, got {}",
+                manifest
+            );
+
+            let mut dex_bytes = Vec::new();
+            archive
+                .by_name("base/dex/classes.dex")
+                .expect("dex entry")
+                .read_to_end(&mut dex_bytes)
+                .expect("read dex");
+            assert_eq!(
+                dex_bytes, STUB_CLASSES_DEX,
+                "stub dex should be inserted when project provides none"
+            );
+        }
+
+        #[test]
+        fn bundle_copies_project_directories() {
+            let temp = tempdir().expect("temp dir");
+            let project_dir = temp.path();
+
+            // Stub shared object
+            let shared_lib = project_dir.join("libproj.so");
+            fs::write(&shared_lib, b"binary").expect("write shared lib");
+            let bundle_path = project_dir.join("project.aab");
+
+            // Custom manifest override
+            let manifest_path = project_dir.join("AndroidManifest.xml");
+            fs::write(
+                &manifest_path,
+                r#"<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.custom">
+    <application android:label="CustomApp" />
+</manifest>
+"#,
+            )
+                .expect("write manifest");
+
+            // Assets, resources, root, and dex directories
+            let asset_path = project_dir.join("assets").join("textures").join("quad.png");
+            fs::create_dir_all(asset_path.parent().unwrap()).expect("asset dirs");
+            fs::write(&asset_path, b"PNGDATA").expect("write asset");
+
+            let res_path = project_dir.join("res").join("values").join("strings.xml");
+            fs::create_dir_all(res_path.parent().unwrap()).expect("res dirs");
+            fs::write(
+                &res_path,
+                "<resources><string name=\"app\">Custom</string></resources>",
+            )
+                .expect("write res");
+
+            let root_path = project_dir.join("root").join("NOTICE.txt");
+            fs::create_dir_all(root_path.parent().unwrap()).expect("root dirs");
+            fs::write(&root_path, "root file").expect("write root");
+
+            let dex_dir = project_dir.join("dex");
+            fs::create_dir_all(&dex_dir).expect("dex dir");
+            let dex_path = dex_dir.join("classes.dex");
+            let custom_dex = b"custom dex bytes";
+            fs::write(&dex_path, custom_dex).expect("write dex");
+
+            bundle_android_artifacts(
+                &shared_lib,
+                &bundle_path,
+                project_dir,
+                Some("x86_64-linux-android"),
+            )
+                .expect("bundle");
+
+            let file = File::open(&bundle_path).expect("open bundle");
+            let mut archive = ZipArchive::new(file).expect("zip archive");
+
+            // Manifest override should be present
+            let mut manifest = String::new();
+            archive
+                .by_name("base/manifest/AndroidManifest.xml")
+                .expect("manifest entry")
+                .read_to_string(&mut manifest)
+                .expect("read manifest");
+            assert!(
+                manifest.contains("CustomApp"),
+                "expected custom manifest, got {}",
+                manifest
+            );
+
+            // Asset contents propagate
+            let mut asset_bytes = Vec::new();
+            archive
+                .by_name("base/assets/textures/quad.png")
+                .expect("asset entry")
+                .read_to_end(&mut asset_bytes)
+                .expect("read asset");
+            assert_eq!(asset_bytes, b"PNGDATA");
+
+            // Resource file present
+            let mut res_bytes = String::new();
+            archive
+                .by_name("base/res/values/strings.xml")
+                .expect("res entry")
+                .read_to_string(&mut res_bytes)
+                .expect("read res");
+            assert!(
+                res_bytes.contains("Custom"),
+                "expected resource contents, got {}",
+                res_bytes
+            );
+
+            // Custom dex should override stub
+            let mut dex_bytes = Vec::new();
+            archive
+                .by_name("base/dex/classes.dex")
+                .expect("dex entry")
+                .read_to_end(&mut dex_bytes)
+                .expect("read dex");
+            assert_eq!(dex_bytes, custom_dex);
+        }
+    }
 
     fn make_embed_const(path: AttributeValue) -> Expression {
         Expression::Const {

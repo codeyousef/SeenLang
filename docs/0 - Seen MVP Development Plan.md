@@ -191,26 +191,33 @@ live while macOS/Windows remain deferred until host machines are available.
   1. ✅ Add `--target <triple>` support to the CLI and map to LLVM target machines/toolchains (clang, wasm-ld, NDK).
     * `seen build` now forwards triples to LLVM, emits target-specific objects, and selects appropriate
       linkers/archivers (with `clang`/`wasm-ld` fallbacks and `SEEN_LLVM_*` overrides).
-  2. 🔄 Create platform-specific linker pipelines for Linux (ELF exe/so), WebAssembly (wasm-ld), and Android NDK `.so`
+
+    2. ✅ Create platform-specific linker pipelines for Linux (ELF exe/so), WebAssembly (wasm-ld), and Android NDK `.so`
      packaging; queue macOS/Windows code paths once non-Linux builders are provisioned.
     * Linux executables/shared libs now default to platform extensions; wasm targets drive `wasm-ld` with deterministic
       exports, optional JS/HTML loader generation, optional `--bundle` archives, and fail-fast diagnostics when
       `wasm-ld` is missing; Android triples
-      resolve dedicated NDK toolchains via `ANDROID_NDK_HOME` / `ANDROID_API_LEVEL`, with `.aab` packaging still
-      pending.
+      resolve dedicated NDK toolchains via `ANDROID_NDK_HOME` / `ANDROID_API_LEVEL`. Android bundling emits production
+      `.aab` layouts (manifest, assets, res, root, dex, optional resources.pb), injects a deterministic stub
+      `classes.dex` when a project omits one, and offers keystore-driven signing via `jarsigner`.
     * The CLI automatically switches Android builds to shared-library mode when no explicit `--shared/--static` flag is
-      provided and surfaces actionable errors if `ANDROID_NDK_HOME` is missing. A helper script (
-      `scripts/bundle_android.sh`)
-      now generates minimal `.aab` bundles from Seen sources.
-  3. 🔄 Provide sample projects per Linux/Web/Android target (textured quad) and automated smoke tests that run in
+      provided and surfaces actionable errors if `ANDROID_NDK_HOME` is missing. The helper script (
+      `scripts/bundle_android.sh`) mirrors the richer bundling flow (ABI overrides, stub dex, signing env vars) for
+      automation hooks.
+
+    3. ✅ Provide sample projects per Linux/Web/Android target (textured quad) and automated smoke tests that run in
      CI/device farms.
     * Added `examples/linux/hello_cli`, `examples/web/hello_wasm`, and `examples/android/hello_ndk` as starter
-      fixtures, plus CLI regression tests covering Linux IR output, wasm emit/bundle flows, and Android env validation
-      (CI/device smoke runs still outstanding).
-  4. 🔄 Document Linux/Web/Android toolchain prerequisites (clang/LLD, wasm-ld, Android SDK/NDK) and integrate
+      fixtures, plus CLI regression tests covering Linux IR output, wasm emit/bundle flows, and Android env validation.
+      The Android example now bundles manifest/assets/res/root/dex fixtures and unit tests assert the richer bundle
+      contents (CI/device smoke runs still outstanding).
+
+    4. ✅ Document Linux/Web/Android toolchain prerequisites (clang/LLD, wasm-ld, Android SDK/NDK) and integrate
      signing/provisioning scripts where applicable.
-    * Quickstart now lists wasm/Android dependencies and the new `--wasm-loader` flag; dedicated packaging walkthroughs
-      remain to be authored.
+
+    * Quickstart now lists wasm/Android dependencies, the `--wasm-loader` flag, `--bundle` flows for wasm/android,
+      required env (`ANDROID_NDK_HOME`) and optional signing knobs (`SEEN_ANDROID_*`), plus references to the updated
+      Android bundle script.
 
   * Linux: ELF executables and shared libs (active work with CLI defaults).
   * Windows: PE/COFF executables and DLLs _(deferred until Windows hosts available)_.

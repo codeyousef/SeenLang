@@ -223,9 +223,8 @@ pub struct LlvmBackend<'ctx> {
 
 impl<'ctx> LlvmBackend<'ctx> {
     pub fn new() -> Self {
-        // Initialize native targets once
-        Target::initialize_native(&InitializationConfig::default())
-            .expect("Failed to initialize LLVM native target");
+        // Initialize all LLVM targets up front so cross compilation works out of the box.
+        Target::initialize_all(&InitializationConfig::default());
 
         let ctx = Box::leak(Box::new(LlvmContext::create()));
         let module = ctx.create_module("seen_module");
@@ -770,6 +769,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     backend
                         .builder
                         .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
@@ -781,6 +781,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     backend
                         .builder
                         .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
@@ -792,6 +793,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     backend
                         .builder
                         .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
@@ -803,6 +805,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     backend
                         .builder
                         .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
@@ -813,6 +816,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     backend
                         .builder
                         .build_return(None)
+                        .map(|_| ())
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
@@ -823,6 +827,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     backend
                         .builder
                         .build_return(None)
+                        .map(|_| ())
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
@@ -834,6 +839,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     backend
                         .builder
                         .build_return(Some(&handle.as_basic_value_enum()))
+                        .map(|_| ())
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),

@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Seen Hello</string>
+    <string name="welcome_message">Hello from Seen running on Android!</string>
+</resources>
