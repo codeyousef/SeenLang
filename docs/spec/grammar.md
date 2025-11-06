@@ -153,7 +153,8 @@ Primary        = Literal
                | '(' Expression ')'
                | IfExpr
                | MatchExpr
-               | Lambda ;
+               | Lambda
+               | RegionExpr ;
 
 Lambda         = '|' LambdaParams? '|' Expression
                | '|' LambdaParams? '|' Block ;
@@ -162,6 +163,11 @@ LambdaParams   = Param (',' Param)* ;
 IfExpr         = KW_IF '(' Expression ')' Block KW_ELSE Block ;
 MatchExpr      = KW_MATCH Expression '{' MatchArm+ '}' ;
 MatchArm       = Pattern ( KW_IF Expression )? '->' Expression ';' ;
+
+RegionExpr     = KW_REGION RegionHeader? Block ;
+RegionHeader   = RegionStrategyHint Identifier?
+               | Identifier ;
+RegionStrategyHint = 'bump' | 'stack' | 'cxl_near' ;
 ```
 
 ## 8. Literals

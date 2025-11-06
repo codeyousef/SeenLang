@@ -50,6 +50,7 @@ pub use ownership::{
 pub use regions::{
     AllocationMetadata, Region, RegionAnalyzer, RegionError, RegionHandle, RegionId, RegionManager,
 };
+pub use seen_parser::RegionStrategy;
 
 #[cfg(test)]
 mod tests {

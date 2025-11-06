@@ -11,6 +11,31 @@ pub struct Program {
     pub expressions: Vec<Expression>,
 }
 
+/// Strategies that hint how a region should allocate and release memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegionStrategy {
+    /// Compiler chooses the optimal strategy based on analysis.
+    Auto,
+    /// Treat region as a simple bump allocator (allocate only, drop everything at once).
+    Bump,
+    /// Use stack discipline (perfectly nested, O(1) drop).
+    Stack,
+    /// Allocate near compute with CXL-aware placement.
+    CxlNear,
+}
+
+impl RegionStrategy {
+    /// Parse a strategy from an identifier token.
+    pub fn from_identifier(ident: &str) -> Option<Self> {
+        match ident {
+            "bump" => Some(RegionStrategy::Bump),
+            "stack" => Some(RegionStrategy::Stack),
+            "cxl_near" => Some(RegionStrategy::CxlNear),
+            _ => None,
+        }
+    }
+}
+
 /// Attribute applied to declarations like constants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Attribute {
@@ -446,6 +471,7 @@ pub enum Expression {
     // Memory management blocks
     Region {
         name: Option<String>,
+        strategy: RegionStrategy,
         body: Box<Expression>,
         pos: Position,
     },

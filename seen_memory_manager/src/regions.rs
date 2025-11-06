@@ -62,6 +62,10 @@ pub struct Region {
     pub id: RegionId,
     /// Human-readable name for debugging
     pub name: String,
+    /// Strategy hint provided by the source program or compiler.
+    pub strategy_hint: RegionStrategy,
+    /// Strategy chosen after analysis (may differ from hint when hint is Auto).
+    pub selected_strategy: RegionStrategy,
     /// Variables allocated in this region
     pub allocations: HashMap<String, RegionHandle>,
     /// Slot table that tracks allocation lifetimes
@@ -78,10 +82,18 @@ pub struct Region {
 
 impl Region {
     /// Create a new region
-    pub fn new(id: RegionId, name: String, parent: Option<RegionId>, pos: Position) -> Self {
+    pub fn new(
+        id: RegionId,
+        name: String,
+        strategy_hint: RegionStrategy,
+        parent: Option<RegionId>,
+        pos: Position,
+    ) -> Self {
         Self {
             id,
             name,
+            strategy_hint,
+            selected_strategy: RegionStrategy::Auto,
             allocations: HashMap::new(),
             allocation_table: HybridGenerationalArena::new(),
             child_regions: Vec::new(),
@@ -122,6 +134,35 @@ impl Region {
         self.is_active = false;
         self.allocations.clear();
         self.allocation_table.clear();
+    }
+
+    /// Determine the optimal strategy based on hints and allocation shape.
+    fn determine_strategy(&self) -> RegionStrategy {
+        match self.strategy_hint {
+            RegionStrategy::Auto => {
+                let allocation_count = self.allocations.len();
+                let has_children = !self.child_regions.is_empty();
+                if !has_children && allocation_count <= 8 {
+                    RegionStrategy::Stack
+                } else if has_children && allocation_count == 0 {
+                    // Control-only regions default to stack semantics.
+                    RegionStrategy::Stack
+                } else {
+                    RegionStrategy::Bump
+                }
+            }
+            explicit => explicit,
+        }
+    }
+
+    /// Finalize strategy selection before deactivation.
+    pub fn finalize_strategy(&mut self) {
+        self.selected_strategy = self.determine_strategy();
+    }
+
+    /// Retrieve the strategy chosen after analysis.
+    pub fn selected_strategy(&self) -> RegionStrategy {
+        self.selected_strategy
     }
 
     /// Retrieve metadata for an active allocation.
@@ -165,6 +206,7 @@ impl RegionManager {
             Region::new(
                 global_id,
                 "global".to_string(),
+                RegionStrategy::Auto,
                 None,
                 Position::new(0, 0, 0),
             ),
@@ -183,12 +225,17 @@ impl RegionManager {
     }
 
     /// Create a new region as a child of the current region
-    pub fn create_region(&mut self, name: String, pos: Position) -> RegionId {
+    pub fn create_region(
+        &mut self,
+        name: String,
+        strategy_hint: RegionStrategy,
+        pos: Position,
+    ) -> RegionId {
         let region_id = RegionId::new(self.next_region_id);
         self.next_region_id += 1;
 
         let parent_id = self.current_region();
-        let region = Region::new(region_id, name, Some(parent_id), pos);
+        let region = Region::new(region_id, name, strategy_hint, Some(parent_id), pos);
 
         self.regions.insert(region_id, region);
 
@@ -284,22 +331,37 @@ impl RegionManager {
 
     /// Recursively deactivate a region and all its children
     fn deactivate_region_tree(&mut self, region_id: RegionId) {
-        if let Some(region) = self.regions.get(&region_id).cloned() {
-            // First deactivate all children
-            for child_id in &region.child_regions {
-                self.deactivate_region_tree(*child_id);
-            }
+        let child_ids = if let Some(region) = self.regions.get(&region_id) {
+            region.child_regions.clone()
+        } else {
+            Vec::new()
+        };
 
-            // Then deactivate this region
-            if let Some(region) = self.regions.get_mut(&region_id) {
-                region.deactivate();
-            }
+        for child_id in child_ids {
+            self.deactivate_region_tree(child_id);
+        }
+
+        if let Some(region) = self.regions.get_mut(&region_id) {
+            region.finalize_strategy();
+            region.deactivate();
         }
     }
 
     /// Get region information by ID
     pub fn get_region(&self, region_id: RegionId) -> Option<&Region> {
         self.regions.get(&region_id)
+    }
+
+    /// Fetch the selected strategy for a region, if known.
+    pub fn region_strategy(&self, region_id: RegionId) -> Option<RegionStrategy> {
+        self.regions
+            .get(&region_id)
+            .map(|region| region.selected_strategy())
+    }
+
+    /// Iterate over all regions (including inactive ones).
+    pub fn regions(&self) -> impl Iterator<Item = &Region> {
+        self.regions.values()
     }
 
     /// Check if a variable is allocated in any active region
@@ -572,9 +634,11 @@ impl RegionAnalyzer {
 
             // Blocks create new regions
             Expression::Block { expressions, pos } => {
-                let region_id = self
-                    .region_manager
-                    .create_region(format!("block_{}", pos.line), *pos);
+                let region_id = self.region_manager.create_region(
+                    format!("block_{}", pos.line),
+                    RegionStrategy::Auto,
+                    *pos,
+                );
 
                 self.region_manager.enter_region(region_id);
 
@@ -590,9 +654,11 @@ impl RegionAnalyzer {
             Expression::Function {
                 name, body, pos, ..
             } => {
-                let region_id = self
-                    .region_manager
-                    .create_region(format!("function_{}", name), *pos);
+                let region_id = self.region_manager.create_region(
+                    format!("function_{}", name),
+                    RegionStrategy::Auto,
+                    *pos,
+                );
 
                 self.region_manager.enter_region(region_id);
                 self.analyze_expression(body)?;
@@ -603,14 +669,34 @@ impl RegionAnalyzer {
 
             // Lambda expressions create temporary regions
             Expression::Lambda { body, pos, .. } => {
-                let region_id = self
-                    .region_manager
-                    .create_region(format!("lambda_{}", pos.line), *pos);
+                let region_id = self.region_manager.create_region(
+                    format!("lambda_{}", pos.line),
+                    RegionStrategy::Auto,
+                    *pos,
+                );
 
                 self.region_manager.enter_region(region_id);
                 self.analyze_expression(body)?;
                 self.region_manager.exit_region();
 
+                Ok(())
+            }
+
+            Expression::Region {
+                name,
+                strategy,
+                body,
+                pos,
+            } => {
+                let region_name = name
+                    .clone()
+                    .unwrap_or_else(|| format!("region_{}", pos.line));
+                let region_id = self
+                    .region_manager
+                    .create_region(region_name, *strategy, *pos);
+                self.region_manager.enter_region(region_id);
+                self.analyze_expression(body)?;
+                self.region_manager.exit_region();
                 Ok(())
             }
 
@@ -693,7 +779,7 @@ mod tests {
         let mut manager = RegionManager::new();
         let pos = Position::new(1, 1, 0);
 
-        let region_id = manager.create_region("test_region".to_string(), pos);
+        let region_id = manager.create_region("test_region".to_string(), RegionStrategy::Auto, pos);
 
         assert!(manager.get_region(region_id).is_some());
         assert_eq!(manager.get_region(region_id).unwrap().name, "test_region");
@@ -705,7 +791,7 @@ mod tests {
         let global = manager.current_region();
 
         let pos = Position::new(1, 1, 0);
-        let region1 = manager.create_region("region1".to_string(), pos);
+        let region1 = manager.create_region("region1".to_string(), RegionStrategy::Auto, pos);
         manager.enter_region(region1);
 
         assert_eq!(manager.current_region(), region1);
@@ -824,5 +910,73 @@ mod tests {
         let fast = manager.resolve_handle_fast(handle).unwrap().created_at;
 
         assert_eq!(checked, fast);
+    }
+
+    #[test]
+    fn auto_strategy_prefers_stack_for_small_regions() {
+        let mut manager = RegionManager::new();
+        let pos = Position::new(1, 1, 0);
+
+        let region_id = manager.create_region("small".to_string(), RegionStrategy::Auto, pos);
+        manager.enter_region(region_id);
+        manager
+            .allocate_in_current_region("a".to_string(), pos)
+            .unwrap();
+        manager
+            .allocate_in_current_region("b".to_string(), pos)
+            .unwrap();
+
+        manager.exit_region();
+
+        assert_eq!(
+            manager.region_strategy(region_id),
+            Some(RegionStrategy::Stack)
+        );
+    }
+
+    #[test]
+    fn explicit_strategy_hint_is_preserved() {
+        let mut manager = RegionManager::new();
+        let pos = Position::new(1, 1, 0);
+
+        let region_id = manager.create_region("cxl".to_string(), RegionStrategy::CxlNear, pos);
+        manager.enter_region(region_id);
+        manager.exit_region();
+
+        assert_eq!(
+            manager.region_strategy(region_id),
+            Some(RegionStrategy::CxlNear)
+        );
+    }
+
+    #[test]
+    fn analyzer_applies_region_hint() {
+        let mut analyzer = RegionAnalyzer::new();
+        let pos = Position::new(10, 5, 4);
+        let program = Program {
+            expressions: vec![Expression::Region {
+                name: Some("upload".to_string()),
+                strategy: RegionStrategy::Bump,
+                body: Box::new(Expression::Block {
+                    expressions: vec![Expression::Let {
+                        name: "buffer".to_string(),
+                        type_annotation: None,
+                        value: Box::new(Expression::IntegerLiteral { value: 1, pos }),
+                        is_mutable: false,
+                        delegation: None,
+                        pos,
+                    }],
+                    pos,
+                }),
+                pos,
+            }],
+        };
+
+        let region_manager = analyzer.analyze_program(&program).unwrap();
+        let region = region_manager
+            .regions()
+            .find(|region| region.name == "upload")
+            .expect("region upload should exist");
+        assert_eq!(region.selected_strategy(), RegionStrategy::Bump);
     }
 }

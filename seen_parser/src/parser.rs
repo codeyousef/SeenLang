@@ -3303,14 +3303,28 @@ impl Parser {
         let pos = self.current.position.clone();
         self.advance(); // consume 'region'
 
-        let name = if self.check(&TokenType::LeftBrace) {
-            None
-        } else {
-            Some(self.expect_identifier()?)
-        };
+        let mut strategy = RegionStrategy::Auto;
+        let mut name: Option<String> = None;
+
+        if !self.check(&TokenType::LeftBrace) {
+            let first = self.expect_identifier()?;
+            if let Some(parsed_strategy) = RegionStrategy::from_identifier(&first) {
+                strategy = parsed_strategy;
+                if !self.check(&TokenType::LeftBrace) {
+                    name = Some(self.expect_identifier()?);
+                }
+            } else {
+                name = Some(first);
+            }
+        }
 
         let body = Box::new(self.parse_block()?);
-        Ok(Expression::Region { name, body, pos })
+        Ok(Expression::Region {
+            name,
+            strategy,
+            body,
+            pos,
+        })
     }
 
     fn parse_arena(&mut self) -> ParseResult<Expression> {

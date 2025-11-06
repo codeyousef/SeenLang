@@ -7,22 +7,35 @@
 
 ## 2. Region Syntax
 ```seen
-region upload {
+region stack upload {
   let scratch = allocate_buffer(4 * KB);
   defer free(scratch);
-
   use_upload_queue(scratch);
 }
-// scratch freed, region torn down
+
+region bump {
+  let tiles = allocate_tiles();
+  defer release_tiles(tiles);
+}
+
+region cxl_near streaming_cache {
+  ingest_large_dataset();
+}
 ```
+- Optional **strategy hints** (`stack`, `bump`, `cxl_near`) appear immediately after `region`. A second identifier is treated as the human-readable name; omitting the hint defaults to `auto`.
 - Region names scope lifetime hints in diagnostics.
 - Regions can be nested; inner regions destroy before outer scope exits.
 - `region` blocks integrate with async runtime by emitting suspension points only where proven safe.
 
 ## 3. Allocation Strategies
-- Compiler accepts hints via attributes: `#[region(strategy = "bump")]`, `#[region(strategy = "stack")]`, `#[region(strategy = "cxl_near")]`.
-- Static analysis selects the fastest release strategy permitted by lifetime graph; debug builds inject assertions when fallbacks occur.
-- Region descriptors record allocation pressure for profiling (`seen trace --regions`).
+- Inline hints map directly to runtime strategies:
+  - `stack`: perfectly nested, O(1) drop semantics; preferred for short-lived scopes with ≤8 allocations.
+  - `bump`: amortized O(1) allocation with bulk tear-down at scope exit; selected when regions perform many allocations or spawn child regions.
+  - `cxl_near`: pin allocations close to compute when CXL memory tiers are present.
+  - `auto` (default): the compiler selects between `stack` and `bump` using lifetime/escape analysis.
+- Static analysis promotes small, child-free regions to `stack` automatically even without an explicit hint. Regions that only coordinate control flow but allocate nothing also default to `stack`.
+- Debug builds inject assertions when hints cannot be honoured (e.g., `stack` applied to a region with escaping borrows); release builds assume analysis already validated the choice.
+- Region descriptors record allocation pressure and the chosen strategy for profiling (`seen trace --regions`).
 
 ## 4. Generational References
 ```rust
