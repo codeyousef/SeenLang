@@ -17,15 +17,13 @@ use std::collections::{HashSet, VecDeque};
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
-#[cfg(feature = "llvm")]
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
 use std::sync::Arc;
-#[cfg(feature = "llvm")]
-use zip::CompressionMethod;
+use zip::{write::FileOptions, CompressionMethod};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum Profile {
@@ -178,6 +176,17 @@ enum Commands {
         /// Optimization level
         #[arg(short = 'O', long, default_value = "0")]
         opt_level: u8,
+    },
+
+    /// Package a directory into a zip archive
+    Pkg {
+        /// Directory to package
+        #[arg(value_name = "DIR")]
+        input: PathBuf,
+
+        /// Output archive path (defaults to <dir>.zip)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 
     /// Start an interactive REPL
@@ -510,6 +519,9 @@ fn main() -> SeenResult<()> {
         }
         Some(Commands::Trace { input, opt_level }) => {
             trace_ir(&input, opt_level, keyword_manager)?;
+        }
+        Some(Commands::Pkg { input, output }) => {
+            package_directory(&input, output.as_deref())?;
         }
 
         Some(Commands::Repl {
@@ -1231,11 +1243,6 @@ main().catch((err) => console.error('Error bootstrapping Seen wasm module:', err
 
 #[cfg(feature = "llvm")]
 fn bundle_wasm_artifacts(wasm_path: &Path) -> SeenResult<()> {
-    use std::fs;
-    use std::io::Write;
-    use zip::write::FileOptions;
-    use zip::CompressionMethod;
-
     let js_path = wasm_path.with_extension("js");
     let html_path = wasm_path.with_extension("html");
     for asset in [&js_path, wasm_path, &html_path] {
@@ -1332,8 +1339,6 @@ fn bundle_android_artifacts(
     target_triple: Option<&str>,
 ) -> SeenResult<()> {
     use std::io::Write;
-    use zip::write::FileOptions;
-    use zip::CompressionMethod;
 
     if let Some(parent) = bundle_path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -1531,8 +1536,6 @@ fn copy_directory_to_bundle(
     source_dir: &Path,
     dest_prefix: &str,
 ) -> SeenResult<DirectoryStats> {
-    use zip::write::FileOptions;
-
     if !source_dir.exists() {
         return Ok(DirectoryStats::default());
     }
@@ -1639,7 +1642,6 @@ fn path_to_bundle_entry(path: &Path) -> String {
 
 #[cfg(feature = "llvm")]
 fn compression_for_path(path: &Path) -> CompressionMethod {
-    use zip::CompressionMethod;
     if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
         if ext.eq_ignore_ascii_case("so")
             || ext.eq_ignore_ascii_case("dex")
@@ -2066,6 +2068,121 @@ fn trace_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>) -
         }
     }
 
+    Ok(())
+}
+
+fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {
+    if !input.exists() {
+        return Err(SeenError::new(
+            SeenErrorKind::Io,
+            format!("Package directory {} does not exist", input.display()),
+        ));
+    }
+    if !input.is_dir() {
+        return Err(SeenError::new(
+            SeenErrorKind::Io,
+            format!("{} is not a directory", input.display()),
+        ));
+    }
+
+    let mut out_path = output.map(PathBuf::from).unwrap_or_else(|| {
+        let mut candidate = input.to_path_buf();
+        candidate.set_extension("zip");
+        candidate
+    });
+    if out_path.extension().is_none() {
+        out_path.set_extension("zip");
+    }
+    if let Some(parent) = out_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!("Failed to create directory {}: {}", parent.display(), err),
+                )
+            })?;
+        }
+    }
+
+    let mut files = Vec::new();
+    collect_files_recursively(input, input, &mut files)?;
+    files.sort();
+
+    let file = File::create(&out_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to create archive {}: {}", out_path.display(), err),
+        )
+    })?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    for (absolute, relative) in files {
+        let contents = fs::read(&absolute).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read {}: {}", absolute.display(), err),
+            )
+        })?;
+        let name = relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        writer
+            .start_file(name, options)
+            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+        writer
+            .write_all(&contents)
+            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
+    }
+
+    writer
+        .finish()
+        .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
+
+    println!("Created package {}", out_path.display());
+    Ok(())
+}
+
+fn collect_files_recursively(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<(PathBuf, PathBuf)>,
+) -> SeenResult<()> {
+    for entry in fs::read_dir(current).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read directory {}: {}", current.display(), err),
+        )
+    })? {
+        let entry = entry.map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Failed to read directory entry in {}: {}",
+                    current.display(),
+                    err
+                ),
+            )
+        })?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files_recursively(root, &path, files)?;
+        } else if path.is_file() {
+            let rel = path.strip_prefix(root).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!(
+                        "Failed to compute relative path for {}: {}",
+                        path.display(),
+                        err
+                    ),
+                )
+            })?;
+            files.push((path.clone(), rel.to_path_buf()));
+        }
+    }
     Ok(())
 }
 
