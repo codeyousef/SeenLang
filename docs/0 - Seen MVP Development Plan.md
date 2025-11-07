@@ -121,7 +121,10 @@ gap before we can call the phase entirely closed.
             shims.
           - [x] Link Linux LLVM builds against the new runtime so channel send/recv/select no longer rely on stubs (
             `seen_cli/src/main.rs`, `seen_ir/src/llvm_backend.rs`).
-          - [ ] Add host/Android wasm build scripts so `seen_cli` can bundle the runtime archive per target triple.
+        - [x] Add host/Android/wasm build scripts so `seen_cli` can bundle the runtime archive per target triple
+          (`scripts/build_seen_runtime.sh` invokes `cargo build -p seen_runtime` for the requested triples and stages
+          the
+          resulting `libseen_runtime.a` under `target/seen-runtime/<triple>/`).
           - [ ] Implement value boxing/unboxing helpers so LLVM lowering can convert Seen primitives into runtime
             payloads without type erasure bugs.
   5. 🚧 **CLI + Stage wiring & regression coverage** — once lowering/runtime integration is complete, update `seen_cli`
