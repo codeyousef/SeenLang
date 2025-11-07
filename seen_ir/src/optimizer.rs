@@ -7,6 +7,8 @@ use crate::{
     value::{IRType, IRValue},
     IRProgram, IRResult,
 };
+mod egraph;
+use egraph::{try_simplify_binary, SimplifiedExpr};
 use std::collections::{HashMap, HashSet};
 
 /// Optimization level
@@ -49,6 +51,7 @@ pub struct OptimizationStats {
     pub constant_folding_operations: usize,
     pub dead_code_blocks_removed: usize,
     pub redundant_moves_eliminated: usize,
+    pub equality_saturation_applied: usize,
     pub passes_run: Vec<String>,
 }
 
@@ -111,6 +114,11 @@ impl IROptimizer {
 
             self.strength_reduction(function)?;
             self.stats.passes_run.push("strength_reduction".to_string());
+
+            self.equality_saturation(function)?;
+            self.stats
+                .passes_run
+                .push("equality_saturation".to_string());
         }
 
         if self.level.should_run_pass(OptimizationLevel::Aggressive) {
@@ -619,6 +627,45 @@ impl IROptimizer {
                 | Instruction::JumpIfNot { .. }
         )
     }
+
+    fn equality_saturation(&mut self, function: &mut IRFunction) -> IRResult<()> {
+        for block in function.cfg.blocks_iter_mut() {
+            for inst in &mut block.instructions {
+                if let Instruction::Binary {
+                    op,
+                    left,
+                    right,
+                    result,
+                } = inst
+                {
+                    if let Some(simplified) = try_simplify_binary(op, left, right) {
+                        match simplified {
+                            SimplifiedExpr::Value(val) => {
+                                *inst = Instruction::Move {
+                                    source: val,
+                                    dest: result.clone(),
+                                };
+                                self.stats.equality_saturation_applied += 1;
+                            }
+                            SimplifiedExpr::Binary {
+                                op: new_op,
+                                left: new_left,
+                                right: new_right,
+                            } => {
+                                if *op != new_op || *left != new_left || *right != new_right {
+                                    *op = new_op;
+                                    *left = new_left;
+                                    *right = new_right;
+                                    self.stats.equality_saturation_applied += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for IROptimizer {
@@ -715,6 +762,32 @@ mod tests {
             assert_eq!(*right, IRValue::Integer(3)); // log2(8) = 3
         } else {
             panic!("Expected left shift instruction after strength reduction");
+        }
+    }
+
+    #[test]
+    fn test_equality_saturation_eliminates_add_zero() {
+        let mut optimizer = IROptimizer::new(OptimizationLevel::Standard);
+        let mut function = IRFunction::new("simplify", IRType::Integer);
+
+        let mut block = BasicBlock::new(Label::new("entry"));
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(1),
+            right: IRValue::Integer(0),
+            result: IRValue::Register(2),
+        });
+        block.add_instruction(Instruction::Return(Some(IRValue::Register(2))));
+        function.add_block(block);
+
+        optimizer.optimize_function(&mut function).unwrap();
+        let block = function.get_block("entry").unwrap();
+        match &block.instructions[0] {
+            Instruction::Move { source, dest } => {
+                assert_eq!(*source, IRValue::Register(1));
+                assert_eq!(*dest, IRValue::Register(2));
+            }
+            other => panic!("expected move after equality saturation, found {:?}", other),
         }
     }
 }

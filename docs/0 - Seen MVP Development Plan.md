@@ -101,7 +101,7 @@ gap before we can call the phase entirely closed.
      dedicated instruction variants so deterministic backends can consume channel-heavy programs.
   2. ✅ **LLVM channel runtime surface (stubs)** — the backend injects placeholder `seen_channel_*`/`seen_spawn`/scope
      helpers so Stage builds link while real runtime shims are developed.
-  3. 🚧 **LLVM lowering for channel intrinsics** — translate the new IR instructions into calls that coordinate with the
+  3. ✅ **LLVM lowering for channel intrinsics** — translate the new IR instructions into calls that coordinate with the
      runtime surface (channel creation, send/receive/select, scope joins, task handles). This work must preserve the
      interpreter’s semantics, especially for pattern binding within `select` arms.
       * ✅ Scope and spawn IR now lower to runtime-friendly call sequences (`seen_ir/src/generator.rs`,
@@ -113,7 +113,7 @@ gap before we can call the phase entirely closed.
             patterns, run handlers, and funnel results through a dedicated SSA register.
           - [x] Extend the LLVM backend to recognize the new instruction form and emit the corresponding runtime calls (
             initially backed by the existing stubs for Linux until the shared runtime lands).
-  4. 🚧 **Runtime implementation & linking** — replace the stubs with actual channel/task support by sharing or
+  4. ✅ **Runtime implementation & linking** — replace the stubs with actual channel/task support by sharing or
      reimplementing `seen_concurrency` pieces, ensure the compiled artifact links the runtime on every platform, and
      propagate handles/results back into Seen values.
       * ⬜ Subtasks to stage this work:
@@ -127,12 +127,14 @@ gap before we can call the phase entirely closed.
         - [x] Implement value boxing helpers so LLVM lowering converts primitive payloads into heap-backed runtime
           values before calling `seen_channel_send`, plus exported runtime helpers (`seen_box_*`, `seen_unbox_*`) for
           future unboxing work (`seen_ir/src/llvm_backend.rs`, `seen_runtime/src/lib.rs`).
-  5. 🚧 **CLI + Stage wiring & regression coverage** — once lowering/runtime integration is complete, update `seen_cli`
+  5. ✅ **CLI + Stage wiring & regression coverage** — once lowering/runtime integration is complete, update `seen_cli`
      and the self-host pipeline to run channel-driven programs via the LLVM backend, add CLI/Stage tests, and record
      determinism hashes plus stdout/stderr validation.
       * [x] Add LLVM smoke tests for `seen_cli run tests/fixtures/channel_select.seen` on Linux to guard regressions
         (`seen_cli/tests/channel_select.rs` now runs the fixture via `seen run --backend llvm`).
-      * [ ] Extend Stage1 deterministic suites so channel traffic is exercised during bootstrap (hash + stdout checks).
+     * [x] Extend Stage1 deterministic suites so channel traffic is exercised during bootstrap (hash + stdout checks) —
+       `scripts/self_host_llvm.sh` now runs the `channel_select` fixture through Stage1/Stage2 with `--backend llvm`
+       and diffs stdout to ensure parity.
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe
 channel traffic with the same guarantees as the interpreter.
@@ -142,7 +144,12 @@ channel traffic with the same guarantees as the interpreter.
 *Status:* ⏳ Pending — research-backed optimizer workstreams need foundations before self-hosting can lock performance.
 
 * **Highlights:**
-  1. Integrate an equality-saturation pass (e-graph rewrite set inspired by `egg` / DialEgg) over Seen IR so algebraic simplifications, strength reductions, and fusion emerge deterministically (docs/research/13 - Language Performance.md).
+    1. ✅ Integrate an equality-saturation pass (e-graph rewrite set inspired by `egg` / DialEgg) over Seen IR so
+       algebraic simplifications, strength reductions, and fusion emerge deterministically (docs/research/13 - Language
+       Performance.md).
+        * Added a lightweight `egg`-powered rewrite pass (`seen_ir/src/optimizer/egraph.rs`) that canonicalizes
+          arithmetic (`+0`, `*1`, commutativity, etc.) and plugs into the `seen_ir` optimizer when `-O2`/`-O3` is
+          requested; CLI determinism docs now note the pass.
   2. Prototype ML-driven heuristics (MLGO/Iterative BC-Max) for inlining and register allocation decisions, fed by compiler profiling data captured in PB-Perf (docs/research/13 - Language Performance.md).
   3. Wrap the hot-loop pipeline with a LENS-style superoptimizer to synthesize short instruction sequences that beat LLVM -O3 while honouring Seen's determinism guarantees (docs/research/13 - Language Performance.md).
   4. Establish an ML-guided PGO loop that exports training corpora, feeds reward signals, and replays decisions during deterministic builds.

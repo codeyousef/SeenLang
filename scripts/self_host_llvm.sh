@@ -31,4 +31,23 @@ else
   shasum -a 256 stage2_seen stage3_seen || true
 fi
 
+CHANNEL_SAMPLE="seen_cli/tests/fixtures/channel_select.seen"
+if [[ -f "$CHANNEL_SAMPLE" ]]; then
+  echo "[extra] Verifying channel_select via Stage-1/2 LLVM runs"
+  STAGE1_OUT=$(./stage1_seen run "$CHANNEL_SAMPLE" --backend llvm 2>&1 || true)
+  STAGE2_OUT=$(./stage2_seen run "$CHANNEL_SAMPLE" --backend llvm 2>&1 || true)
+  if [[ "$STAGE1_OUT" != "$STAGE2_OUT" ]]; then
+    echo "Channel select output mismatch between Stage-1 and Stage-2:" >&2
+    echo "---- Stage1 ----" >&2
+    printf "%s\n" "$STAGE1_OUT" >&2
+    echo "---- Stage2 ----" >&2
+    printf "%s\n" "$STAGE2_OUT" >&2
+    exit 1
+  else
+    echo "Channel select output matches across Stage-1/Stage-2."
+  fi
+else
+  echo "[extra] Channel select fixture not found at $CHANNEL_SAMPLE; skipping channel determinism check."
+fi
+
 echo "Done. Review outputs in repo root."

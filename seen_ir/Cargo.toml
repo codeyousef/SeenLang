@@ -17,6 +17,7 @@ seen_parser = { path = "../seen_parser" }
 seen_support = { workspace = true }
 inkwell = { version = "0.6", optional = true, default-features = false }
 which = "4"
+egg = "0.9"
 
 [dev-dependencies]
 proptest = { workspace = true }
