@@ -280,7 +280,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         out_path: &Path,
         options: TargetOptions<'_>,
     ) -> Result<()> {
-        let (triple, target_machine) = Self::target_machine_for(options)?;
+        let (triple, target_machine) = Self::target_machine_for(&options)?;
         self.configure_module_target(&triple, &target_machine);
 
         self.lower_program(prog)
@@ -302,7 +302,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             .context("Lowering IR to LLVM failed")?;
 
         // Build object
-        let (target_triple, target_machine) = Self::target_machine_for(options)?;
+        let static_libs = options.static_libraries.clone();
+        let (target_triple, target_machine) = Self::target_machine_for(&options)?;
         self.configure_module_target(&target_triple, &target_machine);
         let obj_path = Self::object_file_path(out_path, &target_triple);
         eprintln!("LLVM backend: writing object file {:?}", obj_path);
@@ -324,7 +325,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             &obj_path,
             out_path,
             &triple_string,
-            &options.static_libraries,
+            &static_libs,
         )
     }
 
@@ -370,7 +371,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(())
     }
 
-    fn target_machine_for(options: TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
         let triple = if let Some(triple) = options.triple {
             TargetTriple::create(triple)
         } else {
