@@ -111,3 +111,7 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 
 - Review `docs/concurrency-patterns.md` for structured concurrency tips covering `jobs.scope`, channel futures, and
   select patterns that the MVP plan requires.
+- Channel-heavy programs now run through the LLVM backend on Linux: the CLI automatically builds/links the new
+  `seen_runtime` static library before spawning `clang`, so
+  `seen build --backend llvm examples/concurrency/channel_select.seen`
+  produces a native binary with the same semantics as `seen run`.

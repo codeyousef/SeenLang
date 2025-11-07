@@ -2,6 +2,7 @@ use assert_cmd::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
+use tempfile::tempdir;
 
 #[test]
 fn run_channel_select_example() {
@@ -39,4 +40,49 @@ fn run_channel_select_example() {
 
     assert!(observed.contains("1"), "expected to see output '1'");
     assert!(observed.contains("2"), "expected to see output '2'");
+}
+
+#[test]
+fn build_channel_select_with_llvm_backend() {
+    if !cfg!(feature = "llvm") {
+        eprintln!("skipping LLVM channel select build because LLVM feature is disabled");
+        return;
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir.parent().expect("workspace root").to_path_buf();
+    let sample = workspace_root.join("seen_cli/tests/fixtures/channel_select.seen");
+    let temp = tempdir().expect("create temp dir");
+    let artifact = temp.path().join("channel_select");
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace_root)
+        .args([
+            "build",
+            sample.to_string_lossy().as_ref(),
+            "--backend",
+            "llvm",
+            "--output",
+            artifact.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    let assert = Command::new(&artifact)
+        .current_dir(temp.path())
+        .assert()
+        .success();
+
+    let stdout =
+        String::from_utf8(assert.get_output().stdout.clone()).expect("stdout was not UTF-8");
+    assert!(
+        stdout.lines().any(|line| line.contains("1"))
+            && stdout.lines().any(|line| line.contains("2")),
+        "expected stdout to contain channel values, got {stdout:?}"
+    );
+    assert!(
+        stdout.lines().last().map(|line| line.trim()) == Some("3"),
+        "expected final result to be 3, got {stdout}"
+    );
 }

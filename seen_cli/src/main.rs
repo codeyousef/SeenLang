@@ -23,7 +23,6 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
 use std::sync::Arc;
-use std::time::SystemTime;
 use zip::{write::FileOptions, CompressionMethod};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
