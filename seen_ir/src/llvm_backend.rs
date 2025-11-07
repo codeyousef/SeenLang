@@ -31,7 +31,7 @@ use crate::function::{IRFunction, InlineHint, RegisterPressureClass};
 use crate::instruction::{BasicBlock, IRSelectArm, Instruction};
 use crate::module::IRModule;
 use crate::value::{IRType, IRValue};
-use crate::IRProgram;
+use crate::{HardwareProfile, IRProgram};
 
 fn block_sort_key(name: &str) -> (i64, String, String) {
     if let Some(idx) = name.rfind('_') {
@@ -300,6 +300,7 @@ pub struct LlvmBackend<'ctx> {
     task_counter: Option<GlobalValue<'ctx>>,
     actor_counter: Option<GlobalValue<'ctx>>,
     byte_array_globals: HashMap<Vec<u8>, GlobalValue<'ctx>>,
+    hardware_profile: HardwareProfile,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -346,6 +347,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             task_counter: None,
             actor_counter: None,
             byte_array_globals: HashMap::new(),
+            hardware_profile: HardwareProfile::default(),
         }
     }
 
@@ -357,6 +359,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     ) -> Result<()> {
         let (triple, target_machine) = Self::target_machine_for(&options)?;
         self.configure_module_target(&triple, &target_machine);
+        self.hardware_profile = prog.hardware_profile.clone();
 
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
@@ -373,6 +376,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         options: TargetOptions<'_>,
     ) -> Result<()> {
         self.use_channel_runtime_stubs = options.static_libraries.is_empty();
+        self.hardware_profile = prog.hardware_profile.clone();
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
 
@@ -1153,11 +1157,12 @@ impl<'ctx> LlvmBackend<'ctx> {
             .collect();
         let fn_ty = self.fn_type_from_ir(&func.return_type, &params_ir);
         let f = self.module.add_function(name, fn_ty, None);
-        self.apply_function_attributes(func, f);
+        self.apply_ir_function_attributes(func, f);
+        self.apply_hardware_attributes(f);
         Ok(f)
     }
 
-    fn apply_function_attributes(&self, func: &IRFunction, llvm_fn: FunctionValue<'ctx>) {
+    fn apply_ir_function_attributes(&self, func: &IRFunction, llvm_fn: FunctionValue<'ctx>) {
         match func.inline_hint {
             InlineHint::AlwaysInline => self.add_enum_attribute(llvm_fn, "alwaysinline"),
             InlineHint::NeverInline => self.add_enum_attribute(llvm_fn, "noinline"),
@@ -1199,6 +1204,35 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
+    fn apply_hardware_attributes(&self, f: FunctionValue<'ctx>) {
+        if let Some(bits) = self.hardware_profile.max_vector_bits {
+            let width_str = bits.to_string();
+            let prefer = self
+                .ctx
+                .create_string_attribute("prefer-vector-width", &width_str);
+            f.add_attribute(AttributeLoc::Function, prefer);
+            let min_attr = self
+                .ctx
+                .create_string_attribute("min-legal-vector-width", &width_str);
+            f.add_attribute(AttributeLoc::Function, min_attr);
+        }
+        if !self.hardware_profile.cpu_features.is_empty() {
+            let joined = self.hardware_profile.cpu_features.join(",");
+            let attr = self.ctx.create_string_attribute("target-features", &joined);
+            f.add_attribute(AttributeLoc::Function, attr);
+        }
+        let budget_attr = self.ctx.create_string_attribute(
+            "seen-register-budget",
+            &self.hardware_profile.register_budget_hint().to_string(),
+        );
+        f.add_attribute(AttributeLoc::Function, budget_attr);
+        let scheduler_attr = self.ctx.create_string_attribute(
+            "seen-scheduler-hint",
+            self.hardware_profile.scheduler_hint().as_str(),
+        );
+        f.add_attribute(AttributeLoc::Function, scheduler_attr);
+    }
+
     fn define_function(
         &mut self,
         func: &IRFunction,
@@ -1206,6 +1240,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
         self.current_fn = Some(f);
+        self.apply_hardware_attributes(f);
         self.reg_values.clear();
         self.var_values.clear();
         self.var_slots.clear();

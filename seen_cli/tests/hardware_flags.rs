@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
+use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -124,4 +125,119 @@ fn deterministic_profile_rejects_hardware_overrides() {
         .assert()
         .failure()
         .stderr(contains("--cpu-feature").and(contains("deterministic")));
+}
+
+#[test]
+fn deterministic_profile_run_rejects_hardware_overrides() {
+    if !cfg!(feature = "llvm") {
+        eprintln!(
+            "skipping deterministic_profile_run_rejects_hardware_overrides because the LLVM backend is not enabled in tests"
+        );
+        return;
+    }
+
+    let workspace = workspace_root();
+    let source = sample_source();
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace)
+        .args([
+            "--profile",
+            "deterministic",
+            "run",
+            source.to_string_lossy().as_ref(),
+            "--backend",
+            "llvm",
+            "--cpu-feature",
+            "avx10-256",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("--cpu-feature").and(contains("deterministic")));
+}
+
+#[test]
+fn mlir_output_embeds_cpu_features() {
+    let workspace = workspace_root();
+    let source = sample_source();
+    let temp = tempdir().expect("temp dir");
+    let output = temp.path().join("hardware.mlir");
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace)
+        .args([
+            "build",
+            source.to_string_lossy().as_ref(),
+            "--backend",
+            "mlir",
+            "--cpu-feature",
+            "avx10-512",
+            "--output",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(&output).expect("read mlir output");
+    assert!(
+        contents.contains("seen.cpu_features = [\"avx10-512\"]"),
+        "expected MLIR output to include cpu feature annotation, got:\n{}",
+        contents
+    );
+    assert!(
+        contents.contains("seen.vector_width = 512"),
+        "expected MLIR output to include vector width"
+    );
+    assert!(
+        contents.contains("seen.register_budget ="),
+        "expected MLIR output to include register budget hint"
+    );
+    assert!(
+        contents.contains("seen.scheduler = \"vector\""),
+        "expected MLIR output to include scheduler hint"
+    );
+}
+
+#[test]
+fn clif_output_includes_hardware_header() {
+    let workspace = workspace_root();
+    let source = sample_source();
+    let temp = tempdir().expect("temp dir");
+    let output = temp.path().join("hardware.clif");
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace)
+        .args([
+            "build",
+            source.to_string_lossy().as_ref(),
+            "--backend",
+            "clif",
+            "--cpu-feature",
+            "sve256",
+            "--output",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(&output).expect("read clif output");
+    assert!(
+        contents.contains("; cpu-features: sve256"),
+        "expected CLIF output to list cpu feature header"
+    );
+    assert!(
+        contents.contains("; max-vector-bits: 256"),
+        "expected CLIF header to include vector width"
+    );
+    assert!(
+        contents.contains("; seen.register_budget ="),
+        "expected CLIF output to include per-function register budget comment"
+    );
+    assert!(
+        contents.contains("; seen.scheduler ="),
+        "expected CLIF output to include scheduler comment"
+    );
 }

@@ -226,25 +226,27 @@ fairness/backoff telemetry, and PB-Perf can alert on wake-latency regressions.
 
 ### PSH‑3e. Hardware-Aware Codegen & Memory Topology
 
-*Status:* 🔄 In progress — compiler surfaces hardware feature metadata and memory-topology hints and now routes CXL
-placement through the allocator; remaining work focuses on backend code generation heuristics.
+*Status:* ✅ Completed — hardware metadata now influences every backend plus the CLI/runtime guards that keep
+deterministic runs portable.
 
 * **Highlights:**
-    1. ✅ `TargetOptions` now records structured hardware overrides (`IntelApx`, `Avx10(width)`, `ArmSve(vector)`), and
-       the LLVM backend aggregates them into target-feature strings so register allocation + vector shaping can start
-       consuming them in PSH‑7.
+    1. ✅ `TargetOptions` continue to record structured overrides (`IntelApx`, `Avx10(width)`, `ArmSve(vector)`) while
+       the LLVM backend now stamps each function with vector width, register budget, scheduler, and translated
+       `target-features` attributes so LLVM's own register allocator and scheduler react to the requested ISA mix.
   2. ✅ Memory topology hints flow through the CLI via `--memory-topology {cxl-near,cxl-far}`, configure the
      memory manager/region analyzer, and generate PB-Perf summaries that distinguish host vs. near vs. far CXL
-     regions. Small/stack-friendly regions stay near compute while bump-heavy regions spill to far CXL.
-    3. ✅ The CLI accepts repeatable `--cpu-feature ...` flags (APX, AVX10-256/512, SVE 128/256/512) and enforces that
-       `--profile deterministic` locks them out, ensuring reproducible baselines continue to target the portable ISA
-       subset.
+     regions. Small/stack-friendly regions stay near compute while bump-heavy regions spill to far CXL, and
+     deterministic
+     builds refuse topology overrides in both `seen build` and `seen run`.
+    3. ✅ The CLI accepts repeatable `--cpu-feature ...` flags (APX, AVX10-256/512, SVE 128/256/512), threads them into
+       the IR hardware profile, and downstream MLIR/Cranelift emitters now tag every function with per-function vector,
+       scheduler, and register hints while the Cranelift textual output reorders blocks based on those scheduling
+       classes. LLVM builds pick up the same hints via native attributes and the CLI regression suite verifies the
+       emitted MLIR/CLIF artifacts.
 
-* **Outstanding tasks:**
-    - Teach the LLVM/MLIR/CLIF backends to adjust register allocation, vector widths, and scheduling decisions based on
-      the propagated feature metadata (docs/research/13 - Language Performance.md).
-
-* **Acceptance:** Hardware-feature smoke tests validate emitted binaries on APX-capable x86 and SVE ARM targets, vector reports enumerate chosen widths, and CXL placement improves memory-bound fixture throughput.
+* **Acceptance:** Hardware-feature smoke tests validate emitted binaries on APX-capable x86 and SVE ARM targets,
+  vector reports enumerate chosen widths, per-function scheduler hints appear in LLVM/MLIR/CLIF output, and CXL
+  placement improves memory-bound fixture throughput.
 
 ### PSH‑4. Embedding & Packaging
 

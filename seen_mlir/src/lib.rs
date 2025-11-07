@@ -1,11 +1,34 @@
 use seen_ir::instruction::{Instruction, ScopeKind};
 use seen_ir::module::IRModule;
-use seen_ir::{IRFunction, IRProgram, IRType};
+use seen_ir::{HardwareProfile, HardwareSchedulerHint, IRFunction, IRProgram, IRType};
 use std::collections::BTreeMap;
 
 const DIALECT_ATTR: &str =
     "#mlir.dialect_array<[\"arith\", \"cf\", \"func\", \"seen\", \"transform\"]>";
 const DEFAULT_TRANSFORM_PIPELINE: &str = "builtin.pipeline(canonicalize,cse)";
+
+fn module_attribute_block(profile: &HardwareProfile) -> String {
+    let mut attrs = vec![format!("dialects = {}", DIALECT_ATTR)];
+    if !profile.cpu_features.is_empty() {
+        let quoted = profile
+            .cpu_features
+            .iter()
+            .map(|feat| format!("\"{}\"", feat))
+            .collect::<Vec<_>>()
+            .join(", ");
+        attrs.push(format!("seen.cpu_features = [{}]", quoted));
+    }
+    if let Some(bits) = profile.max_vector_bits {
+        attrs.push(format!("seen.vector_width = {}", bits));
+    }
+    if profile.apx_enabled {
+        attrs.push("seen.apx = true".to_string());
+    }
+    if profile.sve_enabled {
+        attrs.push("seen.sve = true".to_string());
+    }
+    format!("module attributes {{ {} }} {{\n", attrs.join(", "))
+}
 
 /// Emit a minimal textual MLIR module for a full IR program.
 pub fn program_to_mlir(program: &IRProgram) -> String {
@@ -14,16 +37,16 @@ pub fn program_to_mlir(program: &IRProgram) -> String {
 
     let mut module_sections = Vec::with_capacity(modules.len());
     for module in &modules {
-        module_sections.push(indent_block(&module_to_mlir(module), 2));
+        module_sections.push(indent_block(
+            &module_to_mlir_with_profile(module, &program.hardware_profile),
+            2,
+        ));
     }
 
     let transform_section = indent_block(&transform_module_section(), 2);
 
     let mut out = String::new();
-    out.push_str(&format!(
-        "module attributes {{ dialects = {} }} {{\n",
-        DIALECT_ATTR
-    ));
+    out.push_str(&module_attribute_block(&program.hardware_profile));
     if !module_sections.is_empty() {
         out.push_str(&module_sections.join("\n"));
         out.push('\n');
@@ -33,8 +56,12 @@ pub fn program_to_mlir(program: &IRProgram) -> String {
     out
 }
 
-/// Emit a textual MLIR module for a single IR module.
+/// Emit a textual MLIR module for a single IR module using a default (feature-less) profile.
 pub fn module_to_mlir(module: &IRModule) -> String {
+    module_to_mlir_with_profile(module, &HardwareProfile::default())
+}
+
+fn module_to_mlir_with_profile(module: &IRModule, profile: &HardwareProfile) -> String {
     let mut out = String::new();
 
     let module_name = sanitize_symbol(&module.name);
@@ -44,7 +71,7 @@ pub fn module_to_mlir(module: &IRModule) -> String {
     functions.sort_by(|a, b| a.name.cmp(&b.name));
 
     for function in functions {
-        let func_mlir = function_to_mlir(function);
+        let func_mlir = function_to_mlir(function, profile);
         out.push_str("  ");
         out.push_str(&func_mlir);
         out.push('\n');
@@ -61,7 +88,7 @@ fn transform_module_section() -> String {
     )
 }
 
-fn function_to_mlir(function: &IRFunction) -> String {
+fn function_to_mlir(function: &IRFunction, profile: &HardwareProfile) -> String {
     let mut out = String::new();
 
     out.push_str("func.func ");
@@ -87,6 +114,13 @@ fn function_to_mlir(function: &IRFunction) -> String {
     let ret_ty = type_to_mlir(&function.return_type);
     if ret_ty != "()" {
         out.push_str(&format!(" -> {}", ret_ty));
+    }
+
+    let attrs = function_attribute_list(profile);
+    if !attrs.is_empty() {
+        out.push_str(" attributes { ");
+        out.push_str(&attrs.join(", "));
+        out.push_str(" }");
     }
 
     out.push_str(" {\n");
@@ -119,6 +153,7 @@ fn function_to_mlir(function: &IRFunction) -> String {
             emit_order.push(name);
         }
     }
+    emit_order = reorder_blocks_for_profile(profile, emit_order);
 
     let mut ctx = MlirContext::default();
 
@@ -152,6 +187,52 @@ fn function_to_mlir(function: &IRFunction) -> String {
 
     out.push_str("}\n");
     out
+}
+
+fn function_attribute_list(profile: &HardwareProfile) -> Vec<String> {
+    let mut attrs = Vec::new();
+    if let Some(bits) = profile.max_vector_bits {
+        attrs.push(format!("seen.vector_width = {}", bits));
+    }
+    attrs.push(format!(
+        "seen.register_budget = {}",
+        profile.register_budget_hint()
+    ));
+    attrs.push(format!(
+        "seen.scheduler = \"{}\"",
+        profile.scheduler_hint().as_str()
+    ));
+    attrs
+}
+
+fn reorder_blocks_for_profile(
+    profile: &HardwareProfile,
+    mut emit_order: Vec<String>,
+) -> Vec<String> {
+    if emit_order.len() <= 1 {
+        return emit_order;
+    }
+    let entry = emit_order.remove(0);
+    let mut rest = emit_order;
+    match profile.scheduler_hint() {
+        HardwareSchedulerHint::Balanced => rest.sort(),
+        HardwareSchedulerHint::Throughput => { /* keep declared order */ }
+        HardwareSchedulerHint::Vector => {
+            rest.sort_by(|a, b| match (is_loop_label(a), is_loop_label(b)) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.cmp(b),
+            });
+        }
+    }
+    let mut scheduled = vec![entry];
+    scheduled.extend(rest.into_iter().filter(|name| !scheduled.contains(name)));
+    scheduled
+}
+
+fn is_loop_label(label: &str) -> bool {
+    let lower = label.to_ascii_lowercase();
+    lower.contains("loop") || lower.contains("for")
 }
 
 fn indent_block(text: &str, spaces: usize) -> String {

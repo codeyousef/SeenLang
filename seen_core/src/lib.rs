@@ -21,7 +21,7 @@ pub use seen_parser::{
 pub use seen_typechecker::TypeChecker;
 
 // Intermediate representation facade.
-pub use seen_ir::{IRGenerator, IROptimizer, IRProgram, OptimizationLevel};
+pub use seen_ir::{HardwareProfile, IRGenerator, IROptimizer, IRProgram, OptimizationLevel};
 
 // Interpreter facade.
 pub use seen_interpreter::{Interpreter, Value};

@@ -7,8 +7,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use seen_core::llvm_backend::{Avx10Width, CpuFeature, MemoryTopologyHint, SveVectorLength};
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
-    precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, IRProgram, Interpreter,
-    KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult, MemoryManager,
+    precedence, BinaryOperator, Expression, HardwareProfile, IRGenerator, IROptimizer, IRProgram,
+    Interpreter, KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult, MemoryManager,
     MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError, SeenErrorKind,
     SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator, Value, VisibilityPolicy,
 };
@@ -16,6 +16,7 @@ use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -557,13 +558,11 @@ fn main() -> SeenResult<()> {
                         output.as_ref(),
                         opt_level,
                         keyword_manager,
+                        cpu_features.as_slice(),
                         memory_topology,
                     )?;
                 }
                 Backend::Mlir => {
-                    if !cpu_features.is_empty() {
-                        return Err(hardware_flag_backend_error());
-                    }
                     if wasm_loader {
                         return Err(SeenError::new(
                             SeenErrorKind::Tooling,
@@ -594,13 +593,11 @@ fn main() -> SeenResult<()> {
                         output.as_ref(),
                         opt_level,
                         keyword_manager,
+                        cpu_features.as_slice(),
                         memory_topology,
                     )?;
                 }
                 Backend::Clif => {
-                    if !cpu_features.is_empty() {
-                        return Err(hardware_flag_backend_error());
-                    }
                     if wasm_loader || bundle {
                         return Err(SeenError::new(
                             SeenErrorKind::Tooling,
@@ -625,6 +622,7 @@ fn main() -> SeenResult<()> {
                         output.as_ref(),
                         opt_level,
                         keyword_manager,
+                        cpu_features.as_slice(),
                         memory_topology,
                     )?;
                 }
@@ -639,54 +637,65 @@ fn main() -> SeenResult<()> {
                  target,
                  cpu_features,
                  memory_topology,
-             }) => match backend {
-            Backend::Ir => {
-                if !cpu_features.is_empty() {
-                    return Err(hardware_flag_backend_error());
-                }
-                if memory_topology != MemoryTopologyArg::Default {
-                    eprintln!(
+             }) => {
+            if matches!(cli.profile, Profile::Deterministic)
+                && (!cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default)
+            {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "--cpu-feature/--memory-topology are locked in --profile deterministic builds"
+                        .to_string(),
+                ));
+            }
+            match backend {
+                Backend::Ir => {
+                    if !cpu_features.is_empty() {
+                        return Err(hardware_flag_backend_error());
+                    }
+                    if memory_topology != MemoryTopologyArg::Default {
+                        eprintln!(
                         "warning: --memory-topology is ignored by the interpreter backend; rerun with --backend llvm to honor it"
                     );
+                    }
+                    run_file(&input, &args, keyword_manager)?
                 }
-                run_file(&input, &args, keyword_manager)?
-            }
-            Backend::Llvm => {
-                #[cfg(feature = "llvm")]
-                {
-                    run_file_llvm(
-                        &input,
-                        &args,
-                        opt_level,
-                        target.as_deref(),
-                        keyword_manager,
-                        cpu_features.as_slice(),
-                        memory_topology,
-                        cli.profile,
-                    )?;
-                }
-                #[cfg(not(feature = "llvm"))]
-                {
-                    let _ = (opt_level, target, cpu_features, memory_topology);
-                    return Err(SeenError::new(
+                Backend::Llvm => {
+                    #[cfg(feature = "llvm")]
+                    {
+                        run_file_llvm(
+                            &input,
+                            &args,
+                            opt_level,
+                            target.as_deref(),
+                            keyword_manager,
+                            cpu_features.as_slice(),
+                            memory_topology,
+                            cli.profile,
+                        )?;
+                    }
+                    #[cfg(not(feature = "llvm"))]
+                    {
+                        let _ = (opt_level, target, cpu_features, memory_topology);
+                        return Err(SeenError::new(
                         SeenErrorKind::Tooling,
                         "LLVM backend disabled at build time; rebuild seen_cli with --features llvm".to_string(),
                     ));
+                    }
+                }
+                Backend::Mlir => {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "MLIR backend is not supported for `seen run`".to_string(),
+                    ));
+                }
+                Backend::Clif => {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "Cranelift backend is not supported for `seen run`".to_string(),
+                    ));
                 }
             }
-            Backend::Mlir => {
-                return Err(SeenError::new(
-                    SeenErrorKind::Tooling,
-                    "MLIR backend is not supported for `seen run`".to_string(),
-                ));
-            }
-            Backend::Clif => {
-                return Err(SeenError::new(
-                    SeenErrorKind::Tooling,
-                    "Cranelift backend is not supported for `seen run`".to_string(),
-                ));
-            }
-        },
+        }
 
         Some(Commands::Check { input }) => {
             check_file(&input, keyword_manager)?;
@@ -792,6 +801,7 @@ fn generate_optimized_ir(
     input: &Path,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
 ) -> SeenResult<IRProgram> {
     println!(
@@ -905,6 +915,8 @@ fn generate_optimized_ir(
         .map_err(SeenError::from)?;
 
     println!("Applied optimization level {}", opt_level);
+    optimized_ir.hardware_profile = build_hardware_profile(cpu_features);
+    optimized_ir.hardware_profile = build_hardware_profile(cpu_features);
 
     Ok(optimized_ir)
 }
@@ -914,9 +926,16 @@ fn compile_file_ir(
     output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
 ) -> SeenResult<()> {
-    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager, memory_topology)?;
+    let optimized_ir = generate_optimized_ir(
+        input,
+        opt_level,
+        keyword_manager,
+        cpu_features,
+        memory_topology,
+    )?;
     let ir_text = format!("{}", optimized_ir);
     let default_output = PathBuf::from("a.ir");
     let output_path = output.unwrap_or(&default_output);
@@ -941,9 +960,16 @@ fn compile_file_mlir(
     output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
 ) -> SeenResult<()> {
-    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager, memory_topology)?;
+    let optimized_ir = generate_optimized_ir(
+        input,
+        opt_level,
+        keyword_manager,
+        cpu_features,
+        memory_topology,
+    )?;
     let mlir_text = program_to_mlir(&optimized_ir);
     let default_output = PathBuf::from("a.mlir");
     let output_path = output.unwrap_or(&default_output);
@@ -967,9 +993,16 @@ fn compile_file_clif(
     output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
 ) -> SeenResult<()> {
-    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager, memory_topology)?;
+    let optimized_ir = generate_optimized_ir(
+        input,
+        opt_level,
+        keyword_manager,
+        cpu_features,
+        memory_topology,
+    )?;
     let clif_text = program_to_clif(&optimized_ir);
     let default_output = PathBuf::from("a.clif");
     let output_path = output.unwrap_or(&default_output);
@@ -991,7 +1024,7 @@ fn compile_file_clif(
 fn hardware_flag_backend_error() -> SeenError {
     SeenError::new(
         SeenErrorKind::Tooling,
-        "--cpu-feature requires --backend llvm".to_string(),
+        "--cpu-feature is not supported for the IR text backend".to_string(),
     )
 }
 
@@ -1020,6 +1053,48 @@ fn describe_cpu_features(flags: &[CpuFeatureFlagArg]) -> String {
         .map(cpu_feature_label)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn vector_bits_for_feature(flag: &CpuFeatureFlagArg) -> Option<u32> {
+    match flag {
+        CpuFeatureFlagArg::Avx10_512 => Some(512),
+        CpuFeatureFlagArg::Avx10_256 => Some(256),
+        CpuFeatureFlagArg::Sve128 => Some(128),
+        CpuFeatureFlagArg::Sve256 => Some(256),
+        CpuFeatureFlagArg::Sve512 => Some(512),
+        _ => None,
+    }
+}
+
+fn build_hardware_profile(flags: &[CpuFeatureFlagArg]) -> HardwareProfile {
+    let mut profile = HardwareProfile::default();
+    if flags.is_empty() {
+        return profile;
+    }
+
+    profile.cpu_features = flags
+        .iter()
+        .map(|flag| cpu_feature_label(flag).to_string())
+        .collect();
+    profile.apx_enabled = flags
+        .iter()
+        .any(|flag| matches!(flag, CpuFeatureFlagArg::Apx));
+    profile.sve_enabled = flags.iter().any(|flag| {
+        matches!(
+            flag,
+            CpuFeatureFlagArg::Sve128 | CpuFeatureFlagArg::Sve256 | CpuFeatureFlagArg::Sve512
+        )
+    });
+    for flag in flags {
+        if let Some(bits) = vector_bits_for_feature(flag) {
+            profile.max_vector_bits = Some(
+                profile
+                    .max_vector_bits
+                    .map_or(bits, |current| current.max(bits)),
+            );
+        }
+    }
+    profile
 }
 
 #[cfg(feature = "llvm")]
@@ -2575,6 +2650,7 @@ fn determinism_check(
             input,
             opt_level,
             keyword_manager.clone(),
+            &[],
             MemoryTopologyArg::Default,
         )?;
         let text = match backend {
@@ -2615,6 +2691,7 @@ fn trace_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>) -
         input,
         opt_level,
         keyword_manager,
+        &[],
         MemoryTopologyArg::Default,
     )?;
 

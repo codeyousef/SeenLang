@@ -23,12 +23,92 @@ pub mod optimizer;
 pub mod value;
 
 // Re-export main types
+pub use crate::HardwareProfile;
 pub use function::{IRFunction, Parameter};
 pub use generator::IRGenerator;
 pub use instruction::{BasicBlock, Instruction, Label};
 pub use module::IRModule;
 pub use optimizer::{IROptimizer, OptimizationLevel};
 pub use value::{IRType, IRValue};
+
+/// Scheduler preference derived from the active hardware profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HardwareSchedulerHint {
+    Balanced,
+    Throughput,
+    Vector,
+}
+
+impl HardwareSchedulerHint {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HardwareSchedulerHint::Balanced => "balanced",
+            HardwareSchedulerHint::Throughput => "throughput",
+            HardwareSchedulerHint::Vector => "vector",
+        }
+    }
+}
+
+/// Hardware profile describing vector widths and ISA hints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareProfile {
+    pub cpu_features: Vec<String>,
+    pub max_vector_bits: Option<u32>,
+    pub apx_enabled: bool,
+    pub sve_enabled: bool,
+}
+
+impl Default for HardwareProfile {
+    fn default() -> Self {
+        Self {
+            cpu_features: Vec::new(),
+            max_vector_bits: None,
+            apx_enabled: false,
+            sve_enabled: false,
+        }
+    }
+}
+
+impl HardwareProfile {
+    /// Returns a scheduler hint that downstream backends can use to reorder blocks.
+    pub fn scheduler_hint(&self) -> HardwareSchedulerHint {
+        let vector_bits = self.max_vector_bits.unwrap_or(0);
+        if self.sve_enabled || vector_bits >= 512 {
+            HardwareSchedulerHint::Vector
+        } else if self.apx_enabled || vector_bits >= 256 {
+            HardwareSchedulerHint::Throughput
+        } else {
+            HardwareSchedulerHint::Balanced
+        }
+    }
+
+    /// Compute a register budget hint based on the available ISA/feature set.
+    pub fn register_budget_hint(&self) -> u32 {
+        let mut budget = 64u32;
+        if self.apx_enabled {
+            budget += 32;
+        }
+        if self.sve_enabled {
+            budget += 16;
+        }
+        if let Some(bits) = self.max_vector_bits {
+            if bits >= 512 {
+                budget += 16;
+            } else if bits >= 256 {
+                budget += 8;
+            }
+        }
+        budget
+    }
+
+    /// True when the hardware profile carries any explicit feature overrides.
+    pub fn has_explicit_features(&self) -> bool {
+        self.apx_enabled
+            || self.sve_enabled
+            || self.max_vector_bits.is_some()
+            || !self.cpu_features.is_empty()
+    }
+}
 
 /// A complete IR program consisting of multiple modules
 #[derive(Debug, Clone)]
@@ -38,6 +118,7 @@ pub struct IRProgram {
     pub global_variables: Arena<GlobalVariableEntry>,
     global_lookup: HashMap<String, ArenaIndex>,
     pub string_table: Vec<String>, // For string constants
+    pub hardware_profile: HardwareProfile,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +135,7 @@ impl IRProgram {
             global_variables: Arena::new(),
             global_lookup: HashMap::new(),
             string_table: Vec::new(),
+            hardware_profile: HardwareProfile::default(),
         }
     }
 
@@ -125,6 +207,8 @@ struct IRProgramSerde {
     entry_point: Option<String>,
     global_variables: Vec<GlobalVariableEntry>,
     string_table: Vec<String>,
+    #[serde(default)]
+    hardware_profile: HardwareProfile,
 }
 
 impl Serialize for IRProgram {
@@ -137,6 +221,7 @@ impl Serialize for IRProgram {
             entry_point: self.entry_point.clone(),
             global_variables: self.global_variables.clone().into_vec(),
             string_table: self.string_table.clone(),
+            hardware_profile: self.hardware_profile.clone(),
         }
         .serialize(serializer)
     }
@@ -154,6 +239,7 @@ impl<'de> Deserialize<'de> for IRProgram {
             global_variables: Arena::from(data.global_variables),
             global_lookup: HashMap::new(),
             string_table: data.string_table,
+            hardware_profile: data.hardware_profile,
         };
         program.rebuild_global_lookup();
         Ok(program)

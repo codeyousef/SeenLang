@@ -1,34 +1,71 @@
 use seen_ir::instruction::{BinaryOp, Instruction};
 use seen_ir::module::IRModule;
-use seen_ir::{IRFunction, IRProgram, IRType, IRValue};
+use seen_ir::{HardwareProfile, HardwareSchedulerHint, IRFunction, IRProgram, IRType, IRValue};
 
 /// Emit a textual Cranelift IR representation for the entire program.
 pub fn program_to_clif(program: &IRProgram) -> String {
     let mut modules: Vec<_> = program.modules.iter().collect();
     modules.sort_by(|a, b| a.name.cmp(&b.name));
 
-    modules
-        .into_iter()
-        .map(module_to_clif)
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut sections = Vec::new();
+    if let Some(header) = clif_profile_header(&program.hardware_profile) {
+        sections.push(header);
+    }
+    sections.extend(
+        modules
+            .into_iter()
+            .map(|m| module_to_clif_with_profile(m, &program.hardware_profile)),
+    );
+    sections.join("\n")
 }
 
-fn module_to_clif(module: &IRModule) -> String {
+fn clif_profile_header(profile: &HardwareProfile) -> Option<String> {
+    if profile.cpu_features.is_empty()
+        && profile.max_vector_bits.is_none()
+        && !profile.apx_enabled
+        && !profile.sve_enabled
+    {
+        return None;
+    }
+    let mut lines = Vec::new();
+    lines.push("; === hardware profile ===".to_string());
+    if !profile.cpu_features.is_empty() {
+        lines.push(format!(
+            "; cpu-features: {}",
+            profile.cpu_features.join(",")
+        ));
+    }
+    if let Some(bits) = profile.max_vector_bits {
+        lines.push(format!("; max-vector-bits: {}", bits));
+    }
+    if profile.apx_enabled {
+        lines.push("; apx-enabled".to_string());
+    }
+    if profile.sve_enabled {
+        lines.push("; sve-enabled".to_string());
+    }
+    Some(lines.join("\n"))
+}
+
+fn module_to_clif_with_profile(module: &IRModule, profile: &HardwareProfile) -> String {
     let mut out = String::new();
     out.push_str(&format!("; module {}\n", sanitize_symbol(&module.name)));
     let mut functions: Vec<&IRFunction> = module.functions_iter().collect();
     functions.sort_by(|a, b| a.name.cmp(&b.name));
 
     for function in functions {
-        out.push_str(&function_to_clif(function));
+        out.push_str(&function_to_clif(function, profile));
         out.push('\n');
     }
 
     out
 }
 
-fn function_to_clif(function: &IRFunction) -> String {
+fn module_to_clif(module: &IRModule) -> String {
+    module_to_clif_with_profile(module, &HardwareProfile::default())
+}
+
+fn function_to_clif(function: &IRFunction, profile: &HardwareProfile) -> String {
     let mut out = String::new();
     let params: Vec<String> = function
         .parameters
@@ -42,6 +79,18 @@ fn function_to_clif(function: &IRFunction) -> String {
         sanitize_symbol(&function.name),
         params.join(", "),
         return_ty
+    ));
+
+    if let Some(bits) = profile.max_vector_bits {
+        out.push_str(&format!("  ; seen.vector_width = {}\n", bits));
+    }
+    out.push_str(&format!(
+        "  ; seen.register_budget = {}\n",
+        profile.register_budget_hint()
+    ));
+    out.push_str(&format!(
+        "  ; seen.scheduler = {}\n",
+        profile.scheduler_hint().as_str()
     ));
 
     let mut ordered_blocks: Vec<String> = if !function.cfg.block_order.is_empty() {
@@ -68,6 +117,7 @@ fn function_to_clif(function: &IRFunction) -> String {
             emit_order.push(name);
         }
     }
+    emit_order = reorder_blocks_for_profile(profile, emit_order);
 
     for block_name in emit_order {
         let block = function
@@ -89,6 +139,36 @@ fn function_to_clif(function: &IRFunction) -> String {
 
     out.push_str("}\n");
     out
+}
+
+fn reorder_blocks_for_profile(
+    profile: &HardwareProfile,
+    mut emit_order: Vec<String>,
+) -> Vec<String> {
+    if emit_order.len() <= 1 {
+        return emit_order;
+    }
+    let entry = emit_order.remove(0);
+    let mut rest = emit_order;
+    match profile.scheduler_hint() {
+        HardwareSchedulerHint::Balanced => rest.sort(),
+        HardwareSchedulerHint::Throughput => { /* keep insertion order */ }
+        HardwareSchedulerHint::Vector => {
+            rest.sort_by(|a, b| match (is_loop_label(a), is_loop_label(b)) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.cmp(b),
+            });
+        }
+    }
+    let mut scheduled = vec![entry];
+    scheduled.extend(rest.into_iter().filter(|name| !scheduled.contains(name)));
+    scheduled
+}
+
+fn is_loop_label(label: &str) -> bool {
+    let lower = label.to_ascii_lowercase();
+    lower.contains("loop") || lower.contains("for")
 }
 
 fn instruction_to_clif(inst: &Instruction) -> String {
