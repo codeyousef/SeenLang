@@ -515,9 +515,13 @@ fn instruction_to_mlir(
                 res_name, mode, res_ty
             )
         }
-        Instruction::ChannelSelect { cases, result } => {
-            let res_name = value_result(result);
-            let res_ty = value_type(result, None);
+        Instruction::ChannelSelect {
+            cases,
+            payload_result,
+            ..
+        } => {
+            let res_name = value_result(payload_result);
+            let res_ty = value_type(payload_result, None);
             format!(
                 "{} = \"seen.select\"() {{cases = {}}} : () -> {}",
                 res_name,

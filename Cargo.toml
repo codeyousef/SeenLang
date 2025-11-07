@@ -20,7 +20,7 @@ members = [
     "seen_self_hosting",
     "seen_mlir"
     ,"tools/perf_baseline"
-]
+    , "seen_runtime"]
 
 [workspace.dependencies]
 seen_support = { path = "seen_support" }

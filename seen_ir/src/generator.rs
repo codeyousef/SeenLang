@@ -9,11 +9,13 @@ use crate::{
 };
 use seen_parser::Parameter as ASTParameter;
 use seen_parser::{
-    Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression, Program,
+    Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression, Pattern, Program,
     UnaryOperator,
 };
 use std::collections::HashMap;
 use std::fs;
+
+const SELECT_STATUS_RECEIVED: i64 = 0;
 
 /// Context for IR generation
 #[derive(Debug)]
@@ -2386,8 +2388,15 @@ impl IRGenerator {
         &mut self,
         cases: &[seen_parser::ast::SelectCase],
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        if cases.is_empty() {
+            return Err(IRError::Other(
+                "Select expression must include at least one case".to_string(),
+            ));
+        }
+
         let mut instructions = Vec::new();
         let mut arms = Vec::with_capacity(cases.len());
+        let mut lowered_cases = Vec::with_capacity(cases.len());
 
         for case in cases {
             let (channel_value, channel_instrs) = self.generate_expression(&case.channel)?;
@@ -2395,18 +2404,116 @@ impl IRGenerator {
 
             arms.push(IRSelectArm {
                 channel: channel_value,
-                pattern: case.pattern.clone(),
-                handler: (*case.handler).clone(),
             });
+            lowered_cases.push((case.pattern.clone(), (*case.handler).clone()));
         }
+
+        if lowered_cases.len() == 1 && matches!(lowered_cases[0].0, Pattern::Wildcard) {
+            let channel = arms[0].channel.clone();
+            instructions.push(Instruction::Call {
+                target: IRValue::Function {
+                    name: "seen_channel_recv".to_string(),
+                    parameters: Vec::new(),
+                },
+                args: vec![channel],
+                result: None,
+            });
+            let (_, handler_expr) = lowered_cases.into_iter().next().unwrap();
+            let (handler_value, handler_instrs) = self.generate_expression(&handler_expr)?;
+            instructions.extend(handler_instrs);
+            return Ok((handler_value, instructions));
+        }
+
+        let payload_reg = self.context.allocate_register();
+        let payload_value = IRValue::Register(payload_reg);
+        let index_reg = self.context.allocate_register();
+        let index_value = IRValue::Register(index_reg);
+        let status_reg = self.context.allocate_register();
+        let status_value = IRValue::Register(status_reg);
+
+        instructions.push(Instruction::ChannelSelect {
+            cases: arms,
+            payload_result: payload_value.clone(),
+            index_result: index_value.clone(),
+            status_result: status_value.clone(),
+        });
 
         let result_reg = self.context.allocate_register();
         let result_value = IRValue::Register(result_reg);
-        instructions.push(Instruction::ChannelSelect {
-            cases: arms,
-            result: result_value.clone(),
+        instructions.push(Instruction::Move {
+            source: IRValue::Integer(0),
+            dest: result_value.clone(),
         });
 
+        let end_label = self.context.allocate_label("select_end");
+
+        for (case_index, (pattern, handler)) in lowered_cases.into_iter().enumerate() {
+            let skip_label = self
+                .context
+                .allocate_label(&format!("select_skip_{}", case_index));
+
+            let idx_cmp_reg = self.context.allocate_register();
+            let idx_cmp_value = IRValue::Register(idx_cmp_reg);
+            instructions.push(Instruction::Binary {
+                op: BinaryOp::Equal,
+                left: index_value.clone(),
+                right: IRValue::Integer(case_index as i64),
+                result: idx_cmp_value.clone(),
+            });
+
+            let status_cmp_reg = self.context.allocate_register();
+            let status_cmp_value = IRValue::Register(status_cmp_reg);
+            instructions.push(Instruction::Binary {
+                op: BinaryOp::Equal,
+                left: status_value.clone(),
+                right: IRValue::Integer(SELECT_STATUS_RECEIVED),
+                result: status_cmp_value.clone(),
+            });
+
+            let cond_reg = self.context.allocate_register();
+            let cond_value = IRValue::Register(cond_reg);
+            instructions.push(Instruction::Binary {
+                op: BinaryOp::And,
+                left: idx_cmp_value,
+                right: status_cmp_value,
+                result: cond_value.clone(),
+            });
+
+            instructions.push(Instruction::JumpIfNot {
+                condition: cond_value,
+                target: skip_label.clone(),
+            });
+
+            match pattern {
+                Pattern::Wildcard => {}
+                Pattern::Identifier(name) => {
+                    let binding_reg = self.context.allocate_register();
+                    let binding_value = IRValue::Register(binding_reg);
+                    instructions.push(Instruction::Move {
+                        source: payload_value.clone(),
+                        dest: binding_value.clone(),
+                    });
+                    self.context.define_variable(&name, binding_value);
+                }
+                other => {
+                    return Err(IRError::Other(format!(
+                        "select pattern {:?} is not yet supported for LLVM lowering",
+                        other
+                    )));
+                }
+            }
+
+            let (handler_value, handler_instrs) = self.generate_expression(&handler)?;
+            instructions.extend(handler_instrs);
+            instructions.push(Instruction::Move {
+                source: handler_value,
+                dest: result_value.clone(),
+            });
+            instructions.push(Instruction::Jump(end_label.clone()));
+            instructions.push(Instruction::Label(skip_label));
+        }
+
+        instructions.push(Instruction::Label(end_label));
         Ok((result_value, instructions))
     }
 
@@ -2414,28 +2521,43 @@ impl IRGenerator {
         &mut self,
         body: &Expression,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
-        let result_reg = self.context.allocate_register();
-        let result_value = IRValue::Register(result_reg);
-        let instruction = Instruction::Scoped {
-            kind: ScopeKind::Task,
-            body: Box::new(body.clone()),
-            result: result_value.clone(),
-        };
-        Ok((result_value, vec![instruction]))
+        self.generate_scope_with_kind(body, ScopeKind::Task)
     }
 
     fn generate_jobs_scope_expression(
         &mut self,
         body: &Expression,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
-        let result_reg = self.context.allocate_register();
-        let result_value = IRValue::Register(result_reg);
-        let instruction = Instruction::Scoped {
-            kind: ScopeKind::Jobs,
-            body: Box::new(body.clone()),
-            result: result_value.clone(),
-        };
-        Ok((result_value, vec![instruction]))
+        self.generate_scope_with_kind(body, ScopeKind::Jobs)
+    }
+
+    fn generate_scope_with_kind(
+        &mut self,
+        body: &Expression,
+        kind: ScopeKind,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let mut instructions = Vec::new();
+        instructions.push(self.scope_runtime_call("__scope_push", kind));
+
+        let (body_value, body_insts) = self.generate_expression(body)?;
+        instructions.extend(body_insts);
+
+        instructions.push(self.scope_runtime_call("__scope_pop", kind));
+        Ok((body_value, instructions))
+    }
+
+    fn scope_runtime_call(&self, name: &str, kind: ScopeKind) -> Instruction {
+        Instruction::Call {
+            target: IRValue::Function {
+                name: name.to_string(),
+                parameters: Vec::new(),
+            },
+            args: vec![IRValue::Integer(match kind {
+                ScopeKind::Task => 0,
+                ScopeKind::Jobs => 1,
+            })],
+            result: None,
+        }
     }
 
     fn generate_spawn_expression(
@@ -2443,14 +2565,28 @@ impl IRGenerator {
         expr: &Expression,
         detached: bool,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Spawn bodies are currently lowered to runtime stubs; we emit the body
+        // purely for side effects (so nested scopes run) and rely on runtime
+        // handles to mirror interpreter semantics.
+        let (_body_value, mut instructions) = self.generate_expression(expr)?;
+
         let result_reg = self.context.allocate_register();
         let result_value = IRValue::Register(result_reg);
-        let instruction = Instruction::Spawn {
-            body: Box::new(expr.clone()),
-            detached,
-            result: result_value.clone(),
+        let runtime_name = if detached {
+            "__spawn_detached"
+        } else {
+            "__spawn_task"
         };
-        Ok((result_value, vec![instruction]))
+        instructions.push(Instruction::Call {
+            target: IRValue::Function {
+                name: runtime_name.to_string(),
+                parameters: Vec::new(),
+            },
+            args: Vec::new(),
+            result: Some(result_value.clone()),
+        });
+
+        Ok((result_value, instructions))
     }
 
     fn generate_send_expression(
@@ -2625,8 +2761,13 @@ mod tests {
     #[test]
     fn generate_select_expression_compiles_each_branch() {
         let mut generator = IRGenerator::new();
-        let channel_ident = Expression::Identifier {
+        let channel_ident1 = Expression::Identifier {
             name: "ch".to_string(),
+            is_public: false,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let channel_ident2 = Expression::Identifier {
+            name: "ch2".to_string(),
             is_public: false,
             pos: seen_parser::Position::new(1, 1, 0),
         };
@@ -2635,11 +2776,18 @@ mod tests {
             pos: seen_parser::Position::new(1, 1, 0),
         };
         let select = Expression::Select {
-            cases: vec![seen_parser::ast::SelectCase {
-                channel: Box::new(channel_ident.clone()),
-                pattern: seen_parser::ast::Pattern::Wildcard,
-                handler: Box::new(handler_expr.clone()),
-            }],
+            cases: vec![
+                seen_parser::ast::SelectCase {
+                    channel: Box::new(channel_ident1.clone()),
+                    pattern: seen_parser::ast::Pattern::Wildcard,
+                    handler: Box::new(handler_expr.clone()),
+                },
+                seen_parser::ast::SelectCase {
+                    channel: Box::new(channel_ident2.clone()),
+                    pattern: seen_parser::ast::Pattern::Wildcard,
+                    handler: Box::new(handler_expr.clone()),
+                },
+            ],
             pos: seen_parser::Position::new(1, 1, 0),
         };
 
@@ -2659,6 +2807,160 @@ mod tests {
                 .iter()
                 .any(|inst| matches!(inst, Instruction::ChannelSelect { .. })),
             "expected ChannelSelect instruction to be emitted"
+        );
+    }
+
+    #[test]
+    fn select_instruction_exposes_payload_index_and_status() {
+        let mut generator = IRGenerator::new();
+        let channel_ident = Expression::Identifier {
+            name: "rx".to_string(),
+            is_public: false,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let handler_expr = Expression::IntegerLiteral {
+            value: 42,
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+        let select = Expression::Select {
+            cases: vec![
+                seen_parser::ast::SelectCase {
+                    channel: Box::new(channel_ident.clone()),
+                    pattern: seen_parser::ast::Pattern::Wildcard,
+                    handler: Box::new(handler_expr.clone()),
+                },
+                seen_parser::ast::SelectCase {
+                    channel: Box::new(channel_ident.clone()),
+                    pattern: seen_parser::ast::Pattern::Wildcard,
+                    handler: Box::new(handler_expr.clone()),
+                },
+            ],
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+
+        let (_value, instructions) = generator
+            .generate_expression(&select)
+            .expect("select should lower");
+        let mut found = false;
+        for inst in instructions {
+            if let Instruction::ChannelSelect {
+                payload_result,
+                index_result,
+                status_result,
+                ..
+            } = inst
+            {
+                assert!(matches!(payload_result, IRValue::Register(_)));
+                assert!(matches!(index_result, IRValue::Register(_)));
+                assert!(matches!(status_result, IRValue::Register(_)));
+                found = true;
+            }
+        }
+        assert!(found, "expected to encounter ChannelSelect instruction");
+    }
+
+    #[test]
+    fn select_expression_rejects_literal_patterns() {
+        let mut generator = IRGenerator::new();
+        let select = Expression::Select {
+            cases: vec![seen_parser::ast::SelectCase {
+                channel: Box::new(Expression::Identifier {
+                    name: "rx".to_string(),
+                    is_public: false,
+                    pos: seen_parser::Position::new(1, 1, 0),
+                }),
+                pattern: Pattern::Literal(Box::new(Expression::IntegerLiteral {
+                    value: 1,
+                    pos: seen_parser::Position::new(1, 1, 0),
+                })),
+                handler: Box::new(Expression::IntegerLiteral {
+                    value: 2,
+                    pos: seen_parser::Position::new(1, 1, 0),
+                }),
+            }],
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+
+        let result = generator.generate_expression(&select);
+        assert!(
+            matches!(&result, Err(IRError::Other(msg)) if msg.contains("not yet supported")),
+            "expected unsupported pattern error, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn scope_expression_emits_runtime_calls() {
+        let mut generator = IRGenerator::new();
+        let scope_expr = Expression::Scope {
+            body: Box::new(Expression::IntegerLiteral {
+                value: 1,
+                pos: seen_parser::Position::new(1, 1, 0),
+            }),
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+
+        let (_value, instructions) = generator
+            .generate_expression(&scope_expr)
+            .expect("scope expression should lower");
+        assert!(
+            instructions.iter().any(|inst| {
+                matches!(
+                    inst,
+                    Instruction::Call {
+                        target: IRValue::Function { name, .. },
+                        ..
+                    } if name == "__scope_push"
+                )
+            }),
+            "expected scope push call"
+        );
+        assert!(
+            instructions.iter().any(|inst| {
+                matches!(
+                    inst,
+                    Instruction::Call {
+                        target: IRValue::Function { name, .. },
+                        ..
+                    } if name == "__scope_pop"
+                )
+            }),
+            "expected scope pop call"
+        );
+    }
+
+    #[test]
+    fn single_case_select_lowers_to_channel_recv() {
+        let mut generator = IRGenerator::new();
+        let select = Expression::Select {
+            cases: vec![seen_parser::ast::SelectCase {
+                channel: Box::new(Expression::Identifier {
+                    name: "rx".to_string(),
+                    is_public: false,
+                    pos: seen_parser::Position::new(1, 1, 0),
+                }),
+                pattern: Pattern::Wildcard,
+                handler: Box::new(Expression::IntegerLiteral {
+                    value: 42,
+                    pos: seen_parser::Position::new(1, 1, 0),
+                }),
+            }],
+            pos: seen_parser::Position::new(1, 1, 0),
+        };
+
+        let (_value, instructions) = generator
+            .generate_expression(&select)
+            .expect("single-case select should lower");
+        assert!(
+            instructions.iter().any(|inst| {
+                matches!(
+                    inst,
+                    Instruction::Call {
+                        target: IRValue::Function { name, .. },
+                        ..
+                    } if name == "seen_channel_recv"
+                )
+            }),
+            "expected channel receive call"
         );
     }
 }

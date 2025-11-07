@@ -71,6 +71,8 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
       `seen build --backend llvm --target x86_64-apple-darwin --shared examples/linux/hello_cli/main.seen --output libhello_cli.dylib`
 - IR trace:
     - Print optimized IR with control-flow graphs: `seen trace examples/linux/hello_cli/main.seen -O1`
+- Packaging helper:
+    - Create deterministic zip archives from any directory: `seen pkg path/to/project --output project.zip`
 - WebAssembly starter (use with `--target wasm32-unknown-unknown --wasm-loader`): `examples/web/hello_wasm`
     - Produce `.wasm` + loader:
       `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader examples/web/hello_wasm/main.seen --output hello.wasm`

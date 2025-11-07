@@ -1,7 +1,7 @@
 //! IR instruction system for the Seen programming language
 
 use crate::value::{IRType, IRValue};
-use seen_parser::{Expression as AstExpression, Pattern};
+use seen_parser::Expression as AstExpression;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -100,18 +100,16 @@ impl fmt::Display for UnaryOp {
 }
 
 /// IR Instructions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ScopeKind {
     Task,
     Jobs,
 }
 
-/// IR representation of a channel select arm.
+/// IR representation of a channel select arm. Currently only stores the evaluated channel handle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IRSelectArm {
     pub channel: IRValue,
-    pub pattern: Pattern,
-    pub handler: AstExpression,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -283,7 +281,9 @@ pub enum Instruction {
     },
     ChannelSelect {
         cases: Vec<IRSelectArm>,
-        result: IRValue,
+        payload_result: IRValue,
+        index_result: IRValue,
+        status_result: IRValue,
     },
 
     // No-op for optimization
@@ -514,8 +514,20 @@ impl fmt::Display for Instruction {
                     write!(f, "  spawn -> {}", result)
                 }
             }
-            Instruction::ChannelSelect { cases, result } => {
-                write!(f, "  select[{} cases] -> {}", cases.len(), result)
+            Instruction::ChannelSelect {
+                cases,
+                payload_result,
+                index_result,
+                status_result,
+            } => {
+                write!(
+                    f,
+                    "  select[{} cases] -> payload={}, index={}, status={}",
+                    cases.len(),
+                    payload_result,
+                    index_result,
+                    status_result
+                )
             }
             Instruction::Nop => write!(f, "  nop"),
         }

@@ -104,12 +104,29 @@ gap before we can call the phase entirely closed.
   3. 🚧 **LLVM lowering for channel intrinsics** — translate the new IR instructions into calls that coordinate with the
      runtime surface (channel creation, send/receive/select, scope joins, task handles). This work must preserve the
      interpreter’s semantics, especially for pattern binding within `select` arms.
+      * ✅ Scope and spawn IR now lower to runtime-friendly call sequences (`seen_ir/src/generator.rs`,
+        `seen_ir/src/llvm_backend.rs`) so LLVM no longer errors on these constructs.
+      * 🔄 *New breakdown for select support*:
+          - [x] Reshape `Instruction::ChannelSelect` so it returns the selected case index, payload value, and status
+            fields instead of an opaque result.
+          - [x] Teach the IR generator to expand `select` expressions into explicit control-flow blocks that bind
+            patterns, run handlers, and funnel results through a dedicated SSA register.
+          - [x] Extend the LLVM backend to recognize the new instruction form and emit the corresponding runtime calls (
+            initially backed by the existing stubs for Linux until the shared runtime lands).
   4. 🚧 **Runtime implementation & linking** — replace the stubs with actual channel/task support by sharing or
      reimplementing `seen_concurrency` pieces, ensure the compiled artifact links the runtime on every platform, and
      propagate handles/results back into Seen values.
+      * ⬜ Subtasks to stage this work:
+          - [ ] Extract a minimal `seen_runtime` crate that exposes the channel/task ABI over `#[no_mangle] extern "C"`
+            shims.
+          - [ ] Add host/Android wasm build scripts so `seen_cli` can bundle the runtime archive per target triple.
+          - [ ] Implement value boxing/unboxing helpers so LLVM lowering can convert Seen primitives into runtime
+            payloads without type erasure bugs.
   5. 🚧 **CLI + Stage wiring & regression coverage** — once lowering/runtime integration is complete, update `seen_cli`
      and the self-host pipeline to run channel-driven programs via the LLVM backend, add CLI/Stage tests, and record
      determinism hashes plus stdout/stderr validation.
+      * [ ] Add LLVM smoke tests for `seen_cli run tests/fixtures/channel_select.seen` on Linux to guard regressions.
+      * [ ] Extend Stage1 deterministic suites so channel traffic is exercised during bootstrap (hash + stdout checks).
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe
 channel traffic with the same guarantees as the interpreter.
@@ -135,6 +152,8 @@ channel traffic with the same guarantees as the interpreter.
   2. ✅ Surface region strategy hints (`bump`, `stack`, `cxl_near`) in Seen syntax and teach the compiler to auto-select O(1) release strategies when lifetime analysis allows it (`seen_parser/src/ast.rs`, `seen_parser/src/parser.rs`, `seen_memory_manager/src/regions.rs`, `docs/spec/regions.md`).
   3. 🚧 Continue flattening compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious layouts—region runtime now stores regions in a 32-bit contiguous arena; IR modules, functions, CFGs, and program globals now use arena storage. Remaining HashMaps (LLVM backend caches, pass-local optimizer maps, metadata/export symbol tables) are intentionally retained for keyed lookups; document rationale in follow-up design notes (docs/research/13 - Language Performance.md).
   4. Audit runtime safety checks, gating them behind debug profiles when static proofs exist, so production binaries keep the "zero memory safety overhead" promise.
+      * ✅ Duplicate-allocation detection for region handles now runs only in debug/profile builds; release binaries
+        elide the scan while still preserving analysis correctness (`seen_memory_manager/src/regions.rs`).
 
 * **Acceptance:** Memory-intensive benchmarks report ≥1.5× throughput improvement, region drops are O(1) in profiler traces, and cache miss rates fall in line with the Cornell flattening targets.
 
@@ -298,6 +317,8 @@ Goal: Ship a self‑hosted compiler and minimal ecosystem capable of cross‑pla
       paths.
   * ✅ `seen trace` prints optimized IR/control-flow graphs through the CLI so developers can inspect lowering output
     (`seen trace <file> -O1`).
+  * ✅ `seen pkg <dir> [--output foo.zip]` packages project trees into deterministic zip archives (excludes missing
+    directories with actionable errors); regression coverage ensures archives contain the expected files.
 * **Acceptance:** Formatter detects violations deterministically; CI matrix completes without errors; reports archived per build.
 
 ### POST‑4. Final Definition of Done

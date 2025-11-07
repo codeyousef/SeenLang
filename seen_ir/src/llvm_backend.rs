@@ -27,7 +27,7 @@ use inkwell::values::{
 use inkwell::OptimizationLevel as LlvmOptLevel;
 
 use crate::function::IRFunction;
-use crate::instruction::{BasicBlock, Instruction};
+use crate::instruction::{BasicBlock, IRSelectArm, Instruction};
 use crate::module::IRModule;
 use crate::value::{IRType, IRValue};
 use crate::IRProgram;
@@ -194,6 +194,7 @@ pub struct LlvmBackend<'ctx> {
     bool_t: IntType<'ctx>,
     i8_ptr_t: PointerType<'ctx>,
     handle_ty: Option<StructType<'ctx>>,
+    select_result_ty: Option<StructType<'ctx>>,
 
     // Runtime/extern declarations
     printf: Option<FunctionValue<'ctx>>,
@@ -241,6 +242,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             bool_t,
             i8_ptr_t,
             handle_ty: None,
+            select_result_ty: None,
             printf: None,
             strlen: None,
             strcmp: None,
@@ -763,12 +765,12 @@ impl<'ctx> LlvmBackend<'ctx> {
         let stub_specs: Vec<(
             &str,
             inkwell::types::FunctionType<'ctx>,
-            Box<dyn Fn(&mut Self) -> Result<()> + '_>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
         )> = vec![
             (
                 "seen_channel_new",
                 ptr_t.fn_type(&[i64_t.into()], false),
-                Box::new(|backend: &mut Self| {
+                Box::new(|backend: &mut Self, _func| {
                     let null_ptr = backend.i8_ptr_t.const_zero();
                     backend
                         .builder
@@ -780,7 +782,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             (
                 "seen_channel_send",
                 ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
-                Box::new(|backend: &mut Self| {
+                Box::new(|backend: &mut Self, _func| {
                     let ok = backend.i8_ptr_t.const_zero();
                     backend
                         .builder
@@ -792,7 +794,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             (
                 "seen_channel_recv",
                 ptr_t.fn_type(&[ptr_t.into()], false),
-                Box::new(|backend: &mut Self| {
+                Box::new(|backend: &mut Self, _func| {
                     let none = backend.i8_ptr_t.const_zero();
                     backend
                         .builder
@@ -804,19 +806,66 @@ impl<'ctx> LlvmBackend<'ctx> {
             (
                 "seen_channel_select",
                 ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
-                Box::new(|backend: &mut Self| {
-                    let none = backend.i8_ptr_t.const_zero();
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
                     backend
                         .builder
-                        .build_return(Some(&none.as_basic_value_enum()))
-                        .map(|_| ())
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()))
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
             (
                 "seen_scope_push",
                 self.ctx.void_type().fn_type(&[i32_t.into()], false),
-                Box::new(|backend: &mut Self| {
+                Box::new(|backend: &mut Self, _func| {
                     backend
                         .builder
                         .build_return(None)
@@ -827,7 +876,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             (
                 "seen_scope_pop",
                 self.ctx.void_type().fn_type(&[i32_t.into()], false),
-                Box::new(|backend: &mut Self| {
+                Box::new(|backend: &mut Self, _func| {
                     backend
                         .builder
                         .build_return(None)
@@ -838,7 +887,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             (
                 "seen_spawn",
                 ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
-                Box::new(|backend: &mut Self| {
+                Box::new(|backend: &mut Self, _func| {
                     let handle = backend.i8_ptr_t.const_zero();
                     backend
                         .builder
@@ -856,7 +905,10 @@ impl<'ctx> LlvmBackend<'ctx> {
             let func = self.module.add_function(name, ty, None);
             let entry = self.ctx.append_basic_block(func, "entry");
             self.builder.position_at_end(entry);
-            body(self)?;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
         }
 
         match saved_block {
@@ -1972,7 +2024,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                             }
                             return Ok(());
                         }
-                        "__spawn_task" => {
+                        "__spawn_task" | "__spawn_detached" => {
                             if let Some(arg0) = args.get(0) {
                                 let _ = self.eval_value(arg0, fn_map)?;
                             }
@@ -2032,6 +2084,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 let success = self.bool_t.const_int(1, false);
                                 self.assign_value(r, success.as_basic_value_enum())?;
                             }
+                            return Ok(());
+                        }
+                        "__scope_push" | "__scope_pop" => {
+                            // Scope bookkeeping handled by runtime; emit no-op in codegen.
                             return Ok(());
                         }
                         _ => {}
@@ -2116,17 +2172,124 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
                 self.assign_value(result, loaded.as_basic_value_enum())?;
             }
-            Instruction::Scoped { .. }
-            | Instruction::Spawn { .. }
-            | Instruction::ChannelSelect { .. } => {
+            Instruction::ChannelSelect {
+                cases,
+                payload_result,
+                index_result,
+                status_result,
+            } => {
+                self.lower_channel_select(
+                    cases,
+                    payload_result,
+                    index_result,
+                    status_result,
+                    fn_map,
+                )?;
+            }
+            Instruction::Scoped { .. } | Instruction::Spawn { .. } => {
                 return Err(anyhow!(
-                    "LLVM backend does not yet lower channel concurrency instructions"
+                    "LLVM backend does not yet lower scoped/spawn concurrency instructions"
                 ));
             }
             _ => {
                 // Many IR ops are not required for bootstrap subset; ignore nops etc.
             }
         }
+        Ok(())
+    }
+
+    fn lower_channel_select(
+        &mut self,
+        cases: &[IRSelectArm],
+        payload_result: &IRValue,
+        index_result: &IRValue,
+        status_result: &IRValue,
+        fn_map: &HashMap<String, FunctionValue<'ctx>>,
+    ) -> Result<()> {
+        if cases.is_empty() {
+            return Err(anyhow!("ChannelSelect emitted without any cases"));
+        }
+
+        let count = cases.len() as u64;
+        let count_i32 = self.ctx.i32_type().const_int(count, false);
+        let case_buffer = self
+            .builder
+            .build_array_alloca(self.i8_ptr_t, count_i32, "select_cases")
+            .map_err(|e| anyhow!("{e:?}"))?;
+
+        for (idx, case) in cases.iter().enumerate() {
+            let channel_val = self.eval_value(&case.channel, fn_map)?;
+            let channel_ptr = self.to_i8_ptr(channel_val, &format!("select_case_ptr_{idx}"))?;
+            let slot = unsafe {
+                self.builder.build_gep(
+                    self.i8_ptr_t,
+                    case_buffer,
+                    &[self.ctx.i32_type().const_int(idx as u64, false)],
+                    &format!("select_case_slot_{idx}"),
+                )
+            }
+                .map_err(|e| anyhow!("{e:?}"))?;
+            self.builder
+                .build_store(slot, channel_ptr.as_basic_value_enum())
+                .map_err(|e| anyhow!("{e:?}"))?;
+        }
+
+        let result_ty = self.ty_select_result();
+        let result_alloca = self
+            .builder
+            .build_alloca(result_ty, "select_result")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        self.builder
+            .build_store(result_alloca, result_ty.const_zero().as_basic_value_enum())
+            .map_err(|e| anyhow!("{e:?}"))?;
+
+        let select_fn = self.ensure_channel_select_fn();
+        let case_buffer_raw = self
+            .builder
+            .build_pointer_cast(case_buffer, self.i8_ptr_t, "select_cases_raw")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let result_raw = self
+            .builder
+            .build_pointer_cast(result_alloca, self.i8_ptr_t, "select_result_raw")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let count_i64 = self.i64_t.const_int(count, false);
+        let args = &[
+            case_buffer_raw.as_basic_value_enum().into(),
+            result_raw.as_basic_value_enum().into(),
+            count_i64.into(),
+        ];
+        self.builder.build_call(select_fn, args, "select_call")?;
+
+        let payload_ptr = self
+            .builder
+            .build_struct_gep(result_ty, result_alloca, 0, "select_payload_ptr")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let payload_val = self
+            .builder
+            .build_load(self.i8_ptr_t, payload_ptr, "select_payload")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        self.assign_value(payload_result, payload_val.as_basic_value_enum())?;
+
+        let index_ptr = self
+            .builder
+            .build_struct_gep(result_ty, result_alloca, 1, "select_index_ptr")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let index_val = self
+            .builder
+            .build_load(self.i64_t, index_ptr, "select_index")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        self.assign_value(index_result, index_val.as_basic_value_enum())?;
+
+        let status_ptr = self
+            .builder
+            .build_struct_gep(result_ty, result_alloca, 2, "select_status_ptr")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        let status_val = self
+            .builder
+            .build_load(self.i64_t, status_ptr, "select_status")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        self.assign_value(status_result, status_val.as_basic_value_enum())?;
+
         Ok(())
     }
 
@@ -2182,6 +2345,31 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             IRValue::Float(fv) => Ok(self.ctx.f64_type().const_float(*fv).as_basic_value_enum()),
             _ => Err(anyhow!("Unsupported IRValue in LLVM backend: {v:?}")),
+        }
+    }
+
+    fn to_i8_ptr(&mut self, value: BasicValueEnum<'ctx>, name: &str) -> Result<PointerValue<'ctx>> {
+        match value {
+            BasicValueEnum::PointerValue(ptr) => self
+                .builder
+                .build_pointer_cast(ptr, self.i8_ptr_t, name)
+                .map_err(|e| anyhow!("{e:?}")),
+            BasicValueEnum::IntValue(int_val) => self
+                .builder
+                .build_int_to_ptr(int_val, self.i8_ptr_t, name)
+                .map_err(|e| anyhow!("{e:?}")),
+            BasicValueEnum::StructValue(struct_val) => {
+                let ty = struct_val.get_type().as_basic_type_enum();
+                let tmp = self.alloca_for_type(ty, &format!("{name}_stack"))?;
+                self.builder.build_store(tmp, struct_val)?;
+                self.builder
+                    .build_pointer_cast(tmp, self.i8_ptr_t, &format!("{name}_stack_ptr"))
+                    .map_err(|e| anyhow!("{e:?}"))
+            }
+            other => Err(anyhow!(
+                "select requires pointer compatible value, got {:?}",
+                other
+            )),
         }
     }
 
@@ -2858,6 +3046,19 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
+    fn ty_select_result(&mut self) -> StructType<'ctx> {
+        if let Some(ty) = self.select_result_ty {
+            ty
+        } else {
+            let ty = self.ctx.struct_type(
+                &[self.i8_ptr_t.into(), self.i64_t.into(), self.i64_t.into()],
+                false,
+            );
+            self.select_result_ty = Some(ty);
+            ty
+        }
+    }
+
     fn ensure_task_counter(&mut self) -> GlobalValue<'ctx> {
         if let Some(counter) = self.task_counter {
             counter
@@ -2868,6 +3069,22 @@ impl<'ctx> LlvmBackend<'ctx> {
             counter.set_initializer(&self.ctx.i32_type().const_zero());
             self.task_counter = Some(counter);
             counter
+        }
+    }
+
+    fn ensure_channel_select_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("seen_channel_select") {
+            func
+        } else {
+            let fn_ty = self.i8_ptr_t.fn_type(
+                &[
+                    self.i8_ptr_t.into(),
+                    self.i8_ptr_t.into(),
+                    self.i64_t.into(),
+                ],
+                false,
+            );
+            self.module.add_function("seen_channel_select", fn_ty, None)
         }
     }
 

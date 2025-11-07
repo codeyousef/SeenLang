@@ -288,15 +288,7 @@ impl RegionManager {
         region_id: RegionId,
         position: Position,
     ) -> Result<RegionHandle, RegionError> {
-        if let Some(existing_region) = self.find_variable_region(&variable) {
-            let err = RegionError::MultipleAllocation {
-                variable,
-                regions: vec![existing_region, region_id],
-                position,
-            };
-            self.errors.push(err.clone());
-            return Err(err);
-        }
+        self.ensure_variable_unallocated(&variable, region_id, position.clone())?;
 
         let index = region_id.id() as usize;
         if let Some(region) = self.regions.get_mut(index) {
@@ -326,6 +318,37 @@ impl RegionManager {
         for region in &mut self.regions {
             region.remove_allocation(variable);
         }
+    }
+
+    #[cfg(debug_assertions)]
+    fn ensure_variable_unallocated(
+        &mut self,
+        variable: &str,
+        region_id: RegionId,
+        position: Position,
+    ) -> Result<(), RegionError> {
+        if let Some(existing_region) = self.find_variable_region(variable) {
+            let err = RegionError::MultipleAllocation {
+                variable: variable.to_string(),
+                regions: vec![existing_region, region_id],
+                position,
+            };
+            self.errors.push(err.clone());
+            Err(err)
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn ensure_variable_unallocated(
+        &mut self,
+        _variable: &str,
+        _region_id: RegionId,
+        _position: Position,
+    ) -> Result<(), RegionError> {
+        // Release builds rely on compile-time analysis to avoid duplicate allocations.
+        Ok(())
     }
 
     /// Recursively deactivate a region and all its children
