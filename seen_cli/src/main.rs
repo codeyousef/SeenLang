@@ -14,7 +14,6 @@ use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;

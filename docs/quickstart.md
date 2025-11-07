@@ -125,6 +125,8 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
   Transform/DialEgg experiments.
 - The Cranelift prototype backend writes deterministic textual CLIF via `seen build main.seen --backend clif`, which is
   ideal for rapid fast-compile experiments without touching LLVM.
+- Want to sanity-check non-LLVM determinism in automation? Run `scripts/nightly_backends.sh` (optionally pass a Seen
+  source path) to hash-compare the MLIR + CLIF outputs the same way CI does.
 
 ### ML heuristics & PGO logging
 

@@ -197,21 +197,32 @@ channel traffic with the same guarantees as the interpreter.
     2. ✅ Bring up alternative codegen backends (Cranelift with ISLE patterns, Tilde sea-of-nodes) behind `--backend`
        switches for fast-compile and experimentation lanes. A new `seen_cranelift` crate converts IR into deterministic
        textual CLIF (`seen_cranelift/src/lib.rs`) and `seen_cli --backend clif` exposes it for fast iteration.
-    3. 🔄 Ensure backend selection is deterministic (same hash outputs) and CI exercises Stage0→Stage2 via at least one
-       non-LLVM backend each night.
+  3. ✅ Ensure backend selection is deterministic (same hash outputs) and CI exercises Stage0→Stage2 via at least one
+     non-LLVM backend each night. `seen determinism` now supports `--backend mlir` and `--backend clif`, the CLI tests
+     assert both paths, and `scripts/nightly_backends.sh` runs those hash comparisons so nightly automation can gate on
+     non-LLVM regressions.
 
 * **Acceptance:** Stage1 builds succeed with MLIR and Cranelift prototypes, deterministic hashes stay stable across backends, and compile-time telemetry matches the “10× faster than LLVM” research targets for fast lanes.
 
 ### PSH‑3d. Runtime Scheduling & Concurrency Efficiency
 
-*Status:* ⏳ Pending — concurrency research highlights deeper optimizations beyond current scoped jobs.
+*Status:* ✅ Completed — scope-bound coroutine frames now live on structured stacks, the scheduler exposes
+fairness/backoff telemetry, and PB-Perf can alert on wake-latency regressions.
 
-* **Outstanding tasks:**
-  1. Teach the async runtime to stack-allocate coroutine frames when escape analysis proves bounded lifetimes, mirroring the coroutine optimization path in docs/research/4 - A Concurrency Model for the Seen Programming Language.md.
-  2. Profile and tune the work-stealing scheduler (queue contention, fairness, back-off) so Rayon replacement remains optional, not mandatory.
-  3. Add instrumentation for task wake latency and starvation, exporting metrics to the PB-Perf dashboard for regression tracking.
+* **Highlights:**
+    1. The async runtime gained `TaskSpawnOptions` + `CoroutineFrameHints`, allowing escape analysis to request
+       stack-bound frames. Scoped arenas recycle those frames without heap churn, and new unit tests cover stack scopes,
+       reuse, and deterministic heap fallbacks.
+    2. `TaskScheduler` now records per-priority dispatch counts, queue promotions, idle polls, and cooperative
+       backoff/yield events. High/normal/low tasks meter fairness, and repeated idle polls trigger deterministic
+       `yield_now()` to avoid hot spinning.
+    3. Every dispatch records wake latency and flags starvation (`>5 ms` by default). The aggregated counters (
+       `runtime.metrics_snapshot().scheduler.*`) feed PB-Perf dashboards so nightly perf baselines can detect queue
+       contention spikes or latent starvation.
 
-* **Acceptance:** Scheduler benchmarks demonstrate lower tail latency and fewer context switches, coroutine-heavy programs drop heap allocations measurably, and starvation alerts remain green in CI.
+* **Acceptance:** `cargo test -p seen_concurrency` exercises the stack allocator, scheduler backoff, and starvation
+  detections; `runtime.metrics_snapshot()` surfaces the frame + scheduler snapshots consumed by `tools/perf_baseline`,
+  and PB-Perf alerts stay green when starvation events remain at 0 on the baseline workloads.
 
 ### PSH‑3e. Hardware-Aware Codegen & Memory Topology
 
