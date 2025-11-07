@@ -130,7 +130,8 @@ gap before we can call the phase entirely closed.
   5. 🚧 **CLI + Stage wiring & regression coverage** — once lowering/runtime integration is complete, update `seen_cli`
      and the self-host pipeline to run channel-driven programs via the LLVM backend, add CLI/Stage tests, and record
      determinism hashes plus stdout/stderr validation.
-      * [ ] Add LLVM smoke tests for `seen_cli run tests/fixtures/channel_select.seen` on Linux to guard regressions.
+      * [x] Add LLVM smoke tests for `seen_cli run tests/fixtures/channel_select.seen` on Linux to guard regressions
+        (`seen_cli/tests/channel_select.rs` now runs the fixture via `seen run --backend llvm`).
       * [ ] Extend Stage1 deterministic suites so channel traffic is exercised during bootstrap (hash + stdout checks).
 
 * **Acceptance:** Channel send/receive semantics verified; jobs in a scope join before exit; CLI/Stage binaries observe

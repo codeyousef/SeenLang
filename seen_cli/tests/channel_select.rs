@@ -86,7 +86,7 @@ fn run_channel_select_with_llvm_backend() {
     let workspace_root = manifest_dir.parent().expect("workspace root").to_path_buf();
     let sample = workspace_root.join("seen_cli/tests/fixtures/channel_select.seen");
 
-    Command::cargo_bin("seen_cli")
+    let assert = Command::cargo_bin("seen_cli")
         .expect("binary exists")
         .current_dir(&workspace_root)
         .args([
@@ -97,4 +97,11 @@ fn run_channel_select_with_llvm_backend() {
         ])
         .assert()
         .success();
+
+    let stdout =
+        String::from_utf8(assert.get_output().stdout.clone()).expect("stdout was not UTF-8");
+    assert!(
+        stdout.lines().any(|line| line.trim() == "3"),
+        "expected LLVM run to print final result 3, got {stdout}"
+    );
 }

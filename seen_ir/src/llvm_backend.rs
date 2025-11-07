@@ -320,13 +320,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             .to_str()
             .unwrap_or_else(|_| "")
             .to_string();
-        self.link_artifact(
-            kind,
-            &obj_path,
-            out_path,
-            &triple_string,
-            &static_libs,
-        )
+        self.link_artifact(kind, &obj_path, out_path, &triple_string, &static_libs)
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {

@@ -13,6 +13,7 @@ use seen_core::{
 use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -23,6 +24,8 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
 use std::sync::Arc;
+#[cfg(feature = "llvm")]
+use tempfile::tempdir;
 use zip::{write::FileOptions, CompressionMethod};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -143,6 +146,18 @@ enum Commands {
         /// Input file to run
         #[arg(value_name = "FILE")]
         input: PathBuf,
+
+        /// Optimization level
+        #[arg(short = 'O', long, default_value = "0")]
+        opt_level: u8,
+
+        /// Target triple for LLVM runs (defaults to host)
+        #[arg(long)]
+        target: Option<String>,
+
+        /// Backend to execute with: "ir" (interpreter) or "llvm" (native binary)
+        #[arg(long, default_value_t = Backend::Ir)]
+        backend: Backend,
 
         /// Arguments to pass to the program
         #[arg(last = true)]
@@ -506,9 +521,35 @@ fn main() -> SeenResult<()> {
             }
         },
 
-        Some(Commands::Run { input, args }) => {
-            run_file(&input, &args, keyword_manager)?;
-        }
+        Some(Commands::Run {
+                 input,
+                 args,
+                 backend,
+                 opt_level,
+                 target,
+             }) => match backend {
+            Backend::Ir => run_file(&input, &args, keyword_manager)?,
+            Backend::Llvm => {
+                #[cfg(feature = "llvm")]
+                {
+                    run_file_llvm(&input, &args, opt_level, target.as_deref(), keyword_manager)?;
+                }
+                #[cfg(not(feature = "llvm"))]
+                {
+                    let _ = (opt_level, target);
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "LLVM backend disabled at build time; rebuild seen_cli with --features llvm".to_string(),
+                    ));
+                }
+            }
+            Backend::Mlir => {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "MLIR backend is not supported for `seen run`".to_string(),
+                ));
+            }
+        },
 
         Some(Commands::Check { input }) => {
             check_file(&input, keyword_manager)?;
@@ -2048,6 +2089,62 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
         println!("{}", result);
     }
 
+    Ok(())
+}
+
+#[cfg(feature = "llvm")]
+fn run_file_llvm(
+    input: &Path,
+    args: &[String],
+    opt_level: u8,
+    target_triple: Option<&str>,
+    keyword_manager: Arc<KeywordManager>,
+) -> SeenResult<()> {
+    let temp = tempdir().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to create temporary directory: {}", err),
+        )
+    })?;
+    let artifact = temp.path().join("seen_run");
+    compile_file_llvm(
+        input,
+        Some(&artifact),
+        opt_level,
+        false,
+        BuildLinkMode::Executable,
+        keyword_manager,
+        target_triple,
+        false,
+        false,
+    )?;
+    let mut cmd = Command::new(&artifact);
+    if let Some(parent) = input.parent() {
+        cmd.current_dir(parent);
+    }
+    if !args.is_empty() {
+        cmd.args(args);
+    }
+    let status = cmd.status().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to run compiled binary {}: {}",
+                artifact.display(),
+                err
+            ),
+        )
+    })?;
+    if !status.success() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "LLVM run failed with status {} when executing {}",
+                status,
+                artifact.display()
+            ),
+        ));
+    }
     Ok(())
 }
 

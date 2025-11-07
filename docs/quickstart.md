@@ -115,6 +115,8 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
   `seen_runtime` static library before spawning `clang`, so
   `seen build --backend llvm examples/concurrency/channel_select.seen`
   produces a native binary with the same semantics as `seen run`.
+- Prefer invoking the LLVM backend directly via `seen run main.seen --backend llvm` when you want to smoke-test native
+  output; the CLI compiles to a temp artifact behind the scenes and executes it with your program arguments.
 - Need runtime archives for additional targets (Android, wasm, or custom triples)? Run
   `scripts/build_seen_runtime.sh <triple…>` to build and stage `libseen_runtime.a` under `target/seen-runtime/<triple>/`
   before invoking cross builds or bundling flows.
