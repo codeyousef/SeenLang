@@ -18,6 +18,12 @@ The most promising memory management innovation comes from **Vale's hybrid gener
 
 **Cache-oblivious algorithms** represent another breakthrough, providing optimal performance across all cache hierarchy levels without parameter tuning. Cornell's research on data structure flattening shows **2.4× speedups** by using 32-bit indices instead of 64-bit pointers, dramatically improving cache utilization.
 
+Following that research, the Seen IR now stores modules, functions, call graphs, and CFG blocks inside a shared 32-bit
+arena (`ArenaIndex`) so traversals touch tightly-packed memory rather than pointer-heavy hash maps. Every lookup
+resolves through an index table that fits in L1, while the only remaining hash maps sit on true hot paths where string
+keys are unavoidable (export tables, metadata lookups, and LLVM backend caches). This keeps deterministic lookups cheap
+without sacrificing the O(1) keyed access that the frontend still needs.
+
 ## MLIR and alternatives surpassing LLVM's capabilities
 
 **Multi-Level Intermediate Representation (MLIR)** has emerged as the successor to LLVM IR, addressing fundamental limitations in traditional compiler design. MLIR's dialect system enables domain-specific optimizations impossible with LLVM's single-level IR. The Transform Dialect provides fine-grained control over optimizations, while DialEgg integrates equality saturation directly into MLIR.

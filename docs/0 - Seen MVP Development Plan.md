@@ -150,9 +150,17 @@ channel traffic with the same guarantees as the interpreter.
         * Added a lightweight `egg`-powered rewrite pass (`seen_ir/src/optimizer/egraph.rs`) that canonicalizes
           arithmetic (`+0`, `*1`, commutativity, etc.) and plugs into the `seen_ir` optimizer when `-O2`/`-O3` is
           requested; CLI determinism docs now note the pass.
-  2. Prototype ML-driven heuristics (MLGO/Iterative BC-Max) for inlining and register allocation decisions, fed by compiler profiling data captured in PB-Perf (docs/research/13 - Language Performance.md).
-  3. Wrap the hot-loop pipeline with a LENS-style superoptimizer to synthesize short instruction sequences that beat LLVM -O3 while honouring Seen's determinism guarantees (docs/research/13 - Language Performance.md).
-  4. Establish an ML-guided PGO loop that exports training corpora, feeds reward signals, and replays decisions during deterministic builds.
+  2. ✅ ML-driven heuristics now gate inlining and register-allocation pressure: `seen_ir/src/optimizer/ml.rs` ingests
+     PB-Perf features, supports JSON weight files via `SEEN_ML_HEURISTICS`, and emits inline hints plus per-function
+     register budgets. The LLVM backend honors `InlineHint` by setting `alwaysinline`/`noinline`, while high-pressure
+     functions are rewritten through a register-reuse pass with new coverage in `optimizer::tests`.
+  3. ✅ Hot-loop LENS superoptimizer rewrites linear instruction chains in loop blocks (add/sub, mul, shl).
+     `IROptimizer::superoptimize_loop_chains` collapses temporary registers, and new tests (`lens_superoptimizer_*`)
+     ensure the fused IR matches expectations while preserving determinism.
+  4. ✅ ML-guided PGO loop preserves training corpora: setting `SEEN_ML_DECISION_LOG` + `SEEN_ML_REWARD` records every
+     heuristic decision (features + reward) as NDJSON, and `SEEN_ML_DECISION_REPLAY` replays curated hints during
+     deterministic builds. The logger/replay plumbing lives in `seen_ir/src/optimizer/ml.rs` and is exercised by fresh
+     unit tests.
 
 * **Acceptance:** Optimizer reports show e-graph rewrites firing on targeted fixtures, ML heuristics reduce binary size ≥3% on benchmark suite without destabilizing determinism hashes, and superoptimized traces land in CI-perf dashboards.
 
@@ -163,7 +171,12 @@ channel traffic with the same guarantees as the interpreter.
 * **Outstanding tasks:**
   1. ✅ Extend the region/arena runtime with Vale-style hybrid generational handles plus validation benches proving no additional runtime checks are emitted on hot paths (`seen_memory_manager/src/handles.rs`, `seen_memory_manager/benches/hybrid_handles.rs`).
   2. ✅ Surface region strategy hints (`bump`, `stack`, `cxl_near`) in Seen syntax and teach the compiler to auto-select O(1) release strategies when lifetime analysis allows it (`seen_parser/src/ast.rs`, `seen_parser/src/parser.rs`, `seen_memory_manager/src/regions.rs`, `docs/spec/regions.md`).
-  3. 🚧 Continue flattening compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious layouts—region runtime now stores regions in a 32-bit contiguous arena; IR modules, functions, CFGs, and program globals now use arena storage. Remaining HashMaps (LLVM backend caches, pass-local optimizer maps, metadata/export symbol tables) are intentionally retained for keyed lookups; document rationale in follow-up design notes (docs/research/13 - Language Performance.md).
+  3. ✅ Continue flattening compiler data structures (AST arenas, IR graphs) to use 32-bit indices and cache-oblivious
+     layouts—`seen_ir/src/arena.rs` now provides a shared 32-bit arena that powers IR programs, modules, call graphs,
+     and CFG blocks (`ArenaIndex` replaces `usize` handles throughout `seen_ir/src/lib.rs`, `module.rs`, `function.rs`,
+     and `instruction.rs`). Modules, globals, and blocks are packed contiguously to improve cache warmth, while their
+     lookups are backed by compact `ArenaIndex` maps. Remaining HashMaps are limited to metadata/export symbol tables
+     where string keys are required; rationale captured in docs/research/13 - Language Performance.md.
   4. Audit runtime safety checks, gating them behind debug profiles when static proofs exist, so production binaries keep the "zero memory safety overhead" promise.
       * ✅ Duplicate-allocation detection for region handles now runs only in debug/profile builds; release binaries
         elide the scan while still preserving analysis correctness (`seen_memory_manager/src/regions.rs`).

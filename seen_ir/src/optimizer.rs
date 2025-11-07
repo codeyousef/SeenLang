@@ -1,14 +1,19 @@
 //! IR optimization passes for the Seen programming language
 
 use crate::{
-    function::IRFunction,
-    instruction::{BinaryOp, Instruction, UnaryOp},
+    function::{IRFunction, InlineHint},
+    instruction::{BasicBlock, BinaryOp, Instruction, UnaryOp},
     module::IRModule,
     value::{IRType, IRValue},
     IRProgram, IRResult,
 };
 mod egraph;
+mod ml;
 use egraph::{try_simplify_binary, SimplifiedExpr};
+use ml::{
+    DecisionLogger, DecisionReplay, FunctionFeatures, MlDecision, MlHeuristicModel,
+    OptimizationProfileWriter, RegisterPressurePlan,
+};
 use std::collections::{HashMap, HashSet};
 
 /// Optimization level
@@ -52,6 +57,10 @@ pub struct OptimizationStats {
     pub dead_code_blocks_removed: usize,
     pub redundant_moves_eliminated: usize,
     pub equality_saturation_applied: usize,
+    pub inline_hints_applied: usize,
+    pub register_pressure_adjustments: usize,
+    pub registers_reused: usize,
+    pub lens_superoptimizer_rewrites: usize,
     pub passes_run: Vec<String>,
 }
 
@@ -59,6 +68,10 @@ pub struct OptimizationStats {
 pub struct IROptimizer {
     level: OptimizationLevel,
     stats: OptimizationStats,
+    ml_model: Option<MlHeuristicModel>,
+    profile_writer: Option<OptimizationProfileWriter>,
+    decision_logger: Option<DecisionLogger>,
+    decision_replay: Option<DecisionReplay>,
 }
 
 impl IROptimizer {
@@ -66,6 +79,10 @@ impl IROptimizer {
         Self {
             level,
             stats: OptimizationStats::default(),
+            ml_model: MlHeuristicModel::from_env(),
+            profile_writer: OptimizationProfileWriter::from_env(),
+            decision_logger: DecisionLogger::from_env(),
+            decision_replay: DecisionReplay::from_env(),
         }
     }
 
@@ -91,6 +108,34 @@ impl IROptimizer {
 
     /// Optimize a single function
     pub fn optimize_function(&mut self, function: &mut IRFunction) -> IRResult<()> {
+        let features = FunctionFeatures::from_function(function);
+        if let Some(writer) = self.profile_writer.as_mut() {
+            writer.record(&function.name, &features);
+        }
+        let mut decision = if let Some(model) = &self.ml_model {
+            model.decide(&features)
+        } else {
+            MlDecision::from_level(self.level, &features)
+        };
+
+        if let Some(replay) = self.decision_replay.as_ref() {
+            replay.apply(&function.name, &mut decision);
+        }
+
+        function.inline_hint = decision.inline_hint;
+        function.register_pressure = decision.register_class;
+        if !matches!(function.inline_hint, InlineHint::Auto) {
+            self.stats.inline_hints_applied += 1;
+        }
+        if let Some(plan) = decision.register_plan.clone() {
+            if let Some(outcome) = self.apply_register_pressure_plan(function, &plan)? {
+                self.stats.register_pressure_adjustments += 1;
+                self.stats.registers_reused += outcome.reused;
+            }
+        }
+
+        let run_aggressive = decision.aggressive_allowed;
+
         // Run optimization passes in order
 
         if self.level.should_run_pass(OptimizationLevel::Basic) {
@@ -119,9 +164,13 @@ impl IROptimizer {
             self.stats
                 .passes_run
                 .push("equality_saturation".to_string());
+
+            if features.loop_blocks > 0 {
+                self.superoptimize_loop_chains(function)?;
+            }
         }
 
-        if self.level.should_run_pass(OptimizationLevel::Aggressive) {
+        if run_aggressive {
             self.common_subexpression_elimination(function)?;
             self.stats
                 .passes_run
@@ -131,7 +180,730 @@ impl IROptimizer {
             self.stats.passes_run.push("loop_optimization".to_string());
         }
 
+        if let Some(logger) = self.decision_logger.as_mut() {
+            let snapshot = FunctionFeatures::from_function(function);
+            logger.record(&function.name, &snapshot, &decision);
+        }
+
         Ok(())
+    }
+
+    fn apply_register_pressure_plan(
+        &mut self,
+        function: &mut IRFunction,
+        plan: &RegisterPressurePlan,
+    ) -> IRResult<Option<RegisterPlanOutcome>> {
+        if plan.target_register_budget == 0
+            || function.register_count <= plan.target_register_budget
+        {
+            return Ok(None);
+        }
+
+        let before = function.register_count;
+        let mut remaining = Self::count_register_uses(function);
+        if remaining.is_empty() {
+            return Ok(None);
+        }
+
+        let mut allocator = RegisterAllocatorState::new();
+        let mut mapping: HashMap<u32, u32> = HashMap::new();
+
+        for block in function.cfg.blocks_iter_mut() {
+            for inst in &mut block.instructions {
+                Self::remap_instruction_registers(
+                    inst,
+                    &mut allocator,
+                    &mut mapping,
+                    &mut remaining,
+                );
+            }
+            if let Some(term) = block.terminator.as_mut() {
+                Self::remap_instruction_registers(
+                    term,
+                    &mut allocator,
+                    &mut mapping,
+                    &mut remaining,
+                );
+            }
+        }
+
+        for local in function.locals_iter_mut() {
+            if let Some(old_reg) = local.register {
+                if let Some(&new_reg) = mapping.get(&old_reg) {
+                    local.register = Some(new_reg);
+                }
+            }
+        }
+
+        let after = allocator.max_register_index();
+        if after >= before {
+            function.register_count = after;
+            return Ok(None);
+        }
+
+        function.register_count = after;
+        Ok(Some(RegisterPlanOutcome {
+            reused: allocator.reused(),
+        }))
+    }
+
+    fn superoptimize_loop_chains(&mut self, function: &mut IRFunction) -> IRResult<()> {
+        let mut rewrites = 0;
+        for block in function.cfg.blocks_iter_mut() {
+            if block.label.0.contains("loop") {
+                rewrites += Self::superoptimize_block(block);
+            }
+        }
+        if rewrites > 0 {
+            self.stats.lens_superoptimizer_rewrites += rewrites;
+            self.stats
+                .passes_run
+                .push("lens_superoptimizer".to_string());
+        }
+        Ok(())
+    }
+
+    fn superoptimize_block(block: &mut BasicBlock) -> usize {
+        let use_counts = Self::block_register_use_counts(block);
+        Self::fuse_linear_pairs(block, &use_counts)
+    }
+
+    fn block_register_use_counts(block: &BasicBlock) -> HashMap<u32, usize> {
+        let mut counts = HashMap::new();
+        for inst in &block.instructions {
+            Self::count_uses_in_instruction(inst, &mut counts);
+        }
+        if let Some(term) = &block.terminator {
+            Self::count_uses_in_instruction(term, &mut counts);
+        }
+        counts
+    }
+
+    fn fuse_linear_pairs(block: &mut BasicBlock, use_counts: &HashMap<u32, usize>) -> usize {
+        let mut rewrites = 0;
+        let mut idx = 0;
+        while idx + 1 < block.instructions.len() {
+            if let Some(new_inst) = Self::try_linear_fusion(
+                &block.instructions[idx],
+                &block.instructions[idx + 1],
+                use_counts,
+            ) {
+                block.instructions[idx + 1] = new_inst;
+                block.instructions.remove(idx);
+                rewrites += 1;
+                if idx > 0 {
+                    idx -= 1;
+                }
+                continue;
+            }
+            idx += 1;
+        }
+        rewrites
+    }
+
+    fn try_linear_fusion(
+        first: &Instruction,
+        second: &Instruction,
+        use_counts: &HashMap<u32, usize>,
+    ) -> Option<Instruction> {
+        match (first, second) {
+            (
+                Instruction::Binary {
+                    op: op1,
+                    left: left1,
+                    right: right1,
+                    result: IRValue::Register(tmp),
+                },
+                Instruction::Binary {
+                    op: op2,
+                    left: left2,
+                    right: right2,
+                    result,
+                },
+            ) => {
+                if use_counts.get(tmp).copied().unwrap_or(0) != 1 {
+                    return None;
+                }
+                if let Some((base, offset)) = Self::decompose_affine_component(op1, left1, right1) {
+                    if let Some(second_offset) =
+                        Self::affine_second_offset(op2, left2, right2, *tmp)
+                    {
+                        return Some(Self::build_affine_instruction(
+                            base,
+                            offset + second_offset,
+                            result.clone(),
+                        ));
+                    }
+                }
+                if let Some((base, factor)) =
+                    Self::decompose_multiplicative_component(op1, left1, right1)
+                {
+                    if let Some(second_factor) =
+                        Self::multiplicative_second_factor(op2, left2, right2, *tmp)
+                    {
+                        return Some(Self::build_multiplicative_instruction(
+                            base,
+                            factor * second_factor,
+                            result.clone(),
+                        ));
+                    }
+                }
+                if let Some((base, shift)) = Self::decompose_shift_component(op1, left1, right1) {
+                    if let Some(second_shift) = Self::shift_second_amount(op2, left2, right2, *tmp)
+                    {
+                        return Some(Self::build_shift_instruction(
+                            base,
+                            shift + second_shift,
+                            result.clone(),
+                        ));
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn decompose_affine_component(
+        op: &BinaryOp,
+        left: &IRValue,
+        right: &IRValue,
+    ) -> Option<(IRValue, i64)> {
+        match (op, left, right) {
+            (BinaryOp::Add, IRValue::Integer(c), other)
+            | (BinaryOp::Add, other, IRValue::Integer(c)) => Some((other.clone(), *c)),
+            (BinaryOp::Subtract, other, IRValue::Integer(c)) => Some((other.clone(), -*c)),
+            _ => None,
+        }
+    }
+
+    fn affine_second_offset(
+        op: &BinaryOp,
+        left: &IRValue,
+        right: &IRValue,
+        tmp: u32,
+    ) -> Option<i64> {
+        match (left, right) {
+            (IRValue::Register(reg), IRValue::Integer(c)) if *reg == tmp => match op {
+                BinaryOp::Add => Some(*c),
+                BinaryOp::Subtract => Some(-*c),
+                _ => None,
+            },
+            (IRValue::Integer(c), IRValue::Register(reg)) if *reg == tmp => match op {
+                BinaryOp::Add => Some(*c),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn build_affine_instruction(base: IRValue, offset: i64, result: IRValue) -> Instruction {
+        if offset == 0 {
+            Instruction::Move {
+                source: base,
+                dest: result,
+            }
+        } else {
+            Instruction::Binary {
+                op: BinaryOp::Add,
+                left: base,
+                right: IRValue::Integer(offset),
+                result,
+            }
+        }
+    }
+
+    fn decompose_multiplicative_component(
+        op: &BinaryOp,
+        left: &IRValue,
+        right: &IRValue,
+    ) -> Option<(IRValue, i64)> {
+        if !matches!(op, BinaryOp::Multiply) {
+            return None;
+        }
+        match (left, right) {
+            (IRValue::Integer(c), other) | (other, IRValue::Integer(c)) => {
+                Some((other.clone(), *c))
+            }
+            _ => None,
+        }
+    }
+
+    fn multiplicative_second_factor(
+        op: &BinaryOp,
+        left: &IRValue,
+        right: &IRValue,
+        tmp: u32,
+    ) -> Option<i64> {
+        if !matches!(op, BinaryOp::Multiply) {
+            return None;
+        }
+        match (left, right) {
+            (IRValue::Register(reg), IRValue::Integer(c))
+            | (IRValue::Integer(c), IRValue::Register(reg))
+            if *reg == tmp =>
+                {
+                    Some(*c)
+                }
+            _ => None,
+        }
+    }
+
+    fn build_multiplicative_instruction(
+        base: IRValue,
+        factor: i64,
+        result: IRValue,
+    ) -> Instruction {
+        if factor == 1 {
+            Instruction::Move {
+                source: base,
+                dest: result,
+            }
+        } else {
+            Instruction::Binary {
+                op: BinaryOp::Multiply,
+                left: base,
+                right: IRValue::Integer(factor),
+                result,
+            }
+        }
+    }
+
+    fn decompose_shift_component(
+        op: &BinaryOp,
+        left: &IRValue,
+        right: &IRValue,
+    ) -> Option<(IRValue, i64)> {
+        if !matches!(op, BinaryOp::LeftShift) {
+            return None;
+        }
+        match right {
+            IRValue::Integer(amount) if *amount >= 0 => Some((left.clone(), *amount)),
+            _ => None,
+        }
+    }
+
+    fn shift_second_amount(
+        op: &BinaryOp,
+        left: &IRValue,
+        right: &IRValue,
+        tmp: u32,
+    ) -> Option<i64> {
+        if !matches!(op, BinaryOp::LeftShift) {
+            return None;
+        }
+        match (left, right) {
+            (IRValue::Register(reg), IRValue::Integer(amount)) if *reg == tmp && *amount >= 0 => {
+                Some(*amount)
+            }
+            _ => None,
+        }
+    }
+
+    fn build_shift_instruction(base: IRValue, shift: i64, result: IRValue) -> Instruction {
+        if shift == 0 {
+            Instruction::Move {
+                source: base,
+                dest: result,
+            }
+        } else {
+            Instruction::Binary {
+                op: BinaryOp::LeftShift,
+                left: base,
+                right: IRValue::Integer(shift),
+                result,
+            }
+        }
+    }
+
+    fn count_register_uses(function: &IRFunction) -> HashMap<u32, usize> {
+        let mut counts = HashMap::new();
+        for block in function.cfg.blocks_iter() {
+            for inst in &block.instructions {
+                Self::count_uses_in_instruction(inst, &mut counts);
+            }
+            if let Some(term) = &block.terminator {
+                Self::count_uses_in_instruction(term, &mut counts);
+            }
+        }
+        counts
+    }
+
+    fn count_uses_in_instruction(inst: &Instruction, counts: &mut HashMap<u32, usize>) {
+        match inst {
+            Instruction::Binary { left, right, .. } => {
+                Self::accumulate_read_registers(left, counts);
+                Self::accumulate_read_registers(right, counts);
+            }
+            Instruction::Unary { operand, .. } => {
+                Self::accumulate_read_registers(operand, counts);
+            }
+            Instruction::Move { source, .. } => {
+                Self::accumulate_read_registers(source, counts);
+            }
+            Instruction::Load { source, .. } => {
+                Self::accumulate_read_registers(source, counts);
+            }
+            Instruction::Store { value, dest } => {
+                Self::accumulate_read_registers(value, counts);
+                Self::accumulate_read_registers(dest, counts);
+            }
+            Instruction::Call { target, args, .. } => {
+                Self::accumulate_read_registers(target, counts);
+                for arg in args {
+                    Self::accumulate_read_registers(arg, counts);
+                }
+            }
+            Instruction::Return(Some(value)) => {
+                Self::accumulate_read_registers(value, counts);
+            }
+            Instruction::JumpIf { condition, .. } | Instruction::JumpIfNot { condition, .. } => {
+                Self::accumulate_read_registers(condition, counts);
+            }
+            Instruction::Allocate { size, .. } => {
+                Self::accumulate_read_registers(size, counts);
+            }
+            Instruction::Deallocate { pointer } => {
+                Self::accumulate_read_registers(pointer, counts);
+            }
+            Instruction::ArrayAccess { array, index, .. } => {
+                Self::accumulate_read_registers(array, counts);
+                Self::accumulate_read_registers(index, counts);
+            }
+            Instruction::ArraySet {
+                array,
+                index,
+                value,
+            } => {
+                Self::accumulate_read_registers(array, counts);
+                Self::accumulate_read_registers(index, counts);
+                Self::accumulate_read_registers(value, counts);
+            }
+            Instruction::ArrayLength { array, .. } => {
+                Self::accumulate_read_registers(array, counts);
+            }
+            Instruction::FieldAccess { struct_val, .. } => {
+                Self::accumulate_read_registers(struct_val, counts);
+            }
+            Instruction::FieldSet {
+                struct_val, value, ..
+            } => {
+                Self::accumulate_read_registers(struct_val, counts);
+                Self::accumulate_read_registers(value, counts);
+            }
+            Instruction::GetEnumTag { enum_value, .. }
+            | Instruction::GetEnumField { enum_value, .. } => {
+                Self::accumulate_read_registers(enum_value, counts);
+            }
+            Instruction::Cast { value, .. }
+            | Instruction::TypeCheck { value, .. }
+            | Instruction::StringLength { string: value, .. } => {
+                Self::accumulate_read_registers(value, counts);
+            }
+            Instruction::StringConcat { left, right, .. } => {
+                Self::accumulate_read_registers(left, counts);
+                Self::accumulate_read_registers(right, counts);
+            }
+            Instruction::VirtualCall { receiver, args, .. } => {
+                Self::accumulate_read_registers(receiver, counts);
+                for arg in args {
+                    Self::accumulate_read_registers(arg, counts);
+                }
+            }
+            Instruction::StaticCall { args, .. } => {
+                for arg in args {
+                    Self::accumulate_read_registers(arg, counts);
+                }
+            }
+            Instruction::ConstructObject { args, .. }
+            | Instruction::ConstructEnum { fields: args, .. } => {
+                for arg in args {
+                    Self::accumulate_read_registers(arg, counts);
+                }
+            }
+            Instruction::Print(value) => {
+                Self::accumulate_read_registers(value, counts);
+            }
+            Instruction::Debug { value, .. } => {
+                if let Some(val) = value {
+                    Self::accumulate_read_registers(val, counts);
+                }
+            }
+            Instruction::ChannelSelect { cases, .. } => {
+                for arm in cases {
+                    Self::accumulate_read_registers(&arm.channel, counts);
+                }
+            }
+            Instruction::Scoped { .. }
+            | Instruction::Spawn { .. }
+            | Instruction::PushFrame
+            | Instruction::PopFrame
+            | Instruction::Jump(_)
+            | Instruction::Label(_)
+            | Instruction::Return(None)
+            | Instruction::Nop => {}
+        }
+    }
+
+    fn accumulate_read_registers(value: &IRValue, counts: &mut HashMap<u32, usize>) {
+        match value {
+            IRValue::Register(reg) => {
+                *counts.entry(*reg).or_insert(0) += 1;
+            }
+            IRValue::Array(values) => {
+                for v in values {
+                    Self::accumulate_read_registers(v, counts);
+                }
+            }
+            IRValue::Struct { fields, .. } => {
+                for v in fields.values() {
+                    Self::accumulate_read_registers(v, counts);
+                }
+            }
+            IRValue::AddressOf(inner) => {
+                Self::accumulate_read_registers(inner, counts);
+            }
+            _ => {}
+        }
+    }
+
+    fn remap_instruction_registers(
+        inst: &mut Instruction,
+        allocator: &mut RegisterAllocatorState,
+        mapping: &mut HashMap<u32, u32>,
+        remaining: &mut HashMap<u32, usize>,
+    ) {
+        match inst {
+            Instruction::Binary {
+                left,
+                right,
+                result,
+                ..
+            } => {
+                Self::remap_read_value(left, allocator, mapping, remaining);
+                Self::remap_read_value(right, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::Unary {
+                operand, result, ..
+            } => {
+                Self::remap_read_value(operand, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::Move { source, dest } => {
+                Self::remap_read_value(source, allocator, mapping, remaining);
+                Self::remap_write_value(dest, allocator, mapping, remaining);
+            }
+            Instruction::Load { source, dest } => {
+                Self::remap_read_value(source, allocator, mapping, remaining);
+                Self::remap_write_value(dest, allocator, mapping, remaining);
+            }
+            Instruction::Store { value, dest } => {
+                Self::remap_read_value(value, allocator, mapping, remaining);
+                Self::remap_read_value(dest, allocator, mapping, remaining);
+            }
+            Instruction::Call {
+                target,
+                args,
+                result,
+            } => {
+                Self::remap_read_value(target, allocator, mapping, remaining);
+                for arg in args {
+                    Self::remap_read_value(arg, allocator, mapping, remaining);
+                }
+                if let Some(res) = result {
+                    Self::remap_write_value(res, allocator, mapping, remaining);
+                }
+            }
+            Instruction::Return(Some(value)) => {
+                Self::remap_read_value(value, allocator, mapping, remaining);
+            }
+            Instruction::JumpIf { condition, .. } | Instruction::JumpIfNot { condition, .. } => {
+                Self::remap_read_value(condition, allocator, mapping, remaining);
+            }
+            Instruction::Allocate { size, result } => {
+                Self::remap_read_value(size, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::Deallocate { pointer } => {
+                Self::remap_read_value(pointer, allocator, mapping, remaining);
+            }
+            Instruction::ArrayAccess {
+                array,
+                index,
+                result,
+            } => {
+                Self::remap_read_value(array, allocator, mapping, remaining);
+                Self::remap_read_value(index, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::ArraySet {
+                array,
+                index,
+                value,
+            } => {
+                Self::remap_read_value(array, allocator, mapping, remaining);
+                Self::remap_read_value(index, allocator, mapping, remaining);
+                Self::remap_read_value(value, allocator, mapping, remaining);
+            }
+            Instruction::ArrayLength { array, result } => {
+                Self::remap_read_value(array, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::FieldAccess {
+                struct_val, result, ..
+            } => {
+                Self::remap_read_value(struct_val, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::FieldSet {
+                struct_val, value, ..
+            } => {
+                Self::remap_read_value(struct_val, allocator, mapping, remaining);
+                Self::remap_read_value(value, allocator, mapping, remaining);
+            }
+            Instruction::GetEnumTag { enum_value, result } => {
+                Self::remap_read_value(enum_value, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::GetEnumField {
+                enum_value, result, ..
+            } => {
+                Self::remap_read_value(enum_value, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::Cast { value, result, .. }
+            | Instruction::TypeCheck { value, result, .. }
+            | Instruction::StringLength {
+                string: value,
+                result,
+            } => {
+                Self::remap_read_value(value, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::StringConcat {
+                left,
+                right,
+                result,
+            } => {
+                Self::remap_read_value(left, allocator, mapping, remaining);
+                Self::remap_read_value(right, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::VirtualCall {
+                receiver,
+                args,
+                result,
+                ..
+            } => {
+                Self::remap_read_value(receiver, allocator, mapping, remaining);
+                for arg in args {
+                    Self::remap_read_value(arg, allocator, mapping, remaining);
+                }
+                if let Some(res) = result {
+                    Self::remap_write_value(res, allocator, mapping, remaining);
+                }
+            }
+            Instruction::StaticCall { args, result, .. } => {
+                for arg in args {
+                    Self::remap_read_value(arg, allocator, mapping, remaining);
+                }
+                if let Some(res) = result {
+                    Self::remap_write_value(res, allocator, mapping, remaining);
+                }
+            }
+            Instruction::ConstructObject { args, result, .. } => {
+                for arg in args {
+                    Self::remap_read_value(arg, allocator, mapping, remaining);
+                }
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::ConstructEnum { fields, result, .. } => {
+                for field in fields {
+                    Self::remap_read_value(field, allocator, mapping, remaining);
+                }
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::Print(value) => {
+                Self::remap_read_value(value, allocator, mapping, remaining);
+            }
+            Instruction::Debug { value, .. } => {
+                if let Some(val) = value {
+                    Self::remap_read_value(val, allocator, mapping, remaining);
+                }
+            }
+            Instruction::ChannelSelect {
+                cases,
+                payload_result,
+                index_result,
+                status_result,
+            } => {
+                for arm in cases {
+                    Self::remap_read_value(&mut arm.channel, allocator, mapping, remaining);
+                }
+                Self::remap_write_value(payload_result, allocator, mapping, remaining);
+                Self::remap_write_value(index_result, allocator, mapping, remaining);
+                Self::remap_write_value(status_result, allocator, mapping, remaining);
+            }
+            Instruction::Scoped { result, .. } | Instruction::Spawn { result, .. } => {
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::Jump(_)
+            | Instruction::Label(_)
+            | Instruction::PushFrame
+            | Instruction::PopFrame
+            | Instruction::Return(None)
+            | Instruction::Nop => {}
+        }
+    }
+
+    fn remap_read_value(
+        value: &mut IRValue,
+        allocator: &mut RegisterAllocatorState,
+        mapping: &mut HashMap<u32, u32>,
+        remaining: &mut HashMap<u32, usize>,
+    ) {
+        match value {
+            IRValue::Register(old) => {
+                let original = *old;
+                let new_reg = *mapping
+                    .entry(original)
+                    .or_insert_with(|| allocator.allocate_new());
+                *value = IRValue::Register(new_reg);
+                allocator.consume_use(original, new_reg, remaining);
+            }
+            IRValue::Array(values) => {
+                for v in values {
+                    Self::remap_read_value(v, allocator, mapping, remaining);
+                }
+            }
+            IRValue::Struct { fields, .. } => {
+                for v in fields.values_mut() {
+                    Self::remap_read_value(v, allocator, mapping, remaining);
+                }
+            }
+            IRValue::AddressOf(inner) => {
+                Self::remap_read_value(inner, allocator, mapping, remaining);
+            }
+            _ => {}
+        }
+    }
+
+    fn remap_write_value(
+        value: &mut IRValue,
+        allocator: &mut RegisterAllocatorState,
+        mapping: &mut HashMap<u32, u32>,
+        remaining: &mut HashMap<u32, usize>,
+    ) {
+        if let IRValue::Register(old) = value {
+            let original = *old;
+            let new_reg = allocator.allocate_new();
+            mapping.insert(original, new_reg);
+            *value = IRValue::Register(new_reg);
+            if remaining.get(&original).copied().unwrap_or(0) == 0 {
+                allocator.release(new_reg);
+            }
+        }
     }
 
     /// Constant folding optimization
@@ -674,6 +1446,69 @@ impl Default for IROptimizer {
     }
 }
 
+struct RegisterPlanOutcome {
+    reused: usize,
+}
+
+struct RegisterAllocatorState {
+    next_register: u32,
+    free_list: Vec<u32>,
+    max_assigned: u32,
+    reused: usize,
+}
+
+impl RegisterAllocatorState {
+    fn new() -> Self {
+        Self {
+            next_register: 0,
+            free_list: Vec::new(),
+            max_assigned: 0,
+            reused: 0,
+        }
+    }
+
+    fn allocate_new(&mut self) -> u32 {
+        if let Some(reg) = self.free_list.pop() {
+            self.reused += 1;
+            reg
+        } else {
+            let reg = self.next_register;
+            self.next_register += 1;
+            if reg > self.max_assigned {
+                self.max_assigned = reg;
+            }
+            reg
+        }
+    }
+
+    fn release(&mut self, reg: u32) {
+        self.free_list.push(reg);
+    }
+
+    fn consume_use(&mut self, original: u32, new_reg: u32, remaining: &mut HashMap<u32, usize>) {
+        if let Some(count) = remaining.get_mut(&original) {
+            if *count > 0 {
+                *count -= 1;
+                if *count == 0 {
+                    self.release(new_reg);
+                }
+            }
+        }
+    }
+
+    fn max_register_index(&self) -> u32 {
+        if self.next_register == 0 {
+            0
+        } else {
+            self.max_assigned.saturating_add(1)
+        }
+    }
+
+    fn reused(&self) -> usize {
+        self.reused
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -762,6 +1597,125 @@ mod tests {
             assert_eq!(*right, IRValue::Integer(3)); // log2(8) = 3
         } else {
             panic!("Expected left shift instruction after strength reduction");
+        }
+    }
+
+    #[test]
+    fn register_pressure_plan_reduces_virtual_register_count() {
+        let mut optimizer = IROptimizer::new(OptimizationLevel::Standard);
+        let mut function = IRFunction::new("pressure", IRType::Integer);
+
+        let mut block = BasicBlock::new(Label::new("loop_body"));
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(0),
+            right: IRValue::Integer(1),
+            result: IRValue::Register(1),
+        });
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(1),
+            right: IRValue::Integer(2),
+            result: IRValue::Register(2),
+        });
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(2),
+            right: IRValue::Integer(3),
+            result: IRValue::Register(3),
+        });
+        block.add_instruction(Instruction::Return(Some(IRValue::Register(3))));
+        function.add_block(block);
+        function.cfg.entry_block = Some("loop_body".to_string());
+        function.register_count = 4;
+
+        let plan = RegisterPressurePlan {
+            target_register_budget: 2,
+        };
+        let outcome = optimizer
+            .apply_register_pressure_plan(&mut function, &plan)
+            .expect("plan result");
+        assert!(outcome.is_some());
+        assert!(function.register_count < 4);
+    }
+
+    #[test]
+    fn lens_superoptimizer_folds_constant_add_chain() {
+        let mut optimizer = IROptimizer::new(OptimizationLevel::Standard);
+        let mut function = IRFunction::new("loop_fn", IRType::Integer);
+
+        let mut block = BasicBlock::new(Label::new("loop_body"));
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(0),
+            right: IRValue::Integer(2),
+            result: IRValue::Register(1),
+        });
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(1),
+            right: IRValue::Integer(3),
+            result: IRValue::Register(2),
+        });
+        block.add_instruction(Instruction::Return(Some(IRValue::Register(2))));
+        function.add_block(block);
+        function.cfg.entry_block = Some("loop_body".to_string());
+        function.register_count = 3;
+
+        optimizer.optimize_function(&mut function).unwrap();
+        let block = function.get_block("loop_body").unwrap();
+        assert_eq!(block.instructions.len(), 1);
+        match &block.instructions[0] {
+            Instruction::Binary {
+                op, left, right, ..
+            } => {
+                assert_eq!(*op, BinaryOp::Add);
+                assert_eq!(*left, IRValue::Register(0));
+                assert_eq!(*right, IRValue::Integer(5));
+            }
+            other => panic!("expected fused add, got {:?}", other),
+        }
+        assert!(optimizer.stats.lens_superoptimizer_rewrites >= 1);
+    }
+
+    #[test]
+    fn lens_superoptimizer_combines_multiply_chain() {
+        let mut optimizer = IROptimizer::new(OptimizationLevel::Standard);
+        let mut function = IRFunction::new("mul_loop", IRType::Integer);
+
+        let mut block = BasicBlock::new(Label::new("loop_step"));
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Multiply,
+            left: IRValue::Register(0),
+            right: IRValue::Integer(2),
+            result: IRValue::Register(1),
+        });
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Multiply,
+            left: IRValue::Register(1),
+            right: IRValue::Integer(4),
+            result: IRValue::Register(2),
+        });
+        block.add_instruction(Instruction::Return(Some(IRValue::Register(2))));
+        function.add_block(block);
+        function.cfg.entry_block = Some("loop_step".to_string());
+        function.register_count = 3;
+
+        optimizer.optimize_function(&mut function).unwrap();
+        let block = function.get_block("loop_step").unwrap();
+        assert_eq!(block.instructions.len(), 1);
+        match &block.instructions[0] {
+            Instruction::Binary {
+                op, left, right, ..
+            } => {
+                assert_eq!(*left, IRValue::Register(0));
+                match op {
+                    BinaryOp::Multiply => assert_eq!(*right, IRValue::Integer(8)),
+                    BinaryOp::LeftShift => assert_eq!(*right, IRValue::Integer(3)),
+                    other => panic!("unexpected op {:?}", other),
+                }
+            }
+            other => panic!("expected fused multiply, got {:?}", other),
         }
     }
 

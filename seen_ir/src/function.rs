@@ -1,5 +1,6 @@
 //! IR function representation for the Seen programming language
 
+use crate::arena::{Arena, ArenaIndex};
 use crate::instruction::{BasicBlock, ControlFlowGraph};
 use crate::value::{IRType, IRValue};
 use serde::{Deserialize, Serialize};
@@ -75,6 +76,75 @@ impl LocalVariable {
     }
 }
 
+/// Hint describing how aggressively LLVM should inline a function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InlineHint {
+    Auto,
+    AlwaysInline,
+    NeverInline,
+}
+
+impl Default for InlineHint {
+    fn default() -> Self {
+        InlineHint::Auto
+    }
+}
+
+impl InlineHint {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            InlineHint::Auto => "auto",
+            InlineHint::AlwaysInline => "always",
+            InlineHint::NeverInline => "never",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(InlineHint::Auto),
+            "always" | "alwaysinline" => Some(InlineHint::AlwaysInline),
+            "never" | "noinline" => Some(InlineHint::NeverInline),
+            _ => None,
+        }
+    }
+}
+
+/// Classification of register pressure discovered by ML heuristics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegisterPressureClass {
+    Unknown,
+    Low,
+    Medium,
+    High,
+}
+
+impl Default for RegisterPressureClass {
+    fn default() -> Self {
+        RegisterPressureClass::Unknown
+    }
+}
+
+impl RegisterPressureClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RegisterPressureClass::Unknown => "unknown",
+            RegisterPressureClass::Low => "low",
+            RegisterPressureClass::Medium => "medium",
+            RegisterPressureClass::High => "high",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "unknown" => Some(RegisterPressureClass::Unknown),
+            "low" => Some(RegisterPressureClass::Low),
+            "medium" => Some(RegisterPressureClass::Medium),
+            "high" => Some(RegisterPressureClass::High),
+            _ => None,
+        }
+    }
+}
+
 /// IR function representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IRFunction {
@@ -90,6 +160,10 @@ pub struct IRFunction {
     pub calling_convention: CallingConvention,
     pub stack_size: Option<usize>, // Computed during compilation
     pub register_count: u32,       // Number of virtual registers used
+    #[serde(default)]
+    pub inline_hint: InlineHint,
+    #[serde(default)]
+    pub register_pressure: RegisterPressureClass,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,6 +187,8 @@ impl IRFunction {
             calling_convention: CallingConvention::Seen,
             stack_size: None,
             register_count: 0,
+            inline_hint: InlineHint::Auto,
+            register_pressure: RegisterPressureClass::Unknown,
         }
     }
 
@@ -308,7 +384,7 @@ impl IRFunction {
         instruction: &crate::Instruction,
         registers: &mut std::collections::HashSet<u32>,
     ) {
-        use crate::{IRValue, Instruction};
+        use crate::Instruction;
 
         match instruction {
             Instruction::Binary {
@@ -511,15 +587,15 @@ impl CallSite {
 /// Call graph for the entire program
 #[derive(Debug, Clone)]
 pub struct CallGraph {
-    pub functions: Vec<IRFunction>,
-    function_lookup: HashMap<String, u32>,
+    pub functions: Arena<IRFunction>,
+    function_lookup: HashMap<String, ArenaIndex>,
     pub call_sites: Vec<CallSite>,
 }
 
 impl CallGraph {
     pub fn new() -> Self {
         Self {
-            functions: Vec::new(),
+            functions: Arena::new(),
             function_lookup: HashMap::new(),
             call_sites: Vec::new(),
         }
@@ -527,13 +603,15 @@ impl CallGraph {
 
     pub fn add_function(&mut self, mut function: IRFunction) {
         function.rebuild_local_lookup();
-        if let Some(index) = self.function_lookup.get(&function.name).cloned() {
-            self.functions[index as usize] = function;
-        } else {
-            let index = self.functions.len() as u32;
-            self.function_lookup.insert(function.name.clone(), index);
-            self.functions.push(function);
+        if let Some(index) = self.function_lookup.get(&function.name).copied() {
+            if let Some(slot) = self.functions.get_mut(index) {
+                *slot = function;
+            }
+            return;
         }
+        let index = self.functions.push(function);
+        let stored = self.functions[index.as_usize()].name.clone();
+        self.function_lookup.insert(stored, index);
     }
 
     pub fn add_call_site(&mut self, call_site: CallSite) {
@@ -543,12 +621,12 @@ impl CallGraph {
     pub fn get_function(&self, name: &str) -> Option<&IRFunction> {
         self.function_lookup
             .get(name)
-            .and_then(|index| self.functions.get(*index as usize))
+            .and_then(|index| self.functions.get(*index))
     }
 
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut IRFunction> {
-        if let Some(index) = self.function_lookup.get(name).cloned() {
-            self.functions.get_mut(index as usize)
+        if let Some(index) = self.function_lookup.get(name).copied() {
+            self.functions.get_mut(index)
         } else {
             None
         }
@@ -641,7 +719,7 @@ impl Serialize for CallGraph {
         S: serde::Serializer,
     {
         CallGraphSerde {
-            functions: self.functions.clone(),
+            functions: self.functions.clone().into_vec(),
             call_sites: self.call_sites.clone(),
         }
         .serialize(serializer)
@@ -655,7 +733,7 @@ impl<'de> Deserialize<'de> for CallGraph {
     {
         let data = CallGraphSerde::deserialize(deserializer)?;
         let mut graph = CallGraph {
-            functions: data.functions,
+            functions: Arena::from(data.functions),
             function_lookup: HashMap::new(),
             call_sites: data.call_sites,
         };
@@ -663,7 +741,7 @@ impl<'de> Deserialize<'de> for CallGraph {
             function.rebuild_local_lookup();
             graph
                 .function_lookup
-                .insert(function.name.clone(), idx as u32);
+                .insert(function.name.clone(), ArenaIndex::from(idx));
         }
         Ok(graph)
     }
@@ -672,7 +750,6 @@ impl<'de> Deserialize<'de> for CallGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::Instruction;
 
     #[test]
     fn test_function_creation() {

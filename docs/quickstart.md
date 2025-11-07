@@ -120,3 +120,17 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 - Need runtime archives for additional targets (Android, wasm, or custom triples)? Run
   `scripts/build_seen_runtime.sh <triple…>` to build and stage `libseen_runtime.a` under `target/seen-runtime/<triple>/`
   before invoking cross builds or bundling flows.
+
+### ML heuristics & PGO logging
+
+- Point the optimizer at a JSON weight file (bias + feature weights) by exporting
+  `SEEN_ML_HEURISTICS=/path/to/weights.json`.
+  When unset, conservative defaults are used.
+- Set `SEEN_ML_DECISION_LOG=/tmp/seen-decisions.ndjson` to capture every inline/register decision as newline-delimited
+  JSON.
+  Combine with `SEEN_ML_REWARD=<float>` to record the reward that should be associated with each entry (e.g., benchmark
+  speedup).
+- Feed curated decisions back into deterministic builds by pointing `SEEN_ML_DECISION_REPLAY` at an NDJSON or JSON array
+  of logged hints. The optimizer will replay inline hints, register classes, and explicit register budgets before
+  running
+  any passes.

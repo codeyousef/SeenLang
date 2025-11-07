@@ -1,5 +1,6 @@
 //! IR instruction system for the Seen programming language
 
+use crate::arena::{Arena, ArenaIndex};
 use crate::value::{IRType, IRValue};
 use seen_parser::Expression as AstExpression;
 use serde::{Deserialize, Serialize};
@@ -613,8 +614,8 @@ impl fmt::Display for BasicBlock {
 /// Control flow graph representation
 #[derive(Debug, Clone)]
 pub struct ControlFlowGraph {
-    pub blocks: Vec<BasicBlock>,
-    block_lookup: HashMap<String, u32>,
+    pub blocks: Arena<BasicBlock>,
+    block_lookup: HashMap<String, ArenaIndex>,
     pub entry_block: Option<String>,
     pub block_order: Vec<String>,
 }
@@ -622,7 +623,7 @@ pub struct ControlFlowGraph {
 impl ControlFlowGraph {
     pub fn new() -> Self {
         Self {
-            blocks: Vec::new(),
+            blocks: Arena::new(),
             block_lookup: HashMap::new(),
             entry_block: None,
             block_order: Vec::new(),
@@ -631,28 +632,30 @@ impl ControlFlowGraph {
 
     pub fn add_block(&mut self, block: BasicBlock) {
         let label_name = block.label.0.clone();
-        if let Some(index) = self.block_lookup.get(&label_name).cloned() {
-            self.blocks[index as usize] = block;
-        } else {
-            let index = self.blocks.len() as u32;
-            self.block_lookup.insert(label_name.clone(), index);
-            self.blocks.push(block);
-            self.block_order.push(label_name.clone());
-            if self.entry_block.is_none() {
-                self.entry_block = Some(label_name);
+        if let Some(index) = self.block_lookup.get(&label_name).copied() {
+            if let Some(slot) = self.blocks.get_mut(index) {
+                *slot = block;
             }
+            return;
+        }
+
+        let index = self.blocks.push(block);
+        self.block_lookup.insert(label_name.clone(), index);
+        self.block_order.push(label_name.clone());
+        if self.entry_block.is_none() {
+            self.entry_block = Some(label_name);
         }
     }
 
     pub fn get_block(&self, label: &str) -> Option<&BasicBlock> {
         self.block_lookup
             .get(label)
-            .and_then(|idx| self.blocks.get(*idx as usize))
+            .and_then(|idx| self.blocks.get(*idx))
     }
 
     pub fn get_block_mut(&mut self, label: &str) -> Option<&mut BasicBlock> {
-        if let Some(idx) = self.block_lookup.get(label).cloned() {
-            self.blocks.get_mut(idx as usize)
+        if let Some(idx) = self.block_lookup.get(label).copied() {
+            self.blocks.get_mut(idx)
         } else {
             None
         }
@@ -663,13 +666,15 @@ impl ControlFlowGraph {
     }
 
     pub fn block_index(&self, label: &str) -> Option<u32> {
-        self.block_lookup.get(label).cloned()
+        self.block_lookup.get(label).map(|idx| idx.as_u32())
     }
 
     pub fn replace_block(&mut self, old_label: &str, block: BasicBlock) -> Option<u32> {
-        let index = self.block_lookup.get(old_label).cloned()?;
+        let index = self.block_lookup.get(old_label).copied()?;
         let new_label = block.label.0.clone();
-        self.blocks[index as usize] = block;
+        if let Some(slot) = self.blocks.get_mut(index) {
+            *slot = block;
+        }
 
         if old_label != new_label {
             self.block_lookup.remove(old_label);
@@ -690,13 +695,12 @@ impl ControlFlowGraph {
             }
         }
 
-        Some(index)
+        Some(index.as_u32())
     }
 
     pub fn insert_block_at_order(&mut self, position: usize, block: BasicBlock) -> u32 {
         let label_name = block.label.0.clone();
-        let index = self.blocks.len() as u32;
-        self.blocks.push(block);
+        let index = self.blocks.push(block);
         self.block_lookup.insert(label_name.clone(), index);
         if position >= self.block_order.len() {
             self.block_order.push(label_name.clone());
@@ -706,7 +710,7 @@ impl ControlFlowGraph {
         if self.entry_block.is_none() {
             self.entry_block = Some(label_name);
         }
-        index
+        index.as_u32()
     }
 
     pub fn block_names(&self) -> impl Iterator<Item = &String> {
@@ -724,7 +728,8 @@ impl ControlFlowGraph {
     pub fn rebuild_lookup(&mut self) {
         self.block_lookup.clear();
         for (idx, block) in self.blocks.iter().enumerate() {
-            self.block_lookup.insert(block.label.0.clone(), idx as u32);
+            self.block_lookup
+                .insert(block.label.0.clone(), ArenaIndex::from(idx));
         }
     }
 
@@ -789,7 +794,7 @@ impl Serialize for ControlFlowGraph {
         S: serde::Serializer,
     {
         ControlFlowGraphSerde {
-            blocks: self.blocks.clone(),
+            blocks: self.blocks.clone().into_vec(),
             entry_block: self.entry_block.clone(),
             block_order: self.block_order.clone(),
         }
@@ -804,7 +809,7 @@ impl<'de> Deserialize<'de> for ControlFlowGraph {
     {
         let data = ControlFlowGraphSerde::deserialize(deserializer)?;
         let mut cfg = ControlFlowGraph {
-            blocks: data.blocks,
+            blocks: Arena::from(data.blocks),
             block_lookup: HashMap::new(),
             entry_block: data.entry_block,
             block_order: data.block_order,

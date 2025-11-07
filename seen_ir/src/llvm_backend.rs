@@ -10,6 +10,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
+use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
@@ -26,7 +27,7 @@ use inkwell::values::{
 };
 use inkwell::OptimizationLevel as LlvmOptLevel;
 
-use crate::function::IRFunction;
+use crate::function::{IRFunction, InlineHint, RegisterPressureClass};
 use crate::instruction::{BasicBlock, IRSelectArm, Instruction};
 use crate::module::IRModule;
 use crate::value::{IRType, IRValue};
@@ -86,6 +87,8 @@ mod tests {
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+    use crate::{IRFunction, IRType};
+    use crate::function::{InlineHint, RegisterPressureClass};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -184,6 +187,24 @@ mod tests {
                 None => env::remove_var("ANDROID_API_LEVEL"),
             }
         });
+    }
+
+    #[test]
+    fn declare_function_applies_inline_and_pressure_attributes() {
+        let mut backend = LlvmBackend::new();
+        let mut func = IRFunction::new("inline_me", IRType::Void);
+        func.inline_hint = InlineHint::AlwaysInline;
+        func.register_pressure = RegisterPressureClass::High;
+        backend.declare_function(&func).expect("declare");
+        let ir = backend.module.print_to_string().to_string();
+        assert!(
+            ir.contains("alwaysinline"),
+            "expected alwaysinline attribute in {ir}"
+        );
+        assert!(
+            ir.contains("seen-register-pressure"),
+            "expected register pressure attribute in {ir}"
+        );
     }
 }
 
@@ -1059,7 +1080,32 @@ impl<'ctx> LlvmBackend<'ctx> {
             .collect();
         let fn_ty = self.fn_type_from_ir(&func.return_type, &params_ir);
         let f = self.module.add_function(name, fn_ty, None);
+        self.apply_function_attributes(func, f);
         Ok(f)
+    }
+
+    fn apply_function_attributes(&self, func: &IRFunction, llvm_fn: FunctionValue<'ctx>) {
+        match func.inline_hint {
+            InlineHint::AlwaysInline => self.add_enum_attribute(llvm_fn, "alwaysinline"),
+            InlineHint::NeverInline => self.add_enum_attribute(llvm_fn, "noinline"),
+            InlineHint::Auto => {}
+        }
+
+        if !matches!(func.register_pressure, RegisterPressureClass::Unknown) {
+            let attr = self
+                .ctx
+                .create_string_attribute("seen-register-pressure", func.register_pressure.as_str());
+            llvm_fn.add_attribute(AttributeLoc::Function, attr);
+        }
+    }
+
+    fn add_enum_attribute(&self, llvm_fn: FunctionValue<'ctx>, name: &str) {
+        let kind_id = Attribute::get_named_enum_kind_id(name);
+        if kind_id == 0 {
+            return;
+        }
+        let attr = self.ctx.create_enum_attribute(kind_id, 0);
+        llvm_fn.add_attribute(AttributeLoc::Function, attr);
     }
 
     fn fn_type_from_ir(

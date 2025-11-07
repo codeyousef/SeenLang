@@ -1,5 +1,6 @@
 //! IR module system for the Seen programming language
 
+use crate::arena::{Arena, ArenaIndex};
 use crate::function::{CallGraph, IRFunction};
 use crate::value::{IRType, IRValue};
 use serde::{Deserialize, Serialize};
@@ -151,22 +152,22 @@ pub struct ModuleMetadata {
 pub struct IRModule {
     pub name: String,
     pub path: Option<String>, // File path or module path
-    pub functions: Vec<IRFunction>,
-    function_lookup: HashMap<String, u32>,
-    pub constants: Vec<ModuleConstant>,
-    constant_lookup: HashMap<String, u32>,
-    pub global_variables: Vec<GlobalVariable>,
-    global_lookup: HashMap<String, u32>,
-    pub types: Vec<TypeDefinition>,
-    type_lookup: HashMap<String, u32>,
-    pub type_aliases: Vec<TypeAlias>,
-    type_alias_lookup: HashMap<String, u32>,
+    pub functions: Arena<IRFunction>,
+    function_lookup: HashMap<String, ArenaIndex>,
+    pub constants: Arena<ModuleConstant>,
+    constant_lookup: HashMap<String, ArenaIndex>,
+    pub global_variables: Arena<GlobalVariable>,
+    global_lookup: HashMap<String, ArenaIndex>,
+    pub types: Arena<TypeDefinition>,
+    type_lookup: HashMap<String, ArenaIndex>,
+    pub type_aliases: Arena<TypeAlias>,
+    type_alias_lookup: HashMap<String, ArenaIndex>,
     pub imports: Vec<Import>,
     pub exports: Vec<Export>,
     pub dependencies: Vec<String>, // Module names this depends on
     pub version: Option<String>,
-    pub metadata: Vec<ModuleMetadata>,
-    metadata_lookup: HashMap<String, u32>,
+    pub metadata: Arena<ModuleMetadata>,
+    metadata_lookup: HashMap<String, ArenaIndex>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -193,16 +194,16 @@ impl Serialize for IRModule {
         IRModuleSerde {
             name: self.name.clone(),
             path: self.path.clone(),
-            functions: self.functions.clone(),
-            constants: self.constants.clone(),
-            global_variables: self.global_variables.clone(),
-            types: self.types.clone(),
-            type_aliases: self.type_aliases.clone(),
+            functions: self.functions.clone().into_vec(),
+            constants: self.constants.clone().into_vec(),
+            global_variables: self.global_variables.clone().into_vec(),
+            types: self.types.clone().into_vec(),
+            type_aliases: self.type_aliases.clone().into_vec(),
             imports: self.imports.clone(),
             exports: self.exports.clone(),
             dependencies: self.dependencies.clone(),
             version: self.version.clone(),
-            metadata: self.metadata.clone(),
+            metadata: self.metadata.clone().into_vec(),
         }
         .serialize(serializer)
     }
@@ -217,21 +218,21 @@ impl<'de> Deserialize<'de> for IRModule {
         let mut module = IRModule {
             name: data.name,
             path: data.path,
-            functions: data.functions,
+            functions: Arena::from(data.functions),
             function_lookup: HashMap::new(),
-            constants: data.constants,
+            constants: Arena::from(data.constants),
             constant_lookup: HashMap::new(),
-            global_variables: data.global_variables,
+            global_variables: Arena::from(data.global_variables),
             global_lookup: HashMap::new(),
-            types: data.types,
+            types: Arena::from(data.types),
             type_lookup: HashMap::new(),
-            type_aliases: data.type_aliases,
+            type_aliases: Arena::from(data.type_aliases),
             type_alias_lookup: HashMap::new(),
             imports: data.imports,
             exports: data.exports,
             dependencies: data.dependencies,
             version: data.version,
-            metadata: data.metadata,
+            metadata: Arena::from(data.metadata),
             metadata_lookup: HashMap::new(),
         };
         module.rebuild_indices();
@@ -244,21 +245,21 @@ impl IRModule {
         let module = Self {
             name: name.into(),
             path: None,
-            functions: Vec::new(),
+            functions: Arena::new(),
             function_lookup: HashMap::new(),
-            constants: Vec::new(),
+            constants: Arena::new(),
             constant_lookup: HashMap::new(),
-            global_variables: Vec::new(),
+            global_variables: Arena::new(),
             global_lookup: HashMap::new(),
-            types: Vec::new(),
+            types: Arena::new(),
             type_lookup: HashMap::new(),
-            type_aliases: Vec::new(),
+            type_aliases: Arena::new(),
             type_alias_lookup: HashMap::new(),
             imports: Vec::new(),
             exports: Vec::new(),
             dependencies: Vec::new(),
             version: None,
-            metadata: Vec::new(),
+            metadata: Arena::new(),
             metadata_lookup: HashMap::new(),
         };
         module
@@ -276,54 +277,64 @@ impl IRModule {
 
     pub fn add_function(&mut self, mut function: IRFunction) {
         function.rebuild_local_lookup();
-        if let Some(index) = self.function_lookup.get(&function.name).cloned() {
-            self.functions[index as usize] = function;
-        } else {
-            let index = self.functions.len() as u32;
-            self.function_lookup.insert(function.name.clone(), index);
-            self.functions.push(function);
+        if let Some(index) = self.function_lookup.get(&function.name).copied() {
+            if let Some(slot) = self.functions.get_mut(index) {
+                *slot = function;
+            }
+            return;
         }
+
+        let index = self.functions.push(function);
+        let stored_name = self.functions[index.as_usize()].name.clone();
+        self.function_lookup.insert(stored_name, index);
     }
 
     pub fn add_constant(&mut self, constant: ModuleConstant) {
-        if let Some(index) = self.constant_lookup.get(&constant.name).cloned() {
-            self.constants[index as usize] = constant;
-        } else {
-            let index = self.constants.len() as u32;
-            self.constant_lookup.insert(constant.name.clone(), index);
-            self.constants.push(constant);
+        if let Some(index) = self.constant_lookup.get(&constant.name).copied() {
+            if let Some(slot) = self.constants.get_mut(index) {
+                *slot = constant;
+            }
+            return;
         }
+        let index = self.constants.push(constant);
+        let name = self.constants[index.as_usize()].name.clone();
+        self.constant_lookup.insert(name, index);
     }
 
     pub fn add_global(&mut self, global: GlobalVariable) {
-        if let Some(index) = self.global_lookup.get(&global.name).cloned() {
-            self.global_variables[index as usize] = global;
-        } else {
-            let index = self.global_variables.len() as u32;
-            self.global_lookup.insert(global.name.clone(), index);
-            self.global_variables.push(global);
+        if let Some(index) = self.global_lookup.get(&global.name).copied() {
+            if let Some(slot) = self.global_variables.get_mut(index) {
+                *slot = global;
+            }
+            return;
         }
+        let index = self.global_variables.push(global);
+        let name = self.global_variables[index.as_usize()].name.clone();
+        self.global_lookup.insert(name, index);
     }
 
     pub fn add_type(&mut self, type_def: TypeDefinition) {
-        if let Some(index) = self.type_lookup.get(&type_def.name).cloned() {
-            self.types[index as usize] = type_def;
-        } else {
-            let index = self.types.len() as u32;
-            self.type_lookup.insert(type_def.name.clone(), index);
-            self.types.push(type_def);
+        if let Some(index) = self.type_lookup.get(&type_def.name).copied() {
+            if let Some(slot) = self.types.get_mut(index) {
+                *slot = type_def;
+            }
+            return;
         }
+        let index = self.types.push(type_def);
+        let name = self.types[index.as_usize()].name.clone();
+        self.type_lookup.insert(name, index);
     }
 
     pub fn add_type_alias(&mut self, type_alias: TypeAlias) {
-        if let Some(index) = self.type_alias_lookup.get(&type_alias.name).cloned() {
-            self.type_aliases[index as usize] = type_alias;
-        } else {
-            let index = self.type_aliases.len() as u32;
-            self.type_alias_lookup
-                .insert(type_alias.name.clone(), index);
-            self.type_aliases.push(type_alias);
+        if let Some(index) = self.type_alias_lookup.get(&type_alias.name).copied() {
+            if let Some(slot) = self.type_aliases.get_mut(index) {
+                *slot = type_alias;
+            }
+            return;
         }
+        let index = self.type_aliases.push(type_alias);
+        let name = self.type_aliases[index.as_usize()].name.clone();
+        self.type_alias_lookup.insert(name, index);
     }
 
     pub fn add_import(&mut self, import: Import) {
@@ -340,13 +351,17 @@ impl IRModule {
     pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>) {
         let key = key.into();
         let value = value.into();
-        if let Some(index) = self.metadata_lookup.get(&key).cloned() {
-            self.metadata[index as usize].value = value;
-        } else {
-            let index = self.metadata.len() as u32;
-            self.metadata_lookup.insert(key.clone(), index);
-            self.metadata.push(ModuleMetadata { key, value });
+        if let Some(index) = self.metadata_lookup.get(&key).copied() {
+            if let Some(entry) = self.metadata.get_mut(index) {
+                entry.value = value;
+            }
+            return;
         }
+        let index = self.metadata.push(ModuleMetadata {
+            key: key.clone(),
+            value,
+        });
+        self.metadata_lookup.insert(key, index);
     }
 
     pub fn metadata_iter(&self) -> impl Iterator<Item = &ModuleMetadata> {
@@ -356,7 +371,7 @@ impl IRModule {
     pub fn metadata_value(&self, key: &str) -> Option<&str> {
         self.metadata_lookup
             .get(key)
-            .and_then(|idx| self.metadata.get(*idx as usize))
+            .and_then(|idx| self.metadata.get(*idx))
             .map(|meta| meta.value.as_str())
     }
 
@@ -364,13 +379,13 @@ impl IRModule {
     pub fn get_function(&self, name: &str) -> Option<&IRFunction> {
         self.function_lookup
             .get(name)
-            .and_then(|index| self.functions.get(*index as usize))
+            .and_then(|index| self.functions.get(*index))
     }
 
     /// Get a mutable reference to a function
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut IRFunction> {
-        if let Some(index) = self.function_lookup.get(name).cloned() {
-            self.functions.get_mut(index as usize)
+        if let Some(index) = self.function_lookup.get(name).copied() {
+            self.functions.get_mut(index)
         } else {
             None
         }
@@ -400,7 +415,7 @@ impl IRModule {
     pub fn get_constant(&self, name: &str) -> Option<&ModuleConstant> {
         self.constant_lookup
             .get(name)
-            .and_then(|index| self.constants.get(*index as usize))
+            .and_then(|index| self.constants.get(*index))
     }
 
     /// Returns true if a constant exists.
@@ -410,8 +425,8 @@ impl IRModule {
 
     /// Get mutable constant by name.
     pub fn get_constant_mut(&mut self, name: &str) -> Option<&mut ModuleConstant> {
-        if let Some(index) = self.constant_lookup.get(name).cloned() {
-            self.constants.get_mut(index as usize)
+        if let Some(index) = self.constant_lookup.get(name).copied() {
+            self.constants.get_mut(index)
         } else {
             None
         }
@@ -421,7 +436,7 @@ impl IRModule {
     pub fn get_global(&self, name: &str) -> Option<&GlobalVariable> {
         self.global_lookup
             .get(name)
-            .and_then(|index| self.global_variables.get(*index as usize))
+            .and_then(|index| self.global_variables.get(*index))
     }
 
     /// Returns true if a global exists.
@@ -431,8 +446,8 @@ impl IRModule {
 
     /// Get mutable global variable by name.
     pub fn get_global_mut(&mut self, name: &str) -> Option<&mut GlobalVariable> {
-        if let Some(index) = self.global_lookup.get(name).cloned() {
-            self.global_variables.get_mut(index as usize)
+        if let Some(index) = self.global_lookup.get(name).copied() {
+            self.global_variables.get_mut(index)
         } else {
             None
         }
@@ -454,34 +469,37 @@ impl IRModule {
         for (idx, function) in self.functions.iter_mut().enumerate() {
             function.rebuild_local_lookup();
             self.function_lookup
-                .insert(function.name.clone(), idx as u32);
+                .insert(function.name.clone(), ArenaIndex::from(idx));
         }
 
         self.constant_lookup.clear();
         for (idx, constant) in self.constants.iter().enumerate() {
             self.constant_lookup
-                .insert(constant.name.clone(), idx as u32);
+                .insert(constant.name.clone(), ArenaIndex::from(idx));
         }
 
         self.global_lookup.clear();
         for (idx, global) in self.global_variables.iter().enumerate() {
-            self.global_lookup.insert(global.name.clone(), idx as u32);
+            self.global_lookup
+                .insert(global.name.clone(), ArenaIndex::from(idx));
         }
 
         self.type_lookup.clear();
         for (idx, ty) in self.types.iter().enumerate() {
-            self.type_lookup.insert(ty.name.clone(), idx as u32);
+            self.type_lookup
+                .insert(ty.name.clone(), ArenaIndex::from(idx));
         }
 
         self.type_alias_lookup.clear();
         for (idx, alias) in self.type_aliases.iter().enumerate() {
             self.type_alias_lookup
-                .insert(alias.name.clone(), idx as u32);
+                .insert(alias.name.clone(), ArenaIndex::from(idx));
         }
 
         self.metadata_lookup.clear();
         for (idx, meta) in self.metadata.iter().enumerate() {
-            self.metadata_lookup.insert(meta.key.clone(), idx as u32);
+            self.metadata_lookup
+                .insert(meta.key.clone(), ArenaIndex::from(idx));
         }
     }
 

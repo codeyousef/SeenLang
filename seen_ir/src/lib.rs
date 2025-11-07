@@ -4,12 +4,14 @@
 //! which serves as an intermediary between the AST and the target code generation.
 //! The IR is designed to be platform-agnostic and suitable for optimization passes.
 
+use crate::arena::{Arena, ArenaIndex};
 use seen_support::{SeenError, SeenErrorKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
 // IR system modules
+pub mod arena;
 pub mod cfg_builder;
 pub mod function;
 pub mod generator;
@@ -31,10 +33,10 @@ pub use value::{IRType, IRValue};
 /// A complete IR program consisting of multiple modules
 #[derive(Debug, Clone)]
 pub struct IRProgram {
-    pub modules: Vec<IRModule>,
+    pub modules: Arena<IRModule>,
     pub entry_point: Option<String>, // Function name to start execution
-    pub global_variables: Vec<GlobalVariableEntry>,
-    global_lookup: HashMap<String, u32>,
+    pub global_variables: Arena<GlobalVariableEntry>,
+    global_lookup: HashMap<String, ArenaIndex>,
     pub string_table: Vec<String>, // For string constants
 }
 
@@ -47,9 +49,9 @@ pub struct GlobalVariableEntry {
 impl IRProgram {
     pub fn new() -> Self {
         Self {
-            modules: Vec::new(),
+            modules: Arena::new(),
             entry_point: None,
-            global_variables: Vec::new(),
+            global_variables: Arena::new(),
             global_lookup: HashMap::new(),
             string_table: Vec::new(),
         }
@@ -64,13 +66,16 @@ impl IRProgram {
     }
 
     pub fn add_global(&mut self, name: String, value: IRValue) {
-        if let Some(index) = self.global_lookup.get(&name).cloned() {
-            self.global_variables[index as usize].value = value;
+        if let Some(index) = self.global_lookup.get(&name).copied() {
+            if let Some(entry) = self.global_variables.get_mut(index) {
+                entry.value = value;
+            }
         } else {
-            let index = self.global_variables.len() as u32;
-            self.global_lookup.insert(name.clone(), index);
-            self.global_variables
-                .push(GlobalVariableEntry { name, value });
+            let index = self.global_variables.push(GlobalVariableEntry {
+                name: name.clone(),
+                value,
+            });
+            self.global_lookup.insert(name, index);
         }
     }
 
@@ -87,7 +92,7 @@ impl IRProgram {
     pub fn get_global(&self, name: &str) -> Option<&IRValue> {
         self.global_lookup
             .get(name)
-            .and_then(|idx| self.global_variables.get(*idx as usize))
+            .and_then(|idx| self.global_variables.get(*idx))
             .map(|entry| &entry.value)
     }
 
@@ -102,7 +107,8 @@ impl IRProgram {
     pub fn rebuild_global_lookup(&mut self) {
         self.global_lookup.clear();
         for (idx, entry) in self.global_variables.iter().enumerate() {
-            self.global_lookup.insert(entry.name.clone(), idx as u32);
+            self.global_lookup
+                .insert(entry.name.clone(), ArenaIndex::from(idx));
         }
     }
 }
@@ -127,9 +133,9 @@ impl Serialize for IRProgram {
         S: serde::Serializer,
     {
         IRProgramSerde {
-            modules: self.modules.clone(),
+            modules: self.modules.clone().into_vec(),
             entry_point: self.entry_point.clone(),
-            global_variables: self.global_variables.clone(),
+            global_variables: self.global_variables.clone().into_vec(),
             string_table: self.string_table.clone(),
         }
         .serialize(serializer)
@@ -143,9 +149,9 @@ impl<'de> Deserialize<'de> for IRProgram {
     {
         let data = IRProgramSerde::deserialize(deserializer)?;
         let mut program = IRProgram {
-            modules: data.modules,
+            modules: Arena::from(data.modules),
             entry_point: data.entry_point,
-            global_variables: data.global_variables,
+            global_variables: Arena::from(data.global_variables),
             global_lookup: HashMap::new(),
             string_table: data.string_table,
         };
