@@ -81,14 +81,14 @@ enum LinkerFlavor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::function::{InlineHint, RegisterPressureClass};
+    use crate::{IRFunction, IRType};
     use inkwell::targets::TargetTriple;
     use std::env;
     use std::fs;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
-    use crate::{IRFunction, IRType};
-    use crate::function::{InlineHint, RegisterPressureClass};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

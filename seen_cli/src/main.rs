@@ -10,9 +10,11 @@ use seen_core::{
     SeenError, SeenErrorKind, SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator,
     Value, VisibilityPolicy,
 };
+use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -43,6 +45,7 @@ impl Default for Profile {
 enum Backend {
     Ir,
     Mlir,
+    Clif,
     Llvm,
 }
 
@@ -57,6 +60,7 @@ impl fmt::Display for Backend {
         let label = match self {
             Backend::Ir => "ir",
             Backend::Mlir => "mlir",
+            Backend::Clif => "clif",
             Backend::Llvm => "llvm",
         };
         write!(f, "{}", label)
@@ -92,7 +96,7 @@ enum Commands {
         #[arg(long)]
         target: Option<String>,
 
-        /// Output file path (default: a.ir for IR, a.out for LLVM)
+        /// Output file path (default: a.ir for IR, a.mlir for MLIR, a.clif for CLIF, a.out for LLVM)
         #[arg(short, long)]
         output: Option<PathBuf>,
 
@@ -100,7 +104,7 @@ enum Commands {
         #[arg(short = 'O', long, default_value = "0")]
         opt_level: u8,
 
-        /// Backend to use: "ir" (emit textual IR), "mlir" (experimental MLIR export), or "llvm" (native binary via LLVM)
+        /// Backend to use: "ir" (textual IR), "mlir" (MLIR export with transforms), "clif" (Cranelift IR prototype), or "llvm" (native binary)
         #[arg(long, default_value_t = Backend::Ir)]
         backend: Backend,
 
@@ -518,6 +522,28 @@ fn main() -> SeenResult<()> {
                 }
                 compile_file_mlir(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
+            Backend::Clif => {
+                if wasm_loader || bundle {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--wasm-loader/--bundle require the LLVM backend".to_string(),
+                    ));
+                }
+                if let Some(target) = target {
+                    eprintln!(
+                        "warning: --target={} is ignored by the Cranelift IR backend",
+                        target
+                    );
+                }
+                if emit_ll || shared || static_lib {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--emit-ll/--shared/--static are not supported with the Cranelift backend"
+                            .to_string(),
+                    ));
+                }
+                compile_file_clif(&input, output.as_ref(), opt_level, keyword_manager)?;
+            }
         },
 
         Some(Commands::Run {
@@ -546,6 +572,12 @@ fn main() -> SeenResult<()> {
                 return Err(SeenError::new(
                     SeenErrorKind::Tooling,
                     "MLIR backend is not supported for `seen run`".to_string(),
+                ));
+            }
+            Backend::Clif => {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "Cranelift backend is not supported for `seen run`".to_string(),
                 ));
             }
         },
@@ -813,6 +845,31 @@ fn compile_file_mlir(
     })?;
     println!("Generated MLIR: {}", output_path.display());
     println!("Build completed (Rust backend: MLIR)");
+    Ok(())
+}
+
+fn compile_file_clif(
+    input: &Path,
+    output: Option<&PathBuf>,
+    opt_level: u8,
+    keyword_manager: Arc<KeywordManager>,
+) -> SeenResult<()> {
+    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
+    let clif_text = program_to_clif(&optimized_ir);
+    let default_output = PathBuf::from("a.clif");
+    let output_path = output.unwrap_or(&default_output);
+    fs::write(output_path, clif_text).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to write CLIF output file {}: {}",
+                output_path.display(),
+                err
+            ),
+        )
+    })?;
+    println!("Generated Cranelift IR: {}", output_path.display());
+    println!("Build completed (Rust backend: CLIF)");
     Ok(())
 }
 
@@ -2263,7 +2320,7 @@ fn determinism_check(
     if backend == Backend::Llvm {
         return Err(SeenError::new(
             SeenErrorKind::Tooling,
-            "Determinism for the LLVM backend requires artifact inspection; rerun with --backend ir or --backend mlir"
+            "Determinism for the LLVM backend requires artifact inspection; rerun with --backend ir, --backend mlir, or --backend clif"
                 .to_string(),
         ));
     }
@@ -2273,6 +2330,7 @@ fn determinism_check(
         let text = match backend {
             Backend::Ir => format!("{}", optimized_ir),
             Backend::Mlir => program_to_mlir(&optimized_ir),
+            Backend::Clif => program_to_clif(&optimized_ir),
             Backend::Llvm => unreachable!(),
         };
         Ok(text)

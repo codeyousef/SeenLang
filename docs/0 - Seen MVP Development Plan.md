@@ -188,9 +188,17 @@ channel traffic with the same guarantees as the interpreter.
 *Status:* ⏳ Pending — LLVM remains the sole backend; research recommends MLIR/differentiated pipelines to unlock performance headroom.
 
 * **Outstanding tasks:**
-  1. 🚧 Prototype an MLIR emission path (core dialect + Transform + DialEgg integration) and validate parity with the existing deterministic IR dumps (docs/research/13 - Language Performance.md). The `seen_mlir` crate now lowers arithmetic, calls, control flow, and aggregate/memory instructions to textual MLIR with deterministic literal formatting plus unit coverage (`seen_mlir/src/lib.rs`), and `seen_cli --backend mlir` can dump that output; next steps are wiring custom dialect definitions, Transform/DialEgg pipelines, and integrating the CLI path into determinism/Stage workflows.
-  2. Bring up alternative codegen backends (Cranelift with ISLE patterns, Tilde sea-of-nodes) behind `--backend` switches for fast-compile and experimentation lanes.
-  3. Ensure backend selection is deterministic (same hash outputs) and CI exercises Stage0→Stage2 via at least one non-LLVM backend each night.
+    1. ✅ Prototype an MLIR emission path (core dialect + Transform + DialEgg integration) and validate parity with the
+       existing deterministic IR dumps (docs/research/13 - Language Performance.md). `seen_mlir/src/lib.rs` now wraps
+       every emission in `module attributes { dialects = #mlir.dialect_array<...> }` and appends
+       `transform.module @seen_pipeline` with a default `builtin.pipeline(canonicalize,cse)` so DialEgg/Transform passes
+       can consume the output directly. `seen_cli --backend mlir` writes the new structure and the determinism command
+       hashes it to keep Stage workflows honest.
+    2. ✅ Bring up alternative codegen backends (Cranelift with ISLE patterns, Tilde sea-of-nodes) behind `--backend`
+       switches for fast-compile and experimentation lanes. A new `seen_cranelift` crate converts IR into deterministic
+       textual CLIF (`seen_cranelift/src/lib.rs`) and `seen_cli --backend clif` exposes it for fast iteration.
+    3. 🔄 Ensure backend selection is deterministic (same hash outputs) and CI exercises Stage0→Stage2 via at least one
+       non-LLVM backend each night.
 
 * **Acceptance:** Stage1 builds succeed with MLIR and Cranelift prototypes, deterministic hashes stay stable across backends, and compile-time telemetry matches the “10× faster than LLVM” research targets for fast lanes.
 

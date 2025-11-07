@@ -24,6 +24,14 @@ resolves through an index table that fits in L1, while the only remaining hash m
 keys are unavoidable (export tables, metadata lookups, and LLVM backend caches). This keeps deterministic lookups cheap
 without sacrificing the O(1) keyed access that the frontend still needs.
 
+On the MLIR side we now wrap every emission in `module attributes { dialects = #mlir.dialect_array<...> }` and append a
+`transform.module @seen_pipeline` that carries a default `builtin.pipeline(canonicalize,cse)` stub, so DialEgg/Transform
+users can immediately replay the canonical pass stack without additional boilerplate or scripting.
+
+To make non-LLVM experimentation practical, the `--backend clif` path lowers the optimized IR into deterministic textual
+Cranelift IR. That artifact can be consumed by `clif-util` or any custom sea-of-nodes prototype, giving CI and
+researchers a fast-compile backend to diff without linking LLVM.
+
 ## MLIR and alternatives surpassing LLVM's capabilities
 
 **Multi-Level Intermediate Representation (MLIR)** has emerged as the successor to LLVM IR, addressing fundamental limitations in traditional compiler design. MLIR's dialect system enables domain-specific optimizations impossible with LLVM's single-level IR. The Transform Dialect provides fine-grained control over optimizations, while DialEgg integrates equality saturation directly into MLIR.

@@ -3,16 +3,34 @@ use seen_ir::module::IRModule;
 use seen_ir::{IRFunction, IRProgram, IRType};
 use std::collections::BTreeMap;
 
+const DIALECT_ATTR: &str =
+    "#mlir.dialect_array<[\"arith\", \"cf\", \"func\", \"seen\", \"transform\"]>";
+const DEFAULT_TRANSFORM_PIPELINE: &str = "builtin.pipeline(canonicalize,cse)";
+
 /// Emit a minimal textual MLIR module for a full IR program.
 pub fn program_to_mlir(program: &IRProgram) -> String {
     let mut modules: Vec<_> = program.modules.iter().collect();
     modules.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut pieces = Vec::with_capacity(modules.len());
-    for module in modules {
-        pieces.push(module_to_mlir(module));
+    let mut module_sections = Vec::with_capacity(modules.len());
+    for module in &modules {
+        module_sections.push(indent_block(&module_to_mlir(module), 2));
     }
-    pieces.join("\n\n")
+
+    let transform_section = indent_block(&transform_module_section(), 2);
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        "module attributes {{ dialects = {} }} {{\n",
+        DIALECT_ATTR
+    ));
+    if !module_sections.is_empty() {
+        out.push_str(&module_sections.join("\n"));
+        out.push('\n');
+    }
+    out.push_str(&transform_section);
+    out.push_str("\n}\n");
+    out
 }
 
 /// Emit a textual MLIR module for a single IR module.
@@ -34,6 +52,13 @@ pub fn module_to_mlir(module: &IRModule) -> String {
 
     out.push_str("}\n");
     out
+}
+
+fn transform_module_section() -> String {
+    format!(
+        "transform.module @seen_pipeline attributes {{ pipeline = \"{}\" }}",
+        DEFAULT_TRANSFORM_PIPELINE
+    )
 }
 
 fn function_to_mlir(function: &IRFunction) -> String {
@@ -127,6 +152,20 @@ fn function_to_mlir(function: &IRFunction) -> String {
 
     out.push_str("}\n");
     out
+}
+
+fn indent_block(text: &str, spaces: usize) -> String {
+    let indent = " ".repeat(spaces);
+    text.lines()
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{}{}", indent, line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Default)]

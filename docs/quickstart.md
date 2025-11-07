@@ -120,6 +120,11 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 - Need runtime archives for additional targets (Android, wasm, or custom triples)? Run
   `scripts/build_seen_runtime.sh <triple…>` to build and stage `libseen_runtime.a` under `target/seen-runtime/<triple>/`
   before invoking cross builds or bundling flows.
+- The MLIR backend now emits a `transform.module @seen_pipeline` stub so you can immediately replay `canonicalize,cse`
+  with `mlir-opt`. Try `seen build main.seen --backend mlir --output main.mlir` and feed the result into your existing
+  Transform/DialEgg experiments.
+- The Cranelift prototype backend writes deterministic textual CLIF via `seen build main.seen --backend clif`, which is
+  ideal for rapid fast-compile experiments without touching LLVM.
 
 ### ML heuristics & PGO logging
 
