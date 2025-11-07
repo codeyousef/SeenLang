@@ -52,6 +52,8 @@ Install (macOS):
     - Request ISA features via `--cpu-feature` (repeatable). Supported mnemonics: `apx`, `avx10-256`, `avx10-512`,
       `sve128`, `sve256`, `sve512`.
     - Hint allocator placement via `--memory-topology {cxl-near|cxl-far}`; defaults to `default` (portable host layout).
+      `cxl-near` keeps small/stack-friendly regions near compute and spills large bump regions to far CXL, while
+      `cxl-far` forces every region into the high-capacity tier.
     - These hints are rejected automatically when `--profile deterministic` is active to keep reproducible baselines on
       the portable ISA subset.
 - Run directly via interpreter (pure Rust):

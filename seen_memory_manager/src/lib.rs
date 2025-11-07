@@ -38,6 +38,7 @@ pub mod handles;
 pub mod memory_manager;
 pub mod ownership;
 pub mod regions;
+pub mod topology;
 
 // Re-export main types for convenience
 pub use handles::{GenerationalHandle, HybridGenerationalArena};
@@ -51,6 +52,7 @@ pub use regions::{
     AllocationMetadata, Region, RegionAnalyzer, RegionError, RegionHandle, RegionId, RegionManager,
 };
 pub use seen_parser::RegionStrategy;
+pub use topology::{MemoryTier, MemoryTopologyPreference};
 
 #[cfg(test)]
 mod tests {
@@ -92,6 +94,7 @@ mod tests {
             max_region_depth: 5,
             validate_move_semantics: true,
             suggest_lifetime_optimizations: false,
+            memory_topology: MemoryTopologyPreference::Default,
         };
 
         let manager = MemoryManager::with_config(config);

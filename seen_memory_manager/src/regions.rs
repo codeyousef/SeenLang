@@ -1,11 +1,58 @@
 use crate::{
     handles::{GenerationalHandle, HybridGenerationalArena},
     ownership::OwnershipInfo,
+    topology::{MemoryTier, MemoryTopologyPreference},
 };
 use hashbrown::HashMap;
 use seen_lexer::Position;
 use seen_parser::ast::*;
 use std::collections::{HashSet, VecDeque};
+
+const FAR_REGION_THRESHOLD: usize = 32;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MemoryTopologyPlan {
+    preference: MemoryTopologyPreference,
+}
+
+impl MemoryTopologyPlan {
+    fn new(preference: MemoryTopologyPreference) -> Self {
+        Self { preference }
+    }
+
+    fn default_tier(&self) -> MemoryTier {
+        match self.preference {
+            MemoryTopologyPreference::CxlNear => MemoryTier::CxlNear,
+            MemoryTopologyPreference::CxlFar => MemoryTier::CxlFar,
+            MemoryTopologyPreference::Default => MemoryTier::Host,
+        }
+    }
+
+    fn select_tier(
+        &self,
+        hint: RegionStrategy,
+        selected: RegionStrategy,
+        allocation_count: usize,
+    ) -> MemoryTier {
+        match hint {
+            RegionStrategy::CxlNear => MemoryTier::CxlNear,
+            RegionStrategy::CxlFar => MemoryTier::CxlFar,
+            _ => match self.preference {
+                MemoryTopologyPreference::Default => MemoryTier::Host,
+                MemoryTopologyPreference::CxlFar => MemoryTier::CxlFar,
+                MemoryTopologyPreference::CxlNear => {
+                    if matches!(selected, RegionStrategy::Bump)
+                        || allocation_count >= FAR_REGION_THRESHOLD
+                    {
+                        MemoryTier::CxlFar
+                    } else {
+                        MemoryTier::CxlNear
+                    }
+                }
+            },
+        }
+    }
+}
 
 /// Unique identifier for a memory region
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,6 +126,8 @@ pub struct Region {
     pub created_at: Position,
     /// Whether this region is still active
     pub is_active: bool,
+    memory_tier: MemoryTier,
+    allocation_footprint: usize,
 }
 
 impl Region {
@@ -101,6 +150,8 @@ impl Region {
             parent_region: parent,
             created_at: pos,
             is_active: true,
+            memory_tier: MemoryTier::Host,
+            allocation_footprint: 0,
         }
     }
 
@@ -157,8 +208,14 @@ impl Region {
     }
 
     /// Finalize strategy selection before deactivation.
-    pub fn finalize_strategy(&mut self) {
+    pub(crate) fn finalize_strategy(&mut self, plan: &MemoryTopologyPlan) {
         self.selected_strategy = self.determine_strategy();
+        self.allocation_footprint = self.allocations.len();
+        self.memory_tier = plan.select_tier(
+            self.strategy_hint,
+            self.selected_strategy,
+            self.allocation_footprint,
+        );
     }
 
     /// Retrieve the strategy chosen after analysis.
@@ -178,6 +235,14 @@ impl Region {
     ) -> Option<&AllocationMetadata> {
         self.allocation_table.resolve_fast(handle)
     }
+
+    pub fn memory_tier(&self) -> MemoryTier {
+        self.memory_tier
+    }
+
+    pub fn allocation_footprint(&self) -> usize {
+        self.allocation_footprint
+    }
 }
 
 /// Manages all memory regions in a program
@@ -193,11 +258,16 @@ pub struct RegionManager {
     global_region: RegionId,
     /// Errors encountered during region analysis
     errors: Vec<RegionError>,
+    topology_plan: MemoryTopologyPlan,
 }
 
 impl RegionManager {
     /// Create a new region manager
     pub fn new() -> Self {
+        Self::with_topology(MemoryTopologyPreference::Default)
+    }
+
+    pub fn with_topology(pref: MemoryTopologyPreference) -> Self {
         let global_id = RegionId::new(0);
         let mut regions = Vec::new();
         regions.push(Region::new(
@@ -217,6 +287,7 @@ impl RegionManager {
             region_stack,
             global_region: global_id,
             errors: Vec::new(),
+            topology_plan: MemoryTopologyPlan::new(pref),
         }
     }
 
@@ -231,7 +302,8 @@ impl RegionManager {
         self.next_region_id += 1;
 
         let parent_id = self.current_region();
-        let region = Region::new(region_id, name, strategy_hint, Some(parent_id), pos);
+        let mut region = Region::new(region_id, name, strategy_hint, Some(parent_id), pos);
+        region.memory_tier = self.topology_plan.default_tier();
 
         let index = region_id.id() as usize;
         debug_assert_eq!(index, self.regions.len(), "region ids should be sequential");
@@ -364,7 +436,7 @@ impl RegionManager {
         }
 
         let region = &mut self.regions[index];
-        region.finalize_strategy();
+        region.finalize_strategy(&self.topology_plan);
         region.deactivate();
     }
 
@@ -609,25 +681,30 @@ impl std::error::Error for RegionError {}
 pub struct RegionAnalyzer {
     /// Region manager
     region_manager: RegionManager,
-    /// Ownership information from previous analysis
-    ownership_info: Option<OwnershipInfo>,
 }
 
 impl RegionAnalyzer {
     /// Create a new region analyzer
     pub fn new() -> Self {
+        Self::with_topology(MemoryTopologyPreference::Default)
+    }
+
+    pub fn with_topology(preference: MemoryTopologyPreference) -> Self {
         Self {
-            region_manager: RegionManager::new(),
-            ownership_info: None,
+            region_manager: RegionManager::with_topology(preference),
         }
     }
 
     /// Create analyzer with existing ownership information
-    pub fn with_ownership(ownership_info: OwnershipInfo) -> Self {
-        Self {
-            region_manager: RegionManager::new(),
-            ownership_info: Some(ownership_info),
-        }
+    pub fn with_ownership(_ownership_info: OwnershipInfo) -> Self {
+        Self::with_topology(MemoryTopologyPreference::Default)
+    }
+
+    pub fn with_ownership_and_topology(
+        _ownership_info: OwnershipInfo,
+        preference: MemoryTopologyPreference,
+    ) -> Self {
+        Self::with_topology(preference)
     }
 
     /// Analyze regions for a complete program
@@ -803,6 +880,7 @@ impl Default for RegionAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::topology::{MemoryTier, MemoryTopologyPreference};
 
     #[test]
     fn test_region_creation() {
@@ -977,6 +1055,50 @@ mod tests {
             manager.region_strategy(region_id),
             Some(RegionStrategy::CxlNear)
         );
+    }
+
+    #[test]
+    fn cxl_far_hint_is_preserved() {
+        let mut manager = RegionManager::new();
+        let pos = Position::new(1, 1, 0);
+
+        let region_id = manager.create_region("far".to_string(), RegionStrategy::CxlFar, pos);
+        manager.enter_region(region_id);
+        manager.exit_region();
+
+        let region = manager.get_region(region_id).expect("region far");
+        assert_eq!(region.selected_strategy(), RegionStrategy::CxlFar);
+        assert_eq!(region.memory_tier(), MemoryTier::CxlFar);
+    }
+
+    #[test]
+    fn cxl_near_topology_spills_large_regions() {
+        let mut manager = RegionManager::with_topology(MemoryTopologyPreference::CxlNear);
+        let pos = Position::new(1, 1, 0);
+
+        let hot_region = manager.create_region("hot".to_string(), RegionStrategy::Auto, pos);
+        manager.enter_region(hot_region);
+        for idx in 0..4 {
+            manager
+                .allocate_in_current_region(format!("hot_{idx}"), pos)
+                .unwrap();
+        }
+        manager.exit_region();
+
+        let cold_region = manager.create_region("cold".to_string(), RegionStrategy::Auto, pos);
+        manager.enter_region(cold_region);
+        for idx in 0..40 {
+            manager
+                .allocate_in_current_region(format!("cold_{idx}"), pos)
+                .unwrap();
+        }
+        manager.exit_region();
+
+        let hot = manager.get_region(hot_region).expect("hot region");
+        let cold = manager.get_region(cold_region).expect("cold region");
+
+        assert_eq!(hot.memory_tier(), MemoryTier::CxlNear);
+        assert_eq!(cold.memory_tier(), MemoryTier::CxlFar);
     }
 
     #[test]

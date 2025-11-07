@@ -6,10 +6,10 @@
 
 use crate::ownership::{OwnershipAnalyzer, OwnershipError, OwnershipInfo, OwnershipMode};
 use crate::regions::{RegionAnalyzer, RegionError, RegionId, RegionManager};
+use crate::topology::{MemoryTier, MemoryTopologyPreference};
 use seen_parser::ast::*;
 use seen_support::{ErrorLocation, SeenError, SeenErrorKind};
 use seen_typechecker::{TypeCheckResult, TypeChecker};
-use std::collections::HashMap;
 
 /// Results of memory analysis
 #[derive(Debug)]
@@ -245,6 +245,12 @@ pub enum MemoryOptimization {
         current_scope: String,
         suggested_scope: String,
     },
+    /// Region assigned to a particular memory tier (diagnostic).
+    AssignMemoryTier {
+        region: RegionId,
+        tier: MemoryTier,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for MemoryOptimization {
@@ -305,6 +311,19 @@ impl std::fmt::Display for MemoryOptimization {
                     variable, current_scope, suggested_scope
                 )
             }
+            MemoryOptimization::AssignMemoryTier {
+                region,
+                tier,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Assign region {:?} to {} memory: {}",
+                    region,
+                    tier.label(),
+                    reason
+                )
+            }
         }
     }
 }
@@ -334,6 +353,8 @@ pub struct MemoryManagerConfig {
     pub validate_move_semantics: bool,
     /// Enable lifetime optimization suggestions
     pub suggest_lifetime_optimizations: bool,
+    /// Preferred memory topology when assigning regions.
+    pub memory_topology: MemoryTopologyPreference,
 }
 
 impl Default for MemoryManagerConfig {
@@ -344,6 +365,7 @@ impl Default for MemoryManagerConfig {
             max_region_depth: 10,
             validate_move_semantics: true,
             suggest_lifetime_optimizations: true,
+            memory_topology: MemoryTopologyPreference::Default,
         }
     }
 }
@@ -351,22 +373,24 @@ impl Default for MemoryManagerConfig {
 impl MemoryManager {
     /// Create a new memory manager with default configuration
     pub fn new() -> Self {
-        Self {
-            ownership_analyzer: OwnershipAnalyzer::new(),
-            region_analyzer: RegionAnalyzer::new(),
-            type_checker: TypeChecker::new(),
-            config: MemoryManagerConfig::default(),
-        }
+        Self::with_config(MemoryManagerConfig::default())
     }
 
     /// Create a memory manager with custom configuration
     pub fn with_config(config: MemoryManagerConfig) -> Self {
         Self {
             ownership_analyzer: OwnershipAnalyzer::new(),
-            region_analyzer: RegionAnalyzer::new(),
+            region_analyzer: RegionAnalyzer::with_topology(config.memory_topology),
             type_checker: TypeChecker::new(),
             config,
         }
+    }
+
+    /// Create a memory manager that applies the supplied topology preference.
+    pub fn with_topology_hint(pref: MemoryTopologyPreference) -> Self {
+        let mut config = MemoryManagerConfig::default();
+        config.memory_topology = pref;
+        Self::with_config(config)
     }
 
     /// Perform comprehensive memory analysis on a program
@@ -394,7 +418,10 @@ impl MemoryManager {
         }
 
         // Step 3: Region analysis (with ownership information)
-        self.region_analyzer = RegionAnalyzer::with_ownership(result.ownership_info.clone());
+        self.region_analyzer = RegionAnalyzer::with_ownership_and_topology(
+            result.ownership_info.clone(),
+            self.config.memory_topology,
+        );
         match self.region_analyzer.analyze_program(program) {
             Ok(region_manager) => {
                 result.region_manager = region_manager;
@@ -412,6 +439,8 @@ impl MemoryManager {
         if self.config.aggressive_optimizations || self.config.suggest_lifetime_optimizations {
             self.analyze_optimizations(&mut result);
         }
+
+        self.annotate_memory_tiers(&mut result);
 
         result
     }
@@ -497,7 +526,7 @@ impl MemoryManager {
     }
 
     /// Check for double-free issues
-    fn check_double_free(&self, result: &mut MemoryAnalysisResult) {
+    fn check_double_free(&self, _result: &mut MemoryAnalysisResult) {
         // This would require tracking multiple moves of the same variable
         // For now, this is handled by the ownership analyzer's use-after-move detection
         // Double-free detection using generation tracking
@@ -506,7 +535,7 @@ impl MemoryManager {
     /// Validate move semantics
     fn validate_move_semantics(&self, result: &mut MemoryAnalysisResult) {
         // Check that moves are valid and efficient
-        for (var_name, var_info) in &result.ownership_info.variables {
+        for (_var_name, var_info) in &result.ownership_info.variables {
             if matches!(var_info.mode, OwnershipMode::Move) {
                 // Validate that the move is necessary and beneficial
                 // Move semantics validated through ownership tracking
@@ -618,6 +647,35 @@ impl MemoryManager {
     /// Update configuration
     pub fn set_config(&mut self, config: MemoryManagerConfig) {
         self.config = config;
+        self.region_analyzer = RegionAnalyzer::with_topology(self.config.memory_topology);
+    }
+
+    fn annotate_memory_tiers(&self, result: &mut MemoryAnalysisResult) {
+        let assignments: Vec<_> = result
+            .region_manager
+            .regions()
+            .filter_map(|region| match region.memory_tier() {
+                MemoryTier::Host => None,
+                tier => Some((
+                    region.id,
+                    tier,
+                    format!(
+                        "region '{}' selected strategy {:?} with {} allocations",
+                        region.name,
+                        region.selected_strategy(),
+                        region.allocation_footprint()
+                    ),
+                )),
+            })
+            .collect();
+
+        for (region_id, tier, reason) in assignments {
+            result.add_optimization(MemoryOptimization::AssignMemoryTier {
+                region: region_id,
+                tier,
+                reason,
+            });
+        }
     }
 }
 
@@ -630,7 +688,9 @@ impl Default for MemoryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::topology::{MemoryTier, MemoryTopologyPreference};
     use seen_lexer::Position;
+    use seen_parser::ast::{Expression, Program};
 
     #[test]
     fn test_memory_manager_creation() {
@@ -716,6 +776,7 @@ mod tests {
             max_region_depth: 5,
             validate_move_semantics: false,
             suggest_lifetime_optimizations: false,
+            memory_topology: MemoryTopologyPreference::Default,
         };
 
         let manager = MemoryManager::with_config(config.clone());
@@ -728,5 +789,50 @@ mod tests {
             config.enable_region_merging
         );
         assert_eq!(manager.config.max_region_depth, config.max_region_depth);
+    }
+
+    #[test]
+    fn topology_preference_spills_large_blocks() {
+        let mut manager = MemoryManager::with_topology_hint(MemoryTopologyPreference::CxlNear);
+        let pos = Position::new(1, 1, 0);
+        let mut block = Vec::new();
+        for idx in 0..40 {
+            block.push(Expression::Let {
+                name: format!("slot_{idx}"),
+                type_annotation: None,
+                value: Box::new(Expression::IntegerLiteral {
+                    value: idx as i64,
+                    pos,
+                }),
+                is_mutable: false,
+                delegation: None,
+                pos,
+            });
+        }
+        let program = Program {
+            expressions: vec![Expression::Block {
+                expressions: block,
+                pos,
+            }],
+        };
+
+        let result = manager.analyze_program(&program);
+        assert!(!result.has_errors());
+
+        let mut far = 0usize;
+        let mut near = 0usize;
+        for region in result.region_manager.regions() {
+            match region.memory_tier() {
+                MemoryTier::CxlFar => far += 1,
+                MemoryTier::CxlNear => near += 1,
+                MemoryTier::Host => {}
+            }
+        }
+
+        assert!(far >= 1, "expected at least one CXL-far region");
+        assert!(
+            far >= near,
+            "large regions should migrate farther than small ones (far={far}, near={near})"
+        );
     }
 }

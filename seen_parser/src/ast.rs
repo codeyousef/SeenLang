@@ -22,6 +22,8 @@ pub enum RegionStrategy {
     Stack,
     /// Allocate near compute with CXL-aware placement.
     CxlNear,
+    /// Force allocation into far CXL capacity.
+    CxlFar,
 }
 
 impl RegionStrategy {
@@ -31,6 +33,7 @@ impl RegionStrategy {
             "bump" => Some(RegionStrategy::Bump),
             "stack" => Some(RegionStrategy::Stack),
             "cxl_near" => Some(RegionStrategy::CxlNear),
+            "cxl_far" => Some(RegionStrategy::CxlFar),
             _ => None,
         }
     }

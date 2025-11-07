@@ -8,15 +8,14 @@ use seen_core::llvm_backend::{Avx10Width, CpuFeature, MemoryTopologyHint, SveVec
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, IRProgram, Interpreter,
-    KeywordManager, Lexer, LexerConfig, MemoryManager, OptimizationLevel, Position, Program,
-    SeenError, SeenErrorKind, SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator,
-    Value, VisibilityPolicy,
+    KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult, MemoryManager,
+    MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError, SeenErrorKind,
+    SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator, Value, VisibilityPolicy,
 };
 use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -471,135 +470,166 @@ fn main() -> SeenResult<()> {
             static_lib,
                  cpu_features,
                  memory_topology,
-        }) => match backend {
-            Backend::Llvm => {
-                if emit_ll && (shared || static_lib) {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--emit-ll cannot be combined with --shared or --static".to_string(),
-                    ));
-                }
+             }) => {
+            if matches!(cli.profile, Profile::Deterministic)
+                && memory_topology != MemoryTopologyArg::Default
+            {
+                return Err(SeenError::new(
+                    SeenErrorKind::Tooling,
+                    "--memory-topology is locked in --profile deterministic builds".to_string(),
+                ));
+            }
 
-                let mut link_mode = if shared {
-                    BuildLinkMode::SharedLibrary
-                } else if static_lib {
-                    BuildLinkMode::StaticLibrary
-                } else {
-                    BuildLinkMode::Executable
-                };
+            match backend {
+                Backend::Llvm => {
+                    if emit_ll && (shared || static_lib) {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--emit-ll cannot be combined with --shared or --static".to_string(),
+                        ));
+                    }
 
-                if let Some(triple) = target.as_deref() {
-                    if is_android_target(triple) && matches!(link_mode, BuildLinkMode::Executable) {
-                        eprintln!(
+                    let mut link_mode = if shared {
+                        BuildLinkMode::SharedLibrary
+                    } else if static_lib {
+                        BuildLinkMode::StaticLibrary
+                    } else {
+                        BuildLinkMode::Executable
+                    };
+
+                    if let Some(triple) = target.as_deref() {
+                        if is_android_target(triple)
+                            && matches!(link_mode, BuildLinkMode::Executable)
+                        {
+                            eprintln!(
                             "info: defaulting to --shared for Android target {}; pass --shared or --static explicitly to override",
                             triple
                         );
-                        link_mode = BuildLinkMode::SharedLibrary;
+                            link_mode = BuildLinkMode::SharedLibrary;
+                        }
                     }
-                }
 
-                compile_file_llvm(
-                    &input,
-                    output.as_ref(),
-                    opt_level,
-                    emit_ll,
-                    link_mode,
-                    keyword_manager,
-                    target.as_deref(),
-                    wasm_loader,
-                    bundle,
-                    cpu_features.as_slice(),
-                    memory_topology,
-                    cli.profile,
-                )?;
-            }
-            Backend::Ir => {
-                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
-                    return Err(hardware_flag_backend_error());
+                    compile_file_llvm(
+                        &input,
+                        output.as_ref(),
+                        opt_level,
+                        emit_ll,
+                        link_mode,
+                        keyword_manager,
+                        target.as_deref(),
+                        wasm_loader,
+                        bundle,
+                        cpu_features.as_slice(),
+                        memory_topology,
+                        cli.profile,
+                    )?;
                 }
-                if wasm_loader {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--wasm-loader requires the LLVM backend".to_string(),
-                    ));
+                Backend::Ir => {
+                    if !cpu_features.is_empty() {
+                        return Err(hardware_flag_backend_error());
+                    }
+                    if wasm_loader {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--wasm-loader requires the LLVM backend".to_string(),
+                        ));
+                    }
+                    if bundle {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--bundle requires the LLVM backend".to_string(),
+                        ));
+                    }
+                    if let Some(target) = target {
+                        eprintln!(
+                            "warning: --target={} is ignored by the IR text backend",
+                            target
+                        );
+                    }
+                    if shared || static_lib {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--shared/--static require the LLVM backend".to_string(),
+                        ));
+                    }
+                    compile_file_ir(
+                        &input,
+                        output.as_ref(),
+                        opt_level,
+                        keyword_manager,
+                        memory_topology,
+                    )?;
                 }
-                if bundle {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--bundle requires the LLVM backend".to_string(),
-                    ));
+                Backend::Mlir => {
+                    if !cpu_features.is_empty() {
+                        return Err(hardware_flag_backend_error());
+                    }
+                    if wasm_loader {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--wasm-loader requires the LLVM backend".to_string(),
+                        ));
+                    }
+                    if bundle {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--bundle requires the LLVM backend".to_string(),
+                        ));
+                    }
+                    if let Some(target) = target {
+                        eprintln!(
+                            "warning: --target={} is ignored by the experimental MLIR backend",
+                            target
+                        );
+                    }
+                    if emit_ll || shared || static_lib {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--emit-ll/--shared/--static are not supported with the MLIR backend"
+                                .to_string(),
+                        ));
+                    }
+                    compile_file_mlir(
+                        &input,
+                        output.as_ref(),
+                        opt_level,
+                        keyword_manager,
+                        memory_topology,
+                    )?;
                 }
-                if let Some(target) = target {
-                    eprintln!(
-                        "warning: --target={} is ignored by the IR text backend",
-                        target
-                    );
-                }
-                if shared || static_lib {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--shared/--static require the LLVM backend".to_string(),
-                    ));
-                }
-                compile_file_ir(&input, output.as_ref(), opt_level, keyword_manager)?;
-            }
-            Backend::Mlir => {
-                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
-                    return Err(hardware_flag_backend_error());
-                }
-                if wasm_loader {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--wasm-loader requires the LLVM backend".to_string(),
-                    ));
-                }
-                if bundle {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--bundle requires the LLVM backend".to_string(),
-                    ));
-                }
-                if let Some(target) = target {
-                    eprintln!(
-                        "warning: --target={} is ignored by the experimental MLIR backend",
-                        target
-                    );
-                }
-                if emit_ll || shared || static_lib {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--emit-ll/--shared/--static are not supported with the MLIR backend"
-                            .to_string(),
-                    ));
-                }
-                compile_file_mlir(&input, output.as_ref(), opt_level, keyword_manager)?;
-            }
-            Backend::Clif => {
-                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
-                    return Err(hardware_flag_backend_error());
-                }
-                if wasm_loader || bundle {
-                    return Err(SeenError::new(
-                        SeenErrorKind::Tooling,
-                        "--wasm-loader/--bundle require the LLVM backend".to_string(),
-                    ));
-                }
-                if let Some(target) = target {
-                    eprintln!(
-                        "warning: --target={} is ignored by the Cranelift IR backend",
-                        target
-                    );
-                }
-                if emit_ll || shared || static_lib {
-                    return Err(SeenError::new(
+                Backend::Clif => {
+                    if !cpu_features.is_empty() {
+                        return Err(hardware_flag_backend_error());
+                    }
+                    if wasm_loader || bundle {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--wasm-loader/--bundle require the LLVM backend".to_string(),
+                        ));
+                    }
+                    if let Some(target) = target {
+                        eprintln!(
+                            "warning: --target={} is ignored by the Cranelift IR backend",
+                            target
+                        );
+                    }
+                    if emit_ll || shared || static_lib {
+                        return Err(SeenError::new(
                         SeenErrorKind::Tooling,
                         "--emit-ll/--shared/--static are not supported with the Cranelift backend"
                             .to_string(),
                     ));
+                    }
+                    compile_file_clif(
+                        &input,
+                        output.as_ref(),
+                        opt_level,
+                        keyword_manager,
+                        memory_topology,
+                    )?;
                 }
-                compile_file_clif(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
-        },
+        }
 
         Some(Commands::Run {
                  input,
@@ -611,8 +641,13 @@ fn main() -> SeenResult<()> {
                  memory_topology,
              }) => match backend {
             Backend::Ir => {
-                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
+                if !cpu_features.is_empty() {
                     return Err(hardware_flag_backend_error());
+                }
+                if memory_topology != MemoryTopologyArg::Default {
+                    eprintln!(
+                        "warning: --memory-topology is ignored by the interpreter backend; rerun with --backend llvm to honor it"
+                    );
                 }
                 run_file(&input, &args, keyword_manager)?
             }
@@ -757,6 +792,7 @@ fn generate_optimized_ir(
     input: &Path,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    memory_topology: MemoryTopologyArg,
 ) -> SeenResult<IRProgram> {
     println!(
         "Compiling {} with optimization level {}",
@@ -817,7 +853,8 @@ fn generate_optimized_ir(
         }
     }
 
-    let mut memory_manager = MemoryManager::new();
+    let topology_pref = convert_memory_topology_pref(memory_topology);
+    let mut memory_manager = MemoryManager::with_topology_hint(topology_pref);
     let memory_result = memory_manager.analyze_program(&ast);
     if memory_result.has_errors() {
         for error in memory_result.get_errors() {
@@ -851,6 +888,10 @@ fn generate_optimized_ir(
         println!("Memory optimization: {}", optimization);
     }
 
+    if memory_topology != MemoryTopologyArg::Default {
+        log_memory_topology_summary(memory_topology, &memory_result);
+    }
+
     let mut ir_generator = IRGenerator::new();
     let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
 
@@ -873,8 +914,9 @@ fn compile_file_ir(
     output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    memory_topology: MemoryTopologyArg,
 ) -> SeenResult<()> {
-    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
+    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager, memory_topology)?;
     let ir_text = format!("{}", optimized_ir);
     let default_output = PathBuf::from("a.ir");
     let output_path = output.unwrap_or(&default_output);
@@ -899,8 +941,9 @@ fn compile_file_mlir(
     output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    memory_topology: MemoryTopologyArg,
 ) -> SeenResult<()> {
-    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
+    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager, memory_topology)?;
     let mlir_text = program_to_mlir(&optimized_ir);
     let default_output = PathBuf::from("a.mlir");
     let output_path = output.unwrap_or(&default_output);
@@ -924,8 +967,9 @@ fn compile_file_clif(
     output: Option<&PathBuf>,
     opt_level: u8,
     keyword_manager: Arc<KeywordManager>,
+    memory_topology: MemoryTopologyArg,
 ) -> SeenResult<()> {
-    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
+    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager, memory_topology)?;
     let clif_text = program_to_clif(&optimized_ir);
     let default_output = PathBuf::from("a.clif");
     let output_path = output.unwrap_or(&default_output);
@@ -947,7 +991,7 @@ fn compile_file_clif(
 fn hardware_flag_backend_error() -> SeenError {
     SeenError::new(
         SeenErrorKind::Tooling,
-        "--cpu-feature/--memory-topology require --backend llvm".to_string(),
+        "--cpu-feature requires --backend llvm".to_string(),
     )
 }
 
@@ -979,7 +1023,7 @@ fn describe_cpu_features(flags: &[CpuFeatureFlagArg]) -> String {
 }
 
 #[cfg(feature = "llvm")]
-fn convert_memory_topology(arg: MemoryTopologyArg) -> MemoryTopologyHint {
+fn convert_memory_topology_hint(arg: MemoryTopologyArg) -> MemoryTopologyHint {
     match arg {
         MemoryTopologyArg::Default => MemoryTopologyHint::Default,
         MemoryTopologyArg::CxlNear => MemoryTopologyHint::CxlNear,
@@ -987,7 +1031,36 @@ fn convert_memory_topology(arg: MemoryTopologyArg) -> MemoryTopologyHint {
     }
 }
 
-#[cfg(feature = "llvm")]
+fn convert_memory_topology_pref(arg: MemoryTopologyArg) -> MemoryTopologyPreference {
+    match arg {
+        MemoryTopologyArg::Default => MemoryTopologyPreference::Default,
+        MemoryTopologyArg::CxlNear => MemoryTopologyPreference::CxlNear,
+        MemoryTopologyArg::CxlFar => MemoryTopologyPreference::CxlFar,
+    }
+}
+
+fn log_memory_topology_summary(arg: MemoryTopologyArg, result: &MemoryAnalysisResult) {
+    use seen_core::MemoryTier;
+    let mut host = 0usize;
+    let mut near = 0usize;
+    let mut far = 0usize;
+    for region in result.region_manager.regions() {
+        match region.memory_tier() {
+            MemoryTier::Host => host += 1,
+            MemoryTier::CxlNear => near += 1,
+            MemoryTier::CxlFar => far += 1,
+        }
+    }
+
+    println!(
+        "Memory topology [{}]: host={} near={} far={}",
+        memory_topology_label(arg),
+        host,
+        near,
+        far
+    );
+}
+
 fn memory_topology_label(arg: MemoryTopologyArg) -> &'static str {
     match arg {
         MemoryTopologyArg::Default => "default",
@@ -1209,7 +1282,7 @@ fn compile_file_llvm(
         let mut target_options = TargetOptions {
             triple: target_triple,
             hardware_features: convert_cpu_features(cpu_features),
-            memory_topology: convert_memory_topology(memory_topology),
+            memory_topology: convert_memory_topology_hint(memory_topology),
             ..Default::default()
         };
         if !cpu_features.is_empty() {
@@ -2498,7 +2571,12 @@ fn determinism_check(
     }
 
     let run_once = || -> SeenResult<String> {
-        let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager.clone())?;
+        let optimized_ir = generate_optimized_ir(
+            input,
+            opt_level,
+            keyword_manager.clone(),
+            MemoryTopologyArg::Default,
+        )?;
         let text = match backend {
             Backend::Ir => format!("{}", optimized_ir),
             Backend::Mlir => program_to_mlir(&optimized_ir),
@@ -2533,7 +2611,12 @@ fn determinism_check(
 }
 
 fn trace_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
-    let optimized_ir = generate_optimized_ir(input, opt_level, keyword_manager)?;
+    let optimized_ir = generate_optimized_ir(
+        input,
+        opt_level,
+        keyword_manager,
+        MemoryTopologyArg::Default,
+    )?;
 
     println!(
         "IR trace for {} (optimization level {})",

@@ -27,7 +27,9 @@ pub use seen_ir::{IRGenerator, IROptimizer, IRProgram, OptimizationLevel};
 pub use seen_interpreter::{Interpreter, Value};
 
 // Memory manager facade.
-pub use seen_memory_manager::MemoryManager;
+pub use seen_memory_manager::{
+    MemoryAnalysisResult, MemoryManager, MemoryManagerConfig, MemoryTier, MemoryTopologyPreference,
+};
 
 // LSP facade (re-export entire crate for downstream tools).
 pub use seen_lsp::*;
