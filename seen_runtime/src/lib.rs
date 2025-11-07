@@ -11,6 +11,47 @@ use std::time::{Duration, Instant};
 const STATUS_RECEIVED: i64 = 0;
 const STATUS_ALL_CLOSED: i64 = 3;
 
+const TAG_INT: i32 = 0;
+const TAG_BOOL: i32 = 1;
+const TAG_PTR: i32 = 2;
+
+#[repr(C)]
+pub struct SeenBoxedValue {
+    tag: i32,
+    _pad: i32,
+    int_payload: i64,
+    ptr_payload: *mut u8,
+}
+
+impl SeenBoxedValue {
+    fn boxed_int(value: i64) -> *mut SeenBoxedValue {
+        Box::into_raw(Box::new(SeenBoxedValue {
+            tag: TAG_INT,
+            _pad: 0,
+            int_payload: value,
+            ptr_payload: ptr::null_mut(),
+        }))
+    }
+
+    fn boxed_bool(value: bool) -> *mut SeenBoxedValue {
+        Box::into_raw(Box::new(SeenBoxedValue {
+            tag: TAG_BOOL,
+            _pad: 0,
+            int_payload: if value { 1 } else { 0 },
+            ptr_payload: ptr::null_mut(),
+        }))
+    }
+
+    fn boxed_ptr(ptr_val: *mut u8) -> *mut SeenBoxedValue {
+        Box::into_raw(Box::new(SeenBoxedValue {
+            tag: TAG_PTR,
+            _pad: 0,
+            int_payload: 0,
+            ptr_payload: ptr_val,
+        }))
+    }
+}
+
 #[repr(C)]
 pub struct SeenSelectResult {
     pub payload: *mut u8,
@@ -193,6 +234,75 @@ pub extern "C" fn seen_channel_select(
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_box_int(value: i64) -> *mut u8 {
+    SeenBoxedValue::boxed_int(value) as *mut u8
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_box_bool(value: i32) -> *mut u8 {
+    SeenBoxedValue::boxed_bool(value != 0) as *mut u8
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_box_ptr(value: *mut u8) -> *mut u8 {
+    SeenBoxedValue::boxed_ptr(value) as *mut u8
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_unbox_int(value: *mut u8) -> i64 {
+    if value.is_null() {
+        return 0;
+    }
+    unsafe {
+        let boxed = &*value.cast::<SeenBoxedValue>();
+        match boxed.tag {
+            TAG_INT => boxed.int_payload,
+            TAG_BOOL => boxed.int_payload,
+            _ => 0,
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_unbox_bool(value: *mut u8) -> i32 {
+    if value.is_null() {
+        return 0;
+    }
+    unsafe {
+        let boxed = &*value.cast::<SeenBoxedValue>();
+        match boxed.tag {
+            TAG_BOOL | TAG_INT => (boxed.int_payload != 0) as i32,
+            _ => 0,
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_unbox_ptr(value: *mut u8) -> *mut u8 {
+    if value.is_null() {
+        return ptr::null_mut();
+    }
+    unsafe {
+        let boxed = &*value.cast::<SeenBoxedValue>();
+        if boxed.tag == TAG_PTR {
+            boxed.ptr_payload
+        } else {
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_box_free(value: *mut u8) {
+    if value.is_null() {
+        return;
+    }
+    unsafe {
+        drop(Box::from_raw(value.cast::<SeenBoxedValue>()));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,6 +342,24 @@ mod tests {
             drop(Box::from_raw(payload as *mut u64));
             drop(Box::from_raw(ch_a));
             drop(Box::from_raw(ch_b));
+        }
+    }
+    #[test]
+    fn boxed_values_round_trip() {
+        let boxed_int = seen_box_int(42);
+        assert_eq!(seen_unbox_int(boxed_int), 42);
+        seen_box_free(boxed_int);
+
+        let boxed_bool = seen_box_bool(1);
+        assert_eq!(seen_unbox_bool(boxed_bool), 1);
+        seen_box_free(boxed_bool);
+
+        let payload = Box::into_raw(Box::new(77u64)) as *mut u8;
+        let boxed_ptr = seen_box_ptr(payload);
+        assert_eq!(seen_unbox_ptr(boxed_ptr), payload);
+        seen_box_free(boxed_ptr);
+        unsafe {
+            drop(Box::from_raw(payload as *mut u64));
         }
     }
 }

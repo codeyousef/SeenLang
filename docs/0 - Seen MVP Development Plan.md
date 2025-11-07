@@ -123,10 +123,10 @@ gap before we can call the phase entirely closed.
             `seen_cli/src/main.rs`, `seen_ir/src/llvm_backend.rs`).
         - [x] Add host/Android/wasm build scripts so `seen_cli` can bundle the runtime archive per target triple
           (`scripts/build_seen_runtime.sh` invokes `cargo build -p seen_runtime` for the requested triples and stages
-          the
-          resulting `libseen_runtime.a` under `target/seen-runtime/<triple>/`).
-          - [ ] Implement value boxing/unboxing helpers so LLVM lowering can convert Seen primitives into runtime
-            payloads without type erasure bugs.
+          the resulting `libseen_runtime.a` under `target/seen-runtime/<triple>/`).
+        - [x] Implement value boxing helpers so LLVM lowering converts primitive payloads into heap-backed runtime
+          values before calling `seen_channel_send`, plus exported runtime helpers (`seen_box_*`, `seen_unbox_*`) for
+          future unboxing work (`seen_ir/src/llvm_backend.rs`, `seen_runtime/src/lib.rs`).
   5. 🚧 **CLI + Stage wiring & regression coverage** — once lowering/runtime integration is complete, update `seen_cli`
      and the self-host pipeline to run channel-driven programs via the LLVM backend, add CLI/Stage tests, and record
      determinism hashes plus stdout/stderr validation.

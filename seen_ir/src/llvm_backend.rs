@@ -204,6 +204,9 @@ pub struct LlvmBackend<'ctx> {
     malloc: Option<FunctionValue<'ctx>>,
     free: Option<FunctionValue<'ctx>>,
     memcpy: Option<FunctionValue<'ctx>>,
+    box_int_fn: Option<FunctionValue<'ctx>>,
+    box_bool_fn: Option<FunctionValue<'ctx>>,
+    box_ptr_fn: Option<FunctionValue<'ctx>>,
     use_channel_runtime_stubs: bool,
 
     // Per‑function state (set during codegen)
@@ -251,6 +254,9 @@ impl<'ctx> LlvmBackend<'ctx> {
             malloc: None,
             free: None,
             memcpy: None,
+            box_int_fn: None,
+            box_bool_fn: None,
+            box_ptr_fn: None,
             use_channel_runtime_stubs: true,
             current_fn: None,
             reg_values: HashMap::new(),
@@ -922,6 +928,36 @@ impl<'ctx> LlvmBackend<'ctx> {
                         .builder
                         .build_return(Some(&handle.as_basic_value_enum()))
                         .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()))
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()))
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()))
                         .map_err(|e| anyhow!("{e:?}"))
                 }),
             ),
@@ -2065,11 +2101,22 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if let IRValue::Function { name, .. } = target {
                     match name.as_str() {
                         "__channel_send_future" => {
-                            if let Some(arg0) = args.get(0) {
-                                let _ = self.eval_value(arg0, fn_map)?;
-                            }
-                            if let Some(arg1) = args.get(1) {
-                                let _ = self.eval_value(arg1, fn_map)?;
+                            if args.len() >= 2 {
+                                let chan_val = self.eval_value(&args[0], fn_map)?;
+                                let chan_ptr = self.to_i8_ptr(chan_val, "send_chan")?;
+                                let msg_val = self.eval_value(&args[1], fn_map)?;
+                                let boxed = self.box_runtime_value(msg_val)?;
+                                let send_fn = self.ensure_channel_send_fn();
+                                self.builder
+                                    .build_call(
+                                        send_fn,
+                                        &[
+                                            chan_ptr.as_basic_value_enum().into(),
+                                            boxed.as_basic_value_enum().into(),
+                                        ],
+                                        "channel_send",
+                                    )
+                                    .map_err(|e| anyhow!("{e:?}"))?;
                             }
                             let counter = self.ensure_task_counter();
                             let handle = self.runtime_spawn_handle(counter)?;
@@ -2345,6 +2392,147 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.assign_value(status_result, status_val.as_basic_value_enum())?;
 
         Ok(())
+    }
+
+    fn box_runtime_value(&mut self, value: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
+        if value.is_int_value() {
+            let int_val = value.into_int_value();
+            let width = int_val.get_type().get_bit_width();
+            if width == 1 {
+                let bool_val = self
+                    .builder
+                    .build_int_z_extend(int_val, self.ctx.i32_type(), "box_bool_zext")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                let func = self.ensure_box_bool_fn();
+                let call = self
+                    .builder
+                    .build_call(func, &[bool_val.into()], "box_bool")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                return call
+                    .try_as_basic_value()
+                    .left()
+                    .map(|v| v.into_pointer_value())
+                    .ok_or_else(|| anyhow!("box_bool returned void"));
+            } else {
+                let i64_val = if width == 64 {
+                    int_val
+                } else {
+                    self.builder
+                        .build_int_s_extend(int_val, self.i64_t, "box_int_sext")
+                        .map_err(|e| anyhow!("{e:?}"))?
+                };
+                let func = self.ensure_box_int_fn();
+                let call = self
+                    .builder
+                    .build_call(func, &[i64_val.into()], "box_int")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                return call
+                    .try_as_basic_value()
+                    .left()
+                    .map(|v| v.into_pointer_value())
+                    .ok_or_else(|| anyhow!("box_int returned void"));
+            }
+        }
+
+        if value.is_pointer_value() {
+            let ptr_val = self
+                .builder
+                .build_pointer_cast(value.into_pointer_value(), self.i8_ptr_t, "box_ptr_cast")
+                .map_err(|e| anyhow!("{e:?}"))?;
+            let func = self.ensure_box_ptr_fn();
+            let call = self
+                .builder
+                .build_call(func, &[ptr_val.as_basic_value_enum().into()], "box_ptr")
+                .map_err(|e| anyhow!("{e:?}"))?;
+            return call
+                .try_as_basic_value()
+                .left()
+                .map(|v| v.into_pointer_value())
+                .ok_or_else(|| anyhow!("box_ptr returned void"));
+        }
+
+        if value.is_float_value() {
+            let float_val = value.into_float_value();
+            let as_int = self
+                .builder
+                .build_bitcast(float_val, self.ctx.f64_type(), "box_float_cast")
+                .map_err(|e| anyhow!("{e:?}"))?
+                .into_float_value();
+            let bits = self
+                .builder
+                .build_float_to_signed_int(as_int, self.i64_t, "box_float_bits")
+                .map_err(|e| anyhow!("{e:?}"))?;
+            let func = self.ensure_box_int_fn();
+            let call = self
+                .builder
+                .build_call(func, &[bits.into()], "box_float")
+                .map_err(|e| anyhow!("{e:?}"))?;
+            return call
+                .try_as_basic_value()
+                .left()
+                .map(|v| v.into_pointer_value())
+                .ok_or_else(|| anyhow!("box_float returned void"));
+        }
+
+        // Fallback: treat as pointer by copying to heap.
+        let ptr = self.to_i8_ptr(value, "box_fallback")?;
+        let func = self.ensure_box_ptr_fn();
+        let call = self
+            .builder
+            .build_call(
+                func,
+                &[ptr.as_basic_value_enum().into()],
+                "box_fallback_ptr",
+            )
+            .map_err(|e| anyhow!("{e:?}"))?;
+        call.try_as_basic_value()
+            .left()
+            .map(|v| v.into_pointer_value())
+            .ok_or_else(|| anyhow!("box_ptr fallback returned void"))
+    }
+
+    fn ensure_box_int_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.box_int_fn {
+            f
+        } else {
+            let ty = self.i8_ptr_t.fn_type(&[self.i64_t.into()], false);
+            let func = self.module.add_function("seen_box_int", ty, None);
+            self.box_int_fn = Some(func);
+            func
+        }
+    }
+
+    fn ensure_box_bool_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.box_bool_fn {
+            f
+        } else {
+            let ty = self.i8_ptr_t.fn_type(&[self.ctx.i32_type().into()], false);
+            let func = self.module.add_function("seen_box_bool", ty, None);
+            self.box_bool_fn = Some(func);
+            func
+        }
+    }
+
+    fn ensure_box_ptr_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.box_ptr_fn {
+            f
+        } else {
+            let ty = self.i8_ptr_t.fn_type(&[self.i8_ptr_t.into()], false);
+            let func = self.module.add_function("seen_box_ptr", ty, None);
+            self.box_ptr_fn = Some(func);
+            func
+        }
+    }
+
+    fn ensure_channel_send_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.module.get_function("seen_channel_send") {
+            f
+        } else {
+            let ty = self
+                .i8_ptr_t
+                .fn_type(&[self.i8_ptr_t.into(), self.i8_ptr_t.into()], false);
+            self.module.add_function("seen_channel_send", ty, None)
+        }
     }
 
     fn eval_value(
