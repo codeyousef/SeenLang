@@ -55,12 +55,66 @@ pub enum LinkOutput {
     StaticLibrary,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Avx10Width {
+    Bits256,
+    Bits512,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SveVectorLength {
+    Bits128,
+    Bits256,
+    Bits512,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CpuFeature {
+    IntelApx,
+    IntelAvx10(Avx10Width),
+    ArmSve(SveVectorLength),
+}
+
+impl CpuFeature {
+    fn llvm_feature_flags(&self) -> &'static [&'static str] {
+        match self {
+            CpuFeature::IntelApx => &[],
+            CpuFeature::IntelAvx10(Avx10Width::Bits256) => &["+avx2"],
+            CpuFeature::IntelAvx10(Avx10Width::Bits512) => &["+avx512f", "+avx512vl"],
+            CpuFeature::ArmSve(_) => &["+sve"],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum MemoryTopologyHint {
+    #[default]
+    Default,
+    CxlNear,
+    CxlFar,
+}
+
+#[derive(Clone, Debug)]
 pub struct TargetOptions<'a> {
     pub triple: Option<&'a str>,
     pub cpu: Option<&'a str>,
-    pub features: Option<&'a str>,
+    pub features: Option<String>,
     pub static_libraries: Vec<PathBuf>,
+    pub hardware_features: Vec<CpuFeature>,
+    pub memory_topology: MemoryTopologyHint,
+}
+
+impl<'a> Default for TargetOptions<'a> {
+    fn default() -> Self {
+        Self {
+            triple: None,
+            cpu: None,
+            features: None,
+            static_libraries: Vec::new(),
+            hardware_features: Vec::new(),
+            memory_topology: MemoryTopologyHint::Default,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -395,7 +449,26 @@ impl<'ctx> LlvmBackend<'ctx> {
         let target = Target::from_triple(&triple)
             .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
         let cpu = options.cpu.unwrap_or("generic");
-        let features = options.features.unwrap_or("");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
         let machine = target
             .create_target_machine(
                 &triple,

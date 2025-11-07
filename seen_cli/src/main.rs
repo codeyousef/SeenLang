@@ -3,6 +3,8 @@
 //! This is the main entry point for the Seen language compiler and toolchain.
 
 use clap::{Parser, Subcommand, ValueEnum};
+#[cfg(feature = "llvm")]
+use seen_core::llvm_backend::{Avx10Width, CpuFeature, MemoryTopologyHint, SveVectorLength};
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, IRGenerator, IROptimizer, IRProgram, Interpreter,
@@ -14,6 +16,7 @@ use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -63,6 +66,29 @@ impl fmt::Display for Backend {
             Backend::Llvm => "llvm",
         };
         write!(f, "{}", label)
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum CpuFeatureFlagArg {
+    Apx,
+    Avx10_256,
+    Avx10_512,
+    Sve128,
+    Sve256,
+    Sve512,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum MemoryTopologyArg {
+    Default,
+    CxlNear,
+    CxlFar,
+}
+
+impl Default for MemoryTopologyArg {
+    fn default() -> Self {
+        MemoryTopologyArg::Default
     }
 }
 
@@ -126,6 +152,14 @@ enum Commands {
         /// Produce a static library (only valid with --backend llvm)
         #[arg(long = "static", conflicts_with = "shared")]
         static_lib: bool,
+
+        /// Hardware feature hint (repeatable; only valid with --backend llvm)
+        #[arg(long = "cpu-feature", value_enum)]
+        cpu_features: Vec<CpuFeatureFlagArg>,
+
+        /// Memory topology hint for the allocator/runtime (only valid with --backend llvm)
+        #[arg(long = "memory-topology", value_enum, default_value_t = MemoryTopologyArg::Default)]
+        memory_topology: MemoryTopologyArg,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -160,6 +194,14 @@ enum Commands {
         /// Backend to execute with: "ir" (interpreter) or "llvm" (native binary)
         #[arg(long, default_value_t = Backend::Ir)]
         backend: Backend,
+
+        /// Hardware feature hint (repeatable; only valid with --backend llvm)
+        #[arg(long = "cpu-feature", value_enum)]
+        cpu_features: Vec<CpuFeatureFlagArg>,
+
+        /// Memory topology hint for the allocator/runtime (only valid with --backend llvm)
+        #[arg(long = "memory-topology", value_enum, default_value_t = MemoryTopologyArg::Default)]
+        memory_topology: MemoryTopologyArg,
 
         /// Arguments to pass to the program
         #[arg(last = true)]
@@ -427,6 +469,8 @@ fn main() -> SeenResult<()> {
                  target,
             shared,
             static_lib,
+                 cpu_features,
+                 memory_topology,
         }) => match backend {
             Backend::Llvm => {
                 if emit_ll && (shared || static_lib) {
@@ -464,9 +508,15 @@ fn main() -> SeenResult<()> {
                     target.as_deref(),
                     wasm_loader,
                     bundle,
+                    cpu_features.as_slice(),
+                    memory_topology,
+                    cli.profile,
                 )?;
             }
             Backend::Ir => {
+                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
+                    return Err(hardware_flag_backend_error());
+                }
                 if wasm_loader {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
@@ -494,6 +544,9 @@ fn main() -> SeenResult<()> {
                 compile_file_ir(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
             Backend::Mlir => {
+                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
+                    return Err(hardware_flag_backend_error());
+                }
                 if wasm_loader {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
@@ -522,6 +575,9 @@ fn main() -> SeenResult<()> {
                 compile_file_mlir(&input, output.as_ref(), opt_level, keyword_manager)?;
             }
             Backend::Clif => {
+                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
+                    return Err(hardware_flag_backend_error());
+                }
                 if wasm_loader || bundle {
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
@@ -551,16 +607,32 @@ fn main() -> SeenResult<()> {
                  backend,
                  opt_level,
                  target,
+                 cpu_features,
+                 memory_topology,
              }) => match backend {
-            Backend::Ir => run_file(&input, &args, keyword_manager)?,
+            Backend::Ir => {
+                if !cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default {
+                    return Err(hardware_flag_backend_error());
+                }
+                run_file(&input, &args, keyword_manager)?
+            }
             Backend::Llvm => {
                 #[cfg(feature = "llvm")]
                 {
-                    run_file_llvm(&input, &args, opt_level, target.as_deref(), keyword_manager)?;
+                    run_file_llvm(
+                        &input,
+                        &args,
+                        opt_level,
+                        target.as_deref(),
+                        keyword_manager,
+                        cpu_features.as_slice(),
+                        memory_topology,
+                        cli.profile,
+                    )?;
                 }
                 #[cfg(not(feature = "llvm"))]
                 {
-                    let _ = (opt_level, target);
+                    let _ = (opt_level, target, cpu_features, memory_topology);
                     return Err(SeenError::new(
                         SeenErrorKind::Tooling,
                         "LLVM backend disabled at build time; rebuild seen_cli with --features llvm".to_string(),
@@ -872,6 +944,70 @@ fn compile_file_clif(
     Ok(())
 }
 
+fn hardware_flag_backend_error() -> SeenError {
+    SeenError::new(
+        SeenErrorKind::Tooling,
+        "--cpu-feature/--memory-topology require --backend llvm".to_string(),
+    )
+}
+
+#[cfg(feature = "llvm")]
+fn convert_cpu_features(flags: &[CpuFeatureFlagArg]) -> Vec<CpuFeature> {
+    flags
+        .iter()
+        .map(|flag| match flag {
+            CpuFeatureFlagArg::Apx => CpuFeature::IntelApx,
+            CpuFeatureFlagArg::Avx10_256 => CpuFeature::IntelAvx10(Avx10Width::Bits256),
+            CpuFeatureFlagArg::Avx10_512 => CpuFeature::IntelAvx10(Avx10Width::Bits512),
+            CpuFeatureFlagArg::Sve128 => CpuFeature::ArmSve(SveVectorLength::Bits128),
+            CpuFeatureFlagArg::Sve256 => CpuFeature::ArmSve(SveVectorLength::Bits256),
+            CpuFeatureFlagArg::Sve512 => CpuFeature::ArmSve(SveVectorLength::Bits512),
+        })
+        .collect()
+}
+
+#[cfg(feature = "llvm")]
+fn describe_cpu_features(flags: &[CpuFeatureFlagArg]) -> String {
+    if flags.is_empty() {
+        return "baseline".to_string();
+    }
+    flags
+        .iter()
+        .map(cpu_feature_label)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[cfg(feature = "llvm")]
+fn convert_memory_topology(arg: MemoryTopologyArg) -> MemoryTopologyHint {
+    match arg {
+        MemoryTopologyArg::Default => MemoryTopologyHint::Default,
+        MemoryTopologyArg::CxlNear => MemoryTopologyHint::CxlNear,
+        MemoryTopologyArg::CxlFar => MemoryTopologyHint::CxlFar,
+    }
+}
+
+#[cfg(feature = "llvm")]
+fn memory_topology_label(arg: MemoryTopologyArg) -> &'static str {
+    match arg {
+        MemoryTopologyArg::Default => "default",
+        MemoryTopologyArg::CxlNear => "cxl-near",
+        MemoryTopologyArg::CxlFar => "cxl-far",
+    }
+}
+
+#[cfg(feature = "llvm")]
+fn cpu_feature_label(flag: &CpuFeatureFlagArg) -> &'static str {
+    match flag {
+        CpuFeatureFlagArg::Apx => "apx",
+        CpuFeatureFlagArg::Avx10_256 => "avx10-256",
+        CpuFeatureFlagArg::Avx10_512 => "avx10-512",
+        CpuFeatureFlagArg::Sve128 => "sve128",
+        CpuFeatureFlagArg::Sve256 => "sve256",
+        CpuFeatureFlagArg::Sve512 => "sve512",
+    }
+}
+
 fn compile_file_llvm(
     input: &Path,
     output: Option<&PathBuf>,
@@ -882,6 +1018,9 @@ fn compile_file_llvm(
     target_triple: Option<&str>,
     wasm_loader: bool,
     bundle: bool,
+    cpu_features: &[CpuFeatureFlagArg],
+    memory_topology: MemoryTopologyArg,
+    profile: Profile,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -964,10 +1103,17 @@ fn compile_file_llvm(
             }
         }
     }
-    let project_dir = input
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
+
+    if matches!(profile, Profile::Deterministic)
+        && (!cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default)
+    {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            "--cpu-feature/--memory-topology are locked in --profile deterministic builds"
+                .to_string(),
+        ));
+    }
+
     let source = fs::read_to_string(input).map_err(|err| {
         SeenError::new(
             SeenErrorKind::Io,
@@ -1062,8 +1208,22 @@ fn compile_file_llvm(
         }
         let mut target_options = TargetOptions {
             triple: target_triple,
+            hardware_features: convert_cpu_features(cpu_features),
+            memory_topology: convert_memory_topology(memory_topology),
             ..Default::default()
         };
+        if !cpu_features.is_empty() {
+            println!(
+                "Applying CPU feature overrides: {}",
+                describe_cpu_features(cpu_features)
+            );
+        }
+        if memory_topology != MemoryTopologyArg::Default {
+            println!(
+                "Applying memory topology hint: {}",
+                memory_topology_label(memory_topology)
+            );
+        }
         if !emit_ll {
             if let Some(runtime_lib) = ensure_runtime_staticlib(target_triple)? {
                 target_options.static_libraries.push(runtime_lib);
@@ -1106,6 +1266,10 @@ fn compile_file_llvm(
                 if bundling_wasm {
                     bundle_wasm_artifacts(&target)?;
                 } else if bundling_android {
+                    let project_dir = input
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| PathBuf::from("."));
                     bundle_android_artifacts(&target, &out_path, &project_dir, target_triple)?;
                     if target != out_path {
                         let _ = fs::remove_file(&target);
@@ -1124,6 +1288,9 @@ fn compile_file_llvm(
             wasm_loader,
             bundle,
             output,
+            cpu_features,
+            memory_topology,
+            profile,
         );
         Err(SeenError::new(
             SeenErrorKind::Tooling,
@@ -2154,6 +2321,9 @@ fn run_file_llvm(
     opt_level: u8,
     target_triple: Option<&str>,
     keyword_manager: Arc<KeywordManager>,
+    cpu_features: &[CpuFeatureFlagArg],
+    memory_topology: MemoryTopologyArg,
+    profile: Profile,
 ) -> SeenResult<()> {
     let temp = tempdir().map_err(|err| {
         SeenError::new(
@@ -2172,6 +2342,9 @@ fn run_file_llvm(
         target_triple,
         false,
         false,
+        cpu_features,
+        memory_topology,
+        profile,
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {

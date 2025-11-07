@@ -226,12 +226,24 @@ fairness/backoff telemetry, and PB-Perf can alert on wake-latency regressions.
 
 ### PSH‑3e. Hardware-Aware Codegen & Memory Topology
 
-*Status:* ⏳ Pending — the MVP must recognize upcoming ISA and memory innovations to meet the forward-looking performance goals.
+*Status:* 🔄 In progress — compiler surfaces hardware feature metadata and memory-topology hints, leaving the
+allocator/runtime integration to finish the CXL story.
+
+* **Highlights:**
+    1. ✅ `TargetOptions` now records structured hardware overrides (`IntelApx`, `Avx10(width)`, `ArmSve(vector)`), and
+       the LLVM backend aggregates them into target-feature strings so register allocation + vector shaping can start
+       consuming them in PSH‑7.
+    2. 🔄 Memory topology hints flow through the CLI via `--memory-topology {cxl-near,cxl-far}` and land in
+       `TargetOptions::memory_topology`; allocator/runtime hooks remain TODO.
+    3. ✅ The CLI accepts repeatable `--cpu-feature ...` flags (APX, AVX10-256/512, SVE 128/256/512) and enforces that
+       `--profile deterministic` locks them out, ensuring reproducible baselines continue to target the portable ISA
+       subset.
 
 * **Outstanding tasks:**
-  1. Model Intel APX register allocation, AVX10 vector widths, and ARM SVE scalable vectors inside the codegen pipeline so SIMD work in PSH‑7 can target per-core capabilities (docs/research/13 - Language Performance.md).
-  2. Add CXL-aware placement hints to the allocator/runtime, keeping hot regions near compute while spilling bulk data to expandable memory (docs/research/13 - Language Performance.md).
-  3. Expose CLI flags (`--cpu-feature`, `--memory-topology`) and ensure deterministic mode locks features to portable baselines.
+    - Teach the LLVM/MLIR/CLIF backends to adjust register allocation, vector widths, and scheduling decisions based on
+      the propagated feature metadata (docs/research/13 - Language Performance.md).
+    - Add CXL-aware placement hints to the allocator/runtime, keeping hot regions near compute while spilling bulk data
+      to expandable memory (docs/research/13 - Language Performance.md).
 
 * **Acceptance:** Hardware-feature smoke tests validate emitted binaries on APX-capable x86 and SVE ARM targets, vector reports enumerate chosen widths, and CXL placement improves memory-bound fixture throughput.
 

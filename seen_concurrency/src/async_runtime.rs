@@ -26,7 +26,6 @@ use std::{
     task::{Context, Poll, Waker},
     time::{Duration, Instant},
 };
-use std::time::Instant;
 
 const DEFAULT_STACK_FRAME_BYTES: usize = 2048;
 const SCHEDULER_BACKOFF_THRESHOLD: u32 = 8;

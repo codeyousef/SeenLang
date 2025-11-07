@@ -48,6 +48,12 @@ Install (macOS):
         - Requires `ANDROID_NDK_HOME` (r25+) and optional `ANDROID_API_LEVEL`.
     - Override linker/archiver via `SEEN_LLVM_LINKER`, `SEEN_LLVM_ARCHIVER`, `SEEN_LLVM_RANLIB` if your toolchain lives
       in a non-standard location.
+- Hardware-aware tuning (LLVM backend only):
+    - Request ISA features via `--cpu-feature` (repeatable). Supported mnemonics: `apx`, `avx10-256`, `avx10-512`,
+      `sve128`, `sve256`, `sve512`.
+    - Hint allocator placement via `--memory-topology {cxl-near|cxl-far}`; defaults to `default` (portable host layout).
+    - These hints are rejected automatically when `--profile deterministic` is active to keep reproducible baselines on
+      the portable ISA subset.
 - Run directly via interpreter (pure Rust):
   - `seen run compiler_seen/src/main.seen`
 
@@ -96,6 +102,8 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
 - Example: `seen --profile deterministic build compiler_seen/src/main.seen --backend llvm --output stage1_seen`
 - The flag exports `SOURCE_DATE_EPOCH=0` and uses `.seen/tmp` for temp files. Reset to the default profile by omitting
   the flag.
+- Hardware overrides (`--cpu-feature`, `--memory-topology`) are disabled in deterministic mode so every participant
+  hashes the same ISA baseline and allocator configuration.
 
 ## Run the Verifier
 - Determinism of the pipeline (IR text): `seen determinism compiler_seen/src/main.seen -O2`
