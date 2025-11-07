@@ -1040,9 +1040,6 @@ fn compile_file_llvm(
 fn ensure_runtime_staticlib(target_triple: Option<&str>) -> SeenResult<Option<PathBuf>> {
     const HOST_TARGET: &str = env!("TARGET");
     let triple = target_triple.unwrap_or(HOST_TARGET);
-    if triple != HOST_TARGET {
-        return Ok(None);
-    }
 
     let runtime_src = runtime_source_path();
     if !runtime_src.exists() {
@@ -1064,16 +1061,14 @@ fn ensure_runtime_staticlib(target_triple: Option<&str>) -> SeenResult<Option<Pa
     }
 
     if needs_runtime_rebuild(&runtime_lib, &runtime_src)? {
-        build_runtime_staticlib(&runtime_src, &runtime_lib, triple)?;
+        build_runtime_staticlib(triple)?;
     }
     Ok(Some(runtime_lib))
 }
 
 #[cfg(feature = "llvm")]
 fn runtime_source_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
+    workspace_root()
         .join("seen_runtime")
         .join("src")
         .join("lib.rs")
@@ -1081,9 +1076,7 @@ fn runtime_source_path() -> PathBuf {
 
 #[cfg(feature = "llvm")]
 fn runtime_staticlib_path(triple: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
+    workspace_root()
         .join("target")
         .join("seen-runtime")
         .join(triple)
@@ -1131,34 +1124,64 @@ fn needs_runtime_rebuild(output: &Path, source: &Path) -> SeenResult<bool> {
 }
 
 #[cfg(feature = "llvm")]
-fn build_runtime_staticlib(source: &Path, output: &Path, triple: &str) -> SeenResult<()> {
-    println!(
-        "Compiling Seen runtime static library for target {}",
-        triple
-    );
-    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
-    let mut cmd = Command::new(rustc);
-    cmd.arg("--crate-type=staticlib");
-    cmd.arg("--edition=2024");
-    cmd.arg(source);
-    cmd.arg("-O");
-    cmd.arg("-o");
-    cmd.arg(output);
-    cmd.arg("--target");
-    cmd.arg(triple);
+fn build_runtime_staticlib(triple: &str) -> SeenResult<()> {
+    println!("Building seen_runtime for target {}", triple);
+    let workspace = workspace_root();
+    let mut cmd = Command::new("cargo");
+    cmd.current_dir(&workspace);
+    cmd.arg("build")
+        .arg("-p")
+        .arg("seen_runtime")
+        .arg("--target")
+        .arg(triple)
+        .arg("--release");
     let status = cmd.status().map_err(|err| {
         SeenError::new(
             SeenErrorKind::Tooling,
-            format!("Failed to invoke rustc for seen_runtime: {}", err),
+            format!("Failed to invoke cargo for seen_runtime: {}", err),
         )
     })?;
     if !status.success() {
         return Err(SeenError::new(
             SeenErrorKind::Tooling,
-            "rustc failed while building seen_runtime static library".to_string(),
+            "cargo failed while building seen_runtime static library".to_string(),
         ));
     }
+    let produced = workspace
+        .join("target")
+        .join(triple)
+        .join("release")
+        .join("libseen_runtime.a");
+    if !produced.exists() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Expected runtime artifact {} but it was not produced",
+                produced.display()
+            ),
+        ));
+    }
+    let dest = runtime_staticlib_path(triple);
+    fs::copy(&produced, &dest).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to copy runtime artifact from {} to {}: {}",
+                produced.display(),
+                dest.display(),
+                err
+            ),
+        )
+    })?;
     Ok(())
+}
+
+#[cfg(feature = "llvm")]
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
 }
 
 /// Recursively resolve and inline imports by parsing target .seen files
