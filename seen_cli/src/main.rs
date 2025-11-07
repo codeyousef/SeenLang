@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
 use std::sync::Arc;
+use std::time::SystemTime;
 use zip::{write::FileOptions, CompressionMethod};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -964,14 +965,19 @@ fn compile_file_llvm(
         if let Some(triple) = target_triple {
             println!("Configuring LLVM backend for target {}", triple);
         }
-        let target_options = TargetOptions {
+        let mut target_options = TargetOptions {
             triple: target_triple,
             ..Default::default()
         };
+        if !emit_ll {
+            if let Some(runtime_lib) = ensure_runtime_staticlib(target_triple)? {
+                target_options.static_libraries.push(runtime_lib);
+            }
+        }
         if emit_ll {
             let ll_path = compile_out_path.as_path();
             backend
-                .emit_llvm_ir(&optimized_ir, ll_path, target_options)
+                .emit_llvm_ir(&optimized_ir, ll_path, target_options.clone())
                 .map_err(|err| {
                     SeenError::new(
                         SeenErrorKind::Ir,
@@ -1029,6 +1035,131 @@ fn compile_file_llvm(
             "LLVM backend not enabled at build time. Rebuild with: cargo build -p seen_cli --release --features llvm",
         ))
     }
+}
+
+#[cfg(feature = "llvm")]
+fn ensure_runtime_staticlib(target_triple: Option<&str>) -> SeenResult<Option<PathBuf>> {
+    const HOST_TARGET: &str = env!("TARGET");
+    let triple = target_triple.unwrap_or(HOST_TARGET);
+    if triple != HOST_TARGET {
+        return Ok(None);
+    }
+
+    let runtime_src = runtime_source_path();
+    if !runtime_src.exists() {
+        return Ok(None);
+    }
+
+    let runtime_lib = runtime_staticlib_path(triple);
+    if let Some(parent) = runtime_lib.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "Failed to create runtime output directory {}: {}",
+                    parent.display(),
+                    err
+                ),
+            )
+        })?;
+    }
+
+    if needs_runtime_rebuild(&runtime_lib, &runtime_src)? {
+        build_runtime_staticlib(&runtime_src, &runtime_lib, triple)?;
+    }
+    Ok(Some(runtime_lib))
+}
+
+#[cfg(feature = "llvm")]
+fn runtime_source_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("seen_runtime")
+        .join("src")
+        .join("lib.rs")
+}
+
+#[cfg(feature = "llvm")]
+fn runtime_staticlib_path(triple: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("target")
+        .join("seen-runtime")
+        .join(triple)
+        .join("libseen_runtime.a")
+}
+
+#[cfg(feature = "llvm")]
+fn needs_runtime_rebuild(output: &Path, source: &Path) -> SeenResult<bool> {
+    if !output.exists() {
+        return Ok(true);
+    }
+    let out_meta = fs::metadata(output).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to read metadata for {}: {}", output.display(), err),
+        )
+    })?;
+    let src_meta = fs::metadata(source).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to read metadata for {}: {}", source.display(), err),
+        )
+    })?;
+    let out_mod = out_meta.modified().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to read modification timestamp for {}: {}",
+                output.display(),
+                err
+            ),
+        )
+    })?;
+    let src_mod = src_meta.modified().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to read modification timestamp for {}: {}",
+                source.display(),
+                err
+            ),
+        )
+    })?;
+    Ok(src_mod > out_mod)
+}
+
+#[cfg(feature = "llvm")]
+fn build_runtime_staticlib(source: &Path, output: &Path, triple: &str) -> SeenResult<()> {
+    println!(
+        "Compiling Seen runtime static library for target {}",
+        triple
+    );
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    let mut cmd = Command::new(rustc);
+    cmd.arg("--crate-type=staticlib");
+    cmd.arg("--edition=2024");
+    cmd.arg(source);
+    cmd.arg("-O");
+    cmd.arg("-o");
+    cmd.arg(output);
+    cmd.arg("--target");
+    cmd.arg(triple);
+    let status = cmd.status().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to invoke rustc for seen_runtime: {}", err),
+        )
+    })?;
+    if !status.success() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            "rustc failed while building seen_runtime static library".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Recursively resolve and inline imports by parsing target .seen files

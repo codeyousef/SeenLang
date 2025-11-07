@@ -104,7 +104,7 @@ impl RuntimeChannel {
 }
 
 fn capacity_from_i64(value: i64) -> Option<usize> {
-    if value < 0 {
+    if value <= 0 {
         None
     } else {
         Some(value as usize)

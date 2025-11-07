@@ -54,11 +54,12 @@ pub enum LinkOutput {
     StaticLibrary,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TargetOptions<'a> {
     pub triple: Option<&'a str>,
     pub cpu: Option<&'a str>,
     pub features: Option<&'a str>,
+    pub static_libraries: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -203,6 +204,7 @@ pub struct LlvmBackend<'ctx> {
     malloc: Option<FunctionValue<'ctx>>,
     free: Option<FunctionValue<'ctx>>,
     memcpy: Option<FunctionValue<'ctx>>,
+    use_channel_runtime_stubs: bool,
 
     // Per‑function state (set during codegen)
     current_fn: Option<FunctionValue<'ctx>>,
@@ -249,6 +251,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             malloc: None,
             free: None,
             memcpy: None,
+            use_channel_runtime_stubs: true,
             current_fn: None,
             reg_values: HashMap::new(),
             var_values: HashMap::new(),
@@ -288,6 +291,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         kind: LinkOutput,
         options: TargetOptions<'_>,
     ) -> Result<()> {
+        self.use_channel_runtime_stubs = options.static_libraries.is_empty();
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
 
@@ -309,7 +313,13 @@ impl<'ctx> LlvmBackend<'ctx> {
             .to_str()
             .unwrap_or_else(|_| "")
             .to_string();
-        self.link_artifact(kind, &obj_path, out_path, &triple_string)
+        self.link_artifact(
+            kind,
+            &obj_path,
+            out_path,
+            &triple_string,
+            &options.static_libraries,
+        )
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
@@ -350,7 +360,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.declare_main_wrapper();
         }
 
-        self.inject_channel_runtime_stubs()?;
+        self.inject_runtime_stubs(self.use_channel_runtime_stubs)?;
         Ok(())
     }
 
@@ -399,16 +409,23 @@ impl<'ctx> LlvmBackend<'ctx> {
         obj_path: &Path,
         out_path: &Path,
         triple: &str,
+        extra_libs: &[PathBuf],
     ) -> Result<()> {
         match kind {
-            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple),
-            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple),
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
             LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
             LinkOutput::ObjectOnly => unreachable!("handled earlier"),
         }
     }
 
-    fn link_executable(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
         if triple.contains("wasm32") {
             return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
         }
@@ -423,11 +440,20 @@ impl<'ctx> LlvmBackend<'ctx> {
         cmd.arg(obj_path);
         cmd.arg("-o");
         cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
         cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
         Self::exec_command(cmd, "link executable")
     }
 
-    fn link_shared(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
         if triple.contains("wasm32") {
             return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
         }
@@ -442,6 +468,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         cmd.arg(obj_path);
         cmd.arg("-o");
         cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
         cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
         Self::exec_command(cmd, "link shared library")
     }
@@ -754,7 +783,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             .unwrap_or_else(|| "21".to_string())
     }
 
-    fn inject_channel_runtime_stubs(&mut self) -> Result<()> {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
         let saved_block = self.builder.get_insert_block();
         let saved_fn = self.current_fn;
 
@@ -762,7 +791,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         let i32_t = self.ctx.i32_type();
         let ptr_t = self.i8_ptr_t;
 
-        let stub_specs: Vec<(
+        let mut stub_specs: Vec<(
             &str,
             inkwell::types::FunctionType<'ctx>,
             Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
@@ -898,7 +927,32 @@ impl<'ctx> LlvmBackend<'ctx> {
             ),
         ];
 
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
         for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
             if self.module.get_function(name).is_some() {
                 continue;
             }

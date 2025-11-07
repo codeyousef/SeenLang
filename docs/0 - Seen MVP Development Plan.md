@@ -117,8 +117,10 @@ gap before we can call the phase entirely closed.
      reimplementing `seen_concurrency` pieces, ensure the compiled artifact links the runtime on every platform, and
      propagate handles/results back into Seen values.
       * ⬜ Subtasks to stage this work:
-          - [ ] Extract a minimal `seen_runtime` crate that exposes the channel/task ABI over `#[no_mangle] extern "C"`
+          - [x] Extract a minimal `seen_runtime` crate that exposes the channel/task ABI over `#[no_mangle] extern "C"`
             shims.
+          - [x] Link Linux LLVM builds against the new runtime so channel send/recv/select no longer rely on stubs (
+            `seen_cli/src/main.rs`, `seen_ir/src/llvm_backend.rs`).
           - [ ] Add host/Android wasm build scripts so `seen_cli` can bundle the runtime archive per target triple.
           - [ ] Implement value boxing/unboxing helpers so LLVM lowering can convert Seen primitives into runtime
             payloads without type erasure bugs.
