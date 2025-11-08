@@ -40,8 +40,7 @@ fn android_cross_build_produces_shared_object() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("libhello_android.so");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -82,7 +81,7 @@ fn android_bundle_requires_shared_output() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("android_bundle_test");
 
-    let mut cmd = Command::cargo_bin("seen_cli").expect("binary exists");
+    let mut cmd = Command::new(cargo_bin!("seen_cli"));
     cmd.current_dir(&workspace)
         .env("ANDROID_NDK_HOME", temp.path().to_string_lossy().as_ref())
         .args([
@@ -126,7 +125,7 @@ fn android_bundle_script_requires_ndk() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("bundle.aab");
 
-    let seen_bin = cargo_bin("seen_cli");
+    let seen_bin = cargo_bin!("seen_cli");
 
     let mut cmd = Command::new("bash");
     cmd.arg(script)

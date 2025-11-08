@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
 use predicates::str::contains;
 use std::fs::File;
 use std::path::PathBuf;
@@ -21,8 +21,7 @@ fn pkg_creates_zip_archive() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("hello_pkg.zip");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "pkg",
@@ -50,8 +49,7 @@ fn pkg_missing_directory_fails() {
     let workspace = workspace_root();
     let missing = workspace.join("examples").join("does_not_exist");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args(["pkg", missing.to_string_lossy().as_ref()])
         .assert()

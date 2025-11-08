@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
 use predicates::str::contains;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -19,8 +19,7 @@ fn linux_sample_builds_to_ir() {
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("hello.ir");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -59,7 +58,7 @@ fn android_target_requires_ndk_home() {
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("hello_android");
 
-    let mut cmd = Command::cargo_bin("seen_cli").expect("binary exists");
+    let mut cmd = Command::new(cargo_bin!("seen_cli"));
     cmd.current_dir(&workspace);
     cmd.env_remove("ANDROID_NDK_HOME");
 
@@ -104,8 +103,7 @@ fn linux_shared_library_builds() {
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("libhello_cli.so");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -149,8 +147,7 @@ fn linux_static_library_builds() {
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("libhello_cli.a");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",

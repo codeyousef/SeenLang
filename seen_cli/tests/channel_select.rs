@@ -1,4 +1,4 @@
-use assert_cmd::prelude::*;
+use assert_cmd::{cargo::cargo_bin, cargo_bin, prelude::*};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
@@ -10,8 +10,7 @@ fn run_channel_select_example() {
     let workspace_root = manifest_dir.parent().expect("workspace root").to_path_buf();
     let sample = workspace_root.join("seen_cli/tests/fixtures/channel_select.seen");
 
-    let assert = Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    let assert = Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace_root)
         .args(["run", sample.to_string_lossy().as_ref()])
         .assert()
@@ -55,8 +54,7 @@ fn build_channel_select_with_llvm_backend() {
     let temp = tempdir().expect("create temp dir");
     let artifact = temp.path().join("channel_select");
 
-    Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace_root)
         .args([
             "build",
@@ -86,8 +84,7 @@ fn run_channel_select_with_llvm_backend() {
     let workspace_root = manifest_dir.parent().expect("workspace root").to_path_buf();
     let sample = workspace_root.join("seen_cli/tests/fixtures/channel_select.seen");
 
-    let assert = Command::cargo_bin("seen_cli")
-        .expect("binary exists")
+    let assert = Command::new(cargo_bin!("seen_cli"))
         .current_dir(&workspace_root)
         .args([
             "run",
