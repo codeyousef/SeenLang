@@ -245,30 +245,67 @@ class RealParser {
     }
     
     fun parseImportItem() -> ItemNode {
-        let path = ""
-        
-        // Parse import path
-        let firstPart = consume("Identifier", "Expected import path")
-        path = firstPart.value
-        
-        while match("Dot") or match("Colon") {
-            if match("Colon") {
-                path = path + "::"
-            } else {
-                path = path + "."
-            }
-            
-            let nextPart = consume("Identifier", "Expected identifier in import path")
-            path = path + nextPart.value
-        }
-        
-        // Skip semicolon if present
+        let path = parseImportPath()
+        skipImportSymbols()
         match("Semicolon")
-        
+
         return ItemNode{
             itemType: "Import",
             name: path,
             visibility: ""
+        }
+    }
+
+    fun parseImportPath() -> String {
+        let firstPart = consume("Identifier", "Expected import path")
+        let path = firstPart.value
+        
+        while true {
+            if check("Dot") {
+                advance() // consume '.'
+                if check("LeftBrace") {
+                    break
+                }
+                path = path + "."
+                let nextPart = consume("Identifier", "Expected identifier in import path")
+                path = path + nextPart.value
+                continue
+            }
+            if check("Colon") {
+                advance() // first ':'
+                consume("Colon", "Expected '::' in import path")
+                path = path + "::"
+                let nextPart = consume("Identifier", "Expected identifier in import path")
+                path = path + nextPart.value
+                continue
+            }
+            break
+        }
+
+        return path
+    }
+
+    fun skipImportSymbols() -> Void {
+        if not match("LeftBrace") {
+            return
+        }
+
+        if match("RightBrace") {
+            return
+        }
+
+        while true {
+            consume("Identifier", "Expected symbol name in import list")
+            if match("KeywordAs") {
+                consume("Identifier", "Expected alias after 'as'")
+            }
+
+            if match("Comma") {
+                continue
+            }
+
+            consume("RightBrace", "Expected '}' after import symbols")
+            break
         }
     }
     

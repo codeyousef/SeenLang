@@ -21,7 +21,6 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;

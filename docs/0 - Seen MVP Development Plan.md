@@ -400,6 +400,12 @@ modules, preventing a true Seen-only pipeline.
      frontend + compile smoke tests to ensure the path stays green. A guard in `main_compiler::ExecuteCommand`
      outright refuses to run `seen`/`seen_cli` invocations (verified by
      `compiler_seen/tests/forbid_seen_shell.seen`) so regressions surface immediately.
+  6. 🔄 Extend the Seen-native parser (`compiler_seen/src/parser/real_parser.seen`) to accept the same import syntax
+     as the Rust frontend (nested module paths plus per-symbol `as` aliases). Stage-1 currently fails on
+     `typechecker.typechecker.{TypeChecker as RealTypeChecker}`, so we must add alias-aware parsing, add regression
+     tests, rebuild Stage-0, and rerun `scripts/self_host_llvm.sh` to confirm Stage1→Stage3 completes with the Seen
+     parser in charge. Once the parser matches feature parity, re-run the bootstrap script to capture hashes in this
+     doc.
 
 * **Acceptance:** Stage-1 builds run entirely in Seen, module bundling is deterministic, and the bootstrap script/tests
   fail if the Rust CLI is invoked as part of self-hosting.
