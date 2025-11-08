@@ -293,7 +293,9 @@ live while macOS/Windows remain deferred until host machines are available.
     * Added `examples/linux/hello_cli`, `examples/web/hello_wasm`, and `examples/android/hello_ndk` as starter
       fixtures, plus CLI regression tests covering Linux IR output, wasm emit/bundle flows, and Android env validation.
       The Android example now bundles manifest/assets/res/root/dex fixtures and unit tests assert the richer bundle
-      contents (CI/device smoke runs still outstanding).
+      contents, while new CLI smoke tests (`seen_cli/tests/linux_sample.rs`) run the Linux sample through the
+      interpreter
+      backend to mimic CI/device execution.
 
     4. ✅ Document Linux/Web/Android toolchain prerequisites (clang/LLD, wasm-ld, Android SDK/NDK) and integrate
      signing/provisioning scripts where applicable.

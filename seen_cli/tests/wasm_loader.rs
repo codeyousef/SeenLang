@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use predicates::str::contains;
 use std::fs;
 use tempfile::tempdir;
@@ -22,7 +22,7 @@ fn wasm_loader_requires_wasm_target() {
     let dir = tempdir().expect("temp dir");
     let program_path = write_program(&dir);
 
-    let mut cmd = Command::new(cargo_bin!("seen_cli"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"));
     cmd.arg("build")
         .arg(program_path)
         .arg("--backend")
@@ -39,7 +39,7 @@ fn wasm_loader_disallowed_on_ir_backend() {
     let dir = tempdir().expect("temp dir");
     let program_path = write_program(&dir);
 
-    let mut cmd = Command::new(cargo_bin!("seen_cli"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"));
     cmd.arg("build")
         .arg(program_path)
         .arg("--backend")
@@ -62,7 +62,7 @@ fn wasm_loader_reports_missing_wasm_linker() {
     let program_path = write_program(&dir);
     let missing_linker = dir.path().join("missing-wasm-ld");
 
-    let mut cmd = Command::new(cargo_bin!("seen_cli"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"));
     cmd.env(
         "SEEN_LLVM_LINKER",
         missing_linker.to_string_lossy().as_ref(),
@@ -88,7 +88,7 @@ fn bundle_requires_wasm_loader() {
     let dir = tempdir().expect("temp dir");
     let program_path = write_program(&dir);
 
-    let mut cmd = Command::new(cargo_bin!("seen_cli"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"));
     cmd.arg("build")
         .arg(program_path)
         .arg("--backend")
@@ -112,7 +112,7 @@ fn bundle_requires_wasm_target() {
     let dir = tempdir().expect("temp dir");
     let program_path = write_program(&dir);
 
-    let mut cmd = Command::new(cargo_bin!("seen_cli"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"));
     cmd.arg("build")
         .arg(program_path)
         .arg("--backend")

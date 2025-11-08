@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -32,7 +32,7 @@ fun Main(input: Int) -> Int {
         .expect("workspace root")
         .to_path_buf();
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root)
         .args([
             "build",
@@ -88,7 +88,7 @@ fun Main(x: Int) -> Int {
         .expect("workspace root")
         .to_path_buf();
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root)
         .args([
             "determinism",

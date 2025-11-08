@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use std::fs::File;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -29,7 +29,7 @@ fn wasm_emit_ll_succeeds_without_linker() {
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("hello.ll");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -108,7 +108,7 @@ exit 0
 
     let wasm_output = temp.path().join("hello.wasm");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .env("SEEN_LLVM_LINKER", linker_path.to_string_lossy().as_ref())
         .args([

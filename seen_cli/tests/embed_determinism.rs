@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -31,7 +31,7 @@ fun Main() -> Int {
         .expect("workspace root")
         .to_path_buf();
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root)
         .args(["determinism", source.to_string_lossy().as_ref(), "-O0"])
         .assert()
@@ -74,7 +74,7 @@ fun Main() -> Int {
     let out1 = dir.path().join("artifact_one.ll");
     let out2 = dir.path().join("artifact_two.ll");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace_root)
         .args([
             "--profile",
@@ -90,7 +90,7 @@ fun Main() -> Int {
         .assert()
         .success();
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace_root)
         .args([
             "--profile",

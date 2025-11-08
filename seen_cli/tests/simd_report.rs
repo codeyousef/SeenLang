@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -94,7 +94,7 @@ fn simd_report_reflects_policy_modes() {
 }
 
 fn run_with_simd_policy(workspace: &Path, source: &Path, policy: &str, report_path: &Path) {
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace)
         .args([
             "build",

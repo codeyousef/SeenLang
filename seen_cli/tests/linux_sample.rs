@@ -1,25 +1,33 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use predicates::str::contains;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-#[test]
-fn linux_sample_builds_to_ir() {
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("workspace root")
-        .to_path_buf();
-    let sample = workspace
+        .to_path_buf()
+}
+
+fn sample_source() -> PathBuf {
+    workspace_root()
         .join("examples")
         .join("linux")
         .join("hello_cli")
-        .join("main.seen");
+        .join("main.seen")
+}
+
+#[test]
+fn linux_sample_builds_to_ir() {
+    let workspace = workspace_root();
+    let sample = sample_source();
     assert!(sample.exists(), "linux sample should exist at {:?}", sample);
 
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("hello.ir");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -44,21 +52,14 @@ fn android_target_requires_ndk_home() {
 
     let original_ndk_home = std::env::var("ANDROID_NDK_HOME").ok();
 
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("workspace root")
-        .to_path_buf();
-    let sample = workspace
-        .join("examples")
-        .join("linux")
-        .join("hello_cli")
-        .join("main.seen");
+    let workspace = workspace_root();
+    let sample = sample_source();
     assert!(sample.exists(), "linux sample should exist at {:?}", sample);
 
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("hello_android");
 
-    let mut cmd = Command::new(cargo_bin!("seen_cli"));
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"));
     cmd.current_dir(&workspace);
     cmd.env_remove("ANDROID_NDK_HOME");
 
@@ -89,21 +90,14 @@ fn linux_shared_library_builds() {
         return;
     }
 
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("workspace root")
-        .to_path_buf();
-    let sample = workspace
-        .join("examples")
-        .join("linux")
-        .join("hello_cli")
-        .join("main.seen");
+    let workspace = workspace_root();
+    let sample = sample_source();
     assert!(sample.exists(), "linux sample should exist at {:?}", sample);
 
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("libhello_cli.so");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -133,21 +127,14 @@ fn linux_static_library_builds() {
         return;
     }
 
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("workspace root")
-        .to_path_buf();
-    let sample = workspace
-        .join("examples")
-        .join("linux")
-        .join("hello_cli")
-        .join("main.seen");
+    let workspace = workspace_root();
+    let sample = sample_source();
     assert!(sample.exists(), "linux sample should exist at {:?}", sample);
 
     let temp = tempdir().expect("create temp dir");
     let output = temp.path().join("libhello_cli.a");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -168,4 +155,16 @@ fn linux_static_library_builds() {
         "static library output should exist at {:?}",
         output
     );
+}
+
+#[test]
+fn linux_sample_runs_with_interpreter_backend() {
+    let workspace = workspace_root();
+    let sample = sample_source();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(&workspace)
+        .args(["run", sample.to_string_lossy().as_ref()])
+        .assert()
+        .success();
 }

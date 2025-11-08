@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use predicates::str::contains;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -23,7 +23,7 @@ fn shaders_command_emits_wgsl_and_msl() {
     assert!(shader.exists(), "sample shader missing: {:?}", shader);
     let temp = tempdir().expect("temp dir");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root())
         .args([
             "shaders",
@@ -48,7 +48,7 @@ fn validate_only_skips_outputs() {
     let shader = sample_shader();
     let temp = tempdir().expect("temp dir");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root())
         .args([
             "shaders",
@@ -70,7 +70,7 @@ fn directory_scans_require_recursive_flag() {
     let dir = workspace_root().join("examples");
     let temp = tempdir().expect("temp dir");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root())
         .args([
             "shaders",
@@ -82,7 +82,7 @@ fn directory_scans_require_recursive_flag() {
         .failure()
         .stderr(contains("No .spv files"));
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root())
         .args([
             "shaders",

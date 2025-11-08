@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin, cargo_bin, Command};
+use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use serde_json::Value;
@@ -41,7 +41,7 @@ fn cpu_feature_flag_emits_ll() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("hardware.ll");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -74,7 +74,7 @@ fn memory_topology_hint_succeeds() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("memory.ll");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -105,7 +105,7 @@ fn deterministic_profile_rejects_hardware_overrides() {
     let workspace = workspace_root();
     let source = sample_source();
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "--profile",
@@ -137,7 +137,7 @@ fn deterministic_profile_run_rejects_hardware_overrides() {
     let workspace = workspace_root();
     let source = sample_source();
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "--profile",
@@ -166,7 +166,7 @@ fn deterministic_profile_rejects_simd_override() {
     let workspace = workspace_root();
     let source = sample_source();
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "--profile",
@@ -190,7 +190,7 @@ fn mlir_output_embeds_cpu_features() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("hardware.mlir");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -232,7 +232,7 @@ fn clif_output_includes_hardware_header() {
     let temp = tempdir().expect("temp dir");
     let output = temp.path().join("hardware.clif");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
@@ -273,7 +273,7 @@ fn simd_report_writes_json() {
     let temp = tempdir().expect("temp dir");
     let report_path = temp.path().join("simd_report.json");
 
-    Command::new(cargo_bin!("seen_cli"))
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
         .args([
             "build",
