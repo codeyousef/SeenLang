@@ -19,10 +19,10 @@ echo "[1/4] Stage-1: building native compiler from Seen sources"
 "$CLI_BIN" build compiler_seen/src/main.seen --backend llvm --output stage1_seen
 
 echo "[2/4] Stage-2: self-building with Stage-1"
-./stage1_seen build compiler_seen/src/main.seen --backend llvm --output stage2_seen || true
+./stage1_seen build compiler_seen/src/main.seen stage2_seen
 
 echo "[3/4] Stage-3: self-building with Stage-2"
-./stage2_seen build compiler_seen/src/main.seen --backend llvm --output stage3_seen || true
+./stage2_seen build compiler_seen/src/main.seen stage3_seen
 
 echo "[4/4] Hash compare"
 if command -v sha256sum >/dev/null 2>&1; then
@@ -34,8 +34,8 @@ fi
 CHANNEL_SAMPLE="seen_cli/tests/fixtures/channel_select.seen"
 if [[ -f "$CHANNEL_SAMPLE" ]]; then
   echo "[extra] Verifying channel_select via Stage-1/2 LLVM runs"
-  STAGE1_OUT=$(./stage1_seen run "$CHANNEL_SAMPLE" --backend llvm 2>&1 || true)
-  STAGE2_OUT=$(./stage2_seen run "$CHANNEL_SAMPLE" --backend llvm 2>&1 || true)
+  STAGE1_OUT=$(./stage1_seen run "$CHANNEL_SAMPLE" 2>&1 || true)
+  STAGE2_OUT=$(./stage2_seen run "$CHANNEL_SAMPLE" 2>&1 || true)
   if [[ "$STAGE1_OUT" != "$STAGE2_OUT" ]]; then
     echo "Channel select output mismatch between Stage-1 and Stage-2:" >&2
     echo "---- Stage1 ----" >&2

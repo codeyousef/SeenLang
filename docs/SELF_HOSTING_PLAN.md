@@ -36,9 +36,11 @@ Next:
 
 ## Stage 2/3 (Self‑Compile Twice)
 - Build Stage‑2 with Stage‑1:
-  - `./stage1_seen build compiler_seen/src/main.seen --backend llvm --output stage2_seen`
+    - `./stage1_seen build compiler_seen/src/main.seen stage2_seen`
 - Build Stage‑3 with Stage‑2:
-  - `./stage2_seen build compiler_seen/src/main.seen --backend llvm --output stage3_seen`
+    - `./stage2_seen build compiler_seen/src/main.seen stage3_seen`
+- Note: the Stage‑1/Stage‑2 Seen binaries already drive the LLVM pipeline internally, so additional CLI flags like
+  `--backend` or `--output` are not required (the final path is simply the trailing argument).
 - Verify determinism:
   - `sha256sum stage2_seen stage3_seen` (expect identical hashes).
 

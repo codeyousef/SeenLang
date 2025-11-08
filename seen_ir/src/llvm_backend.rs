@@ -2151,14 +2151,14 @@ impl<'ctx> LlvmBackend<'ctx> {
                             let done_bb = self.ctx.append_basic_block(fnv, "rf_done");
                             self.builder
                                 .build_conditional_branch(is_null, then_bb, cont_bb)?;
+                            let mut rf_then_val: Option<(BasicValueEnum<'ctx>, LlvmBasicBlock<'ctx>)> =
+                                None;
+                            let mut rf_cont_val: Option<(BasicValueEnum<'ctx>, LlvmBasicBlock<'ctx>)> =
+                                None;
                             self.builder.position_at_end(then_bb);
                             let empty = self.builder.build_global_string_ptr("", "empty")?;
-                            if let Some(r) = result {
-                                self.assign_value(
-                                    r,
-                                    empty.as_pointer_value().as_basic_value_enum(),
-                                )?;
-                            }
+                            let empty_val = empty.as_pointer_value().as_basic_value_enum();
+                            rf_then_val = Some((empty_val, then_bb));
                             self.builder.build_unconditional_branch(done_bb)?;
                             self.builder.position_at_end(cont_bb);
                             // size
@@ -2194,11 +2194,20 @@ impl<'ctx> LlvmBackend<'ctx> {
                             self.builder
                                 .build_store(endp, self.ctx.i8_type().const_zero())?;
                             let _ = self.builder.build_call(fclose, &[fval.into()], "fclose")?;
-                            if let Some(r) = result {
-                                self.assign_value(r, bufp.as_basic_value_enum())?;
-                            }
+                            let buf_val = bufp.as_basic_value_enum();
+                            rf_cont_val = Some((buf_val, cont_bb));
                             self.builder.build_unconditional_branch(done_bb)?;
                             self.builder.position_at_end(done_bb);
+                            if let Some(r) = result {
+                                let phi = self.builder.build_phi(self.i8_ptr_t, "rf_value")?;
+                                if let Some((val, bb)) = rf_then_val {
+                                    phi.add_incoming(&[(&val, bb)]);
+                                }
+                                if let Some((val, bb)) = rf_cont_val {
+                                    phi.add_incoming(&[(&val, bb)]);
+                                }
+                                self.assign_value(r, phi.as_basic_value())?;
+                            }
                             return Ok(());
                         }
                         "__WriteFile" => {
@@ -3517,7 +3526,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let printf = self.get_printf();
                     let fmt = self
                         .builder
-                        .build_global_string_ptr("%lld\n", "seen_cli_result_fmt");
+                        .build_global_string_ptr("%lld\n", "seen_cli_result_fmt")
+                        .expect("create CLI printf format literal");
                     let int_val = ret.into_int_value();
                     let widened = if int_val.get_type().get_bit_width() != 64 {
                         self.builder
