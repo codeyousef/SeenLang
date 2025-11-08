@@ -3690,21 +3690,14 @@ impl<'ctx> LlvmBackend<'ctx> {
         value: BasicValueEnum<'ctx>,
         label: &str,
     ) -> Result<PointerValue<'ctx>> {
+        let handle_ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
         if value.is_pointer_value() {
             self.builder
-                .build_pointer_cast(
-                    value.into_pointer_value(),
-                    self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16)),
-                    label,
-                )
+                .build_pointer_cast(value.into_pointer_value(), handle_ptr_ty, label)
                 .map_err(|e| anyhow!("{e:?}"))
         } else if value.is_int_value() {
             self.builder
-                .build_int_to_ptr(
-                    value.into_int_value(),
-                    self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16)),
-                    label,
-                )
+                .build_int_to_ptr(value.into_int_value(), handle_ptr_ty, label)
                 .map_err(|e| anyhow!("{e:?}"))
         } else {
             Err(anyhow!("expected task handle pointer"))

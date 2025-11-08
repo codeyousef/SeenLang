@@ -69,6 +69,13 @@ pub enum AttributeValue {
     Identifier(String),
 }
 
+/// Import symbol entry, optionally with an alias.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportSymbol {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
 /// Shared operator precedence levels used by the parser and formatter.
 pub mod precedence {
     /// Lowest precedence level (logical OR).
@@ -248,7 +255,7 @@ pub enum Expression {
     // Import declaration for bundling
     Import {
         module_path: Vec<String>,
-        symbols: Vec<String>,
+        symbols: Vec<ImportSymbol>,
         pos: Position,
     },
 

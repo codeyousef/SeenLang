@@ -4607,15 +4607,27 @@ impl Parser {
         }
 
         // Optional symbol list: {Symbol1, Symbol2}
-        let mut symbols: Vec<String> = Vec::new();
+        let mut symbols: Vec<crate::ast::ImportSymbol> = Vec::new();
         if self.check(&TokenType::LeftBrace) {
             self.advance(); // '{'
-            let sym1 = self.expect_identifier()?;
-            symbols.push(sym1);
-            while self.check(&TokenType::Comma) {
-                self.advance();
-                let s = self.expect_identifier()?;
-                symbols.push(s);
+            loop {
+                let sym_name = self.expect_identifier()?;
+                let alias = if self.check_keyword(KeywordType::KeywordAs) {
+                    self.advance();
+                    Some(self.expect_identifier()?)
+                } else {
+                    None
+                };
+                symbols.push(crate::ast::ImportSymbol {
+                    name: sym_name,
+                    alias,
+                });
+
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
             }
             if !self.check(&TokenType::RightBrace) {
                 return Err(ParseError::UnexpectedToken {
@@ -4628,7 +4640,10 @@ impl Parser {
         } else {
             // No braces: if module path has a tail, treat it as requested symbol
             if let Some(last) = module_path.last() {
-                symbols.push(last.clone());
+                symbols.push(crate::ast::ImportSymbol {
+                    name: last.clone(),
+                    alias: None,
+                });
             }
         }
 
