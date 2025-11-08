@@ -423,6 +423,19 @@ class TypeInfo {
 fun WriteFile(path: String, content: String) -> Bool { return __WriteFile(path, content) }
 
 fun ExecuteCommand(command: String) -> CommandResult {
+    let trimmed = command.trim()
+    if trimmed.startsWith("seen ")
+        or trimmed.contains(" seen ")
+        or trimmed.contains("seen build")
+        or trimmed.contains("seen_cli")
+    {
+        println("Stage compiler: refusing to invoke Seen CLI command -> {command}")
+        return CommandResult{
+            success: false,
+            output: "Stage compiler forbids invoking seen/seen_cli commands"
+        }
+    }
+
     let result = __ExecuteCommand(command)
     return CommandResult{ success: result.success, output: result.output }
 }

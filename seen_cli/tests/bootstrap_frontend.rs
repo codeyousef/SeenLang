@@ -27,3 +27,13 @@ fn compiler_compile_smoke_runs() {
         .assert()
         .success();
 }
+
+#[test]
+fn compiler_refuses_seen_invocations() {
+    let workspace = workspace_root();
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(workspace.join("compiler_seen"))
+        .args(["run", "tests/forbid_seen_shell.seen"])
+        .assert()
+        .success();
+}

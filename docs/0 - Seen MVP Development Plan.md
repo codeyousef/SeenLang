@@ -392,7 +392,9 @@ modules, preventing a true Seen-only pipeline.
   5. ✅ Replace the temp-file shim that spawned the Rust CLI with the Seen-native compiler pipeline from
      `main_compiler.seen`, so Stage-1 now emits artifacts without ever calling `seen build`. The compile pipeline is
      exercised by `compiler_seen/tests/compile_smoke.seen`, and `seen_cli/tests/bootstrap_frontend.rs` runs both
-     frontend + compile smoke tests to ensure the path stays green.
+     frontend + compile smoke tests to ensure the path stays green. A guard in `main_compiler::ExecuteCommand`
+     outright refuses to run `seen`/`seen_cli` invocations (verified by
+     `compiler_seen/tests/forbid_seen_shell.seen`) so regressions surface immediately.
 
 * **Acceptance:** Stage-1 builds run entirely in Seen, module bundling is deterministic, and the bootstrap script/tests
   fail if the Rust CLI is invoked as part of self-hosting.

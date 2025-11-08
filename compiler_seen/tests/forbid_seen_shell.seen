@@ -1,0 +1,17 @@
+import main_compiler.{ExecuteCommand}
+
+fun main() -> Int {
+    let result = ExecuteCommand("seen build something")
+    if result.success {
+        println("Stage compiler should refuse to invoke seen CLI")
+        return 1
+    }
+
+    let echoResult = ExecuteCommand("echo guard_ok")
+    if not echoResult.success {
+        println("Non-seen command execution failed: {echoResult.output}")
+        return 1
+    }
+
+    return 0
+}
