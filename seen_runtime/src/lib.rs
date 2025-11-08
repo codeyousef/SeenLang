@@ -2,10 +2,15 @@
 //! This crate exposes a C-compatible surface (`seen_channel_*` symbols) that the
 //! compiler links against when lowering concurrent Seen programs.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{
+    atomic::{AtomicI32, Ordering}, Arc, Condvar,
+    Mutex,
+};
+use std::sync::atomic::AtomicI32;
 use std::time::{Duration, Instant};
 
 const STATUS_RECEIVED: i64 = 0;
@@ -75,6 +80,61 @@ struct ChannelInner {
     not_empty: Condvar,
     not_full: Condvar,
     closed: Mutex<bool>,
+}
+
+thread_local! {
+    static SCOPE_STATE: RefCell<ScopeState> = RefCell::new(ScopeState::default());
+}
+
+#[derive(Default)]
+struct ScopeState {
+    task_depth: i32,
+    jobs_depth: i32,
+}
+
+impl ScopeState {
+    fn push(&mut self, kind: i32) {
+        match kind {
+            0 => self.task_depth = self.task_depth.saturating_add(1),
+            1 => self.jobs_depth = self.jobs_depth.saturating_add(1),
+            _ => {}
+        }
+    }
+
+    fn pop(&mut self, kind: i32) -> i32 {
+        match kind {
+            0 => {
+                if self.task_depth > 0 {
+                    self.task_depth -= 1;
+                    1
+                } else {
+                    0
+                }
+            }
+            1 => {
+                if self.jobs_depth > 0 {
+                    self.jobs_depth -= 1;
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => 0,
+        }
+    }
+}
+
+static NEXT_TASK_HANDLE: AtomicI32 = AtomicI32::new(1);
+
+#[repr(C)]
+pub struct SeenTaskHandle {
+    id: i32,
+    kind: i32,
+}
+
+fn allocate_task_handle(kind: i32) -> *mut SeenTaskHandle {
+    let id = NEXT_TASK_HANDLE.fetch_add(1, Ordering::Relaxed);
+    Box::into_raw(Box::new(SeenTaskHandle { id, kind }))
 }
 
 impl RuntimeChannel {
@@ -303,6 +363,41 @@ pub extern "C" fn seen_box_free(value: *mut u8) {
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn __scope_push(kind: i32) {
+    SCOPE_STATE.with(|state| state.borrow_mut().push(kind));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __scope_pop(kind: i32) -> i32 {
+    SCOPE_STATE.with(|state| state.borrow_mut().pop(kind))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __task_handle_new(kind: i32) -> *mut SeenTaskHandle {
+    allocate_task_handle(kind)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __spawn_task() -> *mut SeenTaskHandle {
+    allocate_task_handle(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __spawn_detached() -> *mut SeenTaskHandle {
+    allocate_task_handle(1)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __spawn_actor() -> *mut SeenTaskHandle {
+    allocate_task_handle(2)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __await(_handle: *mut SeenTaskHandle) -> i32 {
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +455,24 @@ mod tests {
         seen_box_free(boxed_ptr);
         unsafe {
             drop(Box::from_raw(payload as *mut u64));
+        }
+    }
+
+    #[test]
+    fn scope_push_pop_tracks_depth() {
+        __scope_push(0);
+        assert_eq!(__scope_pop(0), 1);
+        assert_eq!(__scope_pop(0), 0);
+    }
+
+    #[test]
+    fn spawn_handles_are_unique() {
+        let a = __spawn_task();
+        let b = __spawn_task();
+        assert_ne!(a, b);
+        unsafe {
+            drop(Box::from_raw(a as *mut SeenTaskHandle));
+            drop(Box::from_raw(b as *mut SeenTaskHandle));
         }
     }
 }

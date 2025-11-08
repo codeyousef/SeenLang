@@ -336,8 +336,6 @@ pub struct LlvmBackend<'ctx> {
     g_argc: Option<inkwell::values::GlobalValue<'ctx>>,
     g_argv: Option<inkwell::values::GlobalValue<'ctx>>,
     fallthrough_bb: Option<LlvmBasicBlock<'ctx>>,
-    task_counter: Option<GlobalValue<'ctx>>,
-    actor_counter: Option<GlobalValue<'ctx>>,
     byte_array_globals: HashMap<Vec<u8>, GlobalValue<'ctx>>,
     hardware_profile: HardwareProfile,
 }
@@ -384,8 +382,6 @@ impl<'ctx> LlvmBackend<'ctx> {
             g_argc: None,
             g_argv: None,
             fallthrough_bb: None,
-            task_counter: None,
-            actor_counter: None,
             byte_array_globals: HashMap::new(),
             hardware_profile: HardwareProfile::default(),
         }
@@ -2419,77 +2415,81 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     )
                                     .map_err(|e| anyhow!("{e:?}"))?;
                             }
-                            let counter = self.ensure_task_counter();
-                            let handle = self.runtime_spawn_handle(counter)?;
+                            let handle_fn = self.ensure_task_handle_new_fn();
+                            let kind = self.ctx.i32_type().const_int(3, false);
+                            let call = self.builder.build_call(
+                                handle_fn,
+                                &[kind.into()],
+                                "channel_future_handle",
+                            )?;
                             if let Some(r) = result {
-                                self.assign_value(r, handle)?;
+                                if let Some(val) = call.try_as_basic_value().left() {
+                                    self.assign_value(r, val)?;
+                                }
                             }
                             return Ok(());
                         }
-                        "__spawn_task" | "__spawn_detached" => {
+                        "__spawn_task" | "__spawn_detached" | "__spawn_actor" => {
                             if let Some(arg0) = args.get(0) {
                                 let _ = self.eval_value(arg0, fn_map)?;
                             }
-                            let counter = self.ensure_task_counter();
-                            let handle = self.runtime_spawn_handle(counter)?;
+                            let spawn_fn = self.ensure_spawn_fn(name.as_str());
+                            let call =
+                                self.builder
+                                    .build_call(spawn_fn, &[], "spawn_handle_call")?;
                             if let Some(r) = result {
-                                self.assign_value(r, handle)?;
-                            }
-                            return Ok(());
-                        }
-                        "__spawn_actor" => {
-                            if let Some(arg0) = args.get(0) {
-                                let _ = self.eval_value(arg0, fn_map)?;
-                            }
-                            let counter = self.ensure_actor_counter();
-                            let handle = self.runtime_spawn_handle(counter)?;
-                            if let Some(r) = result {
-                                self.assign_value(r, handle)?;
+                                if let Some(val) = call.try_as_basic_value().left() {
+                                    self.assign_value(r, val)?;
+                                }
                             }
                             return Ok(());
                         }
                         "__await" => {
                             if let Some(arg0) = args.get(0) {
                                 let handle_val = self.eval_value(arg0, fn_map)?;
-                                let handle_ptr = self.as_cstr_ptr(handle_val)?;
-                                let handle_ty = self.ty_handle();
-                                let struct_ptr = self
-                                    .builder
-                                    .build_pointer_cast(
-                                        handle_ptr,
-                                        handle_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                        "await_handle",
-                                    )
-                                    .map_err(|e| anyhow!("{e:?}"))?;
-                                let gen_gep = self
-                                    .builder
-                                    .build_struct_gep(handle_ty, struct_ptr, 1, "await_gen")
-                                    .map_err(|e| anyhow!("{e:?}"))?;
-                                let gen_val = self
-                                    .builder
-                                    .build_load(self.ctx.i32_type(), gen_gep, "await_gen_val")
-                                    .map_err(|e| anyhow!("{e:?}"))?
-                                    .into_int_value();
-                                let next = self
-                                    .builder
-                                    .build_int_add(
-                                        gen_val,
-                                        self.ctx.i32_type().const_int(1, false),
-                                        "await_gen_next",
-                                    )
-                                    .map_err(|e| anyhow!("{e:?}"))?;
-                                self.builder
-                                    .build_store(gen_gep, next.as_basic_value_enum())
-                                    .map_err(|e| anyhow!("{e:?}"))?;
-                            }
-                            if let Some(r) = result {
-                                let success = self.bool_t.const_int(1, false);
-                                self.assign_value(r, success.as_basic_value_enum())?;
+                                let handle_ptr =
+                                    self.cast_handle_ptr(handle_val, "await_handle_ptr")?;
+                                let await_fn = self.ensure_await_fn();
+                                let call = self.builder.build_call(
+                                    await_fn,
+                                    &[handle_ptr.as_basic_value_enum().into()],
+                                    "await_call",
+                                )?;
+                                if let Some(r) = result {
+                                    if let Some(val) = call.try_as_basic_value().left() {
+                                        let ok = self
+                                            .builder
+                                            .build_int_compare(
+                                                inkwell::IntPredicate::NE,
+                                                val.into_int_value(),
+                                                self.ctx.i32_type().const_zero(),
+                                                "await_ok",
+                                            )
+                                            .map_err(|e| anyhow!("{e:?}"))?;
+                                        self.assign_value(r, ok.as_basic_value_enum())?;
+                                    }
+                                }
                             }
                             return Ok(());
                         }
                         "__scope_push" | "__scope_pop" => {
-                            // Scope bookkeeping handled by runtime; emit no-op in codegen.
+                            let scope_fn = self.ensure_scope_fn(name.as_str());
+                            let kind = args
+                                .get(0)
+                                .and_then(|v| {
+                                    if let IRValue::Integer(k) = v {
+                                        Some(*k as u64)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap_or(0);
+                            let kind_const = self.ctx.i32_type().const_int(kind, false);
+                            self.builder.build_call(
+                                scope_fn,
+                                &[kind_const.into()],
+                                "scope_call",
+                            )?;
                             return Ok(());
                         }
                         _ => {}
@@ -3626,19 +3626,6 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn ensure_task_counter(&mut self) -> GlobalValue<'ctx> {
-        if let Some(counter) = self.task_counter {
-            counter
-        } else {
-            let counter = self
-                .module
-                .add_global(self.ctx.i32_type(), None, "__task_slot_counter");
-            counter.set_initializer(&self.ctx.i32_type().const_zero());
-            self.task_counter = Some(counter);
-            counter
-        }
-    }
-
     fn ensure_channel_select_fn(&mut self) -> FunctionValue<'ctx> {
         if let Some(func) = self.module.get_function("seen_channel_select") {
             func
@@ -3655,73 +3642,73 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn ensure_actor_counter(&mut self) -> GlobalValue<'ctx> {
-        if let Some(counter) = self.actor_counter {
-            counter
+    fn ensure_scope_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function(name) {
+            func
         } else {
-            let counter = self
-                .module
-                .add_global(self.ctx.i32_type(), None, "__actor_slot_counter");
-            counter.set_initializer(&self.ctx.i32_type().const_zero());
-            self.actor_counter = Some(counter);
-            counter
+            let fn_ty = self
+                .ctx
+                .void_type()
+                .fn_type(&[self.ctx.i32_type().into()], false);
+            self.module.add_function(name, fn_ty, None)
         }
     }
 
-    fn runtime_spawn_handle(&mut self, counter: GlobalValue<'ctx>) -> Result<BasicValueEnum<'ctx>> {
-        let i32_t = self.ctx.i32_type();
-        let slot_ptr = counter.as_pointer_value();
-        let cur_val = self
-            .builder
-            .build_load(i32_t, slot_ptr, "slot_cur")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let cur = cur_val.into_int_value();
-        let next = self
-            .builder
-            .build_int_add(cur, i32_t.const_int(1, false), "slot_next")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.builder
-            .build_store(slot_ptr, next.as_basic_value_enum())
-            .map_err(|e| anyhow!("{e:?}"))?;
+    fn ensure_spawn_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function(name) {
+            func
+        } else {
+            let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+            let fn_ty = ptr_ty.fn_type(&[], false);
+            self.module.add_function(name, fn_ty, None)
+        }
+    }
 
-        let handle_ty = self.ty_handle();
-        let malloc = self.get_malloc();
-        let size = self.i64_t.const_int(8, false); // two i32 fields
-        let raw = self
-            .builder
-            .build_call(malloc, &[size.into()], "malloc_handle")?;
-        let raw_ptr = raw
-            .try_as_basic_value()
-            .left()
-            .ok_or_else(|| anyhow!("malloc returned void"))?
-            .into_pointer_value();
-        let handle_ptr = self
-            .builder
-            .build_pointer_cast(
-                raw_ptr,
-                handle_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                "handle_cast",
-            )
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let slot_gep = self
-            .builder
-            .build_struct_gep(handle_ty, handle_ptr, 0, "slot_gep")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.builder
-            .build_store(slot_gep, cur.as_basic_value_enum())
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let gen_gep = self
-            .builder
-            .build_struct_gep(handle_ty, handle_ptr, 1, "gen_gep")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.builder
-            .build_store(gen_gep, i32_t.const_zero().as_basic_value_enum())
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let raw_i8 = self
-            .builder
-            .build_pointer_cast(handle_ptr, self.i8_ptr_t, "handle_ret")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(raw_i8.as_basic_value_enum())
+    fn ensure_task_handle_new_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("__task_handle_new") {
+            func
+        } else {
+            let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+            let fn_ty = ptr_ty.fn_type(&[self.ctx.i32_type().into()], false);
+            self.module.add_function("__task_handle_new", fn_ty, None)
+        }
+    }
+
+    fn ensure_await_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("__await") {
+            func
+        } else {
+            let ret_ty = self.ctx.i32_type();
+            let arg_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+            let fn_ty = ret_ty.fn_type(&[arg_ty.into()], false);
+            self.module.add_function("__await", fn_ty, None)
+        }
+    }
+
+    fn cast_handle_ptr(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        label: &str,
+    ) -> Result<PointerValue<'ctx>> {
+        if value.is_pointer_value() {
+            self.builder
+                .build_pointer_cast(
+                    value.into_pointer_value(),
+                    self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16)),
+                    label,
+                )
+                .map_err(|e| anyhow!("{e:?}"))
+        } else if value.is_int_value() {
+            self.builder
+                .build_int_to_ptr(
+                    value.into_int_value(),
+                    self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16)),
+                    label,
+                )
+                .map_err(|e| anyhow!("{e:?}"))
+        } else {
+            Err(anyhow!("expected task handle pointer"))
+        }
     }
 
     fn declare_c_fn(
