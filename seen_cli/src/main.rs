@@ -21,6 +21,7 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -1026,7 +1027,9 @@ fn generate_optimized_ir(
 
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast_parsed = parser.parse_program().map_err(SeenError::from)?;
+    let ast_parsed = parser
+        .parse_program()
+        .map_err(|err| annotate_parser_error(err.into(), input))?;
 
     let ast = bundle_imports(
         ast_parsed,
@@ -2042,7 +2045,9 @@ fn bundle_imports(
                                 LexerConfig { visibility_policy },
                             );
                             let mut p = SeenParser::new_with_visibility(lex, visibility_policy);
-                            let parsed = p.parse_program().map_err(|err| SeenError::from(err))?;
+                            let parsed = p
+                                .parse_program()
+                                .map_err(|err| annotate_parser_error(err.into(), &cand))?;
                             let module_base = cand
                                 .parent()
                                 .map(|p| p.to_path_buf())
@@ -2089,7 +2094,9 @@ fn bundle_imports(
             LexerConfig { visibility_policy },
         );
         let mut parser = SeenParser::new_with_visibility(lex, visibility_policy);
-        let parsed = parser.parse_program().map_err(SeenError::from)?;
+        let parsed = parser
+            .parse_program()
+            .map_err(|err| annotate_parser_error(err.into(), &file))?;
         for expr in parsed.expressions {
             merged
                 .expressions
@@ -2102,6 +2109,21 @@ fn bundle_imports(
 
 fn canonicalize_lossy(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn annotate_parser_error(err: SeenError, file: &Path) -> SeenError {
+    match err {
+        SeenError::Categorised {
+            kind,
+            message,
+            location,
+        } => SeenError::Categorised {
+            kind,
+            message: format!("{} (while parsing {})", message, file.display()),
+            location,
+        },
+        other => other,
+    }
 }
 
 fn collect_manifest_module_files(entries: &[PathBuf]) -> SeenResult<Vec<PathBuf>> {
