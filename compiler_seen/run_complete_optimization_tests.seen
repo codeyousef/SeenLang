@@ -1,7 +1,7 @@
 // Complete Optimization Test Runner
 // Tests all optimization components (Steps 17-22)
 
-import testing.runner.*
+import testing.runner
 import tests.pgo_tests.{createPGOTestSuite}
 import tests.memory_optimization_tests.{createMemoryOptimizationTestSuite}
 import tests.architecture_optimization_tests.{createArchitectureTestSuite}

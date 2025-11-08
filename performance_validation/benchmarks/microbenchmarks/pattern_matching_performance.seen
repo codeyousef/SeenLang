@@ -2,8 +2,8 @@
 // Tests the efficiency of pattern matching vs traditional control structures
 // Compares when expressions, sealed classes, and exhaustive matching
 
-import std.benchmark.*
-import std.random.*
+import std.benchmark
+import std.random
 // Sealed class hierarchy for pattern matching tests
 sealed class Shape {
     data class Circle(val radius: Double) : Shape()

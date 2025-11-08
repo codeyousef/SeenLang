@@ -2,11 +2,11 @@
 // Tests the claim of "Zero-cost reactive abstractions"
 // Compares reactive operators against manual loops and iterator chains
 
-import std.reactive.*
-import std.benchmark.*
-import std.collections.*
-import std.random.*
-import std.time.*
+import std.reactive
+import std.benchmark
+import std.collections
+import std.random
+import std.time
 @benchmark
 fun validateZeroCostReactive(b: Bencher) {
     // Test data: 1M integers for comprehensive testing

@@ -16,7 +16,7 @@ fi
 cd "$ROOT_DIR"
 
 echo "[1/4] Stage-1: building native compiler from Seen sources"
-"$CLI_BIN" build compiler_seen/src/main.seen --backend llvm --output stage1_seen
+SEEN_ENABLE_MANIFEST_MODULES=1 "$CLI_BIN" build compiler_seen/src/main.seen --backend llvm --output stage1_seen
 
 echo "[2/4] Stage-2: self-building with Stage-1"
 ./stage1_seen build compiler_seen/src/main.seen stage2_seen

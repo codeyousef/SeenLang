@@ -3,7 +3,7 @@
 
 import optimization.pgo.profile_guided_optimizer.{ProfileGuidedOptimizer}
 import optimization.pgo.profiler.{Profiler}
-import testing.assert.*
+import testing.assert
 fun createPGOTestSuite() -> TestSuite {
     let suite = TestSuite::new("Profile-Guided Optimization");
     
@@ -70,7 +70,7 @@ fun test_no_manual_profiling() {
     
     // Verify test suite was used for profiling if available
     if source.hasTests() {
-        assertTrue(binary.profileData.fromTests, "Should use test suite for profiling");
+        assertTrue(binary.profileData.fromTests, "Should import test suite for profiling")
     }
     
     // Verify synthetic workload was generated
@@ -94,11 +94,11 @@ fun test_cross_architecture() {
         
         // Verify architecture-specific optimizations
         if arch == "x86_64" {
-            assertTrue(binary.hasAVX512(), "Should use AVX-512 on x86_64");
+            assertTrue(binary.hasAVX512(), "Should import AVX-512 on x86_64")
         } else if arch == "arm64" {
-            assertTrue(binary.hasNEON(), "Should use NEON on ARM64");
+            assertTrue(binary.hasNEON(), "Should import NEON on ARM64")
         } else if arch == "riscv64" {
-            assertTrue(binary.hasRVV(), "Should use RVV on RISC-V");
+            assertTrue(binary.hasRVV(), "Should import RVV on RISC-V")
         }
     }
 }
@@ -208,7 +208,7 @@ fun test_loop_optimization() {
     // Very large loop should be strip mined
     let hugeLoop = ir.findLoop("huge_hot_loop");
     assertTrue(hugeLoop.isStripMined, "Huge loop should be strip mined");
-    assertEquals(64, hugeLoop.stripSize, "Should use cache line size");
+    assertEquals(64, hugeLoop.stripSize, "Should import cache line size")
     
     // Cold loop should not be optimized
     let coldLoop = ir.findLoop("cold_loop");

@@ -28,7 +28,11 @@ fn ecs_sample_source() -> PathBuf {
 fn seen_vulkan_min_runs_with_interpreter_backend() {
     let workspace = workspace_root();
     let sample = vulkan_sample_source();
-    assert!(sample.exists(), "vulkan sample should exist at {:?}", sample);
+    assert!(
+        sample.exists(),
+        "vulkan sample should exist at {:?}",
+        sample
+    );
 
     Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)

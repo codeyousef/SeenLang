@@ -2151,10 +2151,14 @@ impl<'ctx> LlvmBackend<'ctx> {
                             let done_bb = self.ctx.append_basic_block(fnv, "rf_done");
                             self.builder
                                 .build_conditional_branch(is_null, then_bb, cont_bb)?;
-                            let mut rf_then_val: Option<(BasicValueEnum<'ctx>, LlvmBasicBlock<'ctx>)> =
-                                None;
-                            let mut rf_cont_val: Option<(BasicValueEnum<'ctx>, LlvmBasicBlock<'ctx>)> =
-                                None;
+                            let mut rf_then_val: Option<(
+                                BasicValueEnum<'ctx>,
+                                LlvmBasicBlock<'ctx>,
+                            )> = None;
+                            let mut rf_cont_val: Option<(
+                                BasicValueEnum<'ctx>,
+                                LlvmBasicBlock<'ctx>,
+                            )> = None;
                             self.builder.position_at_end(then_bb);
                             let empty = self.builder.build_global_string_ptr("", "empty")?;
                             let empty_val = empty.as_pointer_value().as_basic_value_enum();
@@ -3545,10 +3549,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                         .unwrap();
                 } else {
                     let i64v = ret.into_int_value();
-                    exit_code = self
-                        .builder
-                        .build_int_truncate(i64v, i32_t, "tr")
-                        .unwrap();
+                    exit_code = self.builder.build_int_truncate(i64v, i32_t, "tr").unwrap();
                 }
             }
         }

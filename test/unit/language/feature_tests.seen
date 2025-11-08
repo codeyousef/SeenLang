@@ -1,8 +1,8 @@
 // Syntax Feature Tests
 // Tests for all Seen language features from Syntax Design
 
-import testing.assert.*
-import testing.runner.*
+import testing.assert
+import testing.runner
 // ============== VISIBILITY TESTS ==============
 
 fun test_capitalization_visibility() {

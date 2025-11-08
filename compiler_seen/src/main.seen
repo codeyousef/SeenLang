@@ -191,7 +191,7 @@ fun makeStage1TempSource(outputPath: String) -> String {
 }
 
 fun buildStage1EmitLlCommand(tempSourcePath: String, tempLlPath: String) -> String {
-    return "seen build " + tempSourcePath + " --backend llvm --emit-ll --output " + tempLlPath
+    return "SEEN_ENABLE_MANIFEST_MODULES=1 seen build " + tempSourcePath + " --backend llvm --emit-ll --output " + tempLlPath
 }
 
 fun buildStage1EmitObjectCommand(tempLlPath: String, tempObjPath: String) -> String {

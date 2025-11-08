@@ -2,9 +2,9 @@
 // Tests various function call types to measure overhead differences
 // Compares direct calls, virtual calls, closures, and generic functions
 
-import std.benchmark.*
-import std.time.*
-import std.random.*
+import std.benchmark
+import std.time
+import std.random
 // Interface for virtual function testing
 interface Calculable {
     fun calculate(x: Int): Int

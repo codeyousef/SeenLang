@@ -2,7 +2,7 @@
 // Verify zero-overhead memory management
 
 import optimization.memory.memory_optimizer.{MemoryOptimizer}
-import testing.assert.*
+import testing.assert
 fun createMemoryOptimizationTestSuite() -> TestSuite {
     let suite = TestSuite::new("Advanced Memory Optimization");
     
@@ -231,23 +231,23 @@ fun test_all_architectures() {
         if arch == "x86_64" {
             // Check for x86-specific prefetch instructions
             let prefetches = optimized.findInstructions("prefetchnta");
-            assertTrue(prefetches.size > 0, "Should use x86 prefetch");
+            assertTrue(prefetches.size > 0, "Should import x86 prefetch")
             
             // Check for huge pages
             let hugePages = optimized.findHugePageAllocs();
-            assertTrue(hugePages.size > 0, "Should use huge pages on x86");
+            assertTrue(hugePages.size > 0, "Should import huge pages on x86")
         } else if arch == "arm64" {
             // Check for ARM-specific optimizations
             let prefetches = optimized.findInstructions("prfm");
-            assertTrue(prefetches.size > 0, "Should use ARM prefetch");
+            assertTrue(prefetches.size > 0, "Should import ARM prefetch")
             
             // Check for cache maintenance operations
             let dcOperations = optimized.findInstructions("dc");
-            assertTrue(dcOperations.size > 0, "Should use data cache ops");
+            assertTrue(dcOperations.size > 0, "Should import data cache ops")
         } else if arch == "riscv64" {
             // Check for RISC-V optimizations
             let prefetches = optimized.findInstructions("prefetch.r");
-            assertTrue(prefetches.size > 0, "Should use RISC-V prefetch");
+            assertTrue(prefetches.size > 0, "Should import RISC-V prefetch")
         } else if arch == "wasm32" {
             // Check for WASM memory optimizations
             let memory = optimized.findMemorySection();

@@ -2,11 +2,11 @@
 // Investigates the impossible "-58% memory overhead" claim
 // This benchmark will find what's actually being measured and provide honest results
 
-import std.memory.*
-import std.benchmark.*
-import std.collections.*
-import std.time.*
-import std.random.*
+import std.memory
+import std.benchmark
+import std.collections
+import std.time
+import std.random
 @benchmark
 fun investigateMemoryClaim(b: Bencher) {
     // The "-58% memory overhead" claim is physically impossible

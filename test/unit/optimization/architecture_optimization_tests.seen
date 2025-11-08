@@ -2,7 +2,7 @@
 // Verify optimal code generation for each target platform
 
 import optimization.arch.architecture_optimizer.{ArchitectureOptimizer}
-import testing.assert.*
+import testing.assert
 fun createArchitectureTestSuite() -> TestSuite {
     let suite = TestSuite::new("Multi-Architecture Optimization");
     
@@ -73,11 +73,11 @@ fun test_simd_maximized() {
     
     // Should use 512-bit vectors where possible
     let avx512Ops = x86Optimized.findInstructions("v.*ps.*zmm");  // AVX-512 ops
-    assertTrue(avx512Ops.size > 0, "Should use AVX-512 instructions");
+    assertTrue(avx512Ops.size > 0, "Should import AVX-512 instructions")
     
     // Should use masked operations
     let maskedOps = x86Optimized.findInstructions("k[0-7]");  // Mask registers
-    assertTrue(maskedOps.size > 0, "Should use AVX-512 masks");
+    assertTrue(maskedOps.size > 0, "Should import AVX-512 masks")
     
     // Test ARM64 NEON/SVE
     let armOptimizer = ArchitectureOptimizer::new("arm64");
@@ -99,7 +99,7 @@ fun test_simd_maximized() {
     
     // Should use vector instructions
     let vectorOps = riscvOptimized.findInstructions("v.*\\.v");  // RVV ops
-    assertTrue(vectorOps.size > 0, "Should use RVV instructions");
+    assertTrue(vectorOps.size > 0, "Should import RVV instructions")
 }
 
 // Test: Architecture-specific patterns recognized
@@ -141,8 +141,8 @@ fun test_arch_patterns() {
     // Should use load/store pair instructions
     let ldpInstructions = armOptimized.findInstructions("ldp");
     let stpInstructions = armOptimized.findInstructions("stp");
-    assertTrue(ldpInstructions.size > 0, "Should use ARM ldp");
-    assertTrue(stpInstructions.size > 0, "Should use ARM stp");
+    assertTrue(ldpInstructions.size > 0, "Should import ARM ldp")
+    assertTrue(stpInstructions.size > 0, "Should import ARM stp")
     
     // Test macro fusion on RISC-V
     let riscvSource = Source::fromString("""
@@ -221,7 +221,7 @@ fun test_custom_instructions() {
     // Should use custom crypto instructions if available
     if optimizer.hasExtension("Xcrypto") {
         let cryptoOps = optimized.findInstructions("sha256.*");
-        assertTrue(cryptoOps.size > 0, "Should use crypto extension");
+        assertTrue(cryptoOps.size > 0, "Should import crypto extension")
     }
     
     // Test x86 custom instructions (e.g., CRC32)
@@ -237,7 +237,7 @@ fun test_custom_instructions() {
     // Should use CRC32 instruction if available
     if x86Optimizer.cpuInfo.hasFeature("sse4.2") {
         let crcInstructions = x86Optimized.findInstructions("crc32");
-        assertTrue(crcInstructions.size > 0, "Should use CRC32 instruction");
+        assertTrue(crcInstructions.size > 0, "Should import CRC32 instruction")
     }
 }
 
@@ -252,15 +252,15 @@ fun test_x86_avx512() {
     
     // Should use 512-bit vectors
     let zmm = optimized.findRegisters("zmm");
-    assertTrue(zmm.size > 0, "Should use ZMM registers");
+    assertTrue(zmm.size > 0, "Should import ZMM registers")
     
     // Should use FMA for dot product
     let fma = optimized.findInstructions("vfmadd");
-    assertTrue(fma.size > 0, "Should use FMA instructions");
+    assertTrue(fma.size > 0, "Should import FMA instructions")
     
     // Should use reduction
     let reduce = optimized.findInstructions("vreduce");
-    assertTrue(reduce.size > 0, "Should use reduction");
+    assertTrue(reduce.size > 0, "Should import reduction")
     
     // Check vector width
     let loops = optimized.findVectorizedLoops();
@@ -280,11 +280,11 @@ fun test_arm_sve2() {
     
     // Should use scalable vectors
     let sve = optimized.findInstructions("z[0-9]+");
-    assertTrue(sve.size > 0, "Should use SVE registers");
+    assertTrue(sve.size > 0, "Should import SVE registers")
     
     // Should use predicated execution
     let predicated = optimized.findInstructions("p[0-9]+");
-    assertTrue(predicated.size > 0, "Should use predication");
+    assertTrue(predicated.size > 0, "Should import predication")
     
     // Should be vector-length agnostic
     let loops = optimized.findVectorizedLoops();
@@ -304,11 +304,11 @@ fun test_riscv_rvv() {
     
     // Should use vector registers
     let vreg = optimized.findRegisters("v[0-9]+");
-    assertTrue(vreg.size > 0, "Should use vector registers");
+    assertTrue(vreg.size > 0, "Should import vector registers")
     
     // Should use segment load/store for structs
     let segment = optimized.findInstructions("v[ls]seg");
-    assertTrue(segment.size > 0, "Should use segment load/store");
+    assertTrue(segment.size > 0, "Should import segment load/store")
     
     // Should configure LMUL appropriately
     let config = optimized.findVectorConfig();
@@ -326,11 +326,11 @@ fun test_wasm_simd() {
     
     // Should use 128-bit SIMD
     let simd = optimized.findInstructions("v128\\.");
-    assertTrue(simd.size > 0, "Should use WASM SIMD");
+    assertTrue(simd.size > 0, "Should import WASM SIMD")
     
     // Should use shuffle for permutations
     let shuffle = optimized.findInstructions("i8x16\\.shuffle");
-    assertTrue(shuffle.size > 0, "Should use shuffle");
+    assertTrue(shuffle.size > 0, "Should import shuffle")
     
     // Code size should be optimized
     let codeSize = optimized.calculateCodeSize();

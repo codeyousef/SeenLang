@@ -1,7 +1,7 @@
 // Real Arithmetic Benchmarks - Actual performance measurements
 // Replaces hardcoded benchmark results with real measurements
 
-import runtime.runtime_intrinsics.*
+import runtime.runtime_intrinsics
 fun main() -> Int {
     println("🚀 Seen Language - Real Arithmetic Benchmarks")
     println("   Measuring actual performance with high-precision timing")

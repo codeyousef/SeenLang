@@ -21,7 +21,7 @@ fun test_finds_optimal_instruction_sequences() {
     // Should find that left shift by 3 is optimal
     assert(optimizedFunction != null, "Should find optimization");
     assert(optimizedFunction.instructions.size() == 1, "Should reduce to single instruction");
-    assert(optimizedFunction.instructions[0].op == "shl", "Should use shift left");
+    assert(optimizedFunction.instructions[0].op == "shl", "Should import shift left")
     assert(optimizedFunction.instructions[0].args[1] == "3", "Should shift by 3");
     
     println("✅ Finds optimal instruction sequences");

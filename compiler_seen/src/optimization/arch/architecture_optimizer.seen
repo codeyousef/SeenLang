@@ -3,9 +3,9 @@
 
 import optimization.base.{OptimizationPass}
 import ir.module.{Module}
-import hardware.architecture.*
-import hardware.simd.*
-import hardware.isa.*
+import hardware.architecture
+import hardware.simd
+import hardware.isa
 // ArchitectureOptimizer (uppercase) = public class
 class ArchitectureOptimizer : OptimizationPass {
     let architecture: Architecture

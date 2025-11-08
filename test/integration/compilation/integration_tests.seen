@@ -1,8 +1,8 @@
 // Integration Tests
 // End-to-end tests for the Seen compiler
 
-import testing.assert.*
-import testing.runner.*
+import testing.assert
+import testing.runner
 import main_compiler.{CompileSeenProgram}
 // ============== HELLO WORLD TEST ==============
 

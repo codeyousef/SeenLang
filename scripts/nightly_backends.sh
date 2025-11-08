@@ -15,6 +15,10 @@ fi
 TARGET="${1:-compiler_seen/src/main.seen}"
 OPT_LEVEL="${OPT_LEVEL:-1}"
 
+if [[ "$TARGET" == compiler_seen/src/* ]]; then
+  export SEEN_ENABLE_MANIFEST_MODULES=1
+fi
+
 cd "$ROOT_DIR"
 
 for backend in mlir clif; do

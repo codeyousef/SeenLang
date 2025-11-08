@@ -5,38 +5,6 @@
 import superoptimizer.{Superoptimizer}
 import z3_solver.{Z3Solver}
 import program_synthesis.{ProgramSynthesizer}
-// Export main superoptimization interface
-pub use superoptimizer::Superoptimizer
-
-// Supporting types and data structures
-pub use superoptimizer::{
-    Specification,
-    Dependency,
-    MemoryAccess
-}
-
-pub use z3_solver::{
-    Z3Solver,
-    SMTModel,
-    Formula,
-    Constraint,
-    Variable,
-    IntVariable,
-    BoolVariable,
-    EnumVariable,
-    BitVectorVariable
-}
-
-pub use program_synthesis::{
-    ProgramSynthesizer,
-    ProgramSpecification,
-    TestCase,
-    ProgramInput,
-    ProgramOutput,
-    SynthesisResult,
-    InstructionSet
-}
-
 // Superoptimization engine interface
 fun createSuperoptimizer() -> Superoptimizer {
     return Superoptimizer{}

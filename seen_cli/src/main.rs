@@ -21,6 +21,7 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -466,14 +467,29 @@ impl ProjectConfig {
     }
 
     fn module_paths(&self) -> Vec<PathBuf> {
-        if std::env::var_os("SEEN_ENABLE_MANIFEST_MODULES").is_none() {
-            return Vec::new();
-        }
         self.project
             .modules
             .iter()
             .map(|entry| self.root_dir.join(entry))
             .collect()
+    }
+}
+
+fn manifest_modules_enabled() -> bool {
+    std::env::var("SEEN_ENABLE_MANIFEST_MODULES")
+        .ok()
+        .map(|value| {
+            let lowered = value.trim().to_ascii_lowercase();
+            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+fn manifest_module_roots(config: &ProjectConfig) -> Vec<PathBuf> {
+    if manifest_modules_enabled() {
+        config.module_paths()
+    } else {
+        Vec::new()
     }
 }
 
@@ -1007,7 +1023,7 @@ fn generate_optimized_ir(
 
     let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let manifest_modules = project_config.module_paths();
+    let manifest_modules = manifest_module_roots(&project_config);
 
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -1601,7 +1617,7 @@ fn compile_file_llvm(
 
     let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let manifest_modules = project_config.module_paths();
+    let manifest_modules = manifest_module_roots(&project_config);
     // Lex + parse
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -2071,9 +2087,7 @@ fn bundle_imports(
         let lex = Lexer::with_config(
             src,
             keyword_manager.clone(),
-            LexerConfig {
-                visibility_policy,
-            },
+            LexerConfig { visibility_policy },
         );
         let mut parser = SeenParser::new_with_visibility(lex, visibility_policy);
         let parsed = parser.parse_program().map_err(SeenError::from)?;
@@ -2127,7 +2141,11 @@ fn gather_module_files(path: &Path, acc: &mut Vec<PathBuf>) -> SeenResult<()> {
             .map_err(|err| {
                 SeenError::new(
                     SeenErrorKind::Io,
-                    format!("Failed to read module directory {}: {}", path.display(), err),
+                    format!(
+                        "Failed to read module directory {}: {}",
+                        path.display(),
+                        err
+                    ),
                 )
             })?
             .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -2878,7 +2896,7 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     // Lex and parse
     let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let manifest_modules = project_config.module_paths();
+    let manifest_modules = manifest_module_roots(&project_config);
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let parsed = parser.parse_program().map_err(SeenError::from)?;

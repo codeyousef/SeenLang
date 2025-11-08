@@ -374,12 +374,17 @@ guardrails.
 modules, preventing a true Seen-only pipeline.
 
 * **Outstanding tasks:**
-    1. ✅ Keep the temp-file bootstrap shim isolated (now writing under `compiler_seen/stage_cache` so the CLI sees
-       `Seen.toml`), preserving shell-out logic until the Seen-native pipeline replaces it.
-    2. Extend the CLI/bootstrap loader to bundle every `.seen` module declared in `Seen.toml` (compiler library +
+    1. ✅ Keep the temp-file bootstrap shim isolated (now writing under `compiler_seen/stage_cache` and exporting
+       `SEEN_ENABLE_MANIFEST_MODULES` so the CLI sees `Seen.toml`), preserving shell-out logic until the Seen-native
+       pipeline replaces it.
+    2. ✅ Extend the CLI/bootstrap loader to bundle every `.seen` module declared in `Seen.toml` (compiler library +
        runtime) deterministically so Stage-1 compiles the full module graph instead of a single file.
-    3. Update the bootstrap scripts/tests to assert that Stage-1 no longer spawns the Rust CLI (hash the module bundle,
-       add CI coverage, and document the invariant in the self-host plan).
+    3. ✅ Gate manifest-module bundling behind `SEEN_ENABLE_MANIFEST_MODULES`, propagate the env flag through Stage-0
+       scripts and the Stage-1 runner, and add regression coverage so bootstrap builds fail fast if the flag is
+       missing. `scripts/self_host_llvm.sh` and `scripts/nightly_backends.sh` now export the variable before invoking
+       `seen_cli`, the Stage-1 driver injects `SEEN_ENABLE_MANIFEST_MODULES=1` into its `seen build` subprocesses, and
+       `seen_cli/tests/manifest_modules.rs` asserts that manifest entries are ignored by default but enforced whenever
+       the env flag is set.
 
 * **Acceptance:** Stage-1 builds run entirely in Seen, module bundling is deterministic, and the bootstrap script/tests
   fail if the Rust CLI is invoked as part of self-hosting.

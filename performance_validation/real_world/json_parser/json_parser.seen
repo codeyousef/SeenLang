@@ -1,12 +1,12 @@
 // Seen JSON Parser Benchmark - Real-world parsing performance test
 // Tests parsing performance on various JSON files with different characteristics
 
-import std.io.*
-import std.time.*
-import std.benchmark.*
-import std.fs.*
-import std.collections.*
-import std.memory.*
+import std.io
+import std.time
+import std.benchmark
+import std.fs
+import std.collections
+import std.memory
 // JSON Value representation
 enum JsonValue {
     Null,
