@@ -374,7 +374,7 @@ guardrails.
 modules, preventing a true Seen-only pipeline.
 
 * **Outstanding tasks:**
-    1. ✅ Extract the temp-file bootstrap shim into `compiler_seen/src/bootstrap/stage1_backend.seen` and have the
+    1. ✅ Extract the temp-file bootstrap shim into `compiler_seen/src/bootstrap/bootstrap_backend.seen` and have the
        Stage-1 entry import it, so the shell-out logic is isolated for replacement.
     2. Extend the CLI/bootstrap loader to bundle every `.seen` module declared in `Seen.toml` (compiler library +
        runtime) deterministically so Stage-1 compiles the full module graph instead of a single file.

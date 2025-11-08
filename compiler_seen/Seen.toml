@@ -5,6 +5,21 @@ language = "en"
 description = "Self-hosted Seen compiler - written in Seen"
 authors = ["Seen Language Team"]
 edition = "2025"
+modules = [
+    "src/bootstrap",
+    "src/lexer",
+    "src/parser",
+    "src/typechecker",
+    "src/ir",
+    "src/codegen",
+    "src/optimization",
+    "src/runtime",
+    "src/tools",
+    "src/testing",
+    "src/benchmarks",
+    "src/main_compiler.seen",
+    "src/test_compiler.seen"
+]
 
 [build]
 targets = ["native", "riscv64", "wasm32"]

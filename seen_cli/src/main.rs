@@ -21,6 +21,7 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -380,18 +381,32 @@ enum BuildLinkMode {
     StaticLibrary,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 struct ProjectConfig {
     #[serde(default)]
     project: ProjectSection,
     #[serde(default)]
     visibility: Option<VisibilityConfig>,
+    #[serde(skip)]
+    root_dir: PathBuf,
+}
+
+impl Default for ProjectConfig {
+    fn default() -> Self {
+        Self {
+            project: ProjectSection::default(),
+            visibility: None,
+            root_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct ProjectSection {
     #[serde(default)]
     visibility: Option<VisibilityMode>,
+    #[serde(default)]
+    modules: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -450,13 +465,22 @@ impl ProjectConfig {
             VisibilityPolicy::Caps
         }
     }
+
+    fn module_paths(&self) -> Vec<PathBuf> {
+        self.project
+            .modules
+            .iter()
+            .map(|entry| self.root_dir.join(entry))
+            .collect()
+    }
 }
 
-fn lexer_config_for(path: &Path) -> SeenResult<LexerConfig> {
-    let project_config = load_project_config(path)?;
-    Ok(LexerConfig {
-        visibility_policy: project_config.visibility_policy(),
-    })
+fn project_context_for(path: &Path) -> SeenResult<(ProjectConfig, LexerConfig)> {
+    let config = load_project_config(path)?;
+    let lexer_config = LexerConfig {
+        visibility_policy: config.visibility_policy(),
+    };
+    Ok((config, lexer_config))
 }
 
 fn load_project_config(starting_path: &Path) -> SeenResult<ProjectConfig> {
@@ -482,7 +506,7 @@ fn load_project_config(starting_path: &Path) -> SeenResult<ProjectConfig> {
                     ),
                 )
             })?;
-            let config: ProjectConfig = toml::from_str(&content).map_err(|err| {
+            let mut config: ProjectConfig = toml::from_str(&content).map_err(|err| {
                 SeenError::new(
                     SeenErrorKind::Tooling,
                     format!(
@@ -492,6 +516,7 @@ fn load_project_config(starting_path: &Path) -> SeenResult<ProjectConfig> {
                     ),
                 )
             })?;
+            config.root_dir = dir.clone();
             return Ok(config);
         }
 
@@ -978,8 +1003,9 @@ fn generate_optimized_ir(
         )
     })?;
 
-    let lexer_config = lexer_config_for(input)?;
+    let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
+    let manifest_modules = project_config.module_paths();
 
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -990,6 +1016,7 @@ fn generate_optimized_ir(
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &manifest_modules,
     )?;
 
     let bootstrap_mode = false;
@@ -1570,8 +1597,9 @@ fn compile_file_llvm(
         )
     })?;
 
-    let lexer_config = lexer_config_for(input)?;
+    let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
+    let manifest_modules = project_config.module_paths();
     // Lex + parse
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -1583,6 +1611,7 @@ fn compile_file_llvm(
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &manifest_modules,
     )?;
 
     // Type check
@@ -1936,6 +1965,7 @@ fn bundle_imports(
     input_path: &Path,
     keyword_manager: Arc<KeywordManager>,
     visibility_policy: VisibilityPolicy,
+    manifest_modules: &[PathBuf],
 ) -> SeenResult<Program> {
     let base_dir = input_path
         .parent()
@@ -1943,7 +1973,10 @@ fn bundle_imports(
         .unwrap_or_else(|| PathBuf::from("."));
     let mut queue: VecDeque<(Program, PathBuf)> = VecDeque::new();
     queue.push_back((program, base_dir.clone()));
-    let mut visited: HashSet<String> = HashSet::new();
+    let mut visited_modules: HashSet<String> = HashSet::new();
+    let mut processed_files: HashSet<PathBuf> = HashSet::new();
+    let input_canonical = canonicalize_lossy(input_path);
+    processed_files.insert(input_canonical.clone());
     let mut merged = Program {
         expressions: Vec::new(),
     };
@@ -1953,10 +1986,10 @@ fn bundle_imports(
             match &expr {
                 Expression::Import { module_path, .. } => {
                     let key = module_path.join(".");
-                    if visited.contains(&key) {
+                    if visited_modules.contains(&key) {
                         continue;
                     }
-                    visited.insert(key.clone());
+                    visited_modules.insert(key.clone());
                     // Resolve candidate paths
                     let module_file = format!("{}.seen", module_path.join("/"));
                     let mut candidates = vec![
@@ -1971,6 +2004,11 @@ fn bundle_imports(
                     let mut loaded = false;
                     for cand in candidates {
                         if cand.exists() {
+                            let canonical = canonicalize_lossy(&cand);
+                            if processed_files.contains(&canonical) {
+                                loaded = true;
+                                break;
+                            }
                             let src = fs::read_to_string(&cand).map_err(|err| {
                                 SeenError::new(
                                     SeenErrorKind::Io,
@@ -1992,6 +2030,7 @@ fn bundle_imports(
                                 .parent()
                                 .map(|p| p.to_path_buf())
                                 .unwrap_or_else(|| base_dir.clone());
+                            processed_files.insert(canonical.clone());
                             queue.push_back((parsed, module_base));
                             loaded = true;
                             break;
@@ -2010,7 +2049,93 @@ fn bundle_imports(
             }
         }
     }
+
+    let manifest_files = collect_manifest_module_files(manifest_modules)?;
+    for file in manifest_files {
+        let canonical = canonicalize_lossy(&file);
+        if processed_files.contains(&canonical) {
+            continue;
+        }
+        let src = fs::read_to_string(&file).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read manifest module {}: {}", file.display(), err),
+            )
+        })?;
+        let module_dir = canonical
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let lex = Lexer::with_config(
+            src,
+            keyword_manager.clone(),
+            LexerConfig {
+                visibility_policy,
+            },
+        );
+        let mut parser = SeenParser::new_with_visibility(lex, visibility_policy);
+        let parsed = parser.parse_program().map_err(SeenError::from)?;
+        for expr in parsed.expressions {
+            merged
+                .expressions
+                .push(rewrite_embed_attributes(expr, &module_dir));
+        }
+        processed_files.insert(canonical);
+    }
     Ok(merged)
+}
+
+fn canonicalize_lossy(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn collect_manifest_module_files(entries: &[PathBuf]) -> SeenResult<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in entries {
+        gather_module_files(entry, &mut files)?;
+    }
+    files.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
+    files.dedup();
+    Ok(files)
+}
+
+fn gather_module_files(path: &Path, acc: &mut Vec<PathBuf>) -> SeenResult<()> {
+    let metadata = match fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(err) => {
+            return Err(SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read module path {}: {}", path.display(), err),
+            ))
+        }
+    };
+    if metadata.is_file() {
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("seen"))
+            .unwrap_or(false)
+        {
+            acc.push(path.to_path_buf());
+        }
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        let mut children: Vec<PathBuf> = fs::read_dir(path)
+            .map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!("Failed to read module directory {}: {}", path.display(), err),
+                )
+            })?
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .collect();
+        children.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
+        for child in children {
+            gather_module_files(&child, acc)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(any(test, feature = "llvm"))]
@@ -2749,13 +2874,20 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     })?;
 
     // Lex and parse
-    let lexer_config = lexer_config_for(input)?;
+    let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
+    let manifest_modules = project_config.module_paths();
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let parsed = parser.parse_program().map_err(SeenError::from)?;
     // Bundle imports so interpreter sees imported functions
-    let ast = bundle_imports(parsed, input, keyword_manager.clone(), visibility_policy)?;
+    let ast = bundle_imports(
+        parsed,
+        input,
+        keyword_manager.clone(),
+        visibility_policy,
+        &manifest_modules,
+    )?;
 
     // Type check
     let mut type_checker = TypeChecker::new();
@@ -2877,7 +3009,7 @@ fn check_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> SeenResult<
     })?;
 
     // Lex and parse
-    let lexer_config = lexer_config_for(input)?;
+    let (_project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -2922,7 +3054,7 @@ fn generate_ir(
     })?;
 
     // Lex and parse
-    let lexer_config = lexer_config_for(input)?;
+    let (_project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -3537,7 +3669,7 @@ fn format_file(input: &Path, in_place: bool, check: bool) -> SeenResult<()> {
             format!("Failed to switch to English keywords: {}", err),
         )
     })?;
-    let lexer_config = lexer_config_for(input)?;
+    let (_project_config, lexer_config) = project_context_for(input)?;
 
     // Parse the source code
     let visibility_policy = lexer_config.visibility_policy;
@@ -3669,7 +3801,7 @@ fn parse_file(input: &Path, format: &str, keyword_manager: Arc<KeywordManager>) 
     })?;
 
     // Lex and parse
-    let lexer_config = lexer_config_for(input)?;
+    let (_project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -3704,7 +3836,7 @@ fn lex_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> SeenResult<()
     })?;
 
     // Lex the source
-    let lexer_config = lexer_config_for(input)?;
+    let (_project_config, lexer_config) = project_context_for(input)?;
     let mut lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut tokens = Vec::new();
 
@@ -4411,7 +4543,7 @@ fn run_test_file(
     })?;
 
     // Parse the test file
-    let lexer_config = lexer_config_for(test_file)?;
+    let (_project_config, lexer_config) = project_context_for(test_file)?;
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
