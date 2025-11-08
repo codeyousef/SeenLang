@@ -374,8 +374,8 @@ guardrails.
 modules, preventing a true Seen-only pipeline.
 
 * **Outstanding tasks:**
-    1. ✅ Extract the temp-file bootstrap shim into `compiler_seen/src/bootstrap/bootstrap_backend.seen` and have the
-       Stage-1 entry import it, so the shell-out logic is isolated for replacement.
+    1. ✅ Keep the temp-file bootstrap shim isolated (now writing under `compiler_seen/stage_cache` so the CLI sees
+       `Seen.toml`), preserving shell-out logic until the Seen-native pipeline replaces it.
     2. Extend the CLI/bootstrap loader to bundle every `.seen` module declared in `Seen.toml` (compiler library +
        runtime) deterministically so Stage-1 compiles the full module graph instead of a single file.
     3. Update the bootstrap scripts/tests to assert that Stage-1 no longer spawns the Rust CLI (hash the module bundle,

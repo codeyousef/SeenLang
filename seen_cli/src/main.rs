@@ -21,7 +21,6 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -467,6 +466,9 @@ impl ProjectConfig {
     }
 
     fn module_paths(&self) -> Vec<PathBuf> {
+        if std::env::var_os("SEEN_ENABLE_MANIFEST_MODULES").is_none() {
+            return Vec::new();
+        }
         self.project
             .modules
             .iter()
