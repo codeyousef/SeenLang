@@ -98,7 +98,7 @@ fun load(path: &str) -> Result<[u8], IoError> {
   Ok(bytes)
 }
 
-#[cold]
+@[cold]
 fun unlikely_case() { /* ... */ }
 ```
 - Recoverable errors use `Result`; `panic` aborts.
@@ -123,7 +123,7 @@ cancel(token);
 
 ## 8. Numerics & SIMD
 ```seen
-#[float_env(ftz, daz, round="nearest")]
+@[float_env(ftz, daz, round="nearest")]
 fun dot(a: vec4, b: vec4) -> f32 { /* ... */ }
 
 let q: quat = quat_from_axis_angle(axis, angle);
@@ -134,13 +134,13 @@ let q: quat = quat_from_axis_angle(axis, angle);
 
 ## 9. FFI/ABI & Layout
 ```seen
-#[repr(C)]
+@[repr(C)]
 struct Extent3D { width: u32, height: u32, depth: u32 }
 
-#[no_mangle]
+@[no_mangle]
 pub extern "C" fun seen_init() -> i32 { 0 }
 
-#[repr(C, packed(1))]
+@[repr(C, packed(1))]
 union Bytes4 { u: u32, b: [u8; 4] }
 ```
 - Exact layout/align/pack; function pointers and callbacks supported.
@@ -149,13 +149,14 @@ union Bytes4 { u: u32, b: [u8; 4] }
 
 ## 10. Shaders & Render‑Graph DSL
 ```seen
-#[embed(path="shaders/triangle.spv")] const TRIANGLE_SPV: [u8];
+@[embed(path="shaders/triangle.spv")] const TRIANGLE_SPV: [u8];
 
 graph pass "gbuffer" { write color, depth; run |vk| draw_world(vk); }
 
 graph pass "lighting" { read color, depth; write lit; run |vk| shade(vk); }
 ```
-- `#[embed]` injects byte blobs.
+
+- `@[embed]` injects byte blobs.
 - Render‑graph DSL declares passes/resources; compiler emits barriers/lifetime checks.
 
 ---
@@ -170,7 +171,7 @@ version = "0.1.0"
 [dependencies]
 seen-ecs = "^0.1"
 
-#[plugin_abi(version="1.0")]
+@[plugin_abi(version="1.0")]
 module physics_plugin { /* exports */ }
 ```
 - `seen pkg` manages lockfiles, versions, and publishing.
@@ -196,4 +197,3 @@ module physics_plugin { /* exports */ }
 - **Interop:** FFI init function, repr(C) structs, unions.
 
 *No benchmark data appears in this document; examples are minimal and illustrative.*
-

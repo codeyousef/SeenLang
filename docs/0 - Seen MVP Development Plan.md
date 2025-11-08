@@ -117,7 +117,7 @@ gap before we can call the phase entirely closed.
      reimplementing `seen_concurrency` pieces, ensure the compiled artifact links the runtime on every platform, and
      propagate handles/results back into Seen values.
       * ⬜ Subtasks to stage this work:
-          - [x] Extract a minimal `seen_runtime` crate that exposes the channel/task ABI over `#[no_mangle] extern "C"`
+          - [x] Extract a minimal `seen_runtime` crate that exposes the channel/task ABI over `@[no_mangle] extern "C"`
             shims.
           - [x] Link Linux LLVM builds against the new runtime so channel send/recv/select no longer rely on stubs (
             `seen_cli/src/main.rs`, `seen_ir/src/llvm_backend.rs`).
@@ -385,6 +385,10 @@ modules, preventing a true Seen-only pipeline.
        `seen_cli`, the Stage-1 driver injects `SEEN_ENABLE_MANIFEST_MODULES=1` into its `seen build` subprocesses, and
        `seen_cli/tests/manifest_modules.rs` asserts that manifest entries are ignored by default but enforced whenever
        the env flag is set.
+  4. ✅ Run the Seen-native frontend (lexer, parser, type checker) inside Stage-1 before delegating to backend codegen,
+     surfacing diagnostics directly from the self-hosted sources. The new `bootstrap.frontend` module powers
+     `run_frontend`, `compiler_seen/src/main.seen` now blocks builds when the frontend fails, and regression coverage
+     lives in `compiler_seen/tests/frontend_smoke.seen` plus the CLI test `seen_cli/tests/bootstrap_frontend.rs`.
 
 * **Acceptance:** Stage-1 builds run entirely in Seen, module bundling is deterministic, and the bootstrap script/tests
   fail if the Rust CLI is invoked as part of self-hosting.

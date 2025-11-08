@@ -16,7 +16,7 @@ fn embed_determinism_succeeds() {
     fs::write(
         &source,
         r#"
-#[embed(path="assets/blob.bin")]
+@[embed(path="assets/blob.bin")]
 const DATA = 0
 
 fun Main() -> Int {
@@ -56,7 +56,7 @@ fn embed_llvm_artifact_is_deterministic() {
     fs::write(
         &source,
         r#"
-#[embed(path="assets/payload.bin")]
+@[embed(path="assets/payload.bin")]
 const DATA = 0
 
 fun Main() -> Int {

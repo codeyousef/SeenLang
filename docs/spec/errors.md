@@ -26,7 +26,9 @@
 - In async contexts, `?` respects structured concurrency: if propagation crosses a `scope`, all spawned tasks must complete before the function returns.
 
 ## 4. Abort Semantics
-- `abort` bypasses destructors for performance-critical paths; use with care. `defer` blocks marked `#[critical]` are still executed.
+
+- `abort` bypasses destructors for performance-critical paths; use with care. `defer` blocks marked `@[critical]` are
+  still executed.
 - CLI exposes `--abort-backtrace=off|on` to control metadata emission; deterministic profile defaults to `off` to keep hashes stable.
 
 ## 5. Diagnostic Guarantees

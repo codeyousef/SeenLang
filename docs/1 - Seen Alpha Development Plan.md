@@ -64,7 +64,7 @@ Alpha focuses on stabilization and ecosystem readiness **across Linux, Windows, 
 ### C3. Memory & Layout
 
 * **SoA/AoS transforms (opt‑in)**: an optimizer pass guided by access patterns; source remains AoS if desired.
-* **Prefetch/alignment hints** via attributes (pure hints): `#[prefetch(read)]`, `#[align_to(32)]`.
+* **Prefetch/alignment hints** via attributes (pure hints): `@[prefetch(read)]`, `@[align_to(32)]`.
 
 ### C4. Tooling & Flags
 

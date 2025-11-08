@@ -1,0 +1,147 @@
+// Stage-1 Frontend Pipeline
+// This module runs the Seen lexer, parser, and type checker before delegating to backend codegen.
+
+import lexer.{SeenLexer, LexerError}
+import parser.{SeenParser, ParseError, AST}
+import typechecker.{TypeChecker}
+import typechecker.interfaces.{TypeError}
+
+export {
+    FrontendDiagnostic,
+    FrontendResult,
+    run_frontend,
+}
+
+class FrontendDiagnostic {
+    var file: String
+    var line: Int
+    var column: Int
+    var severity: String
+    var message: String
+
+    fun new(file: String, line: Int, column: Int, severity: String, message: String) -> FrontendDiagnostic {
+        let diag = FrontendDiagnostic{}
+        diag.file = file
+        diag.line = line
+        diag.column = column
+        diag.severity = severity
+        diag.message = message
+        return diag
+    }
+}
+
+class FrontendResult {
+    var success: Bool
+    var diagnostics: Array<FrontendDiagnostic>
+
+    fun new() -> FrontendResult {
+        let result = FrontendResult{}
+        result.success = false
+        result.diagnostics = Array<FrontendDiagnostic>()
+        return result
+    }
+
+    fun addDiagnostic(diag: FrontendDiagnostic) -> Void {
+        diagnostics.push(diag)
+    }
+
+    fun hasErrors() -> Bool {
+        for diag in diagnostics {
+            if diag.severity == "error" {
+                return true
+            }
+        }
+        return false
+    }
+
+    fun hasWarnings() -> Bool {
+        for diag in diagnostics {
+            if diag.severity == "warning" {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+fun run_frontend(source: String, fileLabel: String, language: String = "en") -> FrontendResult {
+    let result = FrontendResult.new()
+
+    try {
+        let lexer = SeenLexer.new(source, 1, language)
+        let tokens = lexer.tokenize()
+
+        let parser = SeenParser.new(tokens)
+        let ast = parser.parse()
+
+        let checker = TypeChecker.new()
+        let typeResult = checker.check(ast)
+
+        if typeResult.errors.length() > 0 {
+            for error in typeResult.errors {
+                result.addDiagnostic(diagnostic_from_type_error(error, fileLabel))
+            }
+            return result
+        }
+
+        if typeResult.warnings.length() > 0 {
+            for warning in typeResult.warnings {
+                result.addDiagnostic(
+                    FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
+                )
+            }
+        }
+
+        result.success = true
+        return result
+    } catch (error: LexerError) {
+        let pos = error.getPosition()
+        result.addDiagnostic(
+            FrontendDiagnostic.new(
+                fileLabel,
+                pos.getLine(),
+                pos.getColumn(),
+                "error",
+                error.getMessage()
+            )
+        )
+    } catch (error: ParseError) {
+        let token = error.getToken()
+        result.addDiagnostic(
+            FrontendDiagnostic.new(
+                fileLabel,
+                token.getLine(),
+                token.getColumn(),
+                "error",
+                error.getMessage()
+            )
+        )
+    } catch (error: Error) {
+        result.addDiagnostic(
+            FrontendDiagnostic.new(fileLabel, 0, 0, "error", error.getMessage())
+        )
+    }
+
+    return result
+}
+
+fun diagnostic_from_type_error(error: TypeError, fileLabel: String) -> FrontendDiagnostic {
+    let location = error.getLocation()
+    let expected = error.getExpected()
+    let actual = error.getActual()
+
+    let context = if error.getContext() != "" {
+        " [{error.getContext()}]"
+    } else {
+        ""
+    }
+
+    let message = "{error.getMessage()}{context} (expected {expected.name}, got {actual.name})"
+    return FrontendDiagnostic.new(
+        fileLabel,
+        location.line,
+        location.column,
+        "error",
+        message
+    )
+}

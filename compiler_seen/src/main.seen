@@ -1,6 +1,8 @@
 // Seen Compiler - Self-hosted Implementation
 // This is the REAL compiler entry point!
 
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+
 fun main() -> Int {
     let args = GetCommandLineArgs()
     if args.size() < 2 {
@@ -211,6 +213,10 @@ fun buildCommand(sourceFile: String, outputFile: String) -> Int {
         println("Error: Could not read file '{sourceFile}'")
         return 1
     }
+
+    if not validateFrontend(sourceCode, sourceFile, "build") {
+        return 1
+    }
     
     // Compile using our REAL compiler
     let success = CompileSeenProgram(sourceCode, outputFile)
@@ -233,8 +239,14 @@ fun checkCommand(sourceFile: String) -> Int {
         return 1
     }
     
-    // Just type check without generating code
-    // This would use our type checker directly
+    let result = run_frontend(sourceCode, sourceFile, "en")
+    if not result.success {
+        println("❌ Frontend validation failed.")
+        printFrontendDiagnostics(result)
+        return 1
+    }
+
+    printFrontendWarnings(result)
     println("✅ Type check passed")
     return 0
 }
@@ -353,6 +365,35 @@ fun getTimestamp() -> String {
 }
 
 fun FormatSeenCode(source: String) -> String { return __FormatSeenCode(source) }
+
+fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> Bool {
+    let result = run_frontend(sourceCode, sourceFile, "en")
+    if not result.success {
+        println("❌ Frontend validation failed before {action}.")
+        printFrontendDiagnostics(result)
+        return false
+    }
+    printFrontendWarnings(result)
+    return true
+}
+
+fun printFrontendDiagnostics(result: FrontendResult) -> Void {
+    for diag in result.diagnostics {
+        println("{diag.severity} {diag.file}:{diag.line}:{diag.column} → {diag.message}")
+    }
+}
+
+fun printFrontendWarnings(result: FrontendResult) -> Void {
+    if not result.hasWarnings() {
+        return
+    }
+    println("⚠ Frontend warnings:")
+    for diag in result.diagnostics {
+        if diag.severity == "warning" {
+            println("  {diag.file}:{diag.line}:{diag.column} → {diag.message}")
+        }
+    }
+}
 
 // System interface functions (would be implemented in runtime)
 

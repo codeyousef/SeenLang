@@ -49,7 +49,9 @@ struct Handle {
 - Region IDs (`RegionId`) use 32-bit indices into a contiguous arena, keeping lookups cache-friendly and deterministic across runs.
 
 ## 5. Async & Structured Concurrency Constraints
-- Tasks spawned within `scope { ... }` inherit the parent region stack by value. Regions marked `#[region(shared)]` permit concurrent borrows; otherwise, mutable access is exclusive.
+
+- Tasks spawned within `scope { ... }` inherit the parent region stack by value. Regions marked `@[region(shared)]`
+  permit concurrent borrows; otherwise, mutable access is exclusive.
 - Suspension points (`await`) require all borrowed regions to be in a quiescent state; the compiler enforces `await`-free sections when holding `mut &` references.
 - Cancelling a task runs deferred actions in reverse order before unwinding the region stack; cancellation cannot observe partially-dropped values.
 

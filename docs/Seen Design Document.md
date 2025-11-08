@@ -42,7 +42,7 @@
 ### 3.3 Errors & Control Flow
 - Recoverable: `Result<T,E>` + `match` (or `?` sugar).
 - Unrecoverable: `panic` → **abort** (no unwinding).
-- Attributes: `#[cold]`, `#[hot]`, `#[inline(always|never)]`.
+- Attributes: `@[cold]`, `@[hot]`, `@[inline(always|never)]`.
 
 ### 3.4 Concurrency
 - Atomics (all orders), fences, TLS.
@@ -58,15 +58,15 @@
 
 ## 4. Interop & Layout
 - **FFI:** `extern "C"`, function pointers, varargs (where available), callbacks.
-- **Layout:** `#[repr(C|transparent)]`, `#[align(N)]`, `#[packed(N)]`, unions, bitfields (carefully constrained).
-- **Symbols:** `#[no_mangle]`, `#[export(name=...)]`, deterministic mangling.
+- **Layout:** `@[repr(C|transparent)]`, `@[align(N)]`, `@[packed(N)]`, unions, bitfields (carefully constrained).
+- **Symbols:** `@[no_mangle]`, `@[export(name=...)]`, deterministic mangling.
 - **Visibility policy:** `Seen.toml` → `visibility = "caps" | "explicit"`, `export_alias = "ascii"` for non‑cased scripts.
 
 ---
 
 ## 5. Modules, Build & Tooling
 - `seen build` with `--target <triple>`, `--shared`, `--static`, `--deterministic`, LTO/PGO hooks.
-- `#[embed(path=...)]` for shader/data injection.
+- `@[embed(path=...)]` for shader/data injection.
 - `seen fmt` formatting rules (word‑operator spacing, visibility policy), `seen test`, `seen trace`, `seen pkg` (registry/lockfiles).
 - LSP: hover, goto‑def, diagnostics, rename, semantic tokens, code actions.
 
@@ -117,4 +117,3 @@
 - Release → v1.0 spec freeze, signing, LTS, governance.
 
 *All performance assertions are intentionally omitted here; only architecture and requirements are specified.*
-

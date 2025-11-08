@@ -1,0 +1,19 @@
+use assert_cmd::Command;
+use std::path::PathBuf;
+
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .to_path_buf()
+}
+
+#[test]
+fn compiler_frontend_smoke_test_passes() {
+    let workspace = workspace_root();
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(workspace.join("compiler_seen"))
+        .args(["run", "tests/frontend_smoke.seen"])
+        .assert()
+        .success();
+}

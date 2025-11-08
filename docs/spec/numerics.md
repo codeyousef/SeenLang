@@ -12,7 +12,7 @@ Literals support `_` separators and suffixes (e.g., `1_024u32`, `3.14f32`).
 ## 2. Float Environment
 - Attributes configure FP environment at function granularity:
   ```seen
-  #[float_env(ftz, daz, round = "nearest")]
+  @[float_env(ftz, daz, round = "nearest")]
   fun dot(a: vec4, b: vec4) -> f32 { /* ... */ }
   ```
 - Supported modifiers:
@@ -45,7 +45,7 @@ Literals support `_` separators and suffixes (e.g., `1_024u32`, `3.14f32`).
   let lanes = simd::f32x4::splat(0.5);
   let sum = simd::reduce_add(lanes);
   ```
-- Auto-vectorisation uses optimizer hints; `#[simd(flatten)]` ensures lane-friendly loops.
+- Auto-vectorisation uses optimizer hints; `@[simd(flatten)]` ensures lane-friendly loops.
 
 ### 6.2 CLI Controls
 - `--simd=off|auto|max` selects policy:

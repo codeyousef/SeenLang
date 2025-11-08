@@ -314,8 +314,9 @@ Once the C header information is parsed, `seen-cinterop` generates the equivalen
 - **Output:** The tool generates Seen source code (`.seen` files) containing `extern "C"` blocks.
 - **Type Mapping:** A core function is mapping C types to Seen FFI-compatible types `107`. This involves:
     - Primitive types: `int` -> `i32`, `unsigned char` -> `u8`, `float` -> `f32`, `double` -> `f64`, `void*` -> `*mut std::ffi::c_void`, etc. Using types from a Seen equivalent of the `libc` crate is recommended for portability `107`.
-    - Structs/Unions: Generating Seen `struct`/`union` definitions annotated with `#[repr(C)]` to ensure compatible memory layout `107`. Field names are translated.
-    - Enums: Mapping C enums to Seen enums, potentially `#[repr(C)]` or `#[repr(Int)]` if applicable `107`.
+  - Structs/Unions: Generating Seen `struct`/`union` definitions annotated with `@[repr(C)]` to ensure compatible memory
+    layout `107`. Field names are translated.
+  - Enums: Mapping C enums to Seen enums, potentially `@[repr(C)]` or `@[repr(Int)]` if applicable `107`.
     - Pointers: Translating C pointers (`*`) to Seen raw pointers (`*const T`, `*mut T`).
     - Function Pointers: Mapping C function pointers to Seen `extern "C" fn(...) ->...` types.
     - Typedefs: Generating Seen `type` aliases.

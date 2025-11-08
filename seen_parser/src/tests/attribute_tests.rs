@@ -1,4 +1,4 @@
-//! Tests for attribute parsing (e.g. #[embed(path="...")]).
+//! Tests for attribute parsing (e.g. @[embed(path="...")]).
 
 use crate::{AttributeArgument, AttributeValue, Expression, ParseResult, Parser, Program};
 use seen_lexer::{KeywordManager, Lexer};
@@ -16,7 +16,7 @@ fn parse_program(input: &str) -> ParseResult<Program> {
 #[test]
 fn parse_embed_attribute_on_const() {
     let program =
-        parse_program("#[embed(path=\"shaders/triangle.spv\")] const TRIANGLE = 0").unwrap();
+        parse_program("@[embed(path=\"shaders/triangle.spv\")] const TRIANGLE = 0").unwrap();
 
     assert_eq!(program.expressions.len(), 1);
 

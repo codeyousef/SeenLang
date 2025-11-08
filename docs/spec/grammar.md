@@ -37,7 +37,7 @@ FunDecl      = Attributes? [ KW_ASYNC ] ( 'pub'? KW_FUN )
                Name [ GenericParams ]
                '(' ParamList? ')' [ ':' Type ]
                ( Block | '=>' Expression ) ;
-Attributes   = '#[' Attribute (',' Attribute)* ']' ;
+Attributes   = '@[' Attribute (',' Attribute)* ']' ;
 ParamList    = Param (',' Param)* ;
 Param        = Pattern ':' Type [ '=' Expression ] ;
 Name         = Identifier ;

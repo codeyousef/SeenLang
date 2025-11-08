@@ -4414,7 +4414,7 @@ impl Parser {
         Ok(annotations)
     }
 
-    /// Parse outer attributes like `#[embed(...)]` that precede declarations.
+    /// Parse outer attributes like `@[embed(...)]` that precede declarations.
     fn parse_outer_attributes(&mut self) -> ParseResult<Vec<Attribute>> {
         let mut attributes = Vec::new();
 
@@ -4427,9 +4427,9 @@ impl Parser {
         Ok(attributes)
     }
 
-    /// Check if the current location starts an attribute (`#[`).
+    /// Check if the current location starts an attribute (`@[`).
     fn is_attribute_start(&mut self) -> bool {
-        if !self.check(&TokenType::Hash) {
+        if !self.check(&TokenType::At) {
             return false;
         }
 
@@ -4439,11 +4439,11 @@ impl Parser {
         )
     }
 
-    /// Parse a single attribute block `#[...]`, which may contain multiple attributes.
+    /// Parse a single attribute block `@[...]`, which may contain multiple attributes.
     fn parse_attribute_block(&mut self) -> ParseResult<Vec<Attribute>> {
         let mut attributes = Vec::new();
 
-        self.advance(); // consume '#'
+        self.advance(); // consume '@'
         self.expect(&TokenType::LeftBracket)?;
 
         loop {
