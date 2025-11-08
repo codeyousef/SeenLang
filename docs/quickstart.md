@@ -81,6 +81,11 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
     - Print optimized IR with control-flow graphs: `seen trace examples/linux/hello_cli/main.seen -O1`
 - Packaging helper:
     - Create deterministic zip archives from any directory: `seen pkg path/to/project --output project.zip`
+- Shader transpilation:
+    - Validate/transpose a single SPIR-V payload: `seen shaders assets/shaders/triangle.spv --target wgsl --target msl`
+    - Scan a directory (and subdirectories) for `.spv` files:
+      `seen shaders assets/shaders --recursive --output build/shaders`
+    - Skip emission and only verify IR: `seen shaders assets/shaders/triangle.spv --validate-only`
 - WebAssembly starter (use with `--target wasm32-unknown-unknown --wasm-loader`): `examples/web/hello_wasm`
     - Produce `.wasm` + loader:
       `seen build --backend llvm --target wasm32-unknown-unknown --wasm-loader examples/web/hello_wasm/main.seen --output hello.wasm`

@@ -14,9 +14,11 @@ use seen_core::{
 };
 use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
+use seen_shaders::{
+    ShaderCompileOptions, ShaderCompiler, ShaderEntryPoint, ShaderError, ShaderStage, ShaderTarget,
+};
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -90,6 +92,13 @@ impl Default for MemoryTopologyArg {
     fn default() -> Self {
         MemoryTopologyArg::Default
     }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum ShaderTargetArg {
+    Spirv,
+    Wgsl,
+    Msl,
 }
 
 #[derive(Parser)]
@@ -246,6 +255,35 @@ enum Commands {
         /// Output archive path (defaults to <dir>.zip)
         #[arg(short, long)]
         output: Option<PathBuf>,
+    },
+
+    /// Validate SPIR-V shaders and emit alternative targets
+    Shaders {
+        /// Input .spv file or directory containing shaders
+        #[arg(value_name = "PATH")]
+        input: PathBuf,
+
+        /// Output directory for generated artifacts
+        #[arg(long)]
+        output: Option<PathBuf>,
+
+        /// Shader targets to emit (comma separated or repeated)
+        #[arg(
+            long = "target",
+            value_enum,
+            value_delimiter = ',',
+            num_args = 1..,
+            default_values = ["wgsl", "msl"]
+        )]
+        targets: Vec<ShaderTargetArg>,
+
+        /// Only validate inputs without emitting files
+        #[arg(long)]
+        validate_only: bool,
+
+        /// Recursively traverse directories for .spv files
+        #[arg(long)]
+        recursive: bool,
     },
 
     /// Start an interactive REPL
@@ -709,6 +747,22 @@ fn main() -> SeenResult<()> {
         }
         Some(Commands::Pkg { input, output }) => {
             package_directory(&input, output.as_deref())?;
+        }
+
+        Some(Commands::Shaders {
+                 input,
+                 output,
+                 targets,
+                 validate_only,
+                 recursive,
+             }) => {
+            build_shaders_command(
+                &input,
+                output.as_deref(),
+                targets.as_slice(),
+                validate_only,
+                recursive,
+            )?;
         }
 
         Some(Commands::Repl {
@@ -2708,6 +2762,189 @@ fn trace_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>) -
     }
 
     Ok(())
+}
+
+fn build_shaders_command(
+    input: &Path,
+    output: Option<&Path>,
+    targets: &[ShaderTargetArg],
+    validate_only: bool,
+    recursive: bool,
+) -> SeenResult<()> {
+    if !input.exists() {
+        return Err(SeenError::new(
+            SeenErrorKind::Io,
+            format!("Shader input {} does not exist", input.display()),
+        ));
+    }
+
+    let files = collect_spirv_inputs(input, recursive)?;
+    if files.is_empty() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "No .spv files found under {} (pass --recursive to traverse subdirectories)",
+                input.display()
+            ),
+        ));
+    }
+
+    let resolved_targets = if validate_only {
+        convert_shader_targets(targets)
+    } else {
+        let converted = convert_shader_targets(targets);
+        if converted.is_empty() {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                "Specify at least one --target when emitting shader artifacts".to_string(),
+            ));
+        }
+        converted
+    };
+
+    let output_root = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_shader_output_root(input));
+    let shader_root = shader_input_root(input);
+    let mut compiler = ShaderCompiler::new();
+
+    for file in files {
+        let relative_dir = file
+            .parent()
+            .and_then(|p| p.strip_prefix(&shader_root).ok())
+            .filter(|p| !p.as_os_str().is_empty());
+        let file_output_dir = relative_dir
+            .map(|rel| output_root.join(rel))
+            .unwrap_or_else(|| output_root.clone());
+        let options = ShaderCompileOptions {
+            output_dir: file_output_dir.as_path(),
+            targets: resolved_targets.as_slice(),
+            validate_only,
+        };
+        let result = compiler
+            .compile_file(&file, &options)
+            .map_err(shader_error_to_seen)?;
+        let entry_summary = format_entry_points(&result.entry_points);
+        if validate_only {
+            println!("validated {} [{}]", file.display(), entry_summary);
+        } else {
+            println!("validated {} [{}]", file.display(), entry_summary);
+            for artifact in result.artifacts {
+                println!(
+                    "  {} {}",
+                    artifact.target.as_label(),
+                    artifact.path.display()
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn convert_shader_targets(args: &[ShaderTargetArg]) -> Vec<ShaderTarget> {
+    let mut targets = Vec::new();
+    for arg in args {
+        let target = match arg {
+            ShaderTargetArg::Spirv => ShaderTarget::Spirv,
+            ShaderTargetArg::Wgsl => ShaderTarget::Wgsl,
+            ShaderTargetArg::Msl => ShaderTarget::Msl,
+        };
+        if !targets.contains(&target) {
+            targets.push(target);
+        }
+    }
+    targets
+}
+
+fn collect_spirv_inputs(input: &Path, recursive: bool) -> SeenResult<Vec<PathBuf>> {
+    if input.is_file() {
+        if is_spirv_file(input) {
+            return Ok(vec![input.to_path_buf()]);
+        }
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("{} is not a .spv shader file", input.display()),
+        ));
+    }
+    if !input.is_dir() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("{} is not a directory", input.display()),
+        ));
+    }
+
+    let mut queue = VecDeque::new();
+    let mut files = Vec::new();
+    queue.push_back(input.to_path_buf());
+    while let Some(dir) = queue.pop_front() {
+        for entry in fs::read_dir(&dir).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read directory {}: {}", dir.display(), err),
+            )
+        })? {
+            let entry = entry.map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!("Failed to read entry in {}: {}", dir.display(), err),
+                )
+            })?;
+            let path = entry.path();
+            if path.is_dir() && recursive {
+                queue.push_back(path);
+            } else if path.is_file() && is_spirv_file(&path) {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn is_spirv_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("spv"))
+        .unwrap_or(false)
+}
+
+fn default_shader_output_root(input: &Path) -> PathBuf {
+    if input.is_file() {
+        input
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("shaders_out")
+    } else {
+        input.join("shaders_out")
+    }
+}
+
+fn shader_input_root(input: &Path) -> PathBuf {
+    if input.is_file() {
+        input
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        input.to_path_buf()
+    }
+}
+
+fn shader_error_to_seen(err: ShaderError) -> SeenError {
+    SeenError::new(SeenErrorKind::Tooling, err.to_string())
+}
+
+fn format_entry_points(entry_points: &[ShaderEntryPoint]) -> String {
+    if entry_points.is_empty() {
+        return "no entry points".to_string();
+    }
+    entry_points
+        .iter()
+        .map(|ep| format!("{} {}", ep.stage.as_str(), ep.name))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {

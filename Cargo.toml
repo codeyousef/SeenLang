@@ -21,7 +21,8 @@ members = [
     "seen_mlir"
     ,"tools/perf_baseline"
     , "seen_runtime"
-    , "seen_cranelift"]
+    , "seen_cranelift"
+    , "seen_shaders"]
 
 [workspace.dependencies]
 seen_support = { path = "seen_support" }

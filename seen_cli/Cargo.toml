@@ -9,6 +9,7 @@ description = "Command line interface for the Seen programming language"
 seen_core = { path = "../seen_core" }
 seen_mlir = { path = "../seen_mlir" }
 seen_cranelift = { path = "../seen_cranelift" }
+seen_shaders = { path = "../seen_shaders" }
 
 # For CLI argument parsing
 clap = { workspace = true }

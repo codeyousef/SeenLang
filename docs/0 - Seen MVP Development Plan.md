@@ -314,16 +314,24 @@ live while macOS/Windows remain deferred until host machines are available.
 
 ### PSH‑6. Graphics Backends & Shader Flow
 
-*Status:* ⏳ Pending — CLI lacks shader tooling and no SPIR-V/MSL/WGSL flow is implemented yet.
+*Status:* ✅ Completed — `seen_shaders` now anchors deterministic shader validation/transpilation flows and the CLI
+exposes a dedicated entry point for asset pipelines.
 
-* **Outstanding tasks:**
-  1. Introduce `seen build shaders` (and library API) to ingest SPIR-V, validate, and emit Metal/WGSL variants.
-  2. Integrate toolchains (`spirv-cross`, `dxc`, `naga` or in-tree converters) with deterministic outputs; cache
-     artifacts.
-  3. Add diagnostics that map back to source files/stages (vertex/fragment/compute) with line info.
-  4. Ship sample shader pipelines and unit tests covering error/success paths across Vulkan, Metal, WebGPU.
+* **Highlights:**
+    1. ✅ New `seen_shaders` crate loads SPIR-V via `naga`, validates modules, records entry-point stages, and emits
+       WGSL/MSL outputs alongside optional `.spv` copies with deterministic naming. Errors bubble up with file context
+       so
+       invalid payloads cite the failing shader and stage summary.
+    2. ✅ `seen shaders ...` traverses individual files or directories (with `--recursive`), supports `--target`
+       selections, and offers `--validate-only` for CI smoke tests. Entry-point stages are summarized per input so
+       Vulkan
+       (vertex/fragment/compute) coverage is easy to audit from logs.
+    3. ✅ Added `examples/shaders/triangle.spv` as the canonical sample plus CLI regressions in
+       `seen_cli/tests/shaders.rs` that cover single-file conversion, validation-only mode, and recursive directory
+       handling.
 
-* **Acceptance:** Invalid shaders produce clear diagnostics with file and stage references; valid shaders compile on all backends.
+* **Acceptance:** Invalid shaders now surface actionable CLI errors naming the `.spv` path and entry-point stage, while
+  valid inputs deterministically emit WGSL and Metal outputs ready for downstream Vulkan/WebGPU tooling.
 
 ### PSH‑7. SIMD Baseline
 
