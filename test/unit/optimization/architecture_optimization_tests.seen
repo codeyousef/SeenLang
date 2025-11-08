@@ -1,9 +1,8 @@
 // Multi-Architecture Optimization Tests
 // Verify optimal code generation for each target platform
 
-use optimization::arch::architecture_optimizer::ArchitectureOptimizer;
-use testing::assert::*;
-
+import optimization.arch.architecture_optimizer.{ArchitectureOptimizer}
+import testing.assert.*
 fun createArchitectureTestSuite() -> TestSuite {
     let suite = TestSuite::new("Multi-Architecture Optimization");
     

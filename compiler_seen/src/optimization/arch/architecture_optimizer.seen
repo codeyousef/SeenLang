@@ -1,12 +1,11 @@
 // Multi-Architecture Optimization Framework
 // Generate optimal code for each target architecture
 
-use optimization::base::OptimizationPass
-use ir::module::Module
-use hardware::architecture::*
-use hardware::simd::*
-use hardware::isa::*
-
+import optimization.base.{OptimizationPass}
+import ir.module.{Module}
+import hardware.architecture.*
+import hardware.simd.*
+import hardware.isa.*
 // ArchitectureOptimizer (uppercase) = public class
 class ArchitectureOptimizer : OptimizationPass {
     let architecture: Architecture

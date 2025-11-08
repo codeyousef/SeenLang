@@ -1,13 +1,12 @@
 // Compiler Component Tests
 // Tests for lexer, parser, type checker, and code generator
 
-use testing::assert::*;
-use testing::runner::*;
-use lexer::real_lexer::RealLexer;
-use parser::real_parser::RealParser;
-use main_compiler::RealTypeChecker;
-use codegen::real_codegen::RealCodeGenerator;
-
+import testing.assert.*
+import testing.runner.*
+import lexer.real_lexer.{RealLexer}
+import parser.real_parser.{RealParser}
+import main_compiler.{RealTypeChecker}
+import codegen.real_codegen.{RealCodeGenerator}
 // ============== LEXER TESTS ==============
 
 fun test_lexer_tokenizes_keywords() {

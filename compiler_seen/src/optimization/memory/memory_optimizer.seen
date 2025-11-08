@@ -1,13 +1,12 @@
 // Advanced Memory Optimization Engine
 // Zero-overhead memory management with cache-optimal layouts
 
-use optimization::base::OptimizationPass
-use ir::module::Module
-use memory::layout::MemoryLayout
-use memory::allocator::Allocator
-use hardware::cache::CacheHierarchy
-use hardware::numa::NUMATopology
-
+import optimization.base.{OptimizationPass}
+import ir.module.{Module}
+import memory.layout.{MemoryLayout}
+import memory.allocator.{Allocator}
+import hardware.cache.{CacheHierarchy}
+import hardware.numa.{NUMATopology}
 // MemoryOptimizer (uppercase) = public class
 class MemoryOptimizer : OptimizationPass {
     let cacheHierarchy = CacheHierarchy::detect()

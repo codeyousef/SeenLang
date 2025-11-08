@@ -2,12 +2,11 @@
 // Tests the claim of "14M tokens/second" against real-world codebases
 // No synthetic optimizations - only honest, realistic performance measurement
 
-use std.io
-use std.time
-use std.benchmark
-use std.fs
-use std.collections
-
+import std.io.*
+import std.time.*
+import std.benchmark.*
+import std.fs.*
+import std.collections.*
 @benchmark
 fun benchmarkLexerRealWorld(b: Bencher) {
     // Test with actual source files, not synthetic input

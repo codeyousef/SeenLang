@@ -1,11 +1,10 @@
 // Main Test Runner
 // Executes all test suites and reports results
 
-use testing::runner::*
-use test::unit::compiler::compiler_tests::createCompilerTestSuite
-use test::unit::language::feature_tests::createFeatureTestSuite
-use test::integration::compilation::integration_tests::createIntegrationTestSuite
-
+import testing.runner.*
+import test.unit.compiler.compiler_tests.{createCompilerTestSuite}
+import test.unit.language.feature_tests.{createFeatureTestSuite}
+import test.integration.compilation.integration_tests.{createIntegrationTestSuite}
 fun main() -> Int {
     println("🚀 SEEN COMPILER TEST SUITE")
     println("=" * 70)

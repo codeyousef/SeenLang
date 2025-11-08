@@ -1,12 +1,11 @@
 // Profile-Guided Optimization (PGO) Engine
 // Automatic profiling and optimization in release builds
 
-use optimization::base::OptimizationPass
-use ir::function::Function
-use ir::module::Module
-use profiling::profiler::Profiler
-use profiling::profile_data::ProfileData
-
+import optimization.base.{OptimizationPass}
+import ir.function.{Function}
+import ir.module.{Module}
+import profiling.profiler.{Profiler}
+import profiling.profile_data.{ProfileData}
 // ProfileGuidedOptimizer (uppercase) = public class
 class ProfileGuidedOptimizer : OptimizationPass {
     let profiler = Profiler::new()

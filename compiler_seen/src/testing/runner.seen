@@ -1,9 +1,8 @@
 // Test Runner Framework for Seen
 // Executes tests and reports results
 
-use testing::assert::TestResult
-use testing::assert::AssertionError
-
+import testing.assert.{TestResult}
+import testing.assert.{AssertionError}
 class TestRunner {
     var tests: List<TestCase>
     var results: List<TestResult>

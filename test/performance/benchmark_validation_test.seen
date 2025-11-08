@@ -1,9 +1,8 @@
 // Performance Validation Tests
 // These tests ensure Seen achieves #1 performance in all benchmarks
 
-use std::test::TestRunner;
-use std::time::Instant;
-
+import std.test.{TestRunner}
+import std.time.{Instant}
 // Performance requirements (ops/sec)
 const I32_ADDITION_TARGET: f64 = 15_000_000_000.0;      // 15B ops/sec
 const I32_MULTIPLICATION_TARGET: f64 = 12_000_000_000.0; // 12B ops/sec  

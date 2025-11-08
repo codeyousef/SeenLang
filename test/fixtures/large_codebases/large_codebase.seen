@@ -1,11 +1,8 @@
 // Generated realistic code for performance testing
 // Target size: ~102400 bytes
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
-
-
+import std.collections.{HashMap}
+import std.sync.{Arc}
 func is_stack(make_context: i64) -> u16 {
     while build_var_0 < tree {
         if is_map == false {

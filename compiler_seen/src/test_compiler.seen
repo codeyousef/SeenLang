@@ -1,10 +1,9 @@
 // Test program to verify the compiler works with Seen syntax
 
-use lexer::real_lexer::RealLexer
-use parser::real_parser::RealParser
-use main_compiler::RealTypeChecker
-use codegen::real_codegen::RealCodeGenerator
-
+import lexer.real_lexer.{RealLexer}
+import parser.real_parser.{RealParser}
+import main_compiler.{RealTypeChecker}
+import codegen.real_codegen.{RealCodeGenerator}
 fun TestCompilerWithSeenSyntax() {
     println("=== Testing Compiler with Full Seen Syntax ===\n")
     

@@ -2,10 +2,9 @@
 // Tests fundamental language operations to establish performance baselines
 // Measures arithmetic, comparisons, array access, collections, and string operations
 
-use std.benchmark
-use std.random
-use std.collections
-
+import std.benchmark.*
+import std.random.*
+import std.collections.*
 @benchmark
 fun measureArithmeticOperations(b: Bencher) {
     println("=== Arithmetic Operations Performance ===")

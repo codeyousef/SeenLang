@@ -1,10 +1,9 @@
 // Profile-Guided Optimization Tests
 // Verify PGO delivers performance improvements
 
-use optimization::pgo::profile_guided_optimizer::ProfileGuidedOptimizer;
-use optimization::pgo::profiler::Profiler;
-use testing::assert::*;
-
+import optimization.pgo.profile_guided_optimizer.{ProfileGuidedOptimizer}
+import optimization.pgo.profiler.{Profiler}
+import testing.assert.*
 fun createPGOTestSuite() -> TestSuite {
     let suite = TestSuite::new("Profile-Guided Optimization");
     

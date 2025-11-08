@@ -1,10 +1,9 @@
 // Profiler - Runtime profiling infrastructure
 // Collects execution data for profile-guided optimization
 
-use collections::map::HashMap
-use collections::list::List
-use time::timer::Timer
-
+import collections.map.{HashMap}
+import collections.list.{List}
+import time.timer.{Timer}
 // Profiler (uppercase) = public class
 class Profiler {
     var functionProfiles: HashMap<String, FunctionProfile>

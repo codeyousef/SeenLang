@@ -18,9 +18,9 @@
  */
 
 // Standard library imports with detailed explanations
-use std::collections::HashMap;    // For key-value mappings
-use std::sync::Arc;              // For reference counting
-use std::time::Instant;          // For time measurements
+import std.collections.{HashMap}    // For key-value mappings
+import std.sync.{Arc}              // For reference counting
+import std.time.{Instant}          // For time measurements
 
 /*
  * Primary data structure for storing application state

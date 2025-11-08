@@ -1,8 +1,7 @@
 // Real Seen arithmetic benchmark - measures actual performance
 // Imports runtime intrinsics for high-precision timing
 
-use runtime::runtime_intrinsics::*;
-
+import runtime.runtime_intrinsics.*
 fun main() -> Int {
     println("🚀 Seen Language - Real Performance Benchmarks");
     println("   Measuring actual arithmetic performance");

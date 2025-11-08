@@ -2,10 +2,9 @@
 // Tests: floating point performance, vectorization, SIMD optimizations
 // Should reveal if SIMD optimizations are real and effective
 
-use std.benchmark
-use std.math
-use std.simd
-
+import std.benchmark.*
+import std.math.*
+import std.simd.*
 @benchmark
 fun spectralNorm(b: Bencher, n: Int): Double {
     println("=== Spectral Norm Benchmark ===")

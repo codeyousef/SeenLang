@@ -1,9 +1,8 @@
 // Advanced Memory Optimization Tests
 // Verify zero-overhead memory management
 
-use optimization::memory::memory_optimizer::MemoryOptimizer;
-use testing::assert::*;
-
+import optimization.memory.memory_optimizer.{MemoryOptimizer}
+import testing.assert.*
 fun createMemoryOptimizationTestSuite() -> TestSuite {
     let suite = TestSuite::new("Advanced Memory Optimization");
     

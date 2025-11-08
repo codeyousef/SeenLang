@@ -4,9 +4,9 @@
 // בדיקת ביצועים עם תווי יוניקוד כבדים
 // 🚀 Unicode performance testing with emojis and international characters 🌍
 
-use std::collections::HashMap; // Импорт коллекций
-use std::sync::Arc; // 同期プリミティブ
-use std::time::Instant; // זמן מדידות
+import std.collections.{HashMap} // Импорт коллекций
+import std.sync.{Arc} // 同期プリミティブ
+import std.time.{Instant} // זמן מדידות
 
 /*
  * 多言語データ構造 - Multilingual Data Structure

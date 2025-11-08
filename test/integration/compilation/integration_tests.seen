@@ -1,10 +1,9 @@
 // Integration Tests
 // End-to-end tests for the Seen compiler
 
-use testing::assert::*;
-use testing::runner::*;
-use main_compiler::CompileSeenProgram;
-
+import testing.assert.*
+import testing.runner.*
+import main_compiler.{CompileSeenProgram}
 // ============== HELLO WORLD TEST ==============
 
 fun test_compile_hello_world() {

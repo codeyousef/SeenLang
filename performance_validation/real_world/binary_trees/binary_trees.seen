@@ -2,9 +2,8 @@
 // Stress test: allocation, deallocation, recursion
 // This is where GC languages typically lose - manual memory management should shine
 
-use std.benchmark
-use std.memory
-
+import std.benchmark.*
+import std.memory.*
 // Binary tree node structure
 class TreeNode {
     val item: Int

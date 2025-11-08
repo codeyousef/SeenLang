@@ -1,11 +1,10 @@
 // Complete Optimization Test Runner
 // Tests all optimization components (Steps 17-22)
 
-use testing::runner::*
-use tests::pgo_tests::createPGOTestSuite
-use tests::memory_optimization_tests::createMemoryOptimizationTestSuite
-use tests::architecture_optimization_tests::createArchitectureTestSuite
-
+import testing.runner.*
+import tests.pgo_tests.{createPGOTestSuite}
+import tests.memory_optimization_tests.{createMemoryOptimizationTestSuite}
+import tests.architecture_optimization_tests.{createArchitectureTestSuite}
 fun main() -> Int {
     println("🚀 COMPLETE SEEN OPTIMIZATION TEST SUITE")
     println("========================================================")

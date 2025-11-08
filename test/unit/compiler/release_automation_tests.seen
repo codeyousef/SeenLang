@@ -1,9 +1,8 @@
 // Release Automation Tests
 // Verify installer and IDE updates work correctly
 
-use tools::release_automation::ReleaseAutomation;
-use testing::assert::*;
-
+import tools.release_automation.{ReleaseAutomation}
+import testing.assert.*
 fun createReleaseAutomationTestSuite() -> TestSuite {
     let suite = TestSuite::new("Release Automation");
     

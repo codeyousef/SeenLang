@@ -1,11 +1,10 @@
 // Release Automation & Continuous Updates
 // Automated installer and IDE updates for each feature
 
-use tools::installer::Installer
-use tools::vscode::VSCodeExtension
-use tools::documentation::DocumentationGenerator
-use config::language_loader::LanguageLoader
-
+import tools.installer.{Installer}
+import tools.vscode.{VSCodeExtension}
+import tools.documentation.{DocumentationGenerator}
+import config.language_loader.{LanguageLoader}
 // ReleaseAutomation (uppercase) = public class
 class ReleaseAutomation {
     let installer = Installer::new()

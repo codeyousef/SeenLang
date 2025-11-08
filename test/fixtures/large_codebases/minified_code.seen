@@ -1,5 +1,6 @@
 // Minified code for dense token stress testing - minimal whitespace, maximum token density
-use std::collections::HashMap;use std::sync::Arc;
+import std.collections.{HashMap}
+import std.sync.{Arc}
 struct Data{id:i32,name:String,values:Vec<f64>,metadata:HashMap<String,String>}
 enum Status{Active,Inactive,Pending(String),Error{code:i32,msg:String}}
 trait Processor{fn process(&self,data:&Data)->Result<String,String>;fn validate(&self,input:&str)->bool;}

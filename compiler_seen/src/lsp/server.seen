@@ -1,16 +1,15 @@
 // Seen Language Server Protocol Implementation
 // Full LSP support with all Alpha optimization features
 
-use lexer::SeenLexer
-use parser::SeenParser
-use typechecker::SeenTypeChecker
-use optimization::egraph::EGraphOptimizer
-use optimization::ml::MLOptimizer
-use optimization::superopt::Superoptimizer
-use optimization::pgo::ProfileGuidedOptimizer
-use optimization::memory::MemoryOptimizer
-use optimization::arch::ArchitectureOptimizer
-
+import lexer.{SeenLexer}
+import parser.{SeenParser}
+import typechecker.{SeenTypeChecker}
+import optimization.egraph.{EGraphOptimizer}
+import optimization.ml.{MLOptimizer}
+import optimization.superopt.{Superoptimizer}
+import optimization.pgo.{ProfileGuidedOptimizer}
+import optimization.memory.{MemoryOptimizer}
+import optimization.arch.{ArchitectureOptimizer}
 class SeenLspServer {
     let lexer = SeenLexer::new()
     let parser = SeenParser::new()

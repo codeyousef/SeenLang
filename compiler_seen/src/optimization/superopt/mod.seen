@@ -2,10 +2,9 @@
 // SAT/SMT-based superoptimization for finding optimal instruction sequences
 
 // Core superoptimization components
-use superoptimizer::Superoptimizer
-use z3_solver::Z3Solver
-use program_synthesis::ProgramSynthesizer
-
+import superoptimizer.{Superoptimizer}
+import z3_solver.{Z3Solver}
+import program_synthesis.{ProgramSynthesizer}
 // Export main superoptimization interface
 pub use superoptimizer::Superoptimizer
 
