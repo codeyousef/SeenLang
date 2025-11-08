@@ -4,8 +4,6 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use seen_core::ir::SimdDecisionReason;
-#[cfg(feature = "llvm")]
-use seen_core::llvm_backend::{Avx10Width, CpuFeature, MemoryTopologyHint, SveVectorLength};
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, HardwareProfile, IRGenerator, IROptimizer, IRProgram,
@@ -15,6 +13,8 @@ use seen_core::{
     VisibilityPolicy,
 };
 use seen_cranelift::program_to_clif;
+#[cfg(feature = "llvm")]
+use seen_ir::llvm_backend::{Avx10Width, CpuFeature, MemoryTopologyHint, SveVectorLength};
 use seen_mlir::program_to_mlir;
 use seen_shaders::{
     ShaderCompileOptions, ShaderCompiler, ShaderEntryPoint, ShaderError, ShaderTarget,
@@ -1801,8 +1801,7 @@ fn runtime_source_path() -> PathBuf {
 
 #[cfg(feature = "llvm")]
 fn runtime_staticlib_path(triple: &str) -> PathBuf {
-    workspace_root()
-        .join("target")
+    cargo_target_dir()
         .join("seen-runtime")
         .join(triple)
         .join("libseen_runtime.a")
@@ -1852,8 +1851,10 @@ fn needs_runtime_rebuild(output: &Path, source: &Path) -> SeenResult<bool> {
 fn build_runtime_staticlib(triple: &str) -> SeenResult<()> {
     println!("Building seen_runtime for target {}", triple);
     let workspace = workspace_root();
+    let target_dir = cargo_target_dir();
     let mut cmd = Command::new("cargo");
     cmd.current_dir(&workspace);
+    cmd.env("CARGO_TARGET_DIR", &target_dir);
     cmd.arg("build")
         .arg("-p")
         .arg("seen_runtime")
@@ -1872,8 +1873,7 @@ fn build_runtime_staticlib(triple: &str) -> SeenResult<()> {
             "cargo failed while building seen_runtime static library".to_string(),
         ));
     }
-    let produced = workspace
-        .join("target")
+    let produced = target_dir
         .join(triple)
         .join("release")
         .join("libseen_runtime.a");
@@ -1887,6 +1887,18 @@ fn build_runtime_staticlib(triple: &str) -> SeenResult<()> {
         ));
     }
     let dest = runtime_staticlib_path(triple);
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "Failed to create runtime output directory {}: {}",
+                    parent.display(),
+                    err
+                ),
+            )
+        })?;
+    }
     fs::copy(&produced, &dest).map_err(|err| {
         SeenError::new(
             SeenErrorKind::Tooling,
@@ -1907,6 +1919,13 @@ fn workspace_root() -> PathBuf {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf()
+}
+
+#[cfg(feature = "llvm")]
+fn cargo_target_dir() -> PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace_root().join("target"))
 }
 
 /// Recursively resolve and inline imports by parsing target .seen files

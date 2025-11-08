@@ -7,6 +7,7 @@ description = "Command line interface for the Seen programming language"
 [dependencies]
 # Core Seen components
 seen_core = { path = "../seen_core" }
+seen_ir = { path = "../seen_ir", default-features = false }
 seen_mlir = { path = "../seen_mlir" }
 seen_cranelift = { path = "../seen_cranelift" }
 seen_shaders = { path = "../seen_shaders" }
@@ -49,4 +50,4 @@ predicates = { workspace = true }
 [features]
 default = []
 # Propagate LLVM backend toggle into seen_ir
-llvm = ["seen_core/llvm"]
+llvm = ["seen_core/llvm", "seen_ir/llvm"]
