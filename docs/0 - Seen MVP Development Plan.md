@@ -368,6 +368,24 @@ guardrails.
 
 ---
 
+### PSH-9. Production Self-Host Pipeline
+
+*Status:* 🔄 In progress — Stage-1 bootstraps still rely on the Rust CLI via temp file shims instead of the Seen compiler
+modules, preventing a true Seen-only pipeline.
+
+* **Outstanding tasks:**
+    1. ✅ Extract the temp-file bootstrap shim into `compiler_seen/src/bootstrap/stage1_backend.seen` and have the
+       Stage-1 entry import it, so the shell-out logic is isolated for replacement.
+    2. Extend the CLI/bootstrap loader to bundle every `.seen` module declared in `Seen.toml` (compiler library +
+       runtime) deterministically so Stage-1 compiles the full module graph instead of a single file.
+    3. Update the bootstrap scripts/tests to assert that Stage-1 no longer spawns the Rust CLI (hash the module bundle,
+       add CI coverage, and document the invariant in the self-host plan).
+
+* **Acceptance:** Stage-1 builds run entirely in Seen, module bundling is deterministic, and the bootstrap script/tests
+  fail if the Rust CLI is invoked as part of self-hosting.
+
+---
+
 ## 4) Post‑Self‑Host — MVP Finalization (Pending)
 
 Goal: Ship a self‑hosted compiler and minimal ecosystem capable of cross‑platform and SIMD builds.

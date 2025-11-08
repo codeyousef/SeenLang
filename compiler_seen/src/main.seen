@@ -1,7 +1,7 @@
 // Seen Compiler - Self-hosted Implementation
 // This is the REAL compiler entry point!
 
-// Uses built-in CompileSeenProgram(source: String, output: String) -> Bool provided by the runtime
+import bootstrap.bootstrap_backend.{CompileSeenProgram}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -96,105 +96,6 @@ fun printUsage() {
     println("  seen run hello.seen           Run program immediately")
     println("  seen check src/*.seen         Type check all files")
     println("  seen init my_project          Create new project")
-}
-
-fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
-    let tempSourcePath = makeStage1TempSource(outputPath)
-    let tempLlPath = tempSourcePath + ".ll"
-    let tempObjPath = tempSourcePath + ".o"
-    let finalOutputPath = stage1OutputPath(outputPath)
-
-    println("Stage-1 compiler: writing " + tempSourcePath)
-
-    if not WriteFile(tempSourcePath, sourceCode) {
-        println("Stage-1 compiler: failed to write temporary source")
-        DeleteFile(tempSourcePath)
-        return false
-    }
-
-    // Step 1: Seen CLI -> LLVM IR (.ll)
-    let emitLlCommand = buildStage1EmitLlCommand(tempSourcePath, tempLlPath)
-    if not runStage1Command("emit LLVM IR", emitLlCommand) {
-        cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-        return false
-    }
-
-    // Step 2: llc -> object (.o)
-    let emitObjCommand = buildStage1EmitObjectCommand(tempLlPath, tempObjPath)
-    if not runStage1Command("llc object generation", emitObjCommand) {
-        cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-        return false
-    }
-
-    // Step 3: cc -> final binary
-    let linkCommand = buildStage1LinkCommand(tempObjPath, finalOutputPath)
-    if not runStage1Command("link", linkCommand) {
-        cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-        return false
-    }
-
-    cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-    println("Stage-1 compiler: produced " + stage1OutputLabel(outputPath))
-    return true
-}
-
-fun runStage1Command(label: String, command: String) -> Bool {
-    println("Stage-1 compiler: " + label + " -> '" + command + "'")
-    let result = __ExecuteCommand(command)
-    if result.success {
-        return true
-    }
-    println("Stage-1 compiler: command failed")
-    if result.output != "" {
-        println(result.output)
-    }
-    return false
-}
-
-fun cleanupStage1Temps(tempSourcePath: String, tempLlPath: String, tempObjPath: String) -> Bool {
-    let removedSource = DeleteFile(tempSourcePath)
-    let removedLl = DeleteFile(tempLlPath)
-    let removedObj = DeleteFile(tempObjPath)
-    if removedSource {
-        return true
-    }
-    if removedLl {
-        return true
-    }
-    if removedObj {
-        return true
-    }
-    return false
-}
-
-fun stage1OutputPath(path: String) -> String {
-    if path == "" {
-        return "a.out"
-    }
-    return path
-}
-
-fun stage1OutputLabel(path: String) -> String {
-    if path == "" {
-        return "a.out"
-    }
-    return path
-}
-
-fun makeStage1TempSource(outputPath: String) -> String {
-    return "/tmp/seen_stage1_build.seen"
-}
-
-fun buildStage1EmitLlCommand(tempSourcePath: String, tempLlPath: String) -> String {
-    return "seen build " + tempSourcePath + " --backend llvm --emit-ll --output " + tempLlPath
-}
-
-fun buildStage1EmitObjectCommand(tempLlPath: String, tempObjPath: String) -> String {
-    return "llc -opaque-pointers " + tempLlPath + " -filetype=obj -o " + tempObjPath
-}
-
-fun buildStage1LinkCommand(tempObjPath: String, outputPath: String) -> String {
-    return "cc " + tempObjPath + " -no-pie -lm -o " + outputPath
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) -> Int {
