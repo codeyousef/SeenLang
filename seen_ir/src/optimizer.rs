@@ -548,6 +548,12 @@ impl IROptimizer {
                 Self::accumulate_read_registers(value, counts);
                 Self::accumulate_read_registers(dest, counts);
             }
+            Instruction::SimdSplat { scalar, .. } => {
+                Self::accumulate_read_registers(scalar, counts);
+            }
+            Instruction::SimdReduceAdd { vector, .. } => {
+                Self::accumulate_read_registers(vector, counts);
+            }
             Instruction::Call { target, args, .. } => {
                 Self::accumulate_read_registers(target, counts);
                 for arg in args {
@@ -701,6 +707,14 @@ impl IROptimizer {
             Instruction::Store { value, dest } => {
                 Self::remap_read_value(value, allocator, mapping, remaining);
                 Self::remap_read_value(dest, allocator, mapping, remaining);
+            }
+            Instruction::SimdSplat { scalar, result, .. } => {
+                Self::remap_read_value(scalar, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
+            }
+            Instruction::SimdReduceAdd { vector, result, .. } => {
+                Self::remap_read_value(vector, allocator, mapping, remaining);
+                Self::remap_write_value(result, allocator, mapping, remaining);
             }
             Instruction::Call {
                 target,

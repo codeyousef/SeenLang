@@ -40,7 +40,7 @@ fn shaders_command_emits_wgsl_and_msl() {
         .success()
         .stdout(contains("validated"));
 
-    assert!(temp.path().join("shaders").join("triangle.wgsl").exists());
+    assert!(temp.path().join("triangle.wgsl").exists());
     assert!(temp.path().join("triangle.metal").exists());
 }
 

@@ -23,7 +23,6 @@ pub mod optimizer;
 pub mod value;
 
 // Re-export main types
-pub use crate::HardwareProfile;
 pub use function::{IRFunction, Parameter};
 pub use generator::IRGenerator;
 pub use instruction::{BasicBlock, Instruction, Label};

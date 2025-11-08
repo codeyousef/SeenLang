@@ -226,7 +226,11 @@ fn reorder_blocks_for_profile(
         }
     }
     let mut scheduled = vec![entry];
-    scheduled.extend(rest.into_iter().filter(|name| !scheduled.contains(name)));
+    for name in rest {
+        if !scheduled.contains(&name) {
+            scheduled.push(name);
+        }
+    }
     scheduled
 }
 
@@ -533,6 +537,44 @@ fn instruction_to_mlir(
             format!(
                 "{} = \"seen.string.length\"({}) : ({}) -> {}",
                 res, s, s_ty, res_ty
+            )
+        }
+        Instruction::SimdSplat {
+            scalar,
+            lane_type,
+            lanes,
+            result,
+        } => {
+            let res = value_result(result);
+            let operand = value_operand(scalar, ctx);
+            let operand_ty = value_type(scalar, None);
+            let res_ty = value_type(result, None);
+            format!(
+                "{} = \"seen.simd.splat\"({}) {{ lanes = {}, element_type = \"{}\" }} : ({}) -> {}",
+                res,
+                operand,
+                lanes,
+                type_to_mlir(lane_type),
+                operand_ty,
+                res_ty
+            )
+        }
+        Instruction::SimdReduceAdd {
+            vector,
+            lane_type,
+            result,
+        } => {
+            let res = value_result(result);
+            let operand = value_operand(vector, ctx);
+            let operand_ty = value_type(vector, None);
+            let res_ty = value_type(result, None);
+            format!(
+                "{} = \"seen.simd.reduce_add\"({}) {{ element_type = \"{}\" }} : ({}) -> {}",
+                res,
+                operand,
+                type_to_mlir(lane_type),
+                operand_ty,
+                res_ty
             )
         }
         Instruction::PushFrame => "\"seen.push_frame\"() : () -> ()".to_string(),
@@ -913,6 +955,9 @@ fn type_to_mlir(ty: &IRType) -> String {
         IRType::Enum { name, .. } => format!("!seen.enum<{}>", sanitize_symbol(name)),
         IRType::Optional(inner) => format!("!seen.optional<{}>", type_to_mlir(inner)),
         IRType::Generic(name) => format!("!seen.generic<{}>", sanitize_symbol(name)),
+        IRType::Vector { lanes, lane_type } => {
+            format!("vector<{}x{}>", lanes, type_to_mlir(lane_type))
+        }
     }
 }
 

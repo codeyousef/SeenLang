@@ -19,11 +19,11 @@ use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple,
 };
 use inkwell::types::{
-    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType,
+    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType, VectorType,
 };
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue,
-    UnnamedAddress,
+    UnnamedAddress, VectorValue,
 };
 use inkwell::OptimizationLevel as LlvmOptLevel;
 
@@ -136,7 +136,7 @@ enum LinkerFlavor {
 mod tests {
     use super::*;
     use crate::function::{InlineHint, RegisterPressureClass};
-    use crate::{IRFunction, IRType};
+    use crate::{IRFunction, IRModule, IRProgram, IRType, IRValue, Instruction};
     use inkwell::targets::TargetTriple;
     use std::env;
     use std::fs;
@@ -258,6 +258,44 @@ mod tests {
         assert!(
             ir.contains("seen-register-pressure"),
             "expected register pressure attribute in {ir}"
+        );
+    }
+
+    #[test]
+    fn simd_splat_and_reduce_lower_to_vector_ir() {
+        let mut backend = LlvmBackend::new();
+        let mut func = IRFunction::new("simd_reduce", IRType::Float);
+        func.register_count = 2;
+        let mut entry = BasicBlock::new(Label::new("entry"));
+        entry.instructions.push(Instruction::SimdSplat {
+            scalar: IRValue::Float(1.0),
+            lane_type: IRType::Float,
+            lanes: 4,
+            result: IRValue::Register(0),
+        });
+        entry.instructions.push(Instruction::SimdReduceAdd {
+            vector: IRValue::Register(0),
+            lane_type: IRType::Float,
+            result: IRValue::Register(1),
+        });
+        entry.terminator = Some(Instruction::Return(Some(IRValue::Register(1))));
+        func.cfg.add_block(entry);
+        func.cfg.set_entry_block("entry".to_string());
+
+        let mut module = IRModule::new("simd_mod");
+        module.add_function(func);
+        let mut program = IRProgram::new();
+        program.add_module(module);
+
+        backend.lower_program(&program).expect("lower program");
+        let ir = backend.module.print_to_string().to_string();
+        assert!(
+            ir.contains("<4 x double>"),
+            "vector width missing in IR:\n{ir}"
+        );
+        assert!(
+            ir.contains("reduce_fadd"),
+            "expected reduce_fadd sequence in IR:\n{ir}"
         );
     }
 }
@@ -1124,6 +1162,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let fn_ty = self.fn_type_from_ir(return_type, parameters);
                 fn_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into()
             }
+            IRType::Vector { lanes, lane_type } => {
+                let lane = self.ir_type_to_llvm(lane_type);
+                match lane {
+                    BasicTypeEnum::IntType(int_ty) => int_ty.vec_type(*lanes).into(),
+                    BasicTypeEnum::FloatType(float_ty) => float_ty.vec_type(*lanes).into(),
+                    BasicTypeEnum::PointerType(ptr_ty) => ptr_ty.vec_type(*lanes).into(),
+                    BasicTypeEnum::VectorType(vec_ty) => vec_ty.into(),
+                    BasicTypeEnum::StructType(_) | BasicTypeEnum::ArrayType(_) => {
+                        self.i64_t.vec_type(*lanes).into()
+                    }
+                }
+            }
             IRType::Struct { .. } => {
                 // Use i8* as a placeholder pointer to struct
                 self.i8_ptr_t.into()
@@ -1715,6 +1765,92 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let r = self.as_cstr_ptr(rval)?;
                 let out = self.runtime_concat(l, r)?;
                 self.assign_value(result, out.as_basic_value_enum())?;
+            }
+            Instruction::SimdSplat {
+                scalar,
+                lane_type,
+                lanes,
+                result,
+            } => {
+                let mut scalar_val = self.eval_value(scalar, fn_map)?;
+                let lane_basic = self.ir_type_to_llvm(lane_type);
+                scalar_val = self.cast_basic_to_type(scalar_val, lane_basic)?;
+                let vec_type =
+                    match self.ir_type_to_llvm(&IRType::vector(*lanes, lane_type.clone())) {
+                        BasicTypeEnum::VectorType(vt) => vt,
+                        other => {
+                            return Err(anyhow!(
+                                "simd.splat requires numeric lane type, found {other:?}"
+                            ))
+                        }
+                    };
+                let mut acc = vec_type.get_undef();
+                let index_ty = self.ctx.i32_type();
+                for idx in 0..*lanes {
+                    let lane_index = index_ty.const_int(idx as u64, false);
+                    acc = self
+                        .builder
+                        .build_insert_element(
+                            acc,
+                            scalar_val,
+                            lane_index,
+                            &format!("splat_lane_{idx}"),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                }
+                self.assign_value(result, acc.as_basic_value_enum())?;
+            }
+            Instruction::SimdReduceAdd {
+                vector,
+                lane_type,
+                result,
+            } => {
+                let vec_value = self
+                    .eval_value(vector, fn_map)?
+                    .into_vector_value()
+                    .map_err(|_| anyhow!("simd.reduce_add expects a vector operand"))?;
+                let lanes = vec_value.get_type().get_size();
+                let index_ty = self.ctx.i32_type();
+                let mut acc = match lane_type {
+                    IRType::Float => self.ctx.f64_type().const_float(0.0).as_basic_value_enum(),
+                    IRType::Integer => self.i64_t.const_zero().as_basic_value_enum(),
+                    _ => {
+                        return Err(anyhow!(
+                            "simd.reduce_add currently supports integer or float lanes"
+                        ))
+                    }
+                };
+                for idx in 0..lanes {
+                    let lane_index = index_ty.const_int(idx as u64, false);
+                    let lane = self
+                        .builder
+                        .build_extract_element(
+                            vec_value,
+                            lane_index,
+                            &format!("lane_extract_{idx}"),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    acc = match lane_type {
+                        IRType::Float => {
+                            let a = acc.into_float_value();
+                            let b = lane.into_float_value();
+                            self.builder
+                                .build_float_add(a, b, "reduce_fadd")
+                                .map_err(|e| anyhow!("{e:?}"))?
+                                .as_basic_value_enum()
+                        }
+                        IRType::Integer => {
+                            let a = acc.into_int_value();
+                            let b = lane.into_int_value();
+                            self.builder
+                                .build_int_add(a, b, "reduce_iadd")
+                                .map_err(|e| anyhow!("{e:?}"))?
+                                .as_basic_value_enum()
+                        }
+                        _ => unreachable!(),
+                    };
+                }
+                self.assign_value(result, acc)?;
             }
             Instruction::ArrayLength { array, result } => {
                 // Constant arrays or runtime StrArray* with layout { i64 len; i8** data }
@@ -2701,14 +2837,14 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             IRValue::Void => Ok(self.i64_t.const_zero().as_basic_value_enum()),
             IRValue::Register(r) => {
+                if let Some(val) = self.reg_values.get(r).cloned() {
+                    return Ok(val);
+                }
                 if let Some(slot) = self.reg_slots.get(r).copied() {
                     let loaded =
                         self.builder
                             .build_load(self.i64_t, slot, &format!("load_r{}", r))?;
                     return Ok(loaded.as_basic_value_enum());
-                }
-                if let Some(val) = self.reg_values.get(r).cloned() {
-                    return Ok(val);
                 }
                 Err(anyhow!("Unknown register %r{r}"))
             }
@@ -2809,6 +2945,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     fn assign_value(&mut self, dest: &IRValue, v: BasicValueEnum<'ctx>) -> Result<()> {
         match dest {
             IRValue::Register(r) => {
+                self.reg_values.insert(*r, v.clone());
                 // Also persist through the reg slot if available
                 if let Some(slot) = self.reg_slots.get(r).copied() {
                     let reg_val = v.clone();
@@ -3040,6 +3177,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                     Ok(fv.as_basic_value_enum())
                 } else {
                     Err(anyhow!("Mismatched float store type"))
+                }
+            }
+            (BasicValueEnum::VectorValue(vv), BasicTypeEnum::VectorType(vt)) => {
+                if vv.get_type() == vt {
+                    Ok(vv.as_basic_value_enum())
+                } else {
+                    Err(anyhow!("Vector lane mismatch"))
                 }
             }
             (BasicValueEnum::FloatValue(fv), BasicTypeEnum::IntType(it)) => {

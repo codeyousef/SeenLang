@@ -162,7 +162,11 @@ fn reorder_blocks_for_profile(
         }
     }
     let mut scheduled = vec![entry];
-    scheduled.extend(rest.into_iter().filter(|name| !scheduled.contains(name)));
+    for name in rest {
+        if !scheduled.contains(&name) {
+            scheduled.push(name);
+        }
+    }
     scheduled
 }
 

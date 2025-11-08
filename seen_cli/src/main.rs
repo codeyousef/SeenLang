@@ -15,10 +15,11 @@ use seen_core::{
 use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
 use seen_shaders::{
-    ShaderCompileOptions, ShaderCompiler, ShaderEntryPoint, ShaderError, ShaderStage, ShaderTarget,
+    ShaderCompileOptions, ShaderCompiler, ShaderEntryPoint, ShaderError, ShaderTarget,
 };
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -1198,7 +1199,6 @@ fn memory_topology_label(arg: MemoryTopologyArg) -> &'static str {
     }
 }
 
-#[cfg(feature = "llvm")]
 fn cpu_feature_label(flag: &CpuFeatureFlagArg) -> &'static str {
     match flag {
         CpuFeatureFlagArg::Apx => "apx",
@@ -2806,7 +2806,7 @@ fn build_shaders_command(
         .map(PathBuf::from)
         .unwrap_or_else(|| default_shader_output_root(input));
     let shader_root = shader_input_root(input);
-    let mut compiler = ShaderCompiler::new();
+    let compiler = ShaderCompiler::new();
 
     for file in files {
         let relative_dir = file

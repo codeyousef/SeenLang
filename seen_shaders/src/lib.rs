@@ -1,9 +1,9 @@
 use naga::back::{msl, wgsl};
 use naga::front::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
+use naga::ShaderStage as NagaShaderStage;
 use std::fs;
 use std::path::{Path, PathBuf};
-use naga::ShaderStage;
 use thiserror::Error;
 
 /// Supported shader output formats.
@@ -50,12 +50,12 @@ impl ShaderStage {
     }
 }
 
-impl From<naga::ShaderStage> for ShaderStage {
-    fn from(stage: naga::ShaderStage) -> Self {
+impl From<NagaShaderStage> for ShaderStage {
+    fn from(stage: NagaShaderStage) -> Self {
         match stage {
-            naga::ShaderStage::Vertex => ShaderStage::Vertex,
-            naga::ShaderStage::Fragment => ShaderStage::Fragment,
-            naga::ShaderStage::Compute => ShaderStage::Compute,
+            NagaShaderStage::Vertex => ShaderStage::Vertex,
+            NagaShaderStage::Fragment => ShaderStage::Fragment,
+            NagaShaderStage::Compute => ShaderStage::Compute,
         }
     }
 }

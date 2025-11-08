@@ -231,6 +231,19 @@ pub enum Instruction {
         result: IRValue,
     },
 
+    // SIMD operations
+    SimdSplat {
+        scalar: IRValue,
+        lane_type: IRType,
+        lanes: u32,
+        result: IRValue,
+    },
+    SimdReduceAdd {
+        vector: IRValue,
+        lane_type: IRType,
+        result: IRValue,
+    },
+
     // Function operations
     PushFrame,
     PopFrame,
@@ -425,6 +438,29 @@ impl fmt::Display for Instruction {
             }
             Instruction::StringLength { string, result } => {
                 write!(f, "  str_len {} -> {}", string, result)
+            }
+            Instruction::SimdSplat {
+                scalar,
+                lane_type,
+                lanes,
+                result,
+            } => {
+                write!(
+                    f,
+                    "  simd.splat {} lanes={} type={} -> {}",
+                    scalar, lanes, lane_type, result
+                )
+            }
+            Instruction::SimdReduceAdd {
+                vector,
+                lane_type,
+                result,
+            } => {
+                write!(
+                    f,
+                    "  simd.reduce_add {} type={} -> {}",
+                    vector, lane_type, result
+                )
             }
             Instruction::PushFrame => write!(f, "  push_frame"),
             Instruction::PopFrame => write!(f, "  pop_frame"),

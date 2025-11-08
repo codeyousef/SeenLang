@@ -13,6 +13,10 @@ pub enum IRType {
     Boolean,
     Char,
     String,
+    Vector {
+        lanes: u32,
+        lane_type: Box<IRType>,
+    },
     Array(Box<IRType>),
     Function {
         parameters: Vec<IRType>,
@@ -70,6 +74,16 @@ impl IRType {
 
             (IRType::Struct { name: n1, .. }, IRType::Struct { name: n2, .. }) => n1 == n2,
             (IRType::Enum { name: n1, .. }, IRType::Enum { name: n2, .. }) => n1 == n2,
+            (
+                IRType::Vector {
+                    lanes: l1,
+                    lane_type: t1,
+                },
+                IRType::Vector {
+                    lanes: l2,
+                    lane_type: t2,
+                },
+            ) => l1 == l2 && t1.is_assignable_from(t2),
 
             _ => false,
         }
@@ -86,6 +100,9 @@ impl IRType {
             IRType::String => 8,          // Pointer to string data
             IRType::Array(_) => 8,        // Pointer to array data
             IRType::Function { .. } => 8, // Function pointer
+            IRType::Vector { lanes, lane_type } => {
+                lane_type.size_bytes().saturating_mul(*lanes as usize)
+            }
             IRType::Struct { fields, .. } => {
                 // Calculate actual struct size from field types
                 fields
@@ -120,6 +137,25 @@ impl IRType {
         matches!(self, IRType::Integer | IRType::Float)
     }
 
+    pub fn is_vector(&self) -> bool {
+        matches!(self, IRType::Vector { .. })
+    }
+
+    pub fn lane_type(&self) -> Option<&IRType> {
+        if let IRType::Vector { lane_type, .. } = self {
+            Some(lane_type)
+        } else {
+            None
+        }
+    }
+
+    pub fn vector(lanes: u32, lane_type: IRType) -> Self {
+        IRType::Vector {
+            lanes,
+            lane_type: Box::new(lane_type),
+        }
+    }
+
     /// Check if this type is a pointer-like type
     pub fn is_pointer(&self) -> bool {
         matches!(
@@ -138,6 +174,9 @@ impl fmt::Display for IRType {
             IRType::Boolean => write!(f, "bool"),
             IRType::Char => write!(f, "char"),
             IRType::String => write!(f, "string"),
+            IRType::Vector { lanes, lane_type } => {
+                write!(f, "vector<{} x {}>", lane_type, lanes)
+            }
             IRType::Array(inner) => write!(f, "[{}]", inner),
             IRType::Function {
                 parameters,
