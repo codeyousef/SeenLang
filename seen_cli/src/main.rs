@@ -21,7 +21,6 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -615,6 +614,7 @@ fn main() -> SeenResult<()> {
                         target_cpu.as_deref(),
                         simd_report.as_ref(),
                         cli.profile,
+                        false,
                     )?;
                 }
                 Backend::Ir => {
@@ -1466,6 +1466,7 @@ fn compile_file_llvm(
     target_cpu: Option<&str>,
     simd_report: Option<&PathBuf>,
     profile: Profile,
+    cli_mode: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -1625,6 +1626,7 @@ fn compile_file_llvm(
     {
         use seen_core::{LinkOutput, LlvmBackend, TargetOptions};
         let mut backend = LlvmBackend::new();
+        backend.set_cli_mode(cli_mode);
         let default_target = if emit_ll {
             PathBuf::from("a.ll")
         } else {
@@ -2831,6 +2833,7 @@ fn run_file_llvm(
         target_cpu,
         None,
         profile,
+        true,
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {

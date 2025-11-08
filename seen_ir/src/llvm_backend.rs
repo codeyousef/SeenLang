@@ -321,6 +321,7 @@ pub struct LlvmBackend<'ctx> {
     box_bool_fn: Option<FunctionValue<'ctx>>,
     box_ptr_fn: Option<FunctionValue<'ctx>>,
     use_channel_runtime_stubs: bool,
+    cli_mode: bool,
 
     // Per‑function state (set during codegen)
     current_fn: Option<FunctionValue<'ctx>>,
@@ -372,6 +373,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             box_bool_fn: None,
             box_ptr_fn: None,
             use_channel_runtime_stubs: true,
+            cli_mode: false,
             current_fn: None,
             reg_values: HashMap::new(),
             var_values: HashMap::new(),
@@ -387,6 +389,10 @@ impl<'ctx> LlvmBackend<'ctx> {
             byte_array_globals: HashMap::new(),
             hardware_profile: HardwareProfile::default(),
         }
+    }
+
+    pub fn set_cli_mode(&mut self, enabled: bool) {
+        self.cli_mode = enabled;
     }
 
     pub fn emit_llvm_ir(
@@ -3503,22 +3509,40 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.builder
             .build_store(g_argv.as_pointer_value(), argv)
             .unwrap();
+        let mut exit_code = i32_t.const_zero();
         if let Some(seen) = self.module.get_function("seen_main") {
             let call = self.builder.build_call(seen, &[], "call_main").unwrap();
             if let Some(ret) = call.try_as_basic_value().left() {
-                let i64v = ret.into_int_value();
-                let i32v = self.builder.build_int_truncate(i64v, i32_t, "tr").unwrap();
-                self.builder.build_return(Some(&i32v)).unwrap();
-            } else {
-                self.builder
-                    .build_return(Some(&i32_t.const_zero()))
-                    .unwrap();
+                if self.cli_mode {
+                    let printf = self.get_printf();
+                    let fmt = self
+                        .builder
+                        .build_global_string_ptr("%lld\n", "seen_cli_result_fmt");
+                    let int_val = ret.into_int_value();
+                    let widened = if int_val.get_type().get_bit_width() != 64 {
+                        self.builder
+                            .build_int_s_extend_or_bit_cast(int_val, self.i64_t, "seen_cli_cast")
+                            .unwrap()
+                    } else {
+                        int_val
+                    };
+                    self.builder
+                        .build_call(
+                            printf,
+                            &[fmt.as_pointer_value().into(), widened.into()],
+                            "seen_cli_print_result",
+                        )
+                        .unwrap();
+                } else {
+                    let i64v = ret.into_int_value();
+                    exit_code = self
+                        .builder
+                        .build_int_truncate(i64v, i32_t, "tr")
+                        .unwrap();
+                }
             }
-        } else {
-            self.builder
-                .build_return(Some(&i32_t.const_zero()))
-                .unwrap();
         }
+        self.builder.build_return(Some(&exit_code)).unwrap();
     }
 
     fn ensure_arg_globals(

@@ -374,11 +374,19 @@ Goal: Ship a self‑hosted compiler and minimal ecosystem capable of cross‑pla
 
 ### POST‑1. Documentation Completion
 
+*Status:* ✅ Completed — `/docs/spec` now ships split chapters (`lexical.md`, `grammar.md`, `types.md`, `regions.md`,
+`errors.md`, `ffi_abi.md`, `numerics.md`) plus `index.md` cross-links, all of which track NFC tables and SIMD appendices
+alongside the compiler.
+
 * **Inputs:** finalized grammar, region rules, FFI layout, numerics, and SIMD policies.
 * **Outputs:** `/docs/spec` folder containing: lexical.md, grammar.md, types.md, regions.md, errors.md, ffi_abi.md, numerics.md (with SIMD appendix).
 * **Acceptance:** Each file present with deterministic tables and cross‑references; index file lists all specs.
 
 ### POST‑2. Example & Validation Set
+
+*Status:* ✅ Completed — `examples/seen-vulkan-min` bundles the deterministic triangle driver (manifest, README, shader
+asset) while `examples/seen-ecs-min` provides the ECS micro-simulation. Both ship run/build instructions for
+Linux/Web/Android and are exercised via new CLI interpreter tests (`seen_cli/tests/post_examples.rs`).
 
 * **Inputs:** examples directory.
 * **Outputs:** `seen-vulkan-min` (graphics), `seen-ecs-min` (systems) projects that run unchanged across all targets.
