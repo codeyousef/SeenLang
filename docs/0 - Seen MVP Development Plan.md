@@ -389,6 +389,10 @@ modules, preventing a true Seen-only pipeline.
      surfacing diagnostics directly from the self-hosted sources. The new `bootstrap.frontend` module powers
      `run_frontend`, `compiler_seen/src/main.seen` now blocks builds when the frontend fails, and regression coverage
      lives in `compiler_seen/tests/frontend_smoke.seen` plus the CLI test `seen_cli/tests/bootstrap_frontend.rs`.
+  5. ✅ Replace the temp-file shim that spawned the Rust CLI with the Seen-native compiler pipeline from
+     `main_compiler.seen`, so Stage-1 now emits artifacts without ever calling `seen build`. The compile pipeline is
+     exercised by `compiler_seen/tests/compile_smoke.seen`, and `seen_cli/tests/bootstrap_frontend.rs` runs both
+     frontend + compile smoke tests to ensure the path stays green.
 
 * **Acceptance:** Stage-1 builds run entirely in Seen, module bundling is deterministic, and the bootstrap script/tests
   fail if the Rust CLI is invoked as part of self-hosting.

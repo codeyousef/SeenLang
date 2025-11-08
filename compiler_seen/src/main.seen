@@ -2,6 +2,7 @@
 // This is the REAL compiler entry point!
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -99,109 +100,7 @@ fun printUsage() {
 }
 
 fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
-    let tempSourcePath = makeStage1TempSource(outputPath)
-    let tempLlPath = tempSourcePath + ".ll"
-    let tempObjPath = tempSourcePath + ".o"
-    let finalOutputPath = stage1OutputPath(outputPath)
-
-    println("Stage-1 compiler: writing " + tempSourcePath)
-
-    if not WriteFile(tempSourcePath, sourceCode) {
-        println("Stage-1 compiler: failed to write temporary source")
-        DeleteFile(tempSourcePath)
-        return false
-    }
-
-    let emitLlCommand = buildStage1EmitLlCommand(tempSourcePath, tempLlPath)
-    if not runStage1Command("emit LLVM IR", emitLlCommand) {
-        cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-        return false
-    }
-
-    let emitObjCommand = buildStage1EmitObjectCommand(tempLlPath, tempObjPath)
-    if not runStage1Command("llc object generation", emitObjCommand) {
-        cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-        return false
-    }
-
-    let linkCommand = buildStage1LinkCommand(tempObjPath, finalOutputPath)
-    if not runStage1Command("link", linkCommand) {
-        cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-        return false
-    }
-
-    cleanupStage1Temps(tempSourcePath, tempLlPath, tempObjPath)
-    println("Stage-1 compiler: produced " + stage1OutputLabel(outputPath))
-    return true
-}
-
-fun runStage1Command(label: String, command: String) -> Bool {
-    println("Stage-1 compiler: " + label + " -> '" + command + "'")
-    let result = __ExecuteCommand(command)
-    if result.success {
-        return true
-    }
-    println("Stage-1 compiler: command failed")
-    if result.output != "" {
-        println(result.output)
-    }
-    return false
-}
-
-fun cleanupStage1Temps(tempSourcePath: String, tempLlPath: String, tempObjPath: String) -> Bool {
-    let removedSource = DeleteFile(tempSourcePath)
-    let removedLl = DeleteFile(tempLlPath)
-    let removedObj = DeleteFile(tempObjPath)
-    if removedSource {
-        return true
-    }
-    if removedLl {
-        return true
-    }
-    if removedObj {
-        return true
-    }
-    return false
-}
-
-fun stage1OutputPath(path: String) -> String {
-    if path == "" {
-        return "a.out"
-    }
-    return path
-}
-
-fun stage1OutputLabel(path: String) -> String {
-    if path == "" {
-        return "a.out"
-    }
-    return path
-}
-
-fun stageCacheDir() -> String {
-    return "compiler_seen/stage_cache"
-}
-
-fun ensureStageCacheDir() -> Bool {
-    let dir = stageCacheDir()
-    return CreateDirectory(dir)
-}
-
-fun makeStage1TempSource(outputPath: String) -> String {
-    ensureStageCacheDir()
-    return stageCacheDir() + "/stage1_build.seen"
-}
-
-fun buildStage1EmitLlCommand(tempSourcePath: String, tempLlPath: String) -> String {
-    return "SEEN_ENABLE_MANIFEST_MODULES=1 seen build " + tempSourcePath + " --backend llvm --emit-ll --output " + tempLlPath
-}
-
-fun buildStage1EmitObjectCommand(tempLlPath: String, tempObjPath: String) -> String {
-    return "llc -opaque-pointers " + tempLlPath + " -filetype=obj -o " + tempObjPath
-}
-
-fun buildStage1LinkCommand(tempObjPath: String, outputPath: String) -> String {
-    return "cc " + tempObjPath + " -no-pie -lm -o " + outputPath
+    return StageCompileSeenProgram(sourceCode, outputPath)
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) -> Int {

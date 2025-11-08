@@ -17,3 +17,13 @@ fn compiler_frontend_smoke_test_passes() {
         .assert()
         .success();
 }
+
+#[test]
+fn compiler_compile_smoke_runs() {
+    let workspace = workspace_root();
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(workspace.join("compiler_seen"))
+        .args(["run", "tests/compile_smoke.seen"])
+        .assert()
+        .success();
+}

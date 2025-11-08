@@ -1,0 +1,37 @@
+import main_compiler.{CompileSeenProgram}
+
+fun main() -> Int {
+    let source = """
+fun main() -> Int {
+    return 7
+}
+"""
+
+    let tempBase = "/tmp/seen_compile_smoke_" + getTimestamp()
+    let outputPath = tempBase + "_bin"
+
+    let success = CompileSeenProgram(source, outputPath)
+    if not success {
+        println("CompileSeenProgram failed")
+        return 1
+    }
+
+    let exitCode = ExecuteProgram(outputPath)
+    cleanupArtifacts(outputPath)
+    cleanupArtifacts(outputPath + ".c")
+
+    if exitCode != 7 {
+        println("Expected exit code 7, got {exitCode}")
+        return 1
+    }
+
+    return 0
+}
+
+fun cleanupArtifacts(path: String) -> Void {
+    DeleteFile(path)
+}
+
+fun ExecuteProgram(path: String) -> Int { return __ExecuteProgram(path) }
+fun DeleteFile(path: String) -> Bool { return __DeleteFile(path) }
+fun getTimestamp() -> String { return __GetTimestamp() }
