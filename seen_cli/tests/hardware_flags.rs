@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
+use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -158,6 +159,36 @@ fn deterministic_profile_run_rejects_hardware_overrides() {
 }
 
 #[test]
+fn deterministic_profile_rejects_simd_override() {
+    if !cfg!(feature = "llvm") {
+        eprintln!(
+            "skipping deterministic_profile_rejects_simd_override because the LLVM backend is not enabled in tests"
+        );
+        return;
+    }
+
+    let workspace = workspace_root();
+    let source = sample_source();
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace)
+        .args([
+            "--profile",
+            "deterministic",
+            "build",
+            source.to_string_lossy().as_ref(),
+            "--backend",
+            "llvm",
+            "--simd",
+            "max",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("--simd").and(contains("deterministic")));
+}
+
+#[test]
 fn mlir_output_embeds_cpu_features() {
     let workspace = workspace_root();
     let source = sample_source();
@@ -240,4 +271,32 @@ fn clif_output_includes_hardware_header() {
         contents.contains("; seen.scheduler ="),
         "expected CLIF output to include scheduler comment"
     );
+}
+
+#[test]
+fn simd_report_writes_json() {
+    let workspace = workspace_root();
+    let source = sample_source();
+    let temp = tempdir().expect("temp dir");
+    let report_path = temp.path().join("simd_report.json");
+
+    Command::cargo_bin("seen_cli")
+        .expect("binary exists")
+        .current_dir(&workspace)
+        .args([
+            "build",
+            source.to_string_lossy().as_ref(),
+            "--backend",
+            "ir",
+            "--simd",
+            "max",
+            "--simd-report",
+            report_path.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(&report_path).expect("read simd report");
+    let parsed: Value = serde_json::from_str(&contents).expect("valid json");
+    assert_eq!(parsed["policy"], "max");
 }

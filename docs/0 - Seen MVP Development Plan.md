@@ -335,28 +335,25 @@ exposes a dedicated entry point for asset pipelines.
 
 ### PSH‑7. SIMD Baseline
 
-*Status:* 🔄 In progress — SIMD vector types and intrinsics exist in the IR/backends, while the CLI policy/reporting
-plumbing remains outstanding.
+*Status:* ✅ Completed — SIMD controls now span the CLI, optimizer, and regression reports with deterministic policy
+guardrails.
 
 * **Highlights:**
     1. ✅ `IRType::Vector` and `Instruction::SimdSplat`/`SimdReduceAdd` extend the core IR with portable vector
        semantics;
        LLVM now lowers vector types directly, MLIR/CLIF emit deterministic ops, and new unit coverage ensures splat +
        reduction paths stay stable.
-    2. ✅ `seen_shaders` + `seen shaders ...` provide the asset-facing portion of the SIMD story by ensuring WGSL/MSL
-       targets stay in sync with shader entry-point metadata.
-
-* **Outstanding tasks:**
-    1. Add CLI flags (`--simd=off|auto|max`, `--target-cpu`, `--simd-report`) and ensure deterministic mode forces
-       scalar
-     codegen.
-    2. Extend optimizer passes to drive auto-vectorization decisions and emit per-function reports that the CLI
-       aggregates.
-    3. Add regression tests comparing scalar vs SIMD outputs, plus integration benchmarks for LLVM backends (including
-       policy toggles).
+  2. ✅ `seen_shaders` + `seen shaders ...` keep WGSL/MSL metadata aligned with shader entry points.
+  3. ✅ CLI flags (`--simd=off|auto|max`, `--target-cpu`, `--simd-report`) thread policies through the hardware profile;
+     deterministic builds coerce scalar mode, and `--simd-report` emits per-function JSON summaries (policy, mode,
+     reason, ops, estimated speedup).
+  4. ✅ `IROptimizer` now records SIMD metadata for every function, using hardware-aware heuristics (loop detection,
+     arithmetic density, register pressure) so LLVM/MLIR/CLIF backends receive consistent annotations.
+  5. ✅ Regression coverage spans optimizer unit tests (auto-vectorization vs. forced scalar) plus a CLI integration
+     test that compares scalar vs. forced-vector runs via the public report.
 
 * **Acceptance:** Build logs include per-function SIMD decisions; deterministic mode disables SIMD; scalar and vector
-  results match.
+  results match; CLI reports capture the recorded policy/mode/reason for each optimized function.
 
 ### PSH-8. Deterministic Self-Host
 

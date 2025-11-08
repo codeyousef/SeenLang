@@ -3,6 +3,7 @@
 use crate::arena::{Arena, ArenaIndex};
 use crate::instruction::{BasicBlock, ControlFlowGraph};
 use crate::value::{IRType, IRValue};
+use crate::SimdPolicy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -145,6 +146,82 @@ impl RegisterPressureClass {
     }
 }
 
+/// Whether a function should execute as scalar or vectorized code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SimdMode {
+    Scalar,
+    Vectorized,
+}
+
+impl SimdMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SimdMode::Scalar => "scalar",
+            SimdMode::Vectorized => "vectorized",
+        }
+    }
+}
+
+/// Reason recorded for the chosen SIMD mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SimdDecisionReason {
+    Unknown,
+    PolicyOff,
+    ForcedMax,
+    NoOpportunities,
+    AutoNoHotLoops,
+    AutoLowArithmeticIntensity,
+    AutoMemoryBound,
+    AutoHighRegisterPressure,
+    AutoHotLoop,
+}
+
+impl SimdDecisionReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SimdDecisionReason::Unknown => "unknown",
+            SimdDecisionReason::PolicyOff => "policy_off",
+            SimdDecisionReason::ForcedMax => "policy_forced_max",
+            SimdDecisionReason::NoOpportunities => "no_vector_opportunities",
+            SimdDecisionReason::AutoNoHotLoops => "auto_missing_hot_loops",
+            SimdDecisionReason::AutoLowArithmeticIntensity => "auto_low_arithmetic_intensity",
+            SimdDecisionReason::AutoMemoryBound => "auto_memory_bound",
+            SimdDecisionReason::AutoHighRegisterPressure => "auto_high_register_pressure",
+            SimdDecisionReason::AutoHotLoop => "auto_hot_loop_vectorized",
+        }
+    }
+}
+
+/// Metadata used for SIMD reporting downstream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimdMetadata {
+    pub policy: SimdPolicy,
+    pub mode: SimdMode,
+    pub reason: SimdDecisionReason,
+    pub hot_loops: usize,
+    pub arithmetic_ops: usize,
+    pub memory_ops: usize,
+    pub existing_vector_ops: usize,
+    pub estimated_speedup: f32,
+    pub vector_width_bits: Option<u32>,
+}
+
+impl Default for SimdMetadata {
+    fn default() -> Self {
+        Self {
+            policy: SimdPolicy::Auto,
+            mode: SimdMode::Scalar,
+            reason: SimdDecisionReason::Unknown,
+            hot_loops: 0,
+            arithmetic_ops: 0,
+            memory_ops: 0,
+            existing_vector_ops: 0,
+            estimated_speedup: 1.0,
+            vector_width_bits: None,
+        }
+    }
+}
+
 /// IR function representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IRFunction {
@@ -164,6 +241,8 @@ pub struct IRFunction {
     pub inline_hint: InlineHint,
     #[serde(default)]
     pub register_pressure: RegisterPressureClass,
+    #[serde(default)]
+    pub simd_metadata: SimdMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -189,6 +268,7 @@ impl IRFunction {
             register_count: 0,
             inline_hint: InlineHint::Auto,
             register_pressure: RegisterPressureClass::Unknown,
+            simd_metadata: SimdMetadata::default(),
         }
     }
 

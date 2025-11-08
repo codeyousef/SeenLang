@@ -56,6 +56,12 @@ Install (macOS):
       `cxl-far` forces every region into the high-capacity tier.
     - These hints are rejected automatically when `--profile deterministic` is active to keep reproducible baselines on
       the portable ISA subset.
+  - Set a specific backend CPU tuning string via `--target-cpu <name>`; useful when cross-compiling without touching
+    global LLVM configuration.
+  - Control vectorization with `--simd=off|auto|max` (default `auto`). Deterministic builds require `--simd=off` so
+    scalar codegen remains portable.
+  - Emit per-function SIMD summaries with `--simd-report <path>`; the CLI writes a JSON file describing every function
+    that uses `simd.*` intrinsics so you can diff vectorization between runs.
 - Run directly via interpreter (pure Rust):
   - `seen run compiler_seen/src/main.seen`
 

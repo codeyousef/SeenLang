@@ -1,11 +1,11 @@
 //! IR optimization passes for the Seen programming language
 
 use crate::{
-    function::{IRFunction, InlineHint},
+    function::{IRFunction, InlineHint, SimdDecisionReason, SimdMode},
     instruction::{BasicBlock, BinaryOp, Instruction, UnaryOp},
     module::IRModule,
     value::{IRType, IRValue},
-    IRProgram, IRResult,
+    HardwareProfile, IRProgram, IRResult, SimdPolicy,
 };
 mod egraph;
 mod ml;
@@ -15,6 +15,8 @@ use ml::{
     OptimizationProfileWriter, RegisterPressurePlan,
 };
 use std::collections::{HashMap, HashSet};
+
+const MIN_SIMD_ARITHMETIC_OPS: usize = 2;
 
 /// Optimization level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,22 +94,37 @@ impl IROptimizer {
 
     /// Optimize an entire IR program
     pub fn optimize_program(&mut self, program: &mut IRProgram) -> IRResult<()> {
+        let hardware_profile = program.hardware_profile.clone();
         for module in &mut program.modules {
-            self.optimize_module(module)?;
+            self.optimize_module(module, &hardware_profile)?;
         }
         Ok(())
     }
 
     /// Optimize a single module
-    pub fn optimize_module(&mut self, module: &mut IRModule) -> IRResult<()> {
+    pub fn optimize_module(
+        &mut self,
+        module: &mut IRModule,
+        profile: &HardwareProfile,
+    ) -> IRResult<()> {
         for function in module.functions_iter_mut() {
-            self.optimize_function(function)?;
+            self.optimize_function_with_profile(function, profile)?;
         }
         Ok(())
     }
 
-    /// Optimize a single function
+    /// Optimize a single function using the default hardware profile.
     pub fn optimize_function(&mut self, function: &mut IRFunction) -> IRResult<()> {
+        let profile = HardwareProfile::default();
+        self.optimize_function_with_profile(function, &profile)
+    }
+
+    /// Optimize a single function with an explicit hardware profile.
+    pub fn optimize_function_with_profile(
+        &mut self,
+        function: &mut IRFunction,
+        profile: &HardwareProfile,
+    ) -> IRResult<()> {
         let features = FunctionFeatures::from_function(function);
         if let Some(writer) = self.profile_writer.as_mut() {
             writer.record(&function.name, &features);
@@ -185,7 +202,130 @@ impl IROptimizer {
             logger.record(&function.name, &snapshot, &decision);
         }
 
+        self.plan_simd(function, profile, &features);
+
         Ok(())
+    }
+
+    fn plan_simd(
+        &self,
+        function: &mut IRFunction,
+        profile: &HardwareProfile,
+        features: &FunctionFeatures,
+    ) {
+        let summary = Self::analyze_simd_opportunities(function);
+        let mut metadata = function.simd_metadata.clone();
+        metadata.policy = profile.simd_policy;
+        metadata.hot_loops = features.loop_blocks;
+        metadata.arithmetic_ops = summary.arithmetic_ops;
+        metadata.memory_ops = summary.memory_ops;
+        metadata.existing_vector_ops = summary.vector_ops;
+        metadata.vector_width_bits = Self::resolve_vector_width_bits(profile);
+        metadata.mode = SimdMode::Scalar;
+        metadata.reason = SimdDecisionReason::Unknown;
+        metadata.estimated_speedup = 1.0;
+
+        let register_budget = profile.register_budget_hint();
+        let register_usage = features.register_count.min(u32::MAX as usize) as u32;
+        let memory_bound = summary.memory_ops > summary.arithmetic_ops.saturating_mul(2);
+        let resolved_vector_bits = metadata.vector_width_bits.unwrap_or(128);
+
+        match profile.simd_policy {
+            SimdPolicy::Off => {
+                metadata.mode = SimdMode::Scalar;
+                metadata.reason = SimdDecisionReason::PolicyOff;
+            }
+            SimdPolicy::Max => {
+                if summary.arithmetic_ops == 0 {
+                    metadata.mode = SimdMode::Scalar;
+                    metadata.reason = SimdDecisionReason::NoOpportunities;
+                } else {
+                    metadata.mode = SimdMode::Vectorized;
+                    metadata.reason = SimdDecisionReason::ForcedMax;
+                    metadata.estimated_speedup =
+                        Self::estimate_speedup(summary.arithmetic_ops, resolved_vector_bits);
+                }
+            }
+            SimdPolicy::Auto => {
+                if summary.arithmetic_ops == 0 {
+                    metadata.mode = SimdMode::Scalar;
+                    metadata.reason = SimdDecisionReason::NoOpportunities;
+                } else if features.loop_blocks == 0 {
+                    metadata.mode = SimdMode::Scalar;
+                    metadata.reason = SimdDecisionReason::AutoNoHotLoops;
+                } else if summary.arithmetic_ops < MIN_SIMD_ARITHMETIC_OPS {
+                    metadata.mode = SimdMode::Scalar;
+                    metadata.reason = SimdDecisionReason::AutoLowArithmeticIntensity;
+                } else if memory_bound {
+                    metadata.mode = SimdMode::Scalar;
+                    metadata.reason = SimdDecisionReason::AutoMemoryBound;
+                } else if register_usage >= register_budget.saturating_sub(4) {
+                    metadata.mode = SimdMode::Scalar;
+                    metadata.reason = SimdDecisionReason::AutoHighRegisterPressure;
+                } else {
+                    metadata.mode = SimdMode::Vectorized;
+                    metadata.reason = SimdDecisionReason::AutoHotLoop;
+                    metadata.estimated_speedup =
+                        Self::estimate_speedup(summary.arithmetic_ops, resolved_vector_bits);
+                }
+            }
+        }
+
+        function.simd_metadata = metadata;
+    }
+
+    fn analyze_simd_opportunities(function: &IRFunction) -> SimdOpportunitySummary {
+        let mut summary = SimdOpportunitySummary::default();
+        for block in function.cfg.blocks_iter() {
+            for inst in &block.instructions {
+                match inst {
+                    Instruction::Binary { op, .. } => {
+                        if matches!(
+                            op,
+                            BinaryOp::Add
+                                | BinaryOp::Subtract
+                                | BinaryOp::Multiply
+                                | BinaryOp::Divide
+                                | BinaryOp::Modulo
+                        ) {
+                            summary.arithmetic_ops += 1;
+                        }
+                    }
+                    Instruction::Load { .. }
+                    | Instruction::Store { .. }
+                    | Instruction::ArrayAccess { .. }
+                    | Instruction::ArraySet { .. } => {
+                        summary.memory_ops += 1;
+                    }
+                    Instruction::SimdSplat { .. } | Instruction::SimdReduceAdd { .. } => {
+                        summary.vector_ops += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        summary
+    }
+
+    fn resolve_vector_width_bits(profile: &HardwareProfile) -> Option<u32> {
+        if let Some(bits) = profile.max_vector_bits {
+            Some(bits)
+        } else if profile.sve_enabled {
+            Some(512)
+        } else if profile.apx_enabled {
+            Some(256)
+        } else {
+            None
+        }
+    }
+
+    fn estimate_speedup(op_count: usize, vector_bits: u32) -> f32 {
+        if op_count == 0 {
+            return 1.0;
+        }
+        let width_factor = (vector_bits.max(128) as f32) / 128.0;
+        let op_factor = (op_count.min(64) as f32) / 64.0;
+        1.0 + 0.5 * width_factor * op_factor
     }
 
     fn apply_register_pressure_plan(
@@ -1758,4 +1898,108 @@ mod tests {
             other => panic!("expected move after equality saturation, found {:?}", other),
         }
     }
+
+    #[test]
+    fn simd_auto_requires_hot_loops() {
+        let mut optimizer = IROptimizer::new(OptimizationLevel::Standard);
+        let mut function = make_arithmetic_function("entry", false);
+
+        let mut profile = HardwareProfile::default();
+        profile.simd_policy = SimdPolicy::Auto;
+
+        optimizer
+            .optimize_function_with_profile(&mut function, &profile)
+            .unwrap();
+
+        assert_eq!(function.simd_metadata.mode, SimdMode::Scalar);
+        assert_eq!(
+            function.simd_metadata.reason,
+            SimdDecisionReason::AutoNoHotLoops
+        );
+    }
+
+    #[test]
+    fn simd_auto_vectorizes_loop_body() {
+        let mut optimizer = IROptimizer::new(OptimizationLevel::Standard);
+        let mut function = make_arithmetic_function("loop_body", true);
+
+        let mut profile = HardwareProfile::default();
+        profile.simd_policy = SimdPolicy::Auto;
+        profile.max_vector_bits = Some(256);
+
+        optimizer
+            .optimize_function_with_profile(&mut function, &profile)
+            .unwrap();
+
+        assert_eq!(function.simd_metadata.mode, SimdMode::Vectorized);
+        assert_eq!(
+            function.simd_metadata.reason,
+            SimdDecisionReason::AutoHotLoop
+        );
+    }
+
+    #[test]
+    fn simd_max_forces_vector_mode() {
+        let mut optimizer = IROptimizer::new(OptimizationLevel::Standard);
+        let mut function = make_arithmetic_function("entry", false);
+
+        let mut profile = HardwareProfile::default();
+        profile.simd_policy = SimdPolicy::Max;
+
+        optimizer
+            .optimize_function_with_profile(&mut function, &profile)
+            .unwrap();
+
+        assert_eq!(function.simd_metadata.mode, SimdMode::Vectorized);
+        assert_eq!(function.simd_metadata.reason, SimdDecisionReason::ForcedMax);
+    }
+
+    fn make_arithmetic_function(label: &str, mark_loop: bool) -> IRFunction {
+        let mut function = IRFunction::new("simd_fn", IRType::Integer);
+        let mut block = BasicBlock::new(Label::new(if mark_loop {
+            format!("{}_loop", label)
+        } else {
+            label.to_string()
+        }));
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(0),
+            right: IRValue::Integer(1),
+            result: IRValue::Register(1),
+        });
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Multiply,
+            left: IRValue::Register(1),
+            right: IRValue::Integer(2),
+            result: IRValue::Register(2),
+        });
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Subtract,
+            left: IRValue::Register(2),
+            right: IRValue::Integer(3),
+            result: IRValue::Register(3),
+        });
+        block.add_instruction(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: IRValue::Register(3),
+            right: IRValue::Integer(4),
+            result: IRValue::Register(4),
+        });
+        block.add_instruction(Instruction::Return(Some(IRValue::Register(4))));
+        function.add_block(block);
+        function.cfg.entry_block = Some(if mark_loop {
+            format!("{}_loop", label)
+        } else {
+            label.to_string()
+        });
+        function.register_count = 5;
+        function
+    }
+}
+
+#[derive(Default)]
+struct SimdOpportunitySummary {
+    arithmetic_ops: usize,
+    memory_ops: usize,
+    vector_ops: usize,
 }

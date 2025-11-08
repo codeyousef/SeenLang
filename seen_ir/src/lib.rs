@@ -23,7 +23,7 @@ pub mod optimizer;
 pub mod value;
 
 // Re-export main types
-pub use function::{IRFunction, Parameter};
+pub use function::{IRFunction, Parameter, SimdDecisionReason, SimdMetadata, SimdMode};
 pub use generator::IRGenerator;
 pub use instruction::{BasicBlock, Instruction, Label};
 pub use module::IRModule;
@@ -48,6 +48,30 @@ impl HardwareSchedulerHint {
     }
 }
 
+/// SIMD policy for the compiler pipeline.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SimdPolicy {
+    Auto,
+    Off,
+    Max,
+}
+
+impl Default for SimdPolicy {
+    fn default() -> Self {
+        SimdPolicy::Auto
+    }
+}
+
+impl SimdPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SimdPolicy::Auto => "auto",
+            SimdPolicy::Off => "off",
+            SimdPolicy::Max => "max",
+        }
+    }
+}
+
 /// Hardware profile describing vector widths and ISA hints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareProfile {
@@ -55,6 +79,10 @@ pub struct HardwareProfile {
     pub max_vector_bits: Option<u32>,
     pub apx_enabled: bool,
     pub sve_enabled: bool,
+    #[serde(default)]
+    pub target_cpu: Option<String>,
+    #[serde(default)]
+    pub simd_policy: SimdPolicy,
 }
 
 impl Default for HardwareProfile {
@@ -64,6 +92,8 @@ impl Default for HardwareProfile {
             max_vector_bits: None,
             apx_enabled: false,
             sve_enabled: false,
+            target_cpu: None,
+            simd_policy: SimdPolicy::Auto,
         }
     }
 }
@@ -106,6 +136,8 @@ impl HardwareProfile {
             || self.sve_enabled
             || self.max_vector_bits.is_some()
             || !self.cpu_features.is_empty()
+            || self.target_cpu.is_some()
+            || !matches!(self.simd_policy, SimdPolicy::Auto)
     }
 }
 

@@ -3,6 +3,7 @@
 //! This is the main entry point for the Seen language compiler and toolchain.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use seen_core::ir::SimdDecisionReason;
 #[cfg(feature = "llvm")]
 use seen_core::llvm_backend::{Avx10Width, CpuFeature, MemoryTopologyHint, SveVectorLength};
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
@@ -10,14 +11,15 @@ use seen_core::{
     precedence, BinaryOperator, Expression, HardwareProfile, IRGenerator, IROptimizer, IRProgram,
     Interpreter, KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult, MemoryManager,
     MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError, SeenErrorKind,
-    SeenParser, SeenResult, TokenType, Type, TypeChecker, UnaryOperator, Value, VisibilityPolicy,
+    SeenParser, SeenResult, SimdPolicy, TokenType, Type, TypeChecker, UnaryOperator, Value,
+    VisibilityPolicy,
 };
 use seen_cranelift::program_to_clif;
 use seen_mlir::program_to_mlir;
 use seen_shaders::{
     ShaderCompileOptions, ShaderCompiler, ShaderEntryPoint, ShaderError, ShaderTarget,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
 use std::env::args;
 #[cfg(feature = "llvm")]
@@ -96,6 +98,19 @@ impl Default for MemoryTopologyArg {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum SimdPolicyArg {
+    Off,
+    Auto,
+    Max,
+}
+
+impl Default for SimdPolicyArg {
+    fn default() -> Self {
+        SimdPolicyArg::Auto
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum ShaderTargetArg {
     Spirv,
     Wgsl,
@@ -131,6 +146,10 @@ enum Commands {
         #[arg(long)]
         target: Option<String>,
 
+        /// Target CPU string (passed to LLVM backends)
+        #[arg(long = "target-cpu")]
+        target_cpu: Option<String>,
+
         /// Output file path (default: a.ir for IR, a.mlir for MLIR, a.clif for CLIF, a.out for LLVM)
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -155,6 +174,10 @@ enum Commands {
         #[arg(long)]
         bundle: bool,
 
+        /// SIMD policy (auto/off/max)
+        #[arg(long = "simd", value_enum, default_value_t = SimdPolicyArg::Auto)]
+        simd: SimdPolicyArg,
+
         /// Produce a shared library (only valid with --backend llvm)
         #[arg(long, conflicts_with = "static_lib")]
         shared: bool,
@@ -170,6 +193,10 @@ enum Commands {
         /// Memory topology hint for the allocator/runtime (only valid with --backend llvm)
         #[arg(long = "memory-topology", value_enum, default_value_t = MemoryTopologyArg::Default)]
         memory_topology: MemoryTopologyArg,
+
+        /// Path to write a JSON SIMD report (applies to all backends)
+        #[arg(long = "simd-report")]
+        simd_report: Option<PathBuf>,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -201,9 +228,17 @@ enum Commands {
         #[arg(long)]
         target: Option<String>,
 
+        /// Target CPU string for LLVM runs
+        #[arg(long = "target-cpu")]
+        target_cpu: Option<String>,
+
         /// Backend to execute with: "ir" (interpreter) or "llvm" (native binary)
         #[arg(long, default_value_t = Backend::Ir)]
         backend: Backend,
+
+        /// SIMD policy (auto/off/max)
+        #[arg(long = "simd", value_enum, default_value_t = SimdPolicyArg::Auto)]
+        simd: SimdPolicyArg,
 
         /// Hardware feature hint (repeatable; only valid with --backend llvm)
         #[arg(long = "cpu-feature", value_enum)]
@@ -506,18 +541,33 @@ fn main() -> SeenResult<()> {
                  wasm_loader,
                  bundle,
                  target,
+                 target_cpu,
+                 simd,
             shared,
             static_lib,
                  cpu_features,
                  memory_topology,
+                 simd_report,
              }) => {
-            if matches!(cli.profile, Profile::Deterministic)
-                && memory_topology != MemoryTopologyArg::Default
-            {
-                return Err(SeenError::new(
-                    SeenErrorKind::Tooling,
-                    "--memory-topology is locked in --profile deterministic builds".to_string(),
-                ));
+            if matches!(cli.profile, Profile::Deterministic) {
+                if memory_topology != MemoryTopologyArg::Default {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--memory-topology is locked in --profile deterministic builds".to_string(),
+                    ));
+                }
+                if simd != SimdPolicyArg::Off {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--simd is locked in --profile deterministic builds".to_string(),
+                    ));
+                }
+                if target_cpu.is_some() {
+                    return Err(SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "--target-cpu is locked in --profile deterministic builds".to_string(),
+                    ));
+                }
             }
 
             match backend {
@@ -561,12 +611,21 @@ fn main() -> SeenResult<()> {
                         bundle,
                         cpu_features.as_slice(),
                         memory_topology,
+                        simd,
+                        target_cpu.as_deref(),
+                        simd_report.as_ref(),
                         cli.profile,
                     )?;
                 }
                 Backend::Ir => {
                     if !cpu_features.is_empty() {
                         return Err(hardware_flag_backend_error());
+                    }
+                    if target_cpu.is_some() {
+                        return Err(SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "--target-cpu is not supported for the IR text backend".to_string(),
+                        ));
                     }
                     if wasm_loader {
                         return Err(SeenError::new(
@@ -599,6 +658,9 @@ fn main() -> SeenResult<()> {
                         keyword_manager,
                         cpu_features.as_slice(),
                         memory_topology,
+                        simd,
+                        target_cpu.as_deref(),
+                        simd_report.as_ref(),
                     )?;
                 }
                 Backend::Mlir => {
@@ -620,6 +682,12 @@ fn main() -> SeenResult<()> {
                             target
                         );
                     }
+                    if let Some(cpu) = target_cpu.as_deref() {
+                        eprintln!(
+                            "warning: --target-cpu={} is ignored by the experimental MLIR backend",
+                            cpu
+                        );
+                    }
                     if emit_ll || shared || static_lib {
                         return Err(SeenError::new(
                             SeenErrorKind::Tooling,
@@ -634,6 +702,9 @@ fn main() -> SeenResult<()> {
                         keyword_manager,
                         cpu_features.as_slice(),
                         memory_topology,
+                        simd,
+                        target_cpu.as_deref(),
+                        simd_report.as_ref(),
                     )?;
                 }
                 Backend::Clif => {
@@ -647,6 +718,12 @@ fn main() -> SeenResult<()> {
                         eprintln!(
                             "warning: --target={} is ignored by the Cranelift IR backend",
                             target
+                        );
+                    }
+                    if let Some(cpu) = target_cpu.as_deref() {
+                        eprintln!(
+                            "warning: --target-cpu={} is ignored by the Cranelift IR backend",
+                            cpu
                         );
                     }
                     if emit_ll || shared || static_lib {
@@ -663,6 +740,9 @@ fn main() -> SeenResult<()> {
                         keyword_manager,
                         cpu_features.as_slice(),
                         memory_topology,
+                        simd,
+                        target_cpu.as_deref(),
+                        simd_report.as_ref(),
                     )?;
                 }
             }
@@ -674,15 +754,20 @@ fn main() -> SeenResult<()> {
                  backend,
                  opt_level,
                  target,
+                 target_cpu,
+                 simd,
                  cpu_features,
                  memory_topology,
              }) => {
             if matches!(cli.profile, Profile::Deterministic)
-                && (!cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default)
+                && (!cpu_features.is_empty()
+                || memory_topology != MemoryTopologyArg::Default
+                || simd != SimdPolicyArg::Off
+                || target_cpu.is_some())
             {
                 return Err(SeenError::new(
                     SeenErrorKind::Tooling,
-                    "--cpu-feature/--memory-topology are locked in --profile deterministic builds"
+                    "--cpu-feature/--memory-topology/--simd/--target-cpu are locked in --profile deterministic builds"
                         .to_string(),
                 ));
             }
@@ -693,8 +778,18 @@ fn main() -> SeenResult<()> {
                     }
                     if memory_topology != MemoryTopologyArg::Default {
                         eprintln!(
-                        "warning: --memory-topology is ignored by the interpreter backend; rerun with --backend llvm to honor it"
-                    );
+                            "warning: --memory-topology is ignored by the interpreter backend; rerun with --backend llvm to honor it"
+                        );
+                    }
+                    if target_cpu.is_some() {
+                        eprintln!(
+                            "warning: --target-cpu is ignored by the interpreter backend; rerun with --backend llvm to honor it"
+                        );
+                    }
+                    if !matches!(simd, SimdPolicyArg::Auto) {
+                        eprintln!(
+                            "warning: --simd is ignored by the interpreter backend; rerun with --backend llvm to honor it"
+                        );
                     }
                     run_file(&input, &args, keyword_manager)?
                 }
@@ -706,15 +801,24 @@ fn main() -> SeenResult<()> {
                             &args,
                             opt_level,
                             target.as_deref(),
+                            target_cpu.as_deref(),
                             keyword_manager,
                             cpu_features.as_slice(),
                             memory_topology,
+                            simd,
                             cli.profile,
                         )?;
                     }
                     #[cfg(not(feature = "llvm"))]
                     {
-                        let _ = (opt_level, target, cpu_features, memory_topology);
+                        let _ = (
+                            opt_level,
+                            target,
+                            target_cpu,
+                            cpu_features,
+                            memory_topology,
+                            simd,
+                        );
                         return Err(SeenError::new(
                         SeenErrorKind::Tooling,
                         "LLVM backend disabled at build time; rebuild seen_cli with --features llvm".to_string(),
@@ -858,6 +962,8 @@ fn generate_optimized_ir(
     keyword_manager: Arc<KeywordManager>,
     cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
+    simd_policy: SimdPolicyArg,
+    target_cpu: Option<&str>,
 ) -> SeenResult<IRProgram> {
     println!(
         "Compiling {} with optimization level {}",
@@ -965,13 +1071,12 @@ fn generate_optimized_ir(
     let optimization_level = OptimizationLevel::from_level(opt_level);
     let mut optimizer = IROptimizer::new(optimization_level);
     let mut optimized_ir = ir_program;
+    optimized_ir.hardware_profile = build_hardware_profile(cpu_features, simd_policy, target_cpu);
     optimizer
         .optimize_program(&mut optimized_ir)
         .map_err(SeenError::from)?;
 
     println!("Applied optimization level {}", opt_level);
-    optimized_ir.hardware_profile = build_hardware_profile(cpu_features);
-    optimized_ir.hardware_profile = build_hardware_profile(cpu_features);
 
     Ok(optimized_ir)
 }
@@ -983,6 +1088,9 @@ fn compile_file_ir(
     keyword_manager: Arc<KeywordManager>,
     cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
+    simd_policy: SimdPolicyArg,
+    target_cpu: Option<&str>,
+    simd_report: Option<&PathBuf>,
 ) -> SeenResult<()> {
     let optimized_ir = generate_optimized_ir(
         input,
@@ -990,7 +1098,10 @@ fn compile_file_ir(
         keyword_manager,
         cpu_features,
         memory_topology,
+        simd_policy,
+        target_cpu,
     )?;
+    maybe_emit_simd_report(simd_report, &optimized_ir, simd_policy)?;
     let ir_text = format!("{}", optimized_ir);
     let default_output = PathBuf::from("a.ir");
     let output_path = output.unwrap_or(&default_output);
@@ -1017,6 +1128,9 @@ fn compile_file_mlir(
     keyword_manager: Arc<KeywordManager>,
     cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
+    simd_policy: SimdPolicyArg,
+    target_cpu: Option<&str>,
+    simd_report: Option<&PathBuf>,
 ) -> SeenResult<()> {
     let optimized_ir = generate_optimized_ir(
         input,
@@ -1024,7 +1138,10 @@ fn compile_file_mlir(
         keyword_manager,
         cpu_features,
         memory_topology,
+        simd_policy,
+        target_cpu,
     )?;
+    maybe_emit_simd_report(simd_report, &optimized_ir, simd_policy)?;
     let mlir_text = program_to_mlir(&optimized_ir);
     let default_output = PathBuf::from("a.mlir");
     let output_path = output.unwrap_or(&default_output);
@@ -1050,6 +1167,9 @@ fn compile_file_clif(
     keyword_manager: Arc<KeywordManager>,
     cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
+    simd_policy: SimdPolicyArg,
+    target_cpu: Option<&str>,
+    simd_report: Option<&PathBuf>,
 ) -> SeenResult<()> {
     let optimized_ir = generate_optimized_ir(
         input,
@@ -1057,7 +1177,10 @@ fn compile_file_clif(
         keyword_manager,
         cpu_features,
         memory_topology,
+        simd_policy,
+        target_cpu,
     )?;
+    maybe_emit_simd_report(simd_report, &optimized_ir, simd_policy)?;
     let clif_text = program_to_clif(&optimized_ir);
     let default_output = PathBuf::from("a.clif");
     let output_path = output.unwrap_or(&default_output);
@@ -1081,6 +1204,99 @@ fn hardware_flag_backend_error() -> SeenError {
         SeenErrorKind::Tooling,
         "--cpu-feature is not supported for the IR text backend".to_string(),
     )
+}
+
+#[derive(Serialize)]
+struct SimdFunctionReport {
+    module: String,
+    function: String,
+    policy: String,
+    mode: String,
+    reason: String,
+    hot_loops: usize,
+    arithmetic_ops: usize,
+    memory_ops: usize,
+    vector_ops: usize,
+    estimated_speedup: f32,
+    vector_width_bits: Option<u32>,
+}
+
+fn maybe_emit_simd_report(
+    report_path: Option<&PathBuf>,
+    program: &IRProgram,
+    policy: SimdPolicyArg,
+) -> SeenResult<()> {
+    let path = match report_path {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!(
+                        "Failed to create SIMD report directory {}: {}",
+                        parent.display(),
+                        err
+                    ),
+                )
+            })?;
+        }
+    }
+
+    let mut functions = Vec::new();
+    for module in program.modules.iter() {
+        for function in module.functions_iter() {
+            let metadata = &function.simd_metadata;
+            let should_emit = metadata.arithmetic_ops > 0
+                || metadata.hot_loops > 0
+                || metadata.existing_vector_ops > 0
+                || !matches!(metadata.reason, SimdDecisionReason::Unknown);
+            if !should_emit {
+                continue;
+            }
+            functions.push(SimdFunctionReport {
+                module: module.name.clone(),
+                function: function.name.clone(),
+                policy: metadata.policy.as_str().to_string(),
+                mode: metadata.mode.as_str().to_string(),
+                reason: metadata.reason.as_str().to_string(),
+                hot_loops: metadata.hot_loops,
+                arithmetic_ops: metadata.arithmetic_ops,
+                memory_ops: metadata.memory_ops,
+                vector_ops: metadata.existing_vector_ops,
+                estimated_speedup: metadata.estimated_speedup,
+                vector_width_bits: metadata.vector_width_bits,
+            });
+        }
+    }
+
+    #[derive(Serialize)]
+    struct Report<'a> {
+        requested_policy: &'a str,
+        functions: Vec<SimdFunctionReport>,
+    }
+
+    let report = Report {
+        requested_policy: simd_policy_label(policy),
+        functions,
+    };
+
+    let data = serde_json::to_vec_pretty(&report).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to serialize SIMD report: {}", err),
+        )
+    })?;
+    fs::write(path, data).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to write SIMD report {}: {}", path.display(), err),
+        )
+    })?;
+    println!("Wrote SIMD report to {}", path.display());
+    Ok(())
 }
 
 #[cfg(feature = "llvm")]
@@ -1121,9 +1337,31 @@ fn vector_bits_for_feature(flag: &CpuFeatureFlagArg) -> Option<u32> {
     }
 }
 
-fn build_hardware_profile(flags: &[CpuFeatureFlagArg]) -> HardwareProfile {
+fn convert_simd_policy(arg: SimdPolicyArg) -> SimdPolicy {
+    match arg {
+        SimdPolicyArg::Auto => SimdPolicy::Auto,
+        SimdPolicyArg::Off => SimdPolicy::Off,
+        SimdPolicyArg::Max => SimdPolicy::Max,
+    }
+}
+
+fn simd_policy_label(arg: SimdPolicyArg) -> &'static str {
+    match arg {
+        SimdPolicyArg::Auto => "auto",
+        SimdPolicyArg::Off => "off",
+        SimdPolicyArg::Max => "max",
+    }
+}
+
+fn build_hardware_profile(
+    flags: &[CpuFeatureFlagArg],
+    simd_policy: SimdPolicyArg,
+    target_cpu: Option<&str>,
+) -> HardwareProfile {
     let mut profile = HardwareProfile::default();
     if flags.is_empty() {
+        profile.simd_policy = convert_simd_policy(simd_policy);
+        profile.target_cpu = target_cpu.map(|s| s.to_string());
         return profile;
     }
 
@@ -1149,6 +1387,8 @@ fn build_hardware_profile(flags: &[CpuFeatureFlagArg]) -> HardwareProfile {
             );
         }
     }
+    profile.simd_policy = convert_simd_policy(simd_policy);
+    profile.target_cpu = target_cpu.map(|s| s.to_string());
     profile
 }
 
@@ -1222,6 +1462,9 @@ fn compile_file_llvm(
     bundle: bool,
     cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
+    simd_policy: SimdPolicyArg,
+    target_cpu: Option<&str>,
+    simd_report: Option<&PathBuf>,
     profile: Profile,
 ) -> SeenResult<()> {
     println!(
@@ -1307,11 +1550,14 @@ fn compile_file_llvm(
     }
 
     if matches!(profile, Profile::Deterministic)
-        && (!cpu_features.is_empty() || memory_topology != MemoryTopologyArg::Default)
+        && (!cpu_features.is_empty()
+        || memory_topology != MemoryTopologyArg::Default
+        || simd_policy != SimdPolicyArg::Off
+        || target_cpu.is_some())
     {
         return Err(SeenError::new(
             SeenErrorKind::Tooling,
-            "--cpu-feature/--memory-topology are locked in --profile deterministic builds"
+            "--cpu-feature/--memory-topology/--simd/--target-cpu are locked in --profile deterministic builds"
                 .to_string(),
         ));
     }
@@ -1368,9 +1614,11 @@ fn compile_file_llvm(
     let optimization_level = OptimizationLevel::from_level(opt_level);
     let mut optimizer = IROptimizer::new(optimization_level);
     let mut optimized_ir = ir_program;
+    optimized_ir.hardware_profile = build_hardware_profile(cpu_features, simd_policy, target_cpu);
     optimizer
         .optimize_program(&mut optimized_ir)
         .map_err(SeenError::from)?;
+    maybe_emit_simd_report(simd_report, &optimized_ir, simd_policy)?;
 
     // LLVM codegen
     #[cfg(feature = "llvm")]
@@ -1410,6 +1658,7 @@ fn compile_file_llvm(
         }
         let mut target_options = TargetOptions {
             triple: target_triple,
+            cpu: target_cpu,
             hardware_features: convert_cpu_features(cpu_features),
             memory_topology: convert_memory_topology_hint(memory_topology),
             ..Default::default()
@@ -1425,6 +1674,9 @@ fn compile_file_llvm(
                 "Applying memory topology hint: {}",
                 memory_topology_label(memory_topology)
             );
+        }
+        if let Some(cpu) = target_cpu {
+            println!("Applying target CPU override: {}", cpu);
         }
         if !emit_ll {
             if let Some(runtime_lib) = ensure_runtime_staticlib(target_triple)? {
@@ -1503,8 +1755,16 @@ fn compile_file_llvm(
 
 #[cfg(feature = "llvm")]
 fn ensure_runtime_staticlib(target_triple: Option<&str>) -> SeenResult<Option<PathBuf>> {
-    const HOST_TARGET: &str = env!("TARGET");
-    let triple = target_triple.unwrap_or(HOST_TARGET);
+    use std::borrow::Cow;
+
+    let host_target = std::env::var("TARGET")
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| String::from("x86_64-unknown-linux-gnu"));
+    let triple_owned = match target_triple {
+        Some(explicit) => Cow::Borrowed(explicit),
+        None => Cow::Owned(host_target),
+    };
+    let triple = triple_owned.as_ref();
 
     let runtime_src = runtime_source_path();
     if !runtime_src.exists() {
@@ -2522,9 +2782,11 @@ fn run_file_llvm(
     args: &[String],
     opt_level: u8,
     target_triple: Option<&str>,
+    target_cpu: Option<&str>,
     keyword_manager: Arc<KeywordManager>,
     cpu_features: &[CpuFeatureFlagArg],
     memory_topology: MemoryTopologyArg,
+    simd_policy: SimdPolicyArg,
     profile: Profile,
 ) -> SeenResult<()> {
     let temp = tempdir().map_err(|err| {
@@ -2546,6 +2808,9 @@ fn run_file_llvm(
         false,
         cpu_features,
         memory_topology,
+        simd_policy,
+        target_cpu,
+        None,
         profile,
     )?;
     let mut cmd = Command::new(&artifact);
@@ -2706,6 +2971,8 @@ fn determinism_check(
             keyword_manager.clone(),
             &[],
             MemoryTopologyArg::Default,
+            SimdPolicyArg::Auto,
+            None,
         )?;
         let text = match backend {
             Backend::Ir => format!("{}", optimized_ir),
@@ -2747,6 +3014,8 @@ fn trace_ir(input: &Path, opt_level: u8, keyword_manager: Arc<KeywordManager>) -
         keyword_manager,
         &[],
         MemoryTopologyArg::Default,
+        SimdPolicyArg::Auto,
+        None,
     )?;
 
     println!(

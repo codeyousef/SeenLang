@@ -500,7 +500,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         let hardware_flags: Vec<&'static str> = options
             .hardware_features
             .iter()
-            .flat_map(|feature| feature.llvm_feature_flags())
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
             .collect();
         if !hardware_flags.is_empty() {
             feature_parts.push(hardware_flags.join(","));
@@ -1024,30 +1024,24 @@ impl<'ctx> LlvmBackend<'ctx> {
 
                     backend
                         .builder
-                        .build_return(Some(&out_ptr.as_basic_value_enum()))
-                        .map_err(|e| anyhow!("{e:?}"))
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
                 }),
             ),
             (
                 "seen_scope_push",
                 self.ctx.void_type().fn_type(&[i32_t.into()], false),
                 Box::new(|backend: &mut Self, _func| {
-                    backend
-                        .builder
-                        .build_return(None)
-                        .map(|_| ())
-                        .map_err(|e| anyhow!("{e:?}"))
+                    backend.builder.build_return(None);
+                    Ok(())
                 }),
             ),
             (
                 "seen_scope_pop",
                 self.ctx.void_type().fn_type(&[i32_t.into()], false),
                 Box::new(|backend: &mut Self, _func| {
-                    backend
-                        .builder
-                        .build_return(None)
-                        .map(|_| ())
-                        .map_err(|e| anyhow!("{e:?}"))
+                    backend.builder.build_return(None);
+                    Ok(())
                 }),
             ),
             (
@@ -1057,9 +1051,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let handle = backend.i8_ptr_t.const_zero();
                     backend
                         .builder
-                        .build_return(Some(&handle.as_basic_value_enum()))
-                        .map(|_| ())
-                        .map_err(|e| anyhow!("{e:?}"))
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
                 }),
             ),
             (
@@ -1068,8 +1061,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                 Box::new(|backend: &mut Self, _func| {
                     backend
                         .builder
-                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()))
-                        .map_err(|e| anyhow!("{e:?}"))
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
                 }),
             ),
             (
@@ -1078,8 +1071,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                 Box::new(|backend: &mut Self, _func| {
                     backend
                         .builder
-                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()))
-                        .map_err(|e| anyhow!("{e:?}"))
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
                 }),
             ),
             (
@@ -1088,8 +1081,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                 Box::new(|backend: &mut Self, _func| {
                     backend
                         .builder
-                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()))
-                        .map_err(|e| anyhow!("{e:?}"))
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
                 }),
             ),
         ];
@@ -1169,6 +1162,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     BasicTypeEnum::FloatType(float_ty) => float_ty.vec_type(*lanes).into(),
                     BasicTypeEnum::PointerType(ptr_ty) => ptr_ty.vec_type(*lanes).into(),
                     BasicTypeEnum::VectorType(vec_ty) => vec_ty.into(),
+                    BasicTypeEnum::ScalableVectorType(vec_ty) => vec_ty.into(),
                     BasicTypeEnum::StructType(_) | BasicTypeEnum::ArrayType(_) => {
                         self.i64_t.vec_type(*lanes).into()
                     }
@@ -1805,10 +1799,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                 lane_type,
                 result,
             } => {
-                let vec_value = self
-                    .eval_value(vector, fn_map)?
-                    .into_vector_value()
-                    .map_err(|_| anyhow!("simd.reduce_add expects a vector operand"))?;
+                let vec_basic = self.eval_value(vector, fn_map)?;
+                let vec_value = match vec_basic {
+                    BasicValueEnum::VectorValue(vec) => vec,
+                    _ => {
+                        return Err(anyhow!("simd.reduce_add expects a vector operand"));
+                    }
+                };
                 let lanes = vec_value.get_type().get_size();
                 let index_ty = self.ctx.i32_type();
                 let mut acc = match lane_type {
@@ -2740,7 +2737,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             let float_val = value.into_float_value();
             let as_int = self
                 .builder
-                .build_bitcast(float_val, self.ctx.f64_type(), "box_float_cast")
+                .build_bit_cast(float_val, self.ctx.f64_type(), "box_float_cast")
                 .map_err(|e| anyhow!("{e:?}"))?
                 .into_float_value();
             let bits = self
