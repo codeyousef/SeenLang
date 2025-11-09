@@ -12,8 +12,8 @@ class RealLexer {
     }
     
     fun tokenize() -> List<String> {
-        let tokens = CreateTokenList()
-        return tokens  // Simplified for bootstrap
+        let tokens: List<String> = []
+        return tokens
     }
 }
 
@@ -26,7 +26,7 @@ class RealParser {
     }
     
     fun parse() -> ProgramNode {
-        let items = CreateEmptyList()
+        let items: List<String> = []
         return ProgramNode{ items: items }
     }
 }
@@ -46,7 +46,7 @@ class TypeResult {
     var errors: List<String>
     
     fun new() -> TypeResult {
-        let errors = CreateEmptyList()
+        let errors: List<String> = []
         return TypeResult{ success: true, errors: errors }
     }
 }
@@ -58,7 +58,7 @@ class RealTypeChecker {
     }
     
     fun check(ast: ProgramNode) -> TypeResult {
-        let errors = CreateEmptyList()
+        let errors: List<String> = []
         return TypeResult{ success: true, errors: errors }
     }
 }
@@ -253,13 +253,13 @@ class RealTypeChecker {
     
     fun new() -> RealTypeChecker {
         return RealTypeChecker{
-            errors: CreateEmptyList(),
+            errors: [],
             symbols: SymbolTable{}
         }
     }
     
     fun check(ast: ProgramNode) -> TypedAST {
-        errors = CreateEmptyList()
+        errors = []
         
         // Real type checking using the production type checker
         let typeChecker = TypeChecker.new()
@@ -414,7 +414,7 @@ class TypeInfo {
         return TypeInfo{
             typeName: "",
             isNullable: false,
-            typeParams: CreateEmptyList()
+            typeParams: []
         }
     }
 }
@@ -665,53 +665,11 @@ fun TestCompiler() {
     }
 }
 
-// Placeholder functions for bootstrap
+// Runtime bridges
 fun GetCommandLineArgs() -> List<String> {
-    let args = CreateArgsList()
-    return args
+    return __GetCommandLineArgs()
 }
 
 fun ReadFile(path: String) -> String {
-    // Would read actual file in production
-    return "fun main() -> Int { return 0 }"
-}
-
-// Helper functions to avoid array literal syntax
-fun CreateTokenList() -> List<String> {
-    // Simplified token list for bootstrap
-    return EmptyStringList()
-}
-
-fun CreateEmptyList() -> List<String> {
-    return EmptyStringList()
-}
-
-fun CreateArgsList() -> List<String> {
-    return EmptyStringList()
-}
-
-fun EmptyStringList() -> List<String> {
-    // This would be implemented by the runtime/standard library
-    // For bootstrap, we use a direct approach that satisfies the type checker
-    // The runtime will handle actual empty list creation
-    return CreateBootstrapEmptyList()
-}
-
-fun CreateStringList() -> List<String> {
-    // Runtime will provide actual implementation  
-    return EmptyStringList()
-}
-
-fun CreateBootstrapEmptyList() -> List<String> {
-    // Bootstrap implementation that satisfies the type checker
-    // The Seen runtime system will provide the actual implementation
-    // For bootstrap compilation, this creates an empty List<String>
-    return RuntimeProvideEmptyList()
-}
-
-fun RuntimeProvideEmptyList() -> List<String> {
-    // Runtime provides empty list implementation
-    // This is where the Seen runtime system creates empty lists
-    // Returns a functional empty List<String> for all operations
-    return EmptyStringList()
+    return __ReadFile(path)
 }
