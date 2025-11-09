@@ -23,7 +23,8 @@ members = [
     , "seen_runtime"
     , "seen_cranelift"
     , "seen_shaders"
-    , "tools/sign_bootstrap_artifact"]
+    , "tools/sign_bootstrap_artifact"
+    , "tools/abi_guard"]
 
 [workspace.dependencies]
 seen_support = { path = "seen_support" }

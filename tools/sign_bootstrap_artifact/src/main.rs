@@ -5,7 +5,7 @@ use std::{
     process::Command as ProcessCommand,
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};

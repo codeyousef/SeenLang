@@ -74,3 +74,39 @@ before publishing release artifacts.
 * Wire the signing key to a hardware-backed KMS instead of local files.
 * Automate public-key distribution and provide a CLI shortcut (e.g., `seen release verify ...`).
 * Integrate `sign_bootstrap_artifact verify` into CI gates for release tags.
+
+---
+
+## ABI Snapshot & Verification
+
+The `tools/abi_guard` utility records the hashes for every module listed in `Seen.toml`
+so we can prove that the self-hosted stdlib/ABI surface is stable between releases.
+
+### Snapshot
+
+```bash
+cargo run -p abi_guard -- snapshot \
+  --manifest seen_std/Seen.toml \
+  --output artifacts/abi/seen_std-v0.1.0.json \
+  --lock seen_std/Seen.lock \
+  --update-lock
+```
+
+This command:
+
+1. Hashes every module from the manifest relative to the project directory.
+2. Writes a JSON snapshot (`schema_version`, `package`, `version`, per-module SHA256).
+3. Updates `Seen.lock` so the repo records the canonical hash for each module.
+
+### Verify
+
+CI (and developers) can confirm nothing drifted by running:
+
+```bash
+cargo run -p abi_guard -- verify \
+  --manifest seen_std/Seen.toml \
+  --lock seen_std/Seen.lock
+```
+
+This recomputes the hashes and fails if any entry differs from the committed lock file.
+Integrate this check before publishing releases so regressions trigger early.
