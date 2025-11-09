@@ -1,0 +1,44 @@
+// seen_std::collections::string_buffer
+// Simple growable UTF-8 string wrapper backed by Vec<Char>.
+
+import collections.vec.{Vec}
+
+class StringBuffer {
+    var chars: Vec<Char>
+
+    fun new() -> StringBuffer {
+        return StringBuffer{ chars: Vec<Char>.new() }
+    }
+
+    fun withCapacity(capacity: Int) -> StringBuffer {
+        let buf = StringBuffer.new()
+        buf.chars.reserve(capacity)
+        return buf
+    }
+
+    fun push(text: String) -> Void {
+        for ch in text {
+            chars.push(ch)
+        }
+    }
+
+    fun pushChar(ch: Char) -> Void {
+        chars.push(ch)
+    }
+
+    fun clear() -> Void {
+        chars.clear()
+    }
+
+    fun len() -> Int {
+        return chars.len()
+    }
+
+    fun toString() -> String {
+        var result = ""
+        for ch in chars.toArray() {
+            result = result + ch
+        }
+        return result
+    }
+}

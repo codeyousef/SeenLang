@@ -1,0 +1,89 @@
+// seen_std::collections::vec
+// Minimal growable Vec<T> implementation for bootstrap code.
+
+class Vec<T> {
+    var data: Array<T>
+    var length: Int
+
+    fun new() -> Vec<T> {
+        return Vec{ data: Array<T>(), length: 0 }
+    }
+
+    fun withCapacity(capacity: Int) -> Vec<T> {
+        let vec = Vec.new()
+        vec.reserve(capacity)
+        return vec
+    }
+
+    fun len() -> Int {
+        return length
+    }
+
+    fun isEmpty() -> Bool {
+        return length == 0
+    }
+
+    fun push(value: T) -> Void {
+        ensureCapacity(length + 1)
+        if length < data.length() {
+            data[length] = value
+        } else {
+            data.push(value)
+        }
+        length = length + 1
+    }
+
+    fun pop() -> T {
+        if length == 0 {
+            abort("Vec.pop() called on empty Vec")
+        }
+        let value = data[length - 1]
+        length = length - 1
+        return value
+    }
+
+    fun get(index: Int) -> T {
+        if index < 0 or index >= length {
+            abort("Vec index out of bounds")
+        }
+        return data[index]
+    }
+
+    fun set(index: Int, value: T) -> Void {
+        if index < 0 or index >= length {
+            abort("Vec index out of bounds")
+        }
+        data[index] = value
+    }
+
+    fun clear() -> Void {
+        data = Array<T>()
+        length = 0
+    }
+
+    fun reserve(capacity: Int) -> Void {
+        if capacity <= data.length() {
+            return
+        }
+        let newData = Array<T>()
+        for item in data {
+            newData.push(item)
+        }
+        data = newData
+    }
+
+    fun ensureCapacity(capacity: Int) -> Void {
+        if capacity <= data.length() {
+            return
+        }
+        reserve(capacity)
+    }
+
+    fun toArray() -> Array<T> {
+        let out = Array<T>()
+        for index in range(0, length) {
+            out.push(data[index])
+        }
+        return out
+    }
+}

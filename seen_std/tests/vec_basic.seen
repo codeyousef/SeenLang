@@ -1,0 +1,35 @@
+import collections.vec.{Vec}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let vec = Vec<Int>.new()
+    expect(vec.isEmpty(), "new vec should be empty")
+
+    vec.push(1)
+    vec.push(2)
+    vec.push(3)
+
+    expect(vec.len() == 3, "len should reflect pushes")
+    expect(vec.get(1) == 2, "index access should return inserted value")
+
+    vec.set(1, 10)
+    expect(vec.get(1) == 10, "set should update value")
+
+    let popped = vec.pop()
+    expect(popped == 3, "pop should return last element")
+    expect(vec.len() == 2, "len should decrement after pop")
+
+    let array = vec.toArray()
+    expect(array.length() == 2, "toArray length mismatch")
+    expect(array[0] == 1 and array[1] == 10, "toArray contents mismatch")
+
+    vec.clear()
+    expect(vec.isEmpty(), "clear should reset vector")
+
+    return 0
+}

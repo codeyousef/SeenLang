@@ -1,0 +1,22 @@
+import collections.string_buffer.{StringBuffer}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let buffer = StringBuffer.new()
+    buffer.push("Hello")
+    buffer.pushChar(' ')
+    buffer.push("Seen")
+
+    expect(buffer.len() == 10, "buffer length mismatch")
+    expect(buffer.toString() == "Hello Seen", "buffer contents mismatch")
+
+    buffer.clear()
+    expect(buffer.len() == 0, "clear should reset buffer")
+
+    return 0
+}

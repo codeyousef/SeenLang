@@ -9,6 +9,8 @@ modules = [
     "src/core/result.seen",
     "src/core/prelude.seen",
     "src/collections/list_utils.seen",
+    "src/collections/vec.seen",
+    "src/collections/string_buffer.seen",
     "src/async/task.seen",
     "src/ffi/cinterop.seen",
     "src/str/string.seen",
