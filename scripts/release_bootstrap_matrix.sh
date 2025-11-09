@@ -9,6 +9,7 @@ SIGN_BIN="${CARGO_TARGET_DIR:-$ROOT_DIR/target}/release/sign_bootstrap_artifact"
 
 MATRIX_FILE="$DEFAULT_MATRIX"
 OUTPUT_DIR="$DEFAULT_OUTPUT"
+SIGNING_KEY=""
 
 usage() {
   cat <<'EOF'
@@ -21,6 +22,7 @@ Options:
   --output-dir <path>   Directory to store per-entry artifacts (default: artifacts/bootstrap)
   --cli-bin <path>      Path to seen_cli binary (default: ${CARGO_TARGET_BIN:-${CARGO_TARGET_DIR:-$HOME/.cargo/target-shared}/release/seen_cli})
   --signer-bin <path>   Path to sign_bootstrap_artifact binary (default: target/release/sign_bootstrap_artifact)
+  --signing-key <path>  Ed25519 signing key to sign each manifest (raw/hex seed)
   -h, --help            Show this help message
 EOF
 }
@@ -41,6 +43,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --signer-bin)
       SIGN_BIN="$2"
+      shift 2
+      ;;
+    --signing-key)
+      SIGNING_KEY="$2"
       shift 2
       ;;
     -h|--help)
@@ -160,18 +166,24 @@ for row in "${MATRIX_ROWS[@]}"; do
 
   manifest_path="$entry_dir/manifest.json"
   log "  [4/4] Generating manifest $manifest_path"
-  "$SIGN_BIN" \
-    --stage1 "$entry_dir/stage1_seen" \
-    --stage2 "$entry_dir/stage2_seen" \
-    --stage3 "$entry_dir/stage3_seen" \
-    --backend "$backend" \
-    --profile "$profile" \
-    --host "$host" \
-    --target "$target" \
-    --entry "$entry_name" \
-    --output "$manifest_path" \
-    --cli-path "$CLI_BIN" \
+  sign_cmd=(
+    "$SIGN_BIN"
+    --stage1 "$entry_dir/stage1_seen"
+    --stage2 "$entry_dir/stage2_seen"
+    --stage3 "$entry_dir/stage3_seen"
+    --backend "$backend"
+    --profile "$profile"
+    --host "$host"
+    --target "$target"
+    --entry "$entry_name"
+    --output "$manifest_path"
+    --cli-path "$CLI_BIN"
     --cli-version "$CLI_VERSION"
+  )
+  if [[ -n "$SIGNING_KEY" ]]; then
+    sign_cmd+=(--signing-key "$SIGNING_KEY")
+  fi
+  "${sign_cmd[@]}"
 
   MANIFESTS+=("$manifest_path")
 done

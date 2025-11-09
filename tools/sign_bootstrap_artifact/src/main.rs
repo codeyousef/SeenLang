@@ -1,13 +1,15 @@
 use std::{
-    fs::File,
+    convert::TryInto,
+    fs::{self, File},
     io::{BufReader, Read},
     path::{Path, PathBuf},
     process::Command,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use clap::Parser;
+use ed25519_dalek::{Signer, SigningKey};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -53,6 +55,12 @@ struct Args {
     /// Optional repeated backend features (e.g. ["llvm", "mlir"]).
     #[arg(long = "feature")]
     features: Vec<String>,
+    /// Optional Ed25519 signing key (raw bytes or hex) to sign the manifest.
+    #[arg(long)]
+    signing_key: Option<PathBuf>,
+    /// Optional signature output path (defaults to <manifest>.sig) when signing.
+    #[arg(long)]
+    signature_output: Option<PathBuf>,
 }
 
 #[derive(Serialize, Clone)]
@@ -84,7 +92,8 @@ struct Manifest {
 fn main() -> Result<()> {
     let args = Args::parse();
     let manifest = build_manifest(&args)?;
-    write_manifest(&args.output, &manifest)?;
+    let manifest_bytes = write_manifest(&args.output, &manifest)?;
+    maybe_sign_manifest(&manifest_bytes, &args)?;
     Ok(())
 }
 
@@ -189,12 +198,77 @@ fn resolve_cli_version(args: &Args) -> Result<String> {
     Ok("unknown".to_string())
 }
 
-fn write_manifest(path: &Path, manifest: &Manifest) -> Result<()> {
+fn write_manifest(path: &Path, manifest: &Manifest) -> Result<Vec<u8>> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)?;
     }
-    let file = File::create(path)?;
-    serde_json::to_writer_pretty(file, manifest)
+    let bytes = serde_json::to_vec_pretty(manifest)
+        .with_context(|| format!("failed to serialize manifest for {}", path.display()))?;
+    fs::write(path, &bytes)
         .with_context(|| format!("failed to write manifest to {}", path.display()))?;
+    Ok(bytes)
+}
+
+fn maybe_sign_manifest(bytes: &[u8], args: &Args) -> Result<()> {
+    let key_path = match &args.signing_key {
+        Some(path) => path,
+        None => return Ok(()),
+    };
+
+    let signing_key = load_signing_key(key_path)
+        .with_context(|| format!("failed to load signing key from {}", key_path.display()))?;
+    let signature = signing_key.sign(bytes);
+    let sig_hex = hex::encode(signature.to_bytes());
+
+    let mut target_path = args.signature_output.clone();
+    let sig_path = target_path.get_or_insert_with(|| {
+        let mut default = args.output.with_extension("json.sig");
+        if default == args.output {
+            default = args.output.with_extension("sig");
+        }
+        default
+    });
+
+    let sig_path_ref = sig_path.as_path();
+
+    if let Some(parent) = sig_path_ref.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(sig_path_ref, sig_hex.as_bytes())
+        .with_context(|| format!("failed to write signature to {}", sig_path_ref.display()))?;
+
     Ok(())
+}
+
+fn load_signing_key(path: &Path) -> Result<SigningKey> {
+    let raw = fs::read(path)?;
+    if let Some(key) = parse_seed_from_raw(&raw) {
+        return Ok(key);
+    }
+
+    let text =
+        String::from_utf8(raw).context("signing key must be UTF-8 text or raw 32/64 byte seed")?;
+    let cleaned: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.is_empty() {
+        bail!("signing key file was empty");
+    }
+    let decoded = hex::decode(&cleaned)
+        .with_context(|| format!("failed to decode signing key hex from {}", path.display()))?;
+    parse_seed_from_raw(&decoded)
+        .ok_or_else(|| anyhow!("signing key must decode to 32 or 64 bytes"))
+}
+
+fn parse_seed_from_raw(bytes: &[u8]) -> Option<SigningKey> {
+    match bytes.len() {
+        32 => {
+            let seed: [u8; 32] = bytes.try_into().ok()?;
+            Some(SigningKey::from_bytes(&seed))
+        }
+        64 => {
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(&bytes[..32]);
+            Some(SigningKey::from_bytes(&seed))
+        }
+        _ => None,
+    }
 }
