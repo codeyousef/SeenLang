@@ -19,3 +19,8 @@ build-ids and runtime crash reports automatically.
 - Expand runtime crash hooks to record stack/scheduler metrics.
 - Implement `seen trace --runtime/--replay` with deterministic logs.
 - Wire this doc into the release checklist.
+
+## Available Tools
+- `seen doctor` prints version/git/timestamp metadata for the current CLI build.
+- `seen doctor --dump-build-id <binary>` attempts to read the `.note.seen.build_id`
+  note from an arbitrary binary and dumps it as hex (falls back to an informative message if the section is missing).

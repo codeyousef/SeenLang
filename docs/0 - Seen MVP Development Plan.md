@@ -500,8 +500,11 @@ and installers across every supported platform.
 
 ### PROD-4. Observability & Crash Triage
 
-*Status:* ⏳ Planned — crash hooks + build-id embedding queued after installer story lands. Drafted `docs/crash-triage.md`
-  to describe the desired workflow; CLI/runtime instrumentation still pending.
+*Status:* 🔄 In progress — crash playbook + doctor command landed; runtime instrumentation pending.
+
+* **Progress:** Drafted `docs/crash-triage.md` describing the desired workflow and added `seen doctor [--dump-build-id]`
+  so engineers can read the embedded git hash/timestamp and inspect binaries for `.note.seen.build_id` sections.
+* **Outstanding:** embed build-ids, extend crash hooks, implement `seen trace --runtime/--replay`, and publish the full triage playbook alongside release notes.
 
 ### PROD-5. Production QA & Platform Certification
 

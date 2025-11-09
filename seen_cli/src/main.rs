@@ -2,6 +2,7 @@
 //!
 //! This is the main entry point for the Seen language compiler and toolchain.
 
+mod crash;
 use clap::{Parser, Subcommand, ValueEnum};
 use seen_core::ir::SimdDecisionReason;
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
@@ -370,6 +371,12 @@ enum Commands {
         /// Input file to tokenize
         #[arg(value_name = "FILE")]
         input: PathBuf,
+    },
+    /// Print diagnostic information about this Seen CLI build.
+    Doctor {
+        /// Path to a binary whose build-id note should be dumped.
+        #[arg(long = "dump-build-id")]
+        dump_build_id: Option<PathBuf>,
     },
 }
 
@@ -945,6 +952,10 @@ fn main() -> SeenResult<()> {
 
         Some(Commands::Lex { input }) => {
             lex_file(&input, keyword_manager)?;
+        }
+
+        Some(Commands::Doctor { dump_build_id }) => {
+            run_doctor(dump_build_id.as_deref())?;
         }
 
         None => {
@@ -3897,6 +3908,49 @@ fn lex_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> SeenResult<()
     }
 
     Ok(())
+}
+
+fn run_doctor(dump_build_id: Option<&Path>) -> SeenResult<()> {
+    println!("Seen CLI doctor report");
+    println!("Version: {}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Git commit: {}",
+        option_env!("SEEN_BUILD_GIT_HASH").unwrap_or("unknown")
+    );
+    println!(
+        "Build timestamp (unix): {}",
+        option_env!("SEEN_BUILD_UNIX_TS").unwrap_or("unknown")
+    );
+
+    if let Some(path) = dump_build_id {
+        match read_build_id_from_binary(path)? {
+            Some(id) => println!("build-id ({}): {}", path.display(), id),
+            None => println!(
+                "build-id section not found in {}; rebuild Stage3 with debug info.",
+                path.display()
+            ),
+        }
+    }
+
+    Ok(())
+}
+
+fn read_build_id_from_binary(path: &Path) -> SeenResult<Option<String>> {
+    let data = fs::read(path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read {}: {}", path.display(), err),
+        )
+    })?;
+    let maybe = crash::build_id::extract_build_id(&data)
+        .map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!("Failed to parse {}: {err}", path.display()),
+            )
+        })?
+        .map(hex::encode);
+    Ok(maybe)
 }
 
 /// Format a parsed Seen program back to well-formatted source code

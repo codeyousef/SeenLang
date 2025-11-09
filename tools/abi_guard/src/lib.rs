@@ -55,10 +55,7 @@ pub fn load_manifest(path: &Path) -> Result<ManifestToml> {
     let manifest: ManifestToml = toml::from_str(&contents)
         .with_context(|| format!("invalid manifest {}", path.display()))?;
     if manifest.project.modules.is_empty() {
-        return Err(anyhow!(
-            "manifest {} defines no modules",
-            path.display()
-        ));
+        return Err(anyhow!("manifest {} defines no modules", path.display()));
     }
     Ok(manifest)
 }
@@ -74,8 +71,8 @@ pub fn hash_modules(modules: &[String], base: &Path) -> Result<Vec<(String, Stri
 }
 
 pub fn hash_file(path: &Path) -> Result<String> {
-    let file = fs::File::open(path)
-        .with_context(|| format!("unable to open {}", path.display()))?;
+    let file =
+        fs::File::open(path).with_context(|| format!("unable to open {}", path.display()))?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 8192];
@@ -93,14 +90,15 @@ pub fn write_snapshot(path: &Path, snapshot: &AbiSnapshot) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let data = serde_json::to_vec_pretty(snapshot)
-        .context("failed to serialize ABI snapshot JSON")?;
+    let data =
+        serde_json::to_vec_pretty(snapshot).context("failed to serialize ABI snapshot JSON")?;
     fs::write(path, data).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }
 
 pub fn load_lock(path: &Path) -> Result<LockFile> {
-    let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let lock: LockFile = toml::from_str(&contents)
         .with_context(|| format!("invalid lock file {}", path.display()))?;
     Ok(lock)
@@ -142,7 +140,8 @@ pub fn update_lock(
         .filter_map(|path| map.get(path).cloned())
         .collect();
 
-    let toml_data = toml::to_string_pretty(&lock).context("failed to serialize lock file contents")?;
+    let toml_data =
+        toml::to_string_pretty(&lock).context("failed to serialize lock file contents")?;
     if let Some(parent) = lock_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -188,12 +187,7 @@ pub fn verify_against_lock(
                     actual
                 ))
             }
-            None => {
-                return Err(anyhow!(
-                    "module {} missing from lock file",
-                    path
-                ))
-            }
+            None => return Err(anyhow!("module {} missing from lock file", path)),
         }
     }
     if expected.len() != module_hashes.len() {

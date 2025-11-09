@@ -3,6 +3,7 @@ name = "seen_cli"
 version = "0.1.0"
 edition = "2021"
 description = "Command line interface for the Seen programming language"
+build = "build.rs"
 
 [dependencies]
 # Core Seen components
@@ -32,6 +33,8 @@ colored = { workspace = true }
 
 # Bundling utilities
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+hex = "0.4"
+object = "0.35"
 
 # Hashing for determinism checks
 sha2 = "0.10"
