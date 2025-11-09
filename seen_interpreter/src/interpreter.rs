@@ -19,14 +19,11 @@ use seen_effects::{
     },
     EffectDefinition, EffectId, EffectOperation as EffectOp,
 };
-use seen_parser::{
-    BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm, Pattern, Position,
-    Program, UnaryOperator,
-};
+use seen_parser::{ast::ClassField, BinaryOperator, ClassField, Expression, InterpolationKind, InterpolationPart, MatchArm, Method, Parameter, Pattern, Position, Program, UnaryOperator};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -193,12 +190,63 @@ impl AsyncFunctionTrait for ChannelSelectAsyncFunction {
     }
 }
 
+#[derive(Clone)]
+struct RuntimeClassField {
+    name: String,
+    default_value: Option<Expression>,
+    is_mutable: bool,
+}
+
+#[derive(Clone)]
+struct RuntimeMethod {
+    name: String,
+    parameters: Vec<Parameter>,
+    body: Expression,
+    is_static: bool,
+    receiver_name: String,
+}
+
+#[derive(Clone)]
+struct RuntimeClass {
+    name: String,
+    fields: Vec<RuntimeClassField>,
+    methods: HashMap<String, RuntimeMethod>,
+}
+
+struct InstanceContext {
+    class_name: String,
+    fields: Arc<Mutex<HashMap<String, Value>>>,
+}
+
+impl InstanceContext {
+    fn get_field(&self, name: &str) -> Option<Value> {
+        self.fields
+            .lock()
+            .ok()
+            .and_then(|fields| fields.get(name).cloned())
+    }
+
+    fn set_field(&self, name: &str, value: Value) -> bool {
+        if let Ok(mut fields) = self.fields.lock() {
+            if fields.contains_key(name) {
+                fields.insert(name.to_string(), value);
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// The main interpreter for Seen programs
 pub struct Interpreter {
     /// Runtime environment
     runtime: Runtime,
     /// Built-in functions registry
     builtins: BuiltinRegistry,
+    /// Registered class metadata
+    class_registry: HashMap<String, RuntimeClass>,
+    /// Active instance contexts for field access
+    instance_stack: Vec<InstanceContext>,
     /// Break/Continue flags for loop control
     break_flag: bool,
     continue_flag: bool,
@@ -215,6 +263,8 @@ impl Interpreter {
         Self {
             runtime: Runtime::new(),
             builtins: BuiltinRegistry::new(),
+            class_registry: HashMap::new(),
+            instance_stack: Vec::new(),
             break_flag: false,
             continue_flag: false,
             return_flag: false,
@@ -320,6 +370,8 @@ impl Interpreter {
                 if self.builtins.is_builtin(name) {
                     // Return a placeholder for built-in functions
                     Ok(Value::String(format!("<builtin:{}>", name)))
+                } else if let Some(field_value) = self.lookup_instance_field(name) {
+                    Ok(field_value)
                 } else {
                     self.runtime
                         .get_variable(name)
@@ -390,8 +442,9 @@ impl Interpreter {
                 variable,
                 iterable,
                 body,
+                pos,
                 ..
-            } => self.interpret_for(variable, iterable, body),
+            } => self.interpret_for(variable, iterable, body, *pos),
 
             Expression::Loop { body, .. } => {
                 let mut last_value = Value::Unit;
@@ -444,12 +497,21 @@ impl Interpreter {
                 Ok(val)
             }
 
+            Expression::Const { name, value, .. } => {
+                let val = self.interpret_expression(value)?;
+                self.runtime.define_variable(name.clone(), val.clone());
+                Ok(val)
+            }
+
             // Assignment
             Expression::Assignment { target, value, pos } => {
                 let val = self.interpret_expression(value)?;
 
                 match target.as_ref() {
                     Expression::Identifier { name, .. } => {
+                        if self.assign_instance_field(name, val.clone()) {
+                            return Ok(val);
+                        }
                         self.runtime
                             .set_variable(name, val.clone())
                             .map_err(|e| InterpreterError::runtime(e.to_string(), *pos))?;
@@ -494,7 +556,7 @@ impl Interpreter {
                 for elem in elements {
                     values.push(self.interpret_expression(elem)?);
                 }
-                Ok(Value::Array(values))
+                Ok(Value::array_from_vec(values))
             }
 
             Expression::IndexAccess { object, index, pos } => {
@@ -503,19 +565,15 @@ impl Interpreter {
 
                 match arr_val {
                     Value::Array(arr) => {
-                        if let Some(idx) = idx_val.as_integer() {
-                            let idx = idx as usize;
-                            if idx < arr.len() {
-                                Ok(arr[idx].clone())
-                            } else {
-                                Err(InterpreterError::runtime("Array index out of bounds", *pos))
-                            }
-                        } else {
-                            Err(InterpreterError::type_error(
-                                "Array index must be an integer",
-                                *pos,
-                            ))
-                        }
+                        let idx = idx_val.as_integer().ok_or_else(|| {
+                            InterpreterError::type_error("Array index must be an integer", *pos)
+                        })? as usize;
+                        let guard = arr
+                            .lock()
+                            .map_err(|_| InterpreterError::runtime("Array access failed", *pos))?;
+                        guard.get(idx).cloned().ok_or_else(|| {
+                            InterpreterError::runtime("Array index out of bounds", *pos)
+                        })
                     }
                     Value::String(s) => {
                         if let Some(idx) = idx_val.as_integer() {
@@ -543,6 +601,26 @@ impl Interpreter {
                 }
             }
 
+            // Class definitions
+            Expression::ClassDefinition {
+                name,
+                generics,
+                fields,
+                methods,
+                ..
+            } => {
+                self.register_class(name, generics, fields, methods)?;
+                Ok(Value::Class { name: name.clone() })
+            }
+
+            // Struct/enum/type/interface definitions are compile-time only
+            Expression::StructDefinition { .. }
+            | Expression::EnumDefinition { .. }
+            | Expression::TypeAlias { .. }
+            | Expression::Interface { .. }
+            | Expression::Extension { .. }
+            | Expression::CompanionObject { .. } => Ok(Value::Unit),
+
             // Structs
             Expression::StructLiteral { name, fields, .. } => {
                 let mut field_map = HashMap::new();
@@ -550,10 +628,19 @@ impl Interpreter {
                     let value = self.interpret_expression(field_expr)?;
                     field_map.insert(field_name.clone(), value);
                 }
-                Ok(Value::Struct {
-                    name: name.clone(),
-                    fields: field_map,
-                })
+                if let Some(class_info) = self.class_registry.get(name).cloned() {
+                    for runtime_field in &class_info.fields {
+                        if !field_map.contains_key(&runtime_field.name) {
+                            let default_value = if let Some(expr) = &runtime_field.default_value {
+                                self.interpret_expression(expr)?
+                            } else {
+                                Value::Null
+                            };
+                            field_map.insert(runtime_field.name.clone(), default_value);
+                        }
+                    }
+                }
+                Ok(Value::struct_from_fields(name.clone(), field_map))
             }
 
             Expression::MemberAccess {
@@ -570,9 +657,14 @@ impl Interpreter {
                 }
 
                 match obj_val {
-                    Value::Struct { fields, .. } => fields.get(member).cloned().ok_or_else(|| {
-                        InterpreterError::runtime(format!("Field '{}' not found", member), *pos)
-                    }),
+                    Value::Struct { fields, .. } => {
+                        let guard = fields
+                            .lock()
+                            .map_err(|_| InterpreterError::runtime("Struct access failed", *pos))?;
+                        guard.get(member).cloned().ok_or_else(|| {
+                            InterpreterError::runtime(format!("Field '{}' not found", member), *pos)
+                        })
+                    }
                     _ => Err(InterpreterError::type_error(
                         format!("Cannot access field on {}", obj_val.type_name()),
                         *pos,
@@ -755,13 +847,15 @@ impl Interpreter {
 
                 match (obj_val, idx_val) {
                     (Value::Array(arr), Value::Integer(i)) => {
-                        let idx = if i < 0 { arr.len() as i64 + i } else { i } as usize;
+                        let guard = arr
+                            .lock()
+                            .map_err(|_| InterpreterError::runtime("Array access failed", *pos))?;
+                        let len = guard.len() as i64;
+                        let idx = if i < 0 { len + i } else { i } as usize;
 
-                        if idx < arr.len() {
-                            Ok(arr[idx].clone())
-                        } else {
-                            Err(InterpreterError::runtime("Array index out of bounds", *pos))
-                        }
+                        guard.get(idx).cloned().ok_or_else(|| {
+                            InterpreterError::runtime("Array index out of bounds", *pos)
+                        })
                     }
                     _ => Err(InterpreterError::runtime("Invalid index access", *pos)),
                 }
@@ -839,13 +933,10 @@ impl Interpreter {
             }
 
             // Unhandled expressions - provide meaningful error messages
-            _ => {
-                let expr_name = std::any::type_name::<Expression>();
-                Err(InterpreterError::runtime(
-                    &format!("Expression type not yet implemented: {}", expr_name),
-                    Position::new(0, 0, 0),
-                ))
-            }
+            _ => Err(InterpreterError::runtime(
+                &format!("Expression type not yet implemented: {:?}", expr),
+                Position::new(0, 0, 0),
+            )),
         }
     }
 
@@ -950,6 +1041,7 @@ impl Interpreter {
         variable: &str,
         iterable: &Expression,
         body: &Expression,
+        pos: Position,
     ) -> InterpreterResult<Value> {
         let iter_val = self.interpret_expression(iterable)?;
 
@@ -958,8 +1050,12 @@ impl Interpreter {
 
         let result = match iter_val {
             Value::Array(arr) => {
+                let items = arr
+                    .lock()
+                    .map_err(|_| InterpreterError::runtime("Array access failed", pos))?
+                    .clone();
                 let mut last_value = Value::Unit;
-                for item in arr {
+                for item in items {
                     self.runtime.define_variable(variable.to_string(), item);
                     last_value = self.interpret_expression(body)?;
 
@@ -1086,82 +1182,40 @@ impl Interpreter {
         args: &[Expression],
         pos: Position,
     ) -> InterpreterResult<Value> {
-        // Method-call lowering for common string/array operations
-        if let Expression::MemberAccess { object, member, .. } = callee {
-            let recv = self.interpret_expression(object)?;
-            match (member.as_str(), args.len(), recv) {
-                ("length", 0, Value::String(s)) | ("size", 0, Value::String(s)) => {
-                    return Ok(Value::Integer(s.chars().count() as i64));
+        if let Expression::MemberAccess {
+            object,
+            member,
+            pos: member_pos,
+            ..
+        } = callee
+        {
+            let receiver_value = self.interpret_expression(object)?;
+            if let Some(result) =
+                self.try_dispatch_builtin_member(&receiver_value, member, args, pos)?
+            {
+                return Ok(result);
+            }
+
+            if let Value::Struct { name, .. } = &receiver_value {
+                return self.invoke_class_method(
+                    name,
+                    member,
+                    Some(receiver_value.clone()),
+                    args,
+                    *member_pos,
+                );
+            }
+
+            if let Value::Class { name } = &receiver_value {
+                return self.invoke_class_method(name, member, None, args, *member_pos);
+            }
+
+            if self.builtins.is_builtin(member) {
+                let mut arg_values = vec![receiver_value];
+                for arg in args {
+                    arg_values.push(self.interpret_expression(arg)?);
                 }
-                ("length", 0, Value::Array(arr)) | ("size", 0, Value::Array(arr)) => {
-                    return Ok(Value::Integer(arr.len() as i64));
-                }
-                ("push", 1, Value::Array(mut arr)) => {
-                    let elem = self.interpret_expression(&args[0])?;
-                    arr.push(elem);
-                    return Ok(Value::Array(arr));
-                }
-                ("pop", 0, Value::Array(mut arr)) => {
-                    if !arr.is_empty() {
-                        arr.pop();
-                    }
-                    return Ok(Value::Array(arr));
-                }
-                ("slice", 2, Value::Array(arr)) => {
-                    let start = self
-                        .interpret_expression(&args[0])?
-                        .as_integer()
-                        .ok_or_else(|| {
-                            InterpreterError::type_error("slice start must be int", pos)
-                        })? as usize;
-                    let end = self
-                        .interpret_expression(&args[1])?
-                        .as_integer()
-                        .ok_or_else(|| InterpreterError::type_error("slice end must be int", pos))?
-                        as usize;
-                    if start > end || end > arr.len() {
-                        return Err(InterpreterError::runtime("slice out of bounds", pos));
-                    }
-                    let slice = arr[start..end].to_vec();
-                    return Ok(Value::Array(slice));
-                }
-                ("endsWith", 1, Value::String(s)) => {
-                    let suffix = self.interpret_expression(&args[0])?.to_string();
-                    return Ok(Value::Boolean(s.ends_with(&suffix)));
-                }
-                ("substring", 2, Value::String(s)) => {
-                    let start = self
-                        .interpret_expression(&args[0])?
-                        .as_integer()
-                        .ok_or_else(|| {
-                            InterpreterError::type_error("substring start must be int", pos)
-                        })? as usize;
-                    let end = self
-                        .interpret_expression(&args[1])?
-                        .as_integer()
-                        .ok_or_else(|| {
-                            InterpreterError::type_error("substring end must be int", pos)
-                        })? as usize;
-                    let chars: Vec<char> = s.chars().collect();
-                    if start > end || end > chars.len() {
-                        return Err(InterpreterError::runtime("substring out of bounds", pos));
-                    }
-                    let sub: String = chars[start..end].iter().collect();
-                    return Ok(Value::String(sub));
-                }
-                (_, _, recv_val) => {
-                    // Fallback: treat as free function with receiver as first arg
-                    if let Expression::MemberAccess { member, .. } = callee {
-                        let mut arg_values = Vec::new();
-                        arg_values.push(recv_val);
-                        for a in args {
-                            arg_values.push(self.interpret_expression(a)?);
-                        }
-                        if self.builtins.is_builtin(member) {
-                            return self.builtins.call(member, &arg_values, pos);
-                        }
-                    }
-                }
+                return self.builtins.call(member, &arg_values, pos);
             }
         }
         // Check if it's a built-in function call
@@ -1501,6 +1555,87 @@ impl Interpreter {
         }
     }
 
+    fn try_dispatch_builtin_member(
+        &mut self,
+        receiver: &Value,
+        member: &str,
+        args: &[Expression],
+        pos: Position,
+    ) -> InterpreterResult<Option<Value>> {
+        match (member, receiver) {
+            ("length", Value::String(s)) | ("size", Value::String(s)) if args.is_empty() => {
+                Ok(Some(Value::Integer(s.chars().count() as i64)))
+            }
+            ("length", Value::Array(arr)) | ("size", Value::Array(arr)) if args.is_empty() => {
+                let len = arr
+                    .lock()
+                    .map_err(|_| InterpreterError::runtime("Array access failed", pos))?
+                    .len();
+                Ok(Some(Value::Integer(len as i64)))
+            }
+            ("push", Value::Array(arr)) if args.len() == 1 => {
+                let value = self.interpret_expression(&args[0])?;
+                let mut guard = arr
+                    .lock()
+                    .map_err(|_| InterpreterError::runtime("Array access failed", pos))?;
+                guard.push(value);
+                Ok(Some(Value::Array(Arc::clone(arr))))
+            }
+            ("pop", Value::Array(arr)) if args.is_empty() => {
+                let mut guard = arr
+                    .lock()
+                    .map_err(|_| InterpreterError::runtime("Array access failed", pos))?;
+                if !guard.is_empty() {
+                    guard.pop();
+                }
+                Ok(Some(Value::Array(Arc::clone(arr))))
+            }
+            ("slice", Value::Array(arr)) if args.len() == 2 => {
+                let start = self
+                    .interpret_expression(&args[0])?
+                    .as_integer()
+                    .ok_or_else(|| InterpreterError::type_error("slice start must be int", pos))?
+                    as usize;
+                let end = self
+                    .interpret_expression(&args[1])?
+                    .as_integer()
+                    .ok_or_else(|| InterpreterError::type_error("slice end must be int", pos))?
+                    as usize;
+                let guard = arr
+                    .lock()
+                    .map_err(|_| InterpreterError::runtime("Array access failed", pos))?;
+                if start > end || end > guard.len() {
+                    return Err(InterpreterError::runtime("slice out of bounds", pos));
+                }
+                let slice = guard[start..end].to_vec();
+                Ok(Some(Value::array_from_vec(slice)))
+            }
+            ("endsWith", Value::String(s)) if args.len() == 1 => {
+                let suffix = self.interpret_expression(&args[0])?.to_string();
+                Ok(Some(Value::Boolean(s.ends_with(&suffix))))
+            }
+            ("substring", Value::String(s)) if args.len() == 2 => {
+                let start = self
+                    .interpret_expression(&args[0])?
+                    .as_integer()
+                    .ok_or_else(|| {
+                        InterpreterError::type_error("substring start must be int", pos)
+                    })? as usize;
+                let end = self
+                    .interpret_expression(&args[1])?
+                    .as_integer()
+                    .ok_or_else(|| InterpreterError::type_error("substring end must be int", pos))?
+                    as usize;
+                let chars: Vec<char> = s.chars().collect();
+                if start > end || end > chars.len() {
+                    return Err(InterpreterError::runtime("substring out of bounds", pos));
+                }
+                let sub: String = chars[start..end].iter().collect();
+                Ok(Some(Value::String(sub)))
+            }
+            _ => Ok(None),
+        }
+    }
     fn interpret_parallel_for(
         &mut self,
         binding: &str,
@@ -1516,16 +1651,22 @@ impl Interpreter {
 
         match iter_val {
             Value::Array(items) => {
+                let items_vec = items
+                    .lock()
+                    .map_err(|_| InterpreterError::runtime("Array access failed", pos.clone()))?
+                    .clone();
+                let items = Arc::new(items_vec);
                 let job_system = self.runtime.job_system();
                 let mut job_error: Option<InterpreterError> = None;
                 let mut first_iteration = true;
 
-                job_system.parallel_for_sequential(0, items.len(), |idx| {
+                let items_for_closure = Arc::clone(&items);
+                job_system.parallel_for_sequential(0, items_for_closure.len(), |idx| {
                     if job_error.is_some() || self.return_flag {
                         return;
                     }
 
-                    let item = items[idx].clone();
+                    let item = items_for_closure[idx].clone();
 
                     if first_iteration {
                         self.runtime.define_variable(binding.to_string(), item);
@@ -1944,7 +2085,7 @@ impl Interpreter {
             AsyncValue::String(s) => Value::String(s.clone()),
             AsyncValue::Array(arr) => {
                 let values: Vec<Value> = arr.iter().map(|v| self.async_value_to_value(v)).collect();
-                Value::Array(values)
+                Value::array_from_vec(values)
             }
             AsyncValue::Promise(promise) => Value::Promise(Arc::clone(promise)),
             AsyncValue::Channel(channel) => Value::Channel(channel.clone()),
@@ -2136,11 +2277,11 @@ impl Interpreter {
                 // Create observable from array
                 let array_val = self.interpret_expression(array_expr)?;
                 if let Value::Array(values) = array_val {
-                    // Convert Value array to AsyncValue array for reactive runtime
-                    let async_values: Vec<seen_concurrency::types::AsyncValue> = values
-                        .iter()
-                        .map(|v| self.value_to_async_value(v))
-                        .collect();
+                    let guard = values
+                        .lock()
+                        .map_err(|_| InterpreterError::runtime("Array access failed", pos))?;
+                    let async_values: Vec<seen_concurrency::types::AsyncValue> =
+                        guard.iter().map(|v| self.value_to_async_value(v)).collect();
                     let observable = runtime.create_observable_from_vec(async_values);
                     let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(observable);
                     Ok(Value::Observable(Arc::new(boxed)))
@@ -2306,16 +2447,208 @@ impl Interpreter {
             Value::Float(f) => AsyncValue::Float(*f),
             Value::Boolean(b) => AsyncValue::Boolean(*b),
             Value::String(s) => AsyncValue::String(s.clone()),
-            Value::Array(arr) => {
-                let async_values: Vec<AsyncValue> =
-                    arr.iter().map(|v| self.value_to_async_value(v)).collect();
-                AsyncValue::Array(async_values)
-            }
+            Value::Array(arr) => match arr.lock() {
+                Ok(values) => {
+                    let async_values = values
+                        .iter()
+                        .map(|v| self.value_to_async_value(v))
+                        .collect();
+                    AsyncValue::Array(async_values)
+                }
+                Err(_) => AsyncValue::Array(Vec::new()),
+            },
             Value::Promise(promise) => AsyncValue::Promise(Arc::clone(promise)),
             Value::Channel(channel) => AsyncValue::Channel(channel.clone()),
             Value::Actor(actor) => AsyncValue::Actor(actor.clone()),
             _ => AsyncValue::Unit, // Other types map to Unit for now
         }
+    }
+
+    fn register_class(
+        &mut self,
+        name: &str,
+        _generics: &[String],
+        fields: &[ClassField],
+        methods: &[Method],
+    ) -> InterpreterResult<()> {
+        let runtime_fields = fields
+            .iter()
+            .map(|field| RuntimeClassField {
+                name: field.name.clone(),
+                default_value: field.default_value.clone(),
+                is_mutable: field.is_mutable,
+            })
+            .collect();
+
+        let mut runtime_methods = HashMap::new();
+        for method in methods {
+            let receiver_name = method
+                .receiver
+                .as_ref()
+                .map(|r| r.name.clone())
+                .unwrap_or_else(|| "this".to_string());
+            runtime_methods.insert(
+                method.name.clone(),
+                RuntimeMethod {
+                    name: method.name.clone(),
+                    parameters: method.parameters.clone(),
+                    body: method.body.clone(),
+                    is_static: method.is_static,
+                    receiver_name,
+                },
+            );
+        }
+
+        self.class_registry.insert(
+            name.to_string(),
+            RuntimeClass {
+                name: name.to_string(),
+                fields: runtime_fields,
+                methods: runtime_methods,
+            },
+        );
+
+        self.runtime.define_variable(
+            name.to_string(),
+            Value::Class {
+                name: name.to_string(),
+            },
+        );
+        Ok(())
+    }
+
+    fn invoke_class_method(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        receiver: Option<Value>,
+        args: &[Expression],
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let class = self
+            .class_registry
+            .get(class_name)
+            .cloned()
+            .ok_or_else(|| {
+                InterpreterError::runtime(format!("Unknown class {}", class_name), pos)
+            })?;
+
+        let method = class.methods.get(method_name).cloned().ok_or_else(|| {
+            InterpreterError::runtime(
+                format!("Class '{}' has no method '{}'", class_name, method_name),
+                pos,
+            )
+        })?;
+
+        if !method.is_static && receiver.is_none() {
+            return Err(InterpreterError::runtime(
+                format!(
+                    "Method '{}::{}' requires an instance",
+                    class_name, method_name
+                ),
+                pos,
+            ));
+        }
+
+        let mut evaluated_args = Vec::new();
+        for (idx, param) in method.parameters.iter().enumerate() {
+            if let Some(arg_expr) = args.get(idx) {
+                evaluated_args.push(self.interpret_expression(arg_expr)?);
+            } else if let Some(default_expr) = &param.default_value {
+                evaluated_args.push(self.interpret_expression(default_expr)?);
+            } else {
+                return Err(InterpreterError::argument_count_mismatch(
+                    format!("{}::{}", class_name, method_name),
+                    method.parameters.len(),
+                    args.len(),
+                    pos,
+                ));
+            }
+        }
+
+        self.runtime.push_environment(true);
+
+        let mut context_pushed = false;
+        if !method.is_static {
+            let recv_value = receiver.expect("receiver checked above");
+            self.runtime
+                .define_variable(method.receiver_name.clone(), recv_value.clone());
+            if let Value::Struct { fields, .. } = recv_value {
+                self.instance_stack.push(InstanceContext {
+                    class_name: class_name.to_string(),
+                    fields,
+                });
+                context_pushed = true;
+            } else {
+                return Err(InterpreterError::runtime(
+                    format!("{}::{} receiver is not a struct", class_name, method_name),
+                    pos,
+                ));
+            }
+        }
+
+        for (param, value) in method.parameters.iter().zip(evaluated_args.into_iter()) {
+            self.runtime.define_variable(param.name.clone(), value);
+        }
+
+        let prev_break = self.break_flag;
+        let prev_continue = self.continue_flag;
+        self.break_flag = false;
+        self.continue_flag = false;
+
+        let result = self.interpret_expression(&method.body);
+
+        if context_pushed {
+            self.instance_stack.pop();
+        }
+
+        let deferred = self
+            .runtime
+            .take_current_deferred()
+            .map_err(|e| InterpreterError::runtime(e.to_string(), pos))?;
+        let defer_result = self.run_deferred(deferred);
+
+        let pop_result = self
+            .runtime
+            .pop_environment()
+            .map_err(|e| InterpreterError::runtime(e.to_string(), pos));
+
+        let match_result = match (result, defer_result, pop_result) {
+            (Err(err), _, _) => Err(err),
+            (Ok(value), Err(err), _) => Err(err),
+            (Ok(_), Ok(_), Err(err)) => Err(err),
+            (Ok(value), Ok(_), Ok(_)) => Ok(value),
+        };
+
+        self.break_flag = prev_break;
+        self.continue_flag = prev_continue;
+
+        let mut final_result = match_result?;
+
+        if self.return_flag {
+            final_result = self.return_value.take().unwrap_or(Value::Unit);
+            self.return_flag = false;
+        }
+
+        Ok(final_result)
+    }
+
+    fn lookup_instance_field(&self, name: &str) -> Option<Value> {
+        for ctx in self.instance_stack.iter().rev() {
+            if let Some(value) = ctx.get_field(name) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    fn assign_instance_field(&mut self, name: &str, value: Value) -> bool {
+        for ctx in self.instance_stack.iter().rev() {
+            if ctx.set_field(name, value.clone()) {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -2330,6 +2663,7 @@ mod tests {
     use super::*;
     use seen_concurrency::types::{AsyncValue, Channel, ChannelId};
     use seen_parser::ast::Pattern;
+    use seen_parser::{ClassField, Method, Type};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -2352,6 +2686,115 @@ mod tests {
     fn test_interpreter_creation() {
         let interpreter = Interpreter::new();
         let _ = interpreter; // Use the value
+    }
+
+    #[test]
+    fn class_methods_mutate_instance_fields() {
+        let mut interpreter = Interpreter::new();
+        let pos = Position::start();
+
+        let counter_field = ClassField {
+            name: "value".to_string(),
+            field_type: Type {
+                name: "Int".to_string(),
+                is_nullable: false,
+                generics: vec![],
+            },
+            is_public: false,
+            is_mutable: true,
+            default_value: Some(Expression::IntegerLiteral { value: 0, pos }),
+            annotations: vec![],
+        };
+
+        let value_ident = || Expression::Identifier {
+            name: "value".to_string(),
+            is_public: false,
+            pos,
+        };
+
+        let increment_body = Expression::Block {
+            expressions: vec![
+                Expression::Assignment {
+                    target: Box::new(value_ident()),
+                    value: Box::new(Expression::BinaryOp {
+                        left: Box::new(value_ident()),
+                        op: BinaryOperator::Add,
+                        right: Box::new(Expression::IntegerLiteral { value: 1, pos }),
+                        pos,
+                    }),
+                    pos,
+                },
+                value_ident(),
+            ],
+            pos,
+        };
+
+        let increment_method = Method {
+            name: "inc".to_string(),
+            parameters: vec![],
+            return_type: Some(Type {
+                name: "Int".to_string(),
+                is_nullable: false,
+                generics: vec![],
+            }),
+            body: increment_body,
+            is_public: true,
+            is_static: false,
+            receiver: None,
+            annotations: vec![],
+            pos,
+        };
+
+        let class_def = Expression::ClassDefinition {
+            name: "Counter".to_string(),
+            generics: vec![],
+            superclass: None,
+            fields: vec![counter_field],
+            methods: vec![increment_method],
+            is_sealed: false,
+            doc_comment: None,
+            pos,
+        };
+
+        let instantiate_counter = Expression::StructLiteral {
+            name: "Counter".to_string(),
+            fields: vec![],
+            pos,
+        };
+
+        let let_counter = Expression::Let {
+            name: "counter".to_string(),
+            type_annotation: None,
+            value: Box::new(instantiate_counter),
+            is_mutable: true,
+            delegation: None,
+            pos,
+        };
+
+        let call_inc = Expression::Call {
+            callee: Box::new(Expression::MemberAccess {
+                object: Box::new(Expression::Identifier {
+                    name: "counter".to_string(),
+                    is_public: false,
+                    pos,
+                }),
+                member: "inc".to_string(),
+                is_safe: false,
+                pos,
+            }),
+            args: vec![],
+            pos,
+        };
+
+        let block = Expression::Block {
+            expressions: vec![class_def, let_counter, call_inc],
+            pos,
+        };
+
+        let result = interpreter
+            .interpret_expression(&block)
+            .expect("class method should execute");
+        assert_eq!(result, Value::Integer(1));
     }
 
     #[test]

@@ -128,6 +128,30 @@ pub struct TypeChecker {
 }
 
 impl TypeChecker {
+    fn predeclare_types(&mut self, program: &Program) {
+        for expr in &program.expressions {
+            self.predeclare_type_in_expression(expr);
+        }
+    }
+
+    fn predeclare_type_in_expression(&mut self, expr: &Expression) {
+        match expr {
+            Expression::StructDefinition { name, generics, .. } => {
+                self.predeclare_struct_type(name, generics)
+            }
+            Expression::ClassDefinition { name, generics, .. } => {
+                self.predeclare_struct_type(name, generics)
+            }
+            Expression::EnumDefinition { name, generics, .. } => {
+                self.predeclare_enum_type(name, generics)
+            }
+            Expression::Interface { name, generics, .. } => {
+                self.predeclare_interface_type(name, generics)
+            }
+            _ => {}
+        }
+    }
+
     /// Create a new type checker
     pub fn new() -> Self {
         let mut env = Environment::new();
@@ -423,6 +447,43 @@ impl TypeChecker {
         }
     }
 
+    fn predeclare_struct_type(&mut self, name: &str, generics: &[String]) {
+        if self.env.get_type(name).is_some() {
+            return;
+        }
+        let placeholder = Type::Struct {
+            name: name.to_string(),
+            fields: HashMap::new(),
+            generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
+        };
+        self.env.define_type(name.to_string(), placeholder);
+    }
+
+    fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+        if self.env.get_type(name).is_some() {
+            return;
+        }
+        let placeholder = Type::Enum {
+            name: name.to_string(),
+            variants: Vec::new(),
+            generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
+        };
+        self.env.define_type(name.to_string(), placeholder);
+    }
+
+    fn predeclare_interface_type(&mut self, name: &str, generics: &[String]) {
+        if self.env.get_type(name).is_some() {
+            return;
+        }
+        let placeholder = Type::Interface {
+            name: name.to_string(),
+            methods: Vec::new(),
+            generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
+            is_sealed: false,
+        };
+        self.env.define_type(name.to_string(), placeholder);
+    }
+
     fn with_generics<F, R>(&mut self, generics: &[String], f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -622,6 +683,18 @@ impl TypeChecker {
         }
     }
 
+    fn resolve_receiver_type(&mut self, receiver: &Receiver) -> Type {
+        if let Some(existing) = self.env.get_type(&receiver.type_name).cloned() {
+            existing
+        } else {
+            Type::Struct {
+                name: receiver.type_name.clone(),
+                fields: HashMap::new(),
+                generics: Vec::new(),
+            }
+        }
+    }
+
     fn substitute_generics(&self, ty: &Type, mapping: &HashMap<String, Type>) -> Type {
         match ty {
             Type::Generic(name) => mapping.get(name).cloned().unwrap_or_else(|| ty.clone()),
@@ -702,7 +775,8 @@ impl TypeChecker {
 
     /// Type check a program
     pub fn check_program(&mut self, program: &Program) -> TypeCheckResult {
-        // Predeclare function signatures so that order of definitions doesn't matter
+        // Predeclare types/signatures so that order of definitions doesn't matter
+        self.predeclare_types(program);
         self.predeclare_signatures(program);
         for expression in &program.expressions {
             self.check_expression(expression);
@@ -871,9 +945,18 @@ impl TypeChecker {
                 params,
                 return_type,
                 body,
+                receiver,
                 pos,
                 ..
-            } => self.check_function_definition(name, generics, params, return_type, body, *pos),
+            } => self.check_function_definition(
+                name,
+                generics,
+                params,
+                return_type,
+                receiver.as_ref(),
+                body,
+                *pos,
+            ),
 
             // Interface definition
             Expression::Interface {
@@ -1932,11 +2015,19 @@ impl TypeChecker {
         generics: &[String],
         params: &[seen_parser::ast::Parameter],
         return_type: &Option<seen_parser::ast::Type>,
+        receiver: Option<&Receiver>,
         body: &Expression,
         pos: Position,
     ) -> Type {
         self.with_generics(generics, |checker| {
-            checker.check_function_definition_inner(name, params, return_type, body, pos.clone())
+            checker.check_function_definition_inner(
+                name,
+                params,
+                return_type,
+                receiver,
+                body,
+                pos.clone(),
+            )
         })
     }
 
@@ -1945,6 +2036,7 @@ impl TypeChecker {
         name: &str,
         params: &[seen_parser::ast::Parameter],
         return_type: &Option<seen_parser::ast::Type>,
+        receiver: Option<&Receiver>,
         body: &Expression,
         pos: Position,
     ) -> Type {
@@ -1962,6 +2054,19 @@ impl TypeChecker {
             });
         }
 
+        let mut signature_params = Vec::new();
+        let mut receiver_binding: Option<(String, Type)> = None;
+        if let Some(receiver) = receiver {
+            let receiver_type = self.resolve_receiver_type(receiver);
+            signature_params.push(crate::Parameter {
+                name: receiver.name.clone(),
+                param_type: receiver_type.clone(),
+            });
+            receiver_binding = Some((receiver.name.clone(), receiver_type));
+        }
+
+        signature_params.extend(checker_params.clone());
+
         // Convert return type
         let checker_return_type = if let Some(ret_type_ast) = return_type {
             Some(self.resolve_ast_type(ret_type_ast, pos))
@@ -1972,7 +2077,7 @@ impl TypeChecker {
         // Create function signature
         let signature = FunctionSignature {
             name: name.to_string(),
-            parameters: checker_params.clone(),
+            parameters: signature_params.clone(),
             return_type: checker_return_type.clone(),
         };
 
@@ -1984,6 +2089,13 @@ impl TypeChecker {
         // Create new scope for function body
         let saved_env = self.env.clone();
         let mut function_env = Environment::with_parent(self.env.clone());
+
+        if let Some((receiver_name, receiver_type)) = receiver_binding.clone() {
+            function_env.define_variable(receiver_name.clone(), receiver_type.clone());
+            if receiver_name != "this" {
+                function_env.define_variable("this".to_string(), receiver_type);
+            }
+        }
 
         // Add parameters to function scope
         for (param, checker_param) in params.iter().zip(checker_params.iter()) {

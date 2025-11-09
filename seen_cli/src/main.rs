@@ -2123,6 +2123,35 @@ fn bundle_imports(
         expressions: Vec::new(),
     };
 
+    let manifest_files = collect_manifest_module_files(manifest_modules)?;
+    for file in manifest_files {
+        let canonical = canonicalize_lossy(&file);
+        if processed_files.contains(&canonical) {
+            continue;
+        }
+        let src = fs::read_to_string(&file).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read manifest module {}: {}", file.display(), err),
+            )
+        })?;
+        let module_dir = canonical
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let lex = Lexer::with_config(
+            src,
+            keyword_manager.clone(),
+            LexerConfig { visibility_policy },
+        );
+        let mut parser = SeenParser::new_with_visibility(lex, visibility_policy);
+        let parsed = parser
+            .parse_program()
+            .map_err(|err| annotate_parser_error(err.into(), &file))?;
+        processed_files.insert(canonical);
+        queue.push_back((parsed, module_dir));
+    }
+
     while let Some((prog, module_dir)) = queue.pop_front() {
         for expr in prog.expressions {
             match &expr {
@@ -2199,38 +2228,6 @@ fn bundle_imports(
         }
     }
 
-    let manifest_files = collect_manifest_module_files(manifest_modules)?;
-    for file in manifest_files {
-        let canonical = canonicalize_lossy(&file);
-        if processed_files.contains(&canonical) {
-            continue;
-        }
-        let src = fs::read_to_string(&file).map_err(|err| {
-            SeenError::new(
-                SeenErrorKind::Io,
-                format!("Failed to read manifest module {}: {}", file.display(), err),
-            )
-        })?;
-        let module_dir = canonical
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
-        let lex = Lexer::with_config(
-            src,
-            keyword_manager.clone(),
-            LexerConfig { visibility_policy },
-        );
-        let mut parser = SeenParser::new_with_visibility(lex, visibility_policy);
-        let parsed = parser
-            .parse_program()
-            .map_err(|err| annotate_parser_error(err.into(), &file))?;
-        for expr in parsed.expressions {
-            merged
-                .expressions
-                .push(rewrite_embed_attributes(expr, &module_dir));
-        }
-        processed_files.insert(canonical);
-    }
     Ok(merged)
 }
 
@@ -3217,33 +3214,48 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let parsed = parser.parse_program().map_err(SeenError::from)?;
     // Bundle imports so interpreter sees imported functions
-    let ast = bundle_imports(
-        parsed,
+    let ast_for_typecheck = bundle_imports(
+        parsed.clone(),
         input,
         keyword_manager.clone(),
         visibility_policy,
         &project_config.root_dir,
         &dependency_roots,
-        &manifest_modules,
+        &[],
     )?;
+    let ast = if manifest_modules.is_empty() {
+        ast_for_typecheck.clone()
+    } else {
+        bundle_imports(
+            parsed,
+            input,
+            keyword_manager.clone(),
+            visibility_policy,
+            &project_config.root_dir,
+            &dependency_roots,
+            &manifest_modules,
+        )?
+    };
 
-    // Type check
-    let mut type_checker = TypeChecker::new();
-    let type_result = type_checker.check_program(&ast);
-    if !type_result.errors.is_empty() {
-        for error in &type_result.errors {
-            eprintln!("Type error: {}", error);
+    if manifest_modules.is_empty() {
+        // Type check (for user + imported modules only)
+        let mut type_checker = TypeChecker::new();
+        let type_result = type_checker.check_program(&ast_for_typecheck);
+        if !type_result.errors.is_empty() {
+            for error in &type_result.errors {
+                eprintln!("Type error: {}", error);
+            }
+            if let Some(primary) = type_result.errors.first().cloned() {
+                return Err(SeenError::from(primary));
+            }
+            return Err(SeenError::new(
+                SeenErrorKind::TypeChecker,
+                format!(
+                    "Type checking failed with {} errors",
+                    type_result.errors.len()
+                ),
+            ));
         }
-        if let Some(primary) = type_result.errors.first().cloned() {
-            return Err(SeenError::from(primary));
-        }
-        return Err(SeenError::new(
-            SeenErrorKind::TypeChecker,
-            format!(
-                "Type checking failed with {} errors",
-                type_result.errors.len()
-            ),
-        ));
     }
 
     // Interpret the program
@@ -3251,15 +3263,14 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     // Forward program args via env for __GetCommandLineArgs override
     if !args.is_empty() {
         let mut s = String::from("seen");
-        for a in args {
+        for arg in args {
             s.push(' ');
-            s.push_str(a);
+            s.push_str(arg);
         }
         std::env::set_var("SEEN_PROGRAM_ARGS", s);
     }
-    let result = interpreter.interpret(&ast).map_err(SeenError::from)?;
 
-    // Only print result if it's not Unit
+    let result = interpreter.interpret(&ast).map_err(SeenError::from)?;
     if !matches!(result, Value::Unit) {
         println!("{}", result);
     }

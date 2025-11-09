@@ -2,10 +2,9 @@
 
 use seen_concurrency::types::{ActorRef, Channel, Promise, TaskId};
 use seen_effects::{EffectDefinition, EffectId};
-use seen_reactive::{Flow, Observable, ReactiveProperty};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Values that can be computed by the interpreter
 #[derive(Debug, Clone)]
@@ -20,8 +19,8 @@ pub enum Value {
     String(String),
     /// Character value
     Character(char),
-    /// Array value
-    Array(Vec<Value>),
+    /// Array value (shared, mutable)
+    Array(Arc<Mutex<Vec<Value>>>),
     /// Raw byte buffer
     Bytes(Vec<u8>),
     /// Null value
@@ -31,8 +30,10 @@ pub enum Value {
     /// Struct value
     Struct {
         name: String,
-        fields: HashMap<String, Value>,
+        fields: Arc<Mutex<HashMap<String, Value>>>,
     },
+    /// Class/type reference
+    Class { name: String },
     /// Function value (closure)
     Function {
         name: String,
@@ -67,6 +68,19 @@ pub enum Value {
 }
 
 impl Value {
+    /// Construct an array value backed by shared mutable storage
+    pub fn array_from_vec(values: Vec<Value>) -> Self {
+        Value::Array(Arc::new(Mutex::new(values)))
+    }
+
+    /// Construct a struct value backed by shared mutable storage
+    pub fn struct_from_fields(name: String, fields: HashMap<String, Value>) -> Self {
+        Value::Struct {
+            name,
+            fields: Arc::new(Mutex::new(fields)),
+        }
+    }
+
     /// Check if this value is truthy
     pub fn is_truthy(&self) -> bool {
         match self {
@@ -76,9 +90,10 @@ impl Value {
             Value::Integer(i) => *i != 0,
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
-            Value::Array(arr) => !arr.is_empty(),
+            Value::Array(arr) => arr.lock().map(|values| !values.is_empty()).unwrap_or(false),
             Value::Bytes(bytes) => !bytes.is_empty(),
             Value::Struct { .. } => true,
+            Value::Class { .. } => true,
             Value::Function { .. } => true,
             Value::Promise(promise) => !promise.is_rejected(),
             Value::Task(_) => true,
@@ -104,6 +119,7 @@ impl Value {
             Value::Array(_) => "Array",
             Value::Bytes(_) => "Bytes",
             Value::Struct { .. } => "Struct",
+            Value::Class { .. } => "Class",
             Value::Null => "Null",
             Value::Unit => "Unit",
             Value::Function { .. } => "Function",
@@ -127,18 +143,25 @@ impl Value {
             Value::Boolean(b) => b.to_string(),
             Value::String(s) => s.clone(),
             Value::Character(c) => c.to_string(),
-            Value::Array(arr) => {
-                let elements: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
-                format!("[{}]", elements.join(", "))
-            }
+            Value::Array(arr) => match arr.lock() {
+                Ok(values) => {
+                    let elements: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+                    format!("[{}]", elements.join(", "))
+                }
+                Err(_) => "[<locked>]".to_string(),
+            },
             Value::Bytes(bytes) => format!("<bytes {}>", bytes.len()),
-            Value::Struct { name, fields } => {
-                let field_strs: Vec<String> = fields
-                    .iter()
-                    .map(|(k, v)| format!("{}: {}", k, v.to_string()))
-                    .collect();
-                format!("{}({})", name, field_strs.join(", "))
-            }
+            Value::Struct { name, fields } => match fields.lock() {
+                Ok(map) => {
+                    let field_strs: Vec<String> = map
+                        .iter()
+                        .map(|(k, v)| format!("{}: {}", k, v.to_string()))
+                        .collect();
+                    format!("{}({})", name, field_strs.join(", "))
+                }
+                Err(_) => format!("{}(<locked>)", name),
+            },
+            Value::Class { name } => format!("<class {}>", name),
             Value::Null => "null".to_string(),
             Value::Unit => "()".to_string(),
             Value::Function { name, .. } => format!("<function {}>", name),
@@ -200,6 +223,19 @@ impl Value {
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Character(a), Value::Character(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => {
+                let lhs = a.lock();
+                let rhs = b.lock();
+                if let (Ok(lhs_vals), Ok(rhs_vals)) = (lhs, rhs) {
+                    lhs_vals.len() == rhs_vals.len()
+                        && lhs_vals
+                        .iter()
+                        .zip(rhs_vals.iter())
+                        .all(|(v1, v2)| v1.equals(v2))
+                } else {
+                    false
+                }
+            }
             (
                 Value::Struct {
                     name: n1,
@@ -210,14 +246,23 @@ impl Value {
                     fields: f2,
                 },
             ) => {
-                n1 == n2
-                    && f1.len() == f2.len()
-                    && f1
+                if n1 != n2 {
+                    return false;
+                }
+                let lhs = f1.lock();
+                let rhs = f2.lock();
+                if let (Ok(lhs_fields), Ok(rhs_fields)) = (lhs, rhs) {
+                    lhs_fields.len() == rhs_fields.len()
+                        && lhs_fields
                         .iter()
-                        .all(|(k, v)| f2.get(k).map_or(false, |v2| v.equals(v2)))
+                        .all(|(k, v)| rhs_fields.get(k).map_or(false, |v2| v.equals(v2)))
+                } else {
+                    false
+                }
             }
             (Value::Null, Value::Null) => true,
             (Value::Unit, Value::Unit) => true,
+            (Value::Class { name: a }, Value::Class { name: b }) => a == b,
             // Type coercion for numeric comparisons
             (Value::Integer(a), Value::Float(b)) => (*a as f64 - b).abs() < f64::EPSILON,
             (Value::Float(a), Value::Integer(b)) => (a - *b as f64).abs() < f64::EPSILON,
@@ -380,47 +425,6 @@ mod tests {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Integer(a), Value::Integer(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => (a - b).abs() < f64::EPSILON,
-            (Value::Boolean(a), Value::Boolean(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::Character(a), Value::Character(b)) => a == b,
-            (Value::Array(a), Value::Array(b)) => a == b,
-            (Value::Null, Value::Null) => true,
-            (Value::Unit, Value::Unit) => true,
-            (
-                Value::Struct {
-                    name: n1,
-                    fields: f1,
-                },
-                Value::Struct {
-                    name: n2,
-                    fields: f2,
-                },
-            ) => n1 == n2 && f1 == f2,
-            (Value::Bytes(a), Value::Bytes(b)) => a == b,
-            (Value::Function { name: n1, .. }, Value::Function { name: n2, .. }) => n1 == n2,
-            (Value::Promise(a), Value::Promise(b)) => std::sync::Arc::ptr_eq(a, b),
-            (Value::Task(a), Value::Task(b)) => a == b,
-            (Value::Channel(a), Value::Channel(b)) => a == b,
-            (Value::Actor(a), Value::Actor(b)) => a == b,
-            (Value::Effect(a), Value::Effect(b)) => Arc::ptr_eq(a, b),
-            (
-                Value::EffectHandle { effect_id: id1, .. },
-                Value::EffectHandle { effect_id: id2, .. },
-            ) => id1 == id2,
-            (Value::Observable(a), Value::Observable(b)) => Arc::ptr_eq(a, b),
-            (Value::Flow(a), Value::Flow(b)) => Arc::ptr_eq(a, b),
-            (
-                Value::ReactiveProperty {
-                    property_id: id1, ..
-                },
-                Value::ReactiveProperty {
-                    property_id: id2, ..
-                },
-            ) => id1 == id2,
-            _ => false,
-        }
+        self.equals(other)
     }
 }

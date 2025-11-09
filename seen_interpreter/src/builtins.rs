@@ -138,7 +138,13 @@ fn builtin_println(args: &[Value], _position: Position) -> InterpreterResult<Val
 fn builtin_len(args: &[Value], position: Position) -> InterpreterResult<Value> {
     match &args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
-        Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
+        Value::Array(arr) => {
+            let len = arr
+                .lock()
+                .map_err(|_| InterpreterError::runtime("Array access failed", position))?
+                .len();
+            Ok(Value::Integer(len as i64))
+        }
         _ => Err(InterpreterError::type_error(
             format!("Cannot get length of {}", args[0].type_name()),
             position,
@@ -265,10 +271,10 @@ fn builtin_channel(args: &[Value], position: Position) -> InterpreterResult<Valu
     fields.insert("Sender".to_string(), Value::Channel(channel.clone()));
     fields.insert("Receiver".to_string(), Value::Channel(channel));
 
-    Ok(Value::Struct {
-        name: "ChannelEndpoints".to_string(),
+    Ok(Value::struct_from_fields(
+        "ChannelEndpoints".to_string(),
         fields,
-    })
+    ))
 }
 
 fn builtin_abort(args: &[Value], position: Position) -> InterpreterResult<Value> {
@@ -381,10 +387,12 @@ fn builtin_get_command_line_args(_args: &[Value], _position: Position) -> Interp
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
-        return Ok(Value::Array(parts.into_iter().map(Value::String).collect()));
+        return Ok(Value::array_from_vec(
+            parts.into_iter().map(Value::String).collect(),
+        ));
     }
     let vals: Vec<Value> = std::env::args().map(Value::String).collect();
-    Ok(Value::Array(vals))
+    Ok(Value::array_from_vec(vals))
 }
 
 fn builtin_get_timestamp(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
@@ -460,10 +468,10 @@ fn builtin_execute_command(args: &[Value], _position: Position) -> InterpreterRe
     let mut fields = HashMap::new();
     fields.insert("success".to_string(), Value::Boolean(success));
     fields.insert("output".to_string(), Value::String(stdout));
-    Ok(Value::Struct {
-        name: "CommandResult".to_string(),
+    Ok(Value::struct_from_fields(
+        "CommandResult".to_string(),
         fields,
-    })
+    ))
 }
 
 fn builtin_format_seen_code(args: &[Value], _position: Position) -> InterpreterResult<Value> {
@@ -534,8 +542,9 @@ mod tests {
             panic!("expected Channel to return struct endpoints");
         };
         assert_eq!(name, "ChannelEndpoints");
-        assert!(matches!(fields.get("Sender"), Some(Value::Channel(_))));
-        assert!(matches!(fields.get("Receiver"), Some(Value::Channel(_))));
+        let field_map = fields.lock().expect("fields lock poisoned");
+        assert!(matches!(field_map.get("Sender"), Some(Value::Channel(_))));
+        assert!(matches!(field_map.get("Receiver"), Some(Value::Channel(_))));
     }
 
     #[test]
@@ -547,7 +556,9 @@ mod tests {
             panic!("expected Channel to return struct endpoints");
         };
 
-        let sender_channel = match fields.get("Sender") {
+        let field_map = fields.lock().expect("fields lock poisoned");
+
+        let sender_channel = match field_map.get("Sender") {
             Some(Value::Channel(ch)) => ch.clone(),
             other => panic!("unexpected sender field: {:?}", other),
         };
@@ -561,7 +572,7 @@ mod tests {
             ChannelSendStatus::WouldBlock
         );
 
-        let receiver_channel = match fields.get("Receiver") {
+        let receiver_channel = match field_map.get("Receiver") {
             Some(Value::Channel(ch)) => ch.clone(),
             other => panic!("unexpected receiver field: {:?}", other),
         };
