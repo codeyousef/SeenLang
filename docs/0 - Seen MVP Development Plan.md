@@ -488,7 +488,8 @@ and installers across every supported platform.
   (Option/Result/prelude), `collections`, `async`, and `ffi`. The package now has a README that explains the scope so
   Stage-1 can depend on `../seen_std`, and the Seen CLI entrypoint now imports the shared Option/Result helpers for
   argument parsing/validation instead of re-implementing ad-hoc logic. `tools/abi_guard` snapshots module hashes and
-  updates/validates `Seen.lock`, with documentation living in `docs/release-playbook.md`.
+  updates/validates `Seen.lock`, documentation lives in `docs/release-playbook.md`, and `scripts/package_seen_std.sh`
+  produces deterministic archives (with checksums) ready to publish alongside release artifacts.
 * **Outstanding:** integrate the package deeper into the bootstrap build (replace ad-hoc helpers with `import seen_std...`)
   and teach `seen pkg` to emit `libseen_std.seenpkg` with a `Seen.lock`-backed ABI guardrail enforced in CI.
 

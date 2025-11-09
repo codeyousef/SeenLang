@@ -74,6 +74,14 @@ Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when in
 1. Upload `stage3_seen`, `manifest.json`, and `manifest.json.sig` per matrix entry to the release bucket.
 2. Publish `index.json` as the authoritative manifest list.
 3. Include the public key (or link to it) in the release notes so consumers can verify downloads.
+4. Package and upload the `seen_std` archive:
+
+```bash
+scripts/package_seen_std.sh --version $RELEASE_VERSION --output-dir artifacts/packages
+```
+
+This produces a deterministic `seen_std-$RELEASE_VERSION.tar.gz` plus a `.sha256` checksum so consumers
+can download the bundled stdlib that matches the published ABI lock.
 
 ## 5. Future Extensions
 
