@@ -619,15 +619,9 @@ fun bootstrapCommand() -> Int {
     println("🚀 Seen Self-Hosting Compiler Bootstrap")
     println("=========================================")
     
-    let testCode = """
-        fun main() -> Int {
-            let message = "Hello from self-hosting Seen!"
-            println(message)
-            return 0
-        }
-    """
-    
-    let success = CompileSeenProgram(testCode, "bootstrap_test")
+    let testCodePath = "seen_std/tests/minimal_bootstrap.seen"
+    let source = ReadFile(testCodePath)
+    let success = CompileSeenProgram(source, "bootstrap_test")
     
     if success {
         println("\n✅ BOOTSTRAP SUCCESSFUL!")
@@ -653,7 +647,8 @@ fun bootstrapCommand() -> Int {
 // Test the compiler with Seen syntax examples
 fun TestCompiler() {
     // Example following Seen syntax design
-    let testCode = "fun main() -> Int { return 0 }"
+    let testCodePath = "seen_std/tests/minimal_bootstrap.seen"
+    let testCode = ReadFile(testCodePath)
     
     println("=== Testing Compiler with Seen Syntax ===")
     let success = CompileSeenProgram(testCode, "test_output")
