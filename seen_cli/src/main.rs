@@ -579,17 +579,17 @@ fn main() -> SeenResult<()> {
             opt_level,
             backend,
             emit_ll,
-                 wasm_loader,
-                 bundle,
-                 target,
-                 target_cpu,
-                 simd,
+            wasm_loader,
+            bundle,
+            target,
+            target_cpu,
+            simd,
             shared,
             static_lib,
-                 cpu_features,
-                 memory_topology,
-                 simd_report,
-             }) => {
+            cpu_features,
+            memory_topology,
+            simd_report,
+        }) => {
             if matches!(cli.profile, Profile::Deterministic) {
                 if memory_topology != MemoryTopologyArg::Default {
                     return Err(SeenError::new(
@@ -791,21 +791,21 @@ fn main() -> SeenResult<()> {
         }
 
         Some(Commands::Run {
-                 input,
-                 args,
-                 backend,
-                 opt_level,
-                 target,
-                 target_cpu,
-                 simd,
-                 cpu_features,
-                 memory_topology,
-             }) => {
+            input,
+            args,
+            backend,
+            opt_level,
+            target,
+            target_cpu,
+            simd,
+            cpu_features,
+            memory_topology,
+        }) => {
             if matches!(cli.profile, Profile::Deterministic)
                 && (!cpu_features.is_empty()
-                || memory_topology != MemoryTopologyArg::Default
-                || simd != SimdPolicyArg::Off
-                || target_cpu.is_some())
+                    || memory_topology != MemoryTopologyArg::Default
+                    || simd != SimdPolicyArg::Off
+                    || target_cpu.is_some())
             {
                 return Err(SeenError::new(
                     SeenErrorKind::Tooling,
@@ -897,12 +897,12 @@ fn main() -> SeenResult<()> {
         }
 
         Some(Commands::Shaders {
-                 input,
-                 output,
-                 targets,
-                 validate_only,
-                 recursive,
-             }) => {
+            input,
+            output,
+            targets,
+            validate_only,
+            recursive,
+        }) => {
             build_shaders_command(
                 &input,
                 output.as_deref(),
@@ -920,10 +920,10 @@ fn main() -> SeenResult<()> {
         }
 
         Some(Commands::Format {
-                 input,
-                 in_place,
-                 check,
-             }) => {
+            input,
+            in_place,
+            check,
+        }) => {
             format_file(&input, in_place, check)?;
         }
 
@@ -1598,9 +1598,9 @@ fn compile_file_llvm(
 
     if matches!(profile, Profile::Deterministic)
         && (!cpu_features.is_empty()
-        || memory_topology != MemoryTopologyArg::Default
-        || simd_policy != SimdPolicyArg::Off
-        || target_cpu.is_some())
+            || memory_topology != MemoryTopologyArg::Default
+            || simd_policy != SimdPolicyArg::Off
+            || target_cpu.is_some())
     {
         return Err(SeenError::new(
             SeenErrorKind::Tooling,
@@ -4718,7 +4718,7 @@ mod tests {
                 project_dir,
                 Some("aarch64-linux-android"),
             )
-                .expect("bundle");
+            .expect("bundle");
 
             let file = File::open(&bundle_path).expect("open bundle");
             let mut archive = ZipArchive::new(file).expect("zip archive");
@@ -4767,7 +4767,7 @@ mod tests {
 </manifest>
 "#,
             )
-                .expect("write manifest");
+            .expect("write manifest");
 
             // Assets, resources, root, and dex directories
             let asset_path = project_dir.join("assets").join("textures").join("quad.png");
@@ -4780,7 +4780,7 @@ mod tests {
                 &res_path,
                 "<resources><string name=\"app\">Custom</string></resources>",
             )
-                .expect("write res");
+            .expect("write res");
 
             let root_path = project_dir.join("root").join("NOTICE.txt");
             fs::create_dir_all(root_path.parent().unwrap()).expect("root dirs");
@@ -4798,7 +4798,7 @@ mod tests {
                 project_dir,
                 Some("x86_64-linux-android"),
             )
-                .expect("bundle");
+            .expect("bundle");
 
             let file = File::open(&bundle_path).expect("open bundle");
             let mut archive = ZipArchive::new(file).expect("zip archive");

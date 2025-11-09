@@ -13,7 +13,7 @@ fun main() -> Int {
 }
 "#,
     )
-        .expect("write source");
+    .expect("write source");
     program_path
 }
 
@@ -67,13 +67,13 @@ fn wasm_loader_reports_missing_wasm_linker() {
         "SEEN_LLVM_LINKER",
         missing_linker.to_string_lossy().as_ref(),
     )
-        .arg("build")
-        .arg(program_path)
-        .arg("--backend")
-        .arg("llvm")
-        .arg("--target")
-        .arg("wasm32-unknown-unknown")
-        .arg("--wasm-loader");
+    .arg("build")
+    .arg(program_path)
+    .arg("--backend")
+    .arg("llvm")
+    .arg("--target")
+    .arg("wasm32-unknown-unknown")
+    .arg("--wasm-loader");
 
     cmd.assert().failure().stderr(contains("SEEN_LLVM_LINKER"));
 }

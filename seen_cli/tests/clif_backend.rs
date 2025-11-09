@@ -15,7 +15,7 @@ fun Add(lhs: Int, rhs: Int) -> Int {
 }
 "#,
     )
-        .expect("write source");
+    .expect("write source");
 
     let clif_out = dir.path().join("out.clif");
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -58,7 +58,7 @@ fn clif_backend_determinism_succeeds() {
 fun Id(x: Int) -> Int { x }
 "#,
     )
-        .expect("write source");
+    .expect("write source");
 
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()

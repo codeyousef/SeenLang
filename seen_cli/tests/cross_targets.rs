@@ -95,7 +95,7 @@ printf '\0asm' > "$out"
 exit 0
 "#,
     )
-        .expect("write fake linker script");
+    .expect("write fake linker script");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

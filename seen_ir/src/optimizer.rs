@@ -581,10 +581,10 @@ impl IROptimizer {
         match (left, right) {
             (IRValue::Register(reg), IRValue::Integer(c))
             | (IRValue::Integer(c), IRValue::Register(reg))
-            if *reg == tmp =>
-                {
-                    Some(*c)
-                }
+                if *reg == tmp =>
+            {
+                Some(*c)
+            }
             _ => None,
         }
     }

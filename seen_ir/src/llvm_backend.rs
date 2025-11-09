@@ -620,9 +620,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         let mut cmd = std::process::Command::new(&tool);
         if triple.contains("windows")
             && tool
-            .file_name()
-            .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
-            .unwrap_or(false)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
         {
             cmd.arg("/nologo")
                 .arg(format!("/OUT:{}", out_path.display()))
@@ -2630,7 +2630,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     &format!("select_case_slot_{idx}"),
                 )
             }
-                .map_err(|e| anyhow!("{e:?}"))?;
+            .map_err(|e| anyhow!("{e:?}"))?;
             self.builder
                 .build_store(slot, channel_ptr.as_basic_value_enum())
                 .map_err(|e| anyhow!("{e:?}"))?;

@@ -83,15 +83,15 @@ impl<T> Arena<T> {
         self.entries.get_mut(index.as_usize())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=&T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.entries.iter()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut T> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.entries.iter_mut()
     }
 
-    pub fn indices(&self) -> impl Iterator<Item=ArenaIndex> + '_ {
+    pub fn indices(&self) -> impl Iterator<Item = ArenaIndex> + '_ {
         (0..self.entries.len()).map(ArenaIndex::from)
     }
 

@@ -22,7 +22,7 @@ fun main() -> Int {
 }
 "#,
     )
-        .expect("write main.seen");
+    .expect("write main.seen");
 
     fs::write(
         temp.path().join("Seen.toml"),
@@ -30,7 +30,7 @@ fun main() -> Int {
 modules = ["missing/module"]
 "#,
     )
-        .expect("write Seen.toml");
+    .expect("write Seen.toml");
 
     (temp, main)
 }

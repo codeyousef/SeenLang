@@ -64,7 +64,7 @@ fun Main() -> Int {
 }
 "#,
     )
-        .expect("write source");
+    .expect("write source");
 
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
