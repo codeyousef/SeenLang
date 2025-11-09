@@ -158,6 +158,49 @@ fn linux_static_library_builds() {
 }
 
 #[test]
+fn linux_executable_embeds_build_id_note() {
+    if !cfg!(feature = "llvm") {
+        eprintln!(
+            "skipping linux_executable_embeds_build_id_note because LLVM feature is disabled"
+        );
+        return;
+    }
+
+    let workspace = workspace_root();
+    let sample = sample_source();
+    assert!(sample.exists(), "linux sample should exist at {:?}", sample);
+
+    let temp = tempdir().expect("create temp dir");
+    let output = temp.path().join("hello_exec");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(&workspace)
+        .args([
+            "build",
+            sample.to_string_lossy().as_ref(),
+            "--backend",
+            "llvm",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--output",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(&workspace)
+        .args([
+            "doctor",
+            "--dump-build-id",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success()
+        .stdout(contains("build-id"));
+}
+
+#[test]
 fn linux_sample_runs_with_interpreter_backend() {
     let workspace = workspace_root();
     let sample = sample_source();

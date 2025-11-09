@@ -29,14 +29,21 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::fs::File;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
 use std::sync::Arc;
 #[cfg(feature = "llvm")]
-use tempfile::tempdir;
+use tempfile::{tempdir, NamedTempFile};
+#[cfg(feature = "llvm")]
+use which::which;
 use zip::{write::FileOptions, CompressionMethod};
+
+#[cfg(feature = "llvm")]
+const BUILD_GIT_HASH: &str = env!("SEEN_BUILD_GIT_HASH");
+#[cfg(feature = "llvm")]
+const BUILD_UNIX_TS: &str = env!("SEEN_BUILD_UNIX_TS");
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum Profile {
@@ -1872,6 +1879,7 @@ fn compile_file_llvm(
                         format!("Failed to produce output {}: {:?}", target.display(), err),
                     )
                 })?;
+            embed_build_id_note_if_supported(&target, target_triple, link_mode)?;
             let artifact_path = if bundling_android { &out_path } else { &target };
             println!("Generated artifact: {}", artifact_path.display());
             if wasm_loader {
@@ -2509,6 +2517,173 @@ const DEFAULT_ANDROID_MANIFEST: &str = r#"<manifest xmlns:android="http://schema
 
 #[cfg(feature = "llvm")]
 const STUB_CLASSES_DEX: &[u8] = include_bytes!("android_stub/classes.dex");
+
+#[cfg(feature = "llvm")]
+fn embed_build_id_note_if_supported(
+    artifact: &Path,
+    target_triple: Option<&str>,
+    link_mode: BuildLinkMode,
+) -> SeenResult<()> {
+    if !matches!(
+        link_mode,
+        BuildLinkMode::Executable | BuildLinkMode::SharedLibrary
+    ) {
+        return Ok(());
+    }
+    if !should_embed_build_id(target_triple) {
+        return Ok(());
+    }
+    if !is_elf_binary(artifact)? {
+        return Ok(());
+    }
+    embed_build_id_note(artifact)
+}
+
+#[cfg(feature = "llvm")]
+fn should_embed_build_id(target_triple: Option<&str>) -> bool {
+    target_triple
+        .map(elf_like_triple)
+        .or_else(|| default_host_triple().map(|host| elf_like_triple(&host)))
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "llvm")]
+fn default_host_triple() -> Option<String> {
+    std::env::var("TARGET")
+        .or_else(|_| std::env::var("HOST"))
+        .ok()
+}
+
+#[cfg(feature = "llvm")]
+fn elf_like_triple(triple: &str) -> bool {
+    let lower = triple.to_ascii_lowercase();
+    (lower.contains("linux") || lower.contains("android")) && !lower.contains("wasm32")
+}
+
+#[cfg(feature = "llvm")]
+fn embed_build_id_note(artifact: &Path) -> SeenResult<()> {
+    let objcopy = locate_objcopy().ok_or_else(|| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            "llvm-objcopy/objcopy not found; install LLVM binutils or set SEEN_LLVM_OBJCOPY",
+        )
+    })?;
+
+    let note_bytes = build_id_note_payload();
+    if note_bytes.is_empty() {
+        return Ok(());
+    }
+
+    let mut note_file = NamedTempFile::new().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to allocate temp build-id note: {}", err),
+        )
+    })?;
+    note_file.write_all(&note_bytes).map_err(|err| {
+        SeenError::new(SeenErrorKind::Io, format!("Failed to write note: {}", err))
+    })?;
+
+    let parent = artifact
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let temp_output = NamedTempFile::new_in(&parent).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to allocate temp output for build-id embed: {}", err),
+        )
+    })?;
+    let temp_output_path = temp_output.into_temp_path();
+
+    let mut cmd = Command::new(&objcopy);
+    cmd.arg("--add-section");
+    cmd.arg(format!(
+        ".note.seen.build_id={}",
+        note_file.path().display()
+    ));
+    cmd.arg("--set-section-flags");
+    cmd.arg(".note.seen.build_id=alloc,load,readonly,data");
+    cmd.arg(artifact);
+    cmd.arg(&temp_output_path);
+
+    let status = cmd.status().map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to invoke {}: {}", objcopy.display(), err),
+        )
+    })?;
+    if !status.success() {
+        let _ = temp_output_path.close();
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "{} exited with status {} while embedding build-id",
+                objcopy.display(),
+                status
+            ),
+        ));
+    }
+
+    temp_output_path.persist(artifact).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to replace {} with build-id annotated binary: {}",
+                artifact.display(),
+                err
+            ),
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(feature = "llvm")]
+fn locate_objcopy() -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var("SEEN_LLVM_OBJCOPY") {
+        let trimmed = explicit.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+    for candidate in ["llvm-objcopy", "objcopy"] {
+        if let Ok(path) = which(candidate) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+#[cfg(feature = "llvm")]
+fn build_id_note_payload() -> Vec<u8> {
+    format!("{BUILD_GIT_HASH}:{BUILD_UNIX_TS}").into_bytes()
+}
+
+#[cfg(feature = "llvm")]
+fn is_elf_binary(path: &Path) -> SeenResult<bool> {
+    let mut file = File::open(path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to open {} for build-id injection: {}",
+                path.display(),
+                err
+            ),
+        )
+    })?;
+    let mut magic = [0u8; 4];
+    let read = file.read(&mut magic).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to read {} for build-id detection: {}",
+                path.display(),
+                err
+            ),
+        )
+    })?;
+    Ok(read == 4 && magic == [0x7F, b'E', b'L', b'F'])
+}
 
 #[cfg(feature = "llvm")]
 fn bundle_android_artifacts(

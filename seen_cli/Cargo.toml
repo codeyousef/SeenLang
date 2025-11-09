@@ -35,6 +35,7 @@ colored = { workspace = true }
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 hex = "0.4"
 object = "0.35"
+which = "4"
 
 # Hashing for determinism checks
 sha2 = "0.10"
