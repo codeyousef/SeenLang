@@ -21,6 +21,9 @@ STDLIB_OUTPUT_DIR="$ROOT_DIR/artifacts/packages"
 BUILD_INSTALLERS=0
 INSTALLER_VERSION=""
 INSTALLER_OUTPUT_DIR="$ROOT_DIR/artifacts/installers"
+RUN_PLATFORM_MATRIX=0
+PLATFORM_OUTPUT_DIR="$ROOT_DIR/artifacts/platform-matrix"
+PLATFORM_TARGETS=()
 
 usage() {
   cat <<'EOF'
@@ -47,6 +50,11 @@ Options:
                         Override installer version (defaults to stdlib version if provided)
   --installer-output <dir>
                         Output directory for installer artifacts (default: artifacts/installers)
+  --run-platform-matrix Run scripts/platform_matrix.sh after artifacts are produced
+  --platform-output <dir>
+                        Directory for platform matrix reports (default: artifacts/platform-matrix)
+  --platform-target <name>
+                        Limit platform matrix to selected targets (repeatable)
   -h, --help            Show this help message
 EOF
 }
@@ -115,6 +123,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --installer-output)
       INSTALLER_OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --run-platform-matrix)
+      RUN_PLATFORM_MATRIX=1
+      shift 1
+      ;;
+    --platform-output)
+      PLATFORM_OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --platform-target)
+      PLATFORM_TARGETS+=("$2")
       shift 2
       ;;
     -h|--help)
@@ -349,6 +369,21 @@ if [[ $BUILD_INSTALLERS -eq 1 ]]; then
     --version "$INSTALLER_VERSION" \
     --stage3 "$LINUX_STAGE3_PATH" \
     --output-dir "$INSTALLER_OUTPUT_DIR"
+fi
+
+if [[ $RUN_PLATFORM_MATRIX -eq 1 ]]; then
+  if [[ -z "$LINUX_STAGE3_PATH" ]]; then
+    echo "Linux Stage3 artifact not found; cannot run platform matrix" >&2
+    exit 1
+  fi
+  log "[platform] Running platform matrix reports"
+  matrix_cmd=("$ROOT_DIR/scripts/platform_matrix.sh" "--stage3" "$LINUX_STAGE3_PATH" "--output-dir" "$PLATFORM_OUTPUT_DIR")
+  if [[ ${#PLATFORM_TARGETS[@]} -gt 0 ]]; then
+    for target in "${PLATFORM_TARGETS[@]}"; do
+      matrix_cmd+=("--platform" "$target")
+    done
+  fi
+  "${matrix_cmd[@]}"
 fi
 
 log "Bootstrap matrix completed for ${#MANIFESTS[@]} entr$( [[ ${#MANIFESTS[@]} -eq 1 ]] && echo "y" || echo "ies")."

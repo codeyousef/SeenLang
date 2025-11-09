@@ -33,7 +33,9 @@ scripts/release_bootstrap_matrix.sh \
   --package-stdlib \
   --stdlib-output artifacts/packages \
   --build-installers \
-  --installer-output artifacts/installers
+  --installer-output artifacts/installers \
+  --run-platform-matrix \
+  --platform-output artifacts/platform-matrix
 ```
 
 This performs, for each matrix entry:
@@ -85,6 +87,8 @@ Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when in
 5. Use `--build-installers` to invoke `scripts/build_installers.sh`. The script currently builds Linux DEB/RPM/AppImage
    artifacts and writes placeholders for the remaining platforms; upload the produced installers (and logs) alongside the
    Stage3/stdlib artifacts until the other targets are automated.
+6. Pass `--run-platform-matrix` to run `scripts/platform_matrix.sh` after artifacts are emitted. Reports land under
+   `artifacts/platform-matrix/<date>/` (Linux runs real smoke tests; other targets are marked pending until harnesses exist).
 
 ## 5. Future Extensions
 

@@ -496,10 +496,10 @@ and installers across every supported platform.
 
 ### PROD-3. Installer & Updater
 
-*Status:* 🔄 In progress — Linux artifacts automated; cross-platform installers pending.
+*Status:* 🔄 In progress — Linux installers + release automation wired; remaining platforms pending.
 
-* **Progress:** Added `scripts/build_installers.sh` plus `--build-installers` wiring in the release script so tagged
-  builds produce Linux DEB/RPM/AppImage installers (and placeholder notes for other targets) alongside the stdlib bundle.
+* **Progress:** Added `scripts/build_installers.sh` plus release-script wiring so tagged builds produce Linux DEB/RPM/AppImage installers
+  (and placeholder notes for other targets) alongside the stdlib bundle; `--run-platform-matrix` ensures Linux smoke tests run post-build.
 * **Outstanding:** implement Windows MSI/macOS pkg/Android AAB/iOS IPA builders and hook notarization/signing into the
   release pipeline.
 
