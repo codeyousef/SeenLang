@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,4 +28,13 @@ fn main() {
         .map(|d| d.as_secs())
         .unwrap_or_default();
     println!("cargo:rustc-env=SEEN_BUILD_UNIX_TS={}", timestamp);
+
+    let note_contents = format!("{}:{}", git_hash, timestamp);
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR set"));
+    let note_path = out_dir.join("build_id.note");
+    fs::write(&note_path, note_contents).expect("write build-id note");
+    println!(
+        "cargo:rustc-env=SEEN_BUILD_NOTE_PATH={}",
+        note_path.display()
+    );
 }
