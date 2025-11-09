@@ -3,6 +3,8 @@
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
 import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
+import seen_std.core.option.{Option, Some, None}
+import seen_std.core.result.{Result, Ok, Err}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -13,50 +15,54 @@ fun main() -> Int {
     
     let command = args[1]
     if command == "build" {
-        if args.size() < 3 {
-            println("Error: build command requires a source file")
+        let sourceResult = requireArg(args, 2, "Error: build command requires a source file")
+        if sourceResult.isErr() {
+            println(sourceResult.unwrapErr())
             println("Usage: seen build <source.seen> [output]")
             return 1
         }
 
-        let sourceFile = args[2]
-        let outputFile = if args.size() > 3 { args[3] } else { getDefaultOutput(sourceFile) }
+        let sourceFile = sourceResult.unwrap()
+        let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
 
         return buildCommand(sourceFile, outputFile)
     }
 
     if command == "check" {
-        if args.size() < 3 {
-            println("Error: check command requires a source file")
+        let sourceResult = requireArg(args, 2, "Error: check command requires a source file")
+        if sourceResult.isErr() {
+            println(sourceResult.unwrapErr())
             println("Usage: seen check <source.seen>")
             return 1
         }
 
-        return checkCommand(args[2])
+        return checkCommand(sourceResult.unwrap())
     }
 
     if command == "run" {
-        if args.size() < 3 {
-            println("Error: run command requires a source file")
+        let sourceResult = requireArg(args, 2, "Error: run command requires a source file")
+        if sourceResult.isErr() {
+            println(sourceResult.unwrapErr())
             println("Usage: seen run <source.seen>")
             return 1
         }
 
-        return runCommand(args[2])
+        return runCommand(sourceResult.unwrap())
     }
 
     if command == "format" {
-        if args.size() < 3 {
-            println("Error: format command requires a source file")
+        let sourceResult = requireArg(args, 2, "Error: format command requires a source file")
+        if sourceResult.isErr() {
+            println(sourceResult.unwrapErr())
             println("Usage: seen format <source.seen>")
             return 1
         }
 
-        return formatCommand(args[2])
+        return formatCommand(sourceResult.unwrap())
     }
 
     if command == "init" {
-        let projectName = if args.size() > 2 { args[2] } else { "new_project" }
+        let projectName = getOptionalArg(args, 2).unwrapOr("new_project")
         return initCommand(projectName)
     }
 
@@ -292,6 +298,22 @@ fun printFrontendWarnings(result: FrontendResult) -> Void {
             println("  {diag.file}:{diag.line}:{diag.column} → {diag.message}")
         }
     }
+}
+
+// Argument helpers backed by seen_std Option/Result
+
+fun getOptionalArg(args: List<String>, index: Int) -> Option<String> {
+    if args.size() > index {
+        return Some(args[index])
+    }
+    return None()
+}
+
+fun requireArg(args: List<String>, index: Int, message: String) -> Result<String, String> {
+    if args.size() > index {
+        return Ok(args[index])
+    }
+    return Err(message)
 }
 
 // System interface functions (would be implemented in runtime)

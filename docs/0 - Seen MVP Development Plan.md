@@ -486,7 +486,8 @@ and installers across every supported platform.
 
 * **Progress:** Added a dedicated `seen_std/` package with `Seen.toml`, `Seen.lock`, and starter modules covering `core`
   (Option/Result/prelude), `collections`, `async`, and `ffi`. The package now has a README that explains the scope so
-  Stage-1 can depend on `../seen_std` without sprinkling helper types everywhere.
+  Stage-1 can depend on `../seen_std`, and the Seen CLI entrypoint now imports the shared Option/Result helpers for
+  argument parsing/validation instead of re-implementing ad-hoc logic.
 * **Outstanding:** integrate the package into the bootstrap build (replace ad-hoc helpers with `import seen_std...`),
   build the `tools/abi_guard` utility to snapshot hashes under `artifacts/abi/`, and teach `seen pkg` to emit
   `libseen_std.seenpkg` with a `Seen.lock`-backed ABI guardrail.
