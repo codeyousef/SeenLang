@@ -504,4 +504,13 @@ and installers across every supported platform.
 
 ### PROD-5. Production QA & Platform Certification
 
-*Status:* ⏳ Planned — awaits bootstrap manifests + installers so the platform matrix can run against shippable bits.
+*Status:* 🔄 In progress — Linux harness landed; non-Linux targets pending.
+
+* **Inputs:** `examples/`, `tests/`, `scripts/nightly_backends.sh`, mobile/Web build steps, installer artifacts.
+* **Progress:** Added `scripts/platform_matrix.sh` which drives Stage3 smoke tests on Linux (build + run `seen-ecs-min`, build
+  `seen-vulkan-min`) and emits JSON reports under `artifacts/platform-matrix/<timestamp>/`. Placeholder entries mark
+  Windows/macOS/Android/iOS/Web as `pending` so CI can track coverage as harnesses are implemented.
+* **Outstanding:** flesh out provisioning + execution for the remaining platforms, add perf/determinism gates, and block
+  release tags on a fully green matrix.
+* **Acceptance:** No release can be published unless every platform row in the matrix passes build/run/determinism checks,
+  and the stored artifacts allow engineers to re-run any failing configuration locally.

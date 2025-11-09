@@ -86,6 +86,7 @@ Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when in
 * Wire the signing key to a hardware-backed KMS instead of local files.
 * Automate public-key distribution and provide a CLI shortcut (e.g., `seen release verify ...`).
 * Integrate `sign_bootstrap_artifact verify` into CI gates for release tags.
+* Use `scripts/platform_matrix.sh --stage3 ./stage3_seen` to produce cross-platform smoke-test reports under `artifacts/platform-matrix/<timestamp>/`.
 
 ---
 
