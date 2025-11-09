@@ -18,6 +18,9 @@ SKIP_ABI_VERIFY=0
 PACKAGE_STDLIB=0
 STDLIB_VERSION=""
 STDLIB_OUTPUT_DIR="$ROOT_DIR/artifacts/packages"
+BUILD_INSTALLERS=0
+INSTALLER_VERSION=""
+INSTALLER_OUTPUT_DIR="$ROOT_DIR/artifacts/installers"
 
 usage() {
   cat <<'EOF'
@@ -39,6 +42,11 @@ Options:
   --package-stdlib      Run scripts/package_seen_std.sh after the matrix completes
   --stdlib-version <v>  Override stdlib version passed to package_seen_std.sh
   --stdlib-output <dir> Output directory for stdlib package (default: artifacts/packages)
+  --build-installers    Run scripts/build_installers.sh after the matrix completes
+  --installer-version <v>
+                        Override installer version (defaults to stdlib version if provided)
+  --installer-output <dir>
+                        Output directory for installer artifacts (default: artifacts/installers)
   -h, --help            Show this help message
 EOF
 }
@@ -95,6 +103,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --stdlib-output)
       STDLIB_OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --build-installers)
+      BUILD_INSTALLERS=1
+      shift 1
+      ;;
+    --installer-version)
+      INSTALLER_VERSION="$2"
+      shift 2
+      ;;
+    --installer-output)
+      INSTALLER_OUTPUT_DIR="$2"
       shift 2
       ;;
     -h|--help)
@@ -196,6 +216,7 @@ if [[ ${#MATRIX_ROWS[@]} -eq 0 ]]; then
 fi
 
 MANIFESTS=()
+LINUX_STAGE3_PATH=""
 
 for row in "${MATRIX_ROWS[@]}"; do
   IFS=$'\t' read -r entry_name host target backend profile <<< "$row"
@@ -229,6 +250,9 @@ for row in "${MATRIX_ROWS[@]}"; do
   mv "$stage1_tmp" "$entry_dir/stage1_seen"
   mv "$stage2_tmp" "$entry_dir/stage2_seen"
   mv "$stage3_tmp" "$entry_dir/stage3_seen"
+  if [[ "$host" == linux-* ]]; then
+    LINUX_STAGE3_PATH="$entry_dir/stage3_seen"
+  fi
 
   TMP_BINARIES=()
 
@@ -306,6 +330,25 @@ if [[ $PACKAGE_STDLIB -eq 1 ]]; then
     package_cmd+=("--version" "$STDLIB_VERSION")
   fi
   "${package_cmd[@]}"
+fi
+
+if [[ $BUILD_INSTALLERS -eq 1 ]]; then
+  if [[ -z "$INSTALLER_VERSION" ]]; then
+    INSTALLER_VERSION="$STDLIB_VERSION"
+  fi
+  if [[ -z "$INSTALLER_VERSION" ]]; then
+    echo "--build-installers requires --installer-version or --stdlib-version" >&2
+    exit 1
+  fi
+  if [[ -z "$LINUX_STAGE3_PATH" ]]; then
+    echo "Linux Stage3 artifact not found; ensure the matrix includes a linux host entry" >&2
+    exit 1
+  fi
+  log "[installers] Building installers (version=${INSTALLER_VERSION})"
+  "$ROOT_DIR/scripts/build_installers.sh" \
+    --version "$INSTALLER_VERSION" \
+    --stage3 "$LINUX_STAGE3_PATH" \
+    --output-dir "$INSTALLER_OUTPUT_DIR"
 fi
 
 log "Bootstrap matrix completed for ${#MANIFESTS[@]} entr$( [[ ${#MANIFESTS[@]} -eq 1 ]] && echo "y" || echo "ies")."

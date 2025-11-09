@@ -496,7 +496,12 @@ and installers across every supported platform.
 
 ### PROD-3. Installer & Updater
 
-*Status:* ⏳ Planned — blocked on PROD-1 artifacts and PROD-2 stdlib bundle.
+*Status:* 🔄 In progress — Linux artifacts automated; cross-platform installers pending.
+
+* **Progress:** Added `scripts/build_installers.sh` plus `--build-installers` wiring in the release script so tagged
+  builds produce Linux DEB/RPM/AppImage installers (and placeholder notes for other targets) alongside the stdlib bundle.
+* **Outstanding:** implement Windows MSI/macOS pkg/Android AAB/iOS IPA builders and hook notarization/signing into the
+  release pipeline.
 
 ### PROD-4. Observability & Crash Triage
 

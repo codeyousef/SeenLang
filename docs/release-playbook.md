@@ -31,7 +31,9 @@ scripts/release_bootstrap_matrix.sh \
   --abi-lock seen_std/Seen.lock \
   --abi-snapshot artifacts/abi/seen_std.json \
   --package-stdlib \
-  --stdlib-output artifacts/packages
+  --stdlib-output artifacts/packages \
+  --build-installers \
+  --installer-output artifacts/installers
 ```
 
 This performs, for each matrix entry:
@@ -80,6 +82,9 @@ Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when in
    `scripts/package_seen_std.sh` (respecting `--stdlib-version`/`--stdlib-output`) which emits a deterministic
    `libseen_std-<version>.seenpkg` plus `.sha256`. Upload both files so consumers can fetch the stdlib bundle that matches
    the published ABI lock.
+5. Use `--build-installers` to invoke `scripts/build_installers.sh`. The script currently builds Linux DEB/RPM/AppImage
+   artifacts and writes placeholders for the remaining platforms; upload the produced installers (and logs) alongside the
+   Stage3/stdlib artifacts until the other targets are automated.
 
 ## 5. Future Extensions
 
