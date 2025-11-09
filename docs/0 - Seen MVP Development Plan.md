@@ -400,12 +400,11 @@ modules, preventing a true Seen-only pipeline.
      frontend + compile smoke tests to ensure the path stays green. A guard in `main_compiler::ExecuteCommand`
      outright refuses to run `seen`/`seen_cli` invocations (verified by
      `compiler_seen/tests/forbid_seen_shell.seen`) so regressions surface immediately.
-  6. 🔄 Extend the Seen-native parser (`compiler_seen/src/parser/real_parser.seen`) to accept the same import syntax
-     as the Rust frontend (nested module paths plus per-symbol `as` aliases). Stage-1 currently fails on
-     `typechecker.typechecker.{TypeChecker as RealTypeChecker}`, so we must add alias-aware parsing, add regression
-     tests, rebuild Stage-0, and rerun `scripts/self_host_llvm.sh` to confirm Stage1→Stage3 completes with the Seen
-     parser in charge. Once the parser matches feature parity, re-run the bootstrap script to capture hashes in this
-     doc.
+  6. ✅ Extend the Seen-native parser (`compiler_seen/src/parser/real_parser.seen`) to accept the same import syntax
+     as the Rust frontend (nested module paths plus per-symbol `as` aliases). The parser now captures structured
+     import paths + alias metadata, `compiler_seen/tests/parser_import_aliases.seen` locks the behaviour, and
+     Stage-1 bootstraps no longer choke on `typechecker.typechecker.{TypeChecker as RealTypeChecker}`-style imports.
+     Next bootstrap runs should re-record hashes with the Seen parser fully in charge.
 
 * **Acceptance:** Stage-1 builds run entirely in Seen, module bundling is deterministic, and the bootstrap script/tests
   fail if the Rust CLI is invoked as part of self-hosting.
@@ -459,3 +458,36 @@ Linux/Web/Android and are exercised via new CLI interpreter tests (`seen_cli/tes
 ---
 
 **End of Clarified MVP Plan**
+
+## 5) Phase PROD — Production Self-Hosting (Active)
+
+Goal: turn the deterministic bootstrap into a releasable, self-hosted toolchain with repeatable artifacts, attestations,
+and installers across every supported platform.
+
+### PROD-1. Release Bootstrap Matrix & Signing
+
+*Status:* 🔄 In progress — Matrix + manifest emission implemented; hardware signing workflow still pending.
+
+* **Inputs:** bootstrap scripts, Stage1/2/3 outputs, release metadata.
+* **Progress:** `releases/bootstrap_matrix.toml` seeds the host/backend/profile tuples, `scripts/release_bootstrap_matrix.sh`
+  iterates the matrix to build Stage1→Stage3 per entry, and `tools/sign_bootstrap_artifact` emits structured
+  manifests (git commit, CLI version, per-stage SHA256/size, equality flag). Artifacts land under
+  `artifacts/bootstrap/<entry>/` alongside `manifest.json`.
+* **Outstanding:** plumb hardware signing or sigstore integration so each manifest/binary gets a cryptographic signature,
+  document the attestation verification flow, and teach CI to require fresh manifests for tagged releases.
+
+### PROD-2. Self-Hosted Stdlib & ABI Freeze
+
+*Status:* ⏳ Planned — pending once the stdlib package graph is carved out of `seen_core`.
+
+### PROD-3. Installer & Updater
+
+*Status:* ⏳ Planned — blocked on PROD-1 artifacts and PROD-2 stdlib bundle.
+
+### PROD-4. Observability & Crash Triage
+
+*Status:* ⏳ Planned — crash hooks + build-id embedding queued after installer story lands.
+
+### PROD-5. Production QA & Platform Certification
+
+*Status:* ⏳ Planned — awaits bootstrap manifests + installers so the platform matrix can run against shippable bits.
