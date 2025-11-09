@@ -11,6 +11,10 @@ MATRIX_FILE="$DEFAULT_MATRIX"
 OUTPUT_DIR="$DEFAULT_OUTPUT"
 SIGNING_KEY=""
 VERIFY_KEY=""
+ABI_MANIFEST="$ROOT_DIR/seen_std/Seen.toml"
+ABI_LOCK="$ROOT_DIR/seen_std/Seen.lock"
+ABI_SNAPSHOT=""
+SKIP_ABI_VERIFY=0
 
 usage() {
   cat <<'EOF'
@@ -25,6 +29,10 @@ Options:
   --signer-bin <path>   Path to sign_bootstrap_artifact binary (default: target/release/sign_bootstrap_artifact)
   --signing-key <path>  Ed25519 signing key to sign each manifest (raw/hex seed)
   --public-key <path>   Ed25519 public key used to verify signatures (optional)
+  --abi-manifest <path> Seen stdlib manifest for ABI guard (default: seen_std/Seen.toml)
+  --abi-lock <path>     Seen stdlib lock file (default: seen_std/Seen.lock)
+  --abi-snapshot <path> Output path for ABI snapshot JSON (optional)
+  --skip-abi-verify     Skip running abi_guard verification
   -h, --help            Show this help message
 EOF
 }
@@ -54,6 +62,22 @@ while [[ $# -gt 0 ]]; do
     --public-key)
       VERIFY_KEY="$2"
       shift 2
+      ;;
+    --abi-manifest)
+      ABI_MANIFEST="$2"
+      shift 2
+      ;;
+    --abi-lock)
+      ABI_LOCK="$2"
+      shift 2
+      ;;
+    --abi-snapshot)
+      ABI_SNAPSHOT="$2"
+      shift 2
+      ;;
+    --skip-abi-verify)
+      SKIP_ABI_VERIFY=1
+      shift 1
       ;;
     -h|--help)
       usage
@@ -100,6 +124,26 @@ trap cleanup EXIT
 log() {
   printf '[bootstrap-matrix] %s\n' "$*"
 }
+
+if [[ $SKIP_ABI_VERIFY -eq 0 ]]; then
+  if [[ -f "$ABI_MANIFEST" && -f "$ABI_LOCK" ]]; then
+    log "[abi] Verifying stdlib using $ABI_MANIFEST + $ABI_LOCK"
+    cargo run --quiet -p abi_guard -- verify \
+      --manifest "$ABI_MANIFEST" \
+      --lock "$ABI_LOCK"
+  else
+    log "[abi] Manifest or lock missing; skipping verification"
+  fi
+fi
+
+if [[ -n "$ABI_SNAPSHOT" ]]; then
+  log "[abi] Writing snapshot to $ABI_SNAPSHOT"
+  mkdir -p "$(dirname "$ABI_SNAPSHOT")"
+  cargo run --quiet -p abi_guard -- snapshot \
+    --manifest "$ABI_MANIFEST" \
+    --output "$ABI_SNAPSHOT" \
+    --lock "$ABI_LOCK"
+fi
 
 read_matrix_rows() {
   python3 <<'PY' "$MATRIX_FILE"

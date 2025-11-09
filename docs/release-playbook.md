@@ -26,7 +26,10 @@ scripts/release_bootstrap_matrix.sh \
   --matrix releases/bootstrap_matrix.toml \
   --output-dir artifacts/bootstrap \
   --signing-key secrets/release_signing_key.hex \
-  --public-key secrets/release_public_key.hex
+  --public-key secrets/release_public_key.hex \
+  --abi-manifest seen_std/Seen.toml \
+  --abi-lock seen_std/Seen.lock \
+  --abi-snapshot artifacts/abi/seen_std.json
 ```
 
 This performs, for each matrix entry:
@@ -62,6 +65,9 @@ tools/sign_bootstrap_artifact/target/release/sign_bootstrap_artifact verify \
 
 This command accepts raw or hex-encoded keys/signatures. CI should run it for every manifest
 before publishing release artifacts.
+
+Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when invoking
+`scripts/release_bootstrap_matrix.sh` (not recommended for real releases).
 
 ## 4. Publish Artifacts
 

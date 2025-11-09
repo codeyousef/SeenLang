@@ -473,9 +473,9 @@ and installers across every supported platform.
   iterates the matrix to build Stage1→Stage3 per entry, and `tools/sign_bootstrap_artifact sign ...` now emits structured
   manifests (git commit, CLI version, per-stage SHA256/size, equality flag) plus optional Ed25519 signatures via
   `--signing-key`, producing `.sig` files beside every manifest. `sign_bootstrap_artifact verify ...` validates
-  signatures against the public key, the matrix script can self-verify via `--public-key`, and
-  `docs/release-playbook.md` documents the workflow end-to-end. Artifacts land under
-  `artifacts/bootstrap/<entry>/` alongside `manifest.json`.
+  signatures against the public key, the matrix script can self-verify via `--public-key`, and it now also runs
+  `abi_guard verify` / `abi_guard snapshot` so stdlib hashes are checked before release. `docs/release-playbook.md`
+  documents the workflow end-to-end. Artifacts land under `artifacts/bootstrap/<entry>/` alongside `manifest.json`.
 * **Outstanding:** integrate HSM/sigstore-backed signing (keys currently read from local files), wire CI/release tagging
   to require fresh manifests + signatures before publishing, and publish the public key + verification instructions as
   part of every release announcement.
