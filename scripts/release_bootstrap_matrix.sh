@@ -15,6 +15,9 @@ ABI_MANIFEST="$ROOT_DIR/seen_std/Seen.toml"
 ABI_LOCK="$ROOT_DIR/seen_std/Seen.lock"
 ABI_SNAPSHOT=""
 SKIP_ABI_VERIFY=0
+PACKAGE_STDLIB=0
+STDLIB_VERSION=""
+STDLIB_OUTPUT_DIR="$ROOT_DIR/artifacts/packages"
 
 usage() {
   cat <<'EOF'
@@ -33,6 +36,9 @@ Options:
   --abi-lock <path>     Seen stdlib lock file (default: seen_std/Seen.lock)
   --abi-snapshot <path> Output path for ABI snapshot JSON (optional)
   --skip-abi-verify     Skip running abi_guard verification
+  --package-stdlib      Run scripts/package_seen_std.sh after the matrix completes
+  --stdlib-version <v>  Override stdlib version passed to package_seen_std.sh
+  --stdlib-output <dir> Output directory for stdlib package (default: artifacts/packages)
   -h, --help            Show this help message
 EOF
 }
@@ -78,6 +84,18 @@ while [[ $# -gt 0 ]]; do
     --skip-abi-verify)
       SKIP_ABI_VERIFY=1
       shift 1
+      ;;
+    --package-stdlib)
+      PACKAGE_STDLIB=1
+      shift 1
+      ;;
+    --stdlib-version)
+      STDLIB_VERSION="$2"
+      shift 2
+      ;;
+    --stdlib-output)
+      STDLIB_OUTPUT_DIR="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -279,6 +297,15 @@ with open(out_path, "w", encoding="utf-8") as fh:
     json.dump(payload, fh, indent=2)
 PY
   log "Wrote matrix index to $INDEX_PATH"
+fi
+
+if [[ $PACKAGE_STDLIB -eq 1 ]]; then
+  log "[stdlib] Packaging seen_std (version=${STDLIB_VERSION:-auto})"
+  package_cmd=("$ROOT_DIR/scripts/package_seen_std.sh" "--output-dir" "$STDLIB_OUTPUT_DIR")
+  if [[ -n "$STDLIB_VERSION" ]]; then
+    package_cmd+=("--version" "$STDLIB_VERSION")
+  fi
+  "${package_cmd[@]}"
 fi
 
 log "Bootstrap matrix completed for ${#MANIFESTS[@]} entr$( [[ ${#MANIFESTS[@]} -eq 1 ]] && echo "y" || echo "ies")."

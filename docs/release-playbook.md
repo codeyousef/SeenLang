@@ -29,7 +29,9 @@ scripts/release_bootstrap_matrix.sh \
   --public-key secrets/release_public_key.hex \
   --abi-manifest seen_std/Seen.toml \
   --abi-lock seen_std/Seen.lock \
-  --abi-snapshot artifacts/abi/seen_std.json
+  --abi-snapshot artifacts/abi/seen_std.json \
+  --package-stdlib \
+  --stdlib-output artifacts/packages
 ```
 
 This performs, for each matrix entry:
@@ -74,14 +76,10 @@ Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when in
 1. Upload `stage3_seen`, `manifest.json`, and `manifest.json.sig` per matrix entry to the release bucket.
 2. Publish `index.json` as the authoritative manifest list.
 3. Include the public key (or link to it) in the release notes so consumers can verify downloads.
-4. Package and upload the `seen_std` archive:
-
-```bash
-scripts/package_seen_std.sh --version $RELEASE_VERSION --output-dir artifacts/packages
-```
-
-This produces a deterministic `libseen_std-$RELEASE_VERSION.seenpkg` plus a `.sha256` checksum so consumers
-can download the bundled stdlib that matches the published ABI lock.
+4. The release script can package the stdlib automatically when `--package-stdlib` is supplied. It shells out to
+   `scripts/package_seen_std.sh` (respecting `--stdlib-version`/`--stdlib-output`) which emits a deterministic
+   `libseen_std-<version>.seenpkg` plus `.sha256`. Upload both files so consumers can fetch the stdlib bundle that matches
+   the published ABI lock.
 
 ## 5. Future Extensions
 
