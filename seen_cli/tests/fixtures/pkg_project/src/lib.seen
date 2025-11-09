@@ -1,0 +1,9 @@
+fun greet(name: String) -> String {
+    return "Hello, {name}!"
+}
+
+fun main() -> Int {
+    println(greet("pkg_fixture"))
+    return 0
+}
+

@@ -8,10 +8,10 @@ use seen_core::ir::SimdDecisionReason;
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, HardwareProfile, IRGenerator, IROptimizer, IRProgram,
-    Interpreter, KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult, MemoryManager,
-    MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError, SeenErrorKind,
-    SeenParser, SeenResult, SimdPolicy, TokenType, Type, TypeChecker, UnaryOperator, Value,
-    VisibilityPolicy,
+    Interpreter, KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult,
+    MemoryManager, MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError,
+    SeenErrorKind, SeenParser, SeenResult, SimdPolicy, TokenType, Type, TypeChecker, UnaryOperator,
+    Value, VisibilityPolicy,
 };
 use seen_cranelift::program_to_clif;
 #[cfg(feature = "llvm")]
@@ -21,7 +21,9 @@ use seen_shaders::{
     ShaderCompileOptions, ShaderCompiler, ShaderEntryPoint, ShaderError, ShaderTarget,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -407,12 +409,27 @@ impl Default for ProjectConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 struct ProjectSection {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
     #[serde(default)]
     visibility: Option<VisibilityMode>,
     #[serde(default)]
     modules: Vec<String>,
+}
+
+impl Default for ProjectSection {
+    fn default() -> Self {
+        Self {
+            name: None,
+            version: None,
+            visibility: None,
+            modules: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -640,9 +657,9 @@ fn main() -> SeenResult<()> {
                             && matches!(link_mode, BuildLinkMode::Executable)
                         {
                             eprintln!(
-                            "info: defaulting to --shared for Android target {}; pass --shared or --static explicitly to override",
-                            triple
-                        );
+                                "info: defaulting to --shared for Android target {}; pass --shared or --static explicitly to override",
+                                triple
+                            );
                             link_mode = BuildLinkMode::SharedLibrary;
                         }
                     }
@@ -2153,7 +2170,7 @@ fn gather_module_files(path: &Path, acc: &mut Vec<PathBuf>) -> SeenResult<()> {
             return Err(SeenError::new(
                 SeenErrorKind::Io,
                 format!("Failed to read module path {}: {}", path.display(), err),
-            ))
+            ));
         }
     };
     if metadata.is_file() {
@@ -3421,6 +3438,19 @@ fn format_entry_points(entry_points: &[ShaderEntryPoint]) -> String {
         .join(", ")
 }
 
+#[derive(Debug, Deserialize)]
+struct SeenLockFile {
+    version: u32,
+    #[serde(default)]
+    modules: Vec<SeenLockModule>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeenLockModule {
+    path: String,
+    hash: String,
+}
+
 fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {
     if !input.exists() {
         return Err(SeenError::new(
@@ -3435,13 +3465,37 @@ fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {
         ));
     }
 
+    let project_config = load_project_config(input)?;
+    let project_root = project_config.root_dir.clone();
+    let manifest_path = project_root.join("Seen.toml");
+
+    let package_name = project_config.project.name.clone().ok_or_else(|| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Seen.toml at {} is missing project.name; required for packaging",
+                manifest_path.display()
+            ),
+        )
+    })?;
+    let package_version = project_config.project.version.clone().ok_or_else(|| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Seen.toml at {} is missing project.version; required for packaging",
+                manifest_path.display()
+            ),
+        )
+    })?;
+
+    let lock_data = load_seen_lock(&project_root)?;
+    verify_lock_modules(&lock_data, &project_root)?;
+
     let mut out_path = output.map(PathBuf::from).unwrap_or_else(|| {
-        let mut candidate = input.to_path_buf();
-        candidate.set_extension("zip");
-        candidate
+        PathBuf::from(format!("lib{}-{}.seenpkg", package_name, package_version))
     });
     if out_path.extension().is_none() {
-        out_path.set_extension("zip");
+        out_path.set_extension("seenpkg");
     }
     if let Some(parent) = out_path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -3492,6 +3546,86 @@ fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {
         .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
 
     println!("Created package {}", out_path.display());
+    Ok(())
+}
+
+fn load_seen_lock(root: &Path) -> SeenResult<SeenLockFile> {
+    let lock_path = root.join("Seen.lock");
+    if !lock_path.exists() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Missing Seen.lock in {}; run tools/abi_guard snapshot to refresh ABI hashes",
+                root.display()
+            ),
+        ));
+    }
+    let contents = fs::read_to_string(&lock_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read {}: {}", lock_path.display(), err),
+        )
+    })?;
+    let lock: SeenLockFile = toml::from_str(&contents).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Failed to parse {}: {}", lock_path.display(), err),
+        )
+    })?;
+    if lock.version != 1 {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Unsupported Seen.lock version {} in {}; expected 1",
+                lock.version,
+                lock_path.display()
+            ),
+        ));
+    }
+    if lock.modules.is_empty() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "{} does not list any modules; run tools/abi_guard snapshot",
+                lock_path.display()
+            ),
+        ));
+    }
+    Ok(lock)
+}
+
+fn verify_lock_modules(lock: &SeenLockFile, root: &Path) -> SeenResult<()> {
+    for module in &lock.modules {
+        let module_path = root.join(&module.path);
+        if !module_path.exists() {
+            return Err(SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Module {} listed in Seen.lock is missing at {}",
+                    module.path,
+                    module_path.display()
+                ),
+            ));
+        }
+        let contents = fs::read(&module_path).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read {}: {}", module_path.display(), err),
+            )
+        })?;
+        let mut hasher = Sha256::new();
+        hasher.update(&contents);
+        let actual = hex::encode(hasher.finalize());
+        if actual != module.hash {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "Module {} hash mismatch (lock {}, actual {}); run tools/abi_guard snapshot",
+                    module.path, module.hash, actual
+                ),
+            ));
+        }
+    }
     Ok(())
 }
 

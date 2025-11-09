@@ -1,0 +1,6 @@
+version = 1
+
+[[modules]]
+path = "src/lib.seen"
+hash = "2a5ccd63b54c560a4d1971749e53ab825273fe10e1df2bb0c284c461ec85569e"
+

@@ -1,0 +1,11 @@
+[project]
+name = "pkg_fixture"
+version = "1.2.3"
+language = "en"
+modules = ["src/lib.seen"]
+
+[build]
+targets = ["native"]
+optimize = "speed"
+profile = "release"
+
