@@ -1,0 +1,67 @@
+import lexer.real_lexer.{RealLexer}
+import parser.real_parser.{RealParser, ImportSymbolNode}
+
+fun main() -> Int {
+    let source = """
+import typechecker.typechecker.{TypeChecker as RealTypeChecker, Helper}
+import std::sync::{Arc, Mutex as Lock}
+import parser.main as ParserMain
+
+fun main() -> Int {
+    return 0
+}
+"""
+
+    let lexer = RealLexer{ source: source }
+    let tokens = lexer.tokenize()
+    let parser = RealParser{ tokens: tokens }
+    let ast = parser.parse()
+
+    if ast.items.size() < 4 {
+        println("expected at least four items, got {ast.items.size()}")
+        return 1
+    }
+
+    let importOne = ast.items[0]
+    if not verifySymbol(importOne.importSymbols, 0, "TypeChecker", "RealTypeChecker") {
+        return 1
+    }
+    if not verifySymbol(importOne.importSymbols, 1, "Helper", "") {
+        return 1
+    }
+
+    let importTwo = ast.items[1]
+    if not verifySymbol(importTwo.importSymbols, 0, "Arc", "") {
+        return 1
+    }
+    if not verifySymbol(importTwo.importSymbols, 1, "Mutex", "Lock") {
+        return 1
+    }
+
+    let importThree = ast.items[2]
+    if not verifySymbol(importThree.importSymbols, 0, "main", "ParserMain") {
+        return 1
+    }
+
+    return 0
+}
+
+fun verifySymbol(symbols: List<ImportSymbolNode>, index: Int, expectedName: String, expectedAlias: String) -> Bool {
+    if symbols.size() <= index {
+        println("missing symbol at index {index}, have {symbols.size()}")
+        return false
+    }
+
+    let symbol = symbols[index]
+    if symbol.name != expectedName {
+        println("expected symbol {expectedName}, found {symbol.name}")
+        return false
+    }
+
+    if symbol.alias != expectedAlias {
+        println("expected alias '{expectedAlias}', found '{symbol.alias}'")
+        return false
+    }
+
+    return true
+}

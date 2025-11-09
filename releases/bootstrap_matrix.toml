@@ -1,0 +1,9 @@
+version = 1
+
+[[entries]]
+name = "linux-x86_64-llvm-deterministic"
+host = "x86_64-unknown-linux-gnu"
+target = "x86_64-unknown-linux-gnu"
+backend = "llvm"
+profile = "deterministic"
+

@@ -26,12 +26,44 @@ class ItemNode {
     var itemType: String; // "Function", "Class", "Import", etc.
     var name: String
     var visibility: String; // "public", "private", ""
+    var importPath: List<String>
+    var importSymbols: List<ImportSymbolNode>
     
     fun new(itemType: String, name: String) -> ItemNode {
         return ItemNode{
             itemType: itemType,
             name: name,
-            visibility: ""
+            visibility: "",
+            importPath: [],
+            importSymbols: []
+        }
+    }
+}
+
+class ImportSymbolNode {
+    var name: String
+    var alias: String
+    
+    fun new(name: String, alias: String) -> ImportSymbolNode {
+        return ImportSymbolNode{
+            name: name,
+            alias: alias
+        }
+    }
+    
+    fun hasAlias() -> Bool {
+        return alias != ""
+    }
+}
+
+class ImportPathInfo {
+    var text: String
+    var segments: List<String>
+    
+    fun new(text: String, segments: List<String>) -> ImportPathInfo {
+        return ImportPathInfo{
+            text: text,
+            segments: segments
         }
     }
 }
@@ -245,60 +277,107 @@ class RealParser {
     }
     
     fun parseImportItem() -> ItemNode {
-        let path = parseImportPath()
-        skipImportSymbols()
+        let pathInfo = parseImportPath()
+        let symbols = parseImportSymbols(pathInfo)
         match("Semicolon")
 
-        return ItemNode{
+        let item = ItemNode{
             itemType: "Import",
-            name: path,
+            name: pathInfo.text,
             visibility: ""
         }
+        item.importPath = pathInfo.segments
+        item.importSymbols = symbols
+        return item
     }
 
-    fun parseImportPath() -> String {
+    fun parseImportPath() -> ImportPathInfo {
         let firstPart = consume("Identifier", "Expected import path")
-        let path = firstPart.value
+        let segments = []
+        segments.append(firstPart.value)
+        var fullPath = firstPart.value
         
         while true {
             if check("Dot") {
                 advance() // consume '.'
-                if check("LeftBrace") {
+                if check("LeftBrace") or check("KeywordAs") {
                     break
                 }
-                path = path + "."
+                fullPath = fullPath + "."
                 let nextPart = consume("Identifier", "Expected identifier in import path")
-                path = path + nextPart.value
+                segments.append(nextPart.value)
+                fullPath = fullPath + nextPart.value
                 continue
             }
             if check("Colon") {
                 advance() // first ':'
                 consume("Colon", "Expected '::' in import path")
-                path = path + "::"
+                if check("LeftBrace") or check("KeywordAs") {
+                    break
+                }
+                fullPath = fullPath + "::"
                 let nextPart = consume("Identifier", "Expected identifier in import path")
-                path = path + nextPart.value
+                segments.append(nextPart.value)
+                fullPath = fullPath + nextPart.value
                 continue
             }
             break
         }
 
-        return path
+        return ImportPathInfo{
+            text: fullPath,
+            segments: segments
+        }
     }
 
-    fun skipImportSymbols() -> Void {
-        if not match("LeftBrace") {
-            return
+    fun parseImportSymbols(pathInfo: ImportPathInfo) -> List<ImportSymbolNode> {
+        let symbols = []
+
+        if match("KeywordAs") {
+            if pathInfo.segments.size() == 0 {
+                return symbols
+            }
+            let aliasToken = consume("Identifier", "Expected alias after 'as'")
+            let lastIndex = pathInfo.segments.size() - 1
+            let aliasSymbol = ImportSymbolNode{
+                name: pathInfo.segments[lastIndex],
+                alias: aliasToken.value
+            }
+            symbols.append(aliasSymbol)
+            return symbols
         }
 
-        if match("RightBrace") {
-            return
+        if not check("LeftBrace") {
+            if pathInfo.segments.size() > 0 {
+                let lastIndex = pathInfo.segments.size() - 1
+                let defaultSymbol = ImportSymbolNode{
+                    name: pathInfo.segments[lastIndex],
+                    alias: ""
+                }
+                symbols.append(defaultSymbol)
+            }
+            return symbols
         }
+
+        advance() // consume '{'
 
         while true {
-            consume("Identifier", "Expected symbol name in import list")
-            if match("KeywordAs") {
-                consume("Identifier", "Expected alias after 'as'")
+            if match("RightBrace") {
+                break
             }
+
+            let symbolName = consume("Identifier", "Expected symbol name in import list")
+            var aliasValue = ""
+            if match("KeywordAs") {
+                let aliasToken = consume("Identifier", "Expected alias after 'as'")
+                aliasValue = aliasToken.value
+            }
+
+            let symbol = ImportSymbolNode{
+                name: symbolName.value,
+                alias: aliasValue
+            }
+            symbols.append(symbol)
 
             if match("Comma") {
                 continue
@@ -307,6 +386,8 @@ class RealParser {
             consume("RightBrace", "Expected '}' after import symbols")
             break
         }
+
+        return symbols
     }
     
     fun parseParam() -> ParamNode {

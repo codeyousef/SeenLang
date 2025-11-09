@@ -22,7 +22,8 @@ members = [
     ,"tools/perf_baseline"
     , "seen_runtime"
     , "seen_cranelift"
-    , "seen_shaders"]
+    , "seen_shaders"
+    , "tools/sign_bootstrap_artifact"]
 
 [workspace.dependencies]
 seen_support = { path = "seen_support" }
