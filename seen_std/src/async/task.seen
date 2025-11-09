@@ -1,0 +1,34 @@
+// seen_std::async::task
+// Lightweight task utilities so high-level code does not reach into the runtime.
+
+import core.option.{Option, Some, None}
+
+class TaskHandle<T> {
+    var id: Int
+    var completed: Bool
+    var result: Option<T>
+
+    fun new(id: Int) -> TaskHandle<T> {
+        return TaskHandle{
+            id: id,
+            completed: false,
+            result: None()
+        }
+    }
+
+    fun markCompleted(value: T) -> Void {
+        this.completed = true
+        this.result = Some(value)
+    }
+
+    fun isCompleted() -> Bool {
+        return this.completed
+    }
+
+    fun unwrap() -> T {
+        if this.result.isSome() {
+            return this.result.value
+        }
+        abort("task result not ready")
+    }
+}

@@ -1,0 +1,25 @@
+[project]
+name = "seen_std"
+version = "0.1.0"
+language = "en"
+description = "Core Seen standard library modules used by the self-hosted compiler"
+edition = "2025"
+modules = [
+    "src/core/option.seen",
+    "src/core/result.seen",
+    "src/core/prelude.seen",
+    "src/collections/list_utils.seen",
+    "src/async/task.seen",
+    "src/ffi/cinterop.seen"
+]
+
+[build]
+targets = ["native"]
+optimize = "speed"
+profile = "release"
+
+[dependencies]
+
+[metadata]
+visibility = "explicit"
+license = "Apache-2.0"

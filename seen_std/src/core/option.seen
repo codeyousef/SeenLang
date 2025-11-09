@@ -1,0 +1,43 @@
+// seen_std::core::option
+// Minimal Option<T> type with helpers so Stage-1 code can avoid ad-hoc nullable logic.
+
+class Option<T> {
+    var hasValue: Bool
+    var value: T?
+
+    fun new() -> Option<T> {
+        return Option{
+            hasValue: false,
+            value: null
+        }
+    }
+}
+
+fun Some<T>(value: T) -> Option<T> {
+    return Option{
+        hasValue: true,
+        value: value
+    }
+}
+
+fun None<T>() -> Option<T> {
+    return Option{
+        hasValue: false,
+        value: null
+    }
+}
+
+fun Option<T>.isSome() -> Bool {
+    return this.hasValue
+}
+
+fun Option<T>.isNone() -> Bool {
+    return not this.hasValue
+}
+
+fun Option<T>.unwrapOr(defaultValue: T) -> T {
+    if this.hasValue {
+        return this.value
+    }
+    return defaultValue
+}

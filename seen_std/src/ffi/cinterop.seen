@@ -1,0 +1,18 @@
+// seen_std::ffi::cinterop
+// Minimal helpers for building deterministic FFI layers during bootstrap.
+
+class CString {
+    var text: String
+
+    fun new(text: String = "") -> CString {
+        return CString{ text: text }
+    }
+}
+
+fun toCString(text: String) -> CString {
+    return CString{ text: text }
+}
+
+fun fromCString(cString: CString) -> String {
+    return cString.text
+}

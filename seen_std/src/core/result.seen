@@ -1,0 +1,61 @@
+// seen_std::core::result
+// Lightweight Result<T, E> type with helpers used during bootstrap.
+
+class Result<T, E> {
+    var isOk: Bool
+    var value: T?
+    var error: E?
+
+    fun new() -> Result<T, E> {
+        return Result{
+            isOk: true,
+            value: null,
+            error: null
+        }
+    }
+}
+
+fun Ok<T, E>(value: T) -> Result<T, E> {
+    return Result{
+        isOk: true,
+        value: value,
+        error: null
+    }
+}
+
+fun Err<T, E>(error: E) -> Result<T, E> {
+    return Result{
+        isOk: false,
+        value: null,
+        error: error
+    }
+}
+
+fun Result<T, E>.isOk() -> Bool {
+    return this.isOk
+}
+
+fun Result<T, E>.isErr() -> Bool {
+    return not this.isOk
+}
+
+fun Result<T, E>.unwrap() -> T {
+    if this.isOk and this.value != null {
+        return this.value
+    }
+    abort("called unwrap() on Err result")
+}
+
+fun Result<T, E>.unwrapOr(defaultValue: T) -> T {
+    if this.isOk and this.value != null {
+        return this.value
+    }
+    return defaultValue
+}
+
+fun Result<T, E>.unwrapErr() -> E {
+    if not this.isOk and this.error != null {
+        return this.error
+    }
+    abort("called unwrapErr() on Ok result")
+}
