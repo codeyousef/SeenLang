@@ -10,6 +10,7 @@ SIGN_BIN="${CARGO_TARGET_DIR:-$ROOT_DIR/target}/release/sign_bootstrap_artifact"
 MATRIX_FILE="$DEFAULT_MATRIX"
 OUTPUT_DIR="$DEFAULT_OUTPUT"
 SIGNING_KEY=""
+VERIFY_KEY=""
 
 usage() {
   cat <<'EOF'
@@ -23,6 +24,7 @@ Options:
   --cli-bin <path>      Path to seen_cli binary (default: ${CARGO_TARGET_BIN:-${CARGO_TARGET_DIR:-$HOME/.cargo/target-shared}/release/seen_cli})
   --signer-bin <path>   Path to sign_bootstrap_artifact binary (default: target/release/sign_bootstrap_artifact)
   --signing-key <path>  Ed25519 signing key to sign each manifest (raw/hex seed)
+  --public-key <path>   Ed25519 public key used to verify signatures (optional)
   -h, --help            Show this help message
 EOF
 }
@@ -47,6 +49,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --signing-key)
       SIGNING_KEY="$2"
+      shift 2
+      ;;
+    --public-key)
+      VERIFY_KEY="$2"
       shift 2
       ;;
     -h|--help)
@@ -167,7 +173,7 @@ for row in "${MATRIX_ROWS[@]}"; do
   manifest_path="$entry_dir/manifest.json"
   log "  [4/4] Generating manifest $manifest_path"
   sign_cmd=(
-    "$SIGN_BIN"
+    "$SIGN_BIN" sign
     --stage1 "$entry_dir/stage1_seen"
     --stage2 "$entry_dir/stage2_seen"
     --stage3 "$entry_dir/stage3_seen"
@@ -184,6 +190,18 @@ for row in "${MATRIX_ROWS[@]}"; do
     sign_cmd+=(--signing-key "$SIGNING_KEY")
   fi
   "${sign_cmd[@]}"
+
+  if [[ -n "$VERIFY_KEY" ]]; then
+    sig_path="$manifest_path.sig"
+    if [[ ! -f "$sig_path" ]]; then
+      echo "Signature not found at $sig_path for verification" >&2
+      exit 1
+    fi
+    "$SIGN_BIN" verify \
+      --manifest "$manifest_path" \
+      --signature "$sig_path" \
+      --public-key "$VERIFY_KEY"
+  fi
 
   MANIFESTS+=("$manifest_path")
 done

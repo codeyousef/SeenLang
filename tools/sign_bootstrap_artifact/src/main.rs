@@ -1,66 +1,75 @@
 use std::{
-    convert::TryInto,
     fs::{self, File},
     io::{BufReader, Read},
     path::{Path, PathBuf},
-    process::Command,
+    process::Command as ProcessCommand,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
-use clap::Parser;
-use ed25519_dalek::{Signer, SigningKey};
+use clap::{Args, Parser, Subcommand};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 #[derive(Parser, Debug)]
 #[command(
     name = "sign_bootstrap_artifact",
-    about = "Emit manifest + hash attestation for Stage2/Stage3 bootstrap outputs"
+    about = "Bootstrap manifest attestation & signature utility"
 )]
-struct Args {
-    /// Path to the Stage2 binary emitted by Stage1.
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Produce a manifest for Stage outputs and optionally sign it.
+    Sign(SignArgs),
+    /// Verify a manifest + signature pair against an Ed25519 public key.
+    Verify(VerifyArgs),
+}
+
+#[derive(Args, Debug)]
+struct SignArgs {
     #[arg(long)]
     stage2: PathBuf,
-    /// Path to the Stage3 binary emitted by Stage2.
     #[arg(long)]
     stage3: PathBuf,
-    /// Optional path to the Stage1 binary (captured for completeness).
     #[arg(long)]
     stage1: Option<PathBuf>,
-    /// Output manifest path (JSON).
     #[arg(long)]
     output: PathBuf,
-    /// Matrix entry identifier.
     #[arg(long)]
     entry: String,
-    /// Host triple that produced the artifact.
     #[arg(long)]
     host: String,
-    /// Backend used for codegen (llvm/mlir/clif/etc).
     #[arg(long)]
     backend: String,
-    /// Cargo/Seen profile used (release/deterministic/etc).
     #[arg(long, default_value = "release")]
     profile: String,
-    /// Optional CLI path used to kick off the bootstrap.
     #[arg(long)]
     cli_path: Option<PathBuf>,
-    /// CLI version string (if omitted we attempt to query cli_path --version).
     #[arg(long)]
     cli_version: Option<String>,
-    /// Optional label for the target triple (if different from host).
     #[arg(long)]
     target: Option<String>,
-    /// Optional repeated backend features (e.g. ["llvm", "mlir"]).
     #[arg(long = "feature")]
     features: Vec<String>,
-    /// Optional Ed25519 signing key (raw bytes or hex) to sign the manifest.
     #[arg(long)]
     signing_key: Option<PathBuf>,
-    /// Optional signature output path (defaults to <manifest>.sig) when signing.
     #[arg(long)]
     signature_output: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct VerifyArgs {
+    #[arg(long)]
+    manifest: PathBuf,
+    #[arg(long)]
+    signature: PathBuf,
+    #[arg(long)]
+    public_key: PathBuf,
 }
 
 #[derive(Serialize, Clone)]
@@ -90,14 +99,45 @@ struct Manifest {
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
-    let manifest = build_manifest(&args)?;
+    let cli = Cli::parse();
+    match cli.command {
+        Command::Sign(args) => run_sign(&args),
+        Command::Verify(args) => run_verify(&args),
+    }
+}
+
+fn run_sign(args: &SignArgs) -> Result<()> {
+    let manifest = build_manifest(args)?;
     let manifest_bytes = write_manifest(&args.output, &manifest)?;
-    maybe_sign_manifest(&manifest_bytes, &args)?;
+    maybe_sign_manifest(&manifest_bytes, args)?;
     Ok(())
 }
 
-fn build_manifest(args: &Args) -> Result<Manifest> {
+fn run_verify(args: &VerifyArgs) -> Result<()> {
+    let manifest_bytes = fs::read(&args.manifest)
+        .with_context(|| format!("failed to read manifest {}", args.manifest.display()))?;
+    let signature = load_signature(&args.signature)?;
+    let public_key = load_public_key(&args.public_key)?;
+
+    public_key
+        .verify(&manifest_bytes, &signature)
+        .with_context(|| {
+            format!(
+                "signature verification failed for manifest {}",
+                args.manifest.display()
+            )
+        })?;
+
+    println!(
+        "✅ signature valid for {} using {}",
+        args.manifest.display(),
+        args.public_key.display()
+    );
+
+    Ok(())
+}
+
+fn build_manifest(args: &SignArgs) -> Result<Manifest> {
     let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let git_commit = query_git_commit()?;
 
@@ -157,7 +197,7 @@ fn digest_file(path: &Path) -> Result<FileDigest> {
 }
 
 fn query_git_commit() -> Result<String> {
-    let output = Command::new("git")
+    let output = ProcessCommand::new("git")
         .args(["rev-parse", "HEAD"])
         .output()
         .context("failed to execute git rev-parse HEAD")?;
@@ -170,14 +210,14 @@ fn query_git_commit() -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn resolve_cli_version(args: &Args) -> Result<String> {
+fn resolve_cli_version(args: &SignArgs) -> Result<String> {
     if let Some(version) = &args.cli_version {
         if !version.trim().is_empty() {
             return Ok(version.trim().to_string());
         }
     }
     if let Some(path) = &args.cli_path {
-        let output = Command::new(path)
+        let output = ProcessCommand::new(path)
             .arg("--version")
             .output()
             .with_context(|| format!("failed to execute {} --version", path.display()))?;
@@ -209,7 +249,7 @@ fn write_manifest(path: &Path, manifest: &Manifest) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn maybe_sign_manifest(bytes: &[u8], args: &Args) -> Result<()> {
+fn maybe_sign_manifest(bytes: &[u8], args: &SignArgs) -> Result<()> {
     let key_path = match &args.signing_key {
         Some(path) => path,
         None => return Ok(()),
@@ -236,6 +276,12 @@ fn maybe_sign_manifest(bytes: &[u8], args: &Args) -> Result<()> {
     }
     fs::write(sig_path_ref, sig_hex.as_bytes())
         .with_context(|| format!("failed to write signature to {}", sig_path_ref.display()))?;
+
+    // Self-verify to catch mismatched keys early.
+    let verifying_key = signing_key.verifying_key();
+    verifying_key
+        .verify(bytes, &signature)
+        .context("self-verification failed; signing key may not match signature output")?;
 
     Ok(())
 }
@@ -271,4 +317,70 @@ fn parse_seed_from_raw(bytes: &[u8]) -> Option<SigningKey> {
         }
         _ => None,
     }
+}
+
+fn load_signature(path: &Path) -> Result<Signature> {
+    let raw = fs::read(path)?;
+    if raw.len() == 64 {
+        let bytes: [u8; 64] = raw
+            .try_into()
+            .map_err(|_| anyhow!("signature length mismatch for {}", path.display()))?;
+        return Ok(Signature::from_bytes(&bytes));
+    }
+
+    let text = String::from_utf8(raw).with_context(|| {
+        format!(
+            "signature file {} must be UTF-8 or raw bytes",
+            path.display()
+        )
+    })?;
+    let cleaned: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.is_empty() {
+        bail!("signature file {} was empty", path.display());
+    }
+    let decoded = hex::decode(&cleaned)
+        .with_context(|| format!("failed to decode hex signature at {}", path.display()))?;
+    if decoded.len() != 64 {
+        bail!(
+            "signature {} must decode to 64 bytes, got {}",
+            path.display(),
+            decoded.len()
+        );
+    }
+    let bytes: [u8; 64] = decoded
+        .try_into()
+        .expect("length already validated to 64 bytes");
+    Ok(Signature::from_bytes(&bytes))
+}
+
+fn load_public_key(path: &Path) -> Result<VerifyingKey> {
+    let raw = fs::read(path)?;
+    if raw.len() == 32 {
+        let bytes: [u8; 32] = raw
+            .try_into()
+            .map_err(|_| anyhow!("public key length mismatch for {}", path.display()))?;
+        return VerifyingKey::from_bytes(&bytes)
+            .map_err(|err| anyhow!("invalid public key {}: {err}", path.display()));
+    }
+
+    let text = String::from_utf8(raw)
+        .with_context(|| format!("public key {} must be UTF-8 or raw bytes", path.display()))?;
+    let cleaned: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.is_empty() {
+        bail!("public key file {} was empty", path.display());
+    }
+    let decoded = hex::decode(&cleaned)
+        .with_context(|| format!("failed to decode hex public key at {}", path.display()))?;
+    if decoded.len() != 32 {
+        bail!(
+            "public key {} must decode to 32 bytes, got {}",
+            path.display(),
+            decoded.len()
+        );
+    }
+    let bytes: [u8; 32] = decoded
+        .try_into()
+        .expect("length already validated to 32 bytes");
+    VerifyingKey::from_bytes(&bytes)
+        .map_err(|err| anyhow!("invalid public key {}: {err}", path.display()))
 }

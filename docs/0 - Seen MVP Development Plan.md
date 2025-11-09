@@ -470,13 +470,15 @@ and installers across every supported platform.
 
 * **Inputs:** bootstrap scripts, Stage1/2/3 outputs, release metadata.
 * **Progress:** `releases/bootstrap_matrix.toml` seeds the host/backend/profile tuples, `scripts/release_bootstrap_matrix.sh`
-  iterates the matrix to build Stage1→Stage3 per entry, and `tools/sign_bootstrap_artifact` now emits structured
-  manifests (git commit, CLI version, per-stage SHA256/size, equality flag) *and* optional Ed25519 signatures via
-  `--signing-key`, producing `.sig` files beside every manifest. Artifacts land under
+  iterates the matrix to build Stage1→Stage3 per entry, and `tools/sign_bootstrap_artifact sign ...` now emits structured
+  manifests (git commit, CLI version, per-stage SHA256/size, equality flag) plus optional Ed25519 signatures via
+  `--signing-key`, producing `.sig` files beside every manifest. `sign_bootstrap_artifact verify ...` validates
+  signatures against the public key, the matrix script can self-verify via `--public-key`, and
+  `docs/release-playbook.md` documents the workflow end-to-end. Artifacts land under
   `artifacts/bootstrap/<entry>/` alongside `manifest.json`.
-* **Outstanding:** integrate HSM/sigstore-backed signing (keys currently read from local files), document the
-  verification workflow (`sign_bootstrap_artifact --verify` or equivalent), and teach CI/release tagging to require
-  fresh manifests + signatures before publishing.
+* **Outstanding:** integrate HSM/sigstore-backed signing (keys currently read from local files), wire CI/release tagging
+  to require fresh manifests + signatures before publishing, and publish the public key + verification instructions as
+  part of every release announcement.
 
 ### PROD-2. Self-Hosted Stdlib & ABI Freeze
 
