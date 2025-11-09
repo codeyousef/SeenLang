@@ -500,7 +500,8 @@ and installers across every supported platform.
 
 ### PROD-4. Observability & Crash Triage
 
-*Status:* ⏳ Planned — crash hooks + build-id embedding queued after installer story lands.
+*Status:* ⏳ Planned — crash hooks + build-id embedding queued after installer story lands. Drafted `docs/crash-triage.md`
+  to describe the desired workflow; CLI/runtime instrumentation still pending.
 
 ### PROD-5. Production QA & Platform Certification
 
