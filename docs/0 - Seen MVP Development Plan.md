@@ -539,10 +539,13 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       bodies stop hijacking `{ … }` as trailing lambdas.
     - Added parser fixtures covering while-blocks with nested if/else, trailing lambdas inside statement bodies, and
       let-initializers that pass lambdas through, so regressions surface immediately.
+  - Typechecker now registers class/struct types, trailing-lambda statements, and builtin constructors/abort so
+    `seen_std/src/collections/vec.seen` type-checks cleanly (CLI now trips in the interpreter instead of the parser).
 
 * **Remaining tasks:**
-    1. Wire the new AST surfaces (class generics + literals) through `seen_typechecker` and `seen_ir` so the pipeline
-       accepts the syntax the parser now emits.
+    1. Finish wiring the new AST surfaces through `seen_ir`/interpreter + manifest-module loader so downstream stages
+       can
+       actually execute parsed stdlib classes (current run stops at interpreter “expression not implemented” errors).
     2. Re-enable manifest-module loading by finishing `seen_cli/tests/manifest_modules.rs` and running
        `SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli -- run seen_std/tests/vec_basic.seen` as a standing gate.
     3. Backfill parser + CLI fixtures for `extern "C"` declarations, nested statement blocks, and manifest-driven

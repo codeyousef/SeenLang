@@ -285,6 +285,34 @@ impl TypeChecker {
                 return_type: Some(Type::Unit),
             },
         );
+        env.define_function(
+            "abort".to_string(),
+            FunctionSignature {
+                name: "abort".to_string(),
+                parameters: vec![Parameter {
+                    name: "message".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
+        env.define_function(
+            "range".to_string(),
+            FunctionSignature {
+                name: "range".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "start".to_string(),
+                        param_type: Type::Int,
+                    },
+                    Parameter {
+                        name: "end".to_string(),
+                        param_type: Type::Int,
+                    },
+                ],
+                return_type: Some(Type::Array(Box::new(Type::Int))),
+            },
+        );
         let channel_generic_type = Type::Struct {
             name: "Channel".to_string(),
             fields: HashMap::new(),
@@ -556,6 +584,44 @@ impl TypeChecker {
         }
     }
 
+    fn placeholder_generic_args(&self, definition: &Type) -> Vec<Type> {
+        match definition {
+            Type::Struct { generics, .. }
+            | Type::Enum { generics, .. }
+            | Type::Interface { generics, .. } => generics.iter().map(|_| Type::Unknown).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn type_from_identifier(&mut self, name: &str, pos: Position) -> Option<Type> {
+        if let Some(definition) = self.env.get_type(name).cloned() {
+            let placeholders = self.placeholder_generic_args(&definition);
+            return Some(self.instantiate_type(definition, &placeholders, pos));
+        }
+
+        match name {
+            "Int" => Some(Type::Int),
+            "UInt" => Some(Type::UInt),
+            "Float" => Some(Type::Float),
+            "Bool" => Some(Type::Bool),
+            "String" => Some(Type::String),
+            "Char" => Some(Type::Char),
+            "Array" | "List" => Some(Type::Array(Box::new(Type::Unknown))),
+            _ => None,
+        }
+    }
+
+    fn lookup_this_field_type(&self, field: &str) -> Option<Type> {
+        if let Some(this_type) = self.env.get_variable("this") {
+            match this_type.non_nullable() {
+                Type::Struct { fields, .. } => fields.get(field).cloned(),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
     fn substitute_generics(&self, ty: &Type, mapping: &HashMap<String, Type>) -> Type {
         match ty {
             Type::Generic(name) => mapping.get(name).cloned().unwrap_or_else(|| ty.clone()),
@@ -674,6 +740,10 @@ impl TypeChecker {
             Expression::Identifier { name, pos, .. } => {
                 if let Some(var_type) = self.env.get_variable(name) {
                     var_type.clone()
+                } else if let Some(field_type) = self.lookup_this_field_type(name) {
+                    field_type
+                } else if let Some(type_value) = self.type_from_identifier(name, *pos) {
+                    type_value
                 } else {
                     self.result
                         .add_error(undefined_variable(name.clone(), *pos));
@@ -724,6 +794,15 @@ impl TypeChecker {
                 pos,
                 ..
             } => self.check_struct_definition(name, generics, fields, *pos),
+
+            Expression::ClassDefinition {
+                name,
+                generics,
+                fields,
+                methods,
+                pos,
+                ..
+            } => self.check_class_definition(name, generics, fields, methods, *pos),
 
             // Struct literal
             Expression::StructLiteral { name, fields, pos } => {
@@ -780,10 +859,6 @@ impl TypeChecker {
 
             // Collections
             Expression::ArrayLiteral { elements, pos } => self.check_array_literal(elements, *pos),
-
-            Expression::StructLiteral { name, fields, pos } => {
-                self.check_struct_literal(name, fields, *pos)
-            }
 
             Expression::IndexAccess { object, index, pos } => {
                 self.check_index_access(object, index, *pos)
@@ -1187,6 +1262,11 @@ impl TypeChecker {
                 }
 
                 signature.return_type.clone().unwrap_or(Type::Unit)
+            } else if let Some(constructor_type) = self.type_from_identifier(name, pos) {
+                for arg in args {
+                    self.check_expression(arg);
+                }
+                constructor_type
             } else {
                 self.result.add_error(TypeError::UndefinedFunction {
                     name: name.clone(),
@@ -1411,6 +1491,181 @@ impl TypeChecker {
             });
             Type::Unknown
         }
+    }
+
+    fn check_class_definition(
+        &mut self,
+        name: &str,
+        generics: &[String],
+        fields: &[seen_parser::ast::ClassField],
+        methods: &[Method],
+        pos: Position,
+    ) -> Type {
+        let class_type = self.with_generics(generics, |checker| {
+            checker.build_class_type(name, generics, fields, pos.clone())
+        });
+
+        self.env.define_type(name.to_string(), class_type.clone());
+
+        self.with_generics(generics, |checker| {
+            checker.check_class_methods(name, &class_type, methods);
+        });
+
+        Type::Unit
+    }
+
+    fn build_class_type(
+        &mut self,
+        name: &str,
+        generics: &[String],
+        fields: &[seen_parser::ast::ClassField],
+        pos: Position,
+    ) -> Type {
+        let mut field_types = HashMap::new();
+        for field in fields {
+            let field_type = self.resolve_ast_type(&field.field_type, pos);
+            if let Some(default_value) = &field.default_value {
+                let default_type = self.check_expression(default_value);
+                if !default_type.is_assignable_to(&field_type) {
+                    self.result.add_error(TypeError::TypeMismatch {
+                        expected: field_type.clone(),
+                        actual: default_type,
+                        position: pos,
+                    });
+                }
+            }
+            field_types.insert(field.name.clone(), field_type);
+        }
+
+        Type::Struct {
+            name: name.to_string(),
+            fields: field_types,
+            generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
+        }
+    }
+
+    fn check_class_methods(&mut self, class_name: &str, class_type: &Type, methods: &[Method]) {
+        let method_infos: Vec<MethodSignatureInfo> = methods
+            .iter()
+            .map(|method| self.build_method_signature_info(method, true))
+            .collect();
+
+        for (method, info) in methods.iter().zip(method_infos.iter()) {
+            self.check_class_method(class_name, class_type, method, info, &method_infos);
+        }
+    }
+
+    fn build_method_signature_info(
+        &mut self,
+        method: &Method,
+        force_instance: bool,
+    ) -> MethodSignatureInfo {
+        let mut params = Vec::new();
+        for param in &method.parameters {
+            let param_type = if let Some(ast_type) = &param.type_annotation {
+                self.resolve_ast_type(ast_type, method.pos)
+            } else {
+                Type::Unknown
+            };
+            params.push(Parameter {
+                name: param.name.clone(),
+                param_type,
+            });
+        }
+
+        let return_type = if let Some(ret_type) = &method.return_type {
+            Some(self.resolve_ast_type(ret_type, method.pos))
+        } else {
+            Some(Type::Unit)
+        };
+
+        MethodSignatureInfo {
+            name: method.name.clone(),
+            params,
+            return_type,
+            is_static: if force_instance {
+                false
+            } else {
+                method.is_static
+            },
+            pos: method.pos,
+        }
+    }
+
+    fn check_class_method(
+        &mut self,
+        class_name: &str,
+        class_type: &Type,
+        method: &Method,
+        info: &MethodSignatureInfo,
+        all_infos: &[MethodSignatureInfo],
+    ) {
+        let method_name = format!("{}::{}", class_name, method.name);
+        let method_pos = info.pos;
+
+        let mut signature_params = Vec::new();
+        if !info.is_static {
+            signature_params.push(Parameter {
+                name: "this".to_string(),
+                param_type: class_type.clone(),
+            });
+        }
+        signature_params.extend(info.params.clone());
+
+        let signature = FunctionSignature {
+            name: method_name.clone(),
+            parameters: signature_params,
+            return_type: info.return_type.clone(),
+        };
+
+        if !self.env.has_function(&method_name) {
+            self.env.define_function(method_name.clone(), signature);
+        }
+
+        let saved_env = self.env.clone();
+        let mut method_env = Environment::with_parent(self.env.clone());
+
+        if !info.is_static {
+            method_env.define_variable("this".to_string(), class_type.clone());
+            if let Type::Struct { fields, .. } = class_type.clone() {
+                for (field_name, field_type) in fields {
+                    method_env.define_variable(field_name, field_type);
+                }
+            }
+        }
+
+        for alias in all_infos {
+            let alias_signature = FunctionSignature {
+                name: alias.name.clone(),
+                parameters: alias.params.clone(),
+                return_type: alias.return_type.clone(),
+            };
+            method_env.define_function(alias.name.clone(), alias_signature);
+        }
+
+        for param in info.params.iter() {
+            method_env.define_variable(param.name.clone(), param.param_type.clone());
+        }
+
+        self.env = method_env;
+
+        let saved_return_type = self.current_function_return_type.clone();
+        self.current_function_return_type = info.return_type.clone();
+
+        let body_type = self.check_expression(&method.body);
+
+        if let Some(expected_return) = &info.return_type {
+            if !body_type.is_assignable_to(expected_return) {
+                self.result.add_error(TypeError::TypeMismatch {
+                    expected: expected_return.clone(),
+                    actual: body_type,
+                    position: method_pos,
+                });
+            }
+        }
+
+        self.env = saved_env;
+        self.current_function_return_type = saved_return_type;
     }
 
     fn check_extension(
@@ -1836,6 +2091,14 @@ impl TypeChecker {
             _ => format!("{:?}", type_),
         }
     }
+}
+
+struct MethodSignatureInfo {
+    name: String,
+    params: Vec<Parameter>,
+    return_type: Option<Type>,
+    is_static: bool,
+    pos: Position,
 }
 
 impl Default for TypeChecker {

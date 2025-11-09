@@ -302,7 +302,9 @@ impl Parser {
 
     /// Parse any expression
     pub fn parse_expression(&mut self) -> ParseResult<Expression> {
-        self.with_parsing_context(ParsingContext::Expression, |parser| parser.parse_assignment())
+        self.with_parsing_context(ParsingContext::Expression, |parser| {
+            parser.parse_assignment()
+        })
     }
 
     /// Parse an expression that stops at newlines (for statement-level parsing)
@@ -2119,7 +2121,9 @@ impl Parser {
     }
 
     fn parse_statement_block_body(&mut self) -> ParseResult<Expression> {
-        self.with_parsing_context(ParsingContext::Statement, |parser| parser.parse_block_body())
+        self.with_parsing_context(ParsingContext::Statement, |parser| {
+            parser.parse_block_body()
+        })
     }
 
     /// Parse block body (returns last expression value)
