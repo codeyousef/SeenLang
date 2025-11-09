@@ -613,18 +613,24 @@ impl Parser {
                     };
                 }
                 TokenType::Less => {
-                    let should_parse_generics = match self.peek_ahead(1) {
-                        Some(next) => matches!(
-                            next.token_type,
-                            TokenType::PublicIdentifier(_)
-                                | TokenType::PrivateIdentifier(_)
-                                | TokenType::Greater
-                                | TokenType::RightShift
-                                | TokenType::LeftBracket
-                                | TokenType::LeftParen
-                                | TokenType::Question
-                        ),
-                        None => false,
+                    let should_parse_generics = match (self.peek_ahead(1), self.peek_ahead(2)) {
+                        (Some(next0), Some(next1)) => {
+                            matches!(
+                                next0.token_type,
+                                TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_)
+                            ) && matches!(
+                                next1.token_type,
+                                TokenType::Comma
+                                    | TokenType::PublicIdentifier(_)
+                                    | TokenType::PrivateIdentifier(_)
+                                    | TokenType::Greater
+                                    | TokenType::Question
+                                    | TokenType::Less
+                                    | TokenType::RightShift
+                                    | TokenType::Colon
+                            )
+                        }
+                        _ => false,
                     };
 
                     if should_parse_generics {
@@ -942,7 +948,7 @@ impl Parser {
                         found: self.current.token_type.clone(),
                         expected: "identifier".to_string(),
                         pos: self.current.position.clone(),
-                    })
+                    });
                 }
             };
             let is_public = false; // Keywords used as identifiers are treated as private
@@ -1539,6 +1545,21 @@ impl Parser {
         self.advance(); // consume 'let'
 
         let name = self.expect_identifier()?;
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
         let is_public = self.resolve_visibility(&name);
 
         let type_annotation = if self.check(&TokenType::Colon) {
@@ -2751,7 +2772,10 @@ impl Parser {
     fn is_end_of_expression(&self) -> bool {
         matches!(
             self.current.token_type,
-            TokenType::RightBrace | TokenType::RightParen | TokenType::EOF
+            TokenType::RightBrace
+                | TokenType::RightParen
+                | TokenType::RightBracket
+                | TokenType::EOF
         )
     }
 
@@ -3598,6 +3622,11 @@ impl Parser {
         self.advance(); // consume 'class'
 
         let name = self.expect_identifier()?;
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
 
         // Check for superclass
         let superclass = if self.check(&TokenType::Colon) {
@@ -3647,6 +3676,7 @@ impl Parser {
 
         Ok(Expression::ClassDefinition {
             name,
+            generics,
             superclass,
             fields,
             methods,
@@ -3969,6 +3999,11 @@ impl Parser {
 
         self.advance(); // consume 'class'
         let name = self.expect_identifier()?;
+        let generics = if self.check(&TokenType::Less) {
+            self.parse_generic_parameter_list()?
+        } else {
+            Vec::new()
+        };
 
         self.expect(&TokenType::LeftBrace)?;
         let mut fields = Vec::new();
@@ -3998,6 +4033,7 @@ impl Parser {
         self.expect(&TokenType::RightBrace)?;
         Ok(Expression::Class {
             name,
+            generics,
             is_sealed,
             is_open,
             is_abstract,
@@ -4598,7 +4634,7 @@ impl Parser {
         // Subsequent segments separated by '.'
         while self.check(&TokenType::Dot) {
             self.advance(); // '.'
-                            // If next is '{', stop path parsing
+            // If next is '{', stop path parsing
             if self.check(&TokenType::LeftBrace) {
                 break;
             }

@@ -299,6 +299,7 @@ pub enum Expression {
     // Class definition
     ClassDefinition {
         name: String,
+        generics: Vec<String>,
         superclass: Option<String>,
         fields: Vec<ClassField>,
         methods: Vec<Method>,
@@ -573,6 +574,7 @@ pub enum Expression {
 
     Class {
         name: String,
+        generics: Vec<String>,
         is_sealed: bool,
         is_open: bool,
         is_abstract: bool,

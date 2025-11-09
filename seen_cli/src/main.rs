@@ -8,10 +8,10 @@ use seen_core::ir::SimdDecisionReason;
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, HardwareProfile, IRGenerator, IROptimizer, IRProgram,
-    Interpreter, KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult,
-    MemoryManager, MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError,
-    SeenErrorKind, SeenParser, SeenResult, SimdPolicy, TokenType, Type, TypeChecker, UnaryOperator,
-    Value, VisibilityPolicy,
+    Interpreter, KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult, MemoryManager,
+    MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError, SeenErrorKind,
+    SeenParser, SeenResult, SimdPolicy, TokenType, Type, TypeChecker, UnaryOperator, Value,
+    VisibilityPolicy,
 };
 use seen_cranelift::program_to_clif;
 #[cfg(feature = "llvm")]
@@ -1150,6 +1150,7 @@ fn generate_optimized_ir(
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &project_config.root_dir,
         &dependency_roots,
         &manifest_modules,
     )?;
@@ -1747,6 +1748,7 @@ fn compile_file_llvm(
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &project_config.root_dir,
         &dependency_roots,
         &manifest_modules,
     )?;
@@ -2103,6 +2105,7 @@ fn bundle_imports(
     input_path: &Path,
     keyword_manager: Arc<KeywordManager>,
     visibility_policy: VisibilityPolicy,
+    project_root: &Path,
     dependency_roots: &[PathBuf],
     manifest_modules: &[PathBuf],
 ) -> SeenResult<Program> {
@@ -2133,6 +2136,8 @@ fn bundle_imports(
                     let module_file = format!("{}.seen", module_path.join("/"));
                     let mut candidates = vec![
                         base_dir.join(&module_file),
+                        project_root.join(&module_file),
+                        project_root.join("src").join(&module_file),
                         PathBuf::from("compiler_seen/src").join(&module_file),
                         PathBuf::from("compiler_seen/src").join(format!(
                             "{}.seen",
@@ -3217,6 +3222,7 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &project_config.root_dir,
         &dependency_roots,
         &manifest_modules,
     )?;

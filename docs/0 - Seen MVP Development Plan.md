@@ -528,6 +528,22 @@ and installers across every supported platform.
   Stage3 artifacts and Android bundles report doctor-friendly hashes. Remaining work: extend crash hooks, implement
   `seen trace --runtime/--replay`, and publish the full triage playbook alongside release notes.
 
+### PROD-4a. Parser Hardening for Stdlib & Tooling
+
+*Status:* 🔄 New — current parser still rejects syntax already in `seen_std`, blocking further stdlib work and bootstrap
+validation.
+
+* **Outstanding tasks:**
+    1. Support generic parameters on class/struct definitions and expression-level `class Foo<T>` constructs (parser +
+       AST + downstream consumers).
+    2. Implement struct/class literal syntax (`Type{ field: value }`) so bootstrap modules no longer require rust-side
+       shims.
+    3. Disambiguate `<` as type argument vs comparison (lookahead + Pratt adjustments) so `Array<T>` / `Map<K, V>` parse
+       reliably inside expressions.
+    4. Introduce true statement parsing (let/while/for/expr statements, newline/semicolon terminators) so block bodies
+       in loops and tests stop mis-parsing.
+    5. Expand parser test coverage with fixtures mirroring the existing stdlib syntax to guard regressions.
+
 ### PROD-5. Production QA & Platform Certification
 
 *Status:* 🔄 In progress — Linux harness landed; non-Linux targets pending.
