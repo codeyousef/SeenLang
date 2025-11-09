@@ -541,16 +541,21 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       let-initializers that pass lambdas through, so regressions surface immediately.
   - Typechecker now registers class/struct types, trailing-lambda statements, and builtin constructors/abort so
     `seen_std/src/collections/vec.seen` type-checks cleanly (CLI now trips in the interpreter instead of the parser).
+  - Interpreter/runtime gained full class/value plumbing (shared Vec storage, instance fields, method dispatch) so
+    manifest-loaded stdlib modules execute; `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`
+    is green and wired into the manifest test.
 
 * **Remaining tasks:**
-    1. Finish wiring the new AST surfaces through `seen_ir`/interpreter + manifest-module loader so downstream stages
-       can
-       actually execute parsed stdlib classes (current run stops at interpreter “expression not implemented” errors).
-    2. Re-enable manifest-module loading by finishing `seen_cli/tests/manifest_modules.rs` and running
-       `SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli -- run seen_std/tests/vec_basic.seen` as a standing gate.
-    3. Backfill parser + CLI fixtures for `extern "C"` declarations, nested statement blocks, and manifest-driven
-       modules
-       so PROD-4a stays green once downstream consumers update.
+    1. Finish parser polish items that still sit behind `#[allow(dead_code)]` (e.g., `when` desugaring, literal helpers)
+       and
+       add fixtures for `extern "C"` declarations plus manifest-module import chains so tokenizer/parser regressions
+       show up in CI.
+    2. Expand lexer coverage (interpolated strings, keyword localization) and clear the outstanding warnings so the
+       tokenizer is considered “bulletproof”.
+    3. Implement the remaining interpreter expression arms that stdlib/external modules exercise next (
+       interfaces/extensions/effects/actors) so the fallback “Expression type not implemented” error disappears.
+    4. Once the parser/lexer/interpreter surface is fully exercised, re-enable strict type-checking for
+       manifest-injected modules and promote the Vec manifest run to a required CI gate so PROD-4a stays green.
 
 ### PROD-5. Production QA & Platform Certification
 
