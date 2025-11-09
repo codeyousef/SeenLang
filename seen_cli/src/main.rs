@@ -22,7 +22,7 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
@@ -395,6 +395,8 @@ struct ProjectConfig {
     project: ProjectSection,
     #[serde(default)]
     visibility: Option<VisibilityConfig>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, DependencySpec>,
     #[serde(skip)]
     root_dir: PathBuf,
 }
@@ -404,6 +406,7 @@ impl Default for ProjectConfig {
         Self {
             project: ProjectSection::default(),
             visibility: None,
+            dependencies: BTreeMap::new(),
             root_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         }
     }
@@ -428,6 +431,29 @@ impl Default for ProjectSection {
             version: None,
             visibility: None,
             modules: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum DependencySpec {
+    Path(String),
+    Detailed(DependencyEntry),
+}
+
+#[derive(Debug, Deserialize)]
+struct DependencyEntry {
+    path: String,
+    #[serde(default)]
+    version: Option<String>,
+}
+
+impl DependencySpec {
+    fn path(&self) -> &str {
+        match self {
+            DependencySpec::Path(path) => path,
+            DependencySpec::Detailed(entry) => entry.path.as_str(),
         }
     }
 }
@@ -496,6 +522,24 @@ impl ProjectConfig {
             .map(|entry| self.root_dir.join(entry))
             .collect()
     }
+
+    fn dependency_roots(&self) -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+        for spec in self.dependencies.values() {
+            let joined = self.root_dir.join(spec.path());
+            roots.push(canonicalize_lossy(&joined));
+        }
+        roots
+    }
+
+    fn dependency_module_paths(&self) -> SeenResult<Vec<PathBuf>> {
+        let mut entries = Vec::new();
+        for root in self.dependency_roots() {
+            let dep_config = load_project_config_from_dir(&root)?;
+            entries.extend(dep_config.module_paths());
+        }
+        Ok(entries)
+    }
 }
 
 fn manifest_modules_enabled() -> bool {
@@ -508,12 +552,15 @@ fn manifest_modules_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn manifest_module_roots(config: &ProjectConfig) -> Vec<PathBuf> {
-    if manifest_modules_enabled() {
-        config.module_paths()
-    } else {
-        Vec::new()
+fn manifest_module_roots(config: &ProjectConfig) -> SeenResult<Vec<PathBuf>> {
+    if !manifest_modules_enabled() {
+        return Ok(Vec::new());
     }
+    let mut entries = config.module_paths();
+    entries.extend(config.dependency_module_paths()?);
+    entries.sort();
+    entries.dedup();
+    Ok(entries)
 }
 
 fn project_context_for(path: &Path) -> SeenResult<(ProjectConfig, LexerConfig)> {
@@ -522,6 +569,38 @@ fn project_context_for(path: &Path) -> SeenResult<(ProjectConfig, LexerConfig)> 
         visibility_policy: config.visibility_policy(),
     };
     Ok((config, lexer_config))
+}
+
+fn load_project_config_from_dir(dir: &Path) -> SeenResult<ProjectConfig> {
+    let manifest = dir.join("Seen.toml");
+    if !manifest.exists() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Dependency at {} is missing Seen.toml", dir.display()),
+        ));
+    }
+    let content = fs::read_to_string(&manifest).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to read dependency manifest {}: {}",
+                manifest.display(),
+                err
+            ),
+        )
+    })?;
+    let mut config: ProjectConfig = toml::from_str(&content).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to parse dependency manifest {}: {}",
+                manifest.display(),
+                err
+            ),
+        )
+    })?;
+    config.root_dir = dir.to_path_buf();
+    Ok(config)
 }
 
 fn load_project_config(starting_path: &Path) -> SeenResult<ProjectConfig> {
@@ -1050,7 +1129,8 @@ fn generate_optimized_ir(
 
     let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let manifest_modules = manifest_module_roots(&project_config);
+    let manifest_modules = manifest_module_roots(&project_config)?;
+    let dependency_roots = project_config.dependency_roots();
 
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -1063,6 +1143,7 @@ fn generate_optimized_ir(
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &dependency_roots,
         &manifest_modules,
     )?;
 
@@ -1646,7 +1727,8 @@ fn compile_file_llvm(
 
     let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let manifest_modules = manifest_module_roots(&project_config);
+    let manifest_modules = manifest_module_roots(&project_config)?;
+    let dependency_roots = project_config.dependency_roots();
     // Lex + parse
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
@@ -1658,6 +1740,7 @@ fn compile_file_llvm(
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &dependency_roots,
         &manifest_modules,
     )?;
 
@@ -2012,6 +2095,7 @@ fn bundle_imports(
     input_path: &Path,
     keyword_manager: Arc<KeywordManager>,
     visibility_policy: VisibilityPolicy,
+    dependency_roots: &[PathBuf],
     manifest_modules: &[PathBuf],
 ) -> SeenResult<Program> {
     let base_dir = input_path
@@ -2047,6 +2131,9 @@ fn bundle_imports(
                             module_path.last().unwrap_or(&String::new())
                         )),
                     ];
+                    for root in dependency_roots {
+                        candidates.push(root.join(&module_file));
+                    }
                     candidates.dedup();
                     let mut loaded = false;
                     for cand in candidates {
@@ -2944,7 +3031,8 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     // Lex and parse
     let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let manifest_modules = manifest_module_roots(&project_config);
+    let manifest_modules = manifest_module_roots(&project_config)?;
+    let dependency_roots = project_config.dependency_roots();
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let parsed = parser.parse_program().map_err(SeenError::from)?;
@@ -2954,6 +3042,7 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
         input,
         keyword_manager.clone(),
         visibility_policy,
+        &dependency_roots,
         &manifest_modules,
     )?;
 

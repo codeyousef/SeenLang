@@ -491,8 +491,11 @@ and installers across every supported platform.
   updates/validates `Seen.lock`, documentation lives in `docs/release-playbook.md`, and `scripts/package_seen_std.sh`
   invokes `seen pkg` to generate deterministic `libseen_std-<version>.seenpkg` bundles (plus `.sha256` checksums) ready
   to publish alongside release artifacts.
-* **Outstanding:** integrate the package deeper into the bootstrap build (replace ad-hoc helpers with `import seen_std...`)
-  and teach `seen pkg` to emit `libseen_std.seenpkg` with a `Seen.lock`-backed ABI guardrail enforced in CI.
+* **Update:** Manifest-module bundling now walks dependency manifests (including `seen_std`) whenever
+  `SEEN_ENABLE_MANIFEST_MODULES=1`, so Stage-1 compiles the stdlib modules directly instead of relying on ad-hoc helper
+  copies. `seen pkg` enforces `Seen.lock` while emitting deterministic `libseen_std-<version>.seenpkg` bundles, giving
+  CI
+  an ABI guardrail for published stdlib artifacts.
 
 ### PROD-3. Installer & Updater
 

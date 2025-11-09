@@ -76,3 +76,82 @@ fn manifest_modules_require_env_to_load() {
         .failure()
         .stderr(contains("Failed to read module path"));
 }
+
+#[test]
+fn manifest_modules_include_dependencies() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let app_dir = temp.path().join("app");
+    let app_src = app_dir.join("src");
+    fs::create_dir_all(&app_src).expect("app src dir");
+
+    let main_path = app_src.join("main.seen");
+    fs::write(
+        &main_path,
+        r#"
+import helper.lib.{getValue}
+
+fun main() -> Int {
+    return getValue()
+}
+"#,
+    )
+        .expect("write main");
+
+    fs::write(
+        app_dir.join("Seen.toml"),
+        r#"[project]
+modules = ["src"]
+language = "en"
+
+[dependencies]
+helper = "../deps/helper"
+
+[build]
+targets = ["native"]
+"#,
+    )
+        .expect("write app Seen.toml");
+
+    let dep_dir = temp.path().join("deps").join("helper");
+    let dep_src = dep_dir.join("src");
+    fs::create_dir_all(&dep_src).expect("dep src dir");
+    fs::write(
+        dep_src.join("lib.seen"),
+        r#"
+fun getValue() -> Int {
+    return 42
+}
+"#,
+    )
+        .expect("write dep module");
+
+    fs::write(
+        dep_dir.join("Seen.toml"),
+        r#"[project]
+modules = ["src/lib.seen"]
+language = "en"
+
+[build]
+targets = ["native"]
+"#,
+    )
+        .expect("write dep Seen.toml");
+
+    let output = app_dir.join("out.ir");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(workspace_root())
+        .env("SEEN_ENABLE_MANIFEST_MODULES", "1")
+        .args([
+            "build",
+            main_path.to_string_lossy().as_ref(),
+            "--backend",
+            "ir",
+            "--output",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output.exists(), "expected build artifact at {:?}", output);
+}
