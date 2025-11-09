@@ -10,7 +10,9 @@ modules = [
     "src/core/prelude.seen",
     "src/collections/list_utils.seen",
     "src/async/task.seen",
-    "src/ffi/cinterop.seen"
+    "src/ffi/cinterop.seen",
+    "src/str/string.seen",
+    "src/math/math.seen"
 ]
 
 [build]

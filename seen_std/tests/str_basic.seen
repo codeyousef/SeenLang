@@ -1,0 +1,39 @@
+import str.string.{StringBuilder, split, trim, contains, startsWith, endsWith, repeat, join}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let builder = StringBuilder.new()
+    builder.append("Seen")
+    builder.append(" ")
+    builder.append("std")
+    builder.appendLine("!")
+    let combined = builder.toString()
+    expect(endsWith(combined, "std!\n"), "builder should append text + newline")
+
+    let parts = split("alpha,beta,gamma", ",")
+    expect(parts.length() == 3, "split should produce 3 items")
+    expect(parts[1] == "beta", "split element mismatch")
+
+    let trimmed = trim(" \tbootstrap\n")
+    expect(trimmed == "bootstrap", "trim should remove whitespace")
+
+    expect(contains("deterministic", "mini"), "substring match expected")
+    expect(startsWith("channel", "chan"), "startsWith expected")
+    expect(endsWith("scheduler", "uler"), "endsWith expected")
+
+    let repeated = repeat("ha", 3)
+    expect(repeated == "hahaha", "repeat should copy text")
+
+    let joined = join(parts, "|")
+    expect(joined == "alpha|beta|gamma", "join should insert separator")
+
+    let cString = combined.toCString()
+    expect(cString.toSeenString() == combined, "CString round-trip failed")
+
+    return 0
+}

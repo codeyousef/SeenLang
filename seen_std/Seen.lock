@@ -23,3 +23,11 @@ hash = "e3a48dcf7bde06427c3c36fec0d41356b64551d512be0303c590977008dd9b76"
 [[modules]]
 path = "src/ffi/cinterop.seen"
 hash = "30649d07117d08f2b7d4ebaa67a62b80454ff4d76fd25dafcf04e57efcd132a7"
+
+[[modules]]
+path = "src/str/string.seen"
+hash = "6588c2f38496789b04753e062f51f1321fe6da788b445218362c386f8f17bbe4"
+
+[[modules]]
+path = "src/math/math.seen"
+hash = "a81b065538d66879029e60b9178d2a1b0917ae8ad953f8d95885e99a93cbd2b7"

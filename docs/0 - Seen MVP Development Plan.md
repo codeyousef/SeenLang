@@ -494,8 +494,20 @@ and installers across every supported platform.
 * **Update:** Manifest-module bundling now walks dependency manifests (including `seen_std`) whenever
   `SEEN_ENABLE_MANIFEST_MODULES=1`, so Stage-1 compiles the stdlib modules directly instead of relying on ad-hoc helper
   copies. `seen pkg` enforces `Seen.lock` while emitting deterministic `libseen_std-<version>.seenpkg` bundles, giving
-  CI
-  an ABI guardrail for published stdlib artifacts.
+  CI an ABI guardrail for published stdlib artifacts.
+* **Outstanding tasks:**
+    1. Land `std.str` with UTF-8 helpers, builders, split/trim/search utilities, and CString adapters so CLI/runtime
+       modules can drop bespoke string helpers.
+    2. Deliver scalar `std.math` (constants, abs/trig/sqrt, checked/saturating/wrapping integer ops) plus follow-on
+       SIMD/linalg modules aligned with the SIMD baseline.
+    3. Implement allocator-backed collections (`Vec`, `String`, `HashMap`) that integrate with the region/RAII analysis
+       and determinism profile.
+    4. Stand up `std.io`, `std.fs`, and `std.net` (sync + async traits) so Stage-1/tooling stop shelling out to
+       handwritten wrappers.
+    5. Flesh out `std.concurrent` / `std.sync` (structured scopes, channels, mutex/condvar/atomics) wired into the
+       runtime schedulers validated in PSH-3b/3d.
+    6. Expand `std.ffi`, `std.time`, `std.env`, and `std.process` so bootstrap scripts and installers rely on shared
+       primitives instead of ad-hoc glue.
 
 ### PROD-3. Installer & Updater
 

@@ -1,0 +1,112 @@
+// seen_std::math::math
+// Scalar math utilities (abs/trig/sqrt + integer helpers) for bootstrap code.
+
+const PI: Float = 3.14159265358979323846
+const TAU: Float = 6.28318530717958647692
+const E: Float = 2.71828182845904523536
+
+fun abs(value: Float) -> Float {
+    if value < 0.0 {
+        return -value
+    }
+    return value
+}
+
+fun absInt(value: Int) -> Int {
+    if value < 0 {
+        return -value
+    }
+    return value
+}
+
+extern "C" fun __sin(x: Float) -> Float
+extern "C" fun __cos(x: Float) -> Float
+extern "C" fun __tan(x: Float) -> Float
+extern "C" fun __sqrt(x: Float) -> Float
+
+fun sin(radians: Float) -> Float {
+    return __sin(radians)
+}
+
+fun cos(radians: Float) -> Float {
+    return __cos(radians)
+}
+
+fun tan(radians: Float) -> Float {
+    return __tan(radians)
+}
+
+fun sqrt(value: Float) -> Float {
+    if value < 0.0 {
+        abort("sqrt of negative input")
+    }
+    return __sqrt(value)
+}
+
+fun clamp(value: Float, minValue: Float, maxValue: Float) -> Float {
+    if value < minValue {
+        return minValue
+    }
+    if value > maxValue {
+        return maxValue
+    }
+    return value
+}
+
+fun clampInt(value: Int, minValue: Int, maxValue: Int) -> Int {
+    if value < minValue {
+        return minValue
+    }
+    if value > maxValue {
+        return maxValue
+    }
+    return value
+}
+
+fun degToRad(degrees: Float) -> Float {
+    return degrees * (PI / 180.0)
+}
+
+fun radToDeg(radians: Float) -> Float {
+    return radians * (180.0 / PI)
+}
+
+fun saturatingAdd(a: Int, b: Int) -> Int {
+    let result = a + b
+    if (a > 0 and b > 0 and result < 0) {
+        return Int.max()
+    }
+    if (a < 0 and b < 0 and result > 0) {
+        return Int.min()
+    }
+    return result
+}
+
+fun saturatingSub(a: Int, b: Int) -> Int {
+    let result = a - b
+    if (a > 0 and b < 0 and result < 0) {
+        return Int.max()
+    }
+    if (a < 0 and b > 0 and result > 0) {
+        return Int.min()
+    }
+    return result
+}
+
+fun wrappingAdd(a: Int, b: Int) -> Int {
+    return (a + b) // wrap via overflow semantics
+}
+
+fun wrappingSub(a: Int, b: Int) -> Int {
+    return (a - b)
+}
+
+fun checkedDiv(a: Int, b: Int) -> Int {
+    if b == 0 {
+        abort("division by zero")
+    }
+    if a == Int.min() and b == -1 {
+        abort("division overflow")
+    }
+    return a / b
+}

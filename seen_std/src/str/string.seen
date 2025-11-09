@@ -1,0 +1,141 @@
+// seen_std::str::string
+// UTF-8 friendly helpers and CString bridges used by bootstrap tooling.
+
+import ffi.cinterop.{CString, toCString, fromCString}
+
+class StringBuilder {
+    var parts: Array<String>
+
+    fun new() -> StringBuilder {
+        return StringBuilder{
+            parts: Array<String>()
+        }
+    }
+
+    fun append(text: String) -> Void {
+        parts.push(text)
+    }
+
+    fun appendLine(text: String = "") -> Void {
+        parts.push("{text}\n")
+    }
+
+    fun clear() -> Void {
+        parts = Array<String>()
+    }
+
+    fun isEmpty() -> Bool {
+        return parts.length() == 0
+    }
+
+    fun toString() -> String {
+        var result = ""
+        for part in parts {
+            result = result + part
+        }
+        return result
+    }
+}
+
+fun split(text: String, delimiter: String) -> Array<String> {
+    let pieces = Array<String>()
+    if delimiter.length() == 0 {
+        for ch in text {
+            pieces.push("" + ch)
+        }
+        return pieces
+    }
+
+    var current = ""
+    var index = 0
+    while index < text.length() {
+        if text.substring(index, index + delimiter.length()) == delimiter {
+            pieces.push(current)
+            current = ""
+            index = index + delimiter.length()
+        } else {
+            current = current + text.charAt(index)
+            index = index + 1
+        }
+    }
+    pieces.push(current)
+    return pieces
+}
+
+fun trim(text: String) -> String {
+    if text.length() == 0 {
+        return text
+    }
+    var start = 0
+    var end = text.length() - 1
+    while start < text.length() and isWhitespace(text.charAt(start)) {
+        start = start + 1
+    }
+    while end >= start and isWhitespace(text.charAt(end)) {
+        end = end - 1
+    }
+    if start > end {
+        return ""
+    }
+    return text.substring(start, end + 1)
+}
+
+fun contains(text: String, needle: String) -> Bool {
+    if needle.length() == 0 {
+        return true
+    }
+    var index = text.find(needle)
+    return index >= 0
+}
+
+fun startsWith(text: String, prefix: String) -> Bool {
+    if prefix.length() > text.length() {
+        return false
+    }
+    return text.substring(0, prefix.length()) == prefix
+}
+
+fun endsWith(text: String, suffix: String) -> Bool {
+    if suffix.length() > text.length() {
+        return false
+    }
+    let start = text.length() - suffix.length()
+    return text.substring(start, text.length()) == suffix
+}
+
+fun repeat(text: String, times: Int) -> String {
+    if times <= 0 {
+        return ""
+    }
+    var result = ""
+    for _ in range(0, times) {
+        result = result + text
+    }
+    return result
+}
+
+fun join(parts: Array<String>, separator: String) -> String {
+    if parts.length() == 0 {
+        return ""
+    }
+    var result = ""
+    for index in range(0, parts.length()) {
+        result = result + parts[index]
+        if index != parts.length() - 1 {
+            result = result + separator
+        }
+    }
+    return result
+}
+
+fun String.toCString() -> CString {
+    return toCString(this)
+}
+
+fun CString.toSeenString() -> String {
+    return fromCString(this)
+}
+
+fun isWhitespace(ch: Char) -> Bool {
+    return ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r'
+}

@@ -1,0 +1,39 @@
+import math.math.{PI, TAU, E, abs, absInt, sin, cos, tan, sqrt, clamp, clampInt, degToRad, radToDeg, saturatingAdd, saturatingSub, wrappingAdd, wrappingSub, checkedDiv}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) -> Bool {
+    let diff = abs(a - b)
+    return diff <= tolerance
+}
+
+fun main() -> Int {
+    expect(approxEqual(PI * 2.0, TAU), "TAU should equal 2*PI")
+    expect(abs(-5.0) == 5.0, "abs should return positive value")
+    expect(absInt(-3) == 3, "absInt should return positive value")
+
+    expect(approxEqual(sin(0.0), 0.0), "sin(0) should be 0")
+    expect(approxEqual(cos(0.0), 1.0), "cos(0) should be 1")
+    expect(approxEqual(tan(0.0), 0.0), "tan(0) should be 0")
+
+    expect(approxEqual(sqrt(16.0), 4.0), "sqrt(16) should be 4")
+    expect(clamp(5.0, 0.0, 3.0) == 3.0, "clamp should limit to upper bound")
+    expect(clampInt(-2, 0, 10) == 0, "clampInt should limit to lower bound")
+
+    expect(approxEqual(degToRad(180.0), PI), "degToRad(180) == PI")
+    expect(approxEqual(radToDeg(PI), 180.0), "radToDeg(PI) == 180")
+
+    expect(saturatingAdd(Int.max(), 10) == Int.max(), "saturatingAdd upper bound")
+    expect(saturatingSub(Int.min(), 10) == Int.min(), "saturatingSub lower bound")
+
+    let wrap = wrappingAdd(Int.max(), 2)
+    expect(wrap < 0, "wrappingAdd should wrap around overflow")
+
+    expect(checkedDiv(10, 2) == 5, "checkedDiv should divide values")
+
+    return 0
+}
