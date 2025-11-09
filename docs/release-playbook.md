@@ -80,7 +80,7 @@ Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when in
 scripts/package_seen_std.sh --version $RELEASE_VERSION --output-dir artifacts/packages
 ```
 
-This produces a deterministic `seen_std-$RELEASE_VERSION.tar.gz` plus a `.sha256` checksum so consumers
+This produces a deterministic `libseen_std-$RELEASE_VERSION.seenpkg` plus a `.sha256` checksum so consumers
 can download the bundled stdlib that matches the published ABI lock.
 
 ## 5. Future Extensions
