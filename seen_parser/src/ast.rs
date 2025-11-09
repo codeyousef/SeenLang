@@ -216,6 +216,7 @@ pub enum Expression {
     // Function definition
     Function {
         name: String,
+        generics: Vec<String>,
         params: Vec<Parameter>,
         return_type: Option<Type>,
         body: Box<Expression>,

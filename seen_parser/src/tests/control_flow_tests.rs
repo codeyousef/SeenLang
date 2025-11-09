@@ -140,6 +140,47 @@ fn test_parse_while_loop() {
 }
 
 #[test]
+fn test_parse_while_with_if_else_block() {
+    let source = r#"
+while index < limit {
+    if index == 0 {
+        index = index + 1
+    } else {
+        index = index + 2
+    }
+}
+"#;
+    let expr = parse_expression(source).unwrap();
+    match expr {
+        Expression::While { .. } => {}
+        other => panic!("expected while loop, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_while_body_allows_trailing_lambda_calls() {
+    let source = r#"
+while hasWork() {
+    queue.Process { job -> job.run() }
+}
+"#;
+    let expr = parse_expression(source).unwrap();
+    match expr {
+        Expression::While { body, .. } => match body.as_ref() {
+            Expression::Call { args, .. } => {
+                assert_eq!(args.len(), 1);
+                match &args[0] {
+                    Expression::Lambda { .. } => {}
+                    other => panic!("expected lambda argument, got {:?}", other),
+                }
+            }
+            other => panic!("expected call in while body, got {:?}", other),
+        },
+        other => panic!("expected while loop, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_parse_for_loop() {
     let expr = parse_expression("for item in items { item }").unwrap();
     match expr {
@@ -199,6 +240,26 @@ fn test_parse_match_with_complex_guards() {
             assert!(arms[2].guard.is_none());
         }
         _ => panic!("Expected match expression"),
+    }
+}
+
+#[test]
+fn test_return_without_value_uses_newline_terminator() {
+    let expr = parse_expression(
+        r#"
+        fun EarlyReturn() {
+            return
+        }
+    "#,
+    )
+        .unwrap();
+
+    match expr {
+        Expression::Function { body, .. } => match body.as_ref() {
+            Expression::Return { value, .. } => assert!(value.is_none()),
+            other => panic!("expected bare return, got {:?}", other),
+        },
+        other => panic!("expected function expression, got {:?}", other),
     }
 }
 

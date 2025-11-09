@@ -427,6 +427,44 @@ fn test_parse_function_with_default_params() {
     }
 }
 
+#[test]
+fn test_function_body_let_initializer_allows_trailing_lambda() {
+    let expr = parse_expression(
+        r#"
+        fun pipeline(numbers: Sequence<Int>): Sequence<Int> {
+            let doubled = numbers.Map { it * 2 }
+            doubled
+        }
+    "#,
+    )
+        .expect("function parses");
+
+    match expr {
+        Expression::Function { body, .. } => match body.as_ref() {
+            Expression::Block { expressions, .. } => {
+                assert_eq!(expressions.len(), 2);
+                match &expressions[0] {
+                    Expression::Let { value, .. } => match value.as_ref() {
+                        Expression::Call { args, .. } => {
+                            assert_eq!(args.len(), 1);
+                            match &args[0] {
+                                Expression::Lambda { params, .. } => {
+                                    assert_eq!(params.len(), 1);
+                                }
+                                other => panic!("expected lambda argument, got {:?}", other),
+                            }
+                        }
+                        other => panic!("expected call on let initializer, got {:?}", other),
+                    },
+                    other => panic!("expected let binding as first statement, got {:?}", other),
+                }
+            }
+            other => panic!("expected block body, got {:?}", other),
+        },
+        other => panic!("expected function expression, got {:?}", other),
+    }
+}
+
 // Additional Default Parameter Tests (following Syntax Design spec)
 
 #[test]

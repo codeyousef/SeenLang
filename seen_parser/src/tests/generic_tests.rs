@@ -188,3 +188,65 @@ fn test_parse_generic_with_nullable() {
     assert_eq!(type_result.generics[0].name, "String");
     assert!(type_result.generics[0].is_nullable);
 }
+
+#[test]
+fn test_parse_generic_class_definition_with_struct_literal() {
+    let source = r#"
+class Vec<T> {
+    var data: Array<T>
+    var length: Int
+
+    fun new() -> Vec<T> {
+        return Vec{ data: Array<T>(), length: 0 }
+    }
+
+    fun toArray() -> Array<T> {
+        let out = Array<T>()
+        for index in range(0, length) {
+            out.push(data[index])
+        }
+        return out
+    }
+}
+"#;
+
+    let expr = parse_expression(source).expect("class parses");
+    match expr {
+        Expression::ClassDefinition {
+            name,
+            generics,
+            fields,
+            ..
+        } => {
+            assert_eq!(name, "Vec");
+            assert_eq!(generics, vec!["T".to_string()]);
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].name, "data");
+            assert_eq!(fields[0].field_type.name, "Array");
+            assert_eq!(fields[0].field_type.generics.len(), 1);
+            assert_eq!(fields[0].field_type.generics[0].name, "T");
+        }
+        other => panic!("expected class definition, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_extension_function_with_generics() {
+    let source = r#"
+fun <T> List<T>.isEmpty() -> Bool {
+    return this.size() == 0
+}
+"#;
+
+    let expr = parse_expression(source).expect("parse extension function");
+    match expr {
+        Expression::Function {
+            generics, receiver, ..
+        } => {
+            assert_eq!(generics, vec!["T".to_string()]);
+            let recv = receiver.expect("expected receiver");
+            assert_eq!(recv.type_name, "List");
+        }
+        other => panic!("Expected function expression, got {:?}", other),
+    }
+}

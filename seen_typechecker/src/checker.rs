@@ -792,12 +792,13 @@ impl TypeChecker {
             // Function definition
             Expression::Function {
                 name,
+                generics,
                 params,
                 return_type,
                 body,
                 pos,
                 ..
-            } => self.check_function_definition(name, params, return_type, body, *pos),
+            } => self.check_function_definition(name, generics, params, return_type, body, *pos),
 
             // Interface definition
             Expression::Interface {
@@ -1671,6 +1672,20 @@ impl TypeChecker {
 
     /// Type check function definition
     fn check_function_definition(
+        &mut self,
+        name: &str,
+        generics: &[String],
+        params: &[seen_parser::ast::Parameter],
+        return_type: &Option<seen_parser::ast::Type>,
+        body: &Expression,
+        pos: Position,
+    ) -> Type {
+        self.with_generics(generics, |checker| {
+            checker.check_function_definition_inner(name, params, return_type, body, pos.clone())
+        })
+    }
+
+    fn check_function_definition_inner(
         &mut self,
         name: &str,
         params: &[seen_parser::ast::Parameter],

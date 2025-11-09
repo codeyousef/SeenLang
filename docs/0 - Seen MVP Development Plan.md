@@ -530,19 +530,24 @@ and installers across every supported platform.
 
 ### PROD-4a. Parser Hardening for Stdlib & Tooling
 
-*Status:* 🔄 New — current parser still rejects syntax already in `seen_std`, blocking further stdlib work and bootstrap
-validation.
+*Status:* 🔄 In progress — parser now accepts class/struct generics, struct literals, and `<` disambiguation, and the new
+statement parser (with newline terminators) restored trailing-lambda call sites plus regression tests.
 
-* **Outstanding tasks:**
-    1. Support generic parameters on class/struct definitions and expression-level `class Foo<T>` constructs (parser +
-       AST + downstream consumers).
-    2. Implement struct/class literal syntax (`Type{ field: value }`) so bootstrap modules no longer require rust-side
-       shims.
-    3. Disambiguate `<` as type argument vs comparison (lookahead + Pratt adjustments) so `Array<T>` / `Map<K, V>` parse
-       reliably inside expressions.
-    4. Introduce true statement parsing (let/while/for/expr statements, newline/semicolon terminators) so block bodies
-       in loops and tests stop mis-parsing.
-    5. Expand parser test coverage with fixtures mirroring the existing stdlib syntax to guard regressions.
+* **Completed this sprint:**
+    - Class/struct definitions and literals support generics end-to-end, including `<` expression disambiguation.
+    - Statement blocks now parse real statements (let/var/return/loops) with newline terminators, so stdlib control-flow
+      bodies stop hijacking `{ … }` as trailing lambdas.
+    - Added parser fixtures covering while-blocks with nested if/else, trailing lambdas inside statement bodies, and
+      let-initializers that pass lambdas through, so regressions surface immediately.
+
+* **Remaining tasks:**
+    1. Wire the new AST surfaces (class generics + literals) through `seen_typechecker` and `seen_ir` so the pipeline
+       accepts the syntax the parser now emits.
+    2. Re-enable manifest-module loading by finishing `seen_cli/tests/manifest_modules.rs` and running
+       `SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli -- run seen_std/tests/vec_basic.seen` as a standing gate.
+    3. Backfill parser + CLI fixtures for `extern "C"` declarations, nested statement blocks, and manifest-driven
+       modules
+       so PROD-4a stays green once downstream consumers update.
 
 ### PROD-5. Production QA & Platform Certification
 
