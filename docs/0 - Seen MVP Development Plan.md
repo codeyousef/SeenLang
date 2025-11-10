@@ -525,8 +525,11 @@ and installers across every supported platform.
 * **Progress:** Drafted `docs/crash-triage.md` describing the desired workflow and added `seen doctor [--dump-build-id]`
   so engineers can read the embedded git hash/timestamp and inspect binaries for `.note.seen.build_id` sections.
 * **Update:** Linux/Android LLVM builds now inject `.note.seen.build_id` sections at link time (via `llvm-objcopy`), so
-  Stage3 artifacts and Android bundles report doctor-friendly hashes. Remaining work: extend crash hooks, implement
-  `seen trace --runtime/--replay`, and publish the full triage playbook alongside release notes.
+  Stage3 artifacts and Android bundles report doctor-friendly hashes. CLI `seen trace --runtime/--replay` now captures
+  interpreter events (program start/end, function/method entry, and failures) into JSON traces, plus a replay printer
+  and
+  regression tests so Alpha’s trace/replay gate has a working baseline. Remaining work: wire the crash hooks/effect
+  breadcrumbs into those traces and publish the full triage playbook alongside the release notes.
 
 ### PROD-4a. Parser Hardening for Stdlib & Tooling
 

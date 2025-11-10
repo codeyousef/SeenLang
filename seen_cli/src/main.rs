@@ -9,9 +9,10 @@ use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
     precedence, BinaryOperator, Expression, HardwareProfile, IRGenerator, IROptimizer, IRProgram,
     Interpreter, KeywordManager, Lexer, LexerConfig, MemoryAnalysisResult, MemoryManager,
-    MemoryTopologyPreference, OptimizationLevel, Position, Program, SeenError, SeenErrorKind,
-    SeenParser, SeenResult, SimdPolicy, TokenType, Type, TypeChecker, UnaryOperator, Value,
-    VisibilityPolicy,
+    MemoryTopologyPreference, OptimizationLevel, Position, Program, RuntimeTraceEvent,
+    RuntimeTraceFile, RuntimeTraceHandle, RuntimeTraceMetadata, RuntimeTraceValue, SeenError,
+    SeenErrorKind, SeenParser, SeenResult, SimdPolicy, TokenType, Type, TypeChecker, UnaryOperator,
+    Value, VisibilityPolicy,
 };
 use seen_cranelift::program_to_clif;
 #[cfg(feature = "llvm")]
@@ -54,6 +55,16 @@ enum Profile {
 impl Default for Profile {
     fn default() -> Self {
         Profile::Default
+    }
+}
+
+impl fmt::Display for Profile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Profile::Default => "default",
+            Profile::Deterministic => "deterministic",
+        };
+        write!(f, "{}", label)
     }
 }
 
@@ -280,15 +291,27 @@ enum Commands {
         opt_level: u8,
     },
 
-    /// Emit optimized IR trace for inspection
+    /// Inspect IR or capture/replay runtime traces
     Trace {
         /// Input file to trace
         #[arg(value_name = "FILE")]
-        input: PathBuf,
+        input: Option<PathBuf>,
 
         /// Optimization level
         #[arg(short = 'O', long, default_value = "0")]
         opt_level: u8,
+
+        /// Capture a runtime trace (writes JSON)
+        #[arg(long = "runtime", value_name = "TRACE")]
+        runtime_trace: Option<PathBuf>,
+
+        /// Replay a previously captured runtime trace
+        #[arg(long = "replay", value_name = "TRACE")]
+        replay_trace: Option<PathBuf>,
+
+        /// Arguments to pass to the program when capturing runtime traces
+        #[arg(last = true)]
+        args: Vec<String>,
     },
 
     /// Package a directory into a zip archive
@@ -942,7 +965,7 @@ fn main() -> SeenResult<()> {
                             "warning: --simd is ignored by the interpreter backend; rerun with --backend llvm to honor it"
                         );
                     }
-                    run_file(&input, &args, keyword_manager)?
+                    run_file(&input, &args, keyword_manager, None)?
                 }
                 Backend::Llvm => {
                     #[cfg(feature = "llvm")]
@@ -998,8 +1021,47 @@ fn main() -> SeenResult<()> {
         Some(Commands::Ir { input, opt_level }) => {
             generate_ir(&input, opt_level, keyword_manager)?;
         }
-        Some(Commands::Trace { input, opt_level }) => {
-            trace_ir(&input, opt_level, keyword_manager)?;
+        Some(Commands::Trace {
+                 input,
+                 opt_level,
+                 runtime_trace,
+                 replay_trace,
+                 args,
+             }) => {
+            if let Some(trace_path) = replay_trace {
+                replay_runtime_trace(&trace_path)?;
+                if runtime_trace.is_none() && input.is_none() {
+                    return Ok(());
+                }
+            }
+
+            if let Some(runtime_path) = runtime_trace {
+                let program = input
+                    .as_ref()
+                    .ok_or_else(|| {
+                        SeenError::new(
+                            SeenErrorKind::Tooling,
+                            "trace --runtime requires an input Seen file",
+                        )
+                    })?
+                    .to_path_buf();
+                run_with_runtime_trace(
+                    &program,
+                    opt_level,
+                    args.as_slice(),
+                    keyword_manager,
+                    &runtime_path,
+                    cli.profile,
+                )?;
+            } else {
+                let program = input.ok_or_else(|| {
+                    SeenError::new(
+                        SeenErrorKind::Tooling,
+                        "trace requires an input file unless --replay is used",
+                    )
+                })?;
+                trace_ir(&program, opt_level, keyword_manager)?;
+            }
         }
         Some(Commands::Pkg { input, output }) => {
             package_directory(&input, output.as_deref())?;
@@ -3194,7 +3256,12 @@ fn resolve_embed_path(value: AttributeValue, module_dir: &Path) -> AttributeValu
     }
 }
 
-fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>) -> SeenResult<()> {
+fn run_file(
+    input: &Path,
+    args: &[String],
+    keyword_manager: Arc<KeywordManager>,
+    trace_handle: Option<RuntimeTraceHandle>,
+) -> SeenResult<()> {
     // Read source file
     let source = fs::read_to_string(input).map_err(|err| {
         SeenError::new(
@@ -3259,6 +3326,9 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
 
     // Interpret the program
     let mut interpreter = Interpreter::new();
+    if let Some(handle) = trace_handle {
+        interpreter.set_trace_handle(handle);
+    }
     // Forward program args via env for __GetCommandLineArgs override
     if !args.is_empty() {
         let mut s = String::from("seen");
@@ -3275,6 +3345,199 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     }
 
     Ok(())
+}
+
+fn run_with_runtime_trace(
+    input: &Path,
+    opt_level: u8,
+    args: &[String],
+    keyword_manager: Arc<KeywordManager>,
+    trace_path: &Path,
+    profile: Profile,
+) -> SeenResult<()> {
+    let metadata = RuntimeTraceMetadata {
+        program: input.display().to_string(),
+        opt_level,
+        cli_profile: profile.to_string(),
+        args: args.to_vec(),
+        seen_version: env!("CARGO_PKG_VERSION").to_string(),
+        host: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+    };
+    let trace_handle = RuntimeTraceHandle::new(metadata);
+
+    run_file(input, args, keyword_manager, Some(trace_handle.clone()))?;
+
+    if let Some(parent) = trace_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(|err| {
+            SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Failed to create trace directory {}: {}",
+                    parent.display(),
+                    err
+                ),
+            )
+        })?;
+    }
+
+    let trace_file = trace_handle.into_trace_file();
+    let mut file = File::create(trace_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to create trace file {}: {}",
+                trace_path.display(),
+                err
+            ),
+        )
+    })?;
+    serde_json::to_writer_pretty(&mut file, &trace_file).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to serialize runtime trace to {}: {}",
+                trace_path.display(),
+                err
+            ),
+        )
+    })?;
+
+    println!(
+        "Captured runtime trace with {} events -> {}",
+        trace_file.events.len(),
+        trace_path.display()
+    );
+    Ok(())
+}
+
+fn replay_runtime_trace(trace_path: &Path) -> SeenResult<()> {
+    let file = File::open(trace_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!(
+                "Failed to open trace file {}: {}",
+                trace_path.display(),
+                err
+            ),
+        )
+    })?;
+    let trace: RuntimeTraceFile = serde_json::from_reader(file).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Failed to parse runtime trace {}: {}",
+                trace_path.display(),
+                err
+            ),
+        )
+    })?;
+
+    println!(
+        "Replaying runtime trace from {} (opt {}, profile {}, host {}, seen {})",
+        trace.metadata.program,
+        trace.metadata.opt_level,
+        trace.metadata.cli_profile,
+        trace.metadata.host,
+        trace.metadata.seen_version
+    );
+    for event in trace.events {
+        match event {
+            RuntimeTraceEvent::ProgramStart { expression_count } => {
+                println!("[program] start ({} expressions)", expression_count);
+            }
+            RuntimeTraceEvent::ProgramEnd { result } => {
+                println!("[program] end => {}", format_trace_value(&result));
+            }
+            RuntimeTraceEvent::ProgramError { message } => {
+                println!("[program] error: {}", message);
+            }
+            RuntimeTraceEvent::FunctionEnter { name, arguments } => {
+                println!(
+                    "[fn {}] enter({})",
+                    name,
+                    arguments
+                        .iter()
+                        .map(format_trace_value)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            RuntimeTraceEvent::FunctionExit { name, result } => {
+                println!("[fn {}] exit => {}", name, format_trace_value(&result));
+            }
+            RuntimeTraceEvent::FunctionError { name, message } => {
+                println!("[fn {}] error: {}", name, message);
+            }
+            RuntimeTraceEvent::MethodEnter {
+                class,
+                method,
+                arguments,
+            } => {
+                println!(
+                    "[method {}::{}] enter({})",
+                    class,
+                    method,
+                    arguments
+                        .iter()
+                        .map(format_trace_value)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            RuntimeTraceEvent::MethodExit {
+                class,
+                method,
+                result,
+            } => {
+                println!(
+                    "[method {}::{}] exit => {}",
+                    class,
+                    method,
+                    format_trace_value(&result)
+                );
+            }
+            RuntimeTraceEvent::MethodError {
+                class,
+                method,
+                message,
+            } => {
+                println!("[method {}::{}] error: {}", class, method, message);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn format_trace_value(value: &RuntimeTraceValue) -> String {
+    match value {
+        RuntimeTraceValue::Unit => "()".to_string(),
+        RuntimeTraceValue::Null => "null".to_string(),
+        RuntimeTraceValue::Integer(i) => i.to_string(),
+        RuntimeTraceValue::Float(f) => f.to_string(),
+        RuntimeTraceValue::Boolean(b) => b.to_string(),
+        RuntimeTraceValue::String(s) => format!("\"{}\"", s),
+        RuntimeTraceValue::Character(c) => format!("'{}'", c),
+        RuntimeTraceValue::Array { length } => format!("[len={}]", length),
+        RuntimeTraceValue::Bytes { length } => format!("<bytes {}>", length),
+        RuntimeTraceValue::Struct { name } => format!("{}{{...}}", name),
+        RuntimeTraceValue::Class { name } => format!("<class {}>", name),
+        RuntimeTraceValue::Function { name } => format!("<fn {}>", name),
+        RuntimeTraceValue::Promise { state } => format!("<promise {}>", state),
+        RuntimeTraceValue::Task => "<task>".to_string(),
+        RuntimeTraceValue::Channel => "<channel>".to_string(),
+        RuntimeTraceValue::Actor => "<actor>".to_string(),
+        RuntimeTraceValue::Effect { name } => format!("<effect {}>", name),
+        RuntimeTraceValue::EffectHandle { effect_id } => {
+            format!("<effect-handle {}>", effect_id)
+        }
+        RuntimeTraceValue::Observable => "<observable>".to_string(),
+        RuntimeTraceValue::Flow => "<flow>".to_string(),
+        RuntimeTraceValue::ReactiveProperty { name } => {
+            format!("<reactive-property {}>", name)
+        }
+        RuntimeTraceValue::Unknown { type_name } => format!("<{}>", type_name),
+    }
 }
 
 #[cfg(feature = "llvm")]

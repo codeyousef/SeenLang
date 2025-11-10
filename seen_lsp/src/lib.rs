@@ -452,8 +452,7 @@ impl SeenLanguageServer {
                         SymbolInfo {
                             name: format!("{}::{}", target_type.name, method.name),
                             kind: SymbolKind::METHOD,
-                            definition: location
-                            
+                            definition: location,
                         },
                     );
                 }

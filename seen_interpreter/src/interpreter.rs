@@ -4,6 +4,7 @@ use crate::actor_executor::InterpreterActorExecutor;
 use crate::builtins::BuiltinRegistry;
 use crate::errors::{InterpreterError, InterpreterResult};
 use crate::runtime::{Environment, Runtime};
+use crate::trace::{RuntimeTraceEvent, RuntimeTraceHandle, RuntimeTraceValue};
 use crate::value::Value;
 use crate::value_bridge::{async_to_value, value_to_async};
 use seen_concurrency::{
@@ -279,6 +280,8 @@ pub struct Interpreter {
     flow_collectors: Vec<Vec<Value>>,
     /// Executor used to evaluate actor handler bodies
     actor_executor: Arc<InterpreterActorExecutor>,
+    /// Optional runtime trace sink
+    runtime_trace: Option<RuntimeTraceHandle>,
 }
 
 impl Interpreter {
@@ -303,34 +306,77 @@ impl Interpreter {
             reactive_bindings: HashMap::new(),
             flow_collectors: Vec::new(),
             actor_executor,
+            runtime_trace: None,
+        }
+    }
+
+    /// Attach a trace handle so runtime events are captured.
+    pub fn set_trace_handle(&mut self, handle: RuntimeTraceHandle) {
+        self.runtime_trace = Some(handle);
+    }
+
+    fn trace_event(&self, event: RuntimeTraceEvent) {
+        if let Some(handle) = &self.runtime_trace {
+            handle.record(event);
         }
     }
 
     /// Interpret a complete program
     pub fn interpret(&mut self, program: &Program) -> InterpreterResult<Value> {
+        self.trace_event(RuntimeTraceEvent::ProgramStart {
+            expression_count: program.expressions.len(),
+        });
         let mut last_value = Value::Unit;
 
         for expr in &program.expressions {
-            last_value = self.interpret_expression(expr)?;
+            match self.interpret_expression(expr) {
+                Ok(value) => {
+                    last_value = value;
+                }
+                Err(err) => {
+                    let message = format!("{}", err);
+                    self.trace_event(RuntimeTraceEvent::ProgramError { message });
+                    return Err(err);
+                }
+            }
 
             // Check for early return
             if self.return_flag {
-                return Ok(self.return_value.take().unwrap_or(Value::Unit));
+                let value = self.return_value.take().unwrap_or(Value::Unit);
+                self.trace_event(RuntimeTraceEvent::ProgramEnd {
+                    result: RuntimeTraceValue::from_value(&value),
+                });
+                return Ok(value);
             }
         }
 
         // Execute any deferred work registered at the top level. Keep draining until empty
         loop {
-            let deferred = self
+            let deferred = match self
                 .runtime
                 .take_current_deferred()
-                .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))?;
+                .map_err(|e| InterpreterError::runtime(e.to_string(), Position::start()))
+            {
+                Ok(value) => value,
+                Err(err) => {
+                    let message = format!("{}", err);
+                    self.trace_event(RuntimeTraceEvent::ProgramError { message });
+                    return Err(err);
+                }
+            };
             if deferred.is_empty() {
                 break;
             }
-            self.run_deferred(deferred)?;
+            if let Err(err) = self.run_deferred(deferred) {
+                let message = format!("{}", err);
+                self.trace_event(RuntimeTraceEvent::ProgramError { message });
+                return Err(err);
+            }
         }
 
+        self.trace_event(RuntimeTraceEvent::ProgramEnd {
+            result: RuntimeTraceValue::from_value(&last_value),
+        });
         Ok(last_value)
     }
 
@@ -1251,10 +1297,18 @@ impl Interpreter {
             for arg in args {
                 arg_values.push(self.interpret_expression(arg)?);
             }
+            let arg_summaries: Vec<RuntimeTraceValue> = arg_values
+                .iter()
+                .map(RuntimeTraceValue::from_value)
+                .collect();
+            self.trace_event(RuntimeTraceEvent::FunctionEnter {
+                name: name.clone(),
+                arguments: arg_summaries,
+            });
 
             self.runtime.push_environment(true);
 
-            for (param, value) in parameters.iter().zip(arg_values) {
+            for (param, value) in parameters.iter().zip(arg_values.into_iter()) {
                 self.runtime.define_variable(param.clone(), value);
             }
 
@@ -1285,7 +1339,7 @@ impl Interpreter {
                 .pop_environment()
                 .map_err(|e| InterpreterError::runtime(e.to_string(), pos))?;
 
-            match result {
+            let final_result = match result {
                 Ok(val) => {
                     if let Err(err) = defer_result {
                         Err(err)
@@ -1294,6 +1348,24 @@ impl Interpreter {
                     }
                 }
                 Err(e) => Err(e),
+            };
+
+            match final_result {
+                Ok(value) => {
+                    self.trace_event(RuntimeTraceEvent::FunctionExit {
+                        name: name.clone(),
+                        result: RuntimeTraceValue::from_value(&value),
+                    });
+                    Ok(value)
+                }
+                Err(err) => {
+                    let message = format!("{}", err);
+                    self.trace_event(RuntimeTraceEvent::FunctionError {
+                        name: name.clone(),
+                        message,
+                    });
+                    Err(err)
+                }
             }
         } else {
             Err(InterpreterError::type_error(
@@ -2630,6 +2702,16 @@ impl Interpreter {
             }
         }
 
+        let arg_summaries: Vec<RuntimeTraceValue> = evaluated_args
+            .iter()
+            .map(RuntimeTraceValue::from_value)
+            .collect();
+        self.trace_event(RuntimeTraceEvent::MethodEnter {
+            class: class_name.to_string(),
+            method: method_name.to_string(),
+            arguments: arg_summaries,
+        });
+
         self.runtime.push_environment(true);
 
         let mut context_pushed = false;
@@ -2687,14 +2769,33 @@ impl Interpreter {
         self.break_flag = prev_break;
         self.continue_flag = prev_continue;
 
-        let mut final_result = match_result?;
+        let mut call_result = match_result;
 
-        if self.return_flag {
-            final_result = self.return_value.take().unwrap_or(Value::Unit);
+        if call_result.is_ok() && self.return_flag {
+            let ret = self.return_value.take().unwrap_or(Value::Unit);
             self.return_flag = false;
+            call_result = Ok(ret);
         }
 
-        Ok(final_result)
+        match call_result {
+            Ok(value) => {
+                self.trace_event(RuntimeTraceEvent::MethodExit {
+                    class: class_name.to_string(),
+                    method: method_name.to_string(),
+                    result: RuntimeTraceValue::from_value(&value),
+                });
+                Ok(value)
+            }
+            Err(err) => {
+                let message = format!("{}", err);
+                self.trace_event(RuntimeTraceEvent::MethodError {
+                    class: class_name.to_string(),
+                    method: method_name.to_string(),
+                    message,
+                });
+                Err(err)
+            }
+        }
     }
 
     fn lookup_instance_field(&self, name: &str) -> Option<Value> {

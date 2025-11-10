@@ -26,7 +26,10 @@ pub use seen_ir::{
 };
 
 // Interpreter facade.
-pub use seen_interpreter::{Interpreter, Value};
+pub use seen_interpreter::{
+    Interpreter, RuntimeTraceEvent, RuntimeTraceFile, RuntimeTraceHandle, RuntimeTraceMetadata,
+    RuntimeTraceValue, Value,
+};
 
 // Memory manager facade.
 pub use seen_memory_manager::{
