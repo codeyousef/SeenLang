@@ -200,8 +200,8 @@ impl IRGenerator {
                 Expression::ContractedFunction {
                     function,
                     requires,
-                    ensures,
-                    invariants,
+                    ensures: _ensures,
+                    invariants: _invariants,
                     ..
                 } => {
                     // Extract the actual function from the contracted function
@@ -215,8 +215,6 @@ impl IRGenerator {
                     {
                         // Generate contract checks if needed
                         // Generate function with embedded contract verification
-                        let mut contract_body: Vec<Instruction> = Vec::new();
-
                         // Add precondition checks
                         if let Some(requires_expr) = requires {
                             // Generate code to check precondition
@@ -461,7 +459,7 @@ impl IRGenerator {
         left_instructions.extend(right_instructions);
 
         // Helper: detect string-typed expressions (basic cases)
-        let mut is_string_expr = |expr: &Expression| -> bool {
+        let is_string_expr = |expr: &Expression| -> bool {
             match expr {
                 Expression::StringLiteral { .. } | Expression::InterpolatedString { .. } => true,
                 Expression::Identifier { name, .. } => self
@@ -1278,10 +1276,6 @@ impl IRGenerator {
         // Generate the operand expression
         let (source_value, mut instructions) = self.generate_expression(operand)?;
 
-        // Create a reference type to the source value
-        let source_type = source_value.get_type();
-        let reference_type = IRType::Pointer(Box::new(source_type));
-
         // Create register for the reference
         let ref_register = self.context.allocate_register();
         let ref_value = IRValue::Register(ref_register);
@@ -1758,7 +1752,6 @@ impl IRGenerator {
                     // Step 3: If tag matches, extract and bind field values if needed
                     if !fields.is_empty() {
                         // Create a conditional block for field extraction
-                        let extract_label = self.context.create_label("extract_fields");
                         let skip_label = self.context.create_label("skip_extract");
 
                         instructions.push(Instruction::JumpIfNot {

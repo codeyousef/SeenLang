@@ -58,7 +58,7 @@ pub fn try_simplify_binary(
     let mut expr = RecExpr::<SeenLang>::default();
     let left_id = push_leaf(left, &mut expr, &mut sym_map)?;
     let right_id = push_leaf(right, &mut expr, &mut sym_map)?;
-    let root = match op {
+    let _root = match op {
         Add => expr.add(SeenLang::Add([left_id, right_id])),
         Subtract => expr.add(SeenLang::Sub([left_id, right_id])),
         Multiply => expr.add(SeenLang::Mul([left_id, right_id])),

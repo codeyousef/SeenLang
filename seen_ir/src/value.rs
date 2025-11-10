@@ -266,7 +266,7 @@ impl IRValue {
                     fields: field_types,
                 }
             }
-            IRValue::Function { name, parameters } => {
+            IRValue::Function { name: _, parameters } => {
                 // For function values, we need to look up the actual function signature
                 // This requires access to the function registry/symbol table
                 // Generate a concrete function type based on parameter count

@@ -16,7 +16,7 @@ use seen_memory_manager::MemoryManager;
 use seen_parser::ast::Expression;
 use seen_parser::ast::Program;
 use seen_parser::Parser;
-use seen_typechecker::{TypeCheckResult, TypeChecker};
+use seen_typechecker::TypeChecker;
 
 /// Symbol information for definitions and references
 #[derive(Debug, Clone)]
@@ -27,8 +27,6 @@ struct SymbolInfo {
     kind: SymbolKind,
     /// Definition location
     definition: Location,
-    /// All references to this symbol
-    references: Vec<Location>,
 }
 
 /// Document information stored by the LSP server
@@ -40,8 +38,6 @@ struct DocumentInfo {
     version: i32,
     /// Parsed AST
     ast: Option<Program>,
-    /// Type checking results
-    type_info: Option<TypeCheckResult>,
     /// Diagnostic results
     diagnostics: Vec<Diagnostic>,
     /// Symbol table for this document
@@ -56,8 +52,6 @@ pub struct SeenLanguageServer {
     documents: Arc<RwLock<HashMap<Url, DocumentInfo>>>,
     /// Language configuration (keywords for different languages)
     language_config: Arc<RwLock<String>>,
-    /// Global symbol index across all documents
-    global_symbols: Arc<RwLock<HashMap<String, Vec<SymbolInfo>>>>,
 }
 
 impl SeenLanguageServer {
@@ -67,7 +61,6 @@ impl SeenLanguageServer {
             client,
             documents: Arc::new(RwLock::new(HashMap::new())),
             language_config: Arc::new(RwLock::new("en".to_string())),
-            global_symbols: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -76,11 +69,11 @@ impl SeenLanguageServer {
         let mut diagnostics = Vec::new();
 
         // Load keyword manager for the current language
-        let language = self.language_config.read().await.clone();
+        let _language = self.language_config.read().await.clone();
         let keyword_manager = Arc::new(KeywordManager::new());
 
         // Lexical analysis
-        let mut lexer = Lexer::new(content.to_string(), keyword_manager);
+        let lexer = Lexer::new(content.to_string(), keyword_manager);
         let visibility_policy = lexer.config().visibility_policy;
 
         // Parse the tokens
@@ -375,7 +368,6 @@ impl SeenLanguageServer {
                         name: name.clone(),
                         kind: SymbolKind::FUNCTION,
                         definition: location,
-                        references: Vec::new(),
                     },
                 );
             }
@@ -393,7 +385,6 @@ impl SeenLanguageServer {
                         name: name.clone(),
                         kind: SymbolKind::VARIABLE,
                         definition: location,
-                        references: Vec::new(),
                     },
                 );
                 // Also check the value expression
@@ -411,7 +402,6 @@ impl SeenLanguageServer {
                         name: name.clone(),
                         kind: SymbolKind::STRUCT,
                         definition: location,
-                        references: Vec::new(),
                     },
                 );
             }
@@ -427,7 +417,6 @@ impl SeenLanguageServer {
                         name: name.clone(),
                         kind: SymbolKind::CLASS,
                         definition: location,
-                        references: Vec::new(),
                     },
                 );
             }
@@ -443,7 +432,6 @@ impl SeenLanguageServer {
                         name: name.clone(),
                         kind: SymbolKind::TYPE_PARAMETER,
                         definition: location,
-                        references: Vec::new(),
                     },
                 );
             }
@@ -464,8 +452,8 @@ impl SeenLanguageServer {
                         SymbolInfo {
                             name: format!("{}::{}", target_type.name, method.name),
                             kind: SymbolKind::METHOD,
-                            definition: location,
-                            references: Vec::new(),
+                            definition: location
+                            
                         },
                     );
                 }
@@ -786,7 +774,7 @@ impl LanguageServer for SeenLanguageServer {
 
         // Try to parse for symbol extraction
         let keyword_manager = Arc::new(KeywordManager::new());
-        let mut lexer = Lexer::new(content.clone(), keyword_manager);
+        let lexer = Lexer::new(content.clone(), keyword_manager);
         let visibility_policy = lexer.config().visibility_policy;
         let mut parser = Parser::new_with_visibility(lexer, visibility_policy);
         if let Ok(program) = parser.parse_program() {
@@ -802,7 +790,6 @@ impl LanguageServer for SeenLanguageServer {
                 content,
                 version,
                 ast,
-                type_info: None,
                 diagnostics: diagnostics.clone(),
                 symbols,
             },
@@ -830,7 +817,7 @@ impl LanguageServer for SeenLanguageServer {
 
             // Try to parse for symbol extraction
             let keyword_manager = Arc::new(KeywordManager::new());
-            let mut lexer = Lexer::new(content.clone(), keyword_manager);
+            let lexer = Lexer::new(content.clone(), keyword_manager);
             let visibility_policy = lexer.config().visibility_policy;
             let mut parser = Parser::new_with_visibility(lexer, visibility_policy);
             if let Ok(program) = parser.parse_program() {
@@ -1085,14 +1072,16 @@ impl LanguageServer for SeenLanguageServer {
             let mut symbols = Vec::new();
 
             for symbol_info in doc.symbols.values() {
-                symbols.push(SymbolInformation {
+                #[allow(deprecated)]
+                let symbol = SymbolInformation {
                     name: symbol_info.name.clone(),
                     kind: symbol_info.kind,
                     tags: None,
                     deprecated: None,
                     location: symbol_info.definition.clone(),
                     container_name: None,
-                });
+                };
+                symbols.push(symbol);
             }
 
             if !symbols.is_empty() {

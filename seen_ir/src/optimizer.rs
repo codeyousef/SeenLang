@@ -4,7 +4,7 @@ use crate::{
     function::{IRFunction, InlineHint, SimdDecisionReason, SimdMode},
     instruction::{BasicBlock, BinaryOp, Instruction, UnaryOp},
     module::IRModule,
-    value::{IRType, IRValue},
+    value::IRValue,
     HardwareProfile, IRProgram, IRResult, SimdPolicy,
 };
 mod egraph;
@@ -15,6 +15,9 @@ use ml::{
     OptimizationProfileWriter, RegisterPressurePlan,
 };
 use std::collections::{HashMap, HashSet};
+
+#[cfg(test)]
+use crate::value::IRType;
 
 const MIN_SIMD_ARITHMETIC_OPS: usize = 2;
 
@@ -1420,6 +1423,7 @@ impl IROptimizer {
     }
 
     /// Optimize loop invariant code motion
+    #[allow(dead_code)]
     fn optimize_loop_invariants(&mut self, _function: &mut IRFunction) -> IRResult<()> {
         // Loop invariant code motion: identify computations that don't change within loops
         // and move them to execute before the loop begins
@@ -1434,6 +1438,7 @@ impl IROptimizer {
     }
 
     /// Optimize loop unrolling for small loops
+    #[allow(dead_code)]
     fn optimize_loop_unrolling(&mut self, _function: &mut IRFunction) -> IRResult<()> {
         // Loop unrolling: duplicate loop body to reduce loop overhead
         // and enable better instruction scheduling
