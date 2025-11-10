@@ -559,10 +559,14 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
         s
         and direct `IO.Read()` invocations route through the effect runtime (raising a sensible error if no handler is
         installed); interpreter tests cover both the success and failure paths.
-  - Actor runtime now tracks pending request promises (with timeouts) and the interpreter’s `request … from actor`
-    expression produces real `Promise` values. New unit coverage in `seen_concurrency::actors` plus an interpreter
-    regression ensure pending requests resolve/reject deterministically before we wire stdlib actors through the
-    manifest gate.
+    - Actor runtime now tracks pending request promises (with timeouts) and the interpreter’s `request … from actor`
+      expression produces real `Promise` values. New unit coverage in `seen_concurrency::actors` plus an interpreter
+      regression ensure pending requests resolve/reject deterministically before we wire stdlib actors through the
+      manifest gate.
+    - Actor handler bodies now execute through the real interpreter runtime so assignments mutate per-actor state and
+      scoped variables survive block boundaries. Executors install instance contexts for each actor, the interpreter
+      updates `ActorInstance::state` via those contexts, and regression tests cover `Inc`/`Get` handlers retaining state
+      across multiple requests.
 
 * **Remaining tasks:**
     1. Execute real actor handler bodies/reactive factories instead of echoing payloads so manifest-loaded stdlib actors

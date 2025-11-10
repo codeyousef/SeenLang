@@ -1,9 +1,11 @@
 //! Main interpreter implementation for the Seen programming language
 
+use crate::actor_executor::InterpreterActorExecutor;
 use crate::builtins::BuiltinRegistry;
 use crate::errors::{InterpreterError, InterpreterResult};
 use crate::runtime::{Environment, Runtime};
 use crate::value::Value;
+use crate::value_bridge::{async_to_value, value_to_async};
 use seen_concurrency::{
     actors::{ActorDefinition as RuntimeActorDefinition, MessageHandler as RuntimeMessageHandler},
     async_runtime::AsyncExecutionContext,
@@ -270,13 +272,19 @@ pub struct Interpreter {
     effect_handler_stack: Vec<EffectHandlerFrame>,
     /// Registered effect names to IDs
     effect_registry: HashMap<String, EffectId>,
+    /// Executor used to evaluate actor handler bodies
+    actor_executor: Arc<InterpreterActorExecutor>,
 }
 
 impl Interpreter {
     /// Create a new interpreter
     pub fn new() -> Self {
+        let mut runtime = Runtime::new();
+        let actor_executor = Arc::new(InterpreterActorExecutor::new());
+        runtime.set_actor_handler_executor(actor_executor.clone());
+
         Self {
-            runtime: Runtime::new(),
+            runtime,
             builtins: BuiltinRegistry::new(),
             class_registry: HashMap::new(),
             instance_stack: Vec::new(),
@@ -287,6 +295,7 @@ impl Interpreter {
             task_counter: std::sync::atomic::AtomicU64::new(1),
             effect_handler_stack: Vec::new(),
             effect_registry: HashMap::new(),
+            actor_executor,
         }
     }
 
@@ -1975,14 +1984,16 @@ impl Interpreter {
 
         let mut handler_map = HashMap::new();
         for handler in handlers {
-            handler_map.insert(
+            let mut runtime_handler = RuntimeMessageHandler::send_handler(
                 handler.message_type.clone(),
-                RuntimeMessageHandler::send_handler(
-                    handler.message_type.clone(),
-                    (*handler.body).clone(),
-                    pos,
-                ),
+                (*handler.body).clone(),
+                pos,
             );
+            let context_id = self
+                .actor_executor
+                .register_context(self.runtime.snapshot_environment());
+            runtime_handler.executor_context_id = Some(context_id);
+            handler_map.insert(handler.message_type.clone(), runtime_handler);
         }
 
         let definition =
@@ -2139,22 +2150,7 @@ impl Interpreter {
 
     /// Convert AsyncValue to interpreter Value
     fn async_value_to_value(&self, async_value: &AsyncValue) -> Value {
-        match async_value {
-            AsyncValue::Unit => Value::Unit,
-            AsyncValue::Integer(i) => Value::Integer(*i),
-            AsyncValue::Float(f) => Value::Float(*f),
-            AsyncValue::Boolean(b) => Value::Boolean(*b),
-            AsyncValue::String(s) => Value::String(s.clone()),
-            AsyncValue::Array(arr) => {
-                let values: Vec<Value> = arr.iter().map(|v| self.async_value_to_value(v)).collect();
-                Value::array_from_vec(values)
-            }
-            AsyncValue::Promise(promise) => Value::Promise(Arc::clone(promise)),
-            AsyncValue::Channel(channel) => Value::Channel(channel.clone()),
-            AsyncValue::Actor(actor) => Value::Actor(actor.clone()),
-            AsyncValue::Error => Value::Null, // Map error to null for now
-            AsyncValue::Pending => Value::Unit, // Map pending to unit
-        }
+        async_to_value(async_value)
     }
 
     /// Interpret effect definition
@@ -2498,27 +2494,7 @@ impl Interpreter {
 
     /// Convert Value to AsyncValue for reactive runtime
     fn value_to_async_value(&self, value: &Value) -> AsyncValue {
-        match value {
-            Value::Unit => AsyncValue::Unit,
-            Value::Integer(i) => AsyncValue::Integer(*i),
-            Value::Float(f) => AsyncValue::Float(*f),
-            Value::Boolean(b) => AsyncValue::Boolean(*b),
-            Value::String(s) => AsyncValue::String(s.clone()),
-            Value::Array(arr) => match arr.lock() {
-                Ok(values) => {
-                    let async_values = values
-                        .iter()
-                        .map(|v| self.value_to_async_value(v))
-                        .collect();
-                    AsyncValue::Array(async_values)
-                }
-                Err(_) => AsyncValue::Array(Vec::new()),
-            },
-            Value::Promise(promise) => AsyncValue::Promise(Arc::clone(promise)),
-            Value::Channel(channel) => AsyncValue::Channel(channel.clone()),
-            Value::Actor(actor) => AsyncValue::Actor(actor.clone()),
-            _ => AsyncValue::Unit, // Other types map to Unit for now
-        }
+        value_to_async(value)
     }
 
     fn value_to_effect_async_value(&self, value: &Value) -> EffectAsyncValue {
@@ -2755,6 +2731,25 @@ impl Default for Interpreter {
     }
 }
 
+impl Interpreter {
+    pub(crate) fn runtime_mut(&mut self) -> &mut Runtime {
+        &mut self.runtime
+    }
+
+    pub(crate) fn push_instance_context(
+        &mut self,
+        class_name: String,
+        fields: Arc<Mutex<HashMap<String, Value>>>,
+    ) {
+        self.instance_stack
+            .push(InstanceContext { class_name, fields });
+    }
+
+    pub(crate) fn pop_instance_context(&mut self) {
+        self.instance_stack.pop();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2796,8 +2791,9 @@ mod tests {
             handlers: vec![MessageHandler {
                 message_type: "Ping".to_string(),
                 params: vec![],
-                body: Box::new(Expression::IntegerLiteral {
-                    value: 1,
+                body: Box::new(Expression::Identifier {
+                    name: "__message_payload".to_string(),
+                    is_public: false,
                     pos: pos.clone(),
                 }),
             }],
@@ -2845,6 +2841,166 @@ mod tests {
             .expect("await should resolve request promise");
 
         assert_eq!(result, Value::Integer(7));
+    }
+
+    #[test]
+    fn actor_handlers_mutate_state_and_return_values() {
+        let mut interpreter = Interpreter::new();
+        let pos = Position::start();
+
+        let inc_body = Expression::Block {
+            expressions: vec![
+                Expression::Assignment {
+                    target: Box::new(Expression::Identifier {
+                        name: "count".to_string(),
+                        is_public: false,
+                        pos,
+                    }),
+                    value: Box::new(Expression::BinaryOp {
+                        left: Box::new(Expression::Identifier {
+                            name: "count".to_string(),
+                            is_public: false,
+                            pos,
+                        }),
+                        op: BinaryOperator::Add,
+                        right: Box::new(Expression::Identifier {
+                            name: "__message_payload".to_string(),
+                            is_public: false,
+                            pos,
+                        }),
+                        pos,
+                    }),
+                    pos,
+                },
+                Expression::Identifier {
+                    name: "count".to_string(),
+                    is_public: false,
+                    pos,
+                },
+            ],
+            pos,
+        };
+
+        let get_body = Expression::Identifier {
+            name: "count".to_string(),
+            is_public: false,
+            pos,
+        };
+
+        let actor_expr = Expression::Actor {
+            name: "Counter".to_string(),
+            fields: vec![(
+                "count".to_string(),
+                Type {
+                    name: "Int".to_string(),
+                    is_nullable: false,
+                    generics: vec![],
+                },
+            )],
+            handlers: vec![
+                MessageHandler {
+                    message_type: "Inc".to_string(),
+                    params: vec![],
+                    body: Box::new(inc_body),
+                },
+                MessageHandler {
+                    message_type: "Get".to_string(),
+                    params: vec![],
+                    body: Box::new(get_body),
+                },
+            ],
+            pos,
+        };
+
+        let actor_value = interpreter
+            .interpret_expression(&actor_expr)
+            .expect("actor creation should succeed");
+        let actor_ref = match &actor_value {
+            Value::Actor(actor_ref) => actor_ref.clone(),
+            _ => panic!("expected actor reference"),
+        };
+        interpreter
+            .runtime
+            .define_variable("counter".to_string(), actor_value);
+
+        {
+            let actor_system = interpreter.runtime.actor_system();
+            let system = actor_system.lock().expect("actor system lock poisoned");
+            let actor_instance = system
+                .get_actor(actor_ref.id())
+                .expect("actor should exist");
+            assert_eq!(
+                actor_instance
+                    .state
+                    .get("count")
+                    .cloned()
+                    .unwrap_or(AsyncValue::Integer(-1)),
+                AsyncValue::Integer(0)
+            );
+        }
+
+        let counter_ident = Expression::Identifier {
+            name: "counter".to_string(),
+            is_public: false,
+            pos,
+        };
+
+        let build_request = |message: &str, payload: Option<i64>| -> Expression {
+            let mut elements = vec![Expression::StringLiteral {
+                value: message.to_string(),
+                pos,
+            }];
+            if let Some(value) = payload {
+                elements.push(Expression::IntegerLiteral { value, pos });
+            } else {
+                elements.push(Expression::NullLiteral { pos });
+            }
+
+            Expression::Await {
+                expr: Box::new(Expression::Request {
+                    message: Box::new(Expression::ArrayLiteral { elements, pos }),
+                    source: Box::new(counter_ident.clone()),
+                    pos,
+                }),
+                pos,
+            }
+        };
+
+        let first = interpreter
+            .interpret_expression(&build_request("Inc", Some(5)))
+            .expect("request should succeed");
+        assert_eq!(first, Value::Integer(5));
+
+        let state_after_first = interpreter
+            .interpret_expression(&build_request("Get", None))
+            .expect("get request should succeed");
+        assert_eq!(state_after_first, Value::Integer(5));
+
+        {
+            let actor_system = interpreter.runtime.actor_system();
+            let system = actor_system.lock().expect("actor system lock poisoned");
+            let actor_instance = system
+                .get_actor(actor_ref.id())
+                .expect("actor should exist");
+            assert_eq!(
+                actor_instance
+                    .state
+                    .get("count")
+                    .cloned()
+                    .unwrap_or(AsyncValue::Integer(-1)),
+                AsyncValue::Integer(5)
+            );
+        }
+
+        let second = interpreter
+            .interpret_expression(&build_request("Inc", Some(2)))
+            .expect("request should succeed");
+        assert_eq!(second, Value::Integer(7));
+
+        let final_value = interpreter
+            .interpret_expression(&build_request("Get", None))
+            .expect("get request should succeed");
+        assert_eq!(final_value, Value::Integer(7));
     }
 
     #[test]

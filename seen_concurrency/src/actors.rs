@@ -14,6 +14,7 @@ use crate::types::{
 use seen_lexer::position::Position;
 use seen_parser::ast::{Expression, Type};
 use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -47,6 +48,8 @@ pub struct MessageHandler {
     pub return_type: Option<Type>,
     /// Handler position for debugging
     pub position: Position,
+    /// Optional executor context identifier supplied by higher-level runtimes
+    pub executor_context_id: Option<u64>,
 }
 
 /// Running actor instance
@@ -66,6 +69,24 @@ pub struct ActorInstance {
     pub children: Vec<ActorId>,
     /// Actor statistics
     pub stats: ActorStats,
+    /// Optional executor used to evaluate handler bodies
+    handler_executor: Option<Arc<dyn ActorHandlerExecutor + Send + Sync>>,
+}
+
+/// Trait implemented by higher-level runtimes (e.g., the interpreter) to execute handler bodies.
+pub trait ActorHandlerExecutor: Send + Sync {
+    fn execute(
+        &self,
+        actor: &mut ActorInstance,
+        handler: &MessageHandler,
+        payload: AsyncValue,
+    ) -> AsyncResult;
+}
+
+impl fmt::Debug for dyn ActorHandlerExecutor + Send + Sync {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ActorHandlerExecutor")
+    }
 }
 
 /// Actor execution states
@@ -170,6 +191,8 @@ pub struct ActorSystem {
     config: ActorSystemConfig,
     /// Pending request/reply promises
     pending_requests: HashMap<u64, PendingRequest>,
+    /// Optional executor for handler bodies
+    handler_executor: Option<Arc<dyn ActorHandlerExecutor + Send + Sync>>,
 }
 
 #[derive(Debug)]
@@ -268,6 +291,7 @@ impl MessageHandler {
             expects_reply,
             return_type,
             position,
+            executor_context_id: None,
         }
     }
 
@@ -293,6 +317,7 @@ impl ActorInstance {
         id: ActorId,
         definition: Arc<ActorDefinition>,
         initial_state: HashMap<String, AsyncValue>,
+        handler_executor: Option<Arc<dyn ActorHandlerExecutor + Send + Sync>>,
     ) -> Self {
         let mailbox = Arc::new(Mailbox {
             messages: Mutex::new(VecDeque::new()),
@@ -315,6 +340,7 @@ impl ActorInstance {
                 avg_processing_time_ms: 0.0,
                 created_at: SystemTime::now(),
             },
+            handler_executor,
         }
     }
 
@@ -379,32 +405,11 @@ impl ActorInstance {
 
     /// Execute a message handler
     fn execute_handler(&mut self, handler: &MessageHandler, payload: AsyncValue) -> AsyncResult {
-        // Store payload in actor state for handler access
-        self.state
-            .insert("__message_payload".to_string(), payload.clone());
-
-        // Execute handler by evaluating the expression with access to actor state
-        // Create an execution context with actor state
-        let handler_result = match &handler.handler {
-            Expression::Block { expressions, .. } => {
-                // Execute block of expressions
-                let mut last_result = AsyncValue::Unit;
-                for _expr in expressions {
-                    // Each expression has access to actor state and message payload
-                    last_result = payload.clone();
-                }
-                Ok(last_result)
-            }
-            _ => {
-                // Single expression handler
-                Ok(payload)
-            }
-        };
-
-        // Update actor state if handler modified it
-        self.state.remove("__message_payload");
-
-        handler_result
+        if let Some(executor) = self.handler_executor.as_ref().cloned() {
+            executor.execute(self, handler, payload)
+        } else {
+            Ok(payload)
+        }
     }
 
     /// Update actor statistics
@@ -483,6 +488,7 @@ impl ActorSystem {
             dead_letters: VecDeque::new(),
             config: ActorSystemConfig::default(),
             pending_requests: HashMap::new(),
+            handler_executor: None,
         }
     }
 
@@ -496,7 +502,13 @@ impl ActorSystem {
             dead_letters: VecDeque::new(),
             config,
             pending_requests: HashMap::new(),
+            handler_executor: None,
         }
+    }
+
+    /// Install an executor that can evaluate actor handler bodies.
+    pub fn set_handler_executor(&mut self, executor: Arc<dyn ActorHandlerExecutor + Send + Sync>) {
+        self.handler_executor = Some(executor);
     }
 
     /// Register an actor definition (type)
@@ -547,7 +559,12 @@ impl ActorSystem {
         let initial_state = self.initialize_actor_state(&definition, init_params)?;
 
         // Create actor instance
-        let actor = ActorInstance::new(actor_id, definition, initial_state);
+        let actor = ActorInstance::new(
+            actor_id,
+            definition,
+            initial_state,
+            self.handler_executor.clone(),
+        );
         let actor_ref = actor.actor_ref();
 
         // Register actor

@@ -2,7 +2,7 @@
 
 use crate::value::Value;
 use seen_concurrency::{
-    actors::ActorSystem,
+    actors::{ActorHandlerExecutor, ActorSystem},
     async_runtime::{AsyncRuntime, AsyncRuntimeConfig},
     channels::ChannelManager,
     jobs::JobSystem,
@@ -339,6 +339,16 @@ impl Runtime {
     /// Get reference to actor system
     pub fn actor_system(&self) -> Arc<Mutex<ActorSystem>> {
         Arc::clone(&self.actor_system)
+    }
+
+    /// Install an executor capable of evaluating actor handler bodies.
+    pub fn set_actor_handler_executor(
+        &mut self,
+        executor: Arc<dyn ActorHandlerExecutor + Send + Sync>,
+    ) {
+        if let Ok(mut system) = self.actor_system.lock() {
+            system.set_handler_executor(executor);
+        }
     }
 
     /// Get reference to advanced runtime (effects and contracts)
