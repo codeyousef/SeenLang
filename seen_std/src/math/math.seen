@@ -3,6 +3,9 @@
 
 const PI: Float = 3.14159265358979323846
 const TAU: Float = 6.28318530717958647692
+const HALF_PI: Float = 1.57079632679489661923
+const DEG_TO_RAD: Float = PI / 180.0
+const RAD_TO_DEG: Float = 180.0 / PI
 const E: Float = 2.71828182845904523536
 
 fun abs(value: Float) -> Float {
@@ -19,10 +22,61 @@ fun absInt(value: Int) -> Int {
     return value
 }
 
+fun min(a: Float, b: Float) -> Float {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+fun max(a: Float, b: Float) -> Float {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fun minInt(a: Int, b: Int) -> Int {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+fun maxInt(a: Int, b: Int) -> Int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fun clamp01(value: Float) -> Float {
+    return clamp(value, 0.0, 1.0)
+}
+
+fun sign(value: Float) -> Int {
+    if value > 0.0 {
+        return 1
+    }
+    if value < 0.0 {
+        return -1
+    }
+    return 0
+}
+
+fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) -> Bool {
+    return abs(a - b) <= tolerance
+}
+
 extern "C" fun __sin(x: Float) -> Float
 extern "C" fun __cos(x: Float) -> Float
 extern "C" fun __tan(x: Float) -> Float
 extern "C" fun __sqrt(x: Float) -> Float
+extern "C" fun __floor(x: Float) -> Float
+extern "C" fun __ceil(x: Float) -> Float
+extern "C" fun __pow(base: Float, exponent: Float) -> Float
+extern "C" fun __exp(x: Float) -> Float
+extern "C" fun __log(x: Float) -> Float
 
 fun sin(radians: Float) -> Float {
     return __sin(radians)
@@ -41,6 +95,33 @@ fun sqrt(value: Float) -> Float {
         abort("sqrt of negative input")
     }
     return __sqrt(value)
+}
+
+fun floor(value: Float) -> Float {
+    return __floor(value)
+}
+
+fun ceil(value: Float) -> Float {
+    return __ceil(value)
+}
+
+fun pow(base: Float, exponent: Float) -> Float {
+    return __pow(base, exponent)
+}
+
+fun exp(value: Float) -> Float {
+    return __exp(value)
+}
+
+fun ln(value: Float) -> Float {
+    if value <= 0.0 {
+        abort("ln expects positive input")
+    }
+    return __log(value)
+}
+
+fun log(base: Float, value: Float) -> Float {
+    return ln(value) / ln(base)
 }
 
 fun clamp(value: Float, minValue: Float, maxValue: Float) -> Float {
@@ -64,11 +145,11 @@ fun clampInt(value: Int, minValue: Int, maxValue: Int) -> Int {
 }
 
 fun degToRad(degrees: Float) -> Float {
-    return degrees * (PI / 180.0)
+    return degrees * DEG_TO_RAD
 }
 
 fun radToDeg(radians: Float) -> Float {
-    return radians * (180.0 / PI)
+    return radians * RAD_TO_DEG
 }
 
 fun saturatingAdd(a: Int, b: Int) -> Int {
@@ -101,6 +182,10 @@ fun wrappingSub(a: Int, b: Int) -> Int {
     return (a - b)
 }
 
+fun wrappingMul(a: Int, b: Int) -> Int {
+    return (a * b)
+}
+
 fun checkedDiv(a: Int, b: Int) -> Int {
     if b == 0 {
         abort("division by zero")
@@ -109,4 +194,33 @@ fun checkedDiv(a: Int, b: Int) -> Int {
         abort("division overflow")
     }
     return a / b
+}
+
+fun lerp(a: Float, b: Float, t: Float) -> Float {
+    return a + (b - a) * t
+}
+
+fun inverseLerp(a: Float, b: Float, value: Float) -> Float {
+    if a == b {
+        return 0.0
+    }
+    return (value - a) / (b - a)
+}
+
+fun remap(value: Float, inMin: Float, inMax: Float, outMin: Float, outMax: Float) -> Float {
+    let normalized = clamp((value - inMin) / (inMax - inMin), 0.0, 1.0)
+    return lerp(outMin, outMax, normalized)
+}
+
+fun smoothstep(edge0: Float, edge1: Float, value: Float) -> Float {
+    let x = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+}
+
+fun radians(value: Float) -> Float {
+    return degToRad(value)
+}
+
+fun degrees(value: Float) -> Float {
+    return radToDeg(value)
 }

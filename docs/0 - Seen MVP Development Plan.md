@@ -503,6 +503,10 @@ and installers across every supported platform.
           search/replace, padding, and CString bridges, all covered by `seen_std/tests/str_basic.seen`.
     2. Deliver scalar `std.math` (constants, abs/trig/sqrt, checked/saturating/wrapping integer ops) plus follow-on
        SIMD/linalg modules aligned with the SIMD baseline.
+        * Update: `seen_std/src/math/math.seen` now exposes min/max, clamp01, sign, floor/ceil, pow/exp/log, lerp,
+          remap, smoothstep, and other scalar helpers with corresponding coverage in `seen_std/tests/math_basic.seen`,
+          so CLI/runtime modules stop reinventing these utilities while SIMD work remains scoped for the follow-up
+          linalg module.
     3. Implement allocator-backed collections (`Vec`, `String`, `HashMap`) that integrate with the region/RAII analysis
        and determinism profile.
     4. Stand up `std.io`, `std.fs`, and `std.net` (sync + async traits) so Stage-1/tooling stop shelling out to

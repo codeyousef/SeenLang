@@ -1,4 +1,41 @@
-import math.math.{PI, TAU, E, abs, absInt, sin, cos, tan, sqrt, clamp, clampInt, degToRad, radToDeg, saturatingAdd, saturatingSub, wrappingAdd, wrappingSub, checkedDiv}
+import math.math.{
+    E,
+    HALF_PI,
+    PI,
+    TAU,
+    abs,
+    absInt,
+    approxEqual,
+    ceil,
+    clamp,
+    clamp01,
+    clampInt,
+    cos,
+    degToRad,
+    degrees,
+    exp,
+    floor,
+    lerp,
+    ln,
+    log,
+    max,
+    min,
+    radToDeg,
+    radians,
+    remap,
+    saturatingAdd,
+    saturatingSub,
+    sign,
+    sin,
+    smoothstep,
+    sqrt,
+    tan,
+    wrappingAdd,
+    wrappingMul,
+    wrappingSub,
+    checkedDiv,
+    pow
+}
 
 fun expect(condition: Bool, message: String) -> Void {
     if not condition {
@@ -6,34 +43,48 @@ fun expect(condition: Bool, message: String) -> Void {
     }
 }
 
-fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) -> Bool {
-    let diff = abs(a - b)
-    return diff <= tolerance
-}
-
 fun main() -> Int {
     expect(approxEqual(PI * 2.0, TAU), "TAU should equal 2*PI")
     expect(abs(-5.0) == 5.0, "abs should return positive value")
     expect(absInt(-3) == 3, "absInt should return positive value")
+    expect(min(1.0, -5.0) == -5.0, "min mismatch")
+    expect(max(1.0, -5.0) == 1.0, "max mismatch")
+    expect(clamp01(1.5) == 1.0, "clamp01 mismatch")
+    expect(sign(-0.5) == -1, "sign negative mismatch")
+    expect(sign(0.0) == 0, "sign zero mismatch")
 
     expect(approxEqual(sin(0.0), 0.0), "sin(0) should be 0")
     expect(approxEqual(cos(0.0), 1.0), "cos(0) should be 1")
     expect(approxEqual(tan(0.0), 0.0), "tan(0) should be 0")
+    expect(approxEqual(sin(HALF_PI), 1.0), "sin(PI/2) should be 1")
 
     expect(approxEqual(sqrt(16.0), 4.0), "sqrt(16) should be 4")
+    expect(floor(3.9) == 3.0, "floor mismatch")
+    expect(ceil(3.1) == 4.0, "ceil mismatch")
+    expect(approxEqual(pow(2.0, 3.0), 8.0), "pow mismatch")
+    expect(approxEqual(exp(1.0), math.math.E), "exp(1) should equal E")
+    expect(approxEqual(ln(math.math.E), 1.0), "ln mismatch")
+    expect(approxEqual(log(10.0, 1000.0), 3.0), "log mismatch")
     expect(clamp(5.0, 0.0, 3.0) == 3.0, "clamp should limit to upper bound")
     expect(clampInt(-2, 0, 10) == 0, "clampInt should limit to lower bound")
 
     expect(approxEqual(degToRad(180.0), PI), "degToRad(180) == PI")
     expect(approxEqual(radToDeg(PI), 180.0), "radToDeg(PI) == 180")
+    expect(approxEqual(radians(90.0), HALF_PI), "radians helper mismatch")
+    expect(approxEqual(degrees(HALF_PI), 90.0), "degrees helper mismatch")
 
     expect(saturatingAdd(Int.max(), 10) == Int.max(), "saturatingAdd upper bound")
     expect(saturatingSub(Int.min(), 10) == Int.min(), "saturatingSub lower bound")
 
     let wrap = wrappingAdd(Int.max(), 2)
     expect(wrap < 0, "wrappingAdd should wrap around overflow")
+    expect(wrappingMul(Int.max(), 2) != 0, "wrappingMul should overflow via wrap")
 
     expect(checkedDiv(10, 2) == 5, "checkedDiv should divide values")
+    expect(approxEqual(lerp(0.0, 10.0, 0.25), 2.5), "lerp mismatch")
+    expect(approxEqual(remap(5.0, 0.0, 10.0, 0.0, 1.0), 0.5), "remap mismatch")
+    expect(approxEqual(smoothstep(0.0, 1.0, 0.0), 0.0), "smoothstep start mismatch")
+    expect(approxEqual(smoothstep(0.0, 1.0, 1.0), 1.0), "smoothstep end mismatch")
 
     return 0
 }
