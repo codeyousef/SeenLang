@@ -9,8 +9,7 @@
 
 use crate::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
-use seen_parser::ast::{Expression, Type};
-use std::any::{Any, TypeId};
+use seen_parser::ast::Type;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -307,8 +306,10 @@ pub struct EffectSystem {
     /// Effect execution contexts by thread
     execution_contexts: HashMap<std::thread::ThreadId, EffectExecutionContext>,
     /// Next available effect ID
+    #[allow(dead_code)]
     next_effect_id: u64,
     /// Next available operation ID
+    #[allow(dead_code)]
     next_operation_id: u64,
     /// System configuration
     config: EffectSystemConfig,

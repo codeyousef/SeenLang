@@ -7,7 +7,7 @@
 //! - Proper non-blocking channel operations with timeouts
 
 use crate::channels::{ChannelManager, SelectCase, SelectId, SelectResult};
-use crate::types::{AsyncError, AsyncResult, AsyncValue, ChannelId, TaskId};
+use crate::types::{AsyncError, AsyncValue, ChannelId, TaskId};
 use seen_lexer::position::Position;
 use seen_parser::ast::Expression;
 use std::collections::HashMap;
@@ -112,8 +112,8 @@ impl SelectExpression {
         mut self,
         channel_id: ChannelId,
         pattern: String,
-        handler: Expression,
-        position: Position,
+        _handler: Expression,
+        _position: Position,
     ) -> Self {
         self.cases.push(SelectCase::Receive {
             channel_id,
@@ -127,8 +127,8 @@ impl SelectExpression {
         mut self,
         channel_id: ChannelId,
         value: AsyncValue,
-        handler: Expression,
-        position: Position,
+        _handler: Expression,
+        _position: Position,
     ) -> Self {
         self.cases.push(SelectCase::Send { channel_id, value });
         self
@@ -307,10 +307,14 @@ impl SelectExecutor {
         match case {
             SelectCase::Receive {
                 channel_id,
-                pattern,
+                pattern: _,
             } => {
                 // Try non-blocking receive
-                if let Some(channel) = self.channel_manager.get_channel(*channel_id) {
+                if self
+                    .channel_manager
+                    .get_channel(*channel_id)
+                    .is_some()
+                {
                     // Non-blocking receive implementation
                     // Returns WouldBlock if no data available
                     Ok(SelectResult::WouldBlock)
@@ -318,9 +322,13 @@ impl SelectExecutor {
                     Ok(SelectResult::Error("Channel not found".to_string()))
                 }
             }
-            SelectCase::Send { channel_id, value } => {
+            SelectCase::Send { channel_id, value: _ } => {
                 // Try non-blocking send
-                if let Some(channel) = self.channel_manager.get_channel(*channel_id) {
+                if self
+                    .channel_manager
+                    .get_channel(*channel_id)
+                    .is_some()
+                {
                     // Non-blocking send implementation
                     // Returns WouldBlock if channel is full
                     Ok(SelectResult::WouldBlock)
@@ -328,7 +336,7 @@ impl SelectExecutor {
                     Ok(SelectResult::Error("Channel not found".to_string()))
                 }
             }
-            SelectCase::Timeout { duration } => {
+            SelectCase::Timeout { duration: _ } => {
                 // This shouldn't be called directly
                 Ok(SelectResult::Timeout)
             }
@@ -446,7 +454,7 @@ pub mod syntax {
             mut self,
             channel_id: ChannelId,
             variable_name: String,
-            handler: Expression,
+            _handler: Expression,
         ) -> Self {
             self.cases.push(SelectCase::Receive {
                 channel_id,
@@ -460,7 +468,7 @@ pub mod syntax {
             mut self,
             channel_id: ChannelId,
             value: AsyncValue,
-            handler: Expression,
+            _handler: Expression,
         ) -> Self {
             self.cases.push(SelectCase::Send { channel_id, value });
             self

@@ -24,7 +24,6 @@ pub use effects::{
 use crate::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 /// Main advanced features runtime combining effects and contracts
 #[derive(Debug)]

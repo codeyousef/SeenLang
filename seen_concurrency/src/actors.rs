@@ -8,14 +8,13 @@
 //! - Proper message type safety and supervision
 
 use crate::types::{
-    ActorId, ActorMessage, ActorRef, AsyncError, AsyncResult, AsyncValue, Mailbox, TaskId,
-    TaskPriority,
+    ActorId, ActorMessage, ActorRef, AsyncError, AsyncResult, AsyncValue, Mailbox, TaskPriority,
 };
 use seen_lexer::position::Position;
 use seen_parser::ast::{Expression, Type};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, SystemTime};
 
 /// Actor definition following Seen syntax
 #[derive(Debug, Clone)]
@@ -162,6 +161,7 @@ pub struct ActorSystem {
     /// Next request identifier (used for request/reply correlation)
     next_request_id: u64,
     /// System supervisor (root actor)
+    #[allow(dead_code)]
     system_supervisor: Option<ActorId>,
     /// Dead letter queue for undeliverable messages
     dead_letters: VecDeque<ActorMessage>,
@@ -376,7 +376,7 @@ impl ActorInstance {
 
         // Execute handler by evaluating the expression with access to actor state
         // Create an execution context with actor state
-        let handler_result: AsyncResult = match &handler.handler {
+        let handler_result = match &handler.handler {
             Expression::Block { expressions, .. } => {
                 // Execute block of expressions
                 let mut last_result = AsyncValue::Unit;
@@ -395,7 +395,7 @@ impl ActorInstance {
         // Update actor state if handler modified it
         self.state.remove("__message_payload");
 
-        Ok(AsyncValue::Unit)
+        handler_result
     }
 
     /// Update actor statistics
@@ -552,9 +552,10 @@ impl ActorSystem {
         message: String,
         payload: AsyncValue,
     ) -> Result<(), AsyncError> {
+        let content = AsyncValue::Array(vec![AsyncValue::String(message), payload]);
         let actor_message = ActorMessage {
             sender: None, // Anonymous sender for fire-and-forget messages
-            content: AsyncValue::String(message),
+            content,
             timestamp: SystemTime::now(),
             priority: TaskPriority::Normal,
         };
@@ -575,7 +576,7 @@ impl ActorSystem {
 
         let actor_message = ActorMessage {
             sender: Some(requester),
-            content: AsyncValue::String(message),
+            content: AsyncValue::Array(vec![AsyncValue::String(message), payload]),
             timestamp: SystemTime::now(),
             priority: TaskPriority::Normal,
         };

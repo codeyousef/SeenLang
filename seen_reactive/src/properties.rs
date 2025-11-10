@@ -6,13 +6,11 @@
 //! - Automatic dependency tracking and change propagation
 //! - Integration with UI bindings and reactive updates
 
-use crate::observable::{Observable, ObservableId};
 use seen_concurrency::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
 use seen_parser::ast::{Expression, Type};
-use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Unique identifier for reactive properties
@@ -194,8 +192,10 @@ pub struct ReactivePropertyManager {
     /// Dependency graph for efficient updates
     dependency_graph: DependencyGraph,
     /// Next available property ID
+    #[allow(dead_code)]
     next_property_id: u64,
     /// Next available observer ID
+    #[allow(dead_code)]
     next_observer_id: u64,
     /// Update queue for batch processing
     update_queue: Vec<PropertyId>,
@@ -479,6 +479,7 @@ impl ComputedProperty {
 
         // Execute computation expression
         let result = self.execute_computation(&computation, property_manager)?;
+        self.validate_result_type(&result)?;
 
         // Update cache
         self.cached_value = Some(result.clone());
@@ -503,6 +504,29 @@ impl ComputedProperty {
         self.metadata.last_changed = Some(start_time);
 
         Ok(())
+    }
+
+    fn validate_result_type(&self, value: &AsyncValue) -> Result<(), AsyncError> {
+        let matches = match (self.property_type.name.as_str(), value) {
+            ("Int", AsyncValue::Integer(_)) => true,
+            ("Float", AsyncValue::Float(_)) => true,
+            ("Bool", AsyncValue::Boolean(_)) => true,
+            ("String", AsyncValue::String(_)) => true,
+            // Unknown or complex types default to true until full type checking is implemented
+            _ => true,
+        };
+
+        if matches {
+            Ok(())
+        } else {
+            Err(AsyncError::RuntimeError {
+                message: format!(
+                    "Computed property '{}' expected type {}, but got incompatible value",
+                    self.name, self.property_type.name
+                ),
+                position: self.metadata.position,
+            })
+        }
     }
 
     /// Execute computation expression

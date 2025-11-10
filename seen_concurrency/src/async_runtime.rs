@@ -219,7 +219,9 @@ impl CoroutineFrameData {
 #[derive(Debug)]
 struct ScopeArenaEntry {
     id: u64,
+    #[allow(dead_code)]
     kind: TaskScopeKind,
+    #[allow(dead_code)]
     stack_budget_bytes: usize,
     recycled: Mutex<Vec<CoroutineFrameData>>,
     outstanding: AtomicUsize,
@@ -725,7 +727,7 @@ impl AsyncRuntime {
     /// Spawn a task with explicit frame hints/options.
     pub fn spawn_task_with_options(
         &mut self,
-        mut function: Box<dyn AsyncFunction>,
+        function: Box<dyn AsyncFunction>,
         options: TaskSpawnOptions,
     ) -> TaskHandle {
         // Check task limits

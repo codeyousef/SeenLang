@@ -453,6 +453,7 @@ impl Interpreter {
                 ..
             } => self.interpret_for(variable, iterable, body, *pos),
 
+            #[allow(unused_assignments)]
             Expression::Loop { body, .. } => {
                 let mut last_value: Option<Value> = None;
                 loop {

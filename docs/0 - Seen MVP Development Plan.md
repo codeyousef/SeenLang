@@ -548,15 +548,14 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
     is green and wired into the manifest test.
   - Removed the duplicate/unreachable interpreter arms and scrubbed the obvious warning sources (unused params, dead
     struct fields) so parser + interpreter builds are quiet outside of the async/reactive crates.
+  - Cleared the warning backlog across `seen_concurrency`, `seen_effects`, and `seen_reactive`, so the interpreter build
+    is warning-free (aside from the workspace-level `panic` notice) and ready for `-D warnings`.
 
 * **Remaining tasks:**
-    1. Clean up the warning backlog emitted by `seen_concurrency`, `seen_effects`, and `seen_reactive` so the entire
-       runtime stack can build under `RUSTFLAGS="-D warnings"` (today the interpreter itself is clean, but its
-       dependencies are not).
-    2. Finish wiring the effect/actor/reactive paths that still return placeholder values (effect handles are never
+    1. Finish wiring the effect/actor/reactive paths that still return placeholder values (effect handles are never
        pushed, actor `payload` arguments are ignored, and reactive factories drop their generated IDs) and add focused
        regression tests once those code paths execute.
-    3. Re-enable strict type-checking for manifest-injected modules and promote the Vec manifest run to a required CI
+    2. Re-enable strict type-checking for manifest-injected modules and promote the Vec manifest run to a required CI
        gate once the runtime warning debt is paid down, so PROD-4a stays green in automation.
 
 ### PROD-5. Production QA & Platform Certification

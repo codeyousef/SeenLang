@@ -9,10 +9,9 @@
 
 use crate::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
-use seen_parser::ast::{BinaryOperator, Expression, Type};
+use seen_parser::ast::{BinaryOperator, Expression};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
 
 /// Unique identifier for contracts
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -301,9 +300,13 @@ pub struct ContractSystem {
     /// Contract checking mode
     mode: ContractMode,
     /// Next available IDs
+    #[allow(dead_code)]
     next_contract_id: u64,
+    #[allow(dead_code)]
     next_precondition_id: u64,
+    #[allow(dead_code)]
     next_postcondition_id: u64,
+    #[allow(dead_code)]
     next_invariant_id: u64,
     /// System configuration
     config: ContractSystemConfig,

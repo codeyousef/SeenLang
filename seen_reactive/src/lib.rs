@@ -16,10 +16,9 @@ pub use flow::{Flow, FlowCollector, FlowFactory};
 pub use observable::{Observable, ObservableFactory};
 pub use properties::{ComputedProperty, ReactiveProperty, ReactivePropertyManager};
 
-use seen_concurrency::types::{AsyncError, AsyncResult, AsyncValue};
+use seen_concurrency::types::{AsyncError, AsyncValue};
 use seen_lexer::position::Position;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 /// Main reactive runtime for managing all reactive features
 #[derive(Debug)]
@@ -29,8 +28,10 @@ pub struct ReactiveRuntime {
     /// Reactive property manager
     pub property_manager: ReactivePropertyManager,
     /// Active flows
+    #[allow(dead_code)]
     flows: HashMap<flow::FlowId, Box<dyn std::any::Any + Send>>,
     /// Runtime configuration
+    #[allow(dead_code)]
     config: ReactiveRuntimeConfig,
     /// Runtime statistics
     stats: ReactiveRuntimeStats,
@@ -226,7 +227,6 @@ impl Default for ReactiveRuntime {
 /// Helper functions for creating reactive patterns following Seen syntax
 pub mod syntax {
     use super::*;
-    use std::time::Duration;
 
     /// Create an observable that emits mouse clicks
     /// Seen syntax: let clicks: Observable<MouseEvent> = button.Clicks()
@@ -342,7 +342,6 @@ pub struct ViewModelExample {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[test]
     fn test_reactive_runtime_creation() {

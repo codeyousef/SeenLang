@@ -5,11 +5,7 @@
 //! - Emit() and Delay() functions for flow control
 //! - Integration with reactive properties and observables
 
-use futures::Stream;
-use seen_concurrency::types::*;
 use std::collections::VecDeque;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 /// Flow ID type
@@ -148,6 +144,7 @@ impl<T: Clone> Flow<T> {
 #[derive(Debug)]
 pub struct FlowFactory {
     /// Next flow ID
+    #[allow(dead_code)]
     next_id: FlowId,
 }
 
@@ -186,7 +183,12 @@ impl FlowFactory {
     pub fn timer(interval: Duration, max_count: Option<usize>) -> Flow<u64> {
         let count = max_count.unwrap_or(10);
         let values: Vec<u64> = (0..count as u64).collect();
-        Flow::new("timer_flow".to_string(), values)
+        let mut flow = Flow::new(
+            format!("timer_{}ms", interval.as_millis()),
+            values,
+        );
+        flow.metadata.supports_backpressure = false;
+        flow
     }
 }
 

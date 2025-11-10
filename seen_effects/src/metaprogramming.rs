@@ -7,12 +7,9 @@
 //! - Reflection capabilities for runtime type inspection
 //! - Code generation with AST manipulation
 
-use crate::types::{AsyncError, AsyncResult, AsyncValue};
 use seen_lexer::position::Position;
-use seen_parser::ast::{Expression, Type};
-use std::any::{Any, TypeId};
+use seen_parser::ast::Expression;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Unique identifier for compile-time contexts
@@ -396,8 +393,11 @@ pub struct MetaprogrammingSystem {
     /// Built-in compile-time functions
     builtins: HashMap<String, BuiltinFunction>,
     /// Next available IDs
+    #[allow(dead_code)]
     next_context_id: u64,
+    #[allow(dead_code)]
     next_macro_id: u64,
+    #[allow(dead_code)]
     next_template_id: u64,
     /// System configuration
     config: MetaprogrammingConfig,

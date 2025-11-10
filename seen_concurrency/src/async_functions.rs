@@ -89,7 +89,7 @@ impl AsyncFunction {
     pub async fn execute(
         &self,
         arguments: Vec<AsyncValue>,
-        runtime: &mut AsyncRuntime,
+        _runtime: &mut AsyncRuntime,
     ) -> AsyncResult {
         // Validate argument count
         if arguments.len() != self.parameters.len() {
@@ -234,7 +234,7 @@ impl AsyncFunction {
                 Ok(AsyncValue::Array(values))
             }
 
-            Expression::StructLiteral { name, fields, .. } => {
+            Expression::StructLiteral { fields, .. } => {
                 // Create a struct as an array of field values
                 let mut field_values = Vec::new();
                 for (_field_name, field_expr) in fields {
@@ -336,7 +336,7 @@ impl AsyncFunction {
     /// Spawn a single expression as an async task
     async fn spawn_expression(
         &self,
-        expr: &Expression,
+        _expr: &Expression,
         context: &mut AsyncExecutionContext,
         pos: Position,
     ) -> Result<TaskId, AsyncError> {

@@ -5,11 +5,10 @@
 //! - Operators like Map, Filter, Throttle, Debounce
 //! - Subscription management and error handling
 
-use futures::stream::Stream;
 use seen_concurrency::types::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Unique identifier for observables
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -250,6 +249,7 @@ impl<T: Clone> Clone for Observable<T> {
 #[derive(Debug)]
 pub struct ObservableFactory {
     /// Next observable ID
+    #[allow(dead_code)]
     next_id: u64,
     /// Statistics
     stats: ObservableStats,
