@@ -10,6 +10,8 @@ modules = [
     "src/core/prelude.seen",
     "src/collections/list_utils.seen",
     "src/collections/vec.seen",
+    "src/collections/std_string.seen",
+    "src/collections/string_hash_map.seen",
     "src/collections/string_buffer.seen",
     "src/io/file.seen",
     "src/env/env.seen",

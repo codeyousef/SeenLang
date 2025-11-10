@@ -514,6 +514,13 @@ and installers across every supported platform.
           amortized O(1) push/pop) with deterministic capacity tracking and full regression coverage in
           `seen_std/tests/vec_basic.seen`, so bootstrap tooling and upcoming std modules can rely on a high-performance
           `Vec` before the allocator-backed String/HashMap land.
+       * Update: `seen_std/src/collections/std_string.seen` implements an allocator-backed `StdString` (reserve, push,
+         pop, intoString) atop the new Vec, and `seen_std/tests/std_string_basic.seen` locks the behavior so CLI/runtime
+         code can drop bespoke string builders when owning mutable text.
+       * Update: `seen_std/src/collections/string_hash_map.seen` introduces a chunked/open-addressed
+         `StringHashMap` (resizing, tombstones, load-factor-based growth) plus regression coverage in
+         `seen_std/tests/string_hash_map_basic.seen`, giving the stdlib a deterministic hash map before we wire in the
+         upcoming typechecker-driven collections.
     4. Stand up `std.io`, `std.fs`, and `std.net` (sync + async traits) so Stage-1/tooling stop shelling out to
        handwritten wrappers.
         * Update: `seen_std/src/io/file.seen` now wraps the runtime's deterministic file/command builtins with
