@@ -1,4 +1,29 @@
-import str.string.{StringBuilder, split, trim, contains, startsWith, endsWith, repeat, join}
+import str.string.{
+    StringBuilder,
+    contains,
+    endsWith,
+    ensurePrefix,
+    ensureSuffix,
+    indexOf,
+    isBlank,
+    join,
+    lastIndexOf,
+    lines,
+    padEnd,
+    padStart,
+    removePrefix,
+    removeSuffix,
+    repeat,
+    replaceAll,
+    replaceFirst,
+    split,
+    splitWhitespace,
+    startsWith,
+    trim,
+    trimEnd,
+    trimStart,
+    words
+}
 
 fun expect(condition: Bool, message: String) -> Void {
     if not condition {
@@ -14,23 +39,57 @@ fun main() -> Int {
     builder.appendLine("!")
     let combined = builder.toString()
     expect(endsWith(combined, "std!\n"), "builder should append text + newline")
+    expect(builder.length() == combined.length(), "builder length mismatch")
+    let drained = builder.buildAndClear()
+    expect(drained == combined, "buildAndClear should emit accumulated text")
+    expect(builder.isEmpty(), "builder should be empty after buildAndClear")
+    builder.appendChar('O')
+    expect(builder.toString() == "O", "appendChar should push single characters")
 
     let parts = split("alpha,beta,gamma", ",")
     expect(parts.length() == 3, "split should produce 3 items")
     expect(parts[1] == "beta", "split element mismatch")
+    let scoped = split("path::to::", "::")
+    expect(scoped.length() == 3, "split should preserve trailing entries")
+    expect(scoped[2] == "", "split should retain trailing empty segment")
 
     let trimmed = trim(" \tbootstrap\n")
     expect(trimmed == "bootstrap", "trim should remove whitespace")
+    expect(trimStart("   seen") == "seen", "trimStart mismatch")
+    expect(trimEnd("alpha  ") == "alpha", "trimEnd mismatch")
+    expect(isBlank(" \t\r"), "isBlank should treat whitespace as blank")
+    expect(not isBlank("  seen"), "isBlank should reject non-whitespace text")
 
     expect(contains("deterministic", "mini"), "substring match expected")
     expect(startsWith("channel", "chan"), "startsWith expected")
     expect(endsWith("scheduler", "uler"), "endsWith expected")
+    expect(indexOf("abracadabra", "abra", 1) == 7, "indexOf offset mismatch")
+    expect(lastIndexOf("abracadabra", "bra") == 8, "lastIndexOf mismatch")
 
     let repeated = repeat("ha", 3)
     expect(repeated == "hahaha", "repeat should copy text")
 
     let joined = join(parts, "|")
     expect(joined == "alpha|beta|gamma", "join should insert separator")
+
+    let newlineSeparated = "foo\r\nbar\n\nbaz"
+    let collapsed = lines(newlineSeparated, true)
+    expect(collapsed.length() == 3, "lines dropEmpty should ignore blanks")
+    let keepEmpty = lines("single\n", false)
+    expect(keepEmpty.length() == 2, "lines should surface trailing empty line")
+
+    let tokens = splitWhitespace(" Seen \tstd\nplan ", true)
+    expect(tokens.length() == 3, "splitWhitespace dropEmpty mismatch")
+    expect(words("two  words").length() == 2, "words should skip double spaces")
+
+    expect(replaceFirst("foofoo", "foo", "bar") == "barfoo", "replaceFirst mismatch")
+    expect(replaceAll("foofoo", "foo", "bar") == "barbar", "replaceAll mismatch")
+    expect(removePrefix("seenlang", "seen") == "lang", "removePrefix mismatch")
+    expect(removeSuffix("log.seen", ".seen") == "log", "removeSuffix mismatch")
+    expect(ensurePrefix("lang", "seen") == "seenlang", "ensurePrefix mismatch")
+    expect(ensureSuffix("log", ".seen") == "log.seen", "ensureSuffix mismatch")
+    expect(padStart("seen", 6, '_') == "__seen", "padStart mismatch")
+    expect(padEnd("seen", 6, '_') == "seen__", "padEnd mismatch")
 
     let cString = combined.toCString()
     expect(cString.toSeenString() == combined, "CString round-trip failed")

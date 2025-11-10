@@ -498,6 +498,9 @@ and installers across every supported platform.
 * **Outstanding tasks:**
     1. Land `std.str` with UTF-8 helpers, builders, split/trim/search utilities, and CString adapters so CLI/runtime
        modules can drop bespoke string helpers.
+        * Update: `seen_std/src/str/string.seen` now includes a real `StringBuilder` API (length tracking, char appends,
+          build-and-clear) plus whitespace/prefix/suffix helpers, newline and whitespace tokenizers, substring
+          search/replace, padding, and CString bridges, all covered by `seen_std/tests/str_basic.seen`.
     2. Deliver scalar `std.math` (constants, abs/trig/sqrt, checked/saturating/wrapping integer ops) plus follow-on
        SIMD/linalg modules aligned with the SIMD baseline.
     3. Implement allocator-backed collections (`Vec`, `String`, `HashMap`) that integrate with the region/RAII analysis
