@@ -13,8 +13,23 @@ fun main() -> Int {
     buffer.push("Seen")
 
     expect(buffer.len() == 10, "buffer length mismatch")
+    expect(buffer.capacity() >= buffer.len(), "capacity should track pushes")
     expect(buffer.toString() == "Hello Seen", "buffer contents mismatch")
 
+    buffer.reserve(128)
+    expect(buffer.capacity() >= 128, "reserve should grow internal storage")
+
+    buffer.appendLine(" rocks")
+    expect(buffer.len() == 17, "appendLine should add newline")
+    expect(buffer.lastChar() == '\n', "appendLine newline missing")
+    expect(buffer.popChar() == '\n', "popChar should remove newline")
+    expect(buffer.len() == 16, "popChar should reduce length")
+
+    let drained = buffer.intoString()
+    expect(drained == "Hello Seen rocks", "intoString should emit accumulated text")
+    expect(buffer.isEmpty(), "intoString should clear buffer")
+
+    buffer.push("reset")
     buffer.clear()
     expect(buffer.len() == 0, "clear should reset buffer")
 
