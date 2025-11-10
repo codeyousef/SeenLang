@@ -516,6 +516,10 @@ and installers across every supported platform.
           `Vec` before the allocator-backed String/HashMap land.
     4. Stand up `std.io`, `std.fs`, and `std.net` (sync + async traits) so Stage-1/tooling stop shelling out to
        handwritten wrappers.
+        * Update: `seen_std/src/io/file.seen` now wraps the runtime's deterministic file/command builtins with
+          high-level helpers (`readText`, `writeText`, `writeLines`, `appendText`, directory management, and command
+          execution), plus regression coverage in `seen_std/tests/io_file_basic.seen`. Stage-1 code can start routing
+          all file I/O through these perf-oriented wrappers while we continue fleshing out the wider IO/fs/net surface.
     5. Flesh out `std.concurrent` / `std.sync` (structured scopes, channels, mutex/condvar/atomics) wired into the
        runtime schedulers validated in PSH-3b/3d.
     6. Expand `std.ffi`, `std.time`, `std.env`, and `std.process` so bootstrap scripts and installers rely on shared

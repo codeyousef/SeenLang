@@ -1,0 +1,78 @@
+// seen_std::io::file
+// File-system helpers backed by deterministic host builtins.
+
+import str.string.{StringBuilder, lines}
+
+extern "C" fun __ReadFile(path: String) -> String
+extern "C" fun __WriteFile(path: String, contents: String) -> Bool
+extern "C" fun __CreateDirectory(path: String) -> Bool
+extern "C" fun __DeleteFile(path: String) -> Bool
+extern "C" fun __ExecuteProgram(path: String) -> Int
+extern "C" fun __ExecuteCommand(command: String) -> ProcessResult
+
+struct ProcessOutput {
+    success: Bool
+    output: String
+}
+
+struct ProcessResult {
+    success: Bool
+    output: String
+}
+
+fun readText(path: String) -> String {
+    return __ReadFile(path)
+}
+
+fun readLines(path: String) -> Array<String> {
+    let text = readText(path)
+    return lines(text, false)
+}
+
+fun writeText(path: String, contents: String) -> Bool {
+    return __WriteFile(path, contents)
+}
+
+fun writeLines(path: String, values: Array<String>, separator: String = "\n") -> Bool {
+    if values.length() == 0 {
+        return writeText(path, "")
+    }
+    let builder = StringBuilder.new()
+    var index = 0
+    while index < values.length() {
+        builder.append(values[index])
+        if index != values.length() - 1 {
+            builder.append(separator)
+        }
+        index = index + 1
+    }
+    return writeText(path, builder.toString())
+}
+
+fun appendText(path: String, contents: String) -> Bool {
+    let current = readText(path)
+    let builder = StringBuilder.new()
+    builder.append(current)
+    builder.append(contents)
+    return writeText(path, builder.toString())
+}
+
+fun createDirectory(path: String) -> Bool {
+    return __CreateDirectory(path)
+}
+
+fun deleteFile(path: String) -> Bool {
+    return __DeleteFile(path)
+}
+
+fun executeProgram(path: String) -> Int {
+    return __ExecuteProgram(path)
+}
+
+fun executeCommand(command: String) -> ProcessOutput {
+    let raw = __ExecuteCommand(command)
+    return ProcessOutput{
+        success: raw.success,
+        output: raw.output
+    }
+}

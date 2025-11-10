@@ -11,6 +11,7 @@ modules = [
     "src/collections/list_utils.seen",
     "src/collections/vec.seen",
     "src/collections/string_buffer.seen",
+    "src/io/file.seen",
     "src/async/task.seen",
     "src/ffi/cinterop.seen",
     "src/str/string.seen",

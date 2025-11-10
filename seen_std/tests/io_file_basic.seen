@@ -1,0 +1,31 @@
+import io.file.{readText, writeText, writeLines, appendText, createDirectory, deleteFile}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let dir = "seen_std/tests/tmp_io"
+    let filePath = "{dir}/io_test.txt"
+
+    createDirectory(dir)
+    deleteFile(filePath)
+
+    expect(writeText(filePath, "alpha"), "writeText should succeed")
+    expect(readText(filePath) == "alpha", "readText mismatch")
+
+    let lines = Array<String>()
+    lines.push("beta")
+    lines.push("gamma")
+    expect(writeLines(filePath, lines), "writeLines should succeed")
+    expect(readText(filePath) == "beta\ngamma", "writeLines contents mismatch")
+
+    expect(appendText(filePath, "\ndelta"), "appendText should succeed")
+    expect(readText(filePath) == "beta\ngamma\ndelta", "appendText mismatch")
+
+    expect(deleteFile(filePath), "deleteFile should remove file")
+
+    return 0
+}
