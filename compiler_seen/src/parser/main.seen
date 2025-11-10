@@ -666,9 +666,34 @@ class SeenParser {
             let right = this.parseAssignment()
             let pos = Position.new(this.currentToken.getLine(), this.currentToken.getColumn(), 0)
             return BinaryOp.new(expr, "=", right, pos)
+        } else if this.consume("PlusEqual") {
+            let right = this.parseAssignment()
+            let pos = Position.new(this.currentToken.getLine(), this.currentToken.getColumn(), 0)
+            return this.makeCompoundAssignment(expr, "+", right, pos)
+        } else if this.consume("MinusEqual") {
+            let right = this.parseAssignment()
+            let pos = Position.new(this.currentToken.getLine(), this.currentToken.getColumn(), 0)
+            return this.makeCompoundAssignment(expr, "-", right, pos)
+        } else if this.consume("StarEqual") {
+            let right = this.parseAssignment()
+            let pos = Position.new(this.currentToken.getLine(), this.currentToken.getColumn(), 0)
+            return this.makeCompoundAssignment(expr, "*", right, pos)
+        } else if this.consume("SlashEqual") {
+            let right = this.parseAssignment()
+            let pos = Position.new(this.currentToken.getLine(), this.currentToken.getColumn(), 0)
+            return this.makeCompoundAssignment(expr, "/", right, pos)
+        } else if this.consume("PercentEqual") {
+            let right = this.parseAssignment()
+            let pos = Position.new(this.currentToken.getLine(), this.currentToken.getColumn(), 0)
+            return this.makeCompoundAssignment(expr, "%", right, pos)
         }
         
         return expr
+    }
+
+    fun makeCompoundAssignment(left: Expression, op: String, right: Expression, pos: Position) -> Expression {
+        let operation = BinaryOp.new(left, op, right, pos)
+        return BinaryOp.new(left, "=", operation, pos)
     }
     
     fun parseLogicalOr() -> Expression {

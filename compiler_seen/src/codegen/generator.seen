@@ -316,12 +316,12 @@ class CodeGenerator {
                     let bodyLine = lines[j]
                     funcBody.push(bodyLine)
                     
-                    if bodyLine.contains("{") {
-                        braceCount += countOccurrences(bodyLine, "{")
+                    if bodyLine.contains("{{") {
+                        braceCount += countOccurrences(bodyLine, "{{")
                         foundBody = true
                     }
-                    if bodyLine.contains("}") {
-                        braceCount -= countOccurrences(bodyLine, "}")
+                    if bodyLine.contains("}}") {
+                        braceCount -= countOccurrences(bodyLine, "}}")
                     }
                     
                     if foundBody and braceCount == 0 {
@@ -491,7 +491,12 @@ class CodeGenerator {
         }
         
         let executable = parts[0]
-        let args = parts[1..]
+        let args = Array<String>()
+        var i = 1
+        while i < parts.length() {
+            args.push(parts[i])
+            i += 1
+        }
         
         // In a real implementation, this would:
         // 1. Use fork() + exec() on Unix systems
@@ -579,7 +584,7 @@ class LLVMBackend extends Backend {
             output += irFunction.parameters[i].toString()
         }
         
-        output += ") {\\n"
+        output += ") {{\\n"
         
         // Function body (basic blocks)
         for block in irFunction.blocks {
@@ -738,7 +743,7 @@ class CBackend extends Backend {
             output += "{paramType} {param.name}"
         }
         
-        output += ") {\\n"
+        output += ") {{\\n"
         
         // Function body - translate IR to C
         output += generateFunctionBody(irFunction)

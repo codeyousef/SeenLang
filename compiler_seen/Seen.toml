@@ -16,7 +16,6 @@ modules = [
     "src/runtime",
     "src/tools",
     "src/testing",
-    "src/benchmarks",
     "src/main_compiler.seen",
     "src/test_compiler.seen"
 ]
@@ -32,7 +31,6 @@ profile = "release"
 [dependencies]
 # Core dependencies for compiler implementation
 seen_std = "../seen_std"
-seen_reactive = "../seen_std/reactive"
 
 [build-dependencies]
 # Dependencies needed for bootstrap build process

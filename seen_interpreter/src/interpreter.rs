@@ -22,8 +22,8 @@ use seen_effects::{
 };
 use seen_parser::{
     ast::{ClassField, MessageHandler as AstMessageHandler},
-    AssignmentOperator, BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm,
-    Method, Parameter, Pattern, Position, Program, UnaryOperator,
+    AssignmentOperator, BinaryOperator, Expression, ForBinding, InterpolationKind,
+    InterpolationPart, MatchArm, Method, Parameter, Pattern, Position, Program, UnaryOperator,
 };
 use seen_reactive::properties::PropertyId as ReactivePropertyId;
 use std::collections::HashMap;
@@ -546,12 +546,12 @@ impl Interpreter {
             }
 
             Expression::For {
-                variable,
+                binding,
                 iterable,
                 body,
                 pos,
                 ..
-            } => self.interpret_for(variable, iterable, body, *pos),
+            } => self.interpret_for(binding, iterable, body, *pos),
 
             #[allow(unused_assignments)]
             Expression::Loop { body, .. } => {
@@ -1045,6 +1045,21 @@ impl Interpreter {
                     Ok(_) => Err(InterpreterError::runtime("Invalid comparison result", pos)),
                     Err(e) => Err(InterpreterError::runtime(e, pos)),
                 },
+                BinaryOperator::BitwiseAnd => left_val
+                    .bitwise_and(&right_val)
+                    .map_err(|e| InterpreterError::runtime(e, pos)),
+                BinaryOperator::BitwiseOr => left_val
+                    .bitwise_or(&right_val)
+                    .map_err(|e| InterpreterError::runtime(e, pos)),
+                BinaryOperator::BitwiseXor => left_val
+                    .bitwise_xor(&right_val)
+                    .map_err(|e| InterpreterError::runtime(e, pos)),
+                BinaryOperator::LeftShift => left_val
+                    .left_shift(&right_val)
+                    .map_err(|e| InterpreterError::runtime(e, pos)),
+                BinaryOperator::RightShift => left_val
+                    .right_shift(&right_val)
+                    .map_err(|e| InterpreterError::runtime(e, pos)),
                 _ => Ok(Value::Unit), // Other operators not implemented yet
             }
         }
@@ -1091,20 +1106,23 @@ impl Interpreter {
         match op {
             UnaryOperator::Negate => val.negate().map_err(|e| InterpreterError::runtime(e, pos)),
             UnaryOperator::Not => Ok(val.logical_not()),
+            UnaryOperator::BitwiseNot => val
+                .bitwise_not()
+                .map_err(|e| InterpreterError::runtime(e, pos)),
         }
     }
 
     /// Interpret a for loop
     fn interpret_for(
         &mut self,
-        variable: &str,
+        binding: &ForBinding,
         iterable: &Expression,
         body: &Expression,
         pos: Position,
     ) -> InterpreterResult<Value> {
         let iter_val = self.interpret_expression(iterable)?;
 
-        // Push new scope for loop variable
+        // Push new scope for loop variables
         self.runtime.push_environment(false);
 
         let result = match iter_val {
@@ -1115,7 +1133,7 @@ impl Interpreter {
                     .clone();
                 let mut last_value = Value::Unit;
                 for item in items {
-                    self.runtime.define_variable(variable.to_string(), item);
+                    self.bind_for_binding(binding, item, pos)?;
                     last_value = self.interpret_expression(body)?;
 
                     if self.break_flag {
@@ -1135,8 +1153,7 @@ impl Interpreter {
             Value::String(s) => {
                 let mut last_value = Value::Unit;
                 for ch in s.chars() {
-                    self.runtime
-                        .define_variable(variable.to_string(), Value::Character(ch));
+                    self.bind_for_binding(binding, Value::Character(ch), pos)?;
                     last_value = self.interpret_expression(body)?;
 
                     if self.break_flag {
@@ -1183,6 +1200,46 @@ impl Interpreter {
                 }
             }
             Err(err) => Err(err),
+        }
+    }
+
+    fn bind_for_binding(
+        &mut self,
+        binding: &ForBinding,
+        value: Value,
+        pos: Position,
+    ) -> InterpreterResult<()> {
+        match binding {
+            ForBinding::Identifier(name) => {
+                self.runtime.define_variable(name.clone(), value);
+                Ok(())
+            }
+            ForBinding::Tuple(names) => match value {
+                Value::Array(arr) => {
+                    let items = arr
+                        .lock()
+                        .map_err(|_| InterpreterError::runtime("Array access failed", pos))?
+                        .clone();
+                    if items.len() < names.len() {
+                        return Err(InterpreterError::runtime(
+                            "Not enough elements to destructure tuple in for-loop",
+                            pos,
+                        ));
+                    }
+                    for (idx, name) in names.iter().enumerate() {
+                        self.runtime
+                            .define_variable(name.clone(), items[idx].clone());
+                    }
+                    Ok(())
+                }
+                other => Err(InterpreterError::type_error(
+                    format!(
+                        "Tuple destructuring in for-loops requires array entries, found {}",
+                        other.type_name()
+                    ),
+                    pos,
+                )),
+            },
         }
     }
 

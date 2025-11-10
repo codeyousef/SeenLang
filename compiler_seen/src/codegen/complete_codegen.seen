@@ -35,10 +35,10 @@ class CompleteCodeGenerator {
         emit("")
         
         // Optimization attributes
-        emit("!llvm.module.flags = !{!0, !1, !2}")
-        emit("!0 = !{i32 1, !\"wchar_size\", i32 4}")
-        emit("!1 = !{i32 7, !\"PIC Level\", i32 2}")
-        emit("!2 = !{i32 7, !\"frame-pointer\", i32 2}")
+        emit("!llvm.module.flags = !{{!0, !1, !2}}")
+        emit("!0 = !{{i32 1, !\"wchar_size\", i32 4}}")
+        emit("!1 = !{{i32 7, !\"PIC Level\", i32 2}}")
+        emit("!2 = !{{i32 7, !\"frame-pointer\", i32 2}}")
         emit("")
         
         // External function declarations
@@ -88,10 +88,10 @@ class CompleteCodeGenerator {
         emit("")
         
         // Function attributes
-        emit("attributes #0 = { nounwind }")
-        emit("attributes #1 = { nounwind readnone speculatable willreturn }")
-        emit("attributes #2 = { alwaysinline nounwind }")
-        emit("attributes #3 = { cold nounwind }")
+        emit("attributes #0 = {{ nounwind }}")
+        emit("attributes #1 = {{ nounwind readnone speculatable willreturn }}")
+        emit("attributes #2 = {{ alwaysinline nounwind }}")
+        emit("attributes #3 = {{ cold nounwind }}")
         emit("")
     }
     
@@ -152,7 +152,7 @@ class CompleteCodeGenerator {
             attrs = attrs + " optsize"; // Optimize for size in loop bodies
         }
         
-        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {")
+        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {{")
         emit("entry:")
         
         // Initialize parameters with noalias for better optimization
@@ -188,7 +188,7 @@ class CompleteCodeGenerator {
             emit("  ret " + returnType + " 0")
         }
         
-        emit("}")
+        emit("}}")
         emit("")
     }
     
@@ -411,7 +411,7 @@ class CompleteCodeGenerator {
         emit(endLabel + ":")
         
         // Add loop metadata for optimization
-        emit("!3 = !{!\"branch_weights\", i32 1000000, i32 1}")
+        emit("!3 = !{{!\"branch_weights\", i32 1000000, i32 1}}")
     }
     
     fun generateOptimizedExpression(expr: ExpressionNode?) -> String {
@@ -622,18 +622,18 @@ class CompleteCodeGenerator {
         let result = nextReg()
         
         // Allocate timespec struct
-        emit("  " + timespecReg + " = alloca { i64, i64 }, align 8")
+        emit("  " + timespecReg + " = alloca {{ i64, i64 }}, align 8")
         
         // Call clock_gettime(CLOCK_MONOTONIC=1, timespec*)
         let timespecPtr = nextReg()
-        emit("  " + timespecPtr + " = bitcast { i64, i64 }* " + timespecReg + " to i8*")
+        emit("  " + timespecPtr + " = bitcast {{ i64, i64 }}* " + timespecReg + " to i8*")
         emit("  call i32 @clock_gettime(i32 1, i8* " + timespecPtr + ")")
         
         // Extract seconds and nanoseconds
         let secPtr = nextReg()
         let nsecPtr = nextReg()
-        emit("  " + secPtr + " = getelementptr { i64, i64 }, { i64, i64 }* " + timespecReg + ", i32 0, i32 0")
-        emit("  " + nsecPtr + " = getelementptr { i64, i64 }, { i64, i64 }* " + timespecReg + ", i32 0, i32 1")
+        emit("  " + secPtr + " = getelementptr {{ i64, i64 }}, {{ i64, i64 }}* " + timespecReg + ", i32 0, i32 0")
+        emit("  " + nsecPtr + " = getelementptr {{ i64, i64 }}, {{ i64, i64 }}* " + timespecReg + ", i32 0, i32 1")
         emit("  " + secI64 + " = load i64, i64* " + secPtr + ", align 8")
         emit("  " + nsecI64 + " = load i64, i64* " + nsecPtr + ", align 8")
         
@@ -659,13 +659,13 @@ class CompleteCodeGenerator {
     
     fun generateOptimizedMain() {
         emit("; Optimized main function for benchmarks")
-        emit("define i32 @main() #0 {")
+        emit("define i32 @main() #0 {{")
         emit("entry:")
         
         // Call benchmark functions
         emit("  call void @run_benchmarks()")
         emit("  ret i32 0")
-        emit("}")
+        emit("}}")
         emit("")
         
         // Generate benchmark runner
@@ -673,7 +673,7 @@ class CompleteCodeGenerator {
     }
     
     fun generateBenchmarkRunner() {
-        emit("define void @run_benchmarks() #0 {")
+        emit("define void @run_benchmarks() #0 {{")
         emit("entry:")
         
         // Generate each benchmark
@@ -683,7 +683,7 @@ class CompleteCodeGenerator {
         generateBitwiseOperationsBenchmark()
         
         emit("  ret void")
-        emit("}")
+        emit("}}")
         emit("")
     }
     
@@ -870,14 +870,14 @@ class CompleteCodeGenerator {
     fun generateClass(item: ItemNode) {
         // Generate LLVM struct for class
         emit("; Class " + item.name)
-        emit("%class." + item.name + " = type { i8* }")
+        emit("%class." + item.name + " = type {{ i8* }}")
         emit("")
     }
     
     fun generateStruct(item: ItemNode) {
         // Generate LLVM struct
         emit("; Struct " + item.name)
-        emit("%struct." + item.name + " = type { i32 }")
+        emit("%struct." + item.name + " = type {{ i32 }}")
         emit("")
     }
     
@@ -993,7 +993,7 @@ class CompleteCodeGenerator {
         emit(endLabel + ":")
         
         // Branch prediction metadata (assume then branch is more likely)
-        emit("!4 = !{!\"branch_weights\", i32 2, i32 1}")
+        emit("!4 = !{{!\"branch_weights\", i32 2, i32 1}}")
     }
     
     fun generateOptimizedWhile(stmt: StatementNode) {
@@ -1021,7 +1021,7 @@ class CompleteCodeGenerator {
         emit(endLabel + ":")
         
         // Loop branch prediction (assume loop continues)
-        emit("!5 = !{!\"branch_weights\", i32 100, i32 1}")
+        emit("!5 = !{{!\"branch_weights\", i32 100, i32 1}}")
         
         loopDepth = loopDepth - 1
     }

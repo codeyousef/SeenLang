@@ -93,6 +93,7 @@ pub enum TokenType {
     LeftBracket,
     RightBracket,
     Comma,
+    Semicolon,
     Colon,
     Dot,         // .
     Arrow,       // ->

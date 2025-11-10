@@ -109,12 +109,48 @@ impl Type {
     /// Check if this type supports a specific operation
     pub fn supports_operation(&self, op: &str) -> bool {
         match self.non_nullable() {
-            Type::Int | Type::UInt | Type::Float => {
-                matches!(
-                    op,
-                    "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!="
-                )
-            }
+            Type::Int => matches!(
+                op,
+                "+"
+                    | "-"
+                    | "*"
+                    | "/"
+                    | "%"
+                    | "<"
+                    | ">"
+                    | "<="
+                    | ">="
+                    | "=="
+                    | "!="
+                    | "&"
+                    | "|"
+                    | "^"
+                    | "<<"
+                    | ">>"
+            ),
+            Type::UInt => matches!(
+                op,
+                "+"
+                    | "-"
+                    | "*"
+                    | "/"
+                    | "%"
+                    | "<"
+                    | ">"
+                    | "<="
+                    | ">="
+                    | "=="
+                    | "!="
+                    | "&"
+                    | "|"
+                    | "^"
+                    | "<<"
+                    | ">>"
+            ),
+            Type::Float => matches!(
+                op,
+                "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!="
+            ),
             Type::String => {
                 matches!(op, "+" | "==" | "!=" | "<" | ">" | "<=" | ">=")
             }
@@ -143,6 +179,18 @@ impl Type {
             (Type::Float, "+" | "-" | "*" | "/" | "%", Type::Int) => Some(Type::Float),
             (Type::UInt, "+" | "-" | "*" | "/" | "%", Type::Int) => Some(Type::Int),
             (Type::UInt, "+" | "-" | "*" | "/" | "%", Type::Float) => Some(Type::Float),
+
+            // Bitwise operations (integers only)
+            (Type::Int, "&" | "|" | "^", Type::Int) => Some(Type::Int),
+            (Type::Int, "&" | "|" | "^", Type::UInt) => Some(Type::Int),
+            (Type::UInt, "&" | "|" | "^", Type::Int) => Some(Type::Int),
+            (Type::UInt, "&" | "|" | "^", Type::UInt) => Some(Type::UInt),
+
+            // Shift operations
+            (Type::Int, "<<" | ">>", Type::Int) => Some(Type::Int),
+            (Type::Int, "<<" | ">>", Type::UInt) => Some(Type::Int),
+            (Type::UInt, "<<" | ">>", Type::Int) => Some(Type::UInt),
+            (Type::UInt, "<<" | ">>", Type::UInt) => Some(Type::UInt),
 
             // String concatenation
             (Type::String, "+", Type::String) => Some(Type::String),

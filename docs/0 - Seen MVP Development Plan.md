@@ -618,6 +618,24 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`, and CLI `run` type-checks the user
       bundle whenever manifest modules are disabled, so the stdlib manifest scenario is covered by automation while
       manifest-hosted projects continue to receive diagnostics pre-execution.
+* **Remaining parser/self-host TODOs (blocking Stage-1):**
+    1. Finish normalizing the Seen implementation of the compiler, starting with
+       `compiler_seen/src/codegen/generator.seen`: every literal brace inside quoted LLVM/C strings must be escaped as
+       `{{` / `}}`, sliced ranges such as `parts[1..]` need to be rewritten as explicit loops, and tuple bindings /
+       Kotlin-style constructs must be converted to syntax the Rust parser currently accepts. Stage-1 still fails in
+       this
+       file (lines 319, 587, 638, 838 this week), so keep iterating until the Seen parser can consume the entire
+       codegen module.
+    2. Systematically hunt for the same Kotlinisms (`static var`, `module`, `when`, tuple `for` bindings, range
+       literals) throughout the remaining `compiler_seen/src/**/*.seen` files and either extend the parser/lexer or
+       translate the offending code so that `seen_cli parse compiler_seen/src/**/*.seen` succeeds without manual hacks.
+    3. Once the parser accepts the full tree, rerun `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` after
+       each
+       batch of fixes and record the next failure (typechecker, IR, or runtime) so we can chase the remaining blockers
+       in order.
+    4. Add regression tests covering the new lexer behaviors (semicolon tokens, hexadecimal literals, keyword
+       identifiers) and tuple-binding `for` loops so future parser tweaks do not reintroduce the current self-hosting
+       regressions.
 
 ### PROD-5. Production QA & Platform Certification
 

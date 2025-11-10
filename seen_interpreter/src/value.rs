@@ -354,6 +354,90 @@ impl Value {
         }
     }
 
+    /// Perform bitwise AND
+    pub fn bitwise_and(&self, other: &Value) -> Result<Value, String> {
+        match (self, other) {
+            (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(a & b)),
+            _ => Err(format!(
+                "Cannot apply & to {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
+        }
+    }
+
+    /// Perform bitwise OR
+    pub fn bitwise_or(&self, other: &Value) -> Result<Value, String> {
+        match (self, other) {
+            (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(a | b)),
+            _ => Err(format!(
+                "Cannot apply | to {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
+        }
+    }
+
+    /// Perform bitwise XOR
+    pub fn bitwise_xor(&self, other: &Value) -> Result<Value, String> {
+        match (self, other) {
+            (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(a ^ b)),
+            _ => Err(format!(
+                "Cannot apply ^ to {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
+        }
+    }
+
+    /// Perform left shift
+    pub fn left_shift(&self, other: &Value) -> Result<Value, String> {
+        match (self, other) {
+            (Value::Integer(value), Value::Integer(shift)) => {
+                if *shift < 0 {
+                    Err("Shift amount must be non-negative".to_string())
+                } else if *shift >= 64 {
+                    Err("Shift amount must be less than 64".to_string())
+                } else {
+                    Ok(Value::Integer(value << (*shift as u32)))
+                }
+            }
+            _ => Err(format!(
+                "Cannot apply << to {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
+        }
+    }
+
+    /// Perform right shift (arithmetic)
+    pub fn right_shift(&self, other: &Value) -> Result<Value, String> {
+        match (self, other) {
+            (Value::Integer(value), Value::Integer(shift)) => {
+                if *shift < 0 {
+                    Err("Shift amount must be non-negative".to_string())
+                } else if *shift >= 64 {
+                    Err("Shift amount must be less than 64".to_string())
+                } else {
+                    Ok(Value::Integer(value >> (*shift as u32)))
+                }
+            }
+            _ => Err(format!(
+                "Cannot apply >> to {} and {}",
+                self.type_name(),
+                other.type_name()
+            )),
+        }
+    }
+
+    /// Perform bitwise NOT
+    pub fn bitwise_not(&self) -> Result<Value, String> {
+        match self {
+            Value::Integer(value) => Ok(Value::Integer(!value)),
+            _ => Err(format!("Cannot apply ~ to {}", self.type_name())),
+        }
+    }
+
     /// Perform comparison (less than)
     pub fn less_than(&self, other: &Value) -> Result<Value, String> {
         match (self, other) {

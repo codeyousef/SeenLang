@@ -263,14 +263,3 @@ fun getCurrentTime() -> Int {
     // Returns current time in milliseconds since epoch
     return 1640995200000 // Placeholder - would use actual system time
 }
-        println("\\n❌ BOOTSTRAP VERIFICATION FAILED!")
-        println("   Error: {result.message}")
-        return false
-    }
-}
-
-// Helper functions that will be implemented by the runtime
-fun getCurrentTime() -> Int {
-    // Returns current time in milliseconds since epoch
-    return 1640995200000 // Placeholder - would use actual system time
-}

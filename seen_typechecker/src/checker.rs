@@ -1056,6 +1056,11 @@ impl TypeChecker {
             BinaryOperator::GreaterEqual => ">=",
             BinaryOperator::And => "and",
             BinaryOperator::Or => "or",
+            BinaryOperator::BitwiseOr => "|",
+            BinaryOperator::BitwiseXor => "^",
+            BinaryOperator::BitwiseAnd => "&",
+            BinaryOperator::LeftShift => "<<",
+            BinaryOperator::RightShift => ">>",
             BinaryOperator::InclusiveRange => "..",
             BinaryOperator::ExclusiveRange => "..<",
         };
@@ -1107,6 +1112,20 @@ impl TypeChecker {
                         position: pos,
                     });
                     Type::Bool
+                }
+            }
+            UnaryOperator::BitwiseNot => {
+                let base = operand_type.non_nullable();
+                if matches!(base, Type::Int | Type::UInt) {
+                    operand_type
+                } else {
+                    self.result.add_error(TypeError::InvalidOperation {
+                        operation: "bitwise not".to_string(),
+                        left_type: operand_type.clone(),
+                        right_type: Type::Unit,
+                        position: pos,
+                    });
+                    Type::Unknown
                 }
             }
         }

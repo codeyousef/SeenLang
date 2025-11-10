@@ -10,7 +10,7 @@ use crate::{
 use seen_parser::Parameter as ASTParameter;
 use seen_parser::{
     AssignmentOperator, Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression,
-    Pattern, Program, UnaryOperator,
+    ForBinding, Pattern, Program, UnaryOperator,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -396,11 +396,11 @@ impl IRGenerator {
                 self.generate_expression(function)
             }
             Expression::For {
-                variable,
+                binding,
                 iterable,
                 body,
                 ..
-            } => self.generate_for_expression(variable, iterable, body),
+            } => self.generate_for_expression(binding, iterable, body),
             Expression::Break { value, .. } => self.generate_break_expression(value.as_deref()),
             Expression::Continue { .. } => self.generate_continue_expression(),
             Expression::Match { expr, arms, .. } => self.generate_match_expression(expr, arms),
@@ -501,6 +501,11 @@ impl IRGenerator {
             BinaryOperator::GreaterEqual => BinaryOp::GreaterEqual,
             BinaryOperator::And => BinaryOp::And,
             BinaryOperator::Or => BinaryOp::Or,
+            BinaryOperator::BitwiseAnd => BinaryOp::BitwiseAnd,
+            BinaryOperator::BitwiseOr => BinaryOp::BitwiseOr,
+            BinaryOperator::BitwiseXor => BinaryOp::BitwiseXor,
+            BinaryOperator::LeftShift => BinaryOp::LeftShift,
+            BinaryOperator::RightShift => BinaryOp::RightShift,
             BinaryOperator::InclusiveRange => {
                 return Err(IRError::Other(
                     "Range operators not yet implemented".to_string(),
@@ -539,6 +544,7 @@ impl IRGenerator {
         let op = match operator {
             UnaryOperator::Negate => UnaryOp::Negate,
             UnaryOperator::Not => UnaryOp::Not,
+            UnaryOperator::BitwiseNot => UnaryOp::BitwiseNot,
         };
 
         let result_reg = self.context.allocate_register();
@@ -778,11 +784,18 @@ impl IRGenerator {
     /// Generate IR for for loops
     fn generate_for_expression(
         &mut self,
-        variable: &str,
+        binding: &ForBinding,
         iterable: &Expression,
         body: &Expression,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let mut instructions = Vec::new();
+        let variable = match binding {
+            ForBinding::Identifier(name) => name,
+            ForBinding::Tuple(_) => {
+                // Tuple destructuring in for loops isn't supported in the bootstrap IR path.
+                return Ok((IRValue::Void, Vec::new()));
+            }
+        };
 
         // Handle range expressions (binary operator syntax) and range() function calls
         match iterable {

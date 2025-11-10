@@ -84,6 +84,12 @@ pub mod precedence {
     pub const LOGICAL_OR: u8 = 10;
     /// Logical AND precedence.
     pub const LOGICAL_AND: u8 = 20;
+    /// Bitwise OR precedence.
+    pub const BITWISE_OR: u8 = 25;
+    /// Bitwise XOR precedence.
+    pub const BITWISE_XOR: u8 = 27;
+    /// Bitwise AND precedence.
+    pub const BITWISE_AND: u8 = 29;
     /// Equality operators (==, !=).
     pub const EQUALITY: u8 = 30;
     /// Comparison operators (<, <=, >, >=).
@@ -92,6 +98,8 @@ pub mod precedence {
     pub const RANGE: u8 = 45;
     /// Elvis operator (`?:`).
     pub const ELVIS: u8 = 50;
+    /// Shift operators (<<, >>).
+    pub const SHIFT: u8 = 55;
     /// Additive operators (+, -).
     pub const ADDITIVE: u8 = 60;
     /// Multiplicative operators (*, /, %).
@@ -362,7 +370,7 @@ pub enum Expression {
     },
 
     For {
-        variable: String,
+        binding: ForBinding,
         iterable: Box<Expression>,
         body: Box<Expression>,
         pos: Position,
@@ -625,6 +633,15 @@ pub enum BinaryOperator {
     And,
     Or,
 
+    // Bitwise
+    BitwiseOr,
+    BitwiseXor,
+    BitwiseAnd,
+
+    // Shift
+    LeftShift,
+    RightShift,
+
     // Range
     InclusiveRange, // ..
     ExclusiveRange, // ..<
@@ -647,6 +664,11 @@ impl BinaryOperator {
             BinaryOperator::GreaterEqual => ">=",
             BinaryOperator::And => "and",
             BinaryOperator::Or => "or",
+            BinaryOperator::BitwiseOr => "|",
+            BinaryOperator::BitwiseXor => "^",
+            BinaryOperator::BitwiseAnd => "&",
+            BinaryOperator::LeftShift => "<<",
+            BinaryOperator::RightShift => ">>",
             BinaryOperator::InclusiveRange => "..",
             BinaryOperator::ExclusiveRange => "..<",
         }
@@ -658,12 +680,16 @@ impl BinaryOperator {
         match self {
             BinaryOperator::Or => LOGICAL_OR,
             BinaryOperator::And => LOGICAL_AND,
+            BinaryOperator::BitwiseOr => BITWISE_OR,
+            BinaryOperator::BitwiseXor => BITWISE_XOR,
+            BinaryOperator::BitwiseAnd => BITWISE_AND,
             BinaryOperator::Equal | BinaryOperator::NotEqual => EQUALITY,
             BinaryOperator::Less
             | BinaryOperator::Greater
             | BinaryOperator::LessEqual
             | BinaryOperator::GreaterEqual => COMPARISON,
             BinaryOperator::InclusiveRange | BinaryOperator::ExclusiveRange => RANGE,
+            BinaryOperator::LeftShift | BinaryOperator::RightShift => SHIFT,
             BinaryOperator::Add | BinaryOperator::Subtract => ADDITIVE,
             BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo => {
                 MULTIPLICATIVE
@@ -734,6 +760,7 @@ impl AssignmentOperator {
 pub enum UnaryOperator {
     Not,    // logical not
     Negate, // arithmetic negation
+    BitwiseNot,
 }
 
 impl UnaryOperator {
@@ -742,6 +769,7 @@ impl UnaryOperator {
         match self {
             UnaryOperator::Not => "not",
             UnaryOperator::Negate => "-",
+            UnaryOperator::BitwiseNot => "~",
         }
     }
 
@@ -778,6 +806,12 @@ pub enum Pattern {
         variant: String,
         fields: Vec<Box<Pattern>>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ForBinding {
+    Identifier(String),
+    Tuple(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

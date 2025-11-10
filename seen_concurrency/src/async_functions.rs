@@ -437,6 +437,35 @@ impl AsyncFunction {
             (AsyncValue::Boolean(a), AsyncValue::Boolean(b), BinaryOperator::Or) => {
                 Ok(AsyncValue::Boolean(*a || *b))
             }
+            (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::BitwiseAnd) => {
+                Ok(AsyncValue::Integer(a & b))
+            }
+            (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::BitwiseOr) => {
+                Ok(AsyncValue::Integer(a | b))
+            }
+            (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::BitwiseXor) => {
+                Ok(AsyncValue::Integer(a ^ b))
+            }
+            (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::LeftShift) => {
+                if *b < 0 || *b >= 64 {
+                    Err(AsyncError::RuntimeError {
+                        message: "Shift amount must be between 0 and 63".to_string(),
+                        position: Position::new(0, 0, 0),
+                    })
+                } else {
+                    Ok(AsyncValue::Integer(a << (*b as u32)))
+                }
+            }
+            (AsyncValue::Integer(a), AsyncValue::Integer(b), BinaryOperator::RightShift) => {
+                if *b < 0 || *b >= 64 {
+                    Err(AsyncError::RuntimeError {
+                        message: "Shift amount must be between 0 and 63".to_string(),
+                        position: Position::new(0, 0, 0),
+                    })
+                } else {
+                    Ok(AsyncValue::Integer(a >> (*b as u32)))
+                }
+            }
             _ => Err(AsyncError::RuntimeError {
                 message: format!(
                     "Unsupported binary operation: {:?} {:?} {:?}",
@@ -459,6 +488,7 @@ impl AsyncFunction {
             (AsyncValue::Boolean(b), UnaryOperator::Not) => Ok(AsyncValue::Boolean(!b)),
             (AsyncValue::Integer(i), UnaryOperator::Negate) => Ok(AsyncValue::Integer(-i)),
             (AsyncValue::Float(f), UnaryOperator::Negate) => Ok(AsyncValue::Float(-f)),
+            (AsyncValue::Integer(i), UnaryOperator::BitwiseNot) => Ok(AsyncValue::Integer(!i)),
             _ => Err(AsyncError::RuntimeError {
                 message: format!("Unsupported unary operation: {:?} {:?}", operator, value),
                 position: Position::new(0, 0, 0),

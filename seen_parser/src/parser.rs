@@ -50,7 +50,10 @@ impl Parser {
         });
 
         // Skip initial newlines
-        while matches!(current.token_type, TokenType::Newline) {
+        while matches!(
+            current.token_type,
+            TokenType::Newline | TokenType::Semicolon
+        ) {
             current = lexer.next_token().unwrap_or(Token {
                 token_type: TokenType::EOF,
                 lexeme: String::new(),
@@ -150,7 +153,7 @@ impl Parser {
 
         while !self.is_at_end() {
             // Skip any newlines at the top level
-            while self.check(&TokenType::Newline) {
+            while self.check_layout() {
                 self.advance();
             }
 
@@ -163,7 +166,7 @@ impl Parser {
             expressions.push(self.parse_top_level_item()?);
 
             // Optional semicolons or newlines between top-level expressions
-            while self.check(&TokenType::Newline) {
+            while self.check_layout() {
                 self.advance();
             }
 
@@ -392,16 +395,70 @@ impl Parser {
 
     /// Parse logical AND expressions (including word operator 'and')
     fn parse_logical_and(&mut self) -> ParseResult<Expression> {
-        let mut expr = self.parse_equality()?;
+        let mut expr = self.parse_bitwise_or()?;
 
         // FIXED: Use TokenType::LogicalAnd instead of KeywordType::KeywordAnd
         while self.check(&TokenType::LogicalAnd) {
             let pos = self.current.position.clone();
             self.advance();
-            let right = self.parse_equality()?;
+            let right = self.parse_bitwise_or()?;
             expr = Expression::BinaryOp {
                 left: Box::new(expr),
                 op: BinaryOperator::And,
+                right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_bitwise_or(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_bitwise_xor()?;
+
+        while self.check(&TokenType::BitwiseOr) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_bitwise_xor()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::BitwiseOr,
+                right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_bitwise_xor(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_bitwise_and()?;
+
+        while self.check(&TokenType::BitwiseXor) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_bitwise_and()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::BitwiseXor,
+                right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_bitwise_and(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_equality()?;
+
+        while self.check(&TokenType::BitwiseAnd) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_equality()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::BitwiseAnd,
                 right: Box::new(right),
                 pos,
             };
@@ -481,15 +538,33 @@ impl Parser {
 
     /// Parse elvis operator (?:)
     fn parse_elvis(&mut self) -> ParseResult<Expression> {
-        let mut expr = self.parse_term()?;
+        let mut expr = self.parse_shift()?;
 
         if self.check(&TokenType::Elvis) {
             let pos = self.current.position.clone();
             self.advance();
-            let default = self.parse_term()?;
+            let default = self.parse_shift()?;
             expr = Expression::Elvis {
                 nullable: Box::new(expr),
                 default: Box::new(default),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_shift(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_term()?;
+
+        while let Some(op) = self.match_shift_op() {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_term()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
                 pos,
             };
         }
@@ -544,6 +619,17 @@ impl Parser {
             let operand = self.parse_unary()?;
             return Ok(Expression::UnaryOp {
                 op: UnaryOperator::Not,
+                operand: Box::new(operand),
+                pos,
+            });
+        }
+
+        if self.check(&TokenType::BitwiseNot) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let operand = self.parse_unary()?;
+            return Ok(Expression::UnaryOp {
+                op: UnaryOperator::BitwiseNot,
                 operand: Box::new(operand),
                 pos,
             });
@@ -1000,20 +1086,9 @@ impl Parser {
         }
 
         // Keywords used as identifiers in expressions
-        if let TokenType::Keyword(keyword) = &self.current.token_type {
-            let name = match keyword {
-                KeywordType::KeywordData => "data".to_string(),
-                KeywordType::KeywordType => "type".to_string(),
-                // Add other keywords as needed
-                _ => {
-                    return Err(ParseError::UnexpectedToken {
-                        found: self.current.token_type.clone(),
-                        expected: "identifier".to_string(),
-                        pos: self.current.position.clone(),
-                    });
-                }
-            };
-            let is_public = false; // Keywords used as identifiers are treated as private
+        if let TokenType::Keyword(_) = &self.current.token_type {
+            let name = self.current.lexeme.clone();
+            let is_public = name.chars().next().map_or(false, |c| c.is_uppercase());
             self.advance();
             return Ok(Expression::Identifier {
                 name,
@@ -1081,12 +1156,12 @@ impl Parser {
     }
 
     fn parse_condition_logical_and(&mut self) -> ParseResult<Expression> {
-        let mut expr = self.parse_condition_equality()?;
+        let mut expr = self.parse_condition_bitwise_or()?;
 
         while self.check(&TokenType::LogicalAnd) {
             let pos = self.current.position.clone();
             self.advance();
-            let right = self.parse_condition_equality()?;
+            let right = self.parse_condition_bitwise_or()?;
             expr = Expression::BinaryOp {
                 left: Box::new(expr),
                 op: BinaryOperator::And,
@@ -1117,9 +1192,81 @@ impl Parser {
     }
 
     fn parse_condition_comparison(&mut self) -> ParseResult<Expression> {
-        let mut expr = self.parse_condition_term()?;
+        let mut expr = self.parse_condition_shift()?;
 
         while let Some(op) = self.match_comparison_op() {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_shift()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_condition_bitwise_or(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_bitwise_xor()?;
+
+        while self.check(&TokenType::BitwiseOr) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_bitwise_xor()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::BitwiseOr,
+                right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_condition_bitwise_xor(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_bitwise_and()?;
+
+        while self.check(&TokenType::BitwiseXor) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_bitwise_and()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::BitwiseXor,
+                right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_condition_bitwise_and(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_equality()?;
+
+        while self.check(&TokenType::BitwiseAnd) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let right = self.parse_condition_equality()?;
+            expr = Expression::BinaryOp {
+                left: Box::new(expr),
+                op: BinaryOperator::BitwiseAnd,
+                right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_condition_shift(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_condition_term()?;
+
+        while let Some(op) = self.match_shift_op() {
             let pos = self.current.position.clone();
             self.advance();
             let right = self.parse_condition_term()?;
@@ -1177,6 +1324,17 @@ impl Parser {
             let operand = self.parse_condition_unary()?;
             return Ok(Expression::UnaryOp {
                 op: UnaryOperator::Not,
+                operand: Box::new(operand),
+                pos,
+            });
+        }
+
+        if self.check(&TokenType::BitwiseNot) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let operand = self.parse_condition_unary()?;
+            return Ok(Expression::UnaryOp {
+                op: UnaryOperator::BitwiseNot,
                 operand: Box::new(operand),
                 pos,
             });
@@ -1360,8 +1518,8 @@ impl Parser {
         let mut arms = Vec::new();
 
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-            // Skip any leading newlines
-            while self.check(&TokenType::Newline) {
+            // Skip any leading newlines or semicolons
+            while self.check_layout() {
                 self.advance();
             }
 
@@ -1375,7 +1533,7 @@ impl Parser {
             // Support comma-separated patterns that share the same arm body.
             while self.check(&TokenType::Comma) {
                 self.advance();
-                while self.check(&TokenType::Newline) {
+                while self.check_layout() {
                     self.advance();
                 }
                 if self.check(&TokenType::Arrow) {
@@ -1402,8 +1560,8 @@ impl Parser {
                 });
             }
 
-            // Optional comma or newline
-            if self.check(&TokenType::Comma) || self.check(&TokenType::Newline) {
+            // Optional comma or layout separator
+            if self.check(&TokenType::Comma) || self.check_layout() {
                 self.advance();
             }
         }
@@ -1457,6 +1615,31 @@ impl Parser {
             TokenType::PublicIdentifier(name) | TokenType::PrivateIdentifier(name) => {
                 let name = name.clone();
                 self.advance();
+
+                if self.check(&TokenType::Dot) {
+                    self.advance();
+                    let variant = self.expect_identifier()?;
+                    let mut field_patterns = Vec::new();
+
+                    if self.check(&TokenType::LeftParen) {
+                        self.advance();
+                        while !self.check(&TokenType::RightParen) && !self.is_at_end() {
+                            let field_pattern = self.parse_pattern()?;
+                            field_patterns.push(Box::new(field_pattern));
+
+                            if !self.check(&TokenType::RightParen) {
+                                self.expect(&TokenType::Comma)?;
+                            }
+                        }
+                        self.expect(&TokenType::RightParen)?;
+                    }
+
+                    return Ok(Pattern::Enum {
+                        enum_name: name,
+                        variant,
+                        fields: field_patterns,
+                    });
+                }
 
                 if self.check(&TokenType::LeftBrace) {
                     // Struct pattern: Name { field: pattern, ... }
@@ -1517,6 +1700,7 @@ impl Parser {
                 let name = match keyword {
                     KeywordType::KeywordData => "data".to_string(),
                     KeywordType::KeywordType => "type".to_string(),
+                    KeywordType::KeywordEmit => "emit".to_string(),
                     // Add other keywords as needed for pattern matching
                     _ => format!("{:?}", keyword), // Fallback to debug representation
                 };
@@ -1568,7 +1752,24 @@ impl Parser {
         let pos = self.current.position.clone();
         self.advance(); // consume 'for'
 
-        let variable = self.expect_identifier()?;
+        let binding = if self.check(&TokenType::LeftParen) {
+            self.advance();
+            let mut names = Vec::new();
+            loop {
+                let name = self.expect_identifier()?;
+                names.push(name);
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            self.expect(&TokenType::RightParen)?;
+            ForBinding::Tuple(names)
+        } else {
+            ForBinding::Identifier(self.expect_identifier()?)
+        };
+
         self.expect_keyword(KeywordType::KeywordIn)?;
         // Parse iterable without treating the following `{` as a trailing lambda
         let iterable = self.with_trailing_lambda_disabled(|parser| parser.parse_expression())?;
@@ -1577,7 +1778,7 @@ impl Parser {
         let body = self.parse_statement_block()?;
 
         Ok(Expression::For {
-            variable,
+            binding,
             iterable: Box::new(iterable),
             body: Box::new(body),
             pos,
@@ -2134,8 +2335,8 @@ impl Parser {
         let mut expressions = Vec::new();
 
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-            // Skip any leading newlines
-            if self.check(&TokenType::Newline) {
+            // Skip any leading newlines or semicolons
+            if self.check_layout() {
                 self.advance();
                 continue;
             }
@@ -2144,7 +2345,7 @@ impl Parser {
             expressions.push(expr);
 
             // Skip trailing newlines
-            while self.check(&TokenType::Newline) {
+            while self.check_layout() {
                 self.advance();
             }
         }
@@ -2223,7 +2424,7 @@ impl Parser {
     }
 
     fn skip_statement_separators(&mut self) {
-        while self.check(&TokenType::Newline) {
+        while self.check_layout() {
             self.advance();
         }
     }
@@ -2231,6 +2432,20 @@ impl Parser {
     fn parse_statement(&mut self) -> ParseResult<Expression> {
         match &self.current.token_type {
             TokenType::Keyword(keyword) => match keyword {
+                KeywordType::KeywordStatic => {
+                    self.advance();
+                    if self.check_keyword(KeywordType::KeywordLet) {
+                        self.parse_let()
+                    } else if self.check_keyword(KeywordType::KeywordVar) {
+                        self.parse_var()
+                    } else {
+                        Err(ParseError::UnexpectedToken {
+                            found: self.current.token_type.clone(),
+                            expected: "let or var after 'static'".to_string(),
+                            pos: self.current.position.clone(),
+                        })
+                    }
+                }
                 KeywordType::KeywordLet => self.parse_let(),
                 KeywordType::KeywordVar => self.parse_var(),
                 KeywordType::KeywordReturn => self.parse_return(),
@@ -2276,7 +2491,7 @@ impl Parser {
         let mut function_expressions = Vec::new();
 
         // Skip any leading newlines
-        while self.check(&TokenType::Newline) {
+        while self.check_layout() {
             self.advance();
         }
 
@@ -2308,16 +2523,16 @@ impl Parser {
                 // Semicolon not needed - Seen uses newlines for separation
             }
 
-            // Skip newlines after contracts
-            while self.check(&TokenType::Newline) {
+            // Skip layout separators after contracts
+            while self.check_layout() {
                 self.advance();
             }
         }
 
         // Parse the rest of the function body (regular expressions)
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-            // Skip any leading newlines
-            while self.check(&TokenType::Newline) {
+            // Skip any leading layout separators
+            while self.check_layout() {
                 self.advance();
             }
 
@@ -2328,8 +2543,8 @@ impl Parser {
 
             function_expressions.push(self.parse_statement()?);
 
-            // Handle statement terminators (semicolons and newlines)
-            while self.check(&TokenType::Newline) {
+            // Handle statement terminators (semicolons/newlines)
+            while self.check_layout() {
                 self.advance();
             }
         }
@@ -2504,7 +2719,7 @@ impl Parser {
         })?;
 
         // Best-effort: skip trailing newlines in interpolation and allow minor leftovers
-        while matches!(sub_parser.current.token_type, TokenType::Newline) {
+        while Parser::is_layout_token(&sub_parser.current.token_type) {
             sub_parser.advance();
         }
         // Ensure we've consumed the entire expression string
@@ -2724,8 +2939,8 @@ impl Parser {
                     })
                 };
 
-                // Skip newline tokens automatically
-                if !matches!(self.current.token_type, TokenType::Newline) {
+                // Skip layout tokens automatically
+                if !Self::is_layout_token(&self.current.token_type) {
                     break;
                 }
 
@@ -2786,6 +3001,11 @@ impl Parser {
                 self.advance();
                 Ok(name)
             }
+            TokenType::Keyword(_) => {
+                let name = self.current.lexeme.clone();
+                self.advance();
+                Ok(name)
+            }
             _ => Err(ParseError::UnexpectedToken {
                 found: self.current.token_type.clone(),
                 expected: "identifier".to_string(),
@@ -2807,6 +3027,7 @@ impl Parser {
                 let name = match keyword {
                     KeywordType::KeywordData => "data".to_string(),
                     KeywordType::KeywordType => "type".to_string(),
+                    KeywordType::KeywordEmit => "emit".to_string(),
                     KeywordType::KeywordClass => "class".to_string(),
                     KeywordType::KeywordStruct => "struct".to_string(),
                     KeywordType::KeywordEnum => "enum".to_string(),
@@ -2832,8 +3053,16 @@ impl Parser {
         matches!(self.current.token_type, TokenType::EOF)
     }
 
+    fn is_layout_token(token_type: &TokenType) -> bool {
+        matches!(token_type, TokenType::Newline | TokenType::Semicolon)
+    }
+
+    fn check_layout(&self) -> bool {
+        Self::is_layout_token(&self.current.token_type)
+    }
+
     fn skip_whitespace(&mut self) {
-        while self.check(&TokenType::Newline) {
+        while self.check_layout() {
             self.advance();
         }
     }
@@ -2846,7 +3075,7 @@ impl Parser {
                 | TokenType::RightBracket
                 | TokenType::EOF
         ) || (matches!(self.parsing_context, ParsingContext::Statement)
-            && matches!(self.current.token_type, TokenType::Newline))
+            && Self::is_layout_token(&self.current.token_type))
     }
 
     /// Check if we're at a lambda arrow (->)
@@ -3057,7 +3286,8 @@ impl Parser {
                 | TokenType::LeftBrace
                 | TokenType::Arrow
                 | TokenType::FatArrow
-                | TokenType::Newline => return false,
+                | TokenType::Newline
+                | TokenType::Semicolon => return false,
                 TokenType::Less
                 | TokenType::Greater
                 | TokenType::RightShift
@@ -3123,6 +3353,14 @@ impl Parser {
             TokenType::Multiply => Some(BinaryOperator::Multiply),
             TokenType::Divide => Some(BinaryOperator::Divide),
             TokenType::Modulo => Some(BinaryOperator::Modulo),
+            _ => None,
+        }
+    }
+
+    fn match_shift_op(&self) -> Option<BinaryOperator> {
+        match &self.current.token_type {
+            TokenType::LeftShift => Some(BinaryOperator::LeftShift),
+            TokenType::RightShift => Some(BinaryOperator::RightShift),
             _ => None,
         }
     }
@@ -3257,8 +3495,8 @@ impl Parser {
         let mut cases = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            // Skip newlines
-            while self.check(&TokenType::Newline) {
+            // Skip layout separators
+            while self.check_layout() {
                 self.advance();
             }
 
@@ -3568,12 +3806,12 @@ impl Parser {
         let mut fields = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            // Skip any leading newlines
-            while self.check(&TokenType::Newline) {
+            // Skip any leading layout separators
+            while self.check_layout() {
                 self.advance();
             }
 
-            // Check for end of struct after skipping newlines
+            // Check for end of struct after skipping separators
             if self.check(&TokenType::RightBrace) {
                 break;
             }
@@ -3632,12 +3870,12 @@ impl Parser {
         let mut variants = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            // Skip any leading newlines
-            while self.check(&TokenType::Newline) {
+            // Skip any leading layout separators
+            while self.check_layout() {
                 self.advance();
             }
 
-            // Check for end of enum after skipping newlines
+            // Check for end of enum after skipping layout separators
             if self.check(&TokenType::RightBrace) {
                 break;
             }
@@ -3722,12 +3960,12 @@ impl Parser {
         let mut methods = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            // Skip any leading newlines
-            while self.check(&TokenType::Newline) {
+            // Skip any leading layout separators
+            while self.check_layout() {
                 self.advance();
             }
 
-            // Check for end of class after skipping newlines
+            // Check for end of class after skipping separators
             if self.check(&TokenType::RightBrace) {
                 break;
             }
@@ -3958,8 +4196,8 @@ impl Parser {
         let mut methods = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            // Skip newlines
-            while self.check(&TokenType::Newline) {
+            // Skip layout separators
+            while self.check_layout() {
                 self.advance();
             }
 
@@ -4002,8 +4240,8 @@ impl Parser {
         let mut methods = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            // Skip any leading newlines
-            while self.check(&TokenType::Newline) {
+            // Skip any leading layout separators
+            while self.check_layout() {
                 self.advance();
             }
 
@@ -4043,7 +4281,7 @@ impl Parser {
             });
 
             // Allow optional newline or comma between methods
-            if self.check(&TokenType::Newline) || self.check(&TokenType::Comma) {
+            if self.check_layout() || self.check(&TokenType::Comma) {
                 self.advance();
             }
         }
@@ -4363,8 +4601,8 @@ impl Parser {
         let mut methods = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            // Skip newlines
-            while self.check(&TokenType::Newline) {
+            // Skip layout separators
+            while self.check_layout() {
                 self.advance();
             }
 

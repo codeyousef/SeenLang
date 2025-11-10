@@ -1,6 +1,6 @@
 //! Tests for control flow expressions (if, match, loops)
 
-use crate::{BinaryOperator, Expression, ParseResult, Parser, Pattern};
+use crate::{BinaryOperator, Expression, ForBinding, ParseResult, Parser, Pattern};
 use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
@@ -258,12 +258,15 @@ fn test_parse_for_loop() {
     let expr = parse_expression("for item in items { item }").unwrap();
     match expr {
         Expression::For {
-            variable,
+            binding,
             iterable,
             body,
             ..
         } => {
-            assert_eq!(variable, "item");
+            match binding {
+                ForBinding::Identifier(name) => assert_eq!(name, "item"),
+                other => panic!("Expected identifier binding, got {:?}", other),
+            }
             match iterable.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "items"),
                 _ => panic!("Expected identifier as iterable"),

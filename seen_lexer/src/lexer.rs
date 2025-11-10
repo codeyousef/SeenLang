@@ -224,10 +224,12 @@ impl Lexer {
                         start_pos,
                     ))
                 } else {
-                    return Err(LexerError::UnexpectedCharacter {
-                        character: '!',
-                        position: start_pos,
-                    });
+                    self.advance();
+                    Ok(Token::new(
+                        TokenType::LogicalNot,
+                        "!".to_string(),
+                        start_pos,
+                    ))
                 }
             }
             Some('<') => {
@@ -362,12 +364,12 @@ impl Lexer {
                 Ok(Token::new(TokenType::Comma, ",".to_string(), start_pos))
             }
             Some(';') => {
-                // Seen doesn't use semicolons - treat as unexpected character
                 self.advance();
-                Err(LexerError::UnexpectedCharacter {
-                    character: ';',
-                    position: start_pos,
-                })
+                Ok(Token::new(
+                    TokenType::Semicolon,
+                    ";".to_string(),
+                    start_pos,
+                ))
             }
             Some(':') => {
                 self.advance();
@@ -683,6 +685,61 @@ impl Lexer {
         let mut number_str = String::new();
         let mut is_float = false;
         let mut is_unsigned = false;
+
+        // Hexadecimal literal support (0xFF or 0XFF, optional 'u' suffix)
+        if self.current_char == Some('0') {
+            if let Some(peek_char) = self.peek() {
+                if matches!(peek_char, 'x' | 'X') {
+                    let mut lexeme = String::from("0");
+                    lexeme.push(peek_char);
+                    self.advance(); // consume '0'
+                    self.advance(); // consume 'x' or 'X'
+
+                    let mut digits = String::new();
+                    while let Some(ch) = self.current_char {
+                        if ch.is_ascii_hexdigit() {
+                            digits.push(ch);
+                            lexeme.push(ch);
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if digits.is_empty() {
+                        return Err(LexerError::InvalidNumber {
+                            position: start_pos,
+                            message: "Expected hexadecimal digits after 0x prefix".to_string(),
+                        });
+                    }
+
+                    let mut is_unsigned_hex = false;
+                    if self.current_char == Some('u') {
+                        is_unsigned_hex = true;
+                        lexeme.push('u');
+                        self.advance();
+                    }
+
+                    if is_unsigned_hex {
+                        let value = u64::from_str_radix(&digits, 16).map_err(|_| {
+                            LexerError::InvalidNumber {
+                                position: start_pos,
+                                message: "Invalid unsigned hexadecimal literal".to_string(),
+                            }
+                        })?;
+                        return Ok(Token::new(TokenType::UIntegerLiteral(value), lexeme, start_pos));
+                    } else {
+                        let value = i64::from_str_radix(&digits, 16).map_err(|_| {
+                            LexerError::InvalidNumber {
+                                position: start_pos,
+                                message: "Invalid hexadecimal literal".to_string(),
+                            }
+                        })?;
+                        return Ok(Token::new(TokenType::IntegerLiteral(value), lexeme, start_pos));
+                    }
+                }
+            }
+        }
 
         // Read integer part
         while let Some(ch) = self.current_char {

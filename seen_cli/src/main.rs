@@ -30,7 +30,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::fs::File;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
@@ -1854,7 +1854,7 @@ fn compile_file_llvm(
     {
         use seen_core::{LinkOutput, LlvmBackend, TargetOptions};
         let mut backend = LlvmBackend::new();
-        backend.set_cli_mode(cli_mode);
+        backend.set_cli_mode(true);
         let default_target = if emit_ll {
             PathBuf::from("a.ll")
         } else {
