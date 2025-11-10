@@ -520,6 +520,9 @@ and installers across every supported platform.
           high-level helpers (`readText`, `writeText`, `writeLines`, `appendText`, directory management, and command
           execution), plus regression coverage in `seen_std/tests/io_file_basic.seen`. Stage-1 code can start routing
           all file I/O through these perf-oriented wrappers while we continue fleshing out the wider IO/fs/net surface.
+       * Update: `seen_std/src/fs/path.seen` adds path normalization/join/basename/dirname/extension helpers with
+         deterministic semantics (and tests in `seen_std/tests/fs_path_basic.seen`), so Stage-1 and tooling can
+         manipulate paths without reimplementing split/resolve logic or relying on host-specific quirks.
     5. Flesh out `std.concurrent` / `std.sync` (structured scopes, channels, mutex/condvar/atomics) wired into the
        runtime schedulers validated in PSH-3b/3d.
     6. Expand `std.ffi`, `std.time`, `std.env`, and `std.process` so bootstrap scripts and installers rely on shared
