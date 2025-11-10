@@ -74,7 +74,6 @@ impl RuntimeTraceHandle {
     }
 
     /// Clone the current trace contents without consuming the handle.
-    #[allow(dead_code)]
     pub fn snapshot(&self) -> RuntimeTraceFile {
         self.inner
             .lock()
@@ -140,6 +139,42 @@ pub enum RuntimeTraceEvent {
     MethodError {
         class: String,
         method: String,
+        message: String,
+    },
+    EffectRegistered {
+        effect: String,
+        effect_id: String,
+        operations: Vec<String>,
+    },
+    EffectHandleEnter {
+        effect: String,
+        effect_id: String,
+        handlers: Vec<String>,
+    },
+    EffectHandleExit {
+        effect: String,
+        effect_id: String,
+        result: Option<RuntimeTraceValue>,
+        error: Option<String>,
+    },
+    EffectOperationInvoke {
+        effect: String,
+        operation: String,
+        arguments: Vec<RuntimeTraceValue>,
+        via_handler: bool,
+    },
+    EffectOperationResult {
+        effect: String,
+        operation: String,
+        result: RuntimeTraceValue,
+    },
+    EffectOperationError {
+        effect: String,
+        operation: String,
+        message: String,
+    },
+    CrashBreadcrumb {
+        phase: String,
         message: String,
     },
 }

@@ -528,8 +528,10 @@ and installers across every supported platform.
   Stage3 artifacts and Android bundles report doctor-friendly hashes. CLI `seen trace --runtime/--replay` now captures
   interpreter events (program start/end, function/method entry, and failures) into JSON traces, plus a replay printer
   and
-  regression tests so Alpha’s trace/replay gate has a working baseline. Remaining work: wire the crash hooks/effect
-  breadcrumbs into those traces and publish the full triage playbook alongside the release notes.
+  regression tests so Alpha’s trace/replay gate has a working baseline. Runtime traces also thread effect breadcrumbs
+  (registration, handle enter/exit, handler-vs-runtime dispatch, and per-operation success/error) and crash breadcrumbs
+  for parse/type/interpret failures, giving triage a full breadcrumb trail. Remaining work: publish the full triage
+  playbook alongside the release notes.
 
 ### PROD-4a. Parser Hardening for Stdlib & Tooling
 

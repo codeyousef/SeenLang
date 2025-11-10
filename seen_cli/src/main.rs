@@ -3256,19 +3256,54 @@ fn resolve_embed_path(value: AttributeValue, module_dir: &Path) -> AttributeValu
     }
 }
 
+fn record_trace_breadcrumb(
+    handle: Option<&RuntimeTraceHandle>,
+    phase: &str,
+    message: impl Into<String>,
+) {
+    if let Some(handle) = handle {
+        handle.record(RuntimeTraceEvent::CrashBreadcrumb {
+            phase: phase.to_string(),
+            message: message.into(),
+        });
+    }
+}
+
+fn seen_result_with_trace<T>(
+    handle: Option<&RuntimeTraceHandle>,
+    phase: &str,
+    result: SeenResult<T>,
+) -> SeenResult<T> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(err) => {
+            record_trace_breadcrumb(handle, phase, err.to_string());
+            Err(err)
+        }
+    }
+}
+
 fn run_file(
     input: &Path,
     args: &[String],
     keyword_manager: Arc<KeywordManager>,
     trace_handle: Option<RuntimeTraceHandle>,
 ) -> SeenResult<()> {
-    // Read source file
-    let source = fs::read_to_string(input).map_err(|err| {
-        SeenError::new(
-            SeenErrorKind::Io,
-            format!("Failed to read source file {}: {}", input.display(), err),
-        )
-    })?;
+    let trace_handle_ref = trace_handle.as_ref();
+    let source = match fs::read_to_string(input) {
+        Ok(contents) => contents,
+        Err(err) => {
+            record_trace_breadcrumb(
+                trace_handle_ref,
+                "read_source",
+                format!("{}: {}", input.display(), err),
+            );
+            return Err(SeenError::new(
+                SeenErrorKind::Io,
+                format!("Failed to read source file {}: {}", input.display(), err),
+            ));
+        }
+    };
 
     // Lex and parse
     let (project_config, lexer_config) = project_context_for(input)?;
@@ -3277,31 +3312,45 @@ fn run_file(
     let dependency_roots = project_config.dependency_roots();
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let parsed = parser.parse_program().map_err(SeenError::from)?;
+    let parsed = match parser.parse_program() {
+        Ok(program) => program,
+        Err(err) => {
+            record_trace_breadcrumb(trace_handle_ref, "parse", format!("{}", err));
+            return Err(SeenError::from(err));
+        }
+    };
     // Bundle imports so interpreter sees imported functions. We only type-check these bundles when
     // manifest modules are disabled, because the current type checker still lacks the generics/traits
     // needed to validate the stdlib manifest.
     let ast_for_typecheck = if manifest_modules.is_empty() {
-        Some(bundle_imports(
-            parsed.clone(),
+        Some(seen_result_with_trace(
+            trace_handle_ref,
+            "bundle_imports_typecheck",
+            bundle_imports(
+                parsed.clone(),
+                input,
+                keyword_manager.clone(),
+                visibility_policy,
+                &project_config.root_dir,
+                &dependency_roots,
+                &[],
+            ),
+        )?)
+    } else {
+        None
+    };
+    let ast = seen_result_with_trace(
+        trace_handle_ref,
+        "bundle_imports",
+        bundle_imports(
+            parsed,
             input,
             keyword_manager.clone(),
             visibility_policy,
             &project_config.root_dir,
             &dependency_roots,
-            &[],
-        )?)
-    } else {
-        None
-    };
-    let ast = bundle_imports(
-        parsed,
-        input,
-        keyword_manager.clone(),
-        visibility_policy,
-        &project_config.root_dir,
-        &dependency_roots,
-        &manifest_modules,
+            &manifest_modules,
+        ),
     )?;
 
     if let Some(ast_to_check) = &ast_for_typecheck {
@@ -3312,6 +3361,8 @@ fn run_file(
                 eprintln!("Type error: {}", error);
             }
             if let Some(primary) = type_result.errors.first().cloned() {
+                let message = format!("{}", primary);
+                record_trace_breadcrumb(trace_handle_ref, "typecheck", message.clone());
                 return Err(SeenError::from(primary));
             }
             return Err(SeenError::new(
@@ -3326,7 +3377,7 @@ fn run_file(
 
     // Interpret the program
     let mut interpreter = Interpreter::new();
-    if let Some(handle) = trace_handle {
+    if let Some(handle) = trace_handle.clone() {
         interpreter.set_trace_handle(handle);
     }
     // Forward program args via env for __GetCommandLineArgs override
@@ -3339,7 +3390,13 @@ fn run_file(
         std::env::set_var("SEEN_PROGRAM_ARGS", s);
     }
 
-    let result = interpreter.interpret(&ast).map_err(SeenError::from)?;
+    let result = match interpreter.interpret(&ast) {
+        Ok(value) => value,
+        Err(err) => {
+            record_trace_breadcrumb(trace_handle_ref, "interpret", format!("{}", err));
+            return Err(SeenError::from(err));
+        }
+    };
     if !matches!(result, Value::Unit) {
         println!("{}", result);
     }
@@ -3502,6 +3559,98 @@ fn replay_runtime_trace(trace_path: &Path) -> SeenResult<()> {
                 message,
             } => {
                 println!("[method {}::{}] error: {}", class, method, message);
+            }
+            RuntimeTraceEvent::EffectRegistered {
+                effect,
+                effect_id,
+                operations,
+            } => {
+                let ops = if operations.is_empty() {
+                    "none".to_string()
+                } else {
+                    operations.join(", ")
+                };
+                println!(
+                    "[effect {}] registered id={} ops=[{}]",
+                    effect, effect_id, ops
+                );
+            }
+            RuntimeTraceEvent::EffectHandleEnter {
+                effect,
+                effect_id,
+                handlers,
+            } => {
+                let hs = if handlers.is_empty() {
+                    "none".to_string()
+                } else {
+                    handlers.join(", ")
+                };
+                println!(
+                    "[effect {}] handle enter id={} handlers=[{}]",
+                    effect, effect_id, hs
+                );
+            }
+            RuntimeTraceEvent::EffectHandleExit {
+                effect,
+                effect_id,
+                result,
+                error,
+            } => {
+                if let Some(err) = error {
+                    println!(
+                        "[effect {}] handle exit id={} error: {}",
+                        effect, effect_id, err
+                    );
+                } else if let Some(value) = result {
+                    println!(
+                        "[effect {}] handle exit id={} result={}",
+                        effect,
+                        effect_id,
+                        format_trace_value(&value),
+                    );
+                } else {
+                    println!("[effect {}] handle exit id={}", effect, effect_id);
+                }
+            }
+            RuntimeTraceEvent::EffectOperationInvoke {
+                effect,
+                operation,
+                arguments,
+                via_handler,
+            } => {
+                println!(
+                    "[effect {}::{}] invoke via {} args({})",
+                    effect,
+                    operation,
+                    if via_handler { "handler" } else { "runtime" },
+                    arguments
+                        .iter()
+                        .map(format_trace_value)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            RuntimeTraceEvent::EffectOperationResult {
+                effect,
+                operation,
+                result,
+            } => {
+                println!(
+                    "[effect {}::{}] result => {}",
+                    effect,
+                    operation,
+                    format_trace_value(&result)
+                );
+            }
+            RuntimeTraceEvent::EffectOperationError {
+                effect,
+                operation,
+                message,
+            } => {
+                println!("[effect {}::{}] error: {}", effect, operation, message);
+            }
+            RuntimeTraceEvent::CrashBreadcrumb { phase, message } => {
+                println!("[breadcrumb {}] {}", phase, message);
             }
         }
     }

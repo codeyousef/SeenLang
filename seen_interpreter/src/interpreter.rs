@@ -321,6 +321,34 @@ impl Interpreter {
         }
     }
 
+    fn trace_effect_outcome(
+        &self,
+        effect: &str,
+        operation: &str,
+        result: &InterpreterResult<Value>,
+    ) {
+        match result {
+            Ok(value) => self.trace_event(RuntimeTraceEvent::EffectOperationResult {
+                effect: effect.to_string(),
+                operation: operation.to_string(),
+                result: RuntimeTraceValue::from_value(value),
+            }),
+            Err(err) => self.trace_event(RuntimeTraceEvent::EffectOperationError {
+                effect: effect.to_string(),
+                operation: operation.to_string(),
+                message: format!("{}", err),
+            }),
+        }
+    }
+
+    fn evaluate_arguments(&mut self, args: &[Expression]) -> InterpreterResult<Vec<Value>> {
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+            values.push(self.interpret_expression(arg)?);
+        }
+        Ok(values)
+    }
+
     /// Interpret a complete program
     pub fn interpret(&mut self, program: &Program) -> InterpreterResult<Value> {
         self.trace_event(RuntimeTraceEvent::ProgramStart {
@@ -1175,14 +1203,39 @@ impl Interpreter {
         {
             if let Expression::Identifier { name, .. } = object.as_ref() {
                 if let Some(effect_id) = self.effect_registry.get(name).cloned() {
-                    if let Some(handler) = self.lookup_effect_handler(effect_id, member.as_str()) {
-                        return self.call_function_value(handler, args, pos);
+                    let effect_name = name.clone();
+                    let operation_name = member.clone();
+                    if let Some(handler) =
+                        self.lookup_effect_handler(effect_id, operation_name.as_str())
+                    {
+                        let evaluated_args = self.evaluate_arguments(args)?;
+                        let arg_trace = evaluated_args
+                            .iter()
+                            .map(RuntimeTraceValue::from_value)
+                            .collect();
+                        self.trace_event(RuntimeTraceEvent::EffectOperationInvoke {
+                            effect: effect_name.clone(),
+                            operation: operation_name.clone(),
+                            arguments: arg_trace,
+                            via_handler: true,
+                        });
+                        let result =
+                            self.call_function_value(handler, args, Some(evaluated_args), pos);
+                        self.trace_effect_outcome(&effect_name, &operation_name, &result);
+                        return result;
                     }
 
-                    let mut arg_values = Vec::new();
-                    for arg in args {
-                        arg_values.push(self.interpret_expression(arg)?);
-                    }
+                    let arg_values = self.evaluate_arguments(args)?;
+                    let arg_trace = arg_values
+                        .iter()
+                        .map(RuntimeTraceValue::from_value)
+                        .collect();
+                    self.trace_event(RuntimeTraceEvent::EffectOperationInvoke {
+                        effect: effect_name.clone(),
+                        operation: operation_name.clone(),
+                        arguments: arg_trace,
+                        via_handler: false,
+                    });
                     let params: Vec<EffectAsyncValue> = arg_values
                         .iter()
                         .map(|v| self.value_to_effect_async_value(v))
@@ -1192,11 +1245,29 @@ impl Interpreter {
                     let mut advanced = advanced.lock().map_err(|_| {
                         InterpreterError::runtime("Advanced runtime unavailable", pos)
                     })?;
-                    let result = advanced
+                    match advanced
                         .effect_system
                         .call_effect(effect_id, member, params, pos)
-                        .map_err(|err| InterpreterError::runtime(err.to_string(), pos))?;
-                    return Ok(self.effect_async_value_to_value(&result));
+                    {
+                        Ok(result) => {
+                            let value = self.effect_async_value_to_value(&result);
+                            self.trace_event(RuntimeTraceEvent::EffectOperationResult {
+                                effect: effect_name,
+                                operation: operation_name,
+                                result: RuntimeTraceValue::from_value(&value),
+                            });
+                            return Ok(value);
+                        }
+                        Err(err) => {
+                            let message = err.to_string();
+                            self.trace_event(RuntimeTraceEvent::EffectOperationError {
+                                effect: effect_name,
+                                operation: operation_name,
+                                message: message.clone(),
+                            });
+                            return Err(InterpreterError::runtime(message, pos));
+                        }
+                    }
                 }
             }
 
@@ -1268,13 +1339,14 @@ impl Interpreter {
         // Evaluate the callee expression
         let func_val = self.interpret_expression(callee)?;
 
-        self.call_function_value(func_val, args, pos)
+        self.call_function_value(func_val, args, None, pos)
     }
 
     fn call_function_value(
         &mut self,
         func_val: Value,
         args: &[Expression],
+        pre_evaluated_args: Option<Vec<Value>>,
         pos: Position,
     ) -> InterpreterResult<Value> {
         if let Value::Function {
@@ -1293,10 +1365,11 @@ impl Interpreter {
                 ));
             }
 
-            let mut arg_values = Vec::new();
-            for arg in args {
-                arg_values.push(self.interpret_expression(arg)?);
-            }
+            let mut arg_values = if let Some(values) = pre_evaluated_args {
+                values
+            } else {
+                self.evaluate_arguments(args)?
+            };
             let arg_summaries: Vec<RuntimeTraceValue> = arg_values
                 .iter()
                 .map(RuntimeTraceValue::from_value)
@@ -1308,7 +1381,7 @@ impl Interpreter {
 
             self.runtime.push_environment(true);
 
-            for (param, value) in parameters.iter().zip(arg_values.into_iter()) {
+            for (param, value) in parameters.iter().zip(arg_values.drain(..)) {
                 self.runtime.define_variable(param.clone(), value);
             }
 
@@ -2256,6 +2329,11 @@ impl Interpreter {
             .map_err(|err| InterpreterError::runtime(err.to_string(), pos))?;
 
         self.effect_registry.insert(name.to_string(), effect_id);
+        self.trace_event(RuntimeTraceEvent::EffectRegistered {
+            effect: name.to_string(),
+            effect_id: effect_id.id().to_string(),
+            operations: operations.iter().map(|op| op.name.clone()).collect(),
+        });
 
         Ok(Value::Effect(effect_arc))
     }
@@ -2281,6 +2359,7 @@ impl Interpreter {
 
         // Set up effect handlers
         let mut handler_map = HashMap::new();
+        let handler_names: Vec<String> = handlers.iter().map(|h| h.operation.clone()).collect();
 
         for handler in handlers {
             // Store actual handler implementation
@@ -2301,9 +2380,32 @@ impl Interpreter {
             handlers: handler_map,
         });
 
+        let effect_id_str = effect_id.id().to_string();
+        let effect_name_owned = effect_name.to_string();
+        self.trace_event(RuntimeTraceEvent::EffectHandleEnter {
+            effect: effect_name_owned.clone(),
+            effect_id: effect_id_str.clone(),
+            handlers: handler_names,
+        });
+
         let result = self.interpret_expression(body);
 
         self.effect_handler_stack.pop();
+
+        match &result {
+            Ok(value) => self.trace_event(RuntimeTraceEvent::EffectHandleExit {
+                effect: effect_name_owned.clone(),
+                effect_id: effect_id_str.clone(),
+                result: Some(RuntimeTraceValue::from_value(value)),
+                error: None,
+            }),
+            Err(err) => self.trace_event(RuntimeTraceEvent::EffectHandleExit {
+                effect: effect_name_owned,
+                effect_id: effect_id_str,
+                result: None,
+                error: Some(format!("{}", err)),
+            }),
+        }
 
         result
     }
@@ -2868,6 +2970,7 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::RuntimeTraceMetadata;
     use seen_concurrency::types::{AsyncValue, Channel, ChannelId, ChannelReceiveStatus};
     use seen_parser::ast::{MessageHandler, Pattern};
     use seen_parser::{ClassField, Method, Type};
@@ -3670,5 +3773,119 @@ mod tests {
             }
             other => panic!("expected runtime error, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn effect_trace_emits_breadcrumbs() {
+        use seen_parser::ast::{EffectHandler, EffectOperation, Type};
+
+        let pos = Position::start();
+        let handler = EffectHandler {
+            operation: "Write".to_string(),
+            params: vec![Parameter {
+                name: "value".to_string(),
+                type_annotation: Some(Type::new("String")),
+                default_value: None,
+                memory_modifier: None,
+            }],
+            body: Box::new(Expression::Identifier {
+                name: "value".to_string(),
+                is_public: false,
+                pos,
+            }),
+        };
+
+        let call_expr = Expression::Call {
+            callee: Box::new(Expression::MemberAccess {
+                object: Box::new(Expression::Identifier {
+                    name: "IO".to_string(),
+                    is_public: false,
+                    pos,
+                }),
+                member: "Write".to_string(),
+                is_safe: false,
+                pos,
+            }),
+            args: vec![Expression::StringLiteral {
+                value: "trace-me".to_string(),
+                pos,
+            }],
+            pos,
+        };
+
+        let effect_def = Expression::Effect {
+            name: "IO".to_string(),
+            operations: vec![EffectOperation {
+                name: "Write".to_string(),
+                params: vec![Parameter {
+                    name: "value".to_string(),
+                    type_annotation: Some(Type::new("String")),
+                    default_value: None,
+                    memory_modifier: None,
+                }],
+                return_type: Some(Type::new("String")),
+            }],
+            pos,
+        };
+
+        let handle_expr = Expression::Handle {
+            body: Box::new(call_expr),
+            effect: "IO".to_string(),
+            handlers: vec![handler],
+            pos,
+        };
+
+        let program = Expression::Block {
+            expressions: vec![effect_def, handle_expr],
+            pos,
+        };
+
+        let metadata = RuntimeTraceMetadata {
+            program: "trace_test".to_string(),
+            opt_level: 0,
+            cli_profile: "default".to_string(),
+            args: Vec::new(),
+            seen_version: "test".to_string(),
+            host: "test-host".to_string(),
+        };
+        let trace_handle = RuntimeTraceHandle::new(metadata);
+
+        let mut interpreter = Interpreter::new();
+        interpreter.set_trace_handle(trace_handle.clone());
+
+        let result = interpreter
+            .interpret_expression(&program)
+            .expect("effect handler should succeed");
+        assert!(matches!(result, Value::String(_)));
+
+        let trace = trace_handle.snapshot();
+        assert!(
+            trace.events.iter().any(|event| matches!(
+                event,
+                RuntimeTraceEvent::EffectRegistered { effect, .. }
+                if effect == "IO"
+            )),
+            "expected EffectRegistered event"
+        );
+        assert!(
+            trace.events.iter().any(|event| matches!(
+                event,
+                RuntimeTraceEvent::EffectOperationInvoke {
+                    effect,
+                    operation,
+                    via_handler,
+                    ..
+                } if effect == "IO" && operation == "Write" && *via_handler
+            )),
+            "expected EffectOperationInvoke via handler"
+        );
+        assert!(
+            trace.events.iter().any(|event| matches!(
+                event,
+                RuntimeTraceEvent::EffectHandleExit { error, .. }
+                if error.is_none()
+            )),
+            "expected EffectHandleExit without errors"
+        );
     }
 }
