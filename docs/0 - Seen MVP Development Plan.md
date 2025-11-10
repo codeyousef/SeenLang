@@ -529,9 +529,11 @@ and installers across every supported platform.
        primitives instead of ad-hoc glue.
         * Update: `seen_std/src/env/env.seen` now exposes deterministic wrappers for CLI arguments and environment
           variables (`args`, `tryGet`, `getOrDefault`, `set`, `remove`, `has`) atop new runtime builtins, plus
-          regression
-          coverage in `seen_std/tests/env_basic.seen`, so Stage-1 no longer shells directly into `__GetCommandLineArgs`
-          or ad-hoc env helpers.
+          regression coverage in `seen_std/tests/env_basic.seen`, so Stage-1 no longer shells directly into
+          `__GetCommandLineArgs` or ad-hoc env helpers.
+        * Update: `seen_std/src/time/time.seen` adds `nowSeconds`/`nowMillis`, duration helpers, and deterministic
+          timestamp parsing atop `__GetTimestamp`, with tests in `seen_std/tests/time_basic.seen`, so bootstrap code can
+          reason about clocks without poking raw builtins.
 
 ### PROD-3. Installer & Updater
 
