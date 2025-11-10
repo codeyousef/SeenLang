@@ -218,3 +218,13 @@ language = "en"
         .success()
         .stdout(contains("42"));
 }
+
+#[test]
+fn manifest_std_vec_smoke_test() {
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(workspace_root())
+        .env("SEEN_ENABLE_MANIFEST_MODULES", "1")
+        .args(["run", "seen_std/tests/vec_basic.seen"])
+        .assert()
+        .success();
+}

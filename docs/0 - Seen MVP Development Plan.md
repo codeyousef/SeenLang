@@ -567,6 +567,9 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       scoped variables survive block boundaries. Executors install instance contexts for each actor, the interpreter
       updates `ActorInstance::state` via those contexts, and regression tests cover `Inc`/`Get` handlers retaining state
       across multiple requests.
+    - `seen_cli/tests/manifest_modules.rs::manifest_std_vec_smoke_test` now runs
+      `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`, so the stdlib Vec manifest scenario
+      is part of the automated gate instead of being a manual check.
 
 * **Remaining tasks:**
     1. Execute real actor handler bodies/reactive factories instead of echoing payloads so manifest-loaded stdlib actors
