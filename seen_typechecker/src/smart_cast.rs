@@ -156,7 +156,7 @@ impl SmartCastAnalyzer {
     ) {
         if let Expression::If {
             condition,
-            then_branch,
+            then_branch: _,
             else_branch,
             ..
         } = if_expr

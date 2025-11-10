@@ -23,13 +23,12 @@ use seen_shaders::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::fs::File;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
@@ -452,8 +451,8 @@ enum DependencySpec {
 #[derive(Debug, Deserialize)]
 struct DependencyEntry {
     path: String,
-    #[serde(default)]
-    version: Option<String>,
+    #[serde(default, rename = "version")]
+    _version: Option<String>,
 }
 
 impl DependencySpec {
@@ -766,7 +765,6 @@ fn main() -> SeenResult<()> {
                         target_cpu.as_deref(),
                         simd_report.as_ref(),
                         cli.profile,
-                        false,
                     )?;
                 }
                 Backend::Ir => {
@@ -1629,7 +1627,6 @@ fn compile_file_llvm(
     target_cpu: Option<&str>,
     simd_report: Option<&PathBuf>,
     profile: Profile,
-    cli_mode: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -3318,7 +3315,6 @@ fn run_file_llvm(
         target_cpu,
         None,
         profile,
-        true,
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {

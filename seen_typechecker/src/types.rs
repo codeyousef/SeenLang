@@ -380,7 +380,7 @@ impl TypeInfo {
 impl From<&seen_parser::ast::Type> for Type {
     fn from(ast_type: &seen_parser::ast::Type) -> Self {
         // Primitive types
-        let mut base_type = match ast_type.name.as_str() {
+        let base_type = match ast_type.name.as_str() {
             "Int" => Type::Int,
             "UInt" => Type::UInt,
             "Float" => Type::Float,

@@ -99,11 +99,13 @@ impl Environment {
     }
 
     /// Remove a smart cast for a variable
+    #[allow(dead_code)]
     fn remove_smart_cast(&mut self, name: &str) {
         self.smart_casts.remove(name);
     }
 
     /// Create a child environment that inherits smart casts
+    #[allow(dead_code)]
     fn with_smart_casts(&self) -> Environment {
         let mut child = Environment::new();
         child.parent = Some(Box::new(self.clone()));
