@@ -324,19 +324,4 @@ let PROT_WRITE = 2
 let MAP_PRIVATE = 2
 let MAP_ANONYMOUS = 32
 
-// Export all functions for use by generated LLVM IR
-export GetCurrentTimeNanos
-export GetMonotonicTimeNanos
-export AllocateMemory
-export DeallocateMemory
-export ZeroMemory
-export CopyMemory
-export WriteToConsole
-export RunBenchmark
-export GetCPUCycles
-export ClearCPUCache
-export WarmupCPU
-export BenchmarkI32Addition
-export BenchmarkI32Multiplication
-export BenchmarkF64Operations
-export BenchmarkBitwiseOperations
+// Functions below are consumed by the generated LLVM IR runtime.

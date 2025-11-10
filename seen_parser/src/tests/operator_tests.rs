@@ -1,6 +1,8 @@
 //! Tests for operator parsing (binary, unary, nullable)
 
-use crate::{precedence, BinaryOperator, Expression, ParseResult, Parser, UnaryOperator};
+use crate::{
+    precedence, AssignmentOperator, BinaryOperator, Expression, ParseResult, Parser, UnaryOperator,
+};
 use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
@@ -252,7 +254,10 @@ fn test_parse_exclusive_range() {
 fn test_parse_assignment() {
     let expr = parse_expression("x = 42").unwrap();
     match expr {
-        Expression::Assignment { target, value, .. } => {
+        Expression::Assignment {
+            target, value, op, ..
+        } => {
+            assert_eq!(op, AssignmentOperator::Assign);
             match target.as_ref() {
                 Expression::Identifier { name, .. } => assert_eq!(name, "x"),
                 _ => panic!("Expected identifier as target"),
@@ -260,6 +265,27 @@ fn test_parse_assignment() {
             match value.as_ref() {
                 Expression::IntegerLiteral { value, .. } => assert_eq!(*value, 42),
                 _ => panic!("Expected integer literal"),
+            }
+        }
+        _ => panic!("Expected assignment"),
+    }
+}
+
+#[test]
+fn test_parse_compound_assignment() {
+    let expr = parse_expression("result += value").unwrap();
+    match expr {
+        Expression::Assignment {
+            target, value, op, ..
+        } => {
+            assert_eq!(op, AssignmentOperator::AddAssign);
+            match target.as_ref() {
+                Expression::Identifier { name, .. } => assert_eq!(name, "result"),
+                _ => panic!("Expected identifier as target"),
+            }
+            match value.as_ref() {
+                Expression::Identifier { name, .. } => assert_eq!(name, "value"),
+                _ => panic!("Expected identifier as value"),
             }
         }
         _ => panic!("Expected assignment"),

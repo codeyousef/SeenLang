@@ -7,31 +7,16 @@ import interfaces.{Type, TypeKind, TypeError, Location, Environment, TypeInferen
 // Import the real implementation
 import typechecker.{TypeChecker}
 
-// Re-export everything that tests and other modules need
-export {
-    Type,
-    TypeKind,
-    TypeError,
-    Location,
-    Environment,
-    TypeInferenceResult,
-    FunctionType,
-    ClassType,
-    InterfaceType,
-    SmartCastContext,
-    TypeChecker
-}
-
 // Utility functions for tests
-export fun createTypeChecker() -> TypeChecker {
+fun createTypeChecker() -> TypeChecker {
     return TypeChecker.new()
 }
 
-export fun typeCheckAST(ast: AST) -> TypeInferenceResult {
+fun typeCheckAST(ast: AST) -> TypeInferenceResult {
     let checker = TypeChecker.new()
     return checker.check(ast)
 }
 
-export fun createType(name: String, nullable: Bool = false) -> Type {
+fun createType(name: String, nullable: Bool = false) -> Type {
     return Type.new(name, nullable)
 }

@@ -7,28 +7,15 @@ import interfaces.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, I
 // Import the real implementation
 import generator.{IRGenerator}
 
-// Re-export everything that tests and other modules need
-export {
-    IRModule,
-    IRFunction,
-    IRBasicBlock,
-    IRInstruction,
-    IRValue,
-    IRType,
-    IRError,
-    IRBuilder,
-    IRGenerator
-}
-
 // Utility functions for tests
-export fun createIRGenerator() -> IRGenerator {
+fun createIRGenerator() -> IRGenerator {
     return IRGenerator.new()
 }
 
-export fun createIRModule(name: String) -> IRModule {
+fun createIRModule(name: String) -> IRModule {
     return IRModule.new(name)
 }
 
-export fun createIRBuilder() -> IRBuilder {
+fun createIRBuilder() -> IRBuilder {
     return IRBuilder.new()
 }

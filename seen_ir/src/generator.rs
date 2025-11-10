@@ -9,8 +9,8 @@ use crate::{
 };
 use seen_parser::Parameter as ASTParameter;
 use seen_parser::{
-    Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression, Pattern, Program,
-    UnaryOperator,
+    AssignmentOperator, Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression,
+    Pattern, Program, UnaryOperator,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -351,7 +351,9 @@ impl IRGenerator {
             } => self.generate_binary_expression(left, op, right),
             Expression::UnaryOp { op, operand, .. } => self.generate_unary_expression(op, operand),
             Expression::Call { callee, args, .. } => self.generate_call_expression(callee, args),
-            Expression::Assignment { target, value, .. } => self.generate_assignment(target, value),
+            Expression::Assignment {
+                target, value, op, ..
+            } => self.generate_assignment(target, value, *op),
             Expression::If {
                 condition,
                 then_branch,
@@ -636,50 +638,82 @@ impl IRGenerator {
         &mut self,
         target: &Expression,
         value: &Expression,
+        op: AssignmentOperator,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
-        let (value_val, mut value_instructions) = self.generate_expression(value)?;
+        let (rhs_val, mut instructions) = self.generate_expression(value)?;
 
         match target {
             Expression::Identifier { name, .. } => {
-                let target_val = IRValue::Variable(name.clone());
+                let mut assigned_value = rhs_val.clone();
 
-                let store_instruction = Instruction::Store {
-                    value: value_val.clone(),
-                    dest: target_val,
-                };
+                if !matches!(op, AssignmentOperator::Assign) {
+                    let ir_op = match op {
+                        AssignmentOperator::AddAssign => BinaryOp::Add,
+                        AssignmentOperator::SubAssign => BinaryOp::Subtract,
+                        AssignmentOperator::MulAssign => BinaryOp::Multiply,
+                        AssignmentOperator::DivAssign => BinaryOp::Divide,
+                        AssignmentOperator::ModAssign => BinaryOp::Modulo,
+                        AssignmentOperator::Assign => unreachable!(),
+                    };
 
-                value_instructions.push(store_instruction);
-                Ok((value_val, value_instructions))
+                    let result_reg = self.context.allocate_register();
+                    let result_val = IRValue::Register(result_reg);
+
+                    instructions.push(Instruction::Binary {
+                        op: ir_op,
+                        left: IRValue::Variable(name.clone()),
+                        right: rhs_val,
+                        result: result_val.clone(),
+                    });
+
+                    assigned_value = result_val;
+                }
+
+                instructions.push(Instruction::Store {
+                    value: assigned_value.clone(),
+                    dest: IRValue::Variable(name.clone()),
+                });
+
+                Ok((assigned_value, instructions))
             }
             Expression::IndexAccess { object, index, .. } => {
+                if !matches!(op, AssignmentOperator::Assign) {
+                    return Err(IRError::Other(
+                        "Compound assignment not supported for index targets".to_string(),
+                    ));
+                }
+
                 let (obj_val, obj_instructions) = self.generate_expression(object)?;
                 let (idx_val, idx_instructions) = self.generate_expression(index)?;
 
-                value_instructions.extend(obj_instructions);
-                value_instructions.extend(idx_instructions);
+                instructions.extend(obj_instructions);
+                instructions.extend(idx_instructions);
 
-                let array_set_instruction = Instruction::ArraySet {
+                instructions.push(Instruction::ArraySet {
                     array: obj_val,
                     index: idx_val,
-                    value: value_val.clone(),
-                };
+                    value: rhs_val.clone(),
+                });
 
-                value_instructions.push(array_set_instruction);
-                Ok((value_val, value_instructions))
+                Ok((rhs_val, instructions))
             }
             Expression::MemberAccess { object, member, .. } => {
+                if !matches!(op, AssignmentOperator::Assign) {
+                    return Err(IRError::Other(
+                        "Compound assignment not supported for member targets".to_string(),
+                    ));
+                }
+
                 let (obj_val, obj_instructions) = self.generate_expression(object)?;
+                instructions.extend(obj_instructions);
 
-                value_instructions.extend(obj_instructions);
-
-                let field_set_instruction = Instruction::FieldSet {
+                instructions.push(Instruction::FieldSet {
                     struct_val: obj_val,
                     field: member.clone(),
-                    value: value_val.clone(),
-                };
+                    value: rhs_val.clone(),
+                });
 
-                value_instructions.push(field_set_instruction);
-                Ok((value_val, value_instructions))
+                Ok((rhs_val, instructions))
             }
             _ => Err(IRError::Other("Invalid assignment target".to_string())),
         }

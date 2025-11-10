@@ -2,6 +2,7 @@
 // These are the contracts that the type checker implementation must fulfill
 
 import parser.{AST, Function, Class, Interface, Expression, Statement, Type as ASTType}
+import typechecker.typechecker.{TypeChecker as RealTypeChecker}
 
 // Type system representation
 class Type {
@@ -74,14 +75,14 @@ class Type {
     }
     
     // Predefined types for convenience
-    static let Int = Type.new("Int")
-    static let Float = Type.new("Float")  
-    static let String = Type.new("String")
-    static let Bool = Type.new("Bool")
-    static let Void = Type.new("Void")
-    static let Any = Type.new("Any")
-    static let Never = Type.new("Never")
-    static let Unknown = Type.new("Unknown")
+    static let Int: Type = Type.new("Int")
+    static let Float: Type = Type.new("Float")  
+    static let String: Type = Type.new("String")
+    static let Bool: Type = Type.new("Bool")
+    static let Void: Type = Type.new("Void")
+    static let Any: Type = Type.new("Any")
+    static let Never: Type = Type.new("Never")
+    static let Unknown: Type = Type.new("Unknown")
 }
 
 // Type kind classification
@@ -307,7 +308,6 @@ class TypeChecker {
     
     fun new() -> TypeChecker {
         // Factory method that returns the real implementation
-        import typechecker.typechecker.{TypeChecker as RealTypeChecker}
         return RealTypeChecker.new()
     }
     

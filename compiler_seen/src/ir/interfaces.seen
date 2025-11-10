@@ -76,14 +76,14 @@ class IRType {
     }
     
     // Predefined IR types
-    static let I8 = IRType.new("i8", 8)
-    static let I16 = IRType.new("i16", 16)
-    static let I32 = IRType.new("i32", 32)
-    static let I64 = IRType.new("i64", 64)
-    static let F32 = IRType.new("float", 32)
-    static let F64 = IRType.new("double", 64)
-    static let Void = IRType.new("void", 0)
-    static let Ptr = IRType.new("i8*", 64, true, I8)
+    static let I8: IRType = IRType.new("i8", 8)
+    static let I16: IRType = IRType.new("i16", 16)
+    static let I32: IRType = IRType.new("i32", 32)
+    static let I64: IRType = IRType.new("i64", 64)
+    static let F32: IRType = IRType.new("float", 32)
+    static let F64: IRType = IRType.new("double", 64)
+    static let Void: IRType = IRType.new("void", 0)
+    static let Ptr: IRType = IRType.new("i8*", 64, true, I8)
 }
 
 // IR Instruction representation

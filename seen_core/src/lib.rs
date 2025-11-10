@@ -13,8 +13,8 @@ pub use seen_lexer::{KeywordManager, Lexer, LexerConfig, Token, TokenType, Visib
 
 // Parsing facade.
 pub use seen_parser::{
-    precedence, BinaryOperator, Expression, Parser as SeenParser, Position, Program, Type,
-    UnaryOperator,
+    precedence, AssignmentOperator, BinaryOperator, Expression, Parser as SeenParser, Position,
+    Program, Type, UnaryOperator,
 };
 
 // Type checker facade.

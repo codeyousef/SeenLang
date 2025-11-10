@@ -1,5 +1,6 @@
 // Lexer Module Interfaces - To Be Implemented Following TDD
 // These are the contracts that the lexer implementation must fulfill
+import lexer.keyword_manager.{KeywordManager as RealKeywordManager}
 
 // Token types for the Seen language
 enum TokenType {
@@ -259,7 +260,6 @@ class KeywordManager {
     
     fun new(language: String) -> KeywordManager {
         // Factory method that creates real implementation
-        import lexer.keyword_manager.{KeywordManager as RealKeywordManager}
         return RealKeywordManager.new(language)
     }
     
@@ -339,7 +339,7 @@ extension TokenType {
 fun generateLargeSource(tokenCount: Int) -> String {
     let builder = StringBuilder()
     for i in 0..tokenCount/10 {
-        builder.append("fun function{i}() { let x{i} = {i}; }\n")
+        builder.append("fun function{i}() {{ let x{i} = {i}; }}\n")
     }
     return builder.toString()
 }

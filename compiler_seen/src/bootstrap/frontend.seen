@@ -6,12 +6,6 @@ import parser.{SeenParser, ParseError, AST}
 import typechecker.{TypeChecker}
 import typechecker.interfaces.{TypeError}
 
-export {
-    FrontendDiagnostic,
-    FrontendResult,
-    run_frontend,
-}
-
 class FrontendDiagnostic {
     var file: String
     var line: Int
@@ -78,14 +72,16 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") -> 
         let typeResult = checker.check(ast)
 
         if typeResult.errors.length() > 0 {
-            for error in typeResult.errors {
+            let typeErrors = typeResult.errors
+            for error in typeErrors {
                 result.addDiagnostic(diagnostic_from_type_error(error, fileLabel))
             }
             return result
         }
 
         if typeResult.warnings.length() > 0 {
-            for warning in typeResult.warnings {
+            let typeWarnings = typeResult.warnings
+            for warning in typeWarnings {
                 result.addDiagnostic(
                     FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
                 )

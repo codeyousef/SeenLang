@@ -272,32 +272,55 @@ fun getTimestamp() -> String {
 fun FormatSeenCode(source: String) -> String { return __FormatSeenCode(source) }
 
 fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> Bool {
-    let result = run_frontend(sourceCode, sourceFile, "en")
-    if not result.success {
+    let frontend = run_frontend(sourceCode, sourceFile, "en")
+    if not frontend.success {
         println("❌ Frontend validation failed before {action}.")
-        printFrontendDiagnostics(result)
+        printFrontendDiagnostics(frontend)
         return false
     }
-    printFrontendWarnings(result)
+    printFrontendWarnings(frontend)
     return true
 }
 
-fun printFrontendDiagnostics(result: FrontendResult) -> Void {
-    for diag in result.diagnostics {
-        println("{diag.severity} {diag.file}:{diag.line}:{diag.column} → {diag.message}")
+fun printFrontendDiagnostics(frontend: FrontendResult) -> Void {
+    let diagnostics = frontend.diagnostics
+    for diag in diagnostics {
+        println(formatFrontendDiagnostic(diag))
     }
 }
 
-fun printFrontendWarnings(result: FrontendResult) -> Void {
-    if not result.hasWarnings() {
+fun printFrontendWarnings(frontend: FrontendResult) -> Void {
+    if not frontend.hasWarnings() {
         return
     }
     println("⚠ Frontend warnings:")
-    for diag in result.diagnostics {
-        if diag.severity == "warning" {
-            println("  {diag.file}:{diag.line}:{diag.column} → {diag.message}")
+    let diagnostics = frontend.diagnostics
+    for diag in diagnostics {
+        if isFrontendWarning(diag) {
+            println(formatFrontendWarning(diag))
         }
     }
+}
+
+fun formatFrontendDiagnostic(diag: FrontendDiagnostic) -> String {
+    let severity = diag.severity
+    let file = diag.file
+    let line = diag.line
+    let column = diag.column
+    let message = diag.message
+    return "{severity} {file}:{line}:{column} → {message}"
+}
+
+fun formatFrontendWarning(diag: FrontendDiagnostic) -> String {
+    let file = diag.file
+    let line = diag.line
+    let column = diag.column
+    let message = diag.message
+    return "  {file}:{line}:{column} → {message}"
+}
+
+fun isFrontendWarning(diag: FrontendDiagnostic) -> Bool {
+    return diag.severity == "warning"
 }
 
 // Argument helpers backed by seen_std Option/Result

@@ -98,6 +98,33 @@ impl Parser {
         }
     }
 
+    fn consume_static_modifier(&mut self) -> bool {
+        if self.check_keyword(KeywordType::KeywordStatic) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn consume_member_modifiers(&mut self) -> bool {
+        let mut is_static = false;
+        loop {
+            let mut consumed = false;
+            if self.consume_visibility_modifier() {
+                consumed = true;
+            }
+            if self.consume_static_modifier() {
+                is_static = true;
+                consumed = true;
+            }
+            if !consumed {
+                break;
+            }
+        }
+        is_static
+    }
+
     fn default_visibility(&self, name: &str) -> bool {
         match self.visibility_policy {
             VisibilityPolicy::Caps => name.chars().next().map_or(false, |c| c.is_uppercase()),
@@ -316,18 +343,31 @@ impl Parser {
     fn parse_assignment(&mut self) -> ParseResult<Expression> {
         let expr = self.parse_logical_or()?;
 
-        if self.check(&TokenType::Assign) {
+        if let Some(op) = self.current_assignment_operator() {
             let pos = self.current.position.clone();
             self.advance();
             let value = self.parse_assignment()?;
             return Ok(Expression::Assignment {
                 target: Box::new(expr),
                 value: Box::new(value),
+                op,
                 pos,
             });
         }
 
         Ok(expr)
+    }
+
+    fn current_assignment_operator(&self) -> Option<AssignmentOperator> {
+        match &self.current.token_type {
+            TokenType::Assign => Some(AssignmentOperator::Assign),
+            TokenType::PlusAssign => Some(AssignmentOperator::AddAssign),
+            TokenType::MinusAssign => Some(AssignmentOperator::SubAssign),
+            TokenType::MultiplyAssign => Some(AssignmentOperator::MulAssign),
+            TokenType::DivideAssign => Some(AssignmentOperator::DivAssign),
+            TokenType::ModuloAssign => Some(AssignmentOperator::ModAssign),
+            _ => None,
+        }
     }
 
     /// Parse logical OR expressions (including word operator 'or')
@@ -599,7 +639,7 @@ impl Parser {
                 TokenType::Dot => {
                     let pos = self.current.position.clone();
                     self.advance();
-                    let member = self.expect_identifier()?;
+                    let member = self.parse_field_name()?;
                     expr = Expression::MemberAccess {
                         object: Box::new(expr),
                         member,
@@ -610,7 +650,7 @@ impl Parser {
                 TokenType::SafeNavigation => {
                     let pos = self.current.position.clone();
                     self.advance();
-                    let member = self.expect_identifier()?;
+                    let member = self.parse_field_name()?;
                     expr = Expression::MemberAccess {
                         object: Box::new(expr),
                         member,
@@ -963,6 +1003,7 @@ impl Parser {
         if let TokenType::Keyword(keyword) = &self.current.token_type {
             let name = match keyword {
                 KeywordType::KeywordData => "data".to_string(),
+                KeywordType::KeywordType => "type".to_string(),
                 // Add other keywords as needed
                 _ => {
                     return Err(ParseError::UnexpectedToken {
@@ -1329,7 +1370,19 @@ impl Parser {
                 break;
             }
 
-            let pattern = self.parse_pattern()?;
+            let mut patterns = vec![self.parse_pattern()?];
+
+            // Support comma-separated patterns that share the same arm body.
+            while self.check(&TokenType::Comma) {
+                self.advance();
+                while self.check(&TokenType::Newline) {
+                    self.advance();
+                }
+                if self.check(&TokenType::Arrow) {
+                    break;
+                }
+                patterns.push(self.parse_pattern()?);
+            }
 
             let guard = if self.check_keyword(KeywordType::KeywordIf) {
                 self.advance();
@@ -1341,11 +1394,13 @@ impl Parser {
             self.expect(&TokenType::Arrow)?;
             let body = self.parse_expression()?;
 
-            arms.push(MatchArm {
-                pattern,
-                guard,
-                body,
-            });
+            for pattern in patterns {
+                arms.push(MatchArm {
+                    pattern,
+                    guard: guard.clone(),
+                    body: body.clone(),
+                });
+            }
 
             // Optional comma or newline
             if self.check(&TokenType::Comma) || self.check(&TokenType::Newline) {
@@ -1461,6 +1516,7 @@ impl Parser {
             TokenType::Keyword(keyword) => {
                 let name = match keyword {
                     KeywordType::KeywordData => "data".to_string(),
+                    KeywordType::KeywordType => "type".to_string(),
                     // Add other keywords as needed for pattern matching
                     _ => format!("{:?}", keyword), // Fallback to debug representation
                 };
@@ -2468,7 +2524,7 @@ impl Parser {
             // Parse memory management modifier if present
             let memory_modifier = self.parse_memory_modifier()?;
 
-            let name = self.expect_identifier()?;
+            let name = self.parse_field_name()?;
 
             let type_annotation = if self.check(&TokenType::Colon) {
                 self.advance();
@@ -3652,7 +3708,8 @@ impl Parser {
         };
 
         // Check for superclass
-        let superclass = if self.check(&TokenType::Colon) {
+        let superclass = if self.check(&TokenType::Colon) || self.check_identifier_value("extends")
+        {
             self.advance();
             Some(self.expect_identifier()?)
         } else {
@@ -3682,13 +3739,12 @@ impl Parser {
                 Vec::new()
             };
 
-            // Allow explicit visibility modifiers before members
-            self.consume_visibility_modifier();
+            let forced_static = self.consume_member_modifiers();
 
             // Check if it's a method (starts with 'fun' after optional visibility)
             if self.check_keyword(KeywordType::KeywordFun) {
                 // Parse method with annotations support
-                methods.push(self.parse_method_with_annotations(annotations)?);
+                methods.push(self.parse_method_with_annotations(annotations, forced_static)?);
             } else {
                 // It's a field
                 fields.push(self.parse_class_field(annotations)?);
@@ -3749,13 +3805,14 @@ impl Parser {
     fn parse_method_with_annotations(
         &mut self,
         annotations: Vec<crate::ast::Annotation>,
+        forced_static: bool,
     ) -> ParseResult<crate::ast::Method> {
-        let mut method = self.parse_method()?;
+        let mut method = self.parse_method(forced_static)?;
         method.annotations = annotations;
         Ok(method)
     }
 
-    fn parse_method(&mut self) -> ParseResult<crate::ast::Method> {
+    fn parse_method(&mut self, forced_static: bool) -> ParseResult<crate::ast::Method> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'fun'
 
@@ -3793,7 +3850,7 @@ impl Parser {
         };
 
         let is_public = self.resolve_visibility(&method_name);
-        let is_static = receiver.is_none();
+        let is_static = forced_static || receiver.is_none();
 
         self.expect(&TokenType::LeftParen)?;
         let parameters = self.parse_parameters()?;
@@ -3910,9 +3967,11 @@ impl Parser {
                 break;
             }
 
+            let forced_static = self.consume_member_modifiers();
+
             // Parse method
             if self.check_keyword(KeywordType::KeywordFun) {
-                methods.push(self.parse_method()?);
+                methods.push(self.parse_method(forced_static)?);
             }
 
             // Allow optional comma or newline between methods
@@ -4320,9 +4379,11 @@ impl Parser {
                 Vec::new()
             };
 
+            let forced_static = self.consume_member_modifiers();
+
             // Check if it's a method or field
             if self.check_keyword(KeywordType::KeywordFun) {
-                methods.push(self.parse_method()?);
+                methods.push(self.parse_method_with_annotations(annotations, forced_static)?);
             } else {
                 fields.push(self.parse_class_field(annotations)?);
             }

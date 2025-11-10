@@ -22,8 +22,8 @@ use seen_effects::{
 };
 use seen_parser::{
     ast::{ClassField, MessageHandler as AstMessageHandler},
-    BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm, Method, Parameter,
-    Pattern, Position, Program, UnaryOperator,
+    AssignmentOperator, BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm,
+    Method, Parameter, Pattern, Position, Program, UnaryOperator,
 };
 use seen_reactive::properties::PropertyId as ReactivePropertyId;
 use std::collections::HashMap;
@@ -613,23 +613,41 @@ impl Interpreter {
             }
 
             // Assignment
-            Expression::Assignment { target, value, pos } => {
-                let val = self.interpret_expression(value)?;
+            Expression::Assignment {
+                target,
+                value,
+                op,
+                pos,
+            } => match target.as_ref() {
+                Expression::Identifier { name, .. } => {
+                    let rhs_val = self.interpret_expression(value)?;
+                    let assigned_value = if matches!(op, AssignmentOperator::Assign) {
+                        rhs_val
+                    } else {
+                        let current_val = if let Some(field_val) = self.lookup_instance_field(name)
+                        {
+                            field_val
+                        } else {
+                            self.runtime
+                                .get_variable(name)
+                                .map_err(|e| InterpreterError::runtime(e.to_string(), *pos))?
+                        };
+                        self.evaluate_compound_assignment(&current_val, &rhs_val, *op, *pos)?
+                    };
 
-                match target.as_ref() {
-                    Expression::Identifier { name, .. } => {
-                        if self.assign_instance_field(name, val.clone()) {
-                            return Ok(val);
-                        }
+                    if self.assign_instance_field(name, assigned_value.clone()) {
+                        self.sync_reactive_binding(name, &assigned_value, *pos)?;
+                        Ok(assigned_value)
+                    } else {
                         self.runtime
-                            .set_variable(name, val.clone())
+                            .set_variable(name, assigned_value.clone())
                             .map_err(|e| InterpreterError::runtime(e.to_string(), *pos))?;
-                        self.sync_reactive_binding(name, &val, *pos)?;
-                        Ok(val)
+                        self.sync_reactive_binding(name, &assigned_value, *pos)?;
+                        Ok(assigned_value)
                     }
-                    _ => Err(InterpreterError::runtime("Invalid assignment target", *pos)),
                 }
-            }
+                _ => Err(InterpreterError::runtime("Invalid assignment target", *pos)),
+            },
 
             // Function definition
             Expression::Function {
@@ -1030,6 +1048,35 @@ impl Interpreter {
                 _ => Ok(Value::Unit), // Other operators not implemented yet
             }
         }
+    }
+
+    fn evaluate_compound_assignment(
+        &self,
+        current: &Value,
+        rhs: &Value,
+        op: AssignmentOperator,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let result = match op {
+            AssignmentOperator::Assign => return Ok(rhs.clone()),
+            AssignmentOperator::AddAssign => current.add(rhs),
+            AssignmentOperator::SubAssign => current.subtract(rhs),
+            AssignmentOperator::MulAssign => current.multiply(rhs),
+            AssignmentOperator::DivAssign => current.divide(rhs),
+            AssignmentOperator::ModAssign => match (current, rhs) {
+                (Value::Integer(a), Value::Integer(b)) if *b != 0 => Ok(Value::Integer(*a % *b)),
+                (Value::Integer(_), Value::Integer(0)) => {
+                    Err("Modulo by zero in compound assignment".to_string())
+                }
+                _ => Err(format!(
+                    "Cannot apply %= on {} and {}",
+                    current.type_name(),
+                    rhs.type_name()
+                )),
+            },
+        };
+
+        result.map_err(|e| InterpreterError::runtime(e, pos))
     }
 
     /// Interpret a unary operation
@@ -3090,6 +3137,7 @@ mod tests {
                         }),
                         pos,
                     }),
+                    op: AssignmentOperator::Assign,
                     pos,
                 },
                 Expression::Identifier {
@@ -3252,6 +3300,7 @@ mod tests {
                 value: "Bob".to_string(),
                 pos,
             }),
+            op: AssignmentOperator::Assign,
             pos,
         };
 
@@ -3327,6 +3376,7 @@ mod tests {
                                     right: Box::new(Expression::IntegerLiteral { value: 1, pos }),
                                     pos,
                                 }),
+                                op: AssignmentOperator::Assign,
                                 pos,
                             },
                         ],
@@ -3403,6 +3453,7 @@ mod tests {
                         right: Box::new(Expression::IntegerLiteral { value: 1, pos }),
                         pos,
                     }),
+                    op: AssignmentOperator::Assign,
                     pos,
                 },
                 value_ident(),

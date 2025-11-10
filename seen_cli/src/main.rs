@@ -4930,11 +4930,16 @@ impl CodeFormatter {
                 }
             }
 
-            Expression::Assignment { target, value, .. } => {
+            Expression::Assignment {
+                target, value, op, ..
+            } => {
                 self.add_indent();
-                self.format_expression_prec(target, precedence::LOGICAL_OR);
-                self.output.push_str(" = ");
-                self.format_expression_prec(value, precedence::LOGICAL_OR);
+                let prec = precedence::ASSIGNMENT;
+                self.format_expression_prec(target, prec);
+                self.output.push(' ');
+                self.output.push_str(op.symbol());
+                self.output.push(' ');
+                self.format_expression_prec(value, prec);
             }
 
             Expression::Return { value, .. } => {
@@ -5099,14 +5104,16 @@ impl CodeFormatter {
                 self.output.push('}');
                 self
             }
-            Expression::Assignment { target, value, .. } => self.format_binary_like(
+            Expression::Assignment {
+                target, value, op, ..
+            } => self.format_binary_like(
                 target,
                 value,
                 parent_prec,
-                precedence::LOGICAL_OR,
-                "=",
+                precedence::ASSIGNMENT,
+                op.symbol(),
                 true,
-                false,
+                true,
             ),
             _ => {
                 self.output
@@ -5359,7 +5366,7 @@ impl CodeFormatter {
             | Expression::MemberAccess { .. }
             | Expression::IndexAccess { .. }
             | Expression::ForceUnwrap { .. } => precedence::CALL,
-            Expression::Assignment { .. } => precedence::LOGICAL_OR,
+            Expression::Assignment { .. } => precedence::ASSIGNMENT,
             Expression::ArrayLiteral { .. }
             | Expression::Identifier { .. }
             | Expression::IntegerLiteral { .. }

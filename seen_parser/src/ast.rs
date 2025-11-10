@@ -78,6 +78,8 @@ pub struct ImportSymbol {
 
 /// Shared operator precedence levels used by the parser and formatter.
 pub mod precedence {
+    /// Assignment operators (=, +=, etc.).
+    pub const ASSIGNMENT: u8 = 5;
     /// Lowest precedence level (logical OR).
     pub const LOGICAL_OR: u8 = 10;
     /// Logical AND precedence.
@@ -404,6 +406,7 @@ pub enum Expression {
     Assignment {
         target: Box<Expression>,
         value: Box<Expression>,
+        op: AssignmentOperator,
         pos: Position,
     },
 
@@ -682,6 +685,48 @@ impl BinaryOperator {
             self,
             BinaryOperator::InclusiveRange | BinaryOperator::ExclusiveRange
         )
+    }
+}
+
+/// Assignment operators, including compound forms like `+=`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AssignmentOperator {
+    Assign,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    ModAssign,
+}
+
+impl AssignmentOperator {
+    /// String representation when formatting.
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            AssignmentOperator::Assign => "=",
+            AssignmentOperator::AddAssign => "+=",
+            AssignmentOperator::SubAssign => "-=",
+            AssignmentOperator::MulAssign => "*=",
+            AssignmentOperator::DivAssign => "/=",
+            AssignmentOperator::ModAssign => "%=",
+        }
+    }
+
+    /// Assignment binds weaker than every other operator.
+    pub fn precedence(&self) -> u8 {
+        precedence::ASSIGNMENT
+    }
+
+    /// Returns the equivalent binary operator for compound assignments.
+    pub fn as_binary_op(&self) -> Option<BinaryOperator> {
+        match self {
+            AssignmentOperator::AddAssign => Some(BinaryOperator::Add),
+            AssignmentOperator::SubAssign => Some(BinaryOperator::Subtract),
+            AssignmentOperator::MulAssign => Some(BinaryOperator::Multiply),
+            AssignmentOperator::DivAssign => Some(BinaryOperator::Divide),
+            AssignmentOperator::ModAssign => Some(BinaryOperator::Modulo),
+            AssignmentOperator::Assign => None,
+        }
     }
 }
 
