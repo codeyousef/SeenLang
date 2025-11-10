@@ -509,6 +509,11 @@ and installers across every supported platform.
           linalg module.
     3. Implement allocator-backed collections (`Vec`, `String`, `HashMap`) that integrate with the region/RAII analysis
        and determinism profile.
+        * Update: `seen_std/src/collections/vec.seen` now uses a chunked, doubling growth strategy (O(log n) chunk
+          lookups,
+          amortized O(1) push/pop) with deterministic capacity tracking and full regression coverage in
+          `seen_std/tests/vec_basic.seen`, so bootstrap tooling and upcoming std modules can rely on a high-performance
+          `Vec` before the allocator-backed String/HashMap land.
     4. Stand up `std.io`, `std.fs`, and `std.net` (sync + async traits) so Stage-1/tooling stop shelling out to
        handwritten wrappers.
     5. Flesh out `std.concurrent` / `std.sync` (structured scopes, channels, mutex/condvar/atomics) wired into the

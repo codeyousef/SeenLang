@@ -64,11 +64,37 @@ class StringBuilder {
         if parts.length() == 0 {
             return ""
         }
-        var result = ""
-        for part in parts {
-            result = result + part
+        if parts.length() == 1 {
+            return parts[0]
         }
-        return result
+        var flattened = copyParts(parts)
+        while flattened.length() > 1 {
+            flattened = mergeAdjacent(flattened)
+        }
+        return flattened[0]
+    }
+
+    fun copyParts(source: Array<String>) -> Array<String> {
+        let copy = Array<String>()
+        for part in source {
+            copy.push(part)
+        }
+        return copy
+    }
+
+    fun mergeAdjacent(values: Array<String>) -> Array<String> {
+        let merged = Array<String>()
+        var index = 0
+        while index < values.length() {
+            if index + 1 < values.length() {
+                merged.push(values[index] + values[index + 1])
+                index = index + 2
+            } else {
+                merged.push(values[index])
+                index = index + 1
+            }
+        }
+        return merged
     }
 }
 

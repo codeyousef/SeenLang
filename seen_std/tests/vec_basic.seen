@@ -31,5 +31,25 @@ fun main() -> Int {
     vec.clear()
     expect(vec.isEmpty(), "clear should reset vector")
 
+    vec.reserve(64)
+    expect(vec.capacity() >= 64, "reserve should grow capacity")
+
+    var index = 0
+    while index < 128 {
+        vec.push(index)
+        index = index + 1
+    }
+    expect(vec.len() == 128, "len should reflect large push count")
+    expect(vec.get(0) == 0 and vec.get(127) == 127, "values should match inserted indices")
+
+    var removed = 0
+    while removed < 100 {
+        let value = vec.pop()
+        expect(value == 127 - removed, "pop should return in reverse insertion order")
+        removed = removed + 1
+    }
+    expect(vec.len() == 28, "length should shrink after pops")
+    expect(vec.get(0) == 0 and vec.get(vec.len() - 1) == 27, "remaining elements should stay intact")
+
     return 0
 }
