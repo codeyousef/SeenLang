@@ -1,0 +1,34 @@
+// seen_std::process::process
+// Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
+
+struct CommandResult {
+    success: Bool
+    output: String
+}
+
+extern "C" fun __ExecuteProgram(path: String) -> Int
+extern "C" fun __ExecuteCommand(command: String) -> CommandResult
+
+fun runProgram(path: String) -> Int {
+    return __ExecuteProgram(path)
+}
+
+fun runCommand(command: String) -> CommandResult {
+    return __ExecuteCommand(command)
+}
+
+fun runCommandOrAbort(command: String) -> CommandResult {
+    let result = runCommand(command)
+    if not result.success {
+        abort("Command failed: {command}\n{result.output}")
+    }
+    return result
+}
+
+fun runCommandOutput(command: String) -> String {
+    return runCommand(command).output
+}
+
+fun isSuccess(status: Int) -> Bool {
+    return status == 0
+}

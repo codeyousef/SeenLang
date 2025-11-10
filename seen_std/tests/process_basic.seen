@@ -1,0 +1,24 @@
+import process.process.{runCommand, runCommandOrAbort, runProgram, isSuccess}
+import str.string.{indexOf}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let result = runCommand("echo seen_std_process")
+    expect(result.success, "echo command should succeed")
+    expect(indexOf(result.output, "seen_std_process") >= 0, "command output mismatch")
+
+    let status = runProgram("/bin/true")
+    expect(isSuccess(status), "runProgram should return zero for /bin/true")
+
+    let fail = runCommand("exit 1")
+    expect(not fail.success, "command should report failure")
+
+    runCommandOrAbort("echo process_or_abort")
+
+    return 0
+}

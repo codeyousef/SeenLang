@@ -534,6 +534,10 @@ and installers across every supported platform.
         * Update: `seen_std/src/time/time.seen` adds `nowSeconds`/`nowMillis`, duration helpers, and deterministic
           timestamp parsing atop `__GetTimestamp`, with tests in `seen_std/tests/time_basic.seen`, so bootstrap code can
           reason about clocks without poking raw builtins.
+       * Update: `seen_std/src/process/process.seen` introduces deterministic `runProgram` / `runCommand` wrappers
+         (with output/abort helpers) on top of `__ExecuteProgram` / `__ExecuteCommand`, plus regression coverage in
+         `seen_std/tests/process_basic.seen`, so Stage-1 scripts and installers can manage subprocesses without
+         reimplementing shell glue.
 
 ### PROD-3. Installer & Updater
 
