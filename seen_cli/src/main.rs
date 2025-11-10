@@ -23,6 +23,7 @@ use seen_shaders::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -3210,7 +3211,9 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     let lexer = Lexer::with_config(source.clone(), keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let parsed = parser.parse_program().map_err(SeenError::from)?;
-    // Bundle imports so interpreter sees imported functions
+    // Bundle imports so interpreter sees imported functions. We only type-check these bundles when
+    // manifest modules are disabled, because the current type checker still lacks the generics/traits
+    // needed to validate the stdlib manifest.
     let ast_for_typecheck = if manifest_modules.is_empty() {
         Some(bundle_imports(
             parsed.clone(),
@@ -3224,22 +3227,17 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     } else {
         None
     };
-    let ast = if let Some(ast) = &ast_for_typecheck {
-        ast.clone()
-    } else {
-        bundle_imports(
-            parsed,
-            input,
-            keyword_manager.clone(),
-            visibility_policy,
-            &project_config.root_dir,
-            &dependency_roots,
-            &manifest_modules,
-        )?
-    };
+    let ast = bundle_imports(
+        parsed,
+        input,
+        keyword_manager.clone(),
+        visibility_policy,
+        &project_config.root_dir,
+        &dependency_roots,
+        &manifest_modules,
+    )?;
 
     if let Some(ast_to_check) = &ast_for_typecheck {
-        // Type check (for user + imported modules only)
         let mut type_checker = TypeChecker::new();
         let type_result = type_checker.check_program(ast_to_check);
         if !type_result.errors.is_empty() {

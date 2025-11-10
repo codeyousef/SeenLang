@@ -24,6 +24,7 @@ use seen_parser::{
     BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm, Method, Parameter,
     Pattern, Position, Program, UnaryOperator,
 };
+use seen_reactive::properties::PropertyId as ReactivePropertyId;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -272,6 +273,8 @@ pub struct Interpreter {
     effect_handler_stack: Vec<EffectHandlerFrame>,
     /// Registered effect names to IDs
     effect_registry: HashMap<String, EffectId>,
+    /// Reactive property bindings by variable name
+    reactive_bindings: HashMap<String, ReactivePropertyId>,
     /// Executor used to evaluate actor handler bodies
     actor_executor: Arc<InterpreterActorExecutor>,
 }
@@ -295,6 +298,7 @@ impl Interpreter {
             task_counter: std::sync::atomic::AtomicU64::new(1),
             effect_handler_stack: Vec::new(),
             effect_registry: HashMap::new(),
+            reactive_bindings: HashMap::new(),
             actor_executor,
         }
     }
@@ -543,6 +547,7 @@ impl Interpreter {
                         self.runtime
                             .set_variable(name, val.clone())
                             .map_err(|e| InterpreterError::runtime(e.to_string(), *pos))?;
+                        self.sync_reactive_binding(name, &val, *pos)?;
                         Ok(val)
                     }
                     _ => Err(InterpreterError::runtime("Invalid assignment target", *pos)),
@@ -2403,6 +2408,7 @@ impl Interpreter {
 
             // Also store the property value in the runtime for access
             self.runtime.define_variable(name.to_string(), initial_val);
+            self.reactive_bindings.insert(name.to_string(), property_id);
 
             Ok(Value::ReactiveProperty {
                 property_id,
@@ -2736,6 +2742,29 @@ impl Interpreter {
         &mut self.runtime
     }
 
+    fn sync_reactive_binding(
+        &mut self,
+        name: &str,
+        value: &Value,
+        pos: Position,
+    ) -> InterpreterResult<()> {
+        if let Some(property_id) = self.reactive_bindings.get(name).copied() {
+            let async_value = self.value_to_async_value(value);
+            let reactive_runtime = self.runtime.reactive_runtime();
+            let mut runtime = reactive_runtime.lock().map_err(|_| {
+                InterpreterError::runtime("Failed to acquire reactive runtime lock", pos)
+            })?;
+            runtime
+                .property_manager
+                .set_property_value(property_id, async_value)
+                .map_err(|err| InterpreterError::runtime(err.to_string(), pos))?;
+            runtime
+                .process_updates()
+                .map_err(|err| InterpreterError::runtime(err.to_string(), pos))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn push_instance_context(
         &mut self,
         class_name: String,
@@ -3001,6 +3030,53 @@ mod tests {
             .interpret_expression(&build_request("Get", None))
             .expect("get request should succeed");
         assert_eq!(final_value, Value::Integer(7));
+    }
+
+    #[test]
+    fn reactive_property_assignment_updates_runtime_manager() {
+        let mut interpreter = Interpreter::new();
+        let pos = Position::start();
+
+        let prop_expr = Expression::ReactiveProperty {
+            name: "Username".to_string(),
+            value: Box::new(Expression::StringLiteral {
+                value: "Alice".to_string(),
+                pos,
+            }),
+            is_computed: false,
+            pos,
+        };
+
+        interpreter
+            .interpret_expression(&prop_expr)
+            .expect("define reactive property");
+
+        let assign_expr = Expression::Assignment {
+            target: Box::new(Expression::Identifier {
+                name: "Username".to_string(),
+                is_public: false,
+                pos,
+            }),
+            value: Box::new(Expression::StringLiteral {
+                value: "Bob".to_string(),
+                pos,
+            }),
+            pos,
+        };
+
+        interpreter
+            .interpret_expression(&assign_expr)
+            .expect("assignment should succeed");
+
+        let reactive_runtime = interpreter.runtime.reactive_runtime();
+        let runtime = reactive_runtime
+            .lock()
+            .expect("reactive runtime lock should be available");
+        let property = runtime
+            .property_manager
+            .find_property_by_name("Username")
+            .expect("property should be registered");
+        assert_eq!(property.get(), &AsyncValue::String("Bob".to_string()));
     }
 
     #[test]

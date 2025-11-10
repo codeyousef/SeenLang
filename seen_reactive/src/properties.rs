@@ -399,6 +399,7 @@ impl ReactiveProperty {
             ("String", AsyncValue::String(_)) => true,
             ("Bool", AsyncValue::Boolean(_)) => true,
             ("Unit", AsyncValue::Unit) => true,
+            ("Any", _) => true,
             _ => false,
         }
     }

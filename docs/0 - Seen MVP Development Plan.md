@@ -572,11 +572,9 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       is part of the automated gate instead of being a manual check.
 
 * **Remaining tasks:**
-    1. Execute real actor handler bodies/reactive factories instead of echoing payloads so manifest-loaded stdlib actors
-       can mutate state, emit replies, and participate in the request pipeline (today handlers still bypass the
-       interpreter and ignore state/payload bindings).
-    2. Re-enable strict type-checking for manifest-injected modules and promote the Vec manifest run to a required CI
-       gate once the runtime warning debt is paid down, so PROD-4a stays green in automation.
+    1. Wire reactive factories/properties through the runtime so observables, flows, and `@Reactive` bindings propagate
+       updates (e.g., property assignments currently update the runtime but the factory APIs still return placeholder
+       observables/flows instead of executing the declared lambdas).
 
 ### PROD-5. Production QA & Platform Certification
 
