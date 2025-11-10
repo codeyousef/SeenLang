@@ -224,6 +224,11 @@ struct InstanceContext {
     fields: Arc<Mutex<HashMap<String, Value>>>,
 }
 
+struct EffectHandlerFrame {
+    effect_name: String,
+    handlers: HashMap<String, Value>,
+}
+
 impl InstanceContext {
     fn get_field(&self, name: &str) -> Option<Value> {
         self.fields
@@ -262,6 +267,8 @@ pub struct Interpreter {
     /// Task counter for generating unique task IDs
     #[allow(dead_code)]
     task_counter: std::sync::atomic::AtomicU64,
+    /// Active effect handler frames
+    effect_handler_stack: Vec<EffectHandlerFrame>,
 }
 
 impl Interpreter {
@@ -277,6 +284,7 @@ impl Interpreter {
             return_flag: false,
             return_value: None,
             task_counter: std::sync::atomic::AtomicU64::new(1),
+            effect_handler_stack: Vec::new(),
         }
     }
 
@@ -658,6 +666,17 @@ impl Interpreter {
                 is_safe,
                 pos,
             } => {
+                if let Expression::Identifier {
+                    name: effect_name, ..
+                } = object.as_ref()
+                {
+                    if let Some(handler) =
+                        self.lookup_effect_handler(effect_name, member.as_str())
+                    {
+                        return Ok(handler);
+                    }
+                }
+
                 let obj_val = self.interpret_expression(object)?;
 
                 // Handle safe navigation
@@ -1081,6 +1100,17 @@ impl Interpreter {
             ..
         } = callee
         {
+            if let Expression::Identifier {
+                name: effect_name, ..
+            } = object.as_ref()
+            {
+                if let Some(handler) =
+                    self.lookup_effect_handler(effect_name, member.as_str())
+                {
+                    return self.call_function_value(handler, args, pos);
+                }
+            }
+
             let receiver_value = self.interpret_expression(object)?;
             if let Some(result) =
                 self.try_dispatch_builtin_member(&receiver_value, member, args, pos)?
@@ -1124,6 +1154,15 @@ impl Interpreter {
         // Evaluate the callee expression
         let func_val = self.interpret_expression(callee)?;
 
+        self.call_function_value(func_val, args, pos)
+    }
+
+    fn call_function_value(
+        &mut self,
+        func_val: Value,
+        args: &[Expression],
+        pos: Position,
+    ) -> InterpreterResult<Value> {
         if let Value::Function {
             name,
             parameters,
@@ -1140,37 +1179,30 @@ impl Interpreter {
                 ));
             }
 
-            // Evaluate arguments
             let mut arg_values = Vec::new();
             for arg in args {
                 arg_values.push(self.interpret_expression(arg)?);
             }
 
-            // Push function environment
             self.runtime.push_environment(true);
 
-            // Bind parameters
             for (param, value) in parameters.iter().zip(arg_values) {
                 self.runtime.define_variable(param.clone(), value);
             }
 
-            // Save current flags
             let prev_break = self.break_flag;
             let prev_continue = self.continue_flag;
             self.break_flag = false;
             self.continue_flag = false;
 
-            // Execute function body
             let result = self.interpret_expression(&body);
 
-            // Run any deferred expressions registered in this scope
             let deferred = self
                 .runtime
                 .take_current_deferred()
                 .map_err(|e| InterpreterError::runtime(e.to_string(), pos.clone()))?;
             let defer_result = self.run_deferred(deferred);
 
-            // Get return value if any
             let return_value = if self.return_flag {
                 self.return_flag = false;
                 self.return_value.take()
@@ -1178,11 +1210,9 @@ impl Interpreter {
                 None
             };
 
-            // Restore flags
             self.break_flag = prev_break;
             self.continue_flag = prev_continue;
 
-            // Pop function environment
             self.runtime
                 .pop_environment()
                 .map_err(|e| InterpreterError::runtime(e.to_string(), pos))?;
@@ -1223,6 +1253,17 @@ impl Interpreter {
             "No matching pattern",
             Position::start(),
         ))
+    }
+
+    fn lookup_effect_handler(&self, effect_name: &str, operation: &str) -> Option<Value> {
+        for frame in self.effect_handler_stack.iter().rev() {
+            if frame.effect_name == effect_name {
+                if let Some(handler) = frame.handlers.get(operation) {
+                    return Some(handler.clone());
+                }
+            }
+        }
+        None
     }
 
     /// Check if a pattern matches a value
@@ -2052,7 +2093,7 @@ impl Interpreter {
     fn interpret_handle(
         &mut self,
         body: &Expression,
-        _effect_name: &str,
+        effect_name: &str,
         handlers: &[seen_parser::ast::EffectHandler],
         _pos: Position,
     ) -> InterpreterResult<Value> {
@@ -2073,19 +2114,16 @@ impl Interpreter {
             handler_map.insert(handler.operation.clone(), handler_value);
         }
 
-        // Create effect handle context
-        let _effect_handle = Value::EffectHandle {
-            effect_id: EffectId::new(1), // Simplified
+        self.effect_handler_stack.push(EffectHandlerFrame {
+            effect_name: effect_name.to_string(),
             handlers: handler_map,
-        };
+        });
 
-        // Push effect handle to runtime
-        // Execute body with effect handlers in scope
-        let result = self.interpret_expression(body)?;
+        let result = self.interpret_expression(body);
 
-        // Pop effect handle from runtime
+        self.effect_handler_stack.pop();
 
-        Ok(result)
+        result
     }
 
     /// Interpret contract-annotated function
@@ -2868,6 +2906,53 @@ mod tests {
         match check_gate.try_recv_with_status() {
             ChannelReceiveStatus::WouldBlock => {}
             other => panic!("expected gate channel to be drained, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn effect_handler_invokes_custom_body() {
+        use seen_parser::ast::EffectHandler;
+
+        let pos = Position::start();
+        let handler = EffectHandler {
+            operation: "Read".to_string(),
+            params: Vec::new(),
+            body: Box::new(Expression::StringLiteral {
+                value: "handled".to_string(),
+                pos,
+            }),
+        };
+
+        let call_expr = Expression::Call {
+            callee: Box::new(Expression::MemberAccess {
+                object: Box::new(Expression::Identifier {
+                    name: "IO".to_string(),
+                    is_public: false,
+                    pos,
+                }),
+                member: "Read".to_string(),
+                is_safe: false,
+                pos,
+            }),
+            args: Vec::new(),
+            pos,
+        };
+
+        let handle_expr = Expression::Handle {
+            body: Box::new(call_expr),
+            effect: "IO".to_string(),
+            handlers: vec![handler],
+            pos,
+        };
+
+        let mut interpreter = Interpreter::new();
+        let result = interpreter
+            .interpret_expression(&handle_expr)
+            .expect("effect handler should run");
+
+        match result {
+            Value::String(s) => assert_eq!(s, "handled"),
+            other => panic!("expected handled string, got {:?}", other),
         }
     }
 }

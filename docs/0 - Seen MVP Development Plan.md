@@ -543,13 +543,18 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
     coverage proving multilingual keyword tables continue to source from the TOML manifests.
   - Typechecker now registers class/struct types, trailing-lambda statements, and builtin constructors/abort so
     `seen_std/src/collections/vec.seen` type-checks cleanly (CLI now trips in the interpreter instead of the parser).
-  - Interpreter/runtime gained full class/value plumbing (shared Vec storage, instance fields, method dispatch) so
-    manifest-loaded stdlib modules execute; `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`
-    is green and wired into the manifest test.
-  - Removed the duplicate/unreachable interpreter arms and scrubbed the obvious warning sources (unused params, dead
-    struct fields) so parser + interpreter builds are quiet outside of the async/reactive crates.
-  - Cleared the warning backlog across `seen_concurrency`, `seen_effects`, and `seen_reactive`, so the interpreter build
-    is warning-free (aside from the workspace-level `panic` notice) and ready for `-D warnings`.
+      - Interpreter/runtime gained full class/value plumbing (shared Vec storage, instance fields, method dispatch) so
+        manifest-loaded stdlib modules execute;
+        `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`
+        is green and wired into the manifest test.
+      - Removed the duplicate/unreachable interpreter arms and scrubbed the obvious warning sources (unused params, dead
+        struct fields) so parser + interpreter builds are quiet outside of the async/reactive crates.
+      - Cleared the warning backlog across `seen_concurrency`, `seen_effects`, and `seen_reactive`, so the interpreter
+        build
+        is warning-free (aside from the workspace-level `panic` notice) and ready for `-D warnings`.
+      - Effect `handle { ... } with IO { ... }` blocks now push/pop handler frames in the interpreter and the
+        `IO.Read()`
+        style member calls dispatch through those stacks, so the stdlib can route effect operations without crashing.
 
 * **Remaining tasks:**
     1. Finish wiring the effect/actor/reactive paths that still return placeholder values (effect handles are never
