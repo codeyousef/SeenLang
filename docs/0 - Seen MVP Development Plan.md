@@ -524,6 +524,11 @@ and installers across every supported platform.
        runtime schedulers validated in PSH-3b/3d.
     6. Expand `std.ffi`, `std.time`, `std.env`, and `std.process` so bootstrap scripts and installers rely on shared
        primitives instead of ad-hoc glue.
+        * Update: `seen_std/src/env/env.seen` now exposes deterministic wrappers for CLI arguments and environment
+          variables (`args`, `tryGet`, `getOrDefault`, `set`, `remove`, `has`) atop new runtime builtins, plus
+          regression
+          coverage in `seen_std/tests/env_basic.seen`, so Stage-1 no longer shells directly into `__GetCommandLineArgs`
+          or ad-hoc env helpers.
 
 ### PROD-3. Installer & Updater
 

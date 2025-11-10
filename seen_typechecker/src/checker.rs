@@ -258,6 +258,56 @@ impl TypeChecker {
             },
         );
         env.define_function(
+            "__GetEnv".to_string(),
+            FunctionSignature {
+                name: "__GetEnv".to_string(),
+                parameters: vec![Parameter {
+                    name: "name".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__HasEnv".to_string(),
+            FunctionSignature {
+                name: "__HasEnv".to_string(),
+                parameters: vec![Parameter {
+                    name: "name".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Bool),
+            },
+        );
+        env.define_function(
+            "__SetEnv".to_string(),
+            FunctionSignature {
+                name: "__SetEnv".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "name".to_string(),
+                        param_type: Type::String,
+                    },
+                    Parameter {
+                        name: "value".to_string(),
+                        param_type: Type::String,
+                    },
+                ],
+                return_type: Some(Type::Bool),
+            },
+        );
+        env.define_function(
+            "__RemoveEnv".to_string(),
+            FunctionSignature {
+                name: "__RemoveEnv".to_string(),
+                parameters: vec![Parameter {
+                    name: "name".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Bool),
+            },
+        );
+        env.define_function(
             "__ExecuteProgram".to_string(),
             FunctionSignature {
                 name: "__ExecuteProgram".to_string(),

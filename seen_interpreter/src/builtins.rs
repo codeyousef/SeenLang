@@ -56,6 +56,10 @@ impl BuiltinRegistry {
         registry.register_exact("__DeleteFile", builtin_delete_file, 1);
         registry.register_exact("__ExecuteProgram", builtin_execute_program, 1);
         registry.register_exact("__ExecuteCommand", builtin_execute_command, 1);
+        registry.register_exact("__GetEnv", builtin_get_env, 1);
+        registry.register_exact("__HasEnv", builtin_has_env, 1);
+        registry.register_exact("__SetEnv", builtin_set_env, 2);
+        registry.register_exact("__RemoveEnv", builtin_remove_env, 1);
         registry.register_exact("__FormatSeenCode", builtin_format_seen_code, 1);
         registry.register_exact("__Abort", builtin_abort, 1);
         registry.register_range("Channel", builtin_channel, 0, Some(1));
@@ -471,6 +475,30 @@ fn builtin_execute_command(args: &[Value], _position: Position) -> InterpreterRe
         "CommandResult".to_string(),
         fields,
     ))
+}
+
+fn builtin_get_env(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let key = args[0].to_string();
+    let value = std::env::var(&key).unwrap_or_else(|_| String::new());
+    Ok(Value::String(value))
+}
+
+fn builtin_has_env(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let key = args[0].to_string();
+    Ok(Value::Boolean(std::env::var(&key).is_ok()))
+}
+
+fn builtin_set_env(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let key = args[0].to_string();
+    let value = args[1].to_string();
+    std::env::set_var(&key, &value);
+    Ok(Value::Boolean(true))
+}
+
+fn builtin_remove_env(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let key = args[0].to_string();
+    std::env::remove_var(&key);
+    Ok(Value::Boolean(true))
 }
 
 fn builtin_format_seen_code(args: &[Value], _position: Position) -> InterpreterResult<Value> {
