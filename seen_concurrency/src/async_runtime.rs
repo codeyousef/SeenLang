@@ -1390,7 +1390,7 @@ impl PromiseResolver {
 
     /// Resolve a promise with a value
     pub fn resolve_promise(&mut self, task_id: TaskId, result: AsyncResult) {
-        if let Some(mut promise) = self.pending_promises.remove(&task_id) {
+        if let Some(promise) = self.pending_promises.remove(&task_id) {
             match &result {
                 Ok(value) => promise.resolve(value.clone()),
                 Err(error) => promise.reject(format!("{:?}", error)),

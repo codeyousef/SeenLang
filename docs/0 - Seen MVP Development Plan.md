@@ -555,11 +555,19 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       - Effect `handle { ... } with IO { ... }` blocks now push/pop handler frames in the interpreter and the
         `IO.Read()`
         style member calls dispatch through those stacks, so the stdlib can route effect operations without crashing.
+      - Effect definitions register with the advanced runtime’s effect system, so handler stacks resolve real `EffectId`
+        s
+        and direct `IO.Read()` invocations route through the effect runtime (raising a sensible error if no handler is
+        installed); interpreter tests cover both the success and failure paths.
+  - Actor runtime now tracks pending request promises (with timeouts) and the interpreter’s `request … from actor`
+    expression produces real `Promise` values. New unit coverage in `seen_concurrency::actors` plus an interpreter
+    regression ensure pending requests resolve/reject deterministically before we wire stdlib actors through the
+    manifest gate.
 
 * **Remaining tasks:**
-    1. Finish wiring the effect/actor/reactive paths that still return placeholder values (effect handles are never
-       pushed, actor `payload` arguments are ignored, and reactive factories drop their generated IDs) and add focused
-       regression tests once those code paths execute.
+    1. Execute real actor handler bodies/reactive factories instead of echoing payloads so manifest-loaded stdlib actors
+       can mutate state, emit replies, and participate in the request pipeline (today handlers still bypass the
+       interpreter and ignore state/payload bindings).
     2. Re-enable strict type-checking for manifest-injected modules and promote the Vec manifest run to a required CI
        gate once the runtime warning debt is paid down, so PROD-4a stays green in automation.
 

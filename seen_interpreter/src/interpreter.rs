@@ -5,6 +5,7 @@ use crate::errors::{InterpreterError, InterpreterResult};
 use crate::runtime::{Environment, Runtime};
 use crate::value::Value;
 use seen_concurrency::{
+    actors::{ActorDefinition as RuntimeActorDefinition, MessageHandler as RuntimeMessageHandler},
     async_runtime::AsyncExecutionContext,
     async_runtime::AsyncFunction as AsyncFunctionTrait,
     types::{
@@ -13,15 +14,13 @@ use seen_concurrency::{
     },
 };
 use seen_effects::{
-    effects::{
-        EffectCost, EffectMetadata, EffectOperationId, EffectOperationMetadata, EffectParameter,
-        EffectSafetyLevel,
-    },
-    EffectDefinition, EffectId, EffectOperation as EffectOp,
+    effects::EffectParameter, types::AsyncValue as EffectAsyncValue, EffectDefinition, EffectId,
+    EffectOperation as EffectOp,
 };
 use seen_parser::{
-    ast::ClassField, BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm,
-    Method, Parameter, Pattern, Position, Program, UnaryOperator,
+    ast::{ClassField, MessageHandler as AstMessageHandler},
+    BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm, Method, Parameter,
+    Pattern, Position, Program, UnaryOperator,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -225,7 +224,7 @@ struct InstanceContext {
 }
 
 struct EffectHandlerFrame {
-    effect_name: String,
+    effect_id: EffectId,
     handlers: HashMap<String, Value>,
 }
 
@@ -269,6 +268,8 @@ pub struct Interpreter {
     task_counter: std::sync::atomic::AtomicU64,
     /// Active effect handler frames
     effect_handler_stack: Vec<EffectHandlerFrame>,
+    /// Registered effect names to IDs
+    effect_registry: HashMap<String, EffectId>,
 }
 
 impl Interpreter {
@@ -285,6 +286,7 @@ impl Interpreter {
             return_value: None,
             task_counter: std::sync::atomic::AtomicU64::new(1),
             effect_handler_stack: Vec::new(),
+            effect_registry: HashMap::new(),
         }
     }
 
@@ -666,14 +668,13 @@ impl Interpreter {
                 is_safe,
                 pos,
             } => {
-                if let Expression::Identifier {
-                    name: effect_name, ..
-                } = object.as_ref()
-                {
-                    if let Some(handler) =
-                        self.lookup_effect_handler(effect_name, member.as_str())
-                    {
-                        return Ok(handler);
+                if let Expression::Identifier { name, .. } = object.as_ref() {
+                    if let Some(effect_id) = self.effect_registry.get(name) {
+                        if let Some(handler) =
+                            self.lookup_effect_handler(*effect_id, member.as_str())
+                        {
+                            return Ok(handler);
+                        }
                     }
                 }
 
@@ -755,8 +756,11 @@ impl Interpreter {
 
             // Actor definitions
             Expression::Actor {
-                name, fields, pos, ..
-            } => self.interpret_actor_definition(name, fields, *pos),
+                name,
+                fields,
+                handlers,
+                pos,
+            } => self.interpret_actor_definition(name, fields, handlers, *pos),
 
             // Send expressions
             Expression::Send {
@@ -764,6 +768,12 @@ impl Interpreter {
                 message,
                 pos,
             } => self.interpret_send(target, message, *pos),
+
+            Expression::Request {
+                message,
+                source,
+                pos,
+            } => self.interpret_request(message, source, *pos),
 
             // Receive expressions
             Expression::Receive {
@@ -1100,14 +1110,30 @@ impl Interpreter {
             ..
         } = callee
         {
-            if let Expression::Identifier {
-                name: effect_name, ..
-            } = object.as_ref()
-            {
-                if let Some(handler) =
-                    self.lookup_effect_handler(effect_name, member.as_str())
-                {
-                    return self.call_function_value(handler, args, pos);
+            if let Expression::Identifier { name, .. } = object.as_ref() {
+                if let Some(effect_id) = self.effect_registry.get(name).cloned() {
+                    if let Some(handler) = self.lookup_effect_handler(effect_id, member.as_str()) {
+                        return self.call_function_value(handler, args, pos);
+                    }
+
+                    let mut arg_values = Vec::new();
+                    for arg in args {
+                        arg_values.push(self.interpret_expression(arg)?);
+                    }
+                    let params: Vec<EffectAsyncValue> = arg_values
+                        .iter()
+                        .map(|v| self.value_to_effect_async_value(v))
+                        .collect();
+
+                    let advanced = self.runtime.advanced_runtime();
+                    let mut advanced = advanced.lock().map_err(|_| {
+                        InterpreterError::runtime("Advanced runtime unavailable", pos)
+                    })?;
+                    let result = advanced
+                        .effect_system
+                        .call_effect(effect_id, member, params, pos)
+                        .map_err(|err| InterpreterError::runtime(err.to_string(), pos))?;
+                    return Ok(self.effect_async_value_to_value(&result));
                 }
             }
 
@@ -1255,15 +1281,12 @@ impl Interpreter {
         ))
     }
 
-    fn lookup_effect_handler(&self, effect_name: &str, operation: &str) -> Option<Value> {
-        for frame in self.effect_handler_stack.iter().rev() {
-            if frame.effect_name == effect_name {
-                if let Some(handler) = frame.handlers.get(operation) {
-                    return Some(handler.clone());
-                }
-            }
-        }
-        None
+    fn lookup_effect_handler(&self, effect_id: EffectId, operation: &str) -> Option<Value> {
+        self.effect_handler_stack
+            .iter()
+            .rev()
+            .find(|frame| frame.effect_id == effect_id)
+            .and_then(|frame| frame.handlers.get(operation).cloned())
     }
 
     /// Check if a pattern matches a value
@@ -1312,18 +1335,32 @@ impl Interpreter {
 
         match promise_value {
             Value::Promise(promise) => {
-                if promise.is_resolved() {
-                    if let Some(value) = promise.value() {
-                        return Ok(self.async_value_to_value(value));
-                    }
+                if let Some(value) = promise.value() {
+                    return Ok(self.async_value_to_value(&value));
                 }
 
                 if promise.is_rejected() {
                     let reason = promise
                         .get_error()
-                        .cloned()
                         .unwrap_or_else(|| "Promise rejected".to_string());
                     return Err(InterpreterError::runtime(reason, pos));
+                }
+
+                if promise.is_pending() && promise.task_id() == TaskId::placeholder() {
+                    let actor_system = self.runtime.actor_system();
+                    if let Ok(mut system) = actor_system.lock() {
+                        let _ = system.process_messages();
+                    }
+                    if let Some(value) = promise.value() {
+                        return Ok(self.async_value_to_value(&value));
+                    }
+                    if promise.is_rejected() {
+                        let reason = promise
+                            .get_error()
+                            .unwrap_or_else(|| "Promise rejected".to_string());
+                        return Err(InterpreterError::runtime(reason, pos));
+                    }
+                    return Err(InterpreterError::runtime("Promise is still pending", pos));
                 }
 
                 let async_runtime = self.runtime.async_runtime();
@@ -1927,16 +1964,49 @@ impl Interpreter {
     fn interpret_actor_definition(
         &mut self,
         name: &str,
-        _fields: &[(String, seen_parser::ast::Type)],
-        _pos: Position,
+        fields: &[(String, seen_parser::ast::Type)],
+        handlers: &[AstMessageHandler],
+        pos: Position,
     ) -> InterpreterResult<Value> {
-        // Generate unique actor ID
-        let actor_id = seen_concurrency::types::ActorId::allocate();
-        let mailbox = Arc::new(seen_concurrency::types::Mailbox {
-            messages: std::sync::Mutex::new(std::collections::VecDeque::new()),
-            capacity: None,
-        });
-        let actor_ref = seen_concurrency::types::ActorRef::new(actor_id, name.to_string(), mailbox);
+        let mut state_variables = HashMap::new();
+        for (field_name, field_type) in fields {
+            state_variables.insert(field_name.clone(), field_type.clone());
+        }
+
+        let mut handler_map = HashMap::new();
+        for handler in handlers {
+            handler_map.insert(
+                handler.message_type.clone(),
+                RuntimeMessageHandler::send_handler(
+                    handler.message_type.clone(),
+                    (*handler.body).clone(),
+                    pos,
+                ),
+            );
+        }
+
+        let definition =
+            RuntimeActorDefinition::new(name.to_string(), state_variables, handler_map, pos);
+
+        let actor_system = self.runtime.actor_system();
+        let mut system = actor_system
+            .lock()
+            .map_err(|_| InterpreterError::runtime("Failed to acquire actor system lock", pos))?;
+
+        if let Err(err) = system.register_actor_definition(definition) {
+            match err {
+                AsyncError::ActorError { ref reason, .. }
+                if reason.contains("already registered") =>
+                    {
+                        // Ignore duplicate registrations so programs can instantiate the same actor type multiple times.
+                    }
+                other => return Err(self.map_async_error(other, pos)),
+            }
+        }
+
+        let actor_ref = system
+            .spawn_actor(name, Vec::new())
+            .map_err(|err| self.map_async_error(err, pos))?;
 
         Ok(Value::Actor(actor_ref))
     }
@@ -1953,35 +2023,21 @@ impl Interpreter {
 
         match target_value {
             Value::Actor(actor_ref) => {
-                // Send message to actor mailbox
-                let message = seen_concurrency::types::ActorMessage {
-                    sender: None, // Anonymous sender for now
-                    content: match message_value {
-                        Value::Integer(i) => AsyncValue::Integer(i),
-                        Value::String(s) => AsyncValue::String(s),
-                        Value::Boolean(b) => AsyncValue::Boolean(b),
-                        Value::Unit => AsyncValue::Unit,
-                        _ => AsyncValue::Error, // Fallback for unsupported types
-                    },
-                    timestamp: std::time::SystemTime::now(),
-                    priority: TaskPriority::Normal,
-                };
+                let (message_name, payload_value) =
+                    self.split_actor_message(message_value, pos.clone())?;
+                let payload_async = self.value_to_async_value(&payload_value);
+                let actor_system = self.runtime.actor_system();
+                let mut system = actor_system.lock().map_err(|_| {
+                    InterpreterError::runtime("Failed to acquire actor system lock", pos.clone())
+                })?;
 
-                // Add message to actor's mailbox
-                match actor_ref.mailbox() {
-                    Ok(mailbox_arc) => {
-                        if let Ok(mut mailbox) = mailbox_arc.messages.lock() {
-                            mailbox.push_back(message);
-                            Ok(Value::Boolean(true)) // Success
-                        } else {
-                            Err(InterpreterError::runtime(
-                                "Failed to access actor mailbox",
-                                pos,
-                            ))
-                        }
-                    }
-                    Err(err) => Err(InterpreterError::runtime(&err, pos)),
-                }
+                system
+                    .send_message(actor_ref.id(), message_name, payload_async)
+                    .map_err(|err| self.map_async_error(err, pos.clone()))?;
+                let _ = system
+                    .process_messages()
+                    .map_err(|err| self.map_async_error(err, pos.clone()))?;
+                Ok(Value::Boolean(true))
             }
             Value::Channel(channel) => {
                 let async_runtime = self.runtime.async_runtime();
@@ -2006,6 +2062,79 @@ impl Interpreter {
                 pos,
             )),
         }
+    }
+
+    fn interpret_request(
+        &mut self,
+        message: &Expression,
+        source: &Expression,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let target_value = self.interpret_expression(source)?;
+        let message_value = self.interpret_expression(message)?;
+
+        match target_value {
+            Value::Actor(actor_ref) => {
+                let (message_name, payload_value) =
+                    self.split_actor_message(message_value, pos.clone())?;
+                let payload_async = self.value_to_async_value(&payload_value);
+                let actor_system = self.runtime.actor_system();
+                let mut system = actor_system.lock().map_err(|_| {
+                    InterpreterError::runtime("Failed to acquire actor system lock", pos.clone())
+                })?;
+
+                let promise = system
+                    .request_from_actor(actor_ref.id(), message_name, payload_async, None)
+                    .map_err(|err| self.map_async_error(err, pos.clone()))?;
+                let _ = system
+                    .process_messages()
+                    .map_err(|err| self.map_async_error(err, pos.clone()))?;
+
+                Ok(Value::Promise(promise))
+            }
+            _ => Err(InterpreterError::runtime(
+                "request expects an Actor target",
+                pos,
+            )),
+        }
+    }
+
+    fn split_actor_message(
+        &self,
+        message_value: Value,
+        pos: Position,
+    ) -> InterpreterResult<(String, Value)> {
+        match message_value {
+            Value::String(name) => Ok((name, Value::Unit)),
+            Value::Array(values) => {
+                let guard = values
+                    .lock()
+                    .map_err(|_| InterpreterError::runtime("Failed to read actor message", pos))?;
+                if guard.is_empty() {
+                    return Err(InterpreterError::runtime(
+                        "Actor message arrays must include at least a name",
+                        pos,
+                    ));
+                }
+                if let Value::String(name) = &guard[0] {
+                    let payload = guard.get(1).cloned().unwrap_or(Value::Unit);
+                    Ok((name.clone(), payload))
+                } else {
+                    Err(InterpreterError::runtime(
+                        "Actor message arrays must start with a string name",
+                        pos,
+                    ))
+                }
+            }
+            _ => Err(InterpreterError::runtime(
+                "Actor messages must be a string or [String, payload]",
+                pos,
+            )),
+        }
+    }
+
+    fn map_async_error(&self, error: AsyncError, pos: Position) -> InterpreterError {
+        InterpreterError::runtime(format!("Actor runtime error: {:?}", error), pos)
     }
 
     /// Convert AsyncValue to interpreter Value
@@ -2035,58 +2164,47 @@ impl Interpreter {
         operations: &[seen_parser::ast::EffectOperation],
         pos: Position,
     ) -> InterpreterResult<Value> {
-        // Create effect definition
-        let mut effect_operations = HashMap::new();
+        let mut effect_def = EffectDefinition::new(name.to_string(), pos);
 
-        for (idx, op) in operations.iter().enumerate() {
-            let effect_op = EffectOp {
-                id: EffectOperationId::new(idx as u64),
-                name: op.name.clone(),
-                parameters: op
-                    .params
-                    .iter()
-                    .map(|p| EffectParameter {
-                        name: p.name.clone(),
-                        param_type: p
-                            .type_annotation
-                            .clone()
-                            .unwrap_or(seen_parser::ast::Type::new("Any")),
-                        is_mutable: false,
-                        default_value: None,
-                    })
-                    .collect(),
-                return_type: op
-                    .return_type
-                    .clone()
-                    .unwrap_or(seen_parser::ast::Type::new("Unit")),
-                is_pure: false,
-                metadata: EffectOperationMetadata {
-                    position: pos,
-                    documentation: None,
-                    performance_cost: EffectCost::Constant,
-                    can_fail: false,
-                },
-            };
-            effect_operations.insert(op.name.clone(), effect_op);
+        for op in operations {
+            let parameters: Vec<EffectParameter> = op
+                .params
+                .iter()
+                .map(|p| EffectParameter {
+                    name: p.name.clone(),
+                    param_type: p
+                        .type_annotation
+                        .clone()
+                        .unwrap_or(seen_parser::ast::Type::new("Any")),
+                    is_mutable: false,
+                    default_value: None,
+                })
+                .collect();
+
+            let return_ty = op
+                .return_type
+                .clone()
+                .unwrap_or(seen_parser::ast::Type::new("Unit"));
+
+            let effect_op = EffectOp::new(op.name.clone(), parameters, return_ty, pos);
+            effect_def.add_operation(effect_op);
         }
 
-        let effect_def = Arc::new(EffectDefinition {
-            id: EffectId::new(1), // Simplified ID generation
-            name: name.to_string(),
-            operations: effect_operations,
-            metadata: EffectMetadata {
-                is_public: name.chars().next().map_or(false, |c| c.is_uppercase()),
-                position: pos,
-                documentation: None,
-                is_composable: true,
-                safety_level: EffectSafetyLevel::Safe,
-            },
-            type_parameters: Vec::new(),
-        });
+        let effect_arc = Arc::new(effect_def.clone());
 
-        // Register effect with runtime (n/a yet). For now, just return the effect definition.
+        let advanced = self.runtime.advanced_runtime();
+        let mut advanced = advanced
+            .lock()
+            .map_err(|_| InterpreterError::runtime("Advanced runtime unavailable", pos))?;
 
-        Ok(Value::Effect(effect_def))
+        let effect_id = advanced
+            .effect_system
+            .register_effect(effect_def)
+            .map_err(|err| InterpreterError::runtime(err.to_string(), pos))?;
+
+        self.effect_registry.insert(name.to_string(), effect_id);
+
+        Ok(Value::Effect(effect_arc))
     }
 
     /// Interpret handle expression for effects
@@ -2097,6 +2215,17 @@ impl Interpreter {
         handlers: &[seen_parser::ast::EffectHandler],
         _pos: Position,
     ) -> InterpreterResult<Value> {
+        let effect_id = self
+            .effect_registry
+            .get(effect_name)
+            .copied()
+            .ok_or_else(|| {
+                InterpreterError::runtime(
+                    format!("Effect '{}' is not defined", effect_name),
+                    body.position().clone(),
+                )
+            })?;
+
         // Set up effect handlers
         let mut handler_map = HashMap::new();
 
@@ -2115,7 +2244,7 @@ impl Interpreter {
         }
 
         self.effect_handler_stack.push(EffectHandlerFrame {
-            effect_name: effect_name.to_string(),
+            effect_id,
             handlers: handler_map,
         });
 
@@ -2392,6 +2521,46 @@ impl Interpreter {
         }
     }
 
+    fn value_to_effect_async_value(&self, value: &Value) -> EffectAsyncValue {
+        match value {
+            Value::Unit | Value::Null => EffectAsyncValue::Unit,
+            Value::Integer(i) => EffectAsyncValue::Integer(*i),
+            Value::Float(f) => EffectAsyncValue::Float(*f),
+            Value::Boolean(b) => EffectAsyncValue::Boolean(*b),
+            Value::String(s) => EffectAsyncValue::String(s.clone()),
+            Value::Array(arr) => {
+                let guard = arr.lock();
+                if let Ok(values) = guard {
+                    let converted = values
+                        .iter()
+                        .map(|v| self.value_to_effect_async_value(v))
+                        .collect();
+                    EffectAsyncValue::Array(converted)
+                } else {
+                    EffectAsyncValue::Unit
+                }
+            }
+            _ => EffectAsyncValue::Unit,
+        }
+    }
+
+    fn effect_async_value_to_value(&self, value: &EffectAsyncValue) -> Value {
+        match value {
+            EffectAsyncValue::Unit => Value::Unit,
+            EffectAsyncValue::Integer(i) => Value::Integer(*i),
+            EffectAsyncValue::Float(f) => Value::Float(*f),
+            EffectAsyncValue::Boolean(b) => Value::Boolean(*b),
+            EffectAsyncValue::String(s) => Value::String(s.clone()),
+            EffectAsyncValue::Array(values) => {
+                let converted: Vec<Value> = values
+                    .iter()
+                    .map(|v| self.effect_async_value_to_value(v))
+                    .collect();
+                Value::array_from_vec(converted)
+            }
+        }
+    }
+
     fn register_class(
         &mut self,
         name: &str,
@@ -2590,7 +2759,7 @@ impl Default for Interpreter {
 mod tests {
     use super::*;
     use seen_concurrency::types::{AsyncValue, Channel, ChannelId, ChannelReceiveStatus};
-    use seen_parser::ast::Pattern;
+    use seen_parser::ast::{MessageHandler, Pattern};
     use seen_parser::{ClassField, Method, Type};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -2614,6 +2783,68 @@ mod tests {
     fn test_interpreter_creation() {
         let interpreter = Interpreter::new();
         let _ = interpreter; // Use the value
+    }
+
+    #[test]
+    fn request_expression_returns_value() {
+        let mut interpreter = Interpreter::new();
+        let pos = Position::start();
+
+        let actor_expr = Expression::Actor {
+            name: "RequestActor".to_string(),
+            fields: vec![],
+            handlers: vec![MessageHandler {
+                message_type: "Ping".to_string(),
+                params: vec![],
+                body: Box::new(Expression::IntegerLiteral {
+                    value: 1,
+                    pos: pos.clone(),
+                }),
+            }],
+            pos: pos.clone(),
+        };
+
+        let actor_value = interpreter
+            .interpret_expression(&actor_expr)
+            .expect("actor creation should succeed");
+        interpreter
+            .runtime
+            .define_variable("target".to_string(), actor_value);
+
+        let message_expr = Expression::ArrayLiteral {
+            elements: vec![
+                Expression::StringLiteral {
+                    value: "Ping".to_string(),
+                    pos: pos.clone(),
+                },
+                Expression::IntegerLiteral {
+                    value: 7,
+                    pos: pos.clone(),
+                },
+            ],
+            pos: pos.clone(),
+        };
+
+        let request_expr = Expression::Request {
+            message: Box::new(message_expr),
+            source: Box::new(Expression::Identifier {
+                name: "target".to_string(),
+                is_public: false,
+                pos: pos.clone(),
+            }),
+            pos: pos.clone(),
+        };
+
+        let await_expr = Expression::Await {
+            expr: Box::new(request_expr),
+            pos,
+        };
+
+        let result = interpreter
+            .interpret_expression(&await_expr)
+            .expect("await should resolve request promise");
+
+        assert_eq!(result, Value::Integer(7));
     }
 
     #[test]
@@ -2911,7 +3142,7 @@ mod tests {
 
     #[test]
     fn effect_handler_invokes_custom_body() {
-        use seen_parser::ast::EffectHandler;
+        use seen_parser::ast::{EffectHandler, EffectOperation, Type};
 
         let pos = Position::start();
         let handler = EffectHandler {
@@ -2938,6 +3169,16 @@ mod tests {
             pos,
         };
 
+        let effect_def = Expression::Effect {
+            name: "IO".to_string(),
+            operations: vec![EffectOperation {
+                name: "Read".to_string(),
+                params: Vec::new(),
+                return_type: Some(Type::new("String")),
+            }],
+            pos,
+        };
+
         let handle_expr = Expression::Handle {
             body: Box::new(call_expr),
             effect: "IO".to_string(),
@@ -2945,14 +3186,70 @@ mod tests {
             pos,
         };
 
+        let program = Expression::Block {
+            expressions: vec![effect_def, handle_expr],
+            pos,
+        };
+
         let mut interpreter = Interpreter::new();
         let result = interpreter
-            .interpret_expression(&handle_expr)
+            .interpret_expression(&program)
             .expect("effect handler should run");
 
         match result {
             Value::String(s) => assert_eq!(s, "handled"),
             other => panic!("expected handled string, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn effect_call_without_handler_reports_error() {
+        use seen_parser::ast::EffectOperation;
+
+        let pos = Position::start();
+        let effect_def = Expression::Effect {
+            name: "IO".to_string(),
+            operations: vec![EffectOperation {
+                name: "Read".to_string(),
+                params: Vec::new(),
+                return_type: None,
+            }],
+            pos,
+        };
+
+        let call_expr = Expression::Call {
+            callee: Box::new(Expression::MemberAccess {
+                object: Box::new(Expression::Identifier {
+                    name: "IO".to_string(),
+                    is_public: false,
+                    pos,
+                }),
+                member: "Read".to_string(),
+                is_safe: false,
+                pos,
+            }),
+            args: Vec::new(),
+            pos,
+        };
+
+        let program = Expression::Block {
+            expressions: vec![effect_def, call_expr],
+            pos,
+        };
+
+        let mut interpreter = Interpreter::new();
+        let err = interpreter
+            .interpret_expression(&program)
+            .expect_err("missing handler should produce runtime error");
+        match err {
+            InterpreterError::RuntimeError { message, .. } => {
+                assert!(
+                    message.contains("No handler found"),
+                    "unexpected error message: {}",
+                    message
+                );
+            }
+            other => panic!("expected runtime error, got {:?}", other),
         }
     }
 }

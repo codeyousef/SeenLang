@@ -183,10 +183,7 @@ impl FlowFactory {
     pub fn timer(interval: Duration, max_count: Option<usize>) -> Flow<u64> {
         let count = max_count.unwrap_or(10);
         let values: Vec<u64> = (0..count as u64).collect();
-        let mut flow = Flow::new(
-            format!("timer_{}ms", interval.as_millis()),
-            values,
-        );
+        let mut flow = Flow::new(format!("timer_{}ms", interval.as_millis()), values);
         flow.metadata.supports_backpressure = false;
         flow
     }

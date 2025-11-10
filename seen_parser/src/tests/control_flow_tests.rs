@@ -140,7 +140,10 @@ fn test_parse_when_expression_with_value() {
             }
             assert_eq!(arms.len(), 3, "expected three when arms");
         }
-        other => panic!("expected match expression for when with subject, got {:?}", other),
+        other => panic!(
+            "expected match expression for when with subject, got {:?}",
+            other
+        ),
     }
 }
 
@@ -166,7 +169,10 @@ fn test_parse_when_without_value_desugars_to_if_chain() {
         } => {
             match condition.as_ref() {
                 Expression::BinaryOp { .. } => {}
-                other => panic!("expected binary op in top-level when condition, got {:?}", other),
+                other => panic!(
+                    "expected binary op in top-level when condition, got {:?}",
+                    other
+                ),
             }
             match then_branch.as_ref() {
                 Expression::StringLiteral { value, .. } => assert_eq!(value, "big"),
@@ -174,7 +180,10 @@ fn test_parse_when_without_value_desugars_to_if_chain() {
             }
             match else_branch.as_ref() {
                 Expression::If { .. } => {} // nested if shows chaining worked
-                other => panic!("expected nested if for remaining when arms, got {:?}", other),
+                other => panic!(
+                    "expected nested if for remaining when arms, got {:?}",
+                    other
+                ),
             }
         }
         other => panic!(

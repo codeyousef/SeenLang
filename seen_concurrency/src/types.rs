@@ -224,17 +224,33 @@ pub enum AsyncError {
     RuntimeError { message: String, position: Position },
 }
 
-/// Promise for representing future values
-#[derive(Debug, Clone)]
-pub struct Promise {
-    /// Task ID this promise is associated with
-    task_id: TaskId,
+/// Shared state for promise resolution.
+#[derive(Debug)]
+struct PromiseInner {
     /// Current state of the promise
     state: PromiseState,
     /// Resolved value (if completed successfully)
     value: Option<AsyncValue>,
     /// Rejection error (if failed)
-    error: Option<String>, // Simplified to string
+    error: Option<String>,
+}
+
+/// Promise for representing future values
+#[derive(Debug)]
+pub struct Promise {
+    /// Task ID this promise is associated with
+    task_id: TaskId,
+    /// Interior state shared across clones
+    inner: Arc<Mutex<PromiseInner>>,
+}
+
+impl Clone for Promise {
+    fn clone(&self) -> Self {
+        Self {
+            task_id: self.task_id,
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 /// Promise states
@@ -253,71 +269,93 @@ impl Promise {
     pub fn new(task_id: TaskId) -> Self {
         Self {
             task_id,
-            state: PromiseState::Pending,
-            value: None,
-            error: None,
+            inner: Arc::new(Mutex::new(PromiseInner {
+                state: PromiseState::Pending,
+                value: None,
+                error: None,
+            })),
         }
     }
 
     /// Create a resolved promise
     pub fn resolved(value: AsyncValue) -> Self {
-        Self {
+        let promise = Self {
             task_id: TaskId::placeholder(), // Synthetic ID for resolved promises
-            state: PromiseState::Resolved,
-            value: Some(value),
-            error: None,
-        }
+            inner: Arc::new(Mutex::new(PromiseInner {
+                state: PromiseState::Resolved,
+                value: Some(value),
+                error: None,
+            })),
+        };
+        promise
     }
 
     /// Create a rejected promise
     pub fn rejected(error: String) -> Self {
-        Self {
+        let promise = Self {
             task_id: TaskId::placeholder(), // Synthetic ID for rejected promises
-            state: PromiseState::Rejected,
-            value: None,
-            error: Some(error),
-        }
+            inner: Arc::new(Mutex::new(PromiseInner {
+                state: PromiseState::Rejected,
+                value: None,
+                error: Some(error),
+            })),
+        };
+        promise
     }
 
     /// Resolve the promise with a value
-    pub fn resolve(&mut self, value: AsyncValue) {
-        if self.state == PromiseState::Pending {
-            self.state = PromiseState::Resolved;
-            self.value = Some(value);
+    pub fn resolve(&self, value: AsyncValue) {
+        if let Ok(mut inner) = self.inner.lock() {
+            if inner.state == PromiseState::Pending {
+                inner.state = PromiseState::Resolved;
+                inner.value = Some(value);
+                inner.error = None;
+            }
         }
     }
 
     /// Reject the promise with an error
-    pub fn reject(&mut self, error: String) {
-        if self.state == PromiseState::Pending {
-            self.state = PromiseState::Rejected;
-            self.error = Some(error);
+    pub fn reject(&self, error: String) {
+        if let Ok(mut inner) = self.inner.lock() {
+            if inner.state == PromiseState::Pending {
+                inner.state = PromiseState::Rejected;
+                inner.error = Some(error);
+            }
         }
     }
 
     /// Check if promise is pending
     pub fn is_pending(&self) -> bool {
-        self.state == PromiseState::Pending
+        self.inner
+            .lock()
+            .map(|inner| inner.state == PromiseState::Pending)
+            .unwrap_or(false)
     }
 
     /// Check if promise is resolved
     pub fn is_resolved(&self) -> bool {
-        self.state == PromiseState::Resolved
+        self.inner
+            .lock()
+            .map(|inner| inner.state == PromiseState::Resolved)
+            .unwrap_or(false)
     }
 
     /// Check if promise is rejected
     pub fn is_rejected(&self) -> bool {
-        self.state == PromiseState::Rejected
+        self.inner
+            .lock()
+            .map(|inner| inner.state == PromiseState::Rejected)
+            .unwrap_or(false)
     }
 
     /// Get the resolved value if available
-    pub fn value(&self) -> Option<&AsyncValue> {
-        self.value.as_ref()
+    pub fn value(&self) -> Option<AsyncValue> {
+        self.inner.lock().ok().and_then(|inner| inner.value.clone())
     }
 
     /// Get the rejection error if available
-    pub fn get_error(&self) -> Option<&String> {
-        self.error.as_ref()
+    pub fn get_error(&self) -> Option<String> {
+        self.inner.lock().ok().and_then(|inner| inner.error.clone())
     }
 
     /// Get the task ID
@@ -1158,6 +1196,14 @@ impl ActorId {
         }
     }
 
+    /// Placeholder actor id used for synthetic senders (e.g., runtime requests)
+    pub fn placeholder() -> Self {
+        Self {
+            slot: u32::MAX,
+            generation: u32::MAX,
+        }
+    }
+
     /// Construct from explicit slot/generation components.
     pub fn new(slot: u32, generation: u32) -> Self {
         Self { slot, generation }
@@ -1207,6 +1253,10 @@ pub struct ActorMessage {
     pub timestamp: std::time::SystemTime,
     /// Message priority
     pub priority: TaskPriority,
+    /// Request correlation identifier (if this is a request)
+    pub correlation_id: Option<u64>,
+    /// Whether the sender expects a reply
+    pub expects_response: bool,
 }
 
 /// Channel operations
@@ -1294,26 +1344,26 @@ mod tests {
     #[test]
     fn test_promise_resolution() {
         let task_id = TaskId::new(1, 0);
-        let mut promise = Promise::new(task_id);
+        let promise = Promise::new(task_id);
 
         let value = AsyncValue::Integer(42);
         promise.resolve(value.clone());
 
         assert!(promise.is_resolved());
-        assert_eq!(promise.value(), Some(&value));
+        assert_eq!(promise.value(), Some(value));
     }
 
     #[test]
     fn test_promise_rejection() {
         let task_id = TaskId::new(1, 0);
-        let mut promise = Promise::new(task_id);
+        let promise = Promise::new(task_id);
 
         let error = "test error".to_string();
 
         promise.reject(error.clone());
 
         assert!(promise.is_rejected());
-        assert_eq!(promise.get_error(), Some(&error));
+        assert_eq!(promise.get_error(), Some(error));
     }
 
     #[test]

@@ -324,7 +324,9 @@ fn test_parse_lambda_multiple_params() {
 fn test_parse_lambda_with_explicit_types() {
     let expr = parse_expression("{ x: Int, y: Int -> x + y }").unwrap();
     match expr {
-        Expression::Lambda { params, body: _, .. } => {
+        Expression::Lambda {
+            params, body: _, ..
+        } => {
             assert_eq!(params.len(), 2);
             assert_eq!(params[0].name, "x");
             assert_eq!(params[1].name, "y");

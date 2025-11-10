@@ -310,11 +310,7 @@ impl SelectExecutor {
                 pattern: _,
             } => {
                 // Try non-blocking receive
-                if self
-                    .channel_manager
-                    .get_channel(*channel_id)
-                    .is_some()
-                {
+                if self.channel_manager.get_channel(*channel_id).is_some() {
                     // Non-blocking receive implementation
                     // Returns WouldBlock if no data available
                     Ok(SelectResult::WouldBlock)
@@ -322,13 +318,12 @@ impl SelectExecutor {
                     Ok(SelectResult::Error("Channel not found".to_string()))
                 }
             }
-            SelectCase::Send { channel_id, value: _ } => {
+            SelectCase::Send {
+                channel_id,
+                value: _,
+            } => {
                 // Try non-blocking send
-                if self
-                    .channel_manager
-                    .get_channel(*channel_id)
-                    .is_some()
-                {
+                if self.channel_manager.get_channel(*channel_id).is_some() {
                     // Non-blocking send implementation
                     // Returns WouldBlock if channel is full
                     Ok(SelectResult::WouldBlock)

@@ -8,13 +8,14 @@
 //! - Proper message type safety and supervision
 
 use crate::types::{
-    ActorId, ActorMessage, ActorRef, AsyncError, AsyncResult, AsyncValue, Mailbox, TaskPriority,
+    ActorId, ActorMessage, ActorRef, AsyncError, AsyncResult, AsyncValue, Mailbox, Promise, TaskId,
+    TaskPriority,
 };
 use seen_lexer::position::Position;
 use seen_parser::ast::{Expression, Type};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Actor definition following Seen syntax
 #[derive(Debug, Clone)]
@@ -167,6 +168,14 @@ pub struct ActorSystem {
     dead_letters: VecDeque<ActorMessage>,
     /// Actor system configuration
     config: ActorSystemConfig,
+    /// Pending request/reply promises
+    pending_requests: HashMap<u64, PendingRequest>,
+}
+
+#[derive(Debug)]
+struct PendingRequest {
+    promise: Arc<Promise>,
+    deadline: Option<Instant>,
 }
 
 /// Configuration for actor system
@@ -473,6 +482,7 @@ impl ActorSystem {
             system_supervisor: None,
             dead_letters: VecDeque::new(),
             config: ActorSystemConfig::default(),
+            pending_requests: HashMap::new(),
         }
     }
 
@@ -485,6 +495,7 @@ impl ActorSystem {
             system_supervisor: None,
             dead_letters: VecDeque::new(),
             config,
+            pending_requests: HashMap::new(),
         }
     }
 
@@ -558,6 +569,8 @@ impl ActorSystem {
             content,
             timestamp: SystemTime::now(),
             priority: TaskPriority::Normal,
+            correlation_id: None,
+            expects_response: false,
         };
 
         self.deliver_message(target, actor_message)
@@ -569,21 +582,77 @@ impl ActorSystem {
         target: ActorId,
         message: String,
         payload: AsyncValue,
-        requester: ActorId,
-    ) -> Result<u64, AsyncError> {
+        requester: Option<ActorId>,
+    ) -> Result<Arc<Promise>, AsyncError> {
         let request_id = self.next_request_id; // Reuse counter for request correlation
         self.next_request_id += 1;
 
+        let promise = Arc::new(Promise::new(TaskId::placeholder()));
+
         let actor_message = ActorMessage {
-            sender: Some(requester),
+            sender: requester,
             content: AsyncValue::Array(vec![AsyncValue::String(message), payload]),
             timestamp: SystemTime::now(),
             priority: TaskPriority::Normal,
+            correlation_id: Some(request_id),
+            expects_response: true,
         };
 
         self.deliver_message(target, actor_message)?;
 
-        Ok(request_id)
+        let deadline = if self.config.request_timeout_ms == 0 {
+            None
+        } else {
+            Some(Instant::now() + Duration::from_millis(self.config.request_timeout_ms))
+        };
+
+        self.pending_requests.insert(
+            request_id,
+            PendingRequest {
+                promise: Arc::clone(&promise),
+                deadline,
+            },
+        );
+
+        Ok(promise)
+    }
+
+    fn resolve_request(&mut self, request_id: u64, result: AsyncResult) {
+        if let Some(pending) = self.pending_requests.remove(&request_id) {
+            match result {
+                Ok(value) => pending.promise.resolve(value),
+                Err(error) => pending
+                    .promise
+                    .reject(format!("Actor request failed: {:?}", error)),
+            }
+        }
+    }
+
+    fn expire_requests(&mut self) {
+        let now = Instant::now();
+        let expired: Vec<u64> = self
+            .pending_requests
+            .iter()
+            .filter_map(|(id, pending)| {
+                pending
+                    .deadline
+                    .filter(|deadline| *deadline <= now)
+                    .map(|_| *id)
+            })
+            .collect();
+
+        for request_id in expired {
+            if let Some(pending) = self.pending_requests.remove(&request_id) {
+                pending
+                    .promise
+                    .reject("Actor request timed out".to_string());
+            }
+        }
+    }
+
+    /// Public hook to process pending request timeouts without running the full mailbox loop.
+    pub fn poll_timeouts(&mut self) {
+        self.expire_requests();
     }
 
     /// Deliver message to actor's mailbox
@@ -634,11 +703,14 @@ impl ActorSystem {
     /// Process all pending messages for all actors
     pub fn process_messages(&mut self) -> Result<usize, AsyncError> {
         let mut processed_count = 0;
+        self.expire_requests();
         let actor_ids: Vec<ActorId> = self.actors.keys().cloned().collect();
 
         for actor_id in actor_ids {
             processed_count += self.process_actor_messages(actor_id)?;
         }
+
+        self.expire_requests();
 
         Ok(processed_count)
     }
@@ -665,8 +737,18 @@ impl ActorSystem {
 
         // Process each message
         for message in messages {
+            let expects_reply = message.expects_response;
+            let correlation_id = message.correlation_id;
             if let Some(actor) = self.actors.get_mut(&actor_id) {
-                match actor.process_message(message) {
+                let result = actor.process_message(message);
+
+                if expects_reply {
+                    if let Some(request_id) = correlation_id {
+                        self.resolve_request(request_id, result.clone());
+                    }
+                }
+
+                match result {
                     Ok(_) => {
                         processed_count += 1;
                     }
@@ -711,6 +793,8 @@ impl ActorSystem {
                             content: AsyncValue::String(format!("ChildFailed: {:?}", error)),
                             timestamp: std::time::SystemTime::now(),
                             priority: TaskPriority::High,
+                            correlation_id: None,
+                            expects_response: false,
                         };
                         let _ = self.deliver_message(supervisor_id, child_failed_msg);
                     }
@@ -736,6 +820,8 @@ impl ActorSystem {
                     content: AsyncValue::String(format!("ActorStopped: {:?}", actor.id())),
                     timestamp: std::time::SystemTime::now(),
                     priority: TaskPriority::Normal,
+                    correlation_id: None,
+                    expects_response: false,
                 };
                 let _ = self.deliver_message(supervisor, stopped_msg);
             }
@@ -747,6 +833,8 @@ impl ActorSystem {
                     content: AsyncValue::String("ParentStopped".to_string()),
                     timestamp: std::time::SystemTime::now(),
                     priority: TaskPriority::High,
+                    correlation_id: None,
+                    expects_response: false,
                 };
                 let _ = self.deliver_message(child_id, parent_stopped);
             }
@@ -835,6 +923,8 @@ pub struct ActorSystemStats {
 mod tests {
     use super::*;
     use seen_lexer::Position;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_actor_definition_creation() {
@@ -933,5 +1023,96 @@ mod tests {
         assert_eq!(stats.total_actors, 1);
         assert_eq!(stats.total_definitions, 1);
         assert_eq!(stats.active_actors, 1);
+    }
+
+    #[test]
+    fn test_actor_request_resolves_promise() {
+        let mut system = ActorSystem::new();
+        let mut handlers = HashMap::new();
+        handlers.insert(
+            "Ping".to_string(),
+            MessageHandler::send_handler(
+                "Ping".to_string(),
+                Expression::IntegerLiteral {
+                    value: 1,
+                    pos: Position::new(1, 1, 0),
+                },
+                Position::new(1, 1, 0),
+            ),
+        );
+
+        let definition = ActorDefinition::new(
+            "RequestActor".to_string(),
+            HashMap::new(),
+            handlers,
+            Position::new(1, 1, 0),
+        );
+
+        system.register_actor_definition(definition).unwrap();
+        let actor_ref = system.spawn_actor("RequestActor", Vec::new()).unwrap();
+
+        let promise = system
+            .request_from_actor(
+                actor_ref.id(),
+                "Ping".to_string(),
+                AsyncValue::Integer(99),
+                None,
+            )
+            .unwrap();
+
+        system.process_messages().unwrap();
+
+        assert!(promise.is_resolved());
+        assert_eq!(promise.value(), Some(AsyncValue::Integer(99)));
+    }
+
+    #[test]
+    fn test_actor_request_timeout() {
+        let mut config = ActorSystemConfig::default();
+        config.request_timeout_ms = 5;
+        let mut system = ActorSystem::with_config(config);
+
+        let mut handlers = HashMap::new();
+        handlers.insert(
+            "Slow".to_string(),
+            MessageHandler::send_handler(
+                "Slow".to_string(),
+                Expression::IntegerLiteral {
+                    value: 1,
+                    pos: Position::new(1, 1, 0),
+                },
+                Position::new(1, 1, 0),
+            ),
+        );
+
+        let definition = ActorDefinition::new(
+            "TimeoutActor".to_string(),
+            HashMap::new(),
+            handlers,
+            Position::new(1, 1, 0),
+        );
+
+        system.register_actor_definition(definition).unwrap();
+        let actor_ref = system.spawn_actor("TimeoutActor", Vec::new()).unwrap();
+
+        let promise = system
+            .request_from_actor(
+                actor_ref.id(),
+                "Slow".to_string(),
+                AsyncValue::Integer(1),
+                None,
+            )
+            .unwrap();
+
+        thread::sleep(Duration::from_millis(10));
+        system.poll_timeouts();
+
+        assert!(promise.is_rejected());
+        assert_eq!(
+            promise
+                .get_error()
+                .unwrap_or_else(|| "no error".to_string()),
+            "Actor request timed out".to_string()
+        );
     }
 }
