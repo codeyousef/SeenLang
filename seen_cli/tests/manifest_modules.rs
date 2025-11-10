@@ -88,11 +88,11 @@ fn manifest_modules_include_dependencies() {
     fs::write(
         &main_path,
         r#"
-import helper.lib.{getValue}
-
-fun main() -> Int {
+fun entry() -> Int {
     return getValue()
 }
+
+entry()
 "#,
     )
         .expect("write main");
@@ -154,4 +154,67 @@ targets = ["native"]
         .success();
 
     assert!(output.exists(), "expected build artifact at {:?}", output);
+}
+
+#[test]
+fn manifest_modules_run_with_dependency() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let app_dir = temp.path().join("app");
+    let app_src = app_dir.join("src");
+    fs::create_dir_all(&app_src).expect("app src dir");
+
+    let main_path = app_src.join("main.seen");
+    fs::write(
+        &main_path,
+        r#"
+fun entry() -> Int {
+    return getValue()
+}
+
+entry()
+"#,
+    )
+        .expect("write main");
+
+    fs::write(
+        app_dir.join("Seen.toml"),
+        r#"[project]
+modules = ["src"]
+language = "en"
+
+[dependencies]
+helper = "../deps/helper"
+"#,
+    )
+        .expect("write app Seen.toml");
+
+    let dep_dir = temp.path().join("deps").join("helper");
+    let dep_src = dep_dir.join("src");
+    fs::create_dir_all(&dep_src).expect("dep src dir");
+    fs::write(
+        dep_src.join("lib.seen"),
+        r#"
+fun getValue() -> Int {
+    return 42
+}
+"#,
+    )
+        .expect("write dep module");
+
+    fs::write(
+        dep_dir.join("Seen.toml"),
+        r#"[project]
+modules = ["src/lib.seen"]
+language = "en"
+"#,
+    )
+        .expect("write dep Seen.toml");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(workspace_root())
+        .env("SEEN_ENABLE_MANIFEST_MODULES", "1")
+        .args(["run", main_path.to_string_lossy().as_ref()])
+        .assert()
+        .success()
+        .stdout(contains("42"));
 }

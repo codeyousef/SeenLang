@@ -45,6 +45,7 @@ impl std::fmt::Display for RuntimeError {
 pub struct Environment {
     variables: HashMap<String, Value>,
     parent: Option<Box<Environment>>,
+    #[allow(dead_code)]
     is_function_scope: bool,
     deferred: Vec<Expression>,
 }

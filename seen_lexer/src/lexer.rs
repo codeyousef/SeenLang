@@ -1145,7 +1145,7 @@ impl Lexer {
         let start_pos = self.pos_tracker;
         let mut parts = Vec::new();
         let mut current_text = String::new();
-        let mut has_interpolation = false;
+        let has_interpolation = false;
         let mut lexeme = String::new();
 
         // Skip opening triple quotes
@@ -1154,7 +1154,7 @@ impl Lexer {
         self.advance(); // second "
         self.advance(); // third "
 
-        let mut text_start_pos = self.pos_tracker; // Position after opening quotes
+        let text_start_pos = self.pos_tracker; // Position after opening quotes
 
         while let Some(ch) = self.current_char {
             // Check for closing triple quotes
@@ -1364,6 +1364,26 @@ mod tests {
             Some(TokenType::Keyword(KeywordType::KeywordFun))
         );
         assert_eq!(lexer_ar.check_keyword(&en_fun_keyword), None); // English should not work in Arabic mode
+    }
+
+    #[test]
+    fn test_keyword_when_loaded_from_toml() {
+        let mut keyword_manager = KeywordManager::new();
+        keyword_manager.load_from_toml("fr").unwrap();
+        keyword_manager.switch_language("fr").unwrap();
+
+        let french_when = keyword_manager
+            .get_keyword_text(&KeywordType::KeywordWhen)
+            .expect("fr language should define 'when'");
+
+        let mut lexer = Lexer::new(french_when.clone(), Arc::new(keyword_manager));
+        let token = lexer.next_token().unwrap();
+        assert_eq!(
+            token.token_type,
+            TokenType::Keyword(KeywordType::KeywordWhen),
+            "expected '{}' to map to KeywordWhen",
+            french_when
+        );
     }
 
     #[test]

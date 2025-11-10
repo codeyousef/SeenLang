@@ -6,7 +6,6 @@ use seen_concurrency::types::{Channel, ChannelId};
 use seen_parser::Position;
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read as _;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 

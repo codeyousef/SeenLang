@@ -571,7 +571,7 @@ impl Parser {
                     else if let Expression::Identifier {
                         name,
                         is_public,
-                        pos,
+                        pos: _,
                     } = &expr
                     {
                         // Type names start with uppercase, so check if this is a type
@@ -771,6 +771,10 @@ impl Parser {
 
         if self.check_keyword(KeywordType::KeywordMatch) {
             return self.parse_match();
+        }
+
+        if self.check_keyword(KeywordType::KeywordWhen) {
+            return self.parse_when();
         }
 
         if self.check_keyword(KeywordType::KeywordWhile) {
@@ -2616,30 +2620,6 @@ impl Parser {
         })
     }
 
-    /// Try to parse a literal (for patterns)
-    fn try_parse_literal(&mut self) -> ParseResult<Expression> {
-        let pos = self.current.position.clone();
-
-        match &self.current.token_type {
-            TokenType::IntegerLiteral(value) => {
-                let value = *value;
-                self.advance();
-                Ok(Expression::IntegerLiteral { value, pos })
-            }
-            TokenType::FloatLiteral(value) => {
-                let value = *value;
-                self.advance();
-                Ok(Expression::FloatLiteral { value, pos })
-            }
-            TokenType::StringLiteral(value) => {
-                let value = value.clone();
-                self.advance();
-                Ok(Expression::StringLiteral { value, pos })
-            }
-            _ => Err(ParseError::InvalidExpression { pos }),
-        }
-    }
-
     /// Try to parse all literal types including boolean and null (for pattern matching)
     fn try_parse_pattern_literal(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
@@ -3056,30 +3036,6 @@ impl Parser {
         self.peek_buffer.get(distance - 1).cloned()
     }
 
-    /// Check if the token at given lookahead position could be a type
-    fn is_type_at_lookahead(&mut self, _distance: usize) -> bool {
-        match &self.current.token_type {
-            // Type identifiers (usually start with uppercase)
-            TokenType::PublicIdentifier(_) => true,
-            // Built-in types might be lowercase
-            TokenType::PrivateIdentifier(name) => {
-                matches!(
-                    name.as_str(),
-                    "int" | "float" | "string" | "bool" | "unit" | "any"
-                )
-            }
-            // Generic type parameters like List<T>
-            TokenType::Less => true, // Could be start of generic
-            // Array types like [Int]
-            TokenType::LeftBracket => true,
-            // Function types like (Int, String) -> Bool
-            TokenType::LeftParen => true,
-            // Nullable types like String?
-            TokenType::Question => true,
-            _ => false,
-        }
-    }
-
     fn match_equality_op(&self) -> Option<BinaryOperator> {
         match &self.current.token_type {
             TokenType::Equal => Some(BinaryOperator::Equal),
@@ -3243,6 +3199,7 @@ impl Parser {
         self.expect(&TokenType::LeftBrace)?;
 
         let mut cases = Vec::new();
+
         while !self.check(&TokenType::RightBrace) {
             // Skip newlines
             while self.check(&TokenType::Newline) {
@@ -4042,72 +3999,6 @@ impl Parser {
         })
     }
 
-    fn parse_class(&mut self) -> ParseResult<Expression> {
-        let pos = self.current.position.clone();
-
-        let mut is_sealed = false;
-        let mut is_open = false;
-        let mut is_abstract = false;
-
-        // Check for class modifiers
-        if self.check_keyword(KeywordType::KeywordSealed) {
-            is_sealed = true;
-            self.advance();
-        } else if self.check_keyword(KeywordType::KeywordOpen) {
-            is_open = true;
-            self.advance();
-        } else if self.check_keyword(KeywordType::KeywordAbstract) {
-            is_abstract = true;
-            self.advance();
-        }
-
-        self.advance(); // consume 'class'
-        let name = self.expect_identifier()?;
-        let generics = if self.check(&TokenType::Less) {
-            self.parse_generic_parameter_list()?
-        } else {
-            Vec::new()
-        };
-
-        self.expect(&TokenType::LeftBrace)?;
-        let mut fields = Vec::new();
-        let mut methods = Vec::new();
-        let mut companion = None;
-
-        while !self.check(&TokenType::RightBrace) {
-            if self.check_keyword(KeywordType::KeywordCompanion) {
-                self.advance();
-                self.expect_keyword(KeywordType::KeywordObject)?;
-                companion = Some(Box::new(self.parse_block()?));
-            } else if self.check_keyword(KeywordType::KeywordFun) {
-                methods.push(self.parse_function()?);
-            } else {
-                // Parse field
-                let field_name = self.parse_field_name()?;
-                self.expect(&TokenType::Colon)?;
-                let field_type = self.parse_type()?;
-                fields.push((field_name, field_type));
-            }
-
-            if !self.check(&TokenType::RightBrace) {
-                self.expect(&TokenType::Comma)?;
-            }
-        }
-
-        self.expect(&TokenType::RightBrace)?;
-        Ok(Expression::Class {
-            name,
-            generics,
-            is_sealed,
-            is_open,
-            is_abstract,
-            fields,
-            methods,
-            companion,
-            pos,
-        })
-    }
-
     /// Parse a function with contracts (requires/ensures/invariant)
     fn parse_contracted_function(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
@@ -4166,7 +4057,6 @@ impl Parser {
 
     /// Parse a pure function (no side effects)
     fn parse_pure_function(&mut self) -> ParseResult<Expression> {
-        let pos = self.current.position.clone();
         self.advance(); // consume 'pure'
 
         if !self.check_keyword(KeywordType::KeywordFun) {
@@ -4199,7 +4089,6 @@ impl Parser {
 
     /// Parse an external function (FFI)
     fn parse_external_function(&mut self) -> ParseResult<Expression> {
-        let pos = self.current.position.clone();
         self.advance(); // consume 'external'
 
         if !self.check_keyword(KeywordType::KeywordFun) {
@@ -4272,13 +4161,19 @@ impl Parser {
             // No value, just conditions
             None
         } else {
-            Some(Box::new(self.parse_expression()?))
+            Some(Box::new(self.parse_match_target()?))
         };
 
         self.expect(&TokenType::LeftBrace)?;
         let mut arms = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
+            // Allow blank lines between when arms
+            self.skip_whitespace();
+            if self.check(&TokenType::RightBrace) {
+                break;
+            }
+
             // Parse pattern or condition
             let pattern = if expr.is_some() {
                 self.parse_pattern()?
@@ -4296,11 +4191,11 @@ impl Parser {
                 body,
             });
 
-            if !self.check(&TokenType::RightBrace) {
-                if self.check(&TokenType::Comma) {
-                    self.advance();
-                }
+            // Optional separators between arms
+            if self.check(&TokenType::Comma) {
+                self.advance();
             }
+            self.skip_whitespace();
         }
 
         self.expect(&TokenType::RightBrace)?;
@@ -4686,7 +4581,7 @@ impl Parser {
             });
         }
 
-        let mut iter = arms.into_iter().rev();
+        let iter = arms.into_iter().rev();
         let mut result = None;
 
         for arm in iter {

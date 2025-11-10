@@ -213,13 +213,72 @@ fn test_parse_memory_management_parameters() {
 }
 
 #[test]
+fn test_parse_external_function_keyword() {
+    let expr = parse_expression_with_visibility(
+        r#"
+        external fun puts(message: String) {
+            // external shim
+        }
+    "#,
+        VisibilityPolicy::Caps,
+    )
+        .unwrap();
+
+    match expr {
+        Expression::Function {
+            name,
+            is_external,
+            params,
+            ..
+        } => {
+            assert_eq!(name, "puts");
+            assert!(is_external);
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "message");
+        }
+        other => panic!("expected external function, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_cstyle_extern_function() {
+    let expr = parse_expression_with_visibility(
+        r#"
+        extern "C" fun printf(format: String, value: Int): Int
+    "#,
+        VisibilityPolicy::Caps,
+    )
+        .unwrap();
+
+    match expr {
+        Expression::Function {
+            name,
+            is_external,
+            params,
+            return_type,
+            body,
+            ..
+        } => {
+            assert_eq!(name, "printf");
+            assert!(is_external);
+            assert_eq!(params.len(), 2);
+            assert!(return_type.is_some());
+            if let Expression::NullLiteral { .. } = *body {} else {
+                panic!("expected c-style extern body placeholder");
+            }
+        }
+        other => panic!("expected c-style extern function, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_parse_simple_lambda() {
     let expr = parse_expression("{ x -> x * 2 }").unwrap();
 
     match expr {
         Expression::Lambda {
             params,
-            body,
+            body: _,
             return_type,
             ..
         } => {

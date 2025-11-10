@@ -8,8 +8,8 @@ use seen_concurrency::{
     async_runtime::AsyncExecutionContext,
     async_runtime::AsyncFunction as AsyncFunctionTrait,
     types::{
-        channel_select_future, AsyncError, AsyncResult, AsyncValue, Channel, ChannelReceiveStatus,
-        ChannelSelectCase, ChannelSelectOutcome, TaskId, TaskPriority,
+        channel_select_future, AsyncError, AsyncResult, AsyncValue, Channel, ChannelSelectCase,
+        ChannelSelectOutcome, TaskId, TaskPriority,
     },
 };
 use seen_effects::{
@@ -19,12 +19,14 @@ use seen_effects::{
     },
     EffectDefinition, EffectId, EffectOperation as EffectOp,
 };
-use seen_parser::{ast::ClassField, BinaryOperator, ClassField, Expression, InterpolationKind, InterpolationPart, MatchArm, Method, Parameter, Pattern, Position, Program, UnaryOperator};
+use seen_parser::{
+    ast::ClassField, BinaryOperator, Expression, InterpolationKind, InterpolationPart, MatchArm,
+    Method, Parameter, Pattern, Position, Program, UnaryOperator,
+};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 
 /// Wrapper for Seen expressions to be executed as async functions
@@ -194,11 +196,13 @@ impl AsyncFunctionTrait for ChannelSelectAsyncFunction {
 struct RuntimeClassField {
     name: String,
     default_value: Option<Expression>,
+    #[allow(dead_code)]
     is_mutable: bool,
 }
 
 #[derive(Clone)]
 struct RuntimeMethod {
+    #[allow(dead_code)]
     name: String,
     parameters: Vec<Parameter>,
     body: Expression,
@@ -208,12 +212,14 @@ struct RuntimeMethod {
 
 #[derive(Clone)]
 struct RuntimeClass {
+    #[allow(dead_code)]
     name: String,
     fields: Vec<RuntimeClassField>,
     methods: HashMap<String, RuntimeMethod>,
 }
 
 struct InstanceContext {
+    #[allow(dead_code)]
     class_name: String,
     fields: Arc<Mutex<HashMap<String, Value>>>,
 }
@@ -254,6 +260,7 @@ pub struct Interpreter {
     return_flag: bool,
     return_value: Option<Value>,
     /// Task counter for generating unique task IDs
+    #[allow(dead_code)]
     task_counter: std::sync::atomic::AtomicU64,
 }
 
@@ -447,9 +454,10 @@ impl Interpreter {
             } => self.interpret_for(variable, iterable, body, *pos),
 
             Expression::Loop { body, .. } => {
-                let mut last_value = Value::Unit;
+                let mut last_value: Option<Value> = None;
                 loop {
-                    last_value = self.interpret_expression(body)?;
+                    last_value = Some(self.interpret_expression(body)?);
+                    let _ = last_value.as_ref();
 
                     if self.break_flag {
                         self.break_flag = false;
@@ -463,7 +471,7 @@ impl Interpreter {
                         break;
                     }
                 }
-                Ok(last_value)
+                Ok(last_value.unwrap_or(Value::Unit))
             }
 
             Expression::Break { .. } => {
@@ -741,7 +749,7 @@ impl Interpreter {
             Expression::Receive {
                 pattern: _,
                 handler,
-                pos,
+                pos: _,
             } => {
                 // Simplified receive implementation
                 self.interpret_expression(handler)
@@ -793,123 +801,6 @@ impl Interpreter {
                 operation,
                 pos,
             } => self.interpret_stream_operation(stream, operation, *pos),
-
-            // Additional expressions that need proper implementation
-            Expression::FloatLiteral { value, .. } => Ok(Value::Float(*value)),
-
-            Expression::InterpolatedString { parts, .. } => {
-                let mut result = String::new();
-                for part in parts {
-                    match &part.kind {
-                        seen_parser::InterpolationKind::Text(text) => result.push_str(text),
-                        seen_parser::InterpolationKind::Expression(expr) => {
-                            let value = self.interpret_expression(expr)?;
-                            result.push_str(&value.to_string());
-                        }
-                    }
-                }
-                Ok(Value::String(result))
-            }
-
-            Expression::UnaryOp { op, operand, pos } => {
-                let val = self.interpret_expression(operand)?;
-                match op {
-                    seen_parser::UnaryOperator::Negate => match val {
-                        Value::Integer(i) => Ok(Value::Integer(-i)),
-                        Value::Float(f) => Ok(Value::Float(-f)),
-                        _ => Err(InterpreterError::runtime(
-                            "Invalid unary negation operand",
-                            *pos,
-                        )),
-                    },
-                    seen_parser::UnaryOperator::Not => Ok(Value::Boolean(!val.is_truthy())),
-                }
-            }
-
-            Expression::Elvis {
-                nullable,
-                default,
-                pos,
-            } => {
-                let nullable_val = self.interpret_expression(nullable)?;
-                if matches!(nullable_val, Value::Null) {
-                    self.interpret_expression(default)
-                } else {
-                    Ok(nullable_val)
-                }
-            }
-
-            Expression::IndexAccess {
-                object, index, pos, ..
-            } => {
-                let obj_val = self.interpret_expression(object)?;
-                let idx_val = self.interpret_expression(index)?;
-
-                match (obj_val, idx_val) {
-                    (Value::Array(arr), Value::Integer(i)) => {
-                        let guard = arr
-                            .lock()
-                            .map_err(|_| InterpreterError::runtime("Array access failed", *pos))?;
-                        let len = guard.len() as i64;
-                        let idx = if i < 0 { len + i } else { i } as usize;
-
-                        guard.get(idx).cloned().ok_or_else(|| {
-                            InterpreterError::runtime("Array index out of bounds", *pos)
-                        })
-                    }
-                    _ => Err(InterpreterError::runtime("Invalid index access", *pos)),
-                }
-            }
-
-            Expression::Lambda { params, body, .. } => {
-                // Create a lambda value that can be called later
-                let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-                Ok(Value::Function {
-                    name: "<lambda>".to_string(),
-                    parameters: param_names,
-                    body: body.clone(),
-                    closure: HashMap::new(), // For now, empty closure
-                })
-            }
-
-            Expression::Try {
-                body,
-                catch_clauses,
-                finally,
-                pos,
-                ..
-            } => {
-                // Execute try block
-                let result = self.interpret_expression(body);
-
-                match result {
-                    Ok(value) => {
-                        // Success - execute finally if present and return value
-                        if let Some(finally_block) = finally {
-                            self.interpret_expression(finally_block)?;
-                        }
-                        Ok(value)
-                    }
-                    Err(error) => {
-                        // Error occurred - try catch handlers
-                        for catch in catch_clauses {
-                            // In a full implementation, would match error types
-                            // For now, just execute the first catch handler
-                            let catch_result = self.interpret_expression(&catch.body);
-                            if let Some(finally_block) = finally {
-                                self.interpret_expression(finally_block)?;
-                            }
-                            return catch_result;
-                        }
-
-                        // No catch handler matched, execute finally and re-throw
-                        if let Some(finally_block) = finally {
-                            self.interpret_expression(finally_block)?;
-                        }
-                        Err(error)
-                    }
-                }
-            }
 
             Expression::Assert {
                 condition,
@@ -1995,7 +1886,7 @@ impl Interpreter {
         &mut self,
         name: &str,
         _fields: &[(String, seen_parser::ast::Type)],
-        pos: Position,
+        _pos: Position,
     ) -> InterpreterResult<Value> {
         // Generate unique actor ID
         let actor_id = seen_concurrency::types::ActorId::allocate();
@@ -2151,9 +2042,7 @@ impl Interpreter {
             type_parameters: Vec::new(),
         });
 
-        // Register effect with runtime
-        let advanced_runtime = self.runtime.advanced_runtime();
-        // For now, just return the effect definition
+        // Register effect with runtime (n/a yet). For now, just return the effect definition.
 
         Ok(Value::Effect(effect_def))
     }
@@ -2162,9 +2051,9 @@ impl Interpreter {
     fn interpret_handle(
         &mut self,
         body: &Expression,
-        effect: &str,
+        _effect_name: &str,
         handlers: &[seen_parser::ast::EffectHandler],
-        pos: Position,
+        _pos: Position,
     ) -> InterpreterResult<Value> {
         // Set up effect handlers
         let mut handler_map = HashMap::new();
@@ -2184,7 +2073,7 @@ impl Interpreter {
         }
 
         // Create effect handle context
-        let effect_handle = Value::EffectHandle {
+        let _effect_handle = Value::EffectHandle {
             effect_id: EffectId::new(1), // Simplified
             handlers: handler_map,
         };
@@ -2300,7 +2189,7 @@ impl Interpreter {
     fn interpret_flow_creation(
         &mut self,
         body: &Expression,
-        pos: Position,
+        _pos: Position,
     ) -> InterpreterResult<Value> {
         let reactive_runtime = self.runtime.reactive_runtime();
         let mut runtime = reactive_runtime.lock().unwrap();
@@ -2368,7 +2257,7 @@ impl Interpreter {
         let stream_val = self.interpret_expression(stream)?;
 
         match stream_val {
-            Value::Observable(obs) => {
+            Value::Observable(_obs) => {
                 // Apply operation to observable using available reactive runtime methods
                 let reactive_runtime = self.runtime.reactive_runtime();
                 let mut runtime = reactive_runtime.lock().unwrap();
@@ -2615,7 +2504,7 @@ impl Interpreter {
 
         let match_result = match (result, defer_result, pop_result) {
             (Err(err), _, _) => Err(err),
-            (Ok(value), Err(err), _) => Err(err),
+            (Ok(_), Err(err), _) => Err(err),
             (Ok(_), Ok(_), Err(err)) => Err(err),
             (Ok(value), Ok(_), Ok(_)) => Ok(value),
         };
@@ -2661,7 +2550,7 @@ impl Default for Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use seen_concurrency::types::{AsyncValue, Channel, ChannelId};
+    use seen_concurrency::types::{AsyncValue, Channel, ChannelId, ChannelReceiveStatus};
     use seen_parser::ast::Pattern;
     use seen_parser::{ClassField, Method, Type};
     use std::thread;

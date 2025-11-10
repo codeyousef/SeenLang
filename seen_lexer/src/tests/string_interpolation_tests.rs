@@ -3,15 +3,12 @@
 //! Following TDD methodology, these tests define expected behavior
 //! for string interpolation BEFORE implementation.
 
-use crate::{
-    token::{InterpolationKind, InterpolationPart, Token},
-    KeywordManager, Lexer, Position, TokenType,
-};
+use crate::{token::InterpolationKind, KeywordManager, Lexer, TokenType};
 use std::sync::Arc;
 
 /// Test helper to create a lexer with English keywords loaded
 fn create_test_lexer(input: &str) -> Lexer {
-    let mut keyword_manager = KeywordManager::new();
+    let keyword_manager = KeywordManager::new();
     // For now, use an empty keyword manager since we're testing interpolation
     Lexer::new(input.to_string(), Arc::new(keyword_manager))
 }

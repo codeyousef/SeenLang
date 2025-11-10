@@ -2,7 +2,7 @@
 //!
 //! Tests for safe navigation (?.),  elvis (?:), and force unwrap (!!) operators
 
-use crate::{KeywordManager, Lexer, Position, TokenType};
+use crate::{KeywordManager, Lexer, TokenType};
 use std::sync::Arc;
 
 /// Test helper to create a lexer with English keywords loaded

@@ -17,8 +17,6 @@ pub use token::{InterpolationKind, InterpolationPart, Token, TokenType};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_lexer_creation() {
         // Test lexer functionality

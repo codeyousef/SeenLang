@@ -539,23 +539,25 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       bodies stop hijacking `{ … }` as trailing lambdas.
     - Added parser fixtures covering while-blocks with nested if/else, trailing lambdas inside statement bodies, and
       let-initializers that pass lambdas through, so regressions surface immediately.
+  - `when` expressions are wired through the parser and dedicated control-flow tests, and the lexer now has regression
+    coverage proving multilingual keyword tables continue to source from the TOML manifests.
   - Typechecker now registers class/struct types, trailing-lambda statements, and builtin constructors/abort so
     `seen_std/src/collections/vec.seen` type-checks cleanly (CLI now trips in the interpreter instead of the parser).
   - Interpreter/runtime gained full class/value plumbing (shared Vec storage, instance fields, method dispatch) so
     manifest-loaded stdlib modules execute; `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`
     is green and wired into the manifest test.
+  - Removed the duplicate/unreachable interpreter arms and scrubbed the obvious warning sources (unused params, dead
+    struct fields) so parser + interpreter builds are quiet outside of the async/reactive crates.
 
 * **Remaining tasks:**
-    1. Finish parser polish items that still sit behind `#[allow(dead_code)]` (e.g., `when` desugaring, literal helpers)
-       and
-       add fixtures for `extern "C"` declarations plus manifest-module import chains so tokenizer/parser regressions
-       show up in CI.
-    2. Expand lexer coverage (interpolated strings, keyword localization) and clear the outstanding warnings so the
-       tokenizer is considered “bulletproof”.
-    3. Implement the remaining interpreter expression arms that stdlib/external modules exercise next (
-       interfaces/extensions/effects/actors) so the fallback “Expression type not implemented” error disappears.
-    4. Once the parser/lexer/interpreter surface is fully exercised, re-enable strict type-checking for
-       manifest-injected modules and promote the Vec manifest run to a required CI gate so PROD-4a stays green.
+    1. Clean up the warning backlog emitted by `seen_concurrency`, `seen_effects`, and `seen_reactive` so the entire
+       runtime stack can build under `RUSTFLAGS="-D warnings"` (today the interpreter itself is clean, but its
+       dependencies are not).
+    2. Finish wiring the effect/actor/reactive paths that still return placeholder values (effect handles are never
+       pushed, actor `payload` arguments are ignored, and reactive factories drop their generated IDs) and add focused
+       regression tests once those code paths execute.
+    3. Re-enable strict type-checking for manifest-injected modules and promote the Vec manifest run to a required CI
+       gate once the runtime warning debt is paid down, so PROD-4a stays green in automation.
 
 ### PROD-5. Production QA & Platform Certification
 

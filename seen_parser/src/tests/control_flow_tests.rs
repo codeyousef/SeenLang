@@ -18,7 +18,6 @@ fn test_parse_if_expression_returns_value() {
     let expr = parse_expression("if x > 10 { \"big\" } else { \"small\" }").unwrap();
     match expr {
         Expression::If {
-            condition,
             then_branch,
             else_branch,
             ..
@@ -121,11 +120,76 @@ fn test_parse_match_with_guard() {
 }
 
 #[test]
+fn test_parse_when_expression_with_value() {
+    let expr = parse_expression(
+        r#"
+        when code {
+            200 -> "ok"
+            500 -> "error"
+            _ -> "other"
+        }
+    "#,
+    )
+        .unwrap();
+
+    match expr {
+        Expression::Match { expr, arms, .. } => {
+            match expr.as_ref() {
+                Expression::Identifier { name, .. } => assert_eq!(name, "code"),
+                other => panic!("expected identifier in when subject, got {:?}", other),
+            }
+            assert_eq!(arms.len(), 3, "expected three when arms");
+        }
+        other => panic!("expected match expression for when with subject, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_when_without_value_desugars_to_if_chain() {
+    let expr = parse_expression(
+        r#"
+        when {
+            value > 10 -> "big"
+            value > 5 -> "mid"
+            true -> "small"
+        }
+    "#,
+    )
+        .unwrap();
+
+    match expr {
+        Expression::If {
+            condition,
+            then_branch,
+            else_branch: Some(else_branch),
+            ..
+        } => {
+            match condition.as_ref() {
+                Expression::BinaryOp { .. } => {}
+                other => panic!("expected binary op in top-level when condition, got {:?}", other),
+            }
+            match then_branch.as_ref() {
+                Expression::StringLiteral { value, .. } => assert_eq!(value, "big"),
+                other => panic!("expected string literal body, got {:?}", other),
+            }
+            match else_branch.as_ref() {
+                Expression::If { .. } => {} // nested if shows chaining worked
+                other => panic!("expected nested if for remaining when arms, got {:?}", other),
+            }
+        }
+        other => panic!(
+            "expected when without subject to desugar into if expression, got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
 fn test_parse_while_loop() {
     let expr = parse_expression("while count < 10 { count = count + 1 }").unwrap();
     match expr {
         Expression::While {
-            condition, body, ..
+            condition, body: _, ..
         } => {
             // Verify condition is a comparison
             match condition.as_ref() {

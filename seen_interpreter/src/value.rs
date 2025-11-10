@@ -2,7 +2,6 @@
 
 use seen_concurrency::types::{ActorRef, Channel, Promise, TaskId};
 use seen_effects::{EffectDefinition, EffectId};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

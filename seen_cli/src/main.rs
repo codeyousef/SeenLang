@@ -2114,7 +2114,6 @@ fn bundle_imports(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
     let mut queue: VecDeque<(Program, PathBuf)> = VecDeque::new();
-    queue.push_back((program, base_dir.clone()));
     let mut visited_modules: HashSet<String> = HashSet::new();
     let mut processed_files: HashSet<PathBuf> = HashSet::new();
     let input_canonical = canonicalize_lossy(input_path);
@@ -2151,6 +2150,7 @@ fn bundle_imports(
         processed_files.insert(canonical);
         queue.push_back((parsed, module_dir));
     }
+    queue.push_back((program, base_dir.clone()));
 
     while let Some((prog, module_dir)) = queue.pop_front() {
         for expr in prog.expressions {
@@ -3214,17 +3214,21 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let parsed = parser.parse_program().map_err(SeenError::from)?;
     // Bundle imports so interpreter sees imported functions
-    let ast_for_typecheck = bundle_imports(
-        parsed.clone(),
-        input,
-        keyword_manager.clone(),
-        visibility_policy,
-        &project_config.root_dir,
-        &dependency_roots,
-        &[],
-    )?;
-    let ast = if manifest_modules.is_empty() {
-        ast_for_typecheck.clone()
+    let ast_for_typecheck = if manifest_modules.is_empty() {
+        Some(bundle_imports(
+            parsed.clone(),
+            input,
+            keyword_manager.clone(),
+            visibility_policy,
+            &project_config.root_dir,
+            &dependency_roots,
+            &[],
+        )?)
+    } else {
+        None
+    };
+    let ast = if let Some(ast) = &ast_for_typecheck {
+        ast.clone()
     } else {
         bundle_imports(
             parsed,
@@ -3237,10 +3241,10 @@ fn run_file(input: &Path, args: &[String], keyword_manager: Arc<KeywordManager>)
         )?
     };
 
-    if manifest_modules.is_empty() {
+    if let Some(ast_to_check) = &ast_for_typecheck {
         // Type check (for user + imported modules only)
         let mut type_checker = TypeChecker::new();
-        let type_result = type_checker.check_program(&ast_for_typecheck);
+        let type_result = type_checker.check_program(ast_to_check);
         if !type_result.errors.is_empty() {
             for error in &type_result.errors {
                 eprintln!("Type error: {}", error);

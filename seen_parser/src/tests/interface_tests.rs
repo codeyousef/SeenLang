@@ -4,6 +4,7 @@ use crate::{Expression, Parser, Program};
 use seen_lexer::{KeywordManager, Lexer};
 use std::sync::Arc;
 
+#[allow(dead_code)]
 fn parse_program(input: &str) -> Result<Program, crate::ParseError> {
     let mut keyword_manager = KeywordManager::new();
     keyword_manager.load_from_toml("en").unwrap();
