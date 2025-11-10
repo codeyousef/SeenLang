@@ -275,6 +275,8 @@ pub struct Interpreter {
     effect_registry: HashMap<String, EffectId>,
     /// Reactive property bindings by variable name
     reactive_bindings: HashMap<String, ReactivePropertyId>,
+    /// Active flow collectors capturing `emit` outputs
+    flow_collectors: Vec<Vec<Value>>,
     /// Executor used to evaluate actor handler bodies
     actor_executor: Arc<InterpreterActorExecutor>,
 }
@@ -299,6 +301,7 @@ impl Interpreter {
             effect_handler_stack: Vec::new(),
             effect_registry: HashMap::new(),
             reactive_bindings: HashMap::new(),
+            flow_collectors: Vec::new(),
             actor_executor,
         }
     }
@@ -1182,6 +1185,31 @@ impl Interpreter {
         }
         // Check if it's a built-in function call
         if let Expression::Identifier { name, .. } = callee {
+            if name == "emit" {
+                if !self.flow_collectors.is_empty() {
+                    if args.len() != 1 {
+                        return Err(InterpreterError::argument_count_mismatch(
+                            "emit".to_string(),
+                            1,
+                            args.len(),
+                            pos,
+                        ));
+                    }
+                    let value = self.interpret_expression(&args[0])?;
+                    if let Some(collector) = self.flow_collectors.last_mut() {
+                        collector.push(value);
+                    }
+                    return Ok(Value::Unit);
+                }
+            } else if name == "delay" {
+                if self.flow_collectors.last().is_some() {
+                    for arg in args {
+                        let _ = self.interpret_expression(arg)?;
+                    }
+                    return Ok(Value::Unit);
+                }
+            }
+
             if self.builtins.is_builtin(name) {
                 let mut arg_values = Vec::new();
                 for arg in args {
@@ -1905,54 +1933,6 @@ impl Interpreter {
         }
     }
 
-    /// Extract emission values from flow body
-    fn extract_flow_emissions(&mut self, body: &Expression) -> InterpreterResult<Vec<i32>> {
-        let mut emissions = Vec::new();
-
-        // Execute the flow body and collect emit() calls
-        match body {
-            Expression::Block { expressions, .. } => {
-                for expr in expressions {
-                    if let Expression::Call { callee, args, .. } = expr {
-                        if let Expression::Identifier { name, .. } = callee.as_ref() {
-                            if name == "emit" && !args.is_empty() {
-                                // Extract the emission value
-                                let emission_value = self.interpret_expression(&args[0])?;
-                                if let Value::Integer(i) = emission_value {
-                                    emissions.push(i as i32);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Expression::Call { callee, args, .. } => {
-                if let Expression::Identifier { name, .. } = callee.as_ref() {
-                    if name == "emit" && !args.is_empty() {
-                        let emission_value = self.interpret_expression(&args[0])?;
-                        if let Value::Integer(i) = emission_value {
-                            emissions.push(i as i32);
-                        }
-                    }
-                }
-            }
-            _ => {
-                // For other expressions, try to interpret as a single value
-                let result = self.interpret_expression(body)?;
-                if let Value::Integer(i) = result {
-                    emissions.push(i as i32);
-                }
-            }
-        }
-
-        // If no emissions found, default to empty flow
-        if emissions.is_empty() {
-            emissions.push(0); // Default single emission
-        }
-
-        Ok(emissions)
-    }
-
     /// Helper function to match patterns (simplified)
     fn match_pattern(&mut self, pattern: &Pattern, value: &Value) -> bool {
         match pattern {
@@ -2360,12 +2340,17 @@ impl Interpreter {
         body: &Expression,
         _pos: Position,
     ) -> InterpreterResult<Value> {
+        self.flow_collectors.push(Vec::new());
+        let _ = self.interpret_expression(body)?;
+        let collected = self.flow_collectors.pop().unwrap_or_default();
+        let mut values = collected;
+        if values.is_empty() {
+            values.push(Value::Unit);
+        }
+
         let reactive_runtime = self.runtime.reactive_runtime();
         let mut runtime = reactive_runtime.lock().unwrap();
-
-        // Parse the flow body to extract emit() and delay() calls
-        let flow_values = self.extract_flow_emissions(body)?;
-        let flow = runtime.create_flow_from_vec(flow_values);
+        let flow = runtime.create_flow_from_vec(values);
         let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(flow);
         Ok(Value::Flow(Arc::new(boxed)))
     }
@@ -2785,6 +2770,8 @@ mod tests {
     use seen_concurrency::types::{AsyncValue, Channel, ChannelId, ChannelReceiveStatus};
     use seen_parser::ast::{MessageHandler, Pattern};
     use seen_parser::{ClassField, Method, Type};
+    use seen_reactive::flow::Flow;
+    use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -3077,6 +3064,105 @@ mod tests {
             .find_property_by_name("Username")
             .expect("property should be registered");
         assert_eq!(property.get(), &AsyncValue::String("Bob".to_string()));
+    }
+
+    #[test]
+    fn flow_creation_captures_runtime_emissions() {
+        let mut interpreter = Interpreter::new();
+        let pos = Position::start();
+
+        let flow_body = Expression::Block {
+            expressions: vec![
+                Expression::Let {
+                    name: "i".to_string(),
+                    type_annotation: None,
+                    value: Box::new(Expression::IntegerLiteral { value: 0, pos }),
+                    is_mutable: true,
+                    delegation: None,
+                    pos,
+                },
+                Expression::While {
+                    condition: Box::new(Expression::BinaryOp {
+                        left: Box::new(Expression::Identifier {
+                            name: "i".to_string(),
+                            is_public: false,
+                            pos,
+                        }),
+                        op: BinaryOperator::Less,
+                        right: Box::new(Expression::IntegerLiteral { value: 3, pos }),
+                        pos,
+                    }),
+                    body: Box::new(Expression::Block {
+                        expressions: vec![
+                            Expression::Call {
+                                callee: Box::new(Expression::Identifier {
+                                    name: "emit".to_string(),
+                                    is_public: false,
+                                    pos,
+                                }),
+                                args: vec![Expression::Identifier {
+                                    name: "i".to_string(),
+                                    is_public: false,
+                                    pos,
+                                }],
+                                pos,
+                            },
+                            Expression::Assignment {
+                                target: Box::new(Expression::Identifier {
+                                    name: "i".to_string(),
+                                    is_public: false,
+                                    pos,
+                                }),
+                                value: Box::new(Expression::BinaryOp {
+                                    left: Box::new(Expression::Identifier {
+                                        name: "i".to_string(),
+                                        is_public: false,
+                                        pos,
+                                    }),
+                                    op: BinaryOperator::Add,
+                                    right: Box::new(Expression::IntegerLiteral { value: 1, pos }),
+                                    pos,
+                                }),
+                                pos,
+                            },
+                        ],
+                        pos,
+                    }),
+                    pos,
+                },
+            ],
+            pos,
+        };
+
+        let flow_expr = Expression::FlowCreation {
+            body: Box::new(flow_body),
+            pos,
+        };
+
+        let flow_value = interpreter
+            .interpret_expression(&flow_expr)
+            .expect("flow creation should succeed");
+
+        let values = match flow_value {
+            Value::Flow(flow_arc) => {
+                let concrete = flow_arc
+                    .downcast::<Flow<Value>>()
+                    .expect("expected Flow<Value>");
+                let mut flow = Arc::try_unwrap(concrete).expect("flow still referenced");
+                flow.collect_all()
+            }
+            other => panic!("expected Flow value, got {:?}", other),
+        };
+
+        let emitted: Vec<i64> = values
+            .into_iter()
+            .map(|value| match value {
+                Value::Integer(i) => i,
+                other => panic!("expected integer emission, got {:?}", other),
+            })
+            .collect();
+
+        assert_eq!(emitted, vec![0, 1, 2]);
     }
 
     #[test]

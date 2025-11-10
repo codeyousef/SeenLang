@@ -567,14 +567,15 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       scoped variables survive block boundaries. Executors install instance contexts for each actor, the interpreter
       updates `ActorInstance::state` via those contexts, and regression tests cover `Inc`/`Get` handlers retaining state
       across multiple requests.
+    - Flow/observable factories no longer emit placeholders: `flow { emit(...) }` now runs through the interpreter (with
+      real `emit`/`delay` semantics), captures arbitrary values, and produces a `Flow<Value>` inside the reactive
+      runtime.
+      Reactive property assignments synchronize through the runtime manager so `@Reactive var Foo` bindings update
+      observers immediately.
     - `seen_cli/tests/manifest_modules.rs::manifest_std_vec_smoke_test` now runs
-      `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`, so the stdlib Vec manifest scenario
-      is part of the automated gate instead of being a manual check.
-
-* **Remaining tasks:**
-    1. Wire reactive factories/properties through the runtime so observables, flows, and `@Reactive` bindings propagate
-       updates (e.g., property assignments currently update the runtime but the factory APIs still return placeholder
-       observables/flows instead of executing the declared lambdas).
+      `SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli run seen_std/tests/vec_basic.seen`, and CLI `run` type-checks the user
+      bundle whenever manifest modules are disabled, so the stdlib manifest scenario is covered by automation while
+      manifest-hosted projects continue to receive diagnostics pre-execution.
 
 ### PROD-5. Production QA & Platform Certification
 
