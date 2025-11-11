@@ -14,34 +14,34 @@ class VectorizationEngine {
         }
     }
     
-    fun vectorizeLoop(loop: LoopStatement, context: CodeGenContext) -> String {
-        if not canVectorizeLoop(loop) {
-            return generateScalarLoop(loop, context)
+    fun vectorizeLoop(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+        if canVectorizeLoop(loopStmt) == false {
+            return generateScalarLoop(loopStmt, context)
         }
-        
+
         let vectorIR = ""
-        
+
         // Detect loop pattern
-        let pattern = analyzeLoopPattern(loop)
+        let pattern = analyzeLoopPattern(loopStmt)
         
         match pattern {
             "simple_addition" => {
-                vectorIR = generateVectorAddition(loop, context)
+                vectorIR = generateVectorAddition(loopStmt, context)
             }
             "simple_multiplication" => {
-                vectorIR = generateVectorMultiplication(loop, context)
+                vectorIR = generateVectorMultiplication(loopStmt, context)
             }
             "reduction" => {
-                vectorIR = generateVectorReduction(loop, context)
+                vectorIR = generateVectorReduction(loopStmt, context)
             }
             "fused_multiply_add" => {
-                vectorIR = generateVectorFMA(loop, context)
+                vectorIR = generateVectorFMA(loopStmt, context)
             }
             "bitwise_operations" => {
-                vectorIR = generateVectorBitwise(loop, context)
+                vectorIR = generateVectorBitwise(loopStmt, context)
             }
             default => {
-                vectorIR = generateScalarLoop(loop, context)
+                vectorIR = generateScalarLoop(loopStmt, context)
             }
         }
         

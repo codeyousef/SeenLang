@@ -13,16 +13,15 @@ fun createCodeGenerator() -> CodeGenerator {
 }
 
 fun createBackend(target: Target) -> Backend {
-    return match target {
-        Target.LLVM_IR, Target.Linux_x86_64, Target.Windows_x86_64, Target.macOS_x86_64, Target.macOS_ARM64, Target.Linux_ARM64 -> 
-            LLVMBackend.new(target) as Backend
-        Target.C -> 
-            CBackend.new() as Backend
-        Target.WASM -> 
-            WASMBackend.new() as Backend
-        _ -> 
-            Backend.new(target, "Generic")
+    if target == Target.LLVM_IR or target == Target.Linux_x86_64 or target == Target.Windows_x86_64 or
+        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 {
+        return LLVMBackend.new(target) as Backend
+    } else if target == Target.C {
+        return CBackend.new() as Backend
+    } else if target == Target.WASM {
+        return WASMBackend.new() as Backend
     }
+    return Backend.new(target, "Generic")
 }
 
 fun createOptimizer(level: OptLevel) -> CodeOptimizer {

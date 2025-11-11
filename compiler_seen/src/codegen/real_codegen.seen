@@ -1132,13 +1132,13 @@ class RealCodeGenerator {
         return finalReg
     }
     
-    fun generateMatchExpr(match: MatchExpressionNode?) -> String {
+    fun generateMatchExpr(matchNode: MatchExpressionNode?) -> String {
         // Similar to generateMatch but returns value
-        if match == null {
+        if matchNode == null {
             return "0"
         }
         
-        let exprReg = generateExpression(match.expr)
+        let exprReg = generateExpression(matchNode.expr)
         let resultReg = nextReg()
         emit("  " + resultReg + " = alloca i32, align 4")
         
@@ -1192,13 +1192,13 @@ class RealCodeGenerator {
         return lambdaName
     }
     
-    fun generateAwaitExpr(await: AwaitNode?) -> String {
-        if await == null {
+    fun generateAwaitExpr(awaitNode: AwaitNode?) -> String {
+        if awaitNode == null {
             return "0"
         }
         
         // Async/await support
-        let futureReg = generateExpression(await.expr)
+        let futureReg = generateExpression(awaitNode.expr)
         
         // Call runtime await function
         let resultReg = nextReg()
@@ -1207,16 +1207,16 @@ class RealCodeGenerator {
         return resultReg
     }
     
-    fun generateSpawnExpr(spawn: SpawnNode?) -> String {
-        if spawn == null {
+    fun generateSpawnExpr(spawnNode: SpawnNode?) -> String {
+        if spawnNode == null {
             return "0"
         }
         
         // Spawn concurrent task
-        let taskReg = generateExpression(spawn.expr)
+        let taskReg = generateExpression(spawnNode.expr)
         
         let handleReg = nextReg()
-        if spawn.isActor {
+        if spawnNode.isActor {
             emit("  " + handleReg + " = call i8* @__spawn_actor(i8* " + taskReg + ")")
         } else {
             emit("  " + handleReg + " = call i8* @__spawn_task(i8* " + taskReg + ")")

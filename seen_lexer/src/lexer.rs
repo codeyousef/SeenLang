@@ -1010,28 +1010,55 @@ impl Lexer {
         let mut brace_depth = 1; // We're already inside one '{'
 
         while let Some(ch) = self.current_char {
-            if ch == '{' {
-                brace_depth += 1;
-                expr.push(ch);
-                self.advance();
-            } else if ch == '}' {
-                brace_depth -= 1;
-                if brace_depth == 0 {
-                    // End of interpolation - advance past the closing '}'
-                    self.advance();
-                    return Ok(expr);
-                } else {
+            match ch {
+                '{' => {
+                    brace_depth += 1;
                     expr.push(ch);
                     self.advance();
                 }
-            } else if ch == '"' {
-                // Handle strings within interpolation
-                expr.push(ch);
-                self.advance();
-                self.read_string_in_interpolation(&mut expr)?;
-            } else {
-                expr.push(ch);
-                self.advance();
+                '}' => {
+                    brace_depth -= 1;
+                    if brace_depth == 0 {
+                        // End of interpolation - advance past the closing '}'
+                        self.advance();
+                        return Ok(expr);
+                    } else {
+                        expr.push(ch);
+                        self.advance();
+                    }
+                }
+                '"' => {
+                    // Handle strings within interpolation
+                    expr.push(ch);
+                    self.advance();
+                    self.read_string_in_interpolation(&mut expr)?;
+                }
+                '\\' => {
+                    // Allow escaping quotes/backslashes/braces inside interpolation expressions so authors
+                    // can embed them without confusing the outer string literal.
+                    self.advance();
+                    if let Some(next) = self.current_char {
+                        match next {
+                            '"' | '\\' | '{' | '}' => {
+                                expr.push(next);
+                                self.advance();
+                            }
+                            _ => {
+                                // Preserve unknown escapes verbatim (the sub-parser will diagnose them if needed)
+                                expr.push('\\');
+                                expr.push(next);
+                                self.advance();
+                            }
+                        }
+                    } else {
+                        // Trailing backslash - treat it literally
+                        expr.push('\\');
+                    }
+                }
+                _ => {
+                    expr.push(ch);
+                    self.advance();
+                }
             }
         }
 

@@ -9,7 +9,7 @@ class SimpleCodeGenerator {
     
     // Main code generation method
     fun generateCode() -> String {
-        return "define i32 @main() {\nentry:\n  ret i32 0\n}\n"
+        return "define i32 @main() {{\nentry:\n  ret i32 0\n}}\n"
     }
     
     // Generate LLVM IR for a simple program
@@ -19,10 +19,10 @@ class SimpleCodeGenerator {
         ir = ir + "declare i32 @printf(i8*, ...)\n"
         ir = ir + "declare i32 @puts(i8*)\n\n"
         ir = ir + "; Main function\n"
-        ir = ir + "define i32 @main() {\n"
+        ir = ir + "define i32 @main() {{\n"
         ir = ir + "entry:\n"
         ir = ir + "  ret i32 0\n"
-        ir = ir + "}\n"
+        ir = ir + "}}\n"
         return ir
     }
 }
