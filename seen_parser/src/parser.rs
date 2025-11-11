@@ -488,18 +488,36 @@ impl Parser {
 
     /// Parse comparison expressions (<, >, <=, >=)
     fn parse_comparison(&mut self) -> ParseResult<Expression> {
-        let mut expr = self.parse_range()?;
+        let mut expr = self.parse_type_check()?;
 
         while let Some(op) = self.match_comparison_op() {
             let pos = self.current.position.clone();
             self.advance();
-            let right = self.parse_range()?;
+            let right = self.parse_type_check()?;
             expr = Expression::BinaryOp {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
                 pos,
             };
+        }
+
+        Ok(expr)
+    }
+
+    /// Parse runtime type checks (`expr is Type`)
+    fn parse_type_check(&mut self) -> ParseResult<Expression> {
+        let expr = self.parse_range()?;
+
+        if self.check_keyword(KeywordType::KeywordIs) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let target_type = self.parse_type()?;
+            return Ok(Expression::TypeCheck {
+                expr: Box::new(expr),
+                target_type,
+                pos,
+            });
         }
 
         Ok(expr)

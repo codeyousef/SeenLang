@@ -410,6 +410,13 @@ pub enum Expression {
         pos: Position,
     },
 
+    // Runtime type check
+    TypeCheck {
+        expr: Box<Expression>,
+        target_type: Type,
+        pos: Position,
+    },
+
     // Assignment (returns the assigned value)
     Assignment {
         target: Box<Expression>,
@@ -1064,6 +1071,7 @@ impl Expression {
             Expression::Await { pos, .. } => pos,
             Expression::AsyncBlock { pos, .. } => pos,
             Expression::Cast { pos, .. } => pos,
+            Expression::TypeCheck { pos, .. } => pos,
             Expression::Assignment { pos, .. } => pos,
             Expression::Spawn { pos, .. } => pos,
             Expression::Scope { pos, .. } => pos,

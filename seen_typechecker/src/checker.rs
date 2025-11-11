@@ -912,6 +912,25 @@ impl TypeChecker {
 
             Expression::ForceUnwrap { nullable, pos } => self.check_force_unwrap(nullable, *pos),
 
+            Expression::Cast {
+                expr,
+                target_type,
+                pos,
+            } => {
+                self.check_expression(expr);
+                self.resolve_ast_type(target_type, *pos)
+            }
+
+            Expression::TypeCheck {
+                expr,
+                target_type,
+                pos,
+            } => {
+                self.check_expression(expr);
+                let _ = self.resolve_ast_type(target_type, *pos);
+                Type::Bool
+            }
+
             // Struct definition
             Expression::StructDefinition {
                 name,
@@ -1965,6 +1984,17 @@ impl TypeChecker {
                 let right_casts = self.analyze_condition_for_smart_casts(right);
                 smart_casts.extend(left_casts);
                 smart_casts.extend(right_casts);
+            }
+
+            Expression::TypeCheck {
+                expr,
+                target_type,
+                pos,
+            } => {
+                if let Expression::Identifier { name, .. } = expr.as_ref() {
+                    let resolved = self.resolve_ast_type(target_type, *pos);
+                    smart_casts.insert(name.clone(), resolved);
+                }
             }
 
             _ => {

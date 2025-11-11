@@ -111,8 +111,7 @@ impl Type {
         match self.non_nullable() {
             Type::Int => matches!(
                 op,
-                "+"
-                    | "-"
+                "+" | "-"
                     | "*"
                     | "/"
                     | "%"
@@ -130,8 +129,7 @@ impl Type {
             ),
             Type::UInt => matches!(
                 op,
-                "+"
-                    | "-"
+                "+" | "-"
                     | "*"
                     | "/"
                     | "%"

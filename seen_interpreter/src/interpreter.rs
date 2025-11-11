@@ -21,7 +21,7 @@ use seen_effects::{
     EffectOperation as EffectOp,
 };
 use seen_parser::{
-    ast::{ClassField, MessageHandler as AstMessageHandler},
+    ast::{ClassField, MessageHandler as AstMessageHandler, Type as AstType},
     AssignmentOperator, BinaryOperator, Expression, ForBinding, InterpolationKind,
     InterpolationPart, MatchArm, Method, Parameter, Pattern, Position, Program, UnaryOperator,
 };
@@ -649,6 +649,16 @@ impl Interpreter {
                 _ => Err(InterpreterError::runtime("Invalid assignment target", *pos)),
             },
 
+            Expression::Cast {
+                expr,
+                target_type,
+                pos,
+            } => self.evaluate_cast_expression(expr, target_type, *pos),
+
+            Expression::TypeCheck {
+                expr, target_type, ..
+            } => self.evaluate_type_check_expression(expr, target_type),
+
             // Function definition
             Expression::Function {
                 name, params, body, ..
@@ -1063,6 +1073,122 @@ impl Interpreter {
                 _ => Ok(Value::Unit), // Other operators not implemented yet
             }
         }
+    }
+
+    fn evaluate_cast_expression(
+        &mut self,
+        expr: &Expression,
+        target_type: &AstType,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let value = self.interpret_expression(expr)?;
+        if Self::value_matches_ast_type(&value, target_type) {
+            Ok(value)
+        } else {
+            Err(InterpreterError::runtime(
+                format!(
+                    "Cannot cast value of type {} to {}",
+                    Self::runtime_value_name(&value),
+                    Self::format_ast_type(target_type)
+                ),
+                pos,
+            ))
+        }
+    }
+
+    fn evaluate_type_check_expression(
+        &mut self,
+        expr: &Expression,
+        target_type: &AstType,
+    ) -> InterpreterResult<Value> {
+        let value = self.interpret_expression(expr)?;
+        Ok(Value::Boolean(Self::value_matches_ast_type(
+            &value,
+            target_type,
+        )))
+    }
+
+    fn value_matches_ast_type(value: &Value, target_type: &AstType) -> bool {
+        if target_type.is_nullable && matches!(value, Value::Null) {
+            return true;
+        }
+        if matches!(value, Value::Null) {
+            return target_type.name == "Null";
+        }
+        Self::value_matches_nonnullable_type(value, target_type)
+    }
+
+    fn value_matches_nonnullable_type(value: &Value, target_type: &AstType) -> bool {
+        match target_type.name.as_str() {
+            "Any" => true,
+            "Int" => matches!(value, Value::Integer(_)),
+            "UInt" => matches!(value, Value::Integer(_)),
+            "Float" => matches!(value, Value::Float(_)),
+            "Bool" => matches!(value, Value::Boolean(_)),
+            "String" => matches!(value, Value::String(_)),
+            "Char" => matches!(value, Value::Character(_)),
+            "Array" | "List" | "Vec" => matches!(value, Value::Array(_)),
+            "Bytes" => matches!(value, Value::Bytes(_)),
+            "Promise" => matches!(value, Value::Promise(_)),
+            "Task" => matches!(value, Value::Task(_)),
+            "Channel" => matches!(value, Value::Channel(_)),
+            "Actor" => matches!(value, Value::Actor(_)),
+            "Effect" => matches!(value, Value::Effect(_)),
+            "EffectHandle" => matches!(value, Value::EffectHandle { .. }),
+            "Observable" => matches!(value, Value::Observable(_)),
+            "Flow" => matches!(value, Value::Flow(_)),
+            "ReactiveProperty" => matches!(value, Value::ReactiveProperty { .. }),
+            "Unit" => matches!(value, Value::Unit),
+            "Null" => matches!(value, Value::Null),
+            _ => match value {
+                Value::Struct { name, .. } => name == &target_type.name,
+                Value::Class { name } => name == &target_type.name,
+                _ => false,
+            },
+        }
+    }
+
+    fn runtime_value_name(value: &Value) -> String {
+        match value {
+            Value::Integer(_) => "Int".to_string(),
+            Value::Float(_) => "Float".to_string(),
+            Value::Boolean(_) => "Bool".to_string(),
+            Value::String(_) => "String".to_string(),
+            Value::Character(_) => "Char".to_string(),
+            Value::Array(_) => "Array".to_string(),
+            Value::Bytes(_) => "Bytes".to_string(),
+            Value::Struct { name, .. } => name.clone(),
+            Value::Class { name } => name.clone(),
+            Value::Null => "Null".to_string(),
+            Value::Unit => "Unit".to_string(),
+            Value::Function { .. } => "Function".to_string(),
+            Value::Promise(_) => "Promise".to_string(),
+            Value::Task(_) => "Task".to_string(),
+            Value::Channel(_) => "Channel".to_string(),
+            Value::Actor(_) => "Actor".to_string(),
+            Value::Effect(_) => "Effect".to_string(),
+            Value::EffectHandle { .. } => "EffectHandle".to_string(),
+            Value::Observable(_) => "Observable".to_string(),
+            Value::Flow(_) => "Flow".to_string(),
+            Value::ReactiveProperty { .. } => "ReactiveProperty".to_string(),
+        }
+    }
+
+    fn format_ast_type(ast_type: &AstType) -> String {
+        let mut base = ast_type.name.clone();
+        if !ast_type.generics.is_empty() {
+            let generics = ast_type
+                .generics
+                .iter()
+                .map(Self::format_ast_type)
+                .collect::<Vec<_>>()
+                .join(", ");
+            base = format!("{base}<{generics}>");
+        }
+        if ast_type.is_nullable {
+            base.push('?');
+        }
+        base
     }
 
     fn evaluate_compound_assignment(
@@ -3079,6 +3205,7 @@ mod tests {
     use seen_parser::ast::{MessageHandler, Pattern};
     use seen_parser::{ClassField, Method, Type};
     use seen_reactive::flow::Flow;
+    use std::collections::HashMap;
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -3165,6 +3292,66 @@ mod tests {
             .expect("await should resolve request promise");
 
         assert_eq!(result, Value::Integer(7));
+    }
+
+    #[test]
+    fn cast_expression_preserves_struct_value() {
+        let mut interpreter = Interpreter::new();
+        let pos = Position::start();
+        let struct_value =
+            Value::struct_from_fields("ExpressionStatement".to_string(), HashMap::new());
+        interpreter
+            .runtime
+            .define_variable("node".to_string(), struct_value.clone());
+
+        let cast_expr = Expression::Cast {
+            expr: Box::new(Expression::Identifier {
+                name: "node".to_string(),
+                is_public: false,
+                pos: pos.clone(),
+            }),
+            target_type: Type::new("ExpressionStatement"),
+            pos: pos.clone(),
+        };
+
+        let result = interpreter
+            .interpret_expression(&cast_expr)
+            .expect("cast should succeed for matching struct type");
+
+        match result {
+            Value::Struct { name, .. } => assert_eq!(name, "ExpressionStatement"),
+            _ => panic!("expected struct value from cast"),
+        }
+    }
+
+    #[test]
+    fn type_check_expression_returns_boolean() {
+        let mut interpreter = Interpreter::new();
+        let pos = Position::start();
+        let struct_value =
+            Value::struct_from_fields("ExpressionStatement".to_string(), HashMap::new());
+        interpreter
+            .runtime
+            .define_variable("node".to_string(), struct_value);
+
+        let type_check_expr = Expression::TypeCheck {
+            expr: Box::new(Expression::Identifier {
+                name: "node".to_string(),
+                is_public: false,
+                pos: pos.clone(),
+            }),
+            target_type: Type::new("ExpressionStatement"),
+            pos,
+        };
+
+        let result = interpreter
+            .interpret_expression(&type_check_expr)
+            .expect("type check should evaluate");
+
+        match result {
+            Value::Boolean(flag) => assert!(flag),
+            _ => panic!("expected boolean from type check"),
+        }
     }
 
     #[test]

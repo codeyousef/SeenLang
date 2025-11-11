@@ -25,22 +25,22 @@ class VectorizationEngine {
         let pattern = analyzeLoopPattern(loopStmt)
         
         match pattern {
-            "simple_addition" => {
+            "simple_addition" -> {
                 vectorIR = generateVectorAddition(loopStmt, context)
             }
-            "simple_multiplication" => {
+            "simple_multiplication" -> {
                 vectorIR = generateVectorMultiplication(loopStmt, context)
             }
-            "reduction" => {
+            "reduction" -> {
                 vectorIR = generateVectorReduction(loopStmt, context)
             }
-            "fused_multiply_add" => {
+            "fused_multiply_add" -> {
                 vectorIR = generateVectorFMA(loopStmt, context)
             }
-            "bitwise_operations" => {
+            "bitwise_operations" -> {
                 vectorIR = generateVectorBitwise(loopStmt, context)
             }
-            default => {
+            default -> {
                 vectorIR = generateScalarLoop(loopStmt, context)
             }
         }
@@ -48,7 +48,7 @@ class VectorizationEngine {
         return vectorIR
     }
     
-    fun generateVectorAddition(loop: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorAddition(loopStmt: LoopStatement, context: CodeGenContext) -> String {
         let ir = ""
         
         // Generate vectorized addition using AVX2
@@ -84,14 +84,14 @@ class VectorizationEngine {
         ir = ir + "  br i1 %cond, label %vector.loop, label %scalar.remainder\n\n"
         
         // Add metadata for vectorization
-        ir = ir + "!llvm.loop.vectorize.enable = !{!0}\n"
-        ir = ir + "!llvm.loop.vectorize.width = !{i32 " + vectorWidth.toString() + "}\n"
-        ir = ir + "!llvm.loop.unroll.disable = !{}\n"
+        ir = ir + "!llvm.loop.vectorize.enable = !{{!0}}\n"
+        ir = ir + "!llvm.loop.vectorize.width = !{{i32 " + vectorWidth.toString() + "}}\n"
+        ir = ir + "!llvm.loop.unroll.disable = !{{}}\n"
         
         return ir
     }
     
-    fun generateVectorMultiplication(loop: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorMultiplication(loopStmt: LoopStatement, context: CodeGenContext) -> String {
         let ir = ""
         
         ir = ir + "; Vectorized multiplication loop\n"
@@ -116,7 +116,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun generateVectorFMA(loop: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorFMA(loopStmt: LoopStatement, context: CodeGenContext) -> String {
         let ir = ""
         
         ir = ir + "; Vectorized FMA (Fused Multiply-Add) loop\n"
@@ -145,7 +145,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun generateVectorBitwise(loop: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorBitwise(loopStmt: LoopStatement, context: CodeGenContext) -> String {
         let ir = ""
         
         ir = ir + "; Vectorized bitwise operations\n"
@@ -177,7 +177,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun generateVectorReduction(loop: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorReduction(loopStmt: LoopStatement, context: CodeGenContext) -> String {
         let ir = ""
         
         ir = ir + "; Vectorized reduction (sum/product)\n"
@@ -215,29 +215,29 @@ class VectorizationEngine {
         return ir
     }
     
-    fun canVectorizeLoop(loop: LoopStatement) -> Bool {
+    fun canVectorizeLoop(loopStmt: LoopStatement) -> Bool {
         // Check if loop can be vectorized
-        if not hasSimpleInductionVariable(loop) {
+        if hasSimpleInductionVariable(loopStmt) == false {
             return false
         }
         
-        if hasComplexControlFlow(loop) {
+        if hasComplexControlFlow(loopStmt) {
             return false
         }
         
-        if hasMemoryDependencies(loop) {
+        if hasMemoryDependencies(loopStmt) {
             return false
         }
         
-        if not hasVectorizableOperations(loop) {
+        if hasVectorizableOperations(loopStmt) == false {
             return false
         }
         
         return true
     }
     
-    fun analyzeLoopPattern(loop: LoopStatement) -> String {
-        let operations = getLoopOperations(loop)
+    fun analyzeLoopPattern(loopStmt: LoopStatement) -> String {
+        let operations = getLoopOperations(loopStmt)
         
         if containsOnly(operations, ["add", "sub"]) {
             return "simple_addition"
@@ -256,7 +256,7 @@ class VectorizationEngine {
             return "fused_multiply_add"
         }
         
-        if isReductionPattern(loop) {
+        if isReductionPattern(loopStmt) {
             return "reduction"
         }
         
@@ -282,17 +282,17 @@ class VectorizationEngine {
     
     fun getOptimalVectorWidth() -> Int {
         match targetISA {
-            "avx512" => return 16; // 512-bit / 32-bit = 16 elements
-            "avx2" => return 8;    // 256-bit / 32-bit = 8 elements
-            "avx" => return 8;     // 256-bit / 32-bit = 8 elements
-            "sse42" => return 4;   // 128-bit / 32-bit = 4 elements
-            "sse2" => return 4;    // 128-bit / 32-bit = 4 elements
-            default => return 1;   // Scalar
+            "avx512" -> return 16; // 512-bit / 32-bit = 16 elements
+            "avx2" -> return 8;    // 256-bit / 32-bit = 8 elements
+            "avx" -> return 8;     // 256-bit / 32-bit = 8 elements
+            "sse42" -> return 4;   // 128-bit / 32-bit = 4 elements
+            "sse2" -> return 4;    // 128-bit / 32-bit = 4 elements
+            default -> return 1;   // Scalar
         }
     }
     
     fun detectSIMDFeatures() -> List<String> {
-        let features: List<String> = []
+        let features = List<String>()
         
         if hasCPUID("fma") {
             features.append("fma")
@@ -329,9 +329,9 @@ class VectorizationEngine {
     }
     
     // Helper functions
-    fun hasSimpleInductionVariable(loop: LoopStatement) -> Bool {
+    fun hasSimpleInductionVariable(loopStmt: LoopStatement) -> Bool {
         // Check for simple i++ or i += constant pattern
-        for statement in loop.body.statements {
+        for statement in loopStmt.body.statements {
             if statement is ExpressionStatement {
                 let expr = (statement as ExpressionStatement).expression
                 if expr is AssignmentExpression {
@@ -346,14 +346,14 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasComplexControlFlow(loop: LoopStatement) -> Bool {
+    fun hasComplexControlFlow(loopStmt: LoopStatement) -> Bool {
         // Check for early exits, nested loops, function calls
-        return hasEarlyExits(loop) or hasNestedLoops(loop) or hasFunctionCalls(loop)
+        return hasEarlyExits(loopStmt) or hasNestedLoops(loopStmt) or hasFunctionCalls(loopStmt)
     }
     
-    fun hasEarlyExits(loop: LoopStatement) -> Bool {
+    fun hasEarlyExits(loopStmt: LoopStatement) -> Bool {
         // Look for break, continue, return statements
-        for statement in loop.body.statements {
+        for statement in loopStmt.body.statements {
             if statement is BreakStatement or statement is ContinueStatement or statement is ReturnStatement {
                 return true
             }
@@ -361,9 +361,9 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasNestedLoops(loop: LoopStatement) -> Bool {
+    fun hasNestedLoops(loopStmt: LoopStatement) -> Bool {
         // Look for nested for/while loops
-        for statement in loop.body.statements {
+        for statement in loopStmt.body.statements {
             if statement is ForStatement or statement is WhileStatement {
                 return true
             }
@@ -371,9 +371,9 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasFunctionCalls(loop: LoopStatement) -> Bool {
+    fun hasFunctionCalls(loopStmt: LoopStatement) -> Bool {
         // Look for function call expressions
-        for statement in loop.body.statements {
+        for statement in loopStmt.body.statements {
             if statement is ExpressionStatement {
                 let expr = (statement as ExpressionStatement).expression
                 if containsFunctionCall(expr) {
@@ -396,20 +396,20 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasMemoryDependencies(loop: LoopStatement) -> Bool {
+    fun hasMemoryDependencies(loopStmt: LoopStatement) -> Bool {
         // Check for read-after-write dependencies that prevent vectorization
         return false; // Simplified for now
     }
     
-    fun hasVectorizableOperations(loop: LoopStatement) -> Bool {
+    fun hasVectorizableOperations(loopStmt: LoopStatement) -> Bool {
         // Check if operations can be vectorized
         return true; // Simplified for now
     }
     
-    fun getLoopOperations(loop: LoopStatement) -> List<String> {
+    fun getLoopOperations(loopStmt: LoopStatement) -> List<String> {
         // Extract list of operations in the loop
         let operations = List<String>()
-        for statement in loop.body.statements {
+        for statement in loopStmt.body.statements {
             if statement is ExpressionStatement {
                 let expr = (statement as ExpressionStatement).expression
                 extractOperations(expr, operations)
@@ -444,7 +444,7 @@ class VectorizationEngine {
     
     fun containsOnly(operations: List<String>, allowed: List<String>) -> Bool {
         for op in operations {
-            if not allowed.contains(op) {
+            if allowed.contains(op) == false {
                 return false
             }
         }
@@ -460,9 +460,9 @@ class VectorizationEngine {
         return false
     }
     
-    fun isReductionPattern(loop: LoopStatement) -> Bool {
+    fun isReductionPattern(loopStmt: LoopStatement) -> Bool {
         // Check if this is a reduction (sum, product, min, max)
-        let operations = getLoopOperations(loop)
+        let operations = getLoopOperations(loopStmt)
         // Look for accumulation patterns
         return operations.contains("add") or operations.contains("mul")
     }
@@ -471,16 +471,16 @@ class VectorizationEngine {
         // Check CPU features via CPUID instruction
         // In real implementation, would use inline assembly
         match feature {
-            "sse2" => return true;    // Assume SSE2 is always available
-            "avx" => return true;     // Assume AVX is available
-            "avx2" => return true;    // Assume AVX2 is available
-            "fma" => return true;     // Assume FMA is available
-            "avx512f" => return false; // Assume AVX-512 is not available
-            default => return false
+            "sse2" -> return true;    // Assume SSE2 is always available
+            "avx" -> return true;     // Assume AVX is available
+            "avx2" -> return true;    // Assume AVX2 is available
+            "fma" -> return true;     // Assume FMA is available
+            "avx512f" -> return false; // Assume AVX-512 is not available
+            default -> return false
         }
     }
     
-    fun generateScalarLoop(loop: LoopStatement, context: CodeGenContext) -> String {
+    fun generateScalarLoop(loopStmt: LoopStatement, context: CodeGenContext) -> String {
         // Fall back to scalar code generation
         return "  ; Scalar loop (vectorization not beneficial)\n"
     }

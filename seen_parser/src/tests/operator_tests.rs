@@ -209,6 +209,41 @@ fn test_parse_chained_nullable_operators() {
 }
 
 #[test]
+fn test_parse_is_operator() {
+    let expr = parse_expression("value is FooType").unwrap();
+    match expr {
+        Expression::TypeCheck {
+            expr, target_type, ..
+        } => {
+            match expr.as_ref() {
+                Expression::Identifier { name, .. } => assert_eq!(name, "value"),
+                _ => panic!("expected identifier on lhs of is expression"),
+            }
+            assert_eq!(target_type.name, "FooType");
+            assert!(!target_type.is_nullable);
+        }
+        _ => panic!("expected type-check expression"),
+    }
+}
+
+#[test]
+fn test_is_operator_precedence_with_and() {
+    let expr = parse_expression("value is FooType and hasFoo").unwrap();
+    match expr {
+        Expression::BinaryOp { op, left, .. } => {
+            assert_eq!(op, BinaryOperator::And);
+            match left.as_ref() {
+                Expression::TypeCheck { target_type, .. } => {
+                    assert_eq!(target_type.name, "FooType")
+                }
+                _ => panic!("expected type-check on left side"),
+            }
+        }
+        _ => panic!("expected binary and expression"),
+    }
+}
+
+#[test]
 fn test_parse_inclusive_range() {
     let expr = parse_expression("1..10").unwrap();
     match expr {

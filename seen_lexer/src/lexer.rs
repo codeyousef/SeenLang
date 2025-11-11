@@ -365,11 +365,7 @@ impl Lexer {
             }
             Some(';') => {
                 self.advance();
-                Ok(Token::new(
-                    TokenType::Semicolon,
-                    ";".to_string(),
-                    start_pos,
-                ))
+                Ok(Token::new(TokenType::Semicolon, ";".to_string(), start_pos))
             }
             Some(':') => {
                 self.advance();
@@ -727,7 +723,11 @@ impl Lexer {
                                 message: "Invalid unsigned hexadecimal literal".to_string(),
                             }
                         })?;
-                        return Ok(Token::new(TokenType::UIntegerLiteral(value), lexeme, start_pos));
+                        return Ok(Token::new(
+                            TokenType::UIntegerLiteral(value),
+                            lexeme,
+                            start_pos,
+                        ));
                     } else {
                         let value = i64::from_str_radix(&digits, 16).map_err(|_| {
                             LexerError::InvalidNumber {
@@ -735,7 +735,11 @@ impl Lexer {
                                 message: "Invalid hexadecimal literal".to_string(),
                             }
                         })?;
-                        return Ok(Token::new(TokenType::IntegerLiteral(value), lexeme, start_pos));
+                        return Ok(Token::new(
+                            TokenType::IntegerLiteral(value),
+                            lexeme,
+                            start_pos,
+                        ));
                     }
                 }
             }
