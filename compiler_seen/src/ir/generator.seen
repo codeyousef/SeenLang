@@ -518,14 +518,12 @@ class IRGenerator {
         }
         
         let arg = args[0]
-        let formatStr: String
-        
-        if arg.type == IRType.I32 {
-            formatStr = "@.str.0"  // "%d\\n"
+        let formatStr = if arg.type == IRType.I32 {
+            "@.str.0"  // "%d\\n"
         } else if arg.type == IRType.F64 {
-            formatStr = "@.str.1"  // "%f\\n"
+            "@.str.1"  // "%f\\n"
         } else {
-            formatStr = "@.str.2"  // "%s\\n"
+            "@.str.2"  // "%s\\n"
         }
         
         let printfArgs = Array<IRValue>()

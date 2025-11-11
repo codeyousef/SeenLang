@@ -210,7 +210,7 @@ class IRFunction {
     }
     
     fun toString() -> String {
-        let output = "define {returnType.toString()} @{name}("
+        let output = "define " + returnType.toString() + " @" + name + "("
         
         for i in 0..parameters.length() {
             if i > 0 {
@@ -219,13 +219,13 @@ class IRFunction {
             output += parameters[i].toString()
         }
         
-        output += ") {\\n"
+        output += ") {{\\n"
         
         for block in blocks {
             output += block.toString()
         }
         
-        output += "}\\n"
+        output += "}}\\n"
         return output
     }
 }
