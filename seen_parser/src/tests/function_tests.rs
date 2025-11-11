@@ -222,7 +222,7 @@ fn test_parse_external_function_keyword() {
     "#,
         VisibilityPolicy::Caps,
     )
-        .unwrap();
+    .unwrap();
 
     match expr {
         Expression::Function {
@@ -248,7 +248,7 @@ fn test_parse_cstyle_extern_function() {
     "#,
         VisibilityPolicy::Caps,
     )
-        .unwrap();
+    .unwrap();
 
     match expr {
         Expression::Function {
@@ -263,7 +263,8 @@ fn test_parse_cstyle_extern_function() {
             assert!(is_external);
             assert_eq!(params.len(), 2);
             assert!(return_type.is_some());
-            if let Expression::NullLiteral { .. } = *body {} else {
+            if let Expression::NullLiteral { .. } = *body {
+            } else {
                 panic!("expected c-style extern body placeholder");
             }
         }
@@ -496,7 +497,7 @@ fn test_function_body_let_initializer_allows_trailing_lambda() {
         }
     "#,
     )
-        .expect("function parses");
+    .expect("function parses");
 
     match expr {
         Expression::Function { body, .. } => match body.as_ref() {

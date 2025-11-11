@@ -2367,10 +2367,10 @@ impl Interpreter {
         if let Err(err) = system.register_actor_definition(definition) {
             match err {
                 AsyncError::ActorError { ref reason, .. }
-                if reason.contains("already registered") =>
-                    {
-                        // Ignore duplicate registrations so programs can instantiate the same actor type multiple times.
-                    }
+                    if reason.contains("already registered") =>
+                {
+                    // Ignore duplicate registrations so programs can instantiate the same actor type multiple times.
+                }
                 other => return Err(self.map_async_error(other, pos)),
             }
         }

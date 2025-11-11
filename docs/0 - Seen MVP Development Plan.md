@@ -619,23 +619,19 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       bundle whenever manifest modules are disabled, so the stdlib manifest scenario is covered by automation while
       manifest-hosted projects continue to receive diagnostics pre-execution.
 * **Remaining parser/self-host TODOs (blocking Stage-1):**
-    1. Stage-1 now stops in `compiler_seen/src/codegen/vectorization.seen` (line ~18) with `RightParen expected
-       LeftBrace` because the file still uses reserved identifiers (`loop`, `not`, `when`) and Kotlin-style conditional
-       shapes. Normalize this module by renaming keywords (`loopStmt`, `blockIdx`, etc.), desugaring the Kotlinisms into
-       Seen-compatible `if`/`else` chains, and ensuring every string literal that embeds braces for LLVM IR uses
-       `{{`/`}}`. Re-run `seen_cli parse compiler_seen/src/codegen/vectorization.seen` until it succeeds without local
-       hacks.
-    2. Sweep the remaining `compiler_seen/src/codegen/*.seen` files for the same constructs (tuple `for` bindings,
-       `parts[1..]` slicing, `0..n` range loops, `module`/`static var`, bare `when` blocks) and either extend the
-       parser/lexer or rewrite those callsites so the Rust toolchain can ingest them directly. Continue escaping braces
-       inside quoted IR/ABI strings while you touch each file so later passes do not regress.
-    3. After every batch of fixes, rerun `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` to capture the next
-       failure (typechecker, IR, runtime) and log the precise file/line so tomorrow’s work can tackle the following
-       blocker without repeating this analysis.
-    4. Backfill parser/lexer regression coverage for the recently added features (semicolon tokens, hexadecimal
-       literals,
-       keywords-as-identifiers such as `static`/`module`/`loop`, tuple-binding and range `for` loops) so future parser
-       refactors cannot reintroduce the current bootstrap regressions without tripping tests.
+    1. Stage-1 now halts in `compiler_seen/src/lexer/complete_lexer.seen` (line ~794) once parsing leaves the string
+       literal section. Diagnose and translate the remaining Kotlin/brace mismatches near the `skipWhitespace`
+       helpers—ensure every `{`/`}` in this file either belongs to a Seen block or is represented via helper calls so
+       the Rust parser sees a balanced class. Re-run `seen_cli parse compiler_seen/src/lexer/complete_lexer.seen` until
+       it succeeds.
+    2. Continue sweeping the `compiler_seen/src/ir/*.seen` and `compiler_seen/src/codegen/*.seen` files for Kotlinisms
+       (tuple `for` bindings, `parts[1..]` slicing, `0..n` range literals, `when`/`match` hybrids, raw `{{` braces)
+       and normalize them so the Rust toolchain accepts the full tree without local edits.
+    3. After each batch, rerun `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` to surface the next failing
+       module (typechecker, IR, runtime) and log the precise file/line so tomorrow’s work can pick up immediately.
+    4. Backfill regression coverage for the new lexer/parser behaviors (literal braces inside strings, interpolation
+       lookahead, semicolon tokens, hexadecimal literals, keyword identifiers, tuple/range `for` bindings) so future
+       refactors do not silently reintroduce these bootstrap regressions.
 
 ### PROD-5. Production QA & Platform Certification
 

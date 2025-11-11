@@ -130,7 +130,7 @@ fn test_parse_when_expression_with_value() {
         }
     "#,
     )
-        .unwrap();
+    .unwrap();
 
     match expr {
         Expression::Match { expr, arms, .. } => {
@@ -158,7 +158,7 @@ fn test_parse_when_without_value_desugars_to_if_chain() {
         }
     "#,
     )
-        .unwrap();
+    .unwrap();
 
     match expr {
         Expression::If {
@@ -328,7 +328,7 @@ fn test_return_without_value_uses_newline_terminator() {
         }
     "#,
     )
-        .unwrap();
+    .unwrap();
 
     match expr {
         Expression::Function { body, .. } => match body.as_ref() {

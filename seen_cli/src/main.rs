@@ -1022,12 +1022,12 @@ fn main() -> SeenResult<()> {
             generate_ir(&input, opt_level, keyword_manager)?;
         }
         Some(Commands::Trace {
-                 input,
-                 opt_level,
-                 runtime_trace,
-                 replay_trace,
-                 args,
-             }) => {
+            input,
+            opt_level,
+            runtime_trace,
+            replay_trace,
+            args,
+        }) => {
             if let Some(trace_path) = replay_trace {
                 replay_runtime_trace(&trace_path)?;
                 if runtime_trace.is_none() && input.is_none() {

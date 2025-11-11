@@ -95,7 +95,7 @@ fun entry() -> Int {
 entry()
 "#,
     )
-        .expect("write main");
+    .expect("write main");
 
     fs::write(
         app_dir.join("Seen.toml"),
@@ -110,7 +110,7 @@ helper = "../deps/helper"
 targets = ["native"]
 "#,
     )
-        .expect("write app Seen.toml");
+    .expect("write app Seen.toml");
 
     let dep_dir = temp.path().join("deps").join("helper");
     let dep_src = dep_dir.join("src");
@@ -123,7 +123,7 @@ fun getValue() -> Int {
 }
 "#,
     )
-        .expect("write dep module");
+    .expect("write dep module");
 
     fs::write(
         dep_dir.join("Seen.toml"),
@@ -135,7 +135,7 @@ language = "en"
 targets = ["native"]
 "#,
     )
-        .expect("write dep Seen.toml");
+    .expect("write dep Seen.toml");
 
     let output = app_dir.join("out.ir");
 
@@ -174,7 +174,7 @@ fun entry() -> Int {
 entry()
 "#,
     )
-        .expect("write main");
+    .expect("write main");
 
     fs::write(
         app_dir.join("Seen.toml"),
@@ -186,7 +186,7 @@ language = "en"
 helper = "../deps/helper"
 "#,
     )
-        .expect("write app Seen.toml");
+    .expect("write app Seen.toml");
 
     let dep_dir = temp.path().join("deps").join("helper");
     let dep_src = dep_dir.join("src");
@@ -199,7 +199,7 @@ fun getValue() -> Int {
 }
 "#,
     )
-        .expect("write dep module");
+    .expect("write dep module");
 
     fs::write(
         dep_dir.join("Seen.toml"),
@@ -208,7 +208,7 @@ modules = ["src/lib.seen"]
 language = "en"
 "#,
     )
-        .expect("write dep Seen.toml");
+    .expect("write dep Seen.toml");
 
     Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(workspace_root())

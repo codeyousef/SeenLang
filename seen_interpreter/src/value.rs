@@ -228,9 +228,9 @@ impl Value {
                 if let (Ok(lhs_vals), Ok(rhs_vals)) = (lhs, rhs) {
                     lhs_vals.len() == rhs_vals.len()
                         && lhs_vals
-                        .iter()
-                        .zip(rhs_vals.iter())
-                        .all(|(v1, v2)| v1.equals(v2))
+                            .iter()
+                            .zip(rhs_vals.iter())
+                            .all(|(v1, v2)| v1.equals(v2))
                 } else {
                     false
                 }
@@ -253,8 +253,8 @@ impl Value {
                 if let (Ok(lhs_fields), Ok(rhs_fields)) = (lhs, rhs) {
                     lhs_fields.len() == rhs_fields.len()
                         && lhs_fields
-                        .iter()
-                        .all(|(k, v)| rhs_fields.get(k).map_or(false, |v2| v.equals(v2)))
+                            .iter()
+                            .all(|(k, v)| rhs_fields.get(k).map_or(false, |v2| v.equals(v2)))
                 } else {
                     false
                 }
