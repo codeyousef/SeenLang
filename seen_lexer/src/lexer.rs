@@ -544,6 +544,10 @@ impl Lexer {
         None
     }
 
+    fn is_basic_identifier_start(ch: char) -> bool {
+        ch == '_' || ch.is_ascii_alphabetic()
+    }
+
     fn skip_whitespace(&mut self) {
         while let Some(ch) = self.current_char {
             if ch.is_whitespace() && ch != '\n' {
@@ -878,64 +882,70 @@ impl Lexer {
                     ));
                 }
             } else if ch == '{' {
-                // Check for escaped brace or interpolation
+                // Peek ahead to determine if this should start interpolation
                 let brace_pos = self.pos_tracker; // Position of the '{'
-                self.advance();
-                if self.current_char == Some('{') {
-                    // Escaped opening brace
-                    current_text.push('{');
-                    lexeme.push_str("{{");
-                    self.advance();
-                } else {
-                    // Start of interpolation
-                    has_interpolation = true;
+                match self.peek() {
+                    Some('{') => {
+                        // Escaped opening brace `{{`
+                        self.advance(); // consume first '{'
+                        self.advance(); // consume second '{'
+                        current_text.push('{');
+                        lexeme.push_str("{{");
+                    }
+                    Some(next) if Self::is_basic_identifier_start(next) => {
+                        self.advance(); // consume '{'
+                        has_interpolation = true;
 
-                    // Save current text part if any
-                    if !current_text.is_empty() {
-                        let normalized_text = current_text.nfc().collect::<String>();
-                        // Adjust position for text positioning
-                        let mut final_text_pos = text_start_pos;
-                        if current_text.starts_with('\n') && current_text.len() > 1 {
-                            // Text starts with newline - position should be after the newline for meaningful content
-                            final_text_pos.line += 1;
-                            final_text_pos.column = 1;
-                        } else if !current_text.starts_with('\n')
-                            && text_start_pos.column > 1
-                            && !parts.is_empty()
-                        {
-                            // Single-line text after interpolation - adjust to closing brace position
-                            final_text_pos.column -= 1;
+                        // Save current text part if any
+                        if !current_text.is_empty() {
+                            let normalized_text = current_text.nfc().collect::<String>();
+                            // Adjust position for text positioning
+                            let mut final_text_pos = text_start_pos;
+                            if current_text.starts_with('\n') && current_text.len() > 1 {
+                                final_text_pos.line += 1;
+                                final_text_pos.column = 1;
+                            } else if !current_text.starts_with('\n')
+                                && text_start_pos.column > 1
+                                && !parts.is_empty()
+                            {
+                                final_text_pos.column -= 1;
+                            }
+
+                            parts.push(InterpolationPart {
+                                kind: InterpolationKind::Text(normalized_text.clone()),
+                                content: normalized_text,
+                                position: final_text_pos,
+                            });
+                            current_text.clear();
+                        }
+
+                        // Read the interpolated expression
+                        let expr = self.read_interpolation_expression()?;
+
+                        if expr.is_empty() {
+                            return Err(LexerError::InvalidInterpolation {
+                                position: brace_pos,
+                                message: "Empty interpolation expression".to_string(),
+                            });
                         }
 
                         parts.push(InterpolationPart {
-                            kind: InterpolationKind::Text(normalized_text.clone()),
-                            content: normalized_text,
-                            position: final_text_pos,
-                        });
-                        current_text.clear();
-                    }
-
-                    // Read the interpolated expression
-                    let expr = self.read_interpolation_expression()?;
-
-                    if expr.is_empty() {
-                        return Err(LexerError::InvalidInterpolation {
+                            kind: InterpolationKind::Expression(expr.clone()),
+                            content: expr,
                             position: brace_pos,
-                            message: "Empty interpolation expression".to_string(),
                         });
+
+                        // Update text start position for next text part
+                        text_start_pos = self.pos_tracker;
+
+                        lexeme.push_str(&format!("{{...}}"));
                     }
-
-                    parts.push(InterpolationPart {
-                        kind: InterpolationKind::Expression(expr.clone()),
-                        content: expr,
-                        position: brace_pos,
-                    });
-
-                    // Update text start position for next text part
-                    // Position should be where the text content begins (after closing brace)
-                    text_start_pos = self.pos_tracker;
-
-                    lexeme.push_str(&format!("{{...}}"));
+                    _ => {
+                        // Treat as literal '{' when it is not followed by an identifier start
+                        self.advance();
+                        current_text.push('{');
+                        lexeme.push('{');
+                    }
                 }
             } else if ch == '}' {
                 // Check for escaped closing brace

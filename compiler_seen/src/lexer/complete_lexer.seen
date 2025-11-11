@@ -411,7 +411,7 @@ class CompleteLexer {
             if inStringInterpolation {
                 interpolationDepth = interpolationDepth + 1
             }
-            return Token{ type: TokenType.LeftBrace, value: "{{", line: line, column: startCol, length: 1 }
+            return Token{ type: TokenType.LeftBrace, value: "{", line: line, column: startCol, length: 1 }
         }
         
         if ch == '}' {
@@ -419,10 +419,10 @@ class CompleteLexer {
             if inStringInterpolation and interpolationDepth > 0 {
                 interpolationDepth = interpolationDepth - 1
                 if interpolationDepth == 0 {
-                    return Token{ type: TokenType.InterpolationEnd, value: "}}", line: line, column: startCol, length: 1 }
+                    return Token{ type: TokenType.InterpolationEnd, value: "}", line: line, column: startCol, length: 1 }
                 }
             }
-            return Token{ type: TokenType.RightBrace, value: "}}", line: line, column: startCol, length: 1 }
+            return Token{ type: TokenType.RightBrace, value: "}", line: line, column: startCol, length: 1 }
         }
         
         if ch == '[' {
@@ -612,8 +612,8 @@ class CompleteLexer {
                     else if escaped == 'r' { value = value + "\r"; }
                     else if escaped == '\\' { value = value + "\\"; }
                     else if escaped == '"' { value = value + "\""; }
-                    else if escaped == '{' { value = value + "{{"; }
-                    else if escaped == '}' { value = value + "}}"; }
+                    else if escaped == '{' { value = value + "{"; }
+                    else if escaped == '}' { value = value + "}"; }
                     else { value = value + escaped; }
                     advance()
                 }
@@ -621,7 +621,7 @@ class CompleteLexer {
                 // String interpolation start
                 if peek() == '{' {
                     // Double {{ means literal {
-                    value = value + "{{"
+                    value = value + "{"
                     advance()
                     advance()
                 } else {
