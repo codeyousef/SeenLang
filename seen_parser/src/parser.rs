@@ -611,16 +611,34 @@ impl Parser {
 
     /// Parse factor expressions (*, /, %)
     fn parse_factor(&mut self) -> ParseResult<Expression> {
-        let mut expr = self.parse_unary()?;
+        let mut expr = self.parse_cast_expression()?;
 
         while let Some(op) = self.match_factor_op() {
             let pos = self.current.position.clone();
             self.advance();
-            let right = self.parse_unary()?;
+            let right = self.parse_cast_expression()?;
             expr = Expression::BinaryOp {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    /// Parse cast expressions (`expr as Type`)
+    fn parse_cast_expression(&mut self) -> ParseResult<Expression> {
+        let mut expr = self.parse_unary()?;
+
+        while self.check_keyword(KeywordType::KeywordAs) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let target_type = self.parse_type()?;
+            expr = Expression::Cast {
+                expr: Box::new(expr),
+                target_type,
                 pos,
             };
         }
@@ -1210,18 +1228,35 @@ impl Parser {
     }
 
     fn parse_condition_comparison(&mut self) -> ParseResult<Expression> {
-        let mut expr = self.parse_condition_shift()?;
+        let mut expr = self.parse_condition_type_check()?;
 
         while let Some(op) = self.match_comparison_op() {
             let pos = self.current.position.clone();
             self.advance();
-            let right = self.parse_condition_shift()?;
+            let right = self.parse_condition_type_check()?;
             expr = Expression::BinaryOp {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
                 pos,
             };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_condition_type_check(&mut self) -> ParseResult<Expression> {
+        let expr = self.parse_condition_shift()?;
+
+        if self.check_keyword(KeywordType::KeywordIs) {
+            let pos = self.current.position.clone();
+            self.advance();
+            let target_type = self.parse_type()?;
+            return Ok(Expression::TypeCheck {
+                expr: Box::new(expr),
+                target_type,
+                pos,
+            });
         }
 
         Ok(expr)
@@ -4936,7 +4971,7 @@ impl Parser {
         // Subsequent segments separated by '.'
         while self.check(&TokenType::Dot) {
             self.advance(); // '.'
-            // If next is '{', stop path parsing
+                            // If next is '{', stop path parsing
             if self.check(&TokenType::LeftBrace) {
                 break;
             }
