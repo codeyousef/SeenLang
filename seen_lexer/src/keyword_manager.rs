@@ -17,6 +17,8 @@ pub struct TomlLanguageFile {
     pub description: String,
     pub keywords: IndexMap<String, String>,
     pub operators: Option<IndexMap<String, String>>,
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,7 @@ pub struct LanguageKeywords {
     pub description: String,
     pub keyword_map: HashMap<String, KeywordType>,
     pub reverse_map: HashMap<KeywordType, String>,
+    pub requires_explicit_visibility: bool,
 }
 
 #[derive(Debug)]
@@ -246,6 +249,7 @@ impl KeywordManager {
             description: "Default English keywords for bootstrapping".to_string(),
             keywords,
             operators: None,
+            explicit: false,
         }
     }
 
@@ -294,12 +298,27 @@ impl KeywordManager {
             description: toml_data.description,
             keyword_map,
             reverse_map,
+            requires_explicit_visibility: toml_data.explicit,
         };
 
         let mut languages = self.languages.write().unwrap();
         languages.insert(language.to_string(), language_keywords);
 
         Ok(())
+    }
+
+    /// Determine whether the selected language requires explicit visibility markers.
+    pub fn language_requires_explicit_visibility(&self, language: &str) -> SeenResult<bool> {
+        let languages = self.languages.read().unwrap();
+        languages
+            .get(language)
+            .map(|entry| entry.requires_explicit_visibility)
+            .ok_or_else(|| {
+                SeenError::new(
+                    SeenErrorKind::Tooling,
+                    format!("Language '{}' is not loaded", language),
+                )
+            })
     }
 
     /// Parse keyword type string into KeywordType enum

@@ -34,7 +34,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 #[cfg(feature = "llvm")]
 use tempfile::{tempdir, NamedTempFile};
 #[cfg(feature = "llvm")]
@@ -45,6 +45,8 @@ use zip::{write::FileOptions, CompressionMethod};
 const BUILD_GIT_HASH: &str = env!("SEEN_BUILD_GIT_HASH");
 #[cfg(feature = "llvm")]
 const BUILD_UNIX_TS: &str = env!("SEEN_BUILD_UNIX_TS");
+
+static LANGUAGE_VISIBILITY_MODE: OnceLock<VisibilityMode> = OnceLock::new();
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum Profile {
@@ -539,13 +541,13 @@ impl VisibilityMode {
 }
 
 impl ProjectConfig {
-    fn visibility_policy(&self) -> VisibilityPolicy {
+    fn visibility_policy(&self, default_mode: VisibilityMode) -> VisibilityPolicy {
         if let Some(vis) = &self.visibility {
             vis.mode().to_policy()
         } else if let Some(mode) = self.project.visibility {
             mode.to_policy()
         } else {
-            VisibilityPolicy::Caps
+            default_mode.to_policy()
         }
     }
 
@@ -597,10 +599,18 @@ fn manifest_module_roots(config: &ProjectConfig) -> SeenResult<Vec<PathBuf>> {
     Ok(entries)
 }
 
+fn current_language_visibility_mode() -> VisibilityMode {
+    LANGUAGE_VISIBILITY_MODE
+        .get()
+        .copied()
+        .unwrap_or(VisibilityMode::Caps)
+}
+
 fn project_context_for(path: &Path) -> SeenResult<(ProjectConfig, LexerConfig)> {
     let config = load_project_config(path)?;
+    let default_visibility_mode = current_language_visibility_mode();
     let lexer_config = LexerConfig {
-        visibility_policy: config.visibility_policy(),
+        visibility_policy: config.visibility_policy(default_visibility_mode),
     };
     Ok((config, lexer_config))
 }
@@ -707,6 +717,15 @@ fn main() -> SeenResult<()> {
                 format!("Failed to switch language {}: {}", cli.language, err),
             )
         })?;
+    let language_requires_explicit = keyword_manager
+        .language_requires_explicit_visibility(&cli.language)
+        .unwrap_or(false);
+    let language_visibility_mode = if language_requires_explicit {
+        VisibilityMode::Explicit
+    } else {
+        VisibilityMode::Caps
+    };
+    let _ = LANGUAGE_VISIBILITY_MODE.set(language_visibility_mode);
     let keyword_manager = Arc::new(keyword_manager);
 
     match cli.command {
