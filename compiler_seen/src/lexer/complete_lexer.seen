@@ -493,8 +493,13 @@ class CompleteLexer {
         
         // Not a keyword - it's an identifier
         // Check capitalization for visibility
+        var identifierType = TokenType.Identifier
+        if isCapital {
+            identifierType = TokenType.CapitalIdentifier
+        }
+        
         return Token{
-            type: if isCapital { TokenType.CapitalIdentifier } else { TokenType.Identifier },
+            type: identifierType,
             value: value,
             line: line,
             column: startCol,
@@ -726,9 +731,13 @@ class CompleteLexer {
         }
         
         let value = source.substring(startPos, position)
+        var tokenType = TokenType.IntLiteral
+        if hasDecimal or hasExponent {
+            tokenType = TokenType.FloatLiteral
+        }
         
         return Token{
-            type: if hasDecimal or hasExponent { TokenType.FloatLiteral } else { TokenType.IntLiteral },
+            type: tokenType,
             value: value,
             line: line,
             column: startCol,
@@ -791,14 +800,14 @@ class CompleteLexer {
     
     fun currentChar() -> String {
         if position >= source.length() {
-            return "\0"
+            return "\u{0000}"
         }
         return source.charAt(position)
     }
     
     fun peek() -> String {
         if position + 1 >= source.length() {
-            return "\0"
+            return "\u{0000}"
         }
         return source.charAt(position + 1)
     }

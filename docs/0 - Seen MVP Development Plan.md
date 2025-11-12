@@ -621,11 +621,11 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
       bundle whenever manifest modules are disabled, so the stdlib manifest scenario is covered by automation while
       manifest-hosted projects continue to receive diagnostics pre-execution.
 * **Remaining parser/self-host TODOs (blocking Stage-1):**
-    1. Stage-1 now halts in `compiler_seen/src/lexer/complete_lexer.seen` (line ~794) once parsing leaves the string
-       literal section. Diagnose and translate the remaining Kotlin/brace mismatches near the `skipWhitespace`
-       helpers—ensure every `{`/`}` in this file either belongs to a Seen block or is represented via helper calls so
-       the Rust parser sees a balanced class. Re-run `seen_cli parse compiler_seen/src/lexer/complete_lexer.seen` until
-       it succeeds.
+    1. ✅ Stage-1 previously halted in `compiler_seen/src/lexer/complete_lexer.seen` once parsing left the string literal
+       section because the Kotlin-era `"\0"` escapes were not valid Seen syntax. Replaced those sentinel returns with
+       `"\u{0000}"`, cleaned up the inline `if` expressions in identifier/number scanning, and added
+       `seen_cli/tests/bootstrap_frontend.rs::compiler_complete_lexer_parses` so `seen_cli parse
+       compiler_seen/src/lexer/complete_lexer.seen` stays green.
     2. Continue sweeping the `compiler_seen/src/ir/*.seen` and `compiler_seen/src/codegen/*.seen` files for Kotlinisms
        (tuple `for` bindings, `parts[1..]` slicing, `0..n` range literals, `when`/`match` hybrids, raw `{{` braces)
        and normalize them so the Rust toolchain accepts the full tree without local edits.
