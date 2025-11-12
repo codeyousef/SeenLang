@@ -133,7 +133,7 @@ class SeenLexer {
     
     fun getCurrentChar() -> String {
         if position >= source.length() {
-            return "\0"
+            return "\u{0000}"
         }
         return source[position]
     }
@@ -141,7 +141,7 @@ class SeenLexer {
     fun peekChar(offset: Int = 1) -> String {
         let peekPos = position + offset
         if peekPos >= source.length() {
-            return "\0"
+            return "\u{0000}"
         }
         return source[peekPos]
     }
@@ -271,12 +271,12 @@ class SeenLexer {
     
     fun handleEscapeSequence(char: String) -> String {
         return match char {
-            'n' -> '\n'
-            't' -> '\t'
-            'r' -> '\r'
-            '\\' -> '\\'
-            '"' -> '"'
-            '0' -> '\0'
+            "n" -> "\n"
+            "t" -> "\t"
+            "r" -> "\r"
+            "\\" -> "\\"
+            "\"" -> "\""
+            "0" -> "\u{0000}"
             _ -> char  // Unknown escape, return as-is
         }
     }
@@ -512,15 +512,15 @@ class SeenLexer {
     
     fun getSingleCharOperatorType(char: String) -> TokenType? {
         return match char {
-            '+' -> TokenType.Plus
-            '-' -> TokenType.Minus
-            '*' -> TokenType.Multiply
-            '/' -> TokenType.Divide
-            '%' -> TokenType.Modulo
-            '=' -> TokenType.Equal
-            '<' -> TokenType.LessThan
-            '>' -> TokenType.GreaterThan
-            '?' -> TokenType.Question
+            "+" -> TokenType.Plus
+            "-" -> TokenType.Minus
+            "*" -> TokenType.Multiply
+            "/" -> TokenType.Divide
+            "%" -> TokenType.Modulo
+            "=" -> TokenType.Equal
+            "<" -> TokenType.LessThan
+            ">" -> TokenType.GreaterThan
+            "?" -> TokenType.Question
             _ -> null
         }
     }
@@ -540,16 +540,16 @@ class SeenLexer {
     
     fun getSingleCharTokenType(char: String) -> TokenType? {
         return match char {
-            '(' -> TokenType.LeftParen
-            ')' -> TokenType.RightParen
-            '{' -> TokenType.LeftBrace
-            '}' -> TokenType.RightBrace
-            '[' -> TokenType.LeftBracket
-            ']' -> TokenType.RightBracket
-            ',' -> TokenType.Comma
-            ';' -> TokenType.Semicolon
-            ':' -> TokenType.Colon
-            '.' -> TokenType.Dot
+            "(" -> TokenType.LeftParen
+            ")" -> TokenType.RightParen
+            "{" -> TokenType.LeftBrace
+            "}" -> TokenType.RightBrace
+            "[" -> TokenType.LeftBracket
+            "]" -> TokenType.RightBracket
+            "," -> TokenType.Comma
+            ";" -> TokenType.Semicolon
+            ":" -> TokenType.Colon
+            "." -> TokenType.Dot
             _ -> null
         }
     }

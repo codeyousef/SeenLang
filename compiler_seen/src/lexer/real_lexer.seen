@@ -86,81 +86,81 @@ class RealLexer {
         }
         
         // Strings
-        if ch == '"' {
+        if ch == "\"" {
             return scanString(startCol)
         }
         
         // Operators and punctuation
-        if ch == '+' {
+        if ch == "+" {
             advance()
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "PlusEqual", value: "+=", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Plus", value: "+", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '-' {
+        if ch == "-" {
             advance()
-            if currentChar() == '>' {
+            if currentChar() == ">" {
                 advance()
                 return RealToken{ type: "Arrow", value: "->", line: line, column: startCol, length: 2 }
             }
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "MinusEqual", value: "-=", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Minus", value: "-", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '*' {
+        if ch == "*" {
             advance()
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "StarEqual", value: "*=", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Star", value: "*", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '/' {
+        if ch == "/" {
             advance()
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "SlashEqual", value: "/=", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Slash", value: "/", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '=' {
+        if ch == "=" {
             advance()
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "EqualEqual", value: "==", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Equal", value: "=", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '!' {
+        if ch == "!" {
             advance()
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "NotEqual", value: "!=", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Not", value: "!", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '<' {
+        if ch == "<" {
             advance()
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "LessEqual", value: "<=", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Less", value: "<", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '>' {
+        if ch == ">" {
             advance()
-            if currentChar() == '=' {
+            if currentChar() == "=" {
                 advance()
                 return RealToken{ type: "GreaterEqual", value: ">=", line: line, column: startCol, length: 2 }
             }
@@ -168,61 +168,61 @@ class RealLexer {
         }
         
         // Single character tokens
-        if ch == '(' {
+        if ch == "(" {
             advance()
             return RealToken{ type: "LeftParen", value: "(", line: line, column: startCol, length: 1 }
         }
         
-        if ch == ')' {
+        if ch == ")" {
             advance()
             return RealToken{ type: "RightParen", value: ")", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '{' {
+        if ch == "{" {
             advance()
             return RealToken{ type: "LeftBrace", value: "{", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '}' {
+        if ch == "}" {
             advance()
             return RealToken{ type: "RightBrace", value: "}", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '[' {
+        if ch == "[" {
             advance()
             return RealToken{ type: "LeftBracket", value: "[", line: line, column: startCol, length: 1 }
         }
         
-        if ch == ']' {
+        if ch == "]" {
             advance()
             return RealToken{ type: "RightBracket", value: "]", line: line, column: startCol, length: 1 }
         }
         
-        if ch == ',' {
+        if ch == "," {
             advance()
             return RealToken{ type: "Comma", value: ",", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '.' {
+        if ch == "." {
             advance()
-            if currentChar() == '.' {
+            if currentChar() == "." {
                 advance()
                 return RealToken{ type: "DotDot", value: "..", line: line, column: startCol, length: 2 }
             }
             return RealToken{ type: "Dot", value: ".", line: line, column: startCol, length: 1 }
         }
         
-        if ch == ':' {
+        if ch == ":" {
             advance()
             return RealToken{ type: "Colon", value: ":", line: line, column: startCol, length: 1 }
         }
         
-        if ch == ';' {
+        if ch == ";" {
             advance()
             return RealToken{ type: "Semicolon", value: ";", line: line, column: startCol, length: 1 }
         }
         
-        if ch == '?' {
+        if ch == "?" {
             advance()
             return RealToken{ type: "Question", value: "?", line: line, column: startCol, length: 1 }
         }
@@ -259,8 +259,8 @@ class RealLexer {
         }
         
         // Check for decimal point
-        if currentChar() == '.' and isDigit(peekChar()) {
-            advance(); // consume '.'
+        if currentChar() == "." and isDigit(peekChar()) {
+            advance(); // consume "."
             while isDigit(currentChar()) {
                 advance()
             }
@@ -292,26 +292,26 @@ class RealLexer {
         let value = ""
         let hasInterpolation = false
         
-        while currentChar() != '"' and position < source.length() {
-            if currentChar() == '\\' {
+        while currentChar() != "\"" and position < source.length() {
+            if currentChar() == "\\" {
                 advance()
                 // Handle escape sequences
                 let escaped = currentChar()
-                if escaped == 'n' {
+                if escaped == "n" {
                     value = value + "\n"
-                } else if escaped == 't' {
+                } else if escaped == "t" {
                     value = value + "\t"
-                } else if escaped == '\\' {
+                } else if escaped == "\\" {
                     value = value + "\\"
-                } else if escaped == '"' {
+                } else if escaped == "\"" {
                     value = value + "\""
                 } else {
                     value = value + escaped
                 }
                 advance()
-            } else if currentChar() == '{' {
+            } else if currentChar() == "{" {
                 // Check for string interpolation
-                if peekChar() == '{' {
+                if peekChar() == "{" {
                     // Double brace means literal brace
                     advance(); // consume first {
                     advance(); // consume second {
@@ -322,8 +322,8 @@ class RealLexer {
                     value = value + currentChar()
                     advance()
                 }
-            } else if currentChar() == '}' {
-                if peekChar() == '}' {
+            } else if currentChar() == "}" {
+                if peekChar() == "}" {
                     // Double brace means literal brace
                     advance(); // consume first }
                     advance(); // consume second }
@@ -339,7 +339,7 @@ class RealLexer {
             }
         }
         
-        if currentChar() == '"' {
+        if currentChar() == "\"" {
             advance(); // consume closing quote
         }
         
@@ -360,13 +360,13 @@ class RealLexer {
             let ch = currentChar()
             
             // Skip whitespace
-            if ch == ' ' or ch == '\t' or ch == '\r' {
+            if ch == " " or ch == "\t" or ch == "\r" {
                 advance()
                 continue
             }
             
             // Handle newlines
-            if ch == '\n' {
+            if ch == "\n" {
                 advance()
                 line = line + 1
                 column = 1
@@ -374,26 +374,26 @@ class RealLexer {
             }
             
             // Skip single-line comments
-            if ch == '/' and peekChar() == '/' {
+            if ch == "/" and peekChar() == "/" {
                 advance(); // consume first /
                 advance(); // consume second /
-                while currentChar() != '\n' and position < source.length() {
+                while currentChar() != "\n" and position < source.length() {
                     advance()
                 }
                 continue
             }
             
             // Skip multi-line comments
-            if ch == '/' and peekChar() == '*' {
+            if ch == "/" and peekChar() == "*" {
                 advance(); // consume /
                 advance(); // consume *
                 while position < source.length() - 1 {
-                    if currentChar() == '*' and peekChar() == '/' {
+                    if currentChar() == "*" and peekChar() == "/" {
                         advance(); // consume *
                         advance(); // consume /
                         break
                     }
-                    if currentChar() == '\n' {
+                    if currentChar() == "\n" {
                         line = line + 1
                         column = 1
                     }
@@ -409,14 +409,14 @@ class RealLexer {
     
     fun currentChar() -> String {
         if position >= source.length() {
-            return "\0"
+            return "\u{0000}"
         }
         return source.charAt(position)
     }
     
     fun peekChar() -> String {
         if position + 1 >= source.length() {
-            return "\0"
+            return "\u{0000}"
         }
         return source.charAt(position + 1)
     }
