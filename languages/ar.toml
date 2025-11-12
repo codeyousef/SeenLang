@@ -4,6 +4,7 @@
 
 name = "Arabic"
 description = "Arabic keyword set for the Seen programming language - مجموعة الكلمات المفتاحية العربية للغة البرمجة المرئية"
+explicit = true
 
 [keywords]
 # Control flow - التحكم في التدفق

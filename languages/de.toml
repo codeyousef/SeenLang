@@ -3,6 +3,7 @@
 
 name = "German"
 description = "German keyword set for the Seen programming language - Deutsche Schlüsselwörter für die Seen-Programmiersprache"
+explicit = false
 
 [keywords]
 "funktion" = "KeywordFun"

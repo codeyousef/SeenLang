@@ -3,6 +3,7 @@
 
 name = "Russian"
 description = "Russian keyword set for the Seen programming language - Набор русских ключевых слов для языка программирования Seen"
+explicit = false
 
 [keywords]
 "функция" = "KeywordFun"

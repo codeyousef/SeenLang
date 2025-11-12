@@ -3,6 +3,7 @@
 
 name = "Chinese"
 description = "Chinese keyword set for the Seen programming language - Seen编程语言的中文关键字集"
+explicit = true
 
 [keywords]
 # Control flow - 控制流

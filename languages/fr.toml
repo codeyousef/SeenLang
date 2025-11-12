@@ -3,6 +3,7 @@
 
 name = "French"
 description = "French keyword set for the Seen programming language - Ensemble de mots-clés français pour le langage de programmation Seen"
+explicit = false
 
 [keywords]
 # Control flow - Contrôle de flux

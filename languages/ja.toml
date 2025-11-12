@@ -3,6 +3,7 @@
 
 name = "Japanese"
 description = "Japanese keyword set for the Seen programming language - Seen プログラミング言語の日本語キーワードセット"
+explicit = true
 
 [keywords]
 "関数" = "KeywordFun"

@@ -3,6 +3,7 @@
 
 name = "Spanish"
 description = "Spanish keyword set for the Seen programming language - Conjunto de palabras clave en español para el lenguaje de programación Seen"
+explicit = false
 
 [keywords]
 # Control flow - Control de flujo

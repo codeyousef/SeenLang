@@ -3,6 +3,7 @@
 
 name = "Hindi"
 description = "Hindi keyword set for the Seen programming language - सीन प्रोग्रामिंग भाषा के लिए हिंदी कीवर्ड सेट"
+explicit = true
 
 [keywords]
 "फ़ंक्शन" = "KeywordFun"

@@ -3,6 +3,7 @@
 
 name = "Portuguese"
 description = "Portuguese keyword set for the Seen programming language - Conjunto de palavras-chave em português para a linguagem de programação Seen"
+explicit = false
 
 [keywords]
 "função" = "KeywordFun"
