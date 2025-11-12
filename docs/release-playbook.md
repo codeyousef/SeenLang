@@ -83,7 +83,8 @@ Need to bypass the ABI guard for investigation? Pass `--skip-abi-verify` when in
 4. The release script can package the stdlib automatically when `--package-stdlib` is supplied. It shells out to
    `scripts/package_seen_std.sh` (respecting `--stdlib-version`/`--stdlib-output`) which emits a deterministic
    `libseen_std-<version>.seenpkg` plus `.sha256`. Upload both files so consumers can fetch the stdlib bundle that matches
-   the published ABI lock.
+   the published ABI lock; the script now passes `seen pkg --require-lock` so packaging fails whenever the lock hashes
+   drift.
 5. Use `--build-installers` to invoke `scripts/build_installers.sh`. The script currently builds Linux DEB/RPM/AppImage
    artifacts and writes placeholders for the remaining platforms; upload the produced installers (and logs) alongside the
    Stage3/stdlib artifacts until the other targets are automated.

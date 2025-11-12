@@ -87,6 +87,7 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
     - Print optimized IR with control-flow graphs: `seen trace examples/linux/hello_cli/main.seen -O1`
 - Packaging helper:
     - Create deterministic zip archives from any directory: `seen pkg path/to/project --output project.zip`
+    - Enforce ABI locks for stdlib releases: `seen pkg seen_std --output libseen_std.seenpkg --require-lock`
 - Shader transpilation:
     - Validate/transpose a single SPIR-V payload: `seen shaders assets/shaders/triangle.spv --target wgsl --target msl`
     - Scan a directory (and subdirectories) for `.spv` files:

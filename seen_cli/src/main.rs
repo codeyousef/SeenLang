@@ -23,7 +23,7 @@ use seen_shaders::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
@@ -323,6 +323,10 @@ enum Commands {
         /// Output archive path (defaults to <dir>.zip)
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Require Seen.lock to exist and match module hashes before packaging
+        #[arg(long, default_value_t = false)]
+        require_lock: bool,
     },
 
     /// Validate SPIR-V shaders and emit alternative targets
@@ -1063,8 +1067,12 @@ fn main() -> SeenResult<()> {
                 trace_ir(&program, opt_level, keyword_manager)?;
             }
         }
-        Some(Commands::Pkg { input, output }) => {
-            package_directory(&input, output.as_deref())?;
+        Some(Commands::Pkg {
+            input,
+            output,
+            require_lock,
+        }) => {
+            package_directory(&input, output.as_deref(), require_lock)?;
         }
 
         Some(Commands::Shaders {
@@ -4142,7 +4150,7 @@ struct SeenLockModule {
     hash: String,
 }
 
-fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {
+fn package_directory(input: &Path, output: Option<&Path>, require_lock: bool) -> SeenResult<()> {
     if !input.exists() {
         return Err(SeenError::new(
             SeenErrorKind::Io,
@@ -4155,6 +4163,8 @@ fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {
             format!("{} is not a directory", input.display()),
         ));
     }
+
+    verify_seen_lock(input, require_lock)?;
 
     let project_config = load_project_config(input)?;
     let project_root = project_config.root_dir.clone();
@@ -4238,6 +4248,169 @@ fn package_directory(input: &Path, output: Option<&Path>) -> SeenResult<()> {
 
     println!("Created package {}", out_path.display());
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct PackageManifest {
+    project: ManifestProject,
+}
+
+#[derive(Deserialize)]
+struct ManifestProject {
+    #[serde(default)]
+    modules: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct LockFile {
+    version: u32,
+    modules: Vec<LockModule>,
+}
+
+#[derive(Deserialize)]
+struct LockModule {
+    path: String,
+    hash: String,
+}
+
+fn verify_seen_lock(package_dir: &Path, require_lock: bool) -> SeenResult<()> {
+    let manifest_path = package_dir.join("Seen.toml");
+    if !manifest_path.exists() {
+        if require_lock {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "--require-lock set but {} does not contain Seen.toml",
+                    package_dir.display()
+                ),
+            ));
+        }
+        return Ok(());
+    }
+
+    let lock_path = package_dir.join("Seen.lock");
+    if !lock_path.exists() {
+        if require_lock {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "{} contains Seen.toml but is missing Seen.lock; run `abi_guard snapshot --update-lock` before packaging",
+                    package_dir.display()
+                ),
+            ));
+        }
+        return Ok(());
+    }
+
+    let manifest_text = fs::read_to_string(&manifest_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read {}: {}", manifest_path.display(), err),
+        )
+    })?;
+    let manifest: PackageManifest = toml::from_str(&manifest_text).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Invalid Seen.toml at {}: {}", manifest_path.display(), err),
+        )
+    })?;
+    if manifest.project.modules.is_empty() {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Seen.toml at {} defines no modules; run `abi_guard snapshot --update-lock` before packaging",
+                manifest_path.display()
+            ),
+        ));
+    }
+
+    let lock_text = fs::read_to_string(&lock_path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read {}: {}", lock_path.display(), err),
+        )
+    })?;
+    let lock: LockFile = toml::from_str(&lock_text).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Tooling,
+            format!("Invalid Seen.lock at {}: {}", lock_path.display(), err),
+        )
+    })?;
+    if lock.version != 1 {
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Unsupported Seen.lock version {} in {}; expected version 1",
+                lock.version,
+                lock_path.display()
+            ),
+        ));
+    }
+
+    let mut expected: HashMap<String, String> = lock
+        .modules
+        .into_iter()
+        .map(|entry| (entry.path, entry.hash))
+        .collect();
+
+    for module in &manifest.project.modules {
+        let expected_hash = expected.remove(module).ok_or_else(|| {
+            SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "Module {} missing from Seen.lock (update {} before packaging)",
+                    module,
+                    lock_path.display()
+                ),
+            )
+        })?;
+        let path = package_dir.join(module);
+        if !path.exists() {
+            return Err(SeenError::new(
+                SeenErrorKind::Io,
+                format!(
+                    "Module {} declared in Seen.toml does not exist at {}",
+                    module,
+                    path.display()
+                ),
+            ));
+        }
+        let actual_hash = compute_file_sha256(&path)?;
+        if actual_hash != expected_hash {
+            return Err(SeenError::new(
+                SeenErrorKind::Tooling,
+                format!(
+                    "ABI hash mismatch for module {} (expected {}, got {})",
+                    module, expected_hash, actual_hash
+                ),
+            ));
+        }
+    }
+
+    if !expected.is_empty() {
+        let extras = expected.keys().cloned().collect::<Vec<_>>().join(", ");
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            format!(
+                "Seen.lock references modules not declared in Seen.toml: {}",
+                extras
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn compute_file_sha256(path: &Path) -> SeenResult<String> {
+    let bytes = fs::read(path).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read {}: {}", path.display(), err),
+        )
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn load_seen_lock(root: &Path) -> SeenResult<SeenLockFile> {

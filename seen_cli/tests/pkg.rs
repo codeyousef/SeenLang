@@ -52,25 +52,42 @@ fn pkg_creates_seenpkg_with_default_name() {
 }
 
 #[test]
-fn pkg_requires_seen_lock() {
+fn pkg_require_lock_flag_succeeds() {
     let temp = tempdir().expect("temp dir");
     let project_dir = copy_pkg_fixture(temp.path());
-    let lock_path = project_dir.join("Seen.lock");
-    fs::remove_file(&lock_path).expect("remove lock file");
-
-    let workspace = workspace_root();
+    let output = temp.path().join("pkg.seenpkg");
 
     Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
-        .current_dir(&workspace)
-        .args(["pkg", project_dir.to_string_lossy().as_ref()])
+        .current_dir(&workspace_root())
+        .args([
+            "pkg",
+            project_dir.to_string_lossy().as_ref(),
+            "--output",
+            output.to_string_lossy().as_ref(),
+            "--require-lock",
+        ])
+        .assert()
+        .success();
+
+    assert!(output.exists(), "expected archive at {:?}", output);
+}
+
+#[test]
+fn pkg_require_lock_flag_enforced_when_missing() {
+    let temp = tempdir().expect("temp dir");
+    let project_dir = copy_pkg_fixture(temp.path());
+    fs::remove_file(project_dir.join("Seen.lock")).expect("remove lock file");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
+        .current_dir(&workspace_root())
+        .args([
+            "pkg",
+            project_dir.to_string_lossy().as_ref(),
+            "--require-lock",
+        ])
         .assert()
         .failure()
-        .stderr(contains("Seen.lock"));
-
-    assert!(
-        !lock_path.exists(),
-        "lock file should remain deleted in temp copy"
-    );
+        .stderr(contains("missing Seen.lock"));
 }
 
 #[test]
@@ -80,11 +97,13 @@ fn pkg_detects_hash_mismatch() {
     let src = project_dir.join("src").join("lib.seen");
     fs::write(&src, "fun tamper() -> Int { return 42 }\n").expect("rewrite source");
 
-    let workspace = workspace_root();
-
     Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
-        .current_dir(&workspace)
-        .args(["pkg", project_dir.to_string_lossy().as_ref()])
+        .current_dir(&workspace_root())
+        .args([
+            "pkg",
+            project_dir.to_string_lossy().as_ref(),
+            "--require-lock",
+        ])
         .assert()
         .failure()
         .stderr(contains("hash mismatch"));

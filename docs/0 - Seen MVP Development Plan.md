@@ -490,7 +490,9 @@ and installers across every supported platform.
   argument parsing/validation instead of re-implementing ad-hoc logic. `tools/abi_guard` snapshots module hashes and
   updates/validates `Seen.lock`, documentation lives in `docs/release-playbook.md`, and `scripts/package_seen_std.sh`
   invokes `seen pkg` to generate deterministic `libseen_std-<version>.seenpkg` bundles (plus `.sha256` checksums) ready
-  to publish alongside release artifacts.
+  to publish alongside release artifacts. The CLI now exposes `seen pkg --require-lock`, which loads `Seen.toml` and
+  `Seen.lock`, hashes every module, and aborts packaging when the lock disagrees, with the stdlib packaging script
+  opting into the flag so CI fails immediately on ABI drift.
 * **Update:** Manifest-module bundling now walks dependency manifests (including `seen_std`) whenever
   `SEEN_ENABLE_MANIFEST_MODULES=1`, so Stage-1 compiles the stdlib modules directly instead of relying on ad-hoc helper
   copies. `seen pkg` enforces `Seen.lock` while emitting deterministic `libseen_std-<version>.seenpkg` bundles, giving

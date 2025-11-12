@@ -76,7 +76,7 @@ CHECKSUM_PATH="$OUTPUT_PATH.sha256"
 
 mkdir -p "$OUTPUT_DIR"
 
-"$CLI_BIN" pkg "$ROOT_DIR/seen_std" --output "$OUTPUT_PATH"
+"$CLI_BIN" pkg "$ROOT_DIR/seen_std" --output "$OUTPUT_PATH" --require-lock
 
 sha256sum "$OUTPUT_PATH" > "$CHECKSUM_PATH"
 
