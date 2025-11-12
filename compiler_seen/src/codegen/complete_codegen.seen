@@ -596,11 +596,13 @@ class CompleteCodeGenerator {
         // Regular function call with tail call optimization if possible
         let resultReg = nextReg()
         let argList = ""
-        for i in range(0, args.size()) {
-            if i > 0 {
+        var argIndex = 0
+        while argIndex < args.size() {
+            if argIndex > 0 {
                 argList = argList + ", "
             }
-            argList = argList + "i32 " + args[i]
+            argList = argList + "i32 " + args[argIndex]
+            argIndex = argIndex + 1
         }
         
         // Use tail call if this is the last statement
@@ -798,12 +800,14 @@ class CompleteCodeGenerator {
             start = 1
         }
         
-        for i in range(start, str.length()) {
-            let ch = str.charAt(i)
-            if ch >= "0" and ch <= "9" {
-                result = result * 10 + (ch.toInt() - 48)
-            }
+    var index = start
+    while index < str.length() {
+        let ch = str.charAt(index)
+        if ch >= "0" and ch <= "9" {
+            result = result * 10 + (ch.toInt() - 48)
         }
+        index = index + 1
+    }
         
         return if negative { -result } else { result }
     }
@@ -883,13 +887,15 @@ class CompleteCodeGenerator {
     
     fun generateParameterList(params: List<ParamNode>) -> String {
         let result = ""
-        for i in range(0, params.size()) {
-            if i > 0 {
-                result = result + ", "
-            }
-            let llvmType = mapTypeToLLVM(params[i].paramType)
-            result = result + llvmType + " %" + params[i].name
+    var paramIndex = 0
+    while paramIndex < params.size() {
+        if paramIndex > 0 {
+            result = result + ", "
         }
+        let llvmType = mapTypeToLLVM(params[paramIndex].paramType)
+        result = result + llvmType + " %" + params[paramIndex].name
+        paramIndex = paramIndex + 1
+    }
         return result
     }
     
