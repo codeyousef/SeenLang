@@ -476,6 +476,9 @@ and installers across every supported platform.
   signatures against the public key, the matrix script can self-verify via `--public-key`, and it now also runs
   `abi_guard verify` / `abi_guard snapshot` so stdlib hashes are checked before release. `docs/release-playbook.md`
   documents the workflow end-to-end. Artifacts land under `artifacts/bootstrap/<entry>/` alongside `manifest.json`.
+  `compiler_seen/src/bootstrap/rust_remover.seen` now implements the migration tooling that `scripts/bootstrap_and_migrate.seen`
+  shells out to in PROD-1, so the release playbook can actually back up and delete Rust sources (with dry-run/backup
+  knobs) when the triple-bootstrap verification passes.
 * **Outstanding:** integrate HSM/sigstore-backed signing (keys currently read from local files), wire CI/release tagging
   to require fresh manifests + signatures before publishing, and publish the public key + verification instructions as
   part of every release announcement.
@@ -639,6 +642,19 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
     4. Backfill regression coverage for the new lexer/parser behaviors (literal braces inside strings, interpolation
        lookahead, semicolon tokens, hexadecimal literals, keyword identifiers, tuple/range `for` bindings) so future
        refactors do not silently reintroduce these bootstrap regressions.
+    5. Latest Stage-1 runs (2025-01-06) highlight three new classes of blockers:
+        - `seen_std/src/io/file.seen` and `compiler_seen/src/bootstrap/rust_remover.seen` still lean on Kotlin-era
+          `"string" + char` concatenation and a three-argument `WriteFile`. Port those helpers onto the shared
+          `str.string` builder utilities, tighten the stdlib APIs (`writeText`, `shellQuote`), and ensure the runtime
+          shims expose the same signatures that Stage-1 now expects.
+        - `compiler_seen/src/parser/{ast,interfaces}.seen` still instantiate Kotlin-style objects, so downstream passes
+          cannot see `ItemNode.name`, `StatementNode.stmtType`, `SymbolTable.variables`, etc. Port the canonical AST
+          definitions (and `parser/main.seen` constructors) to real struct literals so the CLI/import resolver stops
+          reporting “Unknown field …” for Item/Statement nodes.
+        - `compiler_seen/src/bootstrap/{verifier,rust_remover}.seen` and the CLI still import the `interfaces` modules
+          via manifest lookups the bundler can’t resolve. Either teach `bundle_imports` to preload
+          `compiler_seen/src/**/interfaces.seen` or convert those imports to relative paths so Stage-1 sees the actual
+          definitions before we resume the Kotlin-to-Seen ports.
 
 ### PROD-5. Production QA & Platform Certification
 

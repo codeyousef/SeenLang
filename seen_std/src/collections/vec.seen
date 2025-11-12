@@ -144,6 +144,7 @@ class Vec<T> {
         if used + required > capacity {
             addChunk(required)
         }
+        return
     }
 
     fun addChunk(minCapacity: Int) -> Void {
@@ -174,6 +175,7 @@ class Vec<T> {
             chunkIndex = chunkIndex + 1
         }
         abort("Vec locateSlot internal error")
+        return VecSlot{ chunk: 0, offset: 0 }
     }
 }
 

@@ -436,43 +436,36 @@ fun ExecuteCommand(command: String) -> CommandResult {
         }
     }
 
-    let result = __ExecuteCommand(command)
+    let result: CommandResult = __ExecuteCommand(command)
     return CommandResult{ success: result.success, output: result.output }
 }
 
-class CommandResult {
-    var success: Bool
-    var output: String
-    
-    fun new() -> CommandResult {
-        return CommandResult{
-            success: false,
-            output: ""
-        }
-    }
+struct CommandResult {
+    success: Bool
+    output: String
 }
 
 // Command-line argument parser for the compiler
-class CompilerArgs {
-    var command: String
-    var inputFile: String
-    var outputFile: String
-    var language: String
-    var verbose: Bool
-    
-    fun new() -> CompilerArgs {
-        let args = CompilerArgs{}
-        args.command = "compile"
-        args.inputFile = ""
-        args.outputFile = "output"
-        args.language = "en"
-        args.verbose = false
-        return args
+struct CompilerArgs {
+    command: String
+    inputFile: String
+    outputFile: String
+    language: String
+    verbose: Bool
+}
+
+fun defaultCompilerArgs() -> CompilerArgs {
+    return CompilerArgs{
+        command: "compile",
+        inputFile: "",
+        outputFile: "output",
+        language: "en",
+        verbose: false
     }
 }
 
 fun parseArgs(args: Array<String>) -> CompilerArgs {
-    let compilerArgs = CompilerArgs.new()
+    var compilerArgs = defaultCompilerArgs()
     
     if args.length() > 1 {
         compilerArgs.command = args.get(1)

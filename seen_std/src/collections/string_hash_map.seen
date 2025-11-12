@@ -4,11 +4,11 @@
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
 
-const EMPTY: Int = 0
-const OCCUPIED: Int = 1
-const TOMBSTONE: Int = 2
-const DEFAULT_CAPACITY: Int = 16
-const MAX_LOAD_PERCENT: Int = 70
+fun emptyState() -> Int { return 0 }
+fun occupiedState() -> Int { return 1 }
+fun tombstoneState() -> Int { return 2 }
+fun defaultCapacity() -> Int { return 16 }
+fun maxLoadPercent() -> Int { return 70 }
 
 class HashEntry<V> {
     var key: String
@@ -21,7 +21,7 @@ class StringHashMap<V> {
     var length: Int
 
     fun new() -> StringHashMap<V> {
-        return StringHashMap.withCapacity(DEFAULT_CAPACITY)
+        return StringHashMap.withCapacity(defaultCapacity())
     }
 
     fun withCapacity(capacity: Int) -> StringHashMap<V> {
@@ -66,7 +66,7 @@ class StringHashMap<V> {
         if entryOpt.isNone() {
             return None()
         }
-        let entry = entryOpt.value
+        let entry = entryOpt.unwrap()
         return Some(entry.value)
     }
 
@@ -80,7 +80,7 @@ class StringHashMap<V> {
             return false
         }
         entries.set(slot, None())
-        states.set(slot, TOMBSTONE)
+        states.set(slot, tombstoneState())
         length = length - 1
         return true
     }
@@ -89,10 +89,11 @@ class StringHashMap<V> {
         let items = Array<String>()
         var index = 0
         while index < entries.len() {
-            if states.get(index) == OCCUPIED {
+            if states.get(index) == occupiedState() {
                 let entryOpt = entries.get(index)
                 if entryOpt.isSome() {
-                    items.push(entryOpt.value.key)
+                    let entry = entryOpt.unwrap()
+                    items.push(entry.key)
                 }
             }
             index = index + 1
@@ -110,27 +111,30 @@ class StringHashMap<V> {
     fun insertInternal(key: String, value: V) -> Void {
         var index = probeIndex(key)
         var firstTombstone = -1
-        loop {
+        while true {
             let state = states.get(index)
-            if state == EMPTY {
+            if state == emptyState() {
                 let insertIndex = if firstTombstone >= 0 { firstTombstone } else { index }
                 if firstTombstone >= 0 {
                     index = insertIndex
                 }
                 let entry = HashEntry<V>{ key: key, value: value }
                 entries.set(insertIndex, Some(entry))
-                states.set(insertIndex, OCCUPIED)
+                states.set(insertIndex, occupiedState())
                 length = length + 1
                 return
             }
-            if state == TOMBSTONE and firstTombstone < 0 {
+            if state == tombstoneState() and firstTombstone < 0 {
                 firstTombstone = index
-            } else if state == OCCUPIED {
+            } else if state == occupiedState() {
                 let entryOpt = entries.get(index)
-                if entryOpt.isSome() and entryOpt.value.key == key {
-                    let entry = HashEntry<V>{ key: key, value: value }
-                    entries.set(index, Some(entry))
-                    return
+                if entryOpt.isSome() {
+                    let entry = entryOpt.unwrap()
+                    if entry.key == key {
+                        let updated = HashEntry<V>{ key: key, value: value }
+                        entries.set(index, Some(updated))
+                        return
+                    }
                 }
             }
             index = (index + 1) % capacity()
@@ -145,13 +149,16 @@ class StringHashMap<V> {
         var steps = 0
         while steps < capacity() {
             let state = states.get(index)
-            if state == EMPTY {
+            if state == emptyState() {
                 return -1
             }
-            if state == OCCUPIED {
+            if state == occupiedState() {
                 let entryOpt = entries.get(index)
-                if entryOpt.isSome() and entryOpt.value.key == key {
-                    return index
+                if entryOpt.isSome() {
+                    let entry = entryOpt.unwrap()
+                    if entry.key == key {
+                        return index
+                    }
                 }
             }
             index = (index + 1) % capacity()
@@ -162,10 +169,10 @@ class StringHashMap<V> {
 
     fun ensureCapacityFor(required: Int) -> Void {
         if capacity() == 0 {
-            resize(DEFAULT_CAPACITY)
+            resize(defaultCapacity())
             return
         }
-        if ((required * 100) / capacity()) <= MAX_LOAD_PERCENT {
+        if ((required * 100) / capacity()) <= maxLoadPercent() {
             return
         }
         resize(capacity() * 2)
@@ -180,10 +187,11 @@ class StringHashMap<V> {
         length = 0
         var index = 0
         while index < oldEntries.len() {
-            if oldStates.get(index) == OCCUPIED {
+            if oldStates.get(index) == occupiedState() {
                 let entryOpt = oldEntries.get(index)
                 if entryOpt.isSome() {
-                    insertInternal(entryOpt.value.key, entryOpt.value.value)
+                    let entry = entryOpt.unwrap()
+                    insertInternal(entry.key, entry.value)
                 }
             }
             index = index + 1
@@ -226,7 +234,7 @@ fun initializeStates(capacity: Int) -> Vec<Int> {
     let vec = Vec<Int>.withCapacity(capacity)
     var index = 0
     while index < capacity {
-        vec.push(EMPTY)
+        vec.push(emptyState())
         index = index + 1
     }
     return vec
