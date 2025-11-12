@@ -1,216 +1,205 @@
-// Machine Learning-Driven Optimizer - Bootstrap Compatible
-// Based on Alpha Development Plan Step 18
+// Minimal ML optimizer used so the bootstrap compiler can type-check.
+// Every method logs intent and returns deterministic placeholder data.
 
 class MLOptimizer {
+    var trainingScores: Array<Float>
+    var targetHardware: String
+    var lastScore: Float
+
     fun new() -> MLOptimizer {
-        return MLOptimizer{}
-    }
-    
-    // Main optimization method that learns from compilation patterns
-    fun Optimize(ir: IR) -> IR? {
-        println("🧠 ML-guided optimization with neural network models")
-        
-        // Extract features from IR for learning
-        let features = extractFeatures(ir)
-        
-        // Make optimization decisions based on learned patterns  
-        let shouldOptimize = predictOptimization(features)
-        
-        if shouldOptimize {
-            return applyOptimizations(ir)
+        return MLOptimizer{
+            trainingScores: Array<Float>(),
+            targetHardware: "generic",
+            lastScore: 1.0
         }
-        
-        return null; // No optimization needed
     }
-    
-    // Extract features for ML training
+
+    fun Optimize(ir: IR) -> IR? {
+        return this.optimize(ir)
+    }
+
+    fun optimize(ir: IR) -> IR? {
+        println("[ml-opt] optimizing for {targetHardware}")
+        if trainingScores.length() % 2 == 0 {
+            return null
+        }
+        return ir
+    }
+
     fun extractFeatures(ir: IR) -> Features {
         return Features{
-            callCount: 10,
-            loopDepth: 2,
-            functionSize: 100
+            values: [
+                trainingScores.length().toFloat(),
+                lastScore,
+                if targetHardware == "riscv" { 2.0 } else { 1.0 }
+            ]
         }
     }
-    
-    // Predict whether optimization should be applied
-    fun predictOptimization(features: Features) -> Bool {
-        // Neural network evaluation for optimization decision
-        let threshold = 0.7
-        let score = (features.callCount * 0.3 + features.loopDepth * 0.5 + features.functionSize * 0.2) / 100.0
-        return score > threshold
-    }
-    
-    // Apply ML-guided optimizations
-    fun applyOptimizations(ir: IR) -> IR {
-        println("  Applying inlining decisions...")
-        println("  Optimizing register allocation...")
-        println("  Reordering instructions...")
-        // Apply complete optimization transformations
-        let optimized = ir.clone()
-        optimized.applyInlining()
-        optimized.optimizeRegisterAllocation()
-        optimized.reorderInstructions()
-        return optimized
-    }
-    
-    // Training data management methods
-    fun getTrainingDataSize() -> Int {
-        // Return actual training dataset size from memory
-        return trainingDataset.size()
-    }
-    
-    fun hasLearnedNewPatterns() -> Bool {
-        // Check if model weights have significantly changed
-        let weightDelta = calculateWeightDelta()
-        return weightDelta > 0.01
-    }
-    
-    // Training methods for different workloads
-    fun trainOnWorkload(ir: IR, iterations: Int) {
-        println("Training on workload for " + iterations.toString() + " iterations")
-    }
-    
-    // Feature extraction for specific function calls
+
     fun extractFeatures(call: FunctionCall) -> Features {
         return Features{
-            callCount: 5,
-            loopDepth: 1,
-            functionSize: call.size
+            values: [1.0, 1.0]
         }
     }
-    
-    // A/B testing infrastructure
-    fun runABTest(ir: IR, strategies: List<String>) -> ABTestResult {
-        return ABTestResult{
-            winner: "aggressive",
-            improvement: 15.0
-        }
+
+    fun predictOptimization(features: Features) -> Bool {
+        return features.size() % 2 == 0
     }
-    
-    // Regression detection
-    fun detectRegression() -> Bool {
-        // Compare current model performance against baseline
-        let currentPerformance = evaluateCurrentModel()
-        let baselinePerformance = getBaselinePerformance()
-        return currentPerformance < baselinePerformance * 0.95
-    }
-    
-    fun rollbackToLastGoodState() {
-        println("Rolling back to last good state")
-    }
-    
-    // Update model with new optimization
-    fun applyUpdate(update: Update) {
-        println("Applying model update")
-    }
-    
-    // Training on specific examples
-    fun trainOnExample(input: IR, optimalDecision: Decision) {
-        println("Training on example with optimal decision")
-    }
-    
-    // Prediction for optimization decisions
-    fun predictOptimization(input: IR) -> Prediction {
+
+    fun predict(ir: IR) -> Prediction {
         return Prediction{
             decision: "inline",
-            confidence: 0.85
+            confidence: clampConfidence(lastScore / 2.0)
+        }
+    }
+
+    fun predictOptimization(input: IR) -> Prediction {
+        return predict(input)
+    }
+
+    fun train(ir: IR) -> Void {
+        trainingScores.push(lastScore)
+        lastScore = lastScore + 0.02
+    }
+
+    fun trainOnWorkload(ir: IR, iterations: Int) -> Void {
+        var remaining = iterations
+        while remaining > 0 {
+            train(ir)
+            remaining = remaining - 1
+        }
+    }
+
+    fun trainOnExample(input: IR, optimalDecision: Decision) -> Void {
+        train(input)
+    }
+
+    fun getTrainingDataSize() -> Int {
+        return trainingScores.length()
+    }
+
+    fun hasLearnedNewPatterns() -> Bool {
+        return trainingScores.length() >= 5
+    }
+
+    fun evaluate(ir: IR) -> Float {
+        return lastScore
+    }
+
+    fun suggestOptimization(ir: IR) -> OptimizationSuggestion {
+        let kind = if trainingScores.length() % 2 == 0 { "loop_unroll" } else { "inline" }
+        return OptimizationSuggestion{ type: kind }
+    }
+
+    fun setTargetHardware(name: String) -> Void {
+        targetHardware = name
+    }
+
+    fun runABTest(ir: IR, strategies: Array<String>) -> ABTestResult {
+        let winner = if strategies.length() > 0 { strategies[0] } else { "baseline" }
+        return ABTestResult{
+            winner: winner,
+            improvement: 5.0
+        }
+    }
+
+    fun detectRegression() -> Bool {
+        if trainingScores.length() < 2 {
+            return false
+        }
+        let latest = trainingScores[trainingScores.length() - 1]
+        let previous = trainingScores[trainingScores.length() - 2]
+        return latest < previous * 0.95
+    }
+
+    fun rollbackToLastGoodState() -> Void {
+        if trainingScores.length() == 0 {
+            return
+        }
+        trainingScores = Array<Float>()
+        lastScore = 1.0
+    }
+
+    fun applyUpdate(update: Update) -> Void {
+        println("[ml-opt] applying update {update.version}")
+        lastScore = lastScore + 0.05
+    }
+
+    fun analyzePotential(ast: AST) -> List<Diagnostic> {
+        return []
+    }
+}
+
+class Features {
+    var values: Array<Float>
+
+    fun new(values: Array<Float> = Array<Float>()) -> Features {
+        return Features{ values: values }
+    }
+
+    fun size() -> Int {
+        return values.length()
+    }
+}
+
+class Prediction {
+    var decision: String
+    var confidence: Float
+
+    fun new(decision: String = "inline", confidence: Float = 0.5) -> Prediction {
+        return Prediction{
+            decision: decision,
+            confidence: confidence
         }
     }
 }
 
-// Supporting classes for ML optimization with full feature extraction
+class Decision {
+    var action: String
 
-class Features {
-    var callCount: Int = 0
-    var loopDepth: Int = 0; 
-    var functionSize: Int = 0
-    
-    fun new() -> Features {
-        return Features{}
+    fun new(action: String = "inline") -> Decision {
+        return Decision{ action: action }
     }
-    
-    fun getCalleeSize() -> Int {
-        return functionSize
+}
+
+class Update {
+    var version: String
+
+    fun new(version: String = "v1") -> Update {
+        return Update{ version: version }
     }
-    
-    fun getCallSiteHeat() -> Float {
-        return 0.5
-    }
-    
-    fun getParameterCount() -> Int {
-        return 3
-    }
-    
-    fun toVector() -> List<Float> {
-        return [
-            callCount.toFloat(),
-            loopDepth.toFloat(),
-            functionSize.toFloat(),
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7,  // Padding to 20+ features
-            0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4,
-            1.5, 1.6, 1.7, 2.0, 2.1, 2.2, 2.3
-        ]
+}
+
+class OptimizationSuggestion {
+    var type: String
+
+    fun new(type: String = "inline") -> OptimizationSuggestion {
+        return OptimizationSuggestion{ type: type }
     }
 }
 
 class ABTestResult {
-    var winner: String = ""
-    var improvement: Float = 0.0
-    
-    fun new() -> ABTestResult {
-        return ABTestResult{}
+    var winner: String
+    var improvement: Float
+
+    fun new(winner: String = "baseline", improvement: Float = 0.0) -> ABTestResult {
+        return ABTestResult{
+            winner: winner,
+            improvement: improvement
+        }
     }
-    
+
     fun hasWinner() -> Bool {
         return winner != ""
     }
 }
 
-class Update {
-    var version: String = "1.0"
-    
-    fun new() -> Update {
-        return Update{}
+fun clampConfidence(value: Float) -> Float {
+    if value < 0.0 {
+        return 0.0
     }
-}
-
-class Decision {
-    var action: String = ""
-    
-    fun new() -> Decision {
-        return Decision{}
+    if value > 1.0 {
+        return 1.0
     }
-}
-
-class Prediction {
-    var decision: String = ""
-    var confidence: Float = 0.0
-    
-    fun new() -> Prediction {
-        return Prediction{}
-    }
-    
-    fun matches(expected: Decision) -> Bool {
-        return decision == expected.action
-    }
-}
-
-class FunctionCall {
-    var size: Int = 50
-    
-    fun new() -> FunctionCall {
-        return FunctionCall{}
-    }
-}
-
-// Heuristic optimizer for comparison testing
-class HeuristicOptimizer {
-    fun new() -> HeuristicOptimizer {
-        return HeuristicOptimizer{}
-    }
-    
-    fun Optimize(ir: IR) -> IR {
-        println("🔧 Traditional heuristic optimization")
-        return ir; // Simplified for bootstrap
-    }
+    return value
 }
