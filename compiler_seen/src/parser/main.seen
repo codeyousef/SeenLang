@@ -237,11 +237,11 @@ class MatchExpression {
     var position: Position
     
     fun new(expression: Expression, arms: Array<MatchArm>, position: Position) -> MatchExpression {
-        let match = MatchExpression{}
-        match.expression = expression
-        match.arms = arms
-        match.position = position
-        return match
+        let matchExpr = MatchExpression{}
+        matchExpr.expression = expression
+        matchExpr.arms = arms
+        matchExpr.position = position
+        return matchExpr
     }
 }
 
@@ -280,12 +280,12 @@ class ForLoop {
     var position: Position
     
     fun new(variable: String, iterable: Expression, body: Expression, position: Position) -> ForLoop {
-        let loop = ForLoop{}
-        loop.variable = variable
-        loop.iterable = iterable
-        loop.body = body
-        loop.position = position
-        return loop
+        let forLoop = ForLoop{}
+        forLoop.variable = variable
+        forLoop.iterable = iterable
+        forLoop.body = body
+        forLoop.position = position
+        return forLoop
     }
 }
 
@@ -295,11 +295,11 @@ class WhileLoop {
     var position: Position
     
     fun new(condition: Expression, body: Expression, position: Position) -> WhileLoop {
-        let loop = WhileLoop{}
-        loop.condition = condition
-        loop.body = body
-        loop.position = position
-        return loop
+        let whileLoop = WhileLoop{}
+        whileLoop.condition = condition
+        whileLoop.body = body
+        whileLoop.position = position
+        return whileLoop
     }
 }
 

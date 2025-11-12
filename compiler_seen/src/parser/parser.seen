@@ -343,7 +343,7 @@ class SeenParser {
     fun parseEquality() -> Expression {
         let expr = parseComparison()
         
-        while match([TokenType.EqualEqual, TokenType.NotEqual]) {
+        while matchTokens([TokenType.EqualEqual, TokenType.NotEqual]) {
             let operator = getPreviousToken().getType()
             let right = parseComparison()
             expr = BinaryExpression.new(expr, operator, right)
@@ -355,7 +355,7 @@ class SeenParser {
     fun parseComparison() -> Expression {
         let expr = parseAddition()
         
-        while match([TokenType.GreaterThan, TokenType.GreaterEqual, TokenType.LessThan, TokenType.LessEqual]) {
+        while matchTokens([TokenType.GreaterThan, TokenType.GreaterEqual, TokenType.LessThan, TokenType.LessEqual]) {
             let operator = getPreviousToken().getType()
             let right = parseAddition()
             expr = BinaryExpression.new(expr, operator, right)
@@ -367,7 +367,7 @@ class SeenParser {
     fun parseAddition() -> Expression {
         let expr = parseMultiplication()
         
-        while match([TokenType.Plus, TokenType.Minus]) {
+        while matchTokens([TokenType.Plus, TokenType.Minus]) {
             let operator = getPreviousToken().getType()
             let right = parseMultiplication()
             expr = BinaryExpression.new(expr, operator, right)
@@ -379,7 +379,7 @@ class SeenParser {
     fun parseMultiplication() -> Expression {
         let expr = parseUnary()
         
-        while match([TokenType.Multiply, TokenType.Divide, TokenType.Modulo]) {
+        while matchTokens([TokenType.Multiply, TokenType.Divide, TokenType.Modulo]) {
             let operator = getPreviousToken().getType()
             let right = parseUnary()
             expr = BinaryExpression.new(expr, operator, right)
@@ -389,7 +389,7 @@ class SeenParser {
     }
     
     fun parseUnary() -> Expression {
-        if match([TokenType.LogicalNot, TokenType.Minus]) {
+        if matchTokens([TokenType.LogicalNot, TokenType.Minus]) {
             let operator = getPreviousToken().getType()
             let expr = parseUnary()
             return UnaryExpression.new(operator, expr)
@@ -599,7 +599,7 @@ class SeenParser {
         return tokens[current - 1]
     }
     
-    fun match(types: Array<TokenType>) -> Bool {
+    fun matchTokens(types: Array<TokenType>) -> Bool {
         for type in types {
             if getCurrentToken().getType() == type {
                 advance()

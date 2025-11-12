@@ -193,7 +193,7 @@ class RealParser {
     
     fun parseItem() -> ItemNode? {
         // Skip any leading newlines/semicolons
-        while match("Semicolon") {
+        while matchToken("Semicolon") {
             // Skip
         }
         
@@ -203,22 +203,22 @@ class RealParser {
         
         // Check for visibility modifiers
         let visibility = ""
-        if match("KeywordPub") or match("KeywordPublic") {
+        if matchToken("KeywordPub") or matchToken("KeywordPublic") {
             visibility = "public"
-        } else if match("KeywordPrivate") {
+        } else if matchToken("KeywordPrivate") {
             visibility = "private"
         }
         
         // Parse different item types
-        if match("KeywordFun") {
+        if matchToken("KeywordFun") {
             return parseFunctionItem(visibility)
         }
         
-        if match("KeywordClass") {
+        if matchToken("KeywordClass") {
             return parseClassItem(visibility)
         }
         
-        if match("KeywordImport") or match("KeywordUse") {
+        if matchToken("KeywordImport") or matchToken("KeywordUse") {
             return parseImportItem()
         }
         
@@ -237,7 +237,7 @@ class RealParser {
         if not check("RightParen") {
             func.params.append(parseParam())
             
-            while match("Comma") {
+            while matchToken("Comma") {
                 func.params.append(parseParam())
             }
         }
@@ -245,7 +245,7 @@ class RealParser {
         consume("RightParen", "Expected ')' after parameters")
         
         // Parse return type if present
-        if match("Arrow") {
+        if matchToken("Arrow") {
             let returnType = consume("Identifier", "Expected return type")
             func.returnType = returnType.value
         }
@@ -279,7 +279,7 @@ class RealParser {
     fun parseImportItem() -> ItemNode {
         let pathInfo = parseImportPath()
         let symbols = parseImportSymbols(pathInfo)
-        match("Semicolon")
+        matchToken("Semicolon")
 
         let item = ItemNode{
             itemType: "Import",
@@ -333,7 +333,7 @@ class RealParser {
     fun parseImportSymbols(pathInfo: ImportPathInfo) -> List<ImportSymbolNode> {
         let symbols = []
 
-        if match("KeywordAs") {
+        if matchToken("KeywordAs") {
             if pathInfo.segments.size() == 0 {
                 return symbols
             }
@@ -362,13 +362,13 @@ class RealParser {
         advance() // consume '{'
 
         while true {
-            if match("RightBrace") {
+            if matchToken("RightBrace") {
                 break
             }
 
             let symbolName = consume("Identifier", "Expected symbol name in import list")
             var aliasValue = ""
-            if match("KeywordAs") {
+            if matchToken("KeywordAs") {
                 let aliasToken = consume("Identifier", "Expected alias after 'as'")
                 aliasValue = aliasToken.value
             }
@@ -379,7 +379,7 @@ class RealParser {
             }
             symbols.append(symbol)
 
-            if match("Comma") {
+            if matchToken("Comma") {
                 continue
             }
 
@@ -409,16 +409,16 @@ class RealParser {
         let typeName = baseType.value
         
         // Check for nullable type (?)
-        if match("Question") {
+        if matchToken("Question") {
             return typeName + "?"
         }
         
         // Check for generic type parameters
-        if match("Less") {
+        if matchToken("Less") {
             typeName = typeName + "<"
             typeName = typeName + parseType()
             
-            while match("Comma") {
+            while matchToken("Comma") {
                 typeName = typeName + ", "
                 typeName = typeName + parseType()
             }
@@ -449,38 +449,38 @@ class RealParser {
     
     fun parseStatement() -> StatementNode? {
         // Skip empty statements
-        while match("Semicolon") {
+        while matchToken("Semicolon") {
             // Skip
         }
         
-        if match("KeywordLet") {
+        if matchToken("KeywordLet") {
             return parseLetStatement()
         }
         
-        if match("KeywordVar") {
+        if matchToken("KeywordVar") {
             return parseVarStatement()
         }
         
-        if match("KeywordReturn") {
+        if matchToken("KeywordReturn") {
             return parseReturnStatement()
         }
         
-        if match("KeywordIf") {
+        if matchToken("KeywordIf") {
             return parseIfStatement()
         }
         
-        if match("KeywordWhile") {
+        if matchToken("KeywordWhile") {
             return parseWhileStatement()
         }
         
-        if match("KeywordFor") {
+        if matchToken("KeywordFor") {
             return parseForStatement()
         }
         
         // Expression statement
         let expr = parseExpression()
         if expr != null {
-            match("Semicolon"); // Optional semicolon
+            matchToken("Semicolon"); // Optional semicolon
             return StatementNode{ stmtType: "Expression" }
         }
         
@@ -491,7 +491,7 @@ class RealParser {
         let name = consume("Identifier", "Expected variable name")
         
         let varType = ""
-        if match("Colon") {
+        if matchToken("Colon") {
             let typeToken = consume("Identifier", "Expected type")
             varType = typeToken.value
         }
@@ -500,7 +500,7 @@ class RealParser {
         
         let value = parseExpression()
         
-        match("Semicolon"); // Optional semicolon
+        matchToken("Semicolon"); // Optional semicolon
         
         return StatementNode{ stmtType: "Let" }
     }
@@ -510,7 +510,7 @@ class RealParser {
         let name = consume("Identifier", "Expected variable name")
         
         let varType = ""
-        if match("Colon") {
+        if matchToken("Colon") {
             let typeToken = consume("Identifier", "Expected type")
             varType = typeToken.value
         }
@@ -519,14 +519,14 @@ class RealParser {
         
         let value = parseExpression()
         
-        match("Semicolon"); // Optional semicolon
+        matchToken("Semicolon"); // Optional semicolon
         
         return StatementNode{ stmtType: "Var" }
     }
     
     fun parseReturnStatement() -> StatementNode {
         let value = parseExpression()
-        match("Semicolon"); // Optional semicolon
+        matchToken("Semicolon"); // Optional semicolon
         
         return StatementNode{ stmtType: "Return" }
     }
@@ -535,7 +535,7 @@ class RealParser {
         let condition = parseExpression()
         let thenBlock = parseBlock()
         
-        if match("KeywordElse") {
+        if matchToken("KeywordElse") {
             if check("KeywordIf") {
                 // else if
                 let elseIf = parseIfStatement()
@@ -571,7 +571,7 @@ class RealParser {
     fun parseLogicalOr() -> ExpressionNode? {
         let left = parseLogicalAnd()
         
-        while match("KeywordOr") {
+        while matchToken("KeywordOr") {
             let op = previous().value
             let right = parseLogicalAnd()
             left = BinaryExprNode{ left: left, operator: op, right: right }
@@ -583,7 +583,7 @@ class RealParser {
     fun parseLogicalAnd() -> ExpressionNode? {
         let left = parseEquality()
         
-        while match("KeywordAnd") {
+        while matchToken("KeywordAnd") {
             let op = previous().value
             let right = parseEquality()
             left = BinaryExprNode{ left: left, operator: op, right: right }
@@ -595,7 +595,7 @@ class RealParser {
     fun parseEquality() -> ExpressionNode? {
         let left = parseComparison()
         
-        while match("EqualEqual") or match("NotEqual") {
+        while matchToken("EqualEqual") or matchToken("NotEqual") {
             let op = previous().value
             let right = parseComparison()
             left = BinaryExprNode{ left: left, operator: op, right: right }
@@ -607,7 +607,7 @@ class RealParser {
     fun parseComparison() -> ExpressionNode? {
         let left = parseAddition()
         
-        while match("Greater") or match("GreaterEqual") or match("Less") or match("LessEqual") {
+        while matchToken("Greater") or matchToken("GreaterEqual") or matchToken("Less") or matchToken("LessEqual") {
             let op = previous().value
             let right = parseAddition()
             left = BinaryExprNode{ left: left, operator: op, right: right }
@@ -619,7 +619,7 @@ class RealParser {
     fun parseAddition() -> ExpressionNode? {
         let left = parseMultiplication()
         
-        while match("Plus") or match("Minus") {
+        while matchToken("Plus") or matchToken("Minus") {
             let op = previous().value
             let right = parseMultiplication()
             left = BinaryExprNode{ left: left, operator: op, right: right }
@@ -631,7 +631,7 @@ class RealParser {
     fun parseMultiplication() -> ExpressionNode? {
         let left = parseUnary()
         
-        while match("Star") or match("Slash") {
+        while matchToken("Star") or matchToken("Slash") {
             let op = previous().value
             let right = parseUnary()
             left = BinaryExprNode{ left: left, operator: op, right: right }
@@ -641,7 +641,7 @@ class RealParser {
     }
     
     fun parseUnary() -> ExpressionNode? {
-        if match("Not") or match("Minus") {
+        if matchToken("Not") or matchToken("Minus") {
             let op = previous().value
             let expr = parseUnary()
             return ExpressionNode{ exprType: "Unary" }
@@ -654,26 +654,26 @@ class RealParser {
         let expr = parsePrimary()
         
         while true {
-            if match("LeftParen") {
+            if matchToken("LeftParen") {
                 // Function call
                 let call = CallExprNode{ callee: expr }
                 
                 if not check("RightParen") {
                     call.arguments.append(parseExpression())
                     
-                    while match("Comma") {
+                    while matchToken("Comma") {
                         call.arguments.append(parseExpression())
                     }
                 }
                 
                 consume("RightParen", "Expected ')' after arguments")
                 expr = call
-            } else if match("Question") {
+            } else if matchToken("Question") {
                 // Safe navigation operator (?.)
-                if match("Dot") {
+                if matchToken("Dot") {
                     let member = consume("Identifier", "Expected member name")
                     expr = ExpressionNode{ exprType: "SafeMemberAccess" }
-                } else if match("Colon") {
+                } else if matchToken("Colon") {
                     // Elvis operator (?:)
                     let defaultValue = parseExpression()
                     expr = ExpressionNode{ exprType: "Elvis" }
@@ -682,9 +682,9 @@ class RealParser {
                     current = current - 1
                     break
                 }
-            } else if match("Dot") {
+            } else if matchToken("Dot") {
                 // Regular member access
-                if match("Dot") {
+                if matchToken("Dot") {
                     // Range operator (..)
                     let end = parseExpression()
                     expr = ExpressionNode{ exprType: "Range" }
@@ -692,14 +692,14 @@ class RealParser {
                     let member = consume("Identifier", "Expected member name")
                     expr = ExpressionNode{ exprType: "MemberAccess" }
                 }
-            } else if match("LeftBracket") {
+            } else if matchToken("LeftBracket") {
                 // Array indexing
                 let index = parseExpression()
                 consume("RightBracket", "Expected ']' after array index")
                 expr = ExpressionNode{ exprType: "ArrayAccess" }
-            } else if match("Not") {
+            } else if matchToken("Not") {
                 // Force unwrap (!!)
-                if match("Not") {
+                if matchToken("Not") {
                     expr = ExpressionNode{ exprType: "ForceUnwrap" }
                 } else {
                     // Single !, backtrack
@@ -715,53 +715,53 @@ class RealParser {
     }
     
     fun parsePrimary() -> ExpressionNode? {
-        if match("KeywordTrue") {
+        if matchToken("KeywordTrue") {
             return LiteralNode{ literalType: "Bool", value: "true" }
         }
         
-        if match("KeywordFalse") {
+        if matchToken("KeywordFalse") {
             return LiteralNode{ literalType: "Bool", value: "false" }
         }
         
-        if match("KeywordNull") {
+        if matchToken("KeywordNull") {
             return LiteralNode{ literalType: "Null", value: "null" }
         }
         
-        if match("IntLiteral") {
+        if matchToken("IntLiteral") {
             return LiteralNode{ literalType: "Int", value: previous().value }
         }
         
-        if match("FloatLiteral") {
+        if matchToken("FloatLiteral") {
             return LiteralNode{ literalType: "Float", value: previous().value }
         }
         
-        if match("StringLiteral") {
+        if matchToken("StringLiteral") {
             return LiteralNode{ literalType: "String", value: previous().value }
         }
         
-        if match("InterpolatedString") {
+        if matchToken("InterpolatedString") {
             // Parse interpolated string as a special expression
             return parseInterpolatedString(previous().value)
         }
         
-        if match("Identifier") {
+        if matchToken("Identifier") {
             return IdentifierNode{ name: previous().value }
         }
         
-        if match("LeftParen") {
+        if matchToken("LeftParen") {
             let expr = parseExpression()
             consume("RightParen", "Expected ')' after expression")
             return expr
         }
         
         // Array literal
-        if match("LeftBracket") {
+        if matchToken("LeftBracket") {
             let elements = []
             
             if not check("RightBracket") {
                 elements.append(parseExpression())
                 
-                while match("Comma") {
+                while matchToken("Comma") {
                     elements.append(parseExpression())
                 }
             }
@@ -771,7 +771,7 @@ class RealParser {
         }
         
         // Map/Set literal
-        if match("LeftBrace") {
+        if matchToken("LeftBrace") {
             // Could be map or struct literal
             if check("RightBrace") {
                 consume("RightBrace", "Expected '}'")
@@ -781,12 +781,12 @@ class RealParser {
             // Try to parse as struct literal or map
             let firstExpr = parseExpression()
             
-            if match("Colon") {
+            if matchToken("Colon") {
                 // Map literal
                 let value = parseExpression()
                 let entries = []
                 
-                while match("Comma") {
+                while matchToken("Comma") {
                     let key = parseExpression()
                     consume("Colon", "Expected ':' in map literal")
                     let val = parseExpression()
@@ -796,7 +796,7 @@ class RealParser {
                 return ExpressionNode{ exprType: "MapLiteral" }
             } else {
                 // Set or struct literal
-                while match("Comma") {
+                while matchToken("Comma") {
                     parseExpression()
                 }
                 
@@ -816,7 +816,7 @@ class RealParser {
     
     // Parser utilities
     
-    fun match(tokenType: String) -> Bool {
+    fun matchToken(tokenType: String) -> Bool {
         if check(tokenType) {
             advance()
             return true
