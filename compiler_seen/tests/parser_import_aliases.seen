@@ -18,29 +18,29 @@ fun main() -> Int {
     let parser = RealParser.new(tokens)
     let ast = parser.parse()
 
-    if ast.items.length() < 4 {
-        println("expected at least four items, got {ast.items.length()}")
+    if ast.Items.length() < 4 {
+        println("expected at least four items, got {ast.Items.length()}")
         return 1
     }
 
-    let importOne = ast.items[0]
-    if not verifySymbol(importOne.importSymbols, 0, "TypeChecker", "RealTypeChecker") {
+    let importOne = ast.Items[0]
+    if not verifySymbol(importOne.ImportSymbols, 0, "TypeChecker", "RealTypeChecker") {
         return 1
     }
-    if not verifySymbol(importOne.importSymbols, 1, "Helper", "") {
-        return 1
-    }
-
-    let importTwo = ast.items[1]
-    if not verifySymbol(importTwo.importSymbols, 0, "Arc", "") {
-        return 1
-    }
-    if not verifySymbol(importTwo.importSymbols, 1, "Mutex", "Lock") {
+    if not verifySymbol(importOne.ImportSymbols, 1, "Helper", "") {
         return 1
     }
 
-    let importThree = ast.items[2]
-    if not verifySymbol(importThree.importSymbols, 0, "main", "ParserMain") {
+    let importTwo = ast.Items[1]
+    if not verifySymbol(importTwo.ImportSymbols, 0, "Arc", "") {
+        return 1
+    }
+    if not verifySymbol(importTwo.ImportSymbols, 1, "Mutex", "Lock") {
+        return 1
+    }
+
+    let importThree = ast.Items[2]
+    if not verifySymbol(importThree.ImportSymbols, 0, "main", "ParserMain") {
         return 1
     }
 
@@ -54,13 +54,13 @@ fun verifySymbol(symbols: Array<ImportSymbolNode>, index: Int, expectedName: Str
     }
 
     let symbol = symbols[index]
-    if symbol.name != expectedName {
-        println("expected symbol {expectedName}, found {symbol.name}")
+    if symbol.Name != expectedName {
+        println("expected symbol {expectedName}, found {symbol.Name}")
         return false
     }
 
-    if symbol.alias != expectedAlias {
-        println("expected alias '{expectedAlias}', found '{symbol.alias}'")
+    if symbol.Alias != expectedAlias {
+        println("expected alias '{expectedAlias}', found '{symbol.Alias}'")
         return false
     }
 

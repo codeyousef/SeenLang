@@ -3,503 +3,503 @@
 
 // Base node for all AST nodes
 struct ASTNode {
-    line: Int
-    column: Int
+    Line: Int
+    Column: Int
 }
 
 fun ASTNode.new() -> ASTNode {
     return ASTNode{
-        line: 0,
-        column: 0
+        Line: 0,
+        Column: 0
     }
 }
 
 // Program root node
 struct ProgramNode {
-    items: Array<ItemNode>
+    Items: Array<ItemNode>
 }
 
 fun ProgramNode.new() -> ProgramNode {
     return ProgramNode{
-        items: Array<ItemNode>()
+        Items: Array<ItemNode>()
     }
 }
 
 // Top-level item (function, class, struct, etc.)
 struct ItemNode {
-    itemType: String // "Function", "Class", "Struct", "Enum", "Import"
-    name: String
-    visibility: String // "public" or "private"
-    importPath: Array<String>
-    importSymbols: Array<ImportSymbolNode>
-    function: FunctionNode?
-    classNode: ClassNode?
-    structNode: StructNode?
+    ItemType: String // "Function", "Class", "Struct", "Enum", "Import"
+    Name: String
+    Visibility: String // "public" or "private"
+    ImportPath: Array<String>
+    ImportSymbols: Array<ImportSymbolNode>
+    Function: FunctionNode?
+    ClassNode: ClassNode?
+    StructNode: StructNode?
 }
 
 fun ItemNode.new() -> ItemNode {
     return ItemNode{
-        itemType: "",
-        name: "",
-        visibility: "private",
-        importPath: Array<String>(),
-        importSymbols: Array<ImportSymbolNode>(),
-        function: null,
-        classNode: null,
-        structNode: null
+        ItemType: "",
+        Name: "",
+        Visibility: "private",
+        ImportPath: Array<String>(),
+        ImportSymbols: Array<ImportSymbolNode>(),
+        Function: null,
+        ClassNode: null,
+        StructNode: null
     }
 }
 
 struct ImportSymbolNode {
-    name: String
-    alias: String
+    Name: String
+    Alias: String
 }
 
 fun ImportSymbolNode.new() -> ImportSymbolNode {
     return ImportSymbolNode{
-        name: "",
-        alias: ""
+        Name: "",
+        Alias: ""
     }
 }
 
 // Function definition
 struct FunctionNode {
-    name: String
-    params: Array<ParamNode>
-    returnType: TypeNode?
-    body: BlockNode
-    isAsync: Bool
-    isInline: Bool
+    Name: String
+    Params: Array<ParamNode>
+    ReturnType: TypeNode?
+    Body: BlockNode
+    IsAsync: Bool
+    IsInline: Bool
 }
 
 fun FunctionNode.new() -> FunctionNode {
     return FunctionNode{
-        name: "",
-        params: Array<ParamNode>(),
-        returnType: null,
-        body: BlockNode.new(),
-        isAsync: false,
-        isInline: false
+        Name: "",
+        Params: Array<ParamNode>(),
+        ReturnType: null,
+        Body: BlockNode.new(),
+        IsAsync: false,
+        IsInline: false
     }
 }
 
 // Function parameter
 struct ParamNode {
-    name: String
-    paramType: TypeNode
-    isMutable: Bool
-    defaultValue: ExpressionNode?
+    Name: String
+    ParamType: TypeNode
+    IsMutable: Bool
+    DefaultValue: ExpressionNode?
 }
 
 fun ParamNode.new() -> ParamNode {
     return ParamNode{
-        name: "",
-        paramType: TypeNode.new(),
-        isMutable: false,
-        defaultValue: null
+        Name: "",
+        ParamType: TypeNode.new(),
+        IsMutable: false,
+        DefaultValue: null
     }
 }
 
 // Type reference
 struct TypeNode {
-    typeName: String
-    isNullable: Bool
-    typeParams: Array<TypeNode>
-    isArray: Bool
-    arraySize: Int?
+    TypeName: String
+    IsNullable: Bool
+    TypeParams: Array<TypeNode>
+    IsArray: Bool
+    ArraySize: Int?
 }
 
 fun TypeNode.new() -> TypeNode {
     return TypeNode{
-        typeName: "",
-        isNullable: false,
-        typeParams: Array<TypeNode>(),
-        isArray: false,
-        arraySize: null
+        TypeName: "",
+        IsNullable: false,
+        TypeParams: Array<TypeNode>(),
+        IsArray: false,
+        ArraySize: null
     }
 }
 
 // Statement block
 struct BlockNode {
-    statements: Array<StatementNode>
+    Statements: Array<StatementNode>
 }
 
 fun BlockNode.new() -> BlockNode {
     return BlockNode{
-        statements: Array<StatementNode>()
+        Statements: Array<StatementNode>()
     }
 }
 
 // Statement types
 struct StatementNode {
-    stmtType: String // "Let", "Var", "Return", "If", "While", "For", "Expression", "Block", "Match", "Loop", "Break", "Continue", "Defer", "Assert", "Region", "Arena", "Handle"
-    letStmt: LetStatement?
-    varStmt: VarStatement?
-    returnStmt: ReturnStatement?
-    ifStmt: IfStatement?
-    whileStmt: WhileStatement?
-    forStmt: ForStatement?
-    exprStmt: ExpressionStatement?
-    blockStmt: BlockNode?
-    matchStmt: MatchStatement?
-    loopStmt: LoopStatement?
-    breakStmt: BreakStatement?
-    continueStmt: ContinueStatement?
-    deferStmt: DeferStatement?
-    assertStmt: AssertStatement?
-    regionStmt: RegionStatement?
-    arenaStmt: ArenaStatement?
-    handleStmt: HandleStatement?
+    StmtType: String // "Let", "Var", ...
+    LetStmt: LetStatement?
+    VarStmt: VarStatement?
+    ReturnStmt: ReturnStatement?
+    IfStmt: IfStatement?
+    WhileStmt: WhileStatement?
+    ForStmt: ForStatement?
+    ExprStmt: ExpressionStatement?
+    BlockStmt: BlockNode?
+    MatchStmt: MatchStatement?
+    LoopStmt: LoopStatement?
+    BreakStmt: BreakStatement?
+    ContinueStmt: ContinueStatement?
+    DeferStmt: DeferStatement?
+    AssertStmt: AssertStatement?
+    RegionStmt: RegionStatement?
+    ArenaStmt: ArenaStatement?
+    HandleStmt: HandleStatement?
 }
 
 fun StatementNode.new() -> StatementNode {
     return StatementNode{
-        stmtType: "",
-        letStmt: null,
-        varStmt: null,
-        returnStmt: null,
-        ifStmt: null,
-        whileStmt: null,
-        forStmt: null,
-        exprStmt: null,
-        blockStmt: null,
-        matchStmt: null,
-        loopStmt: null,
-        breakStmt: null,
-        continueStmt: null,
-        deferStmt: null,
-        assertStmt: null,
-        regionStmt: null,
-        arenaStmt: null,
-        handleStmt: null
+        StmtType: "",
+        LetStmt: null,
+        VarStmt: null,
+        ReturnStmt: null,
+        IfStmt: null,
+        WhileStmt: null,
+        ForStmt: null,
+        ExprStmt: null,
+        BlockStmt: null,
+        MatchStmt: null,
+        LoopStmt: null,
+        BreakStmt: null,
+        ContinueStmt: null,
+        DeferStmt: null,
+        AssertStmt: null,
+        RegionStmt: null,
+        ArenaStmt: null,
+        HandleStmt: null
     }
 }
 
 // Let statement (immutable binding)
 struct LetStatement {
-    name: String
-    varType: TypeNode?
-    value: ExpressionNode
+    Name: String
+    VarType: TypeNode?
+    Value: ExpressionNode
 }
 
 fun LetStatement.new() -> LetStatement {
     return LetStatement{
-        name: "",
-        varType: null,
-        value: ExpressionNode.new()
+        Name: "",
+        VarType: null,
+        Value: ExpressionNode.new()
     }
 }
 
 // Var statement (mutable binding)
 struct VarStatement {
-    name: String
-    varType: TypeNode?
-    value: ExpressionNode?
+    Name: String
+    VarType: TypeNode?
+    Value: ExpressionNode?
 }
 
 fun VarStatement.new() -> VarStatement {
     return VarStatement{
-        name: "",
-        varType: null,
-        value: null
+        Name: "",
+        VarType: null,
+        Value: null
     }
 }
 
 // Return statement
 struct ReturnStatement {
-    value: ExpressionNode?
+    Value: ExpressionNode?
 }
 
 fun ReturnStatement.new() -> ReturnStatement {
     return ReturnStatement{
-        value: null
+        Value: null
     }
 }
 
 // If statement
 struct IfStatement {
-    condition: ExpressionNode
-    thenBranch: BlockNode
-    elseBranch: BlockNode?
+    Condition: ExpressionNode
+    ThenBranch: BlockNode
+    ElseBranch: BlockNode?
 }
 
 fun IfStatement.new() -> IfStatement {
     return IfStatement{
-        condition: ExpressionNode.new(),
-        thenBranch: BlockNode.new(),
-        elseBranch: null
+        Condition: ExpressionNode.new(),
+        ThenBranch: BlockNode.new(),
+        ElseBranch: null
     }
 }
 
 // While loop
 struct WhileStatement {
-    condition: ExpressionNode
-    body: BlockNode
+    Condition: ExpressionNode
+    Body: BlockNode
 }
 
 fun WhileStatement.new() -> WhileStatement {
     return WhileStatement{
-        condition: ExpressionNode.new(),
-        body: BlockNode.new()
+        Condition: ExpressionNode.new(),
+        Body: BlockNode.new()
     }
 }
 
 // For loop
 struct ForStatement {
-    variable: String
-    iterable: ExpressionNode
-    body: BlockNode
+    Variable: String
+    Iterable: ExpressionNode
+    Body: BlockNode
 }
 
 fun ForStatement.new() -> ForStatement {
     return ForStatement{
-        variable: "",
-        iterable: ExpressionNode.new(),
-        body: BlockNode.new()
+        Variable: "",
+        Iterable: ExpressionNode.new(),
+        Body: BlockNode.new()
     }
 }
 
 // Expression statement
 struct ExpressionStatement {
-    expr: ExpressionNode
+    Expr: ExpressionNode
 }
 
 fun ExpressionStatement.new() -> ExpressionStatement {
     return ExpressionStatement{
-        expr: ExpressionNode.new()
+        Expr: ExpressionNode.new()
     }
 }
 
 // Expression types
 struct ExpressionNode {
-    exprType: String // "Literal", "Identifier", "Binary", "Unary", "Call", "Member", "Index", "Cast", "If", "Match", "Range", "Lambda", "Await", "Spawn", "Select", "StringInterpolation"
-    literal: LiteralNode?
-    identifier: IdentifierNode?
-    binary: BinaryNode?
-    unary: UnaryNode?
-    call: CallNode?
-    member: MemberNode?
-    index: IndexNode?
-    cast: CastNode?
-    ifExpr: IfExpressionNode?
-    matchExpr: MatchExpressionNode?
-    rangeExpr: RangeNode?
-    lambda: LambdaNode?
-    awaitExpr: AwaitNode?
-    spawnExpr: SpawnNode?
-    selectExpr: SelectNode?
-    stringInterp: StringInterpolationNode?
-    isExpr: IsExpressionNode?
-    elvisExpr: ElvisNode?
-    forceUnwrap: ForceUnwrapNode?
+    ExprType: String // "Literal", "Identifier", "Binary", "Unary", "Call", "Member", "Index", "Cast", "If", "Match", "Range", "Lambda", "Await", "Spawn", "Select", "StringInterpolation"
+    Literal: LiteralNode?
+    Identifier: IdentifierNode?
+    Binary: BinaryNode?
+    Unary: UnaryNode?
+    Call: CallNode?
+    Member: MemberNode?
+    Index: IndexNode?
+    Cast: CastNode?
+    IfExpr: IfExpressionNode?
+    MatchExpr: MatchExpressionNode?
+    RangeExpr: RangeNode?
+    Lambda: LambdaNode?
+    AwaitExpr: AwaitNode?
+    SpawnExpr: SpawnNode?
+    SelectExpr: SelectNode?
+    StringInterp: StringInterpolationNode?
+    IsExpr: IsExpressionNode?
+    ElvisExpr: ElvisNode?
+    ForceUnwrap: ForceUnwrapNode?
 }
 
 fun ExpressionNode.new() -> ExpressionNode {
     return ExpressionNode{
-        exprType: "",
-        literal: null,
-        identifier: null,
-        binary: null,
-        unary: null,
-        call: null,
-        member: null,
-        index: null,
-        cast: null,
-        ifExpr: null,
-        matchExpr: null,
-        rangeExpr: null,
-        lambda: null,
-        awaitExpr: null,
-        spawnExpr: null,
-        selectExpr: null,
-        stringInterp: null,
-        isExpr: null,
-        elvisExpr: null,
-        forceUnwrap: null
+        ExprType: "",
+        Literal: null,
+        Identifier: null,
+        Binary: null,
+        Unary: null,
+        Call: null,
+        Member: null,
+        Index: null,
+        Cast: null,
+        IfExpr: null,
+        MatchExpr: null,
+        RangeExpr: null,
+        Lambda: null,
+        AwaitExpr: null,
+        SpawnExpr: null,
+        SelectExpr: null,
+        StringInterp: null,
+        IsExpr: null,
+        ElvisExpr: null,
+        ForceUnwrap: null
     }
 }
 
 // Literal values
 struct LiteralNode {
-    literalType: String // "Int", "Float", "String", "Bool", "Null"
-    intValue: Int?
-    floatValue: Float?
-    stringValue: String?
-    boolValue: Bool?
+    LiteralType: String // "Int", "Float", "String", "Bool", "Null"
+    IntValue: Int?
+    FloatValue: Float?
+    StringValue: String?
+    BoolValue: Bool?
 }
 
 fun LiteralNode.new() -> LiteralNode {
     return LiteralNode{
-        literalType: "",
-        intValue: null,
-        floatValue: null,
-        stringValue: null,
-        boolValue: null
+        LiteralType: "",
+        IntValue: null,
+        FloatValue: null,
+        StringValue: null,
+        BoolValue: null
     }
 }
 
 // Identifier reference
 struct IdentifierNode {
-    name: String
+    Name: String
 }
 
 fun IdentifierNode.new() -> IdentifierNode {
     return IdentifierNode{
-        name: ""
+        Name: ""
     }
 }
 
 // Binary operation
 struct BinaryNode {
-    left: ExpressionNode
-    operator: String // "+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">=", "and", "or", "^", "&", "|", "<<", ">>", "is", "as", "in"
-    right: ExpressionNode
+    Left: ExpressionNode
+    Operator: String // "+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">=", "and", "or", "^", "&", "|", "<<", ">>", "is", "as", "in"
+    Right: ExpressionNode
 }
 
 fun BinaryNode.new() -> BinaryNode {
     return BinaryNode{
-        left: ExpressionNode.new(),
-        operator: "",
-        right: ExpressionNode.new()
+        Left: ExpressionNode.new(),
+        Operator: "",
+        Right: ExpressionNode.new()
     }
 }
 
 // Unary operation
 struct UnaryNode {
-    operator: String // "-", "not", "~", "move", "borrow", "mut"
-    operand: ExpressionNode
+    Operator: String // "-", "not", "~", "move", "borrow", "mut"
+    Operand: ExpressionNode
 }
 
 fun UnaryNode.new() -> UnaryNode {
     return UnaryNode{
-        operator: "",
-        operand: ExpressionNode.new()
+        Operator: "",
+        Operand: ExpressionNode.new()
     }
 }
 
 // Function call
 struct CallNode {
-    function: ExpressionNode
-    arguments: Array<ExpressionNode>
+    Function: ExpressionNode
+    Arguments: Array<ExpressionNode>
 }
 
 fun CallNode.new() -> CallNode {
     return CallNode{
-        function: ExpressionNode.new(),
-        arguments: Array<ExpressionNode>()
+        Function: ExpressionNode.new(),
+        Arguments: Array<ExpressionNode>()
     }
 }
 
 // Member access
 struct MemberNode {
-    object: ExpressionNode
-    member: String
-    isSafe: Bool // ?. operator
+    Object: ExpressionNode
+    Member: String
+    IsSafe: Bool // ?. operator
 }
 
 fun MemberNode.new() -> MemberNode {
     return MemberNode{
-        object: ExpressionNode.new(),
-        member: "",
-        isSafe: false
+        Object: ExpressionNode.new(),
+        Member: "",
+        IsSafe: false
     }
 }
 
 // Array/index access
 struct IndexNode {
-    object: ExpressionNode
-    index: ExpressionNode
+    Object: ExpressionNode
+    Index: ExpressionNode
 }
 
 fun IndexNode.new() -> IndexNode {
     return IndexNode{
-        object: ExpressionNode.new(),
-        index: ExpressionNode.new()
+        Object: ExpressionNode.new(),
+        Index: ExpressionNode.new()
     }
 }
 
 // Type cast
 struct CastNode {
-    expr: ExpressionNode
-    targetType: TypeNode
-    isForced: Bool // as! vs as?
+    Expr: ExpressionNode
+    TargetType: TypeNode
+    IsForced: Bool // as! vs as?
 }
 
 fun CastNode.new() -> CastNode {
     return CastNode{
-        expr: ExpressionNode.new(),
-        targetType: TypeNode.new(),
-        isForced: false
+        Expr: ExpressionNode.new(),
+        TargetType: TypeNode.new(),
+        IsForced: false
     }
 }
 
 // If expression (ternary)
 struct IfExpressionNode {
-    condition: ExpressionNode
-    thenExpr: ExpressionNode
-    elseExpr: ExpressionNode
+    Condition: ExpressionNode
+    ThenExpr: ExpressionNode
+    ElseExpr: ExpressionNode
 }
 
 fun IfExpressionNode.new() -> IfExpressionNode {
     return IfExpressionNode{
-        condition: ExpressionNode.new(),
-        thenExpr: ExpressionNode.new(),
-        elseExpr: ExpressionNode.new()
+        Condition: ExpressionNode.new(),
+        ThenExpr: ExpressionNode.new(),
+        ElseExpr: ExpressionNode.new()
     }
 }
 
 // Class definition
 struct ClassNode {
-    name: String
-    superClass: String?
-    interfaces: Array<String>
-    fields: Array<FieldNode>
-    methods: Array<FunctionNode>
-    isData: Bool
-    isSealed: Bool
+    Name: String
+    SuperClass: String?
+    Interfaces: Array<String>
+    Fields: Array<FieldNode>
+    Methods: Array<FunctionNode>
+    IsData: Bool
+    IsSealed: Bool
 }
 
 fun ClassNode.new() -> ClassNode {
     return ClassNode{
-        name: "",
-        superClass: null,
-        interfaces: Array<String>(),
-        fields: Array<FieldNode>(),
-        methods: Array<FunctionNode>(),
-        isData: false,
-        isSealed: false
+        Name: "",
+        SuperClass: null,
+        Interfaces: Array<String>(),
+        Fields: Array<FieldNode>(),
+        Methods: Array<FunctionNode>(),
+        IsData: false,
+        IsSealed: false
     }
 }
 
 // Struct definition
 struct StructNode {
-    name: String
-    fields: Array<FieldNode>
+    Name: String
+    Fields: Array<FieldNode>
 }
 
 fun StructNode.new() -> StructNode {
     return StructNode{
-        name: "",
-        fields: Array<FieldNode>()
+        Name: "",
+        Fields: Array<FieldNode>()
     }
 }
 
 // Field definition
 struct FieldNode {
-    name: String
-    fieldType: TypeNode
-    isMutable: Bool
-    defaultValue: ExpressionNode?
-    visibility: String
+    Name: String
+    FieldType: TypeNode
+    IsMutable: Bool
+    DefaultValue: ExpressionNode?
+    Visibility: String
 }
 
 fun FieldNode.new() -> FieldNode {
     return FieldNode{
-        name: "",
-        fieldType: TypeNode.new(),
-        isMutable: false,
-        defaultValue: null,
-        visibility: "private"
+        Name: "",
+        FieldType: TypeNode.new(),
+        IsMutable: false,
+        DefaultValue: null,
+        Visibility: "private"
     }
 }
 
@@ -507,603 +507,603 @@ fun FieldNode.new() -> FieldNode {
 
 // Match expression (pattern matching)
 struct MatchExpressionNode {
-    expr: ExpressionNode
-    arms: Array<MatchArm>
+    Expr: ExpressionNode
+    Arms: Array<MatchArm>
 }
 
 fun MatchExpressionNode.new() -> MatchExpressionNode {
     return MatchExpressionNode{
-        expr: ExpressionNode.new(),
-        arms: Array<MatchArm>()
+        Expr: ExpressionNode.new(),
+        Arms: Array<MatchArm>()
     }
 }
 
 // Match statement
 struct MatchStatement {
-    expr: ExpressionNode
-    arms: Array<MatchArm>
+    Expr: ExpressionNode
+    Arms: Array<MatchArm>
 }
 
 fun MatchStatement.new() -> MatchStatement {
     return MatchStatement{
-        expr: ExpressionNode.new(),
-        arms: Array<MatchArm>()
+        Expr: ExpressionNode.new(),
+        Arms: Array<MatchArm>()
     }
 }
 
 // Match arm with optional guard
 struct MatchArm {
-    pattern: PatternNode
-    guard: ExpressionNode? // Optional 'if' guard
-    body: ExpressionNode
+    Pattern: PatternNode
+    Guard: ExpressionNode? // Optional 'if' guard
+    Body: ExpressionNode
 }
 
 fun MatchArm.new() -> MatchArm {
     return MatchArm{
-        pattern: PatternNode.new(),
-        guard: null,
-        body: ExpressionNode.new()
+        Pattern: PatternNode.new(),
+        Guard: null,
+        Body: ExpressionNode.new()
     }
 }
 
 // Pattern for pattern matching
 struct PatternNode {
-    patternType: String // "Literal", "Identifier", "Wildcard", "Range", "Struct", "Enum", "Array"
-    literal: LiteralNode?
-    identifier: String?
-    rangePattern: RangePatternNode?
-    structPattern: StructPatternNode?
-    enumPattern: EnumPatternNode?
-    arrayPattern: ArrayPatternNode?
+    PatternType: String // "Literal", "Identifier", "Wildcard", "Range", "Struct", "Enum", "Array"
+    Literal: LiteralNode?
+    Identifier: String?
+    RangePattern: RangePatternNode?
+    StructPattern: StructPatternNode?
+    EnumPattern: EnumPatternNode?
+    ArrayPattern: ArrayPatternNode?
 }
 
 fun PatternNode.new() -> PatternNode {
     return PatternNode{
-        patternType: "",
-        literal: null,
-        identifier: null,
-        rangePattern: null,
-        structPattern: null,
-        enumPattern: null,
-        arrayPattern: null
+        PatternType: "",
+        Literal: null,
+        Identifier: null,
+        RangePattern: null,
+        StructPattern: null,
+        EnumPattern: null,
+        ArrayPattern: null
     }
 }
 
 // Range pattern (1..10)
 struct RangePatternNode {
-    start: ExpressionNode?
-    end: ExpressionNode?
-    isInclusive: Bool
+    Start: ExpressionNode?
+    End: ExpressionNode?
+    IsInclusive: Bool
 }
 
 fun RangePatternNode.new() -> RangePatternNode {
     return RangePatternNode{
-        start: null,
-        end: null,
-        isInclusive: true
+        Start: null,
+        End: null,
+        IsInclusive: true
     }
 }
 
 // Struct pattern for destructuring
 struct StructPatternNode {
-    typeName: String
-    fields: Array<FieldPattern>
+    TypeName: String
+    Fields: Array<FieldPattern>
 }
 
 fun StructPatternNode.new() -> StructPatternNode {
     return StructPatternNode{
-        typeName: "",
-        fields: Array<FieldPattern>()
+        TypeName: "",
+        Fields: Array<FieldPattern>()
     }
 }
 
 // Field pattern
 struct FieldPattern {
-    name: String
-    pattern: PatternNode?
+    Name: String
+    Pattern: PatternNode?
 }
 
 fun FieldPattern.new() -> FieldPattern {
     return FieldPattern{
-        name: "",
-        pattern: null
+        Name: "",
+        Pattern: null
     }
 }
 
 // Enum pattern
 struct EnumPatternNode {
-    typeName: String
-    variant: String
-    fields: Array<PatternNode>
+    TypeName: String
+    Variant: String
+    Fields: Array<PatternNode>
 }
 
 fun EnumPatternNode.new() -> EnumPatternNode {
     return EnumPatternNode{
-        typeName: "",
-        variant: "",
-        fields: Array<PatternNode>()
+        TypeName: "",
+        Variant: "",
+        Fields: Array<PatternNode>()
     }
 }
 
 // Array pattern
 struct ArrayPatternNode {
-    patterns: Array<PatternNode>
+    Patterns: Array<PatternNode>
 }
 
 fun ArrayPatternNode.new() -> ArrayPatternNode {
     return ArrayPatternNode{
-        patterns: Array<PatternNode>()
+        Patterns: Array<PatternNode>()
     }
 }
 
 // Range expression (1..10 or 1..<10)
 struct RangeNode {
-    start: ExpressionNode?
-    end: ExpressionNode?
-    isInclusive: Bool
-    step: ExpressionNode?
+    Start: ExpressionNode?
+    End: ExpressionNode?
+    IsInclusive: Bool
+    Step: ExpressionNode?
 }
 
 fun RangeNode.new() -> RangeNode {
     return RangeNode{
-        start: null,
-        end: null,
-        isInclusive: true,
-        step: null
+        Start: null,
+        End: null,
+        IsInclusive: true,
+        Step: null
     }
 }
 
 // Lambda expression
 struct LambdaNode {
-    params: Array<String>
-    body: ExpressionNode
-    isAsync: Bool
+    Params: Array<String>
+    Body: ExpressionNode
+    IsAsync: Bool
 }
 
 fun LambdaNode.new() -> LambdaNode {
     return LambdaNode{
-        params: Array<String>(),
-        body: ExpressionNode.new(),
-        isAsync: false
+        Params: Array<String>(),
+        Body: ExpressionNode.new(),
+        IsAsync: false
     }
 }
 
 // Await expression
 struct AwaitNode {
-    expr: ExpressionNode
+    Expr: ExpressionNode
 }
 
 fun AwaitNode.new() -> AwaitNode {
     return AwaitNode{
-        expr: ExpressionNode.new()
+        Expr: ExpressionNode.new()
     }
 }
 
 // Spawn expression
 struct SpawnNode {
-    expr: ExpressionNode
-    isActor: Bool
+    Expr: ExpressionNode
+    IsActor: Bool
 }
 
 fun SpawnNode.new() -> SpawnNode {
     return SpawnNode{
-        expr: ExpressionNode.new(),
-        isActor: false
+        Expr: ExpressionNode.new(),
+        IsActor: false
     }
 }
 
 // Select expression (for channels)
 struct SelectNode {
-    branches: Array<SelectBranch>
-    timeoutBranch: SelectTimeoutBranch?
+    Branches: Array<SelectBranch>
+    TimeoutBranch: SelectTimeoutBranch?
 }
 
 fun SelectNode.new() -> SelectNode {
     return SelectNode{
-        branches: Array<SelectBranch>(),
-        timeoutBranch: null
+        Branches: Array<SelectBranch>(),
+        TimeoutBranch: null
     }
 }
 
 // Select branch
 struct SelectBranch {
-    channel: ExpressionNode
-    variable: String
-    body: BlockNode
+    Channel: ExpressionNode
+    Variable: String
+    Body: BlockNode
 }
 
 fun SelectBranch.new() -> SelectBranch {
     return SelectBranch{
-        channel: ExpressionNode.new(),
-        variable: "",
-        body: BlockNode.new()
+        Channel: ExpressionNode.new(),
+        Variable: "",
+        Body: BlockNode.new()
     }
 }
 
 // Select timeout branch
 struct SelectTimeoutBranch {
-    duration: ExpressionNode
-    body: BlockNode
+    Duration: ExpressionNode
+    Body: BlockNode
 }
 
 fun SelectTimeoutBranch.new() -> SelectTimeoutBranch {
     return SelectTimeoutBranch{
-        duration: ExpressionNode.new(),
-        body: BlockNode.new()
+        Duration: ExpressionNode.new(),
+        Body: BlockNode.new()
     }
 }
 
 // String interpolation
 struct StringInterpolationNode {
-    parts: Array<StringPart>
+    Parts: Array<StringPart>
 }
 
 fun StringInterpolationNode.new() -> StringInterpolationNode {
     return StringInterpolationNode{
-        parts: Array<StringPart>()
+        Parts: Array<StringPart>()
     }
 }
 
 // String part (literal or interpolated expression)
 struct StringPart {
-    isLiteral: Bool
-    literal: String?
-    expr: ExpressionNode?
+    IsLiteral: Bool
+    Literal: String?
+    Expr: ExpressionNode?
 }
 
 fun StringPart.new() -> StringPart {
     return StringPart{
-        isLiteral: true,
-        literal: "",
-        expr: null
+        IsLiteral: true,
+        Literal: "",
+        Expr: null
     }
 }
 
 // Type checking expression (value is Type)
 struct IsExpressionNode {
-    expr: ExpressionNode
-    typeNode: TypeNode
+    Expr: ExpressionNode
+    TypeNode: TypeNode
 }
 
 fun IsExpressionNode.new() -> IsExpressionNode {
     return IsExpressionNode{
-        expr: ExpressionNode.new(),
-        typeNode: TypeNode.new()
+        Expr: ExpressionNode.new(),
+        TypeNode: TypeNode.new()
     }
 }
 
 // Elvis operator (?:)
 struct ElvisNode {
-    nullable: ExpressionNode
-    defaultValue: ExpressionNode
+    Nullable: ExpressionNode
+    DefaultValue: ExpressionNode
 }
 
 fun ElvisNode.new() -> ElvisNode {
     return ElvisNode{
-        nullable: ExpressionNode.new(),
-        defaultValue: ExpressionNode.new()
+        Nullable: ExpressionNode.new(),
+        DefaultValue: ExpressionNode.new()
     }
 }
 
 // Force unwrap (!!)
 struct ForceUnwrapNode {
-    expr: ExpressionNode
+    Expr: ExpressionNode
 }
 
 fun ForceUnwrapNode.new() -> ForceUnwrapNode {
     return ForceUnwrapNode{
-        expr: ExpressionNode.new()
+        Expr: ExpressionNode.new()
     }
 }
 
 // Loop statement (with optional return value)
 struct LoopStatement {
-    body: BlockNode
-    label: String?
+    Body: BlockNode
+    Label: String?
 }
 
 fun LoopStatement.new() -> LoopStatement {
     return LoopStatement{
-        body: BlockNode.new(),
-        label: null
+        Body: BlockNode.new(),
+        Label: null
     }
 }
 
 // Break statement (can return value)
 struct BreakStatement {
-    value: ExpressionNode?
-    label: String?
+    Value: ExpressionNode?
+    Label: String?
 }
 
 fun BreakStatement.new() -> BreakStatement {
     return BreakStatement{
-        value: null,
-        label: null
+        Value: null,
+        Label: null
     }
 }
 
 // Continue statement
 struct ContinueStatement {
-    label: String?
+    Label: String?
 }
 
 fun ContinueStatement.new() -> ContinueStatement {
     return ContinueStatement{
-        label: null
+        Label: null
     }
 }
 
 // Defer statement
 struct DeferStatement {
-    body: BlockNode
+    Body: BlockNode
 }
 
 fun DeferStatement.new() -> DeferStatement {
     return DeferStatement{
-        body: BlockNode.new()
+        Body: BlockNode.new()
     }
 }
 
 // Assert statement
 struct AssertStatement {
-    condition: ExpressionNode
-    message: ExpressionNode?
+    Condition: ExpressionNode
+    Message: ExpressionNode?
 }
 
 fun AssertStatement.new() -> AssertStatement {
     return AssertStatement{
-        condition: ExpressionNode.new(),
-        message: null
+        Condition: ExpressionNode.new(),
+        Message: null
     }
 }
 
 // Region statement (memory management)
 struct RegionStatement {
-    name: String?
-    body: BlockNode
+    Name: String?
+    Body: BlockNode
 }
 
 fun RegionStatement.new() -> RegionStatement {
     return RegionStatement{
-        name: null,
-        body: BlockNode.new()
+        Name: null,
+        Body: BlockNode.new()
     }
 }
 
 // Arena statement (bulk allocation)
 struct ArenaStatement {
-    body: BlockNode
+    Body: BlockNode
 }
 
 fun ArenaStatement.new() -> ArenaStatement {
     return ArenaStatement{
-        body: BlockNode.new()
+        Body: BlockNode.new()
     }
 }
 
 // Handle statement (effect handling)
 struct HandleStatement {
-    body: BlockNode
-    effectName: String
-    handlers: Array<EffectHandler>
+    Body: BlockNode
+    EffectName: String
+    Handlers: Array<EffectHandler>
 }
 
 fun HandleStatement.new() -> HandleStatement {
     return HandleStatement{
-        body: BlockNode.new(),
-        effectName: "",
-        handlers: Array<EffectHandler>()
+        Body: BlockNode.new(),
+        EffectName: "",
+        Handlers: Array<EffectHandler>()
     }
 }
 
 // Effect handler
 struct EffectHandler {
-    name: String
-    params: Array<ParamNode>
-    body: BlockNode
+    Name: String
+    Params: Array<ParamNode>
+    Body: BlockNode
 }
 
 fun EffectHandler.new() -> EffectHandler {
     return EffectHandler{
-        name: "",
-        params: Array<ParamNode>(),
-        body: BlockNode.new()
+        Name: "",
+        Params: Array<ParamNode>(),
+        Body: BlockNode.new()
     }
 }
 
 // Annotation (decorators)
 struct AnnotationNode {
-    name: String
-    arguments: Array<ExpressionNode>
+    Name: String
+    Arguments: Array<ExpressionNode>
 }
 
 fun AnnotationNode.new() -> AnnotationNode {
     return AnnotationNode{
-        name: "",
-        arguments: Array<ExpressionNode>()
+        Name: "",
+        Arguments: Array<ExpressionNode>()
     }
 }
 
 // Extension methods
 struct ExtensionNode {
-    targetType: TypeNode
-    methods: Array<FunctionNode>
+    TargetType: TypeNode
+    Methods: Array<FunctionNode>
 }
 
 fun ExtensionNode.new() -> ExtensionNode {
     return ExtensionNode{
-        targetType: TypeNode.new(),
-        methods: Array<FunctionNode>()
+        TargetType: TypeNode.new(),
+        Methods: Array<FunctionNode>()
     }
 }
 
 // Companion object
 struct CompanionNode {
-    fields: Array<FieldNode>
-    methods: Array<FunctionNode>
+    Fields: Array<FieldNode>
+    Methods: Array<FunctionNode>
 }
 
 fun CompanionNode.new() -> CompanionNode {
     return CompanionNode{
-        fields: Array<FieldNode>(),
-        methods: Array<FunctionNode>()
+        Fields: Array<FieldNode>(),
+        Methods: Array<FunctionNode>()
     }
 }
 
 // Interface definition
 struct InterfaceNode {
-    name: String
-    typeParams: Array<TypeParam>
-    methods: Array<InterfaceMethod>
-    visibility: String
+    Name: String
+    TypeParams: Array<TypeParam>
+    Methods: Array<InterfaceMethod>
+    Visibility: String
 }
 
 fun InterfaceNode.new() -> InterfaceNode {
     return InterfaceNode{
-        name: "",
-        typeParams: Array<TypeParam>(),
-        methods: Array<InterfaceMethod>(),
-        visibility: "private"
+        Name: "",
+        TypeParams: Array<TypeParam>(),
+        Methods: Array<InterfaceMethod>(),
+        Visibility: "private"
     }
 }
 
 // Interface method signature
 struct InterfaceMethod {
-    name: String
-    params: Array<ParamNode>
-    returnType: TypeNode?
-    isDefault: Bool
-    defaultImpl: BlockNode?
+    Name: String
+    Params: Array<ParamNode>
+    ReturnType: TypeNode?
+    IsDefault: Bool
+    DefaultImpl: BlockNode?
 }
 
 fun InterfaceMethod.new() -> InterfaceMethod {
     return InterfaceMethod{
-        name: "",
-        params: Array<ParamNode>(),
-        returnType: null,
-        isDefault: false,
-        defaultImpl: null
+        Name: "",
+        Params: Array<ParamNode>(),
+        ReturnType: null,
+        IsDefault: false,
+        DefaultImpl: null
     }
 }
 
 // Type parameter for generics
 struct TypeParam {
-    name: String
-    constraints: Array<String>
-    variance: String // "in", "out", or ""
+    Name: String
+    Constraints: Array<String>
+    Variance: String // "in", "out", or ""
 }
 
 fun TypeParam.new() -> TypeParam {
     return TypeParam{
-        name: "",
-        constraints: Array<String>(),
-        variance: ""
+        Name: "",
+        Constraints: Array<String>(),
+        Variance: ""
     }
 }
 
 // Actor definition
 struct ActorNode {
-    name: String
-    state: Array<FieldNode>
-    receivers: Array<ReceiverNode>
-    visibility: String
+    Name: String
+    State: Array<FieldNode>
+    Receivers: Array<ReceiverNode>
+    Visibility: String
 }
 
 fun ActorNode.new() -> ActorNode {
     return ActorNode{
-        name: "",
-        state: Array<FieldNode>(),
-        receivers: Array<ReceiverNode>(),
-        visibility: "private"
+        Name: "",
+        State: Array<FieldNode>(),
+        Receivers: Array<ReceiverNode>(),
+        Visibility: "private"
     }
 }
 
 // Actor receiver
 struct ReceiverNode {
-    messageType: TypeNode
-    params: Array<ParamNode>
-    body: BlockNode
-    replyType: TypeNode?
+    MessageType: TypeNode
+    Params: Array<ParamNode>
+    Body: BlockNode
+    ReplyType: TypeNode?
 }
 
 fun ReceiverNode.new() -> ReceiverNode {
     return ReceiverNode{
-        messageType: TypeNode.new(),
-        params: Array<ParamNode>(),
-        body: BlockNode.new(),
-        replyType: null
+        MessageType: TypeNode.new(),
+        Params: Array<ParamNode>(),
+        Body: BlockNode.new(),
+        ReplyType: null
     }
 }
 
 // Effect definition
 struct EffectNode {
-    name: String
-    operations: Array<EffectOperation>
+    Name: String
+    Operations: Array<EffectOperation>
 }
 
 fun EffectNode.new() -> EffectNode {
     return EffectNode{
-        name: "",
-        operations: Array<EffectOperation>()
+        Name: "",
+        Operations: Array<EffectOperation>()
     }
 }
 
 // Effect operation
 struct EffectOperation {
-    name: String
-    params: Array<ParamNode>
-    returnType: TypeNode?
+    Name: String
+    Params: Array<ParamNode>
+    ReturnType: TypeNode?
 }
 
 fun EffectOperation.new() -> EffectOperation {
     return EffectOperation{
-        name: "",
-        params: Array<ParamNode>(),
-        returnType: null
+        Name: "",
+        Params: Array<ParamNode>(),
+        ReturnType: null
     }
 }
 
 // Contract (requires/ensures)
 struct ContractNode {
-    requires: Array<ExpressionNode>
-    ensures: Array<ExpressionNode>
-    invariants: Array<ExpressionNode>
+    Requires: Array<ExpressionNode>
+    Ensures: Array<ExpressionNode>
+    Invariants: Array<ExpressionNode>
 }
 
 fun ContractNode.new() -> ContractNode {
     return ContractNode{
-        requires: Array<ExpressionNode>(),
-        ensures: Array<ExpressionNode>(),
-        invariants: Array<ExpressionNode>()
+        Requires: Array<ExpressionNode>(),
+        Ensures: Array<ExpressionNode>(),
+        Invariants: Array<ExpressionNode>()
     }
 }
 
 // Data class (automatic equals, hashcode, etc.)
 struct DataClassNode {
-    name: String
-    fields: Array<FieldNode>
-    visibility: String
+    Name: String
+    Fields: Array<FieldNode>
+    Visibility: String
 }
 
 fun DataClassNode.new() -> DataClassNode {
     return DataClassNode{
-        name: "",
-        fields: Array<FieldNode>(),
-        visibility: "private"
+        Name: "",
+        Fields: Array<FieldNode>(),
+        Visibility: "private"
     }
 }
 
 // Sealed class (exhaustive matching)
 struct SealedClassNode {
-    name: String
-    subclasses: Array<ClassNode>
-    visibility: String
+    Name: String
+    Subclasses: Array<ClassNode>
+    Visibility: String
 }
 
 fun SealedClassNode.new() -> SealedClassNode {
     return SealedClassNode{
-        name: "",
-        subclasses: Array<ClassNode>(),
-        visibility: "private"
+        Name: "",
+        Subclasses: Array<ClassNode>(),
+        Visibility: "private"
     }
 }

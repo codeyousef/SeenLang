@@ -275,24 +275,24 @@ class RealTypeChecker {
     
     fun collectDeclarations(item: ItemNode) {
         // Check visibility based on capitalization
-        let isPublic = isCapitalized(item.name)
+        let isPublic = isCapitalized(item.Name)
         
         // Validate visibility consistency
-        if item.visibility == "public" and not isPublic {
-            errors.append("Error: Public item '" + item.name + "' must start with capital letter")
+        if item.Visibility == "public" and not isPublic {
+            errors.append("Error: Public item '" + item.Name + "' must start with capital letter")
         }
-        if item.visibility == "private" and isPublic {
-            errors.append("Warning: Private item '" + item.name + "' should start with lowercase")
+        if item.Visibility == "private" and isPublic {
+            errors.append("Warning: Private item '" + item.Name + "' should start with lowercase")
         }
         
-        if item.itemType == "Function" {
+        if item.ItemType == "Function" {
             // Register function signature with visibility
-            item.visibility = if isPublic { "public" } else { "private" }
-            symbols.addFunction(item.name, item)
-        } else if item.itemType == "Class" or item.itemType == "Struct" {
+            item.Visibility = if isPublic { "public" } else { "private" }
+            symbols.addFunction(item.Name, item)
+        } else if item.ItemType == "Class" or item.ItemType == "Struct" {
             // Register type with visibility
-            item.visibility = if isPublic { "public" } else { "private" }
-            symbols.addType(item.name, item)
+            item.Visibility = if isPublic { "public" } else { "private" }
+            symbols.addType(item.Name, item)
         }
     }
     
@@ -306,7 +306,7 @@ class RealTypeChecker {
         // For now, this is a simplified version
         
         // Type check function body
-        // checkBlock(item.body)
+        // checkBlock(item.Body)
         
         // Restore previous scope
         symbols.variables = prevVars

@@ -647,10 +647,11 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
           `"string" + char` concatenation and a three-argument `WriteFile`. Port those helpers onto the shared
           `str.string` builder utilities, tighten the stdlib APIs (`writeText`, `shellQuote`), and ensure the runtime
           shims expose the same signatures that Stage-1 now expects.
-        - `compiler_seen/src/parser/{ast,interfaces}.seen` still instantiate Kotlin-style objects, so downstream passes
-          cannot see `ItemNode.name`, `StatementNode.stmtType`, `SymbolTable.variables`, etc. Port the canonical AST
-          definitions (and `parser/main.seen` constructors) to real struct literals so the CLI/import resolver stops
-          reporting “Unknown field …” for Item/Statement nodes.
+        - `compiler_seen/src/parser/ast.seen` now exposes capitalized struct fields for every node, but
+          `compiler_seen/src/parser/interfaces.seen` and the constructor call-sites (`parser/main.seen`, bootstrap
+          helpers, etc.) still instantiate Kotlin-style objects, so downstream passes cannot yet use those definitions.
+          Finish porting the constructors to real struct literals so the CLI/import resolver stops reporting “Unknown
+          field …” for Item/Statement nodes.
         - `compiler_seen/src/bootstrap/{verifier,rust_remover}.seen` and the CLI still import the `interfaces` modules
           via manifest lookups the bundler can’t resolve. Either teach `bundle_imports` to preload
           `compiler_seen/src/**/interfaces.seen` or convert those imports to relative paths so Stage-1 sees the actual
