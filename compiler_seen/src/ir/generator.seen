@@ -148,15 +148,17 @@ class IRGenerator {
         builder.setInsertPoint(entryBlock)
         
         // Create stack variables for parameters
-        for i in 0..function.parameters.length() {
-            let param = function.parameters[i]
+        var paramIndex = 0
+        while paramIndex < function.parameters.length() {
+            let param = function.parameters[paramIndex]
             let paramType = convertSeenTypeToIR(resolveType(param.type))
             let alloca = builder.createAlloca(paramType, param.name)
             
             // Store parameter value to alloca
-            let paramValue = irFunction.parameters[i]
+            let paramValue = irFunction.parameters[paramIndex]
             builder.createStore(paramValue, alloca)
             variables.put(param.name, alloca)
+            paramIndex = paramIndex + 1
         }
         
         // Generate function body
@@ -234,13 +236,17 @@ class IRGenerator {
         builder.createCondBr(condition, thenBlock, elseBlock)
         
         // Generate then branch
-        currentFunction?.addBlock(thenBlock)
+        if currentFunction != null {
+            currentFunction.addBlock(thenBlock)
+        }
         builder.setInsertPoint(thenBlock)
         generateStatement(ifStmt.thenBranch)
         builder.createBr(endBlock)
         
         // Generate else branch
-        currentFunction?.addBlock(elseBlock)
+        if currentFunction != null {
+            currentFunction.addBlock(elseBlock)
+        }
         builder.setInsertPoint(elseBlock)
         if ifStmt.elseBranch != null {
             generateStatement(ifStmt.elseBranch)
@@ -248,7 +254,9 @@ class IRGenerator {
         builder.createBr(endBlock)
         
         // Continue with end block
-        currentFunction?.addBlock(endBlock)
+        if currentFunction != null {
+            currentFunction.addBlock(endBlock)
+        }
         builder.setInsertPoint(endBlock)
     }
     
@@ -318,7 +326,7 @@ class IRGenerator {
                     let instruction = IRInstruction.new("fadd", result)
                     instruction.addOperand(left)
                     instruction.addOperand(right)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 } else {
                     // String concatenation or mixed types
@@ -332,14 +340,14 @@ class IRGenerator {
                     let instruction = IRInstruction.new("sub", result)
                     instruction.addOperand(left)
                     instruction.addOperand(right)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 } else {
                     let result = IRValue.new(builder.getNextRegister(), IRType.F64)
                     let instruction = IRInstruction.new("fsub", result)
                     instruction.addOperand(left)
                     instruction.addOperand(right)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 }
             }
@@ -350,14 +358,14 @@ class IRGenerator {
                     let instruction = IRInstruction.new("mul", result)
                     instruction.addOperand(left)
                     instruction.addOperand(right)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 } else {
                     let result = IRValue.new(builder.getNextRegister(), IRType.F64)
                     let instruction = IRInstruction.new("fmul", result)
                     instruction.addOperand(left)
                     instruction.addOperand(right)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 }
             }
@@ -368,14 +376,14 @@ class IRGenerator {
                     let instruction = IRInstruction.new("sdiv", result)
                     instruction.addOperand(left)
                     instruction.addOperand(right)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 } else {
                     let result = IRValue.new(builder.getNextRegister(), IRType.F64)
                     let instruction = IRInstruction.new("fdiv", result)
                     instruction.addOperand(left)
                     instruction.addOperand(right)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 }
             }
@@ -426,7 +434,10 @@ class IRGenerator {
         args.push(right)
         
         let result = builder.createCall("string_concat", args, IRType.Ptr)
-        return result ?: IRValue.new("error", IRType.Ptr, true)
+        if result != null {
+            return result
+        }
+        return IRValue.new("error", IRType.Ptr, true)
     }
     
     fun generateLogicalAnd(left: IRValue, right: IRValue) -> IRValue {
@@ -435,7 +446,7 @@ class IRGenerator {
         let instruction = IRInstruction.new("and", result)
         instruction.addOperand(left)
         instruction.addOperand(right)
-        builder.currentBlock?.addInstruction(instruction)
+        builder.appendInstruction(instruction)
         return result
     }
     
@@ -445,7 +456,7 @@ class IRGenerator {
         let instruction = IRInstruction.new("or", result)
         instruction.addOperand(left)
         instruction.addOperand(right)
-        builder.currentBlock?.addInstruction(instruction)
+        builder.appendInstruction(instruction)
         return result
     }
     
@@ -460,7 +471,7 @@ class IRGenerator {
                     let instruction = IRInstruction.new("sub", result)
                     instruction.addOperand(zero)
                     instruction.addOperand(operand)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 } else {
                     let zero = IRValue.new("0.0", IRType.F64, true, "0.0")
@@ -468,7 +479,7 @@ class IRGenerator {
                     let instruction = IRInstruction.new("fsub", result)
                     instruction.addOperand(zero)
                     instruction.addOperand(operand)
-                    builder.currentBlock?.addInstruction(instruction)
+                    builder.appendInstruction(instruction)
                     result
                 }
             }
@@ -479,7 +490,7 @@ class IRGenerator {
                 let instruction = IRInstruction.new("xor", result)
                 instruction.addOperand(operand)
                 instruction.addOperand(trueVal)
-                builder.currentBlock?.addInstruction(instruction)
+                builder.appendInstruction(instruction)
                 result
             }
             
@@ -509,7 +520,10 @@ class IRGenerator {
         }
         
         let result = builder.createCall(call.name, args, targetFunc.returnType)
-        return result ?: IRValue.new("void", IRType.Void, true)
+        if result != null {
+            return result
+        }
+        return IRValue.new("void", IRType.Void, true)
     }
     
     fun generatePrintln(args: Array<IRValue>) -> IRValue {
@@ -531,7 +545,10 @@ class IRGenerator {
         printfArgs.push(arg)
         
         let result = builder.createCall("printf", printfArgs, IRType.I32)
-        return result ?: IRValue.new("void", IRType.Void, true)
+        if result != null {
+            return result
+        }
+        return IRValue.new("void", IRType.Void, true)
     }
     
     fun generateClass(classNode: Class) -> Void {
@@ -561,13 +578,15 @@ class IRGenerator {
             let mallocResult = builder.createCall("malloc", [sizeValue], IRType.Ptr)
             
             // Initialize fields with parameter values
-            for i in 0..classNode.fields.length() {
-                let field = classNode.fields[i]
-                let paramValue = constructor.parameters[i]
+            var fieldIndex = 0
+            while fieldIndex < classNode.fields.length() {
+                let field = classNode.fields[fieldIndex]
+                let paramValue = constructor.parameters[fieldIndex]
                 
                 // Calculate field offset and store value
-                let fieldPtr = calculateFieldPointer(mallocResult, i)
+                let fieldPtr = calculateFieldPointer(mallocResult, fieldIndex)
                 builder.createStore(paramValue, fieldPtr)
+                fieldIndex = fieldIndex + 1
             }
             
             // Return allocated object
@@ -604,12 +623,14 @@ class IRGenerator {
         builder.setInsertPoint(entryBlock)
         
         // Set up variables for parameters
-        for i in 1..methodFunc.parameters.length() {  // Skip 'this' parameter
-            let param = method.parameters[i - 1]
+        var paramIndex = 1  // Skip 'this' parameter at index 0
+        while paramIndex < methodFunc.parameters.length() {
+            let param = method.parameters[paramIndex - 1]
             let paramType = convertSeenTypeToIR(resolveType(param.type))
             let alloca = builder.createAlloca(paramType, param.name)
-            builder.createStore(methodFunc.parameters[i], alloca)
+            builder.createStore(methodFunc.parameters[paramIndex], alloca)
             variables.put(param.name, alloca)
+            paramIndex = paramIndex + 1
         }
         
         generateStatement(method.body)
@@ -666,10 +687,14 @@ class IRGenerator {
         // In real implementation, would use getelementptr
         let result = IRValue.new(builder.getNextRegister(), IRType.Ptr)
         let instruction = IRInstruction.new("getelementptr", result)
-        instruction.addOperand(structPtr ?: IRValue.new("null", IRType.Ptr, true))
+        if structPtr != null {
+            instruction.addOperand(structPtr)
+        } else {
+            instruction.addOperand(IRValue.new("null", IRType.Ptr, true))
+        }
         instruction.addOperand(IRValue.new("0", IRType.I32, true, "0"))
         instruction.addOperand(IRValue.new(fieldIndex.toString(), IRType.I32, true, fieldIndex.toString()))
-        builder.currentBlock?.addInstruction(instruction)
+        builder.appendInstruction(instruction)
         return result
     }
 }

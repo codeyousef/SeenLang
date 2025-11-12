@@ -70,7 +70,11 @@ class IRType {
     
     fun toString() -> String {
         if isPointer {
-            return "{elementType?.toString() ?: "i8"}*"
+            var elementDescription = "i8"
+            if elementType != null {
+                elementDescription = elementType.toString()
+            }
+            return "{elementDescription}*"
         }
         return name
     }
@@ -119,11 +123,13 @@ class IRInstruction {
         
         if operands.length() > 0 {
             output += " "
-            for i in 0..operands.length() {
-                if i > 0 {
+            var operandIndex = 0
+            while operandIndex < operands.length() {
+                if operandIndex > 0 {
                     output += ", "
                 }
-                output += operands[i].toString()
+                output += operands[operandIndex].toString()
+                operandIndex = operandIndex + 1
             }
         }
         
@@ -212,11 +218,13 @@ class IRFunction {
     fun toString() -> String {
         let output = "define " + returnType.toString() + " @" + name + "("
         
-        for i in 0..parameters.length() {
-            if i > 0 {
+        var paramIndex = 0
+        while paramIndex < parameters.length() {
+            if paramIndex > 0 {
                 output += ", "
             }
-            output += parameters[i].toString()
+            output += parameters[paramIndex].toString()
+            paramIndex = paramIndex + 1
         }
         
         output += ") {{\\n"
@@ -321,11 +329,13 @@ class IRModule {
         output += "target triple = \"{targetTriple}\"\\n\\n"
         
         // String constants
-        for i in 0..stringConstants.length() {
-            let str = stringConstants[i]
+        var stringIndex = 0
+        while stringIndex < stringConstants.length() {
+            let str = stringConstants[stringIndex]
             let escaped = escapeString(str)
             let len = str.length() + 1  // +1 for null terminator
-            output += "@.str.{i} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"\\n"
+            output += "@.str.{stringIndex} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\"\\n"
+            stringIndex = stringIndex + 1
         }
         
         if stringConstants.length() > 0 {
@@ -397,13 +407,34 @@ class IRBuilder {
         this.nextRegister = 1
         this.nextBlock = 0
     }
+
+    fun appendInstruction(instruction: IRInstruction) -> Void {
+        if currentBlock != null {
+            currentBlock.addInstruction(instruction)
+        }
+    }
+
+    fun resolveNameOrDefault(name: String?, fallback: String) -> String {
+        if name != null {
+            return name
+        }
+        return fallback
+    }
+
+    fun resolveNameOrRegister(name: String?) -> String {
+        if name != null {
+            return name
+        }
+        return getNextRegister()
+    }
     
     fun setInsertPoint(block: IRBasicBlock) -> Void {
         currentBlock = block
     }
     
     fun createBlock(name: String? = null) -> IRBasicBlock {
-        let blockName = name ?: "bb{nextBlock}"
+        let fallbackName = "bb{nextBlock}"
+        let blockName = resolveNameOrDefault(name, fallbackName)
         nextBlock += 1
         return IRBasicBlock.new(blockName)
     }
@@ -415,11 +446,11 @@ class IRBuilder {
     }
     
     fun createAlloca(type: IRType, name: String? = null) -> IRValue {
-        let regName = name ?: getNextRegister()
+        let regName = resolveNameOrRegister(name)
         let result = IRValue.new(regName, IRType.new("{type.toString()}*", 64, true, type))
         let instruction = IRInstruction.new("alloca", result)
         instruction.addOperand(IRValue.new(type.toString(), type, true))
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
         return result
     }
     
@@ -427,44 +458,48 @@ class IRBuilder {
         let instruction = IRInstruction.new("store")
         instruction.addOperand(value)
         instruction.addOperand(ptr)
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
     }
     
     fun createLoad(ptr: IRValue, name: String? = null) -> IRValue {
-        let regName = name ?: getNextRegister()
-        let elementType = ptr.type.elementType ?: IRType.I32
-        let result = IRValue.new(regName, elementType)
+        let regName = resolveNameOrRegister(name)
+        let pointerElementType = ptr.type.elementType
+        var resolvedElementType = IRType.I32
+        if pointerElementType != null {
+            resolvedElementType = pointerElementType
+        }
+        let result = IRValue.new(regName, resolvedElementType)
         let instruction = IRInstruction.new("load", result)
         instruction.addOperand(ptr)
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
         return result
     }
     
     fun createAdd(lhs: IRValue, rhs: IRValue, name: String? = null) -> IRValue {
-        let regName = name ?: getNextRegister()
+        let regName = resolveNameOrRegister(name)
         let result = IRValue.new(regName, lhs.type)
         let instruction = IRInstruction.new("add", result)
         instruction.addOperand(lhs)
         instruction.addOperand(rhs)
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
         return result
     }
     
     fun createICmp(predicate: String, lhs: IRValue, rhs: IRValue, name: String? = null) -> IRValue {
-        let regName = name ?: getNextRegister()
+        let regName = resolveNameOrRegister(name)
         let result = IRValue.new(regName, IRType.new("i1", 1))
         let instruction = IRInstruction.new("icmp", result)
         instruction.addOperand(IRValue.new(predicate, IRType.Void, true, predicate))
         instruction.addOperand(lhs)
         instruction.addOperand(rhs)
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
         return result
     }
     
     fun createBr(block: IRBasicBlock) -> Void {
         let instruction = IRInstruction.new("br")
         instruction.addOperand(IRValue.new("label %{block.name}", IRType.Void, true))
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
     }
     
     fun createCondBr(condition: IRValue, trueBlock: IRBasicBlock, falseBlock: IRBasicBlock) -> Void {
@@ -472,7 +507,7 @@ class IRBuilder {
         instruction.addOperand(condition)
         instruction.addOperand(IRValue.new("label %{trueBlock.name}", IRType.Void, true))
         instruction.addOperand(IRValue.new("label %{falseBlock.name}", IRType.Void, true))
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
     }
     
     fun createRet(value: IRValue? = null) -> Void {
@@ -482,14 +517,14 @@ class IRBuilder {
         } else {
             instruction.addOperand(IRValue.new("void", IRType.Void, true))
         }
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
     }
     
     fun createCall(function: String, args: Array<IRValue>, returnType: IRType, name: String? = null) -> IRValue? {
         let instruction = IRInstruction.new("call")
         
         if returnType != IRType.Void {
-            let regName = name ?: getNextRegister()
+            let regName = resolveNameOrRegister(name)
             let result = IRValue.new(regName, returnType)
             instruction.result = result
         }
@@ -499,7 +534,7 @@ class IRBuilder {
             instruction.addOperand(arg)
         }
         
-        currentBlock?.addInstruction(instruction)
+        appendInstruction(instruction)
         return instruction.result
     }
 }
