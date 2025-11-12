@@ -1,6 +1,8 @@
 // seen_std::process::process
 // Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
 
+import str.string.{StringBuilder}
+
 struct CommandResult {
     success: Bool
     output: String
@@ -29,4 +31,22 @@ fun runCommandOutput(command: String) -> String {
 
 fun isSuccess(status: Int) -> Bool {
     return status == 0
+}
+
+fun shellQuote(text: String) -> String {
+    let builder = StringBuilder.new()
+    builder.append("\"")
+
+    var index = 0
+    while index < text.length() {
+        let ch = text.charAt(index)
+        if ch == "\"" or ch == "\\" {
+            builder.append("\\")
+        }
+        builder.appendChar(ch)
+        index = index + 1
+    }
+
+    builder.append("\"")
+    return builder.toString()
 }

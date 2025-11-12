@@ -1,9 +1,6 @@
-import str.string.{lines, trim}
-
-struct CommandResult {
-    success: Bool
-    output: String
-}
+import str.string.{lines, trim, StringBuilder}
+import io.file.{readText, writeText, createDirectory, deleteFile}
+import process.process.{runCommand, shellQuote}
 
 struct RemovalResult {
     success: Bool
@@ -69,7 +66,7 @@ class RustRemover {
                 backupFile(normalized, absolute)
             }
             if not this.dryRun {
-                let _ = DeleteFile(absolute)
+                let _ = deleteFile(absolute)
             }
             removedFiles.push(absolute)
             appendUnique(touchedDirectories, parentDirectory(absolute))
@@ -106,10 +103,13 @@ class RustRemover {
     }
 
     fun runFindCommand(root: String) -> Array<String> {
-        let quotedRoot = shellQuote(root)
-        let quotedDir = shellQuote(this.workingDir)
-        let command = "cd " + quotedDir + " && find " + quotedRoot + " -type f -name '*.rs'"
-        let result: CommandResult = __ExecuteCommand(command)
+        let builder = StringBuilder.new()
+        builder.append("cd ")
+        builder.append(shellQuote(this.workingDir))
+        builder.append(" && find ")
+        builder.append(shellQuote(root))
+        builder.append(" -type f -name '*.rs'")
+        let result = runCommand(builder.toString())
         if not result.success {
             return Array<String>()
         }
@@ -122,18 +122,21 @@ class RustRemover {
         }
         let backupTarget = backupPath(relativePath)
         ensureParentDirectories(backupTarget)
-        let contents = ReadFile(absolutePath)
-        let _ = WriteFile(backupTarget, contents)
+        let contents = readText(absolutePath)
+        let _ = writeText(backupTarget, contents)
     }
 
     fun backupPath(relativePath: String) -> String {
         if this.backupDir == "" or relativePath == "" {
             return this.backupDir
         }
-        if this.backupDir.endsWith("/") {
-            return this.backupDir + relativePath
+        let builder = StringBuilder.new()
+        builder.append(this.backupDir)
+        if not this.backupDir.endsWith("/") {
+            builder.append("/")
         }
-        return this.backupDir + "/" + relativePath
+        builder.append(relativePath)
+        return builder.toString()
     }
 
     fun absolutePath(relative: String) -> String {
@@ -143,10 +146,13 @@ class RustRemover {
         if this.workingDir == "" or this.workingDir == "." {
             return relative
         }
-        if this.workingDir.endsWith("/") {
-            return this.workingDir + relative
+        let builder = StringBuilder.new()
+        builder.append(this.workingDir)
+        if not this.workingDir.endsWith("/") {
+            builder.append("/")
         }
-        return this.workingDir + "/" + relative
+        builder.append(relative)
+        return builder.toString()
     }
 
     fun normalizeRelative(path: String) -> String {
@@ -173,8 +179,10 @@ fun parentDirectory(path: String) -> String {
             if dir == "." or dir == "" {
                 continue
             }
-            let command = "rmdir -p --ignore-fail-on-non-empty " + shellQuote(dir)
-            __ExecuteCommand(command)
+            let builder = StringBuilder.new()
+            builder.append("rmdir -p --ignore-fail-on-non-empty ")
+            builder.append(shellQuote(dir))
+            let _ = runCommand(builder.toString())
         }
     }
 }
@@ -219,23 +227,7 @@ fun createDirectoryRecursive(path: String) -> Void {
         let parent = path.substring(0, lastSlash)
         createDirectoryRecursive(parent)
     }
-    let _ = __CreateDirectory(path)
-}
-
-fun shellQuote(path: String) -> String {
-    var quoted = "\""
-    var index = 0
-    while index < path.length() {
-        let segment = path.substring(index, index + 1)
-        if segment == "\"" {
-            quoted = quoted + "\\\""
-        } else {
-            quoted = quoted + segment
-        }
-        index = index + 1
-    }
-    quoted = quoted + "\""
-    return quoted
+    let _ = createDirectory(path)
 }
 
 fun lastSlashIndex(path: String) -> Int {
@@ -251,13 +243,3 @@ fun lastSlashIndex(path: String) -> Int {
     }
     return -1
 }
-
-fun ReadFile(path: String) -> String { return __ReadFile(path) }
-fun WriteFile(path: String, contents: String) -> Bool { return __WriteFile(path, contents) }
-fun DeleteFile(path: String) -> Bool { return __DeleteFile(path) }
-
-extern "C" fun __ExecuteCommand(command: String) -> CommandResult
-extern "C" fun __ReadFile(path: String) -> String
-extern "C" fun __WriteFile(path: String, contents: String) -> Bool
-extern "C" fun __DeleteFile(path: String) -> Bool
-extern "C" fun __CreateDirectory(path: String) -> Bool

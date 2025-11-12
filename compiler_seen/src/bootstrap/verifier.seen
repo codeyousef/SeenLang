@@ -1,23 +1,11 @@
 // Bootstrap Verifier Module - Real Implementation
 // Verifies that each stage of bootstrap produces identical output
 
-import io.file.{readText, writeText}
-import process.process.{runCommand, CommandResult}
+import io.file.{readText, appendText}
+import process.process.{runCommand}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import str.string.{replace}
-
-fun ReadFile(path: String) -> String {
-    return readText(path)
-}
-
-fun WriteFile(path: String, contents: String, append: Bool = false) -> Bool {
-    if append {
-        let existing = ReadFile(path)
-        return writeText(path, existing + contents)
-    }
-    return writeText(path, contents)
-}
 
 fun FileExists(path: String) -> Bool {
     let escaped = escapePath(path)
@@ -27,11 +15,11 @@ fun FileExists(path: String) -> Bool {
 }
 
 fun GetFileSize(path: String) -> Int {
-    return ReadFile(path).length()
+    return readText(path).length()
 }
 
 fun GetFileHash(path: String) -> String {
-    return hashToHex(ReadFile(path))
+    return hashToHex(readText(path))
 }
 
 fun escapePath(path: String) -> String {
@@ -201,7 +189,7 @@ class BootstrapVerifier {
     
     fun log(message: String) -> Void {
         println(message)
-        WriteFile(logPath, "{message}\\n", true) // append mode
+        let _ = appendText(logPath, "{message}\\n")
     }
     
     fun getStageCount() -> Int {
