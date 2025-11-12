@@ -41,21 +41,38 @@ fun Result<T, E>.isErr() -> Bool {
 
 fun Result<T, E>.unwrap() -> T {
     if this.isOk and this.value != null {
-        return this.value
+        return this.value!!
     }
     abort("called unwrap() on Err result")
 }
 
+fun Result<T, E>.expect(message: String) -> T {
+    if this.isOk and this.value != null {
+        return this.value!!
+    }
+    abort(message)
+}
+
 fun Result<T, E>.unwrapOr(defaultValue: T) -> T {
     if this.isOk and this.value != null {
-        return this.value
+        return this.value!!
     }
     return defaultValue
 }
 
 fun Result<T, E>.unwrapErr() -> E {
     if not this.isOk and this.error != null {
-        return this.error
+        return this.error!!
     }
     abort("called unwrapErr() on Ok result")
+}
+
+fun Result<T, E>.swap() -> Result<E, T> {
+    if this.isOk and this.value != null {
+        return Err(this.value!!)
+    }
+    if this.error != null {
+        return Ok(this.error!!)
+    }
+    abort("Result.swap called with missing payload")
 }

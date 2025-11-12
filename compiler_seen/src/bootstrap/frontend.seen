@@ -14,13 +14,13 @@ class FrontendDiagnostic {
     var message: String
 
     fun new(file: String, line: Int, column: Int, severity: String, message: String) -> FrontendDiagnostic {
-        let diag = FrontendDiagnostic{}
-        diag.file = file
-        diag.line = line
-        diag.column = column
-        diag.severity = severity
-        diag.message = message
-        return diag
+        return FrontendDiagnostic{
+            file: file,
+            line: line,
+            column: column,
+            severity: severity,
+            message: message
+        }
     }
 }
 
@@ -29,10 +29,10 @@ class FrontendResult {
     var diagnostics: Array<FrontendDiagnostic>
 
     fun new() -> FrontendResult {
-        let result = FrontendResult{}
-        result.success = false
-        result.diagnostics = Array<FrontendDiagnostic>()
-        return result
+        return FrontendResult{
+            success: false,
+            diagnostics: Array<FrontendDiagnostic>()
+        }
     }
 
     fun addDiagnostic(diag: FrontendDiagnostic) -> Void {

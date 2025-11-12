@@ -26,9 +26,6 @@ class TaskHandle<T> {
     }
 
     fun unwrap() -> T {
-        if this.result.isSome() {
-            return this.result.value
-        }
-        abort("task result not ready")
+        return this.result.expect("task result not ready")
     }
 }

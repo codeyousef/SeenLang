@@ -15,15 +15,15 @@ fun unreachable(message: String = "entered unreachable code") -> Never {
 }
 
 fun Option<T>.expect(message: String) -> T {
-    if this.isSome() {
-        return this.value
+    if this.isSome() and this.value != null {
+        return this.value!!
     }
     abort(message)
 }
 
 fun Result<T, E>.expect(message: String) -> T {
-    if this.isOk() {
-        return this.value
+    if this.isOk() and this.value != null {
+        return this.value!!
     }
     abort(message)
 }

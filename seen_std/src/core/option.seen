@@ -1,15 +1,12 @@
 // seen_std::core::option
-// Minimal Option<T> type with helpers so Stage-1 code can avoid ad-hoc nullable logic.
+// Deterministic Option<T> container with the basic ergonomics Stage-1 relies on.
 
 class Option<T> {
     var hasValue: Bool
     var value: T?
 
     fun new() -> Option<T> {
-        return Option{
-            hasValue: false,
-            value: null
-        }
+        return None()
     }
 }
 
@@ -35,9 +32,38 @@ fun Option<T>.isNone() -> Bool {
     return not this.hasValue
 }
 
+fun Option<T>.unwrap() -> T {
+    if this.hasValue and this.value != null {
+        return this.value!!
+    }
+    abort("called unwrap() on None option")
+}
+
+fun Option<T>.expect(message: String) -> T {
+    if this.hasValue and this.value != null {
+        return this.value!!
+    }
+    abort(message)
+}
+
 fun Option<T>.unwrapOr(defaultValue: T) -> T {
-    if this.hasValue {
-        return this.value
+    if this.hasValue and this.value != null {
+        return this.value!!
     }
     return defaultValue
+}
+
+fun Option<T>.replace(value: T) -> Option<T> {
+    let previous = Option{
+        hasValue: this.hasValue,
+        value: this.value
+    }
+    this.hasValue = true
+    this.value = value
+    return previous
+}
+
+fun Option<T>.clear() -> Void {
+    this.hasValue = false
+    this.value = null
 }

@@ -68,56 +68,144 @@ fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) -> Bool {
     return abs(a - b) <= tolerance
 }
 
-extern "C" fun __sin(x: Float) -> Float
-extern "C" fun __cos(x: Float) -> Float
-extern "C" fun __tan(x: Float) -> Float
-extern "C" fun __sqrt(x: Float) -> Float
-extern "C" fun __floor(x: Float) -> Float
-extern "C" fun __ceil(x: Float) -> Float
-extern "C" fun __pow(base: Float, exponent: Float) -> Float
-extern "C" fun __exp(x: Float) -> Float
-extern "C" fun __log(x: Float) -> Float
-
 fun sin(radians: Float) -> Float {
-    return __sin(radians)
+    let angle = normalizeAngle(radians)
+    let x2 = angle * angle
+    let x3 = angle * x2
+    let x5 = x3 * x2
+    let x7 = x5 * x2
+    let x9 = x7 * x2
+    return angle
+        - (x3 / 6.0)
+        + (x5 / 120.0)
+        - (x7 / 5040.0)
+        + (x9 / 362880.0)
 }
 
 fun cos(radians: Float) -> Float {
-    return __cos(radians)
+    let angle = normalizeAngle(radians)
+    let x2 = angle * angle
+    let x4 = x2 * x2
+    let x6 = x4 * x2
+    let x8 = x4 * x4
+    return 1.0
+        - (x2 / 2.0)
+        + (x4 / 24.0)
+        - (x6 / 720.0)
+        + (x8 / 40320.0)
 }
 
 fun tan(radians: Float) -> Float {
-    return __tan(radians)
+    let c = cos(radians)
+    if approxEqual(c, 0.0, 0.0000001) {
+        abort("tan undefined for angle {radians}")
+    }
+    return sin(radians) / c
 }
 
 fun sqrt(value: Float) -> Float {
     if value < 0.0 {
         abort("sqrt of negative input")
     }
-    return __sqrt(value)
+    if value == 0.0 {
+        return 0.0
+    }
+    var guess = value
+    var iterations = 0
+    while iterations < 24 {
+        guess = 0.5 * (guess + value / guess)
+        iterations = iterations + 1
+    }
+    return guess
 }
 
 fun floor(value: Float) -> Float {
-    return __floor(value)
+    if value >= 0.0 {
+        var whole = 0.0
+        var remaining = value
+        while remaining >= 1.0 {
+            remaining = remaining - 1.0
+            whole = whole + 1.0
+        }
+        return whole
+    }
+    var whole = 0.0
+    var remaining = value
+    while remaining <= -1.0 {
+        remaining = remaining + 1.0
+        whole = whole - 1.0
+    }
+    if remaining == 0.0 {
+        return whole
+    }
+    return whole - 1.0
 }
 
 fun ceil(value: Float) -> Float {
-    return __ceil(value)
+    if value >= 0.0 {
+        var whole = 0.0
+        var remaining = value
+        while remaining >= 1.0 {
+            remaining = remaining - 1.0
+            whole = whole + 1.0
+        }
+        if remaining == 0.0 {
+            return whole
+        }
+        return whole + 1.0
+    }
+    var whole = 0.0
+    var remaining = value
+    while remaining <= -1.0 {
+        remaining = remaining + 1.0
+        whole = whole - 1.0
+    }
+    return whole
 }
 
 fun pow(base: Float, exponent: Float) -> Float {
-    return __pow(base, exponent)
+    if exponent == 0.0 {
+        return 1.0
+    }
+    var result = 1.0
+    var count = if exponent < 0.0 { -exponent } else { exponent }
+    while count >= 1.0 {
+        result = result * base
+        count = count - 1.0
+    }
+    if exponent < 0.0 {
+        if result == 0.0 {
+            abort("pow division by zero")
+        }
+        return 1.0 / result
+    }
+    return result
 }
 
 fun exp(value: Float) -> Float {
-    return __exp(value)
+    var term = 1.0
+    var result = 1.0
+    var n = 1
+    while n < 20 {
+        term = term * value / n
+        result = result + term
+        n = n + 1
+    }
+    return result
 }
 
 fun ln(value: Float) -> Float {
     if value <= 0.0 {
         abort("ln expects positive input")
     }
-    return __log(value)
+    var guess = 0.0
+    var iterations = 0
+    while iterations < 32 {
+        let e = exp(guess)
+        guess = guess + (value - e) / e
+        iterations = iterations + 1
+    }
+    return guess
 }
 
 fun log(base: Float, value: Float) -> Float {
@@ -223,4 +311,15 @@ fun radians(value: Float) -> Float {
 
 fun degrees(value: Float) -> Float {
     return radToDeg(value)
+}
+
+fun normalizeAngle(value: Float) -> Float {
+    var angle = value
+    while angle > PI {
+        angle = angle - TAU
+    }
+    while angle < -PI {
+        angle = angle + TAU
+    }
+    return angle
 }

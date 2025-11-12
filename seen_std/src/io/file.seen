@@ -3,23 +3,6 @@
 
 import str.string.{StringBuilder, lines}
 
-extern "C" fun __ReadFile(path: String) -> String
-extern "C" fun __WriteFile(path: String, contents: String) -> Bool
-extern "C" fun __CreateDirectory(path: String) -> Bool
-extern "C" fun __DeleteFile(path: String) -> Bool
-extern "C" fun __ExecuteProgram(path: String) -> Int
-extern "C" fun __ExecuteCommand(command: String) -> ProcessResult
-
-struct ProcessOutput {
-    success: Bool
-    output: String
-}
-
-struct ProcessResult {
-    success: Bool
-    output: String
-}
-
 fun readText(path: String) -> String {
     return __ReadFile(path)
 }
@@ -67,12 +50,4 @@ fun deleteFile(path: String) -> Bool {
 
 fun executeProgram(path: String) -> Int {
     return __ExecuteProgram(path)
-}
-
-fun executeCommand(command: String) -> ProcessOutput {
-    let raw = __ExecuteCommand(command)
-    return ProcessOutput{
-        success: raw.success,
-        output: raw.output
-    }
 }

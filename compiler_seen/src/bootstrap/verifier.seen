@@ -1,10 +1,67 @@
 // Bootstrap Verifier Module - Real Implementation
 // Verifies that each stage of bootstrap produces identical output
 
-import files.{ReadFile, WriteFile, FileExists, GetFileHash, GetFileSize}
-import process.{ExecuteCommand, CommandResult}
-import seen_std.core.option.{Option, Some, None}
-import seen_std.core.result.{Result, Ok, Err}
+import io.file.{readText, writeText}
+import process.process.{runCommand, CommandResult}
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import str.string.{replace}
+
+fun ReadFile(path: String) -> String {
+    return readText(path)
+}
+
+fun WriteFile(path: String, contents: String, append: Bool = false) -> Bool {
+    if append {
+        let existing = ReadFile(path)
+        return writeText(path, existing + contents)
+    }
+    return writeText(path, contents)
+}
+
+fun FileExists(path: String) -> Bool {
+    let escaped = escapePath(path)
+    let command = "test -f '{escaped}'"
+    let result = runCommand(command)
+    return result.success
+}
+
+fun GetFileSize(path: String) -> Int {
+    return ReadFile(path).length()
+}
+
+fun GetFileHash(path: String) -> String {
+    return hashToHex(ReadFile(path))
+}
+
+fun escapePath(path: String) -> String {
+    return replace(path, "'", "'\\''")
+}
+
+fun hashToHex(data: String) -> String {
+    var hash = 2166136261
+    var index = 0
+    while index < data.length() {
+        hash = hash ^ data.charAt(index)
+        hash = (hash * 16777619) % 2147483647
+        index = index + 1
+    }
+    return formatHash(hash)
+}
+
+fun formatHash(value: Int) -> String {
+    let hexChars = "0123456789abcdef"
+    var remaining = if value < 0 { -value } else { value }
+    var result = ""
+    var digits = 0
+    while digits < 8 {
+        let nibble = remaining % 16
+        result = hexChars.charAt(nibble) + result
+        remaining = remaining / 16
+        digits = digits + 1
+    }
+    return result
+}
 
 class BootstrapVerifier {
     let stages: Array<CompilerInfo>
@@ -92,7 +149,7 @@ class BootstrapVerifier {
         log("   Command: {command}")
         
         let startTime = getCurrentTime()
-        let result = ExecuteCommand(command)
+        let result = runCommand(command)
         let endTime = getCurrentTime()
         let duration = endTime - startTime
         

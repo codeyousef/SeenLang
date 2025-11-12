@@ -2230,19 +2230,34 @@ fn bundle_imports(
                     }
                     visited_modules.insert(key.clone());
                     // Resolve candidate paths
-                    let module_file = format!("{}.seen", module_path.join("/"));
+                    let module_rel = PathBuf::from(module_path.join("/"));
+                    let mut module_file = module_rel.clone();
+                    module_file.set_extension("seen");
+                    let mod_rel = module_rel.join("mod.seen");
+                    let main_rel = module_rel.join("main.seen");
+                    let fallback_name = module_path.last().cloned().unwrap_or_else(String::new);
                     let mut candidates = vec![
+                        module_dir.join(&module_file),
                         base_dir.join(&module_file),
                         project_root.join(&module_file),
                         project_root.join("src").join(&module_file),
                         PathBuf::from("compiler_seen/src").join(&module_file),
-                        PathBuf::from("compiler_seen/src").join(format!(
-                            "{}.seen",
-                            module_path.last().unwrap_or(&String::new())
-                        )),
+                        PathBuf::from("compiler_seen/src").join(format!("{}.seen", fallback_name)),
                     ];
+                    for rel in [&mod_rel, &main_rel] {
+                        candidates.push(module_dir.join(rel));
+                        candidates.push(base_dir.join(rel));
+                        candidates.push(project_root.join(rel));
+                        candidates.push(project_root.join("src").join(rel));
+                        candidates.push(PathBuf::from("compiler_seen/src").join(rel));
+                    }
                     for root in dependency_roots {
                         candidates.push(root.join(&module_file));
+                        candidates.push(root.join("src").join(&module_file));
+                        for rel in [&mod_rel, &main_rel] {
+                            candidates.push(root.join(rel));
+                            candidates.push(root.join("src").join(rel));
+                        }
                     }
                     candidates.dedup();
                     let mut loaded = false;

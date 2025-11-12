@@ -1,8 +1,6 @@
 // seen_std::time::time
 // Deterministic timestamp + duration helpers atop __GetTimestamp.
 
-extern "C" fun __GetTimestamp() -> String
-
 fun nowSeconds() -> Int {
     return parseTimestamp(__GetTimestamp())
 }

@@ -1,20 +1,25 @@
 // seen_std::process::process
 // Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
 
-struct CommandResult {
-    success: Bool
-    output: String
-}
+class CommandResult {
+    var success: Bool
+    var output: String
 
-extern "C" fun __ExecuteProgram(path: String) -> Int
-extern "C" fun __ExecuteCommand(command: String) -> CommandResult
+    fun new(success: Bool = false, output: String = "") -> CommandResult {
+        return CommandResult{
+            success: success,
+            output: output
+        }
+    }
+}
 
 fun runProgram(path: String) -> Int {
     return __ExecuteProgram(path)
 }
 
 fun runCommand(command: String) -> CommandResult {
-    return __ExecuteCommand(command)
+    let result: CommandResult = __ExecuteCommand(command)
+    return result
 }
 
 fun runCommandOrAbort(command: String) -> CommandResult {
