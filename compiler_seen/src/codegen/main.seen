@@ -184,6 +184,20 @@ class IRGenerator {
         generator.globalValues = Array<IRValue>()
         return generator
     }
+
+    fun appendInstruction(instr: IRInstruction) -> Void {
+        let current = this.cfg.getCurrentBlock()
+        if current != null {
+            current.addInstruction(instr)
+        }
+    }
+
+    fun addSuccessorToCurrent(block: BasicBlock) -> Void {
+        let current = this.cfg.getCurrentBlock()
+        if current != null {
+            current.addSuccessor(block)
+        }
+    }
     
     fun generateProgram(program: Program) -> ControlFlowGraph {
         // Generate IR for all items in the program
@@ -216,14 +230,14 @@ class IRGenerator {
         
         // Generate function epilogue
         let epilogueInstr = IRInstruction.new("epilogue", Array<IRValue>(), null)
-        this.cfg.getCurrentBlock()?.addInstruction(epilogueInstr)
+        this.appendInstruction(epilogueInstr)
         
         // Return instruction
         if bodyResult != null {
             let returnOperands = Array<IRValue>()
             returnOperands.push(bodyResult)
             let returnInstr = IRInstruction.new("return", returnOperands, null)
-            this.cfg.getCurrentBlock()?.addInstruction(returnInstr)
+            this.appendInstruction(returnInstr)
         }
         
         return this.ssaBuilder.newTemporary("function")
@@ -261,14 +275,14 @@ class IRGenerator {
         // For bootstrap, assume expr contains value
         let value = this.ssaBuilder.newTemporary("i32")
         let instr = IRInstruction.new("const_int", Array<IRValue>(), value)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         return value
     }
     
     fun generateFloatLiteral(expr: Expression) -> IRValue {
         let value = this.ssaBuilder.newTemporary("f64")
         let instr = IRInstruction.new("const_float", Array<IRValue>(), value)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         return value
     }
     
@@ -276,14 +290,14 @@ class IRGenerator {
         // For bootstrap, simplified string handling
         let value = this.ssaBuilder.newTemporary("string")
         let instr = IRInstruction.new("const_string", Array<IRValue>(), value)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         return value
     }
     
     fun generateBooleanLiteral(expr: Expression) -> IRValue {
         let value = this.ssaBuilder.newTemporary("bool")
         let instr = IRInstruction.new("const_bool", Array<IRValue>(), value)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         return value
     }
     
@@ -301,7 +315,7 @@ class IRGenerator {
         
         let result = this.ssaBuilder.newTemporary("i32")
         let instr = IRInstruction.new("add", [leftValue, rightValue], result)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         
         return result
     }
@@ -311,7 +325,7 @@ class IRGenerator {
         
         let result = this.ssaBuilder.newTemporary("i32")
         let instr = IRInstruction.new("neg", [operandValue], result)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         
         return result
     }
@@ -320,7 +334,7 @@ class IRGenerator {
         // For bootstrap, simplified function call
         let result = this.ssaBuilder.newTemporary("unknown")
         let instr = IRInstruction.new("call", Array<IRValue>(), result)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         
         return result
     }
@@ -336,11 +350,11 @@ class IRGenerator {
         
         // Conditional branch
         let branchInstr = IRInstruction.new("branch", [condition], null)
-        this.cfg.getCurrentBlock()?.addInstruction(branchInstr)
+        this.appendInstruction(branchInstr)
         
         // Add edges
-        this.cfg.getCurrentBlock()?.addSuccessor(thenBlock)
-        this.cfg.getCurrentBlock()?.addSuccessor(elseBlock)
+        this.addSuccessorToCurrent(thenBlock)
+        this.addSuccessorToCurrent(elseBlock)
         
         // Generate then branch
         this.cfg.setCurrentBlock(thenBlock)
@@ -367,7 +381,7 @@ class IRGenerator {
         // For bootstrap, simplified match expression
         let result = this.ssaBuilder.newTemporary("unknown")
         let instr = IRInstruction.new("match", Array<IRValue>(), result)
-        this.cfg.getCurrentBlock()?.addInstruction(instr)
+        this.appendInstruction(instr)
         
         return result
     }
@@ -380,8 +394,8 @@ class IRGenerator {
         
         // Jump to header
         let jumpToHeader = IRInstruction.new("jump", Array<IRValue>(), null)
-        this.cfg.getCurrentBlock()?.addInstruction(jumpToHeader)
-        this.cfg.getCurrentBlock()?.addSuccessor(headerBlock)
+        this.appendInstruction(jumpToHeader)
+        this.addSuccessorToCurrent(headerBlock)
         
         // Generate loop header (condition check)
         this.cfg.setCurrentBlock(headerBlock)
@@ -412,8 +426,8 @@ class IRGenerator {
         
         // Jump to header
         let jumpToHeader = IRInstruction.new("jump", Array<IRValue>(), null)
-        this.cfg.getCurrentBlock()?.addInstruction(jumpToHeader)
-        this.cfg.getCurrentBlock()?.addSuccessor(headerBlock)
+        this.appendInstruction(jumpToHeader)
+        this.addSuccessorToCurrent(headerBlock)
         
         // Generate condition
         this.cfg.setCurrentBlock(headerBlock)
@@ -659,8 +673,10 @@ class CCodeGenerator {
     }
     
     fun emit(code: String) {
-        for i in 0..<this.indentLevel {
+        var indentIndex = 0
+        while indentIndex < this.indentLevel {
             this.output = this.output + "    "
+            indentIndex = indentIndex + 1
         }
         this.output = this.output + code + "\n"
     }

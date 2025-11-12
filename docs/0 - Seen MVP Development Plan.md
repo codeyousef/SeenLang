@@ -629,9 +629,11 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
     2. Continue sweeping the `compiler_seen/src/ir/*.seen` and `compiler_seen/src/codegen/*.seen` files for Kotlinisms
        (tuple `for` bindings, `parts[1..]` slicing, `0..n` range literals, `when`/`match` hybrids, raw `{{` braces)
        and normalize them so the Rust toolchain accepts the full tree without local edits.
-        * Update: `compiler_seen/src/ir/interfaces.seen` and `compiler_seen/src/ir/generator.seen` no longer rely on
-          Kotlin `0..` ranges, Elvis/safe-navigation operators, or inline ternary-style expressions; helper methods now
-          guard `currentBlock`/`currentFunction` accesses, and both files parse via `seen_cli parse` as part of this sweep.
+        * Update: `compiler_seen/src/ir/interfaces.seen`, `compiler_seen/src/ir/generator.seen`, and the
+          `compiler_seen/src/codegen/*` backends (C + LLVM + SSA builder) no longer rely on Kotlin `0..` ranges,
+          Elvis/safe-navigation operators, or inline ternary expressions; helper methods now guard optional blocks,
+          string loops use explicit counters, and `seen_cli parse compiler_seen/src/codegen/{interfaces,generator,main,real_codegen}.seen`
+          stays green.
     3. After each batch, rerun `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` to surface the next failing
        module (typechecker, IR, runtime) and log the precise file/line so tomorrow’s work can pick up immediately.
     4. Backfill regression coverage for the new lexer/parser behaviors (literal braces inside strings, interpolation

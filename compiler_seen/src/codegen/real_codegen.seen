@@ -1057,7 +1057,12 @@ class RealCodeGenerator {
         }
         
         // Allocate region
-        emit("  ; Begin region " + (regionStmt.name ?: "anonymous"))
+        let regionName = if regionStmt.name != null {
+            regionStmt.name
+        } else {
+            "anonymous"
+        }
+        emit("  ; Begin region " + regionName)
         
         generateBlock(regionStmt.body)
         

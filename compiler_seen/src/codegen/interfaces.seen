@@ -235,7 +235,12 @@ class CBackend extends Backend {
             "void" -> "void"
             _ -> {
                 if irType.isPointer {
-                    return "{convertIRTypeToC(irType.elementType ?: IRType.I8)}*"
+                    let elementType = if irType.elementType != null {
+                        irType.elementType
+                    } else {
+                        IRType.I8
+                    }
+                    return "{convertIRTypeToC(elementType)}*"
                 }
                 return "void*"  // Unknown type as void pointer
             }

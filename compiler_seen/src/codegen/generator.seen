@@ -545,11 +545,13 @@ class LLVMBackend extends Backend {
         output += "\\n"
         
         // Generate string constants
-        for i in 0..irModule.stringConstants.length() {
-            let str = irModule.stringConstants[i]
+        var llvmStringIndex = 0
+        while llvmStringIndex < irModule.stringConstants.length() {
+            let str = irModule.stringConstants[llvmStringIndex]
             let escaped = escapeString(str)
             let len = str.length() + 1
-            output += "@.str.{i} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\", align 1\\n"
+            output += "@.str.{llvmStringIndex} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\", align 1\\n"
+            llvmStringIndex = llvmStringIndex + 1
         }
         output += "\\n"
         
@@ -577,11 +579,13 @@ class LLVMBackend extends Backend {
         // Function signature
         output += "define {irFunction.returnType.toString()} @{irFunction.name}("
         
-        for i in 0..irFunction.parameters.length() {
-            if i > 0 {
+        var llvmParamIndex = 0
+        while llvmParamIndex < irFunction.parameters.length() {
+            if llvmParamIndex > 0 {
                 output += ", "
             }
-            output += irFunction.parameters[i].toString()
+            output += irFunction.parameters[llvmParamIndex].toString()
+            llvmParamIndex = llvmParamIndex + 1
         }
         
         output += ") {{\\n"
@@ -697,6 +701,20 @@ class CBackend extends Backend {
         customTypes.put("String", "char*")
         customTypes.put("Array", "void*")
     }
+
+    fun resultNameOr(instruction: IRInstruction, fallback: String) -> String {
+        if instruction.result != null {
+            return instruction.result.name
+        }
+        return fallback
+    }
+
+    fun elementTypeOr(irType: IRType, fallback: IRType) -> IRType {
+        if irType.elementType != null {
+            return irType.elementType
+        }
+        return fallback
+    }
     
     fun generateModule(irModule: IRModule) -> String {
         let output = ""
@@ -712,9 +730,11 @@ class CBackend extends Backend {
         output += "\\n"
         
         // Generate string constants
-        for i in 0..irModule.stringConstants.length() {
-            let str = irModule.stringConstants[i]
-            output += "static const char* str_{i} = \"{str}\";\\n"
+        var stringIndex = 0
+        while stringIndex < irModule.stringConstants.length() {
+            let str = irModule.stringConstants[stringIndex]
+            output += "static const char* str_{stringIndex} = \"{str}\";\\n"
+            stringIndex = stringIndex + 1
         }
         output += "\\n"
         
@@ -734,13 +754,15 @@ class CBackend extends Backend {
         let returnType = convertIRTypeToC(irFunction.returnType)
         output += "{returnType} {irFunction.name}("
         
-        for i in 0..irFunction.parameters.length() {
-            if i > 0 {
+        var paramIndex = 0
+        while paramIndex < irFunction.parameters.length() {
+            if paramIndex > 0 {
                 output += ", "
             }
-            let param = irFunction.parameters[i]
+            let param = irFunction.parameters[paramIndex]
             let paramType = convertIRTypeToC(param.type)
             output += "{paramType} {param.name}"
+            paramIndex = paramIndex + 1
         }
         
         output += ") {{\\n"
@@ -761,7 +783,8 @@ class CBackend extends Backend {
             for instruction in block.instructions {
                 if instruction.opcode == "alloca" and instruction.result != null {
                     let result = instruction.result
-                    let elementType = convertIRTypeToC(result.type.elementType ?: IRType.I32)
+                    let resolvedType = elementTypeOr(result.type, IRType.I32)
+                    let elementType = convertIRTypeToC(resolvedType)
                     output += "    {elementType} {result.name};\\n"
                 }
             }
@@ -791,28 +814,28 @@ class CBackend extends Backend {
             
             "load" -> {
                 let ptr = instruction.operands[0]
-                let result = instruction.result?.name ?: "tmp"
+                let result = resultNameOr(instruction, "tmp")
                 "    // Load from {ptr.name} to {result}\\n"
             }
             
             "add" -> {
                 let left = instruction.operands[0]
                 let right = instruction.operands[1]
-                let result = instruction.result?.name ?: "tmp"
+                let result = resultNameOr(instruction, "tmp")
                 "    {result} = {left.toString()} + {right.toString()};\\n"
             }
             
             "sub" -> {
                 let left = instruction.operands[0]
                 let right = instruction.operands[1]
-                let result = instruction.result?.name ?: "tmp"
+                let result = resultNameOr(instruction, "tmp")
                 "    {result} = {left.toString()} - {right.toString()};\\n"
             }
             
             "mul" -> {
                 let left = instruction.operands[0]
                 let right = instruction.operands[1]
-                let result = instruction.result?.name ?: "tmp"
+                let result = resultNameOr(instruction, "tmp")
                 "    {result} = {left.toString()} * {right.toString()};\\n"
             }
             
@@ -827,11 +850,13 @@ class CBackend extends Backend {
             
             "call" -> {
                 let funcName = instruction.operands[0].name.replace("@", "")
-                let result = instruction.result?.name ?: ""
+                let result = resultNameOr(instruction, "")
                 let args = Array<String>()
                 
-                for i in 1..instruction.operands.length() {
-                    args.push(instruction.operands[i].toString())
+                var operandIndex = 1
+                while operandIndex < instruction.operands.length() {
+                    args.push(instruction.operands[operandIndex].toString())
+                    operandIndex = operandIndex + 1
                 }
                 
                 if result != "" {
@@ -849,13 +874,15 @@ class CBackend extends Backend {
         let returnType = convertIRTypeToC(irFunction.returnType)
         let output = "{returnType} {irFunction.name}("
         
-        for i in 0..irFunction.parameters.length() {
-            if i > 0 {
+        var declParamIndex = 0
+        while declParamIndex < irFunction.parameters.length() {
+            if declParamIndex > 0 {
                 output += ", "
             }
-            let param = irFunction.parameters[i]
+            let param = irFunction.parameters[declParamIndex]
             let paramType = convertIRTypeToC(param.type)
             output += "{paramType}"
+            declParamIndex = declParamIndex + 1
         }
         
         output += ");\\n"
@@ -891,7 +918,8 @@ class CBackend extends Backend {
             "void" -> "void"
             _ -> {
                 if irType.isPointer {
-                    let elementType = convertIRTypeToC(irType.elementType ?: IRType.I8)
+                    let resolvedElementType = elementTypeOr(irType, IRType.I8)
+                    let elementType = convertIRTypeToC(resolvedElementType)
                     return "{elementType}*"
                 }
                 return "void*"
@@ -1143,11 +1171,13 @@ fun unrollLoop(loopInfo: LoopInfo) -> Array<String> {
     let unrolled = Array<String>()
     unrolled.push("  ; Loop unrolled " + loopInfo.iterations.toString() + " times")
     
-    for i in 0..loopInfo.iterations {
-        unrolled.push("  ; Iteration " + i.toString())
+    var iteration = 0
+    while iteration < loopInfo.iterations {
+        unrolled.push("  ; Iteration " + iteration.toString())
         for line in loopInfo.body {
             unrolled.push(line)
         }
+        iteration = iteration + 1
     }
     
     return unrolled
