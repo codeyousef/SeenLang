@@ -1,5 +1,6 @@
 import lexer.real_lexer.{RealLexer}
-import parser.real_parser.{RealParser, ImportSymbolNode}
+import parser.real_parser.{RealParser}
+import parser.ast.{ImportSymbolNode}
 
 fun main() -> Int {
     let source = """
@@ -12,13 +13,13 @@ fun main() -> Int {
 }
 """
 
-    let lexer = RealLexer{ source: source }
+    let lexer = RealLexer.new(source)
     let tokens = lexer.tokenize()
-    let parser = RealParser{ tokens: tokens }
+    let parser = RealParser.new(tokens)
     let ast = parser.parse()
 
-    if ast.items.size() < 4 {
-        println("expected at least four items, got {ast.items.size()}")
+    if ast.items.length() < 4 {
+        println("expected at least four items, got {ast.items.length()}")
         return 1
     }
 
@@ -46,9 +47,9 @@ fun main() -> Int {
     return 0
 }
 
-fun verifySymbol(symbols: List<ImportSymbolNode>, index: Int, expectedName: String, expectedAlias: String) -> Bool {
-    if symbols.size() <= index {
-        println("missing symbol at index {index}, have {symbols.size()}")
+fun verifySymbol(symbols: Array<ImportSymbolNode>, index: Int, expectedName: String, expectedAlias: String) -> Bool {
+    if symbols.length() <= index {
+        println("missing symbol at index {index}, have {symbols.length()}")
         return false
     }
 

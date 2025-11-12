@@ -1,920 +1,381 @@
-// REAL Seen Parser Implementation - Actually builds ASTs!
-// This is not a stub - it really parses code!
+// Simplified Seen parser that builds the canonical AST structures used by the
+// bootstrap pipeline. It currently focuses on top-level constructs (imports +
+// functions) so higher layers can start consuming deterministic data while the
+// full parser port continues.
 
-// AST Node Types
-class ASTNode {
-    var nodeType: String
-    var children: List<ASTNode>
-    
-    fun new(nodeType: String) -> ASTNode {
-        return ASTNode{
-            nodeType: nodeType,
-            children: []
-        }
-    }
-}
+import parser.ast.{ProgramNode, ItemNode, FunctionNode, ParamNode, TypeNode, BlockNode, ImportSymbolNode}
+import lexer.real_lexer.{RealToken}
 
-class ProgramNode {
-    var items: List<ItemNode>
-    
-    fun new() -> ProgramNode {
-        return ProgramNode{ items: [] }
-    }
-}
-
-class ItemNode {
-    var itemType: String; // "Function", "Class", "Import", etc.
-    var name: String
-    var visibility: String; // "public", "private", ""
-    var importPath: List<String>
-    var importSymbols: List<ImportSymbolNode>
-    
-    fun new(itemType: String, name: String) -> ItemNode {
-        return ItemNode{
-            itemType: itemType,
-            name: name,
-            visibility: "",
-            importPath: [],
-            importSymbols: []
-        }
-    }
-}
-
-class ImportSymbolNode {
-    var name: String
-    var alias: String
-    
-    fun new(name: String, alias: String) -> ImportSymbolNode {
-        return ImportSymbolNode{
-            name: name,
-            alias: alias
-        }
-    }
-    
-    fun hasAlias() -> Bool {
-        return alias != ""
-    }
-}
-
-class ImportPathInfo {
-    var text: String
-    var segments: List<String>
-    
-    fun new(text: String, segments: List<String>) -> ImportPathInfo {
-        return ImportPathInfo{
-            text: text,
-            segments: segments
-        }
-    }
-}
-
-class FunctionNode {
-    var name: String
-    var params: List<ParamNode>
-    var returnType: String
-    var body: BlockNode
-    
-    fun new(name: String) -> FunctionNode {
-        return FunctionNode{
-            name: name,
-            params: [],
-            returnType: "",
-            body: BlockNode{}
-        }
-    }
-}
-
-class ParamNode {
-    var name: String
-    var paramType: String
-    
-    fun new(name: String, paramType: String) -> ParamNode {
-        return ParamNode{
-            name: name,
-            paramType: paramType
-        }
-    }
-}
-
-class BlockNode {
-    var statements: List<StatementNode>
-    
-    fun new() -> BlockNode {
-        return BlockNode{ statements: [] }
-    }
-}
-
-class StatementNode {
-    var stmtType: String; // "Let", "Return", "If", "While", "Expression", etc.
-    
-    fun new(stmtType: String) -> StatementNode {
-        return StatementNode{ stmtType: stmtType }
-    }
-}
-
-class ExpressionNode {
-    var exprType: String; // "Binary", "Unary", "Call", "Literal", "Identifier", etc.
-    
-    fun new(exprType: String) -> ExpressionNode {
-        return ExpressionNode{ exprType: exprType }
-    }
-}
-
-class BinaryExprNode {
-    var left: ExpressionNode
-    var operator: String
-    var right: ExpressionNode
-    
-    fun new(left: ExpressionNode, op: String, right: ExpressionNode) -> BinaryExprNode {
-        return BinaryExprNode{
-            left: left,
-            operator: op,
-            right: right
-        }
-    }
-}
-
-class CallExprNode {
-    var callee: ExpressionNode
-    var arguments: List<ExpressionNode>
-    
-    fun new(callee: ExpressionNode) -> CallExprNode {
-        return CallExprNode{
-            callee: callee,
-            arguments: []
-        }
-    }
-}
-
-class LiteralNode {
-    var literalType: String; // "Int", "Float", "String", "Bool"
-    var value: String
-    
-    fun new(literalType: String, value: String) -> LiteralNode {
-        return LiteralNode{
-            literalType: literalType,
-            value: value
-        }
-    }
-}
-
-class IdentifierNode {
-    var name: String
-    
-    fun new(name: String) -> IdentifierNode {
-        return IdentifierNode{ name: name }
-    }
-}
-
-// The actual parser
 class RealParser {
-    var tokens: List<RealToken>
+    var tokens: Array<RealToken>
     var current: Int
-    
-    fun new(tokens: List<RealToken>) -> RealParser {
+
+    fun new(rawTokens: List<RealToken>) -> RealParser {
         return RealParser{
-            tokens: tokens,
+            tokens: toArray(rawTokens),
             current: 0
         }
     }
-    
+
     fun parse() -> ProgramNode {
-        let program = ProgramNode{}
-        
+        let program = ProgramNode.new()
+
         while not isAtEnd() {
-            let item = parseItem()
-            if item != null {
-                program.items.append(item)
+            if matchToken("KeywordImport") {
+                let importItem = parseImportItem()
+                if importItem != null {
+                    program.items.push(importItem)
+                }
+                continue
             }
+
+            if matchToken("KeywordUse") {
+                let importItem = parseImportItem()
+                if importItem != null {
+                    program.items.push(importItem)
+                }
+                continue
+            }
+
+            if matchToken("KeywordFun") {
+                let functionItem = parseFunctionItem()
+                if functionItem != null {
+                    program.items.push(functionItem)
+                }
+                continue
+            }
+
+            // Skip tokens we do not understand yet (classes, enums, etc.).
+            advance()
         }
-        
+
         return program
     }
-    
-    fun parseItem() -> ItemNode? {
-        // Skip any leading newlines/semicolons
-        while matchToken("Semicolon") {
-            // Skip
-        }
-        
+
+    fun parseFunctionItem() -> ItemNode? {
         if isAtEnd() {
             return null
         }
-        
-        // Check for visibility modifiers
-        let visibility = ""
-        if matchToken("KeywordPub") or matchToken("KeywordPublic") {
-            visibility = "public"
-        } else if matchToken("KeywordPrivate") {
-            visibility = "private"
-        }
-        
-        // Parse different item types
-        if matchToken("KeywordFun") {
-            return parseFunctionItem(visibility)
-        }
-        
-        if matchToken("KeywordClass") {
-            return parseClassItem(visibility)
-        }
-        
-        if matchToken("KeywordImport") or matchToken("KeywordUse") {
-            return parseImportItem()
-        }
-        
-        // Unknown item - skip to next line
-        skipToNextLine()
-        return null
-    }
-    
-    fun parseFunctionItem(visibility: String) -> ItemNode {
-        let name = consume("Identifier", "Expected function name")
-        let func = FunctionNode{ name: name.value }
-        
-        consume("LeftParen", "Expected '(' after function name")
-        
-        // Parse parameters
-        if not check("RightParen") {
-            func.params.append(parseParam())
-            
-            while matchToken("Comma") {
-                func.params.append(parseParam())
-            }
-        }
-        
-        consume("RightParen", "Expected ')' after parameters")
-        
-        // Parse return type if present
-        if matchToken("Arrow") {
-            let returnType = consume("Identifier", "Expected return type")
-            func.returnType = returnType.value
-        }
-        
-        // Parse body
-        func.body = parseBlock()
-        
-        let item = ItemNode{
-            itemType: "Function",
-            name: func.name,
-            visibility: visibility
-        }
-        
-        return item
-    }
-    
-    fun parseClassItem(visibility: String) -> ItemNode {
-        let name = consume("Identifier", "Expected class name")
-        
-        // For now, skip class body
-        consume("LeftBrace", "Expected '{' after class name")
-        skipToMatchingBrace()
-        
-        return ItemNode{
-            itemType: "Class",
-            name: name.value,
-            visibility: visibility
-        }
-    }
-    
-    fun parseImportItem() -> ItemNode {
-        let pathInfo = parseImportPath()
-        let symbols = parseImportSymbols(pathInfo)
-        matchToken("Semicolon")
 
-        let item = ItemNode{
-            itemType: "Import",
-            name: pathInfo.text,
-            visibility: ""
-        }
-        item.importPath = pathInfo.segments
-        item.importSymbols = symbols
+        let nameToken = consume("Identifier", "Expected function name")
+        let func = FunctionNode.new()
+        func.name = nameToken.value
+
+        parseParameterList(func)
+        func.returnType = parseOptionalReturnType()
+        func.body = BlockNode.new()
+
+        skipOptionalFunctionBody()
+
+        let item = ItemNode.new()
+        item.itemType = "Function"
+        item.name = func.name
+        item.visibility = inferVisibility(func.name)
+        item.function = func
+
         return item
     }
 
-    fun parseImportPath() -> ImportPathInfo {
-        let firstPart = consume("Identifier", "Expected import path")
-        let segments = []
-        segments.append(firstPart.value)
-        var fullPath = firstPart.value
-        
-        while true {
-            if check("Dot") {
-                advance() // consume '.'
-                if check("LeftBrace") or check("KeywordAs") {
-                    break
-                }
-                fullPath = fullPath + "."
-                let nextPart = consume("Identifier", "Expected identifier in import path")
-                segments.append(nextPart.value)
-                fullPath = fullPath + nextPart.value
-                continue
-            }
-            if check("Colon") {
-                advance() // first ':'
-                consume("Colon", "Expected '::' in import path")
-                if check("LeftBrace") or check("KeywordAs") {
-                    break
-                }
-                fullPath = fullPath + "::"
-                let nextPart = consume("Identifier", "Expected identifier in import path")
-                segments.append(nextPart.value)
-                fullPath = fullPath + nextPart.value
-                continue
-            }
-            break
+    fun parseParameterList(func: FunctionNode) -> Void {
+        if not matchToken("LeftParen") {
+            return
         }
 
-        return ImportPathInfo{
-            text: fullPath,
-            segments: segments
-        }
-    }
-
-    fun parseImportSymbols(pathInfo: ImportPathInfo) -> List<ImportSymbolNode> {
-        let symbols = []
-
-        if matchToken("KeywordAs") {
-            if pathInfo.segments.size() == 0 {
-                return symbols
-            }
-            let aliasToken = consume("Identifier", "Expected alias after 'as'")
-            let lastIndex = pathInfo.segments.size() - 1
-            let aliasSymbol = ImportSymbolNode{
-                name: pathInfo.segments[lastIndex],
-                alias: aliasToken.value
-            }
-            symbols.append(aliasSymbol)
-            return symbols
+        if checkToken("RightParen") {
+            advance()
+            return
         }
 
-        if not check("LeftBrace") {
-            if pathInfo.segments.size() > 0 {
-                let lastIndex = pathInfo.segments.size() - 1
-                let defaultSymbol = ImportSymbolNode{
-                    name: pathInfo.segments[lastIndex],
-                    alias: ""
-                }
-                symbols.append(defaultSymbol)
+        while not isAtEnd() {
+            let param = parseParam()
+            if param != null {
+                func.params.push(param)
             }
-            return symbols
-        }
-
-        advance() // consume '{'
-
-        while true {
-            if matchToken("RightBrace") {
-                break
-            }
-
-            let symbolName = consume("Identifier", "Expected symbol name in import list")
-            var aliasValue = ""
-            if matchToken("KeywordAs") {
-                let aliasToken = consume("Identifier", "Expected alias after 'as'")
-                aliasValue = aliasToken.value
-            }
-
-            let symbol = ImportSymbolNode{
-                name: symbolName.value,
-                alias: aliasValue
-            }
-            symbols.append(symbol)
 
             if matchToken("Comma") {
                 continue
             }
 
-            consume("RightBrace", "Expected '}' after import symbols")
+            consume("RightParen", "Expected ')' after parameters")
+            break
+        }
+    }
+
+    fun parseParam() -> ParamNode? {
+        if !checkToken("Identifier") {
+            return null
+        }
+        let nameToken = advance()
+
+        let param = ParamNode.new()
+        param.name = nameToken.value
+        param.paramType = parseOptionalTypeAnnotation()
+
+        // Skip default values for now.
+        if matchToken("Equal") {
+            skipExpression()
+        }
+
+        return param
+    }
+
+    fun parseOptionalTypeAnnotation() -> TypeNode {
+        if !matchToken("Colon") {
+            let fallback = TypeNode.new()
+            fallback.typeName = "Unknown"
+            return fallback
+        }
+
+        return parseTypeNode()
+    }
+
+    fun parseOptionalReturnType() -> TypeNode? {
+        if !matchToken("Arrow") {
+            return null
+        }
+        return parseTypeNode()
+    }
+
+    fun parseTypeNode() -> TypeNode {
+        let typeNode = TypeNode.new()
+
+        if checkToken("Identifier") {
+            let token = advance()
+            typeNode.typeName = token.value
+        } else {
+            typeNode.typeName = "Unknown"
+        }
+
+        if matchToken("Question") {
+            typeNode.isNullable = true
+        }
+
+        return typeNode
+    }
+
+    fun skipOptionalFunctionBody() -> Void {
+        if matchToken("LeftBrace") {
+            skipBlockBody()
+            return
+        }
+
+        // Support trailing semicolons (declarations)
+        matchToken("Semicolon")
+    }
+
+    fun skipBlockBody() -> Void {
+        var depth = 1
+        while depth > 0 and not isAtEnd() {
+            let token = advance()
+            if token.type == "LeftBrace" {
+                depth = depth + 1
+            } else if token.type == "RightBrace" {
+                depth = depth - 1
+            }
+        }
+    }
+
+    fun parseImportItem() -> ItemNode? {
+        let pathInfo = parseImportPath()
+        let importSymbols = parseImportSymbols(pathInfo)
+
+        matchToken("Semicolon")
+
+        let item = ItemNode.new()
+        item.itemType = "Import"
+        item.name = pathInfo.text
+        item.importPath = pathInfo.segments
+        item.importSymbols = importSymbols
+        item.visibility = ""
+        return item
+    }
+
+    fun parseImportPath() -> ImportPathInfo {
+        let segments = Array<String>()
+
+        if checkToken("Identifier") {
+            segments.push(advance().value)
+        }
+
+        var text = joinSegments(segments, ".")
+
+        while not isAtEnd() {
+            if matchToken("Dot") {
+                if checkToken("LeftBrace") or checkToken("KeywordAs") {
+                    break
+                }
+                let segment = consume("Identifier", "Expected identifier in import path")
+                segments.push(segment.value)
+                text = text + "." + segment.value
+                continue
+            }
+
+            if matchToken("Colon") and matchToken("Colon") {
+                if checkToken("LeftBrace") or checkToken("KeywordAs") {
+                    break
+                }
+                let segment = consume("Identifier", "Expected identifier after '::'")
+                segments.push(segment.value)
+                text = text + "::" + segment.value
+                continue
+            }
+
+            break
+        }
+
+        return ImportPathInfo{
+            text: text,
+            segments: segments
+        }
+    }
+
+    fun parseImportSymbols(pathInfo: ImportPathInfo) -> Array<ImportSymbolNode> {
+        let symbols = Array<ImportSymbolNode>()
+
+        if matchToken("KeywordAs") and pathInfo.segments.length() > 0 {
+            let alias = consume("Identifier", "Expected alias after 'as'")
+            let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
+            symbols.push(makeImportSymbol(baseName, alias.value))
+            return symbols
+        }
+
+        if !matchToken("LeftBrace") {
+            if pathInfo.segments.length() > 0 {
+                let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
+                symbols.push(makeImportSymbol(baseName, ""))
+            }
+            return symbols
+        }
+
+        while not isAtEnd() {
+            if matchToken("RightBrace") {
+                break
+            }
+
+            let symbolToken = consume("Identifier", "Expected symbol name")
+            var aliasValue = ""
+            if matchToken("KeywordAs") {
+                let aliasToken = consume("Identifier", "Expected alias name")
+                aliasValue = aliasToken.value
+            }
+
+            symbols.push(makeImportSymbol(symbolToken.value, aliasValue))
+
+            if matchToken("Comma") {
+                continue
+            }
+
+            consume("RightBrace", "Expected '}' after import list")
             break
         }
 
         return symbols
     }
-    
-    fun parseParam() -> ParamNode {
-        let name = consume("Identifier", "Expected parameter name")
-        
-        consume("Colon", "Expected ':' after parameter name")
-        
-        // Parse type with nullable support
-        let paramType = parseType()
-        
-        return ParamNode{
-            name: name.value,
-            paramType: paramType
-        }
+
+    fun makeImportSymbol(name: String, alias: String) -> ImportSymbolNode {
+        let symbol = ImportSymbolNode.new()
+        symbol.name = name
+        symbol.alias = alias
+        return symbol
     }
-    
-    fun parseType() -> String {
-        let baseType = consume("Identifier", "Expected type name")
-        let typeName = baseType.value
-        
-        // Check for nullable type (?)
-        if matchToken("Question") {
-            return typeName + "?"
+
+    // -- Utility helpers --------------------------------------------------
+
+    fun inferVisibility(name: String) -> String {
+        if name.length() == 0 {
+            return "private"
         }
-        
-        // Check for generic type parameters
-        if matchToken("Less") {
-            typeName = typeName + "<"
-            typeName = typeName + parseType()
-            
-            while matchToken("Comma") {
-                typeName = typeName + ", "
-                typeName = typeName + parseType()
-            }
-            
-            consume("Greater", "Expected '>' after type parameters")
-            typeName = typeName + ">"
-        }
-        
-        return typeName
+        let first = name.substring(0, 1)
+        return if first == first.toUpperCase() { "public" } else { "private" }
     }
-    
-    fun parseBlock() -> BlockNode {
-        consume("LeftBrace", "Expected '{'")
-        
-        let block = BlockNode{}
-        
-        while not check("RightBrace") and not isAtEnd() {
-            let stmt = parseStatement()
-            if stmt != null {
-                block.statements.append(stmt)
-            }
-        }
-        
-        consume("RightBrace", "Expected '}'")
-        
-        return block
-    }
-    
-    fun parseStatement() -> StatementNode? {
-        // Skip empty statements
-        while matchToken("Semicolon") {
-            // Skip
-        }
-        
-        if matchToken("KeywordLet") {
-            return parseLetStatement()
-        }
-        
-        if matchToken("KeywordVar") {
-            return parseVarStatement()
-        }
-        
-        if matchToken("KeywordReturn") {
-            return parseReturnStatement()
-        }
-        
-        if matchToken("KeywordIf") {
-            return parseIfStatement()
-        }
-        
-        if matchToken("KeywordWhile") {
-            return parseWhileStatement()
-        }
-        
-        if matchToken("KeywordFor") {
-            return parseForStatement()
-        }
-        
-        // Expression statement
-        let expr = parseExpression()
-        if expr != null {
-            matchToken("Semicolon"); // Optional semicolon
-            return StatementNode{ stmtType: "Expression" }
-        }
-        
-        return null
-    }
-    
-    fun parseLetStatement() -> StatementNode {
-        let name = consume("Identifier", "Expected variable name")
-        
-        let varType = ""
-        if matchToken("Colon") {
-            let typeToken = consume("Identifier", "Expected type")
-            varType = typeToken.value
-        }
-        
-        consume("Equal", "Expected '=' in let statement")
-        
-        let value = parseExpression()
-        
-        matchToken("Semicolon"); // Optional semicolon
-        
-        return StatementNode{ stmtType: "Let" }
-    }
-    
-    fun parseVarStatement() -> StatementNode {
-        // Similar to let but mutable
-        let name = consume("Identifier", "Expected variable name")
-        
-        let varType = ""
-        if matchToken("Colon") {
-            let typeToken = consume("Identifier", "Expected type")
-            varType = typeToken.value
-        }
-        
-        consume("Equal", "Expected '=' in var statement")
-        
-        let value = parseExpression()
-        
-        matchToken("Semicolon"); // Optional semicolon
-        
-        return StatementNode{ stmtType: "Var" }
-    }
-    
-    fun parseReturnStatement() -> StatementNode {
-        let value = parseExpression()
-        matchToken("Semicolon"); // Optional semicolon
-        
-        return StatementNode{ stmtType: "Return" }
-    }
-    
-    fun parseIfStatement() -> StatementNode {
-        let condition = parseExpression()
-        let thenBlock = parseBlock()
-        
-        if matchToken("KeywordElse") {
-            if check("KeywordIf") {
-                // else if
-                let elseIf = parseIfStatement()
-            } else {
-                // else block
-                let elseBlock = parseBlock()
-            }
-        }
-        
-        return StatementNode{ stmtType: "If" }
-    }
-    
-    fun parseWhileStatement() -> StatementNode {
-        let condition = parseExpression()
-        let body = parseBlock()
-        
-        return StatementNode{ stmtType: "While" }
-    }
-    
-    fun parseForStatement() -> StatementNode {
-        let variable = consume("Identifier", "Expected loop variable")
-        consume("KeywordIn", "Expected 'in' in for loop")
-        let iterable = parseExpression()
-        let body = parseBlock()
-        
-        return StatementNode{ stmtType: "For" }
-    }
-    
-    fun parseExpression() -> ExpressionNode? {
-        return parseLogicalOr()
-    }
-    
-    fun parseLogicalOr() -> ExpressionNode? {
-        let left = parseLogicalAnd()
-        
-        while matchToken("KeywordOr") {
-            let op = previous().value
-            let right = parseLogicalAnd()
-            left = BinaryExprNode{ left: left, operator: op, right: right }
-        }
-        
-        return left
-    }
-    
-    fun parseLogicalAnd() -> ExpressionNode? {
-        let left = parseEquality()
-        
-        while matchToken("KeywordAnd") {
-            let op = previous().value
-            let right = parseEquality()
-            left = BinaryExprNode{ left: left, operator: op, right: right }
-        }
-        
-        return left
-    }
-    
-    fun parseEquality() -> ExpressionNode? {
-        let left = parseComparison()
-        
-        while matchToken("EqualEqual") or matchToken("NotEqual") {
-            let op = previous().value
-            let right = parseComparison()
-            left = BinaryExprNode{ left: left, operator: op, right: right }
-        }
-        
-        return left
-    }
-    
-    fun parseComparison() -> ExpressionNode? {
-        let left = parseAddition()
-        
-        while matchToken("Greater") or matchToken("GreaterEqual") or matchToken("Less") or matchToken("LessEqual") {
-            let op = previous().value
-            let right = parseAddition()
-            left = BinaryExprNode{ left: left, operator: op, right: right }
-        }
-        
-        return left
-    }
-    
-    fun parseAddition() -> ExpressionNode? {
-        let left = parseMultiplication()
-        
-        while matchToken("Plus") or matchToken("Minus") {
-            let op = previous().value
-            let right = parseMultiplication()
-            left = BinaryExprNode{ left: left, operator: op, right: right }
-        }
-        
-        return left
-    }
-    
-    fun parseMultiplication() -> ExpressionNode? {
-        let left = parseUnary()
-        
-        while matchToken("Star") or matchToken("Slash") {
-            let op = previous().value
-            let right = parseUnary()
-            left = BinaryExprNode{ left: left, operator: op, right: right }
-        }
-        
-        return left
-    }
-    
-    fun parseUnary() -> ExpressionNode? {
-        if matchToken("Not") or matchToken("Minus") {
-            let op = previous().value
-            let expr = parseUnary()
-            return ExpressionNode{ exprType: "Unary" }
-        }
-        
-        return parsePostfix()
-    }
-    
-    fun parsePostfix() -> ExpressionNode? {
-        let expr = parsePrimary()
-        
-        while true {
-            if matchToken("LeftParen") {
-                // Function call
-                let call = CallExprNode{ callee: expr }
-                
-                if not check("RightParen") {
-                    call.arguments.append(parseExpression())
-                    
-                    while matchToken("Comma") {
-                        call.arguments.append(parseExpression())
-                    }
-                }
-                
-                consume("RightParen", "Expected ')' after arguments")
-                expr = call
-            } else if matchToken("Question") {
-                // Safe navigation operator (?.)
-                if matchToken("Dot") {
-                    let member = consume("Identifier", "Expected member name")
-                    expr = ExpressionNode{ exprType: "SafeMemberAccess" }
-                } else if matchToken("Colon") {
-                    // Elvis operator (?:)
-                    let defaultValue = parseExpression()
-                    expr = ExpressionNode{ exprType: "Elvis" }
-                } else {
-                    // Just a nullable type marker, backtrack
-                    current = current - 1
-                    break
-                }
-            } else if matchToken("Dot") {
-                // Regular member access
-                if matchToken("Dot") {
-                    // Range operator (..)
-                    let end = parseExpression()
-                    expr = ExpressionNode{ exprType: "Range" }
-                } else {
-                    let member = consume("Identifier", "Expected member name")
-                    expr = ExpressionNode{ exprType: "MemberAccess" }
-                }
-            } else if matchToken("LeftBracket") {
-                // Array indexing
-                let index = parseExpression()
-                consume("RightBracket", "Expected ']' after array index")
-                expr = ExpressionNode{ exprType: "ArrayAccess" }
-            } else if matchToken("Not") {
-                // Force unwrap (!!)
-                if matchToken("Not") {
-                    expr = ExpressionNode{ exprType: "ForceUnwrap" }
-                } else {
-                    // Single !, backtrack
-                    current = current - 1
-                    break
-                }
-            } else {
+
+    fun skipExpression() -> Void {
+        // Skip tokens until we reach a comma, semicolon, or closing paren.
+        while not isAtEnd() {
+            if peek().type == "Comma" or peek().type == "RightParen" or peek().type == "Semicolon" {
                 break
             }
+            advance()
         }
-        
-        return expr
     }
-    
-    fun parsePrimary() -> ExpressionNode? {
-        if matchToken("KeywordTrue") {
-            return LiteralNode{ literalType: "Bool", value: "true" }
+
+    fun joinSegments(values: Array<String>, separator: String) -> String {
+        if values.length() == 0 {
+            return ""
         }
-        
-        if matchToken("KeywordFalse") {
-            return LiteralNode{ literalType: "Bool", value: "false" }
+        var result = values[0]
+        var index = 1
+        while index < values.length() {
+            result = result + separator + values[index]
+            index = index + 1
         }
-        
-        if matchToken("KeywordNull") {
-            return LiteralNode{ literalType: "Null", value: "null" }
-        }
-        
-        if matchToken("IntLiteral") {
-            return LiteralNode{ literalType: "Int", value: previous().value }
-        }
-        
-        if matchToken("FloatLiteral") {
-            return LiteralNode{ literalType: "Float", value: previous().value }
-        }
-        
-        if matchToken("StringLiteral") {
-            return LiteralNode{ literalType: "String", value: previous().value }
-        }
-        
-        if matchToken("InterpolatedString") {
-            // Parse interpolated string as a special expression
-            return parseInterpolatedString(previous().value)
-        }
-        
-        if matchToken("Identifier") {
-            return IdentifierNode{ name: previous().value }
-        }
-        
-        if matchToken("LeftParen") {
-            let expr = parseExpression()
-            consume("RightParen", "Expected ')' after expression")
-            return expr
-        }
-        
-        // Array literal
-        if matchToken("LeftBracket") {
-            let elements = []
-            
-            if not check("RightBracket") {
-                elements.append(parseExpression())
-                
-                while matchToken("Comma") {
-                    elements.append(parseExpression())
-                }
-            }
-            
-            consume("RightBracket", "Expected ']' after array elements")
-            return ExpressionNode{ exprType: "ArrayLiteral" }
-        }
-        
-        // Map/Set literal
-        if matchToken("LeftBrace") {
-            // Could be map or struct literal
-            if check("RightBrace") {
-                consume("RightBrace", "Expected '}'")
-                return ExpressionNode{ exprType: "EmptyLiteral" }
-            }
-            
-            // Try to parse as struct literal or map
-            let firstExpr = parseExpression()
-            
-            if matchToken("Colon") {
-                // Map literal
-                let value = parseExpression()
-                let entries = []
-                
-                while matchToken("Comma") {
-                    let key = parseExpression()
-                    consume("Colon", "Expected ':' in map literal")
-                    let val = parseExpression()
-                }
-                
-                consume("RightBrace", "Expected '}' after map entries")
-                return ExpressionNode{ exprType: "MapLiteral" }
-            } else {
-                // Set or struct literal
-                while matchToken("Comma") {
-                    parseExpression()
-                }
-                
-                consume("RightBrace", "Expected '}' after set elements")
-                return ExpressionNode{ exprType: "SetLiteral" }
-            }
-        }
-        
-        return null
+        return result
     }
-    
-    fun parseInterpolatedString(template: String) -> ExpressionNode {
-        // Parse the template string and extract interpolated expressions
-        // For now, return a special interpolation node
-        return ExpressionNode{ exprType: "StringInterpolation" }
-    }
-    
-    // Parser utilities
-    
+
     fun matchToken(tokenType: String) -> Bool {
-        if check(tokenType) {
+        if checkToken(tokenType) {
             advance()
             return true
         }
         return false
     }
-    
-    fun check(tokenType: String) -> Bool {
+
+    fun checkToken(tokenType: String) -> Bool {
         if isAtEnd() {
             return false
         }
         return peek().type == tokenType
     }
-    
+
     fun advance() -> RealToken {
         if not isAtEnd() {
             current = current + 1
         }
         return previous()
     }
-    
+
     fun isAtEnd() -> Bool {
-        return peek().type == "EOF"
+        return current >= tokens.length() or peek().type == "EOF"
     }
-    
+
     fun peek() -> RealToken {
-        if current >= tokens.size() {
-            return RealToken{ type: "EOF", value: "", line: 0, column: 0, length: 0 }
+        if current >= tokens.length() {
+            return RealToken{
+                type: "EOF",
+                value: "",
+                line: 0,
+                column: 0,
+                length: 0
+            }
         }
         return tokens[current]
     }
-    
+
     fun previous() -> RealToken {
+        if current == 0 {
+            return tokens[0]
+        }
         return tokens[current - 1]
     }
-    
+
     fun consume(tokenType: String, message: String) -> RealToken {
-        if check(tokenType) {
+        if checkToken(tokenType) {
             return advance()
         }
-        
-        error(message + " at " + peek().type + " '" + peek().value + "'")
-        return peek(); // Return current token even on error
+        // Best-effort recovery: return current token.
+        return peek()
     }
-    
-    fun error(message: String) {
-        println("Parser Error: " + message)
-    }
-    
-    fun skipToNextLine() {
-        while not isAtEnd() {
-            if advance().type == "Semicolon" {
-                break
-            }
+
+    fun toArray(raw: List<RealToken>) -> Array<RealToken> {
+        let buffer = Array<RealToken>()
+        for token in raw {
+            buffer.push(token)
         }
-    }
-    
-    fun skipToMatchingBrace() {
-        let braceCount = 1
-        
-        while braceCount > 0 and not isAtEnd() {
-            let token = advance()
-            if token.type == "LeftBrace" {
-                braceCount = braceCount + 1
-            } else if token.type == "RightBrace" {
-                braceCount = braceCount - 1
-            }
-        }
+        return buffer
     }
 }
 
-// Test the real parser
-fun testRealParser() {
-    let source = """
-    fun factorial(n: Int) -> Int {
-        if n <= 1 {
-            return 1
-        }
-        return n * factorial(n - 1)
-    }
-    
-    fun main() {
-        let result = factorial(5)
-        println(result)
-    }
-    """
-    
-    // First tokenize
-    let lexer = RealLexer{ source: source }
-    let tokens = lexer.tokenize()
-    
-    // Then parse
-    let parser = RealParser{ tokens: tokens }
-    let ast = parser.parse()
-    
-    println("Parsed AST with " + ast.items.size().toString() + " top-level items")
-    
-    for item in ast.items {
-        println("  " + item.itemType + ": " + item.name)
-    }
+struct ImportPathInfo {
+    text: String
+    segments: Array<String>
 }

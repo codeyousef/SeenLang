@@ -175,7 +175,7 @@ class SeenParser {
         while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
             let stmt = parseStatement()
             if stmt != null {
-                block.addStatement(stmt)
+                block.statements.push(stmt)
             }
         }
         

@@ -505,7 +505,7 @@ fun testRealLexer() {
     }
     """
     
-    let lexer = RealLexer{ source: source }
+    let lexer = RealLexer.new(source)
     let tokens = lexer.tokenize()
     
     println("Tokenized " + tokens.size().toString() + " tokens:")
