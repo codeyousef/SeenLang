@@ -23,6 +23,11 @@ pub enum Type {
     Char,
     /// Array type with element type
     Array(Box<Type>),
+    /// Map/HashMap type with key and value types
+    Map {
+        key_type: Box<Type>,
+        value_type: Box<Type>,
+    },
     /// Nullable type (all types can be nullable)
     Nullable(Box<Type>),
     /// Function type with parameter types and return type
@@ -258,6 +263,18 @@ impl Type {
             // Array types must have compatible element types
             (Type::Array(a), Type::Array(b)) => a.is_assignable_to(b),
 
+            // Map types must have compatible key and value types
+            (
+                Type::Map {
+                    key_type: k1,
+                    value_type: v1,
+                },
+                Type::Map {
+                    key_type: k2,
+                    value_type: v2,
+                },
+            ) => k1.is_assignable_to(k2) && v1.is_assignable_to(v2),
+
             // Task types must agree on payload
             (Type::Task(a), Type::Task(b)) => a.is_assignable_to(b),
 
@@ -347,6 +364,9 @@ impl Type {
             Type::String => "String".to_string(),
             Type::Char => "Char".to_string(),
             Type::Array(inner) => format!("Array<{}>", inner.name()),
+            Type::Map { key_type, value_type } => {
+                format!("Map<{}, {}>", key_type.name(), value_type.name())
+            }
             Type::Nullable(inner) => format!("{}?", inner.name()),
             Type::Function {
                 params,
@@ -454,6 +474,10 @@ impl From<&seen_parser::ast::Type> for Type {
                         "Array" | "List" | "Vec" if !resolved_generics.is_empty() => {
                             Type::Array(Box::new(resolved_generics.remove(0)))
                         }
+                        "Map" | "HashMap" if resolved_generics.len() >= 2 => Type::Map {
+                            key_type: Box::new(resolved_generics.remove(0)),
+                            value_type: Box::new(resolved_generics.remove(0)),
+                        },
                         _ => Type::Struct {
                             name: ast_type.name.clone(),
                             fields: HashMap::new(),

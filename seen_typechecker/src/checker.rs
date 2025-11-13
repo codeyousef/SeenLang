@@ -594,6 +594,22 @@ impl TypeChecker {
                     Type::Unknown
                 }
             }
+            "Map" | "HashMap" | "Dict" => {
+                if resolved_args.len() == 2 {
+                    Type::Map {
+                        key_type: Box::new(resolved_args[0].clone()),
+                        value_type: Box::new(resolved_args[1].clone()),
+                    }
+                } else {
+                    self.result.add_error(TypeError::GenericArityMismatch {
+                        type_name: ast_type.name.clone(),
+                        expected: 2,
+                        actual: resolved_args.len(),
+                        position: pos,
+                    });
+                    Type::Unknown
+                }
+            }
             _ => {
                 if let Some(def) = self.env.get_type(&ast_type.name).cloned() {
                     return self.instantiate_type(def, &resolved_args, pos);
@@ -751,6 +767,10 @@ impl TypeChecker {
         match ty {
             Type::Generic(name) => mapping.get(name).cloned().unwrap_or_else(|| ty.clone()),
             Type::Array(inner) => Type::Array(Box::new(self.substitute_generics(inner, mapping))),
+            Type::Map { key_type, value_type } => Type::Map {
+                key_type: Box::new(self.substitute_generics(key_type, mapping)),
+                value_type: Box::new(self.substitute_generics(value_type, mapping)),
+            },
             Type::Nullable(inner) => {
                 Type::Nullable(Box::new(self.substitute_generics(inner, mapping)))
             }
