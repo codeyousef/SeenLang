@@ -4,28 +4,127 @@
 // NOTE: Imports from parser.ast don't resolve during bootstrap, so we define types inline.
 // TODO: Fix module resolution system to allow proper imports.
 
-// Inline AST type definitions for bootstrap
-struct ProgramNode { items: Array<ItemNode> }
-struct ItemNode { itemType: String; name: String; visibility: String; function: FunctionNode?; classNode: ClassNode? }
-struct FunctionNode { name: String; params: Array<ParamNode>; returnType: TypeNode?; body: BlockNode; isAsync: Bool; isInline: Bool }
-struct ParamNode { name: String; paramType: TypeNode }
-struct TypeNode { typeName: String; isNullable: Bool }
-struct BlockNode { statements: Array<StatementNode> }
-struct StatementNode { stmtType: String; letStmt: LetStatement?; varStmt: VarStatement?; returnStmt: ReturnStatement?; ifStmt: IfStatement?; whileStmt: WhileStatement?; forStmt: ForStatement?; exprStmt: ExpressionStatement?; loopStmt: LoopStatement? }
-struct LetStatement { name: String; varType: TypeNode?; value: ExpressionNode }
-struct VarStatement { name: String; varType: TypeNode?; value: ExpressionNode? }
-struct ReturnStatement { value: ExpressionNode? }
-struct IfStatement { condition: ExpressionNode; thenBranch: BlockNode; elseBranch: BlockNode? }
-struct WhileStatement { condition: ExpressionNode; body: BlockNode }
-struct ForStatement { variable: String; iterable: ExpressionNode; body: BlockNode }
-struct LoopStatement { body: BlockNode }
-struct ExpressionStatement { expr: ExpressionNode }
-struct ExpressionNode { exprType: String; literal: LiteralNode?; identifier: IdentifierNode?; binary: BinaryNode?; call: CallNode? }
-struct LiteralNode { literalType: String; intValue: Int?; stringValue: String? }
-struct IdentifierNode { name: String }
-struct BinaryNode { left: ExpressionNode; operator: String; right: ExpressionNode }
-struct CallNode { function: ExpressionNode; arguments: Array<ExpressionNode> }
-struct ClassNode { name: String }
+// Inline AST type definitions for bootstrap (multi-line format)
+struct ProgramNode {
+    items: Array<ItemNode>
+}
+
+struct ItemNode {
+    itemType: String
+    name: String
+    visibility: String
+    function: FunctionNode?
+    classNode: ClassNode?
+}
+
+struct FunctionNode {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode?
+    body: BlockNode
+    isAsync: Bool
+    isInline: Bool
+}
+
+struct ParamNode {
+    name: String
+    paramType: TypeNode
+}
+
+struct TypeNode {
+    typeName: String
+    isNullable: Bool
+}
+
+struct BlockNode {
+    statements: Array<StatementNode>
+}
+
+struct StatementNode {
+    stmtType: String
+    letStmt: LetStatement?
+    varStmt: VarStatement?
+    returnStmt: ReturnStatement?
+    ifStmt: IfStatement?
+    whileStmt: WhileStatement?
+    forStmt: ForStatement?
+    exprStmt: ExpressionStatement?
+    loopStmt: LoopStatement?
+}
+
+struct LetStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode
+}
+
+struct VarStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode?
+}
+
+struct ReturnStatement {
+    value: ExpressionNode?
+}
+
+struct IfStatement {
+    condition: ExpressionNode
+    thenBranch: BlockNode
+    elseBranch: BlockNode?
+}
+
+struct WhileStatement {
+    condition: ExpressionNode
+    body: BlockNode
+}
+
+struct ForStatement {
+    variable: String
+    iterable: ExpressionNode
+    body: BlockNode
+}
+
+struct LoopStatement {
+    body: BlockNode
+}
+
+struct ExpressionStatement {
+    expr: ExpressionNode
+}
+
+struct ExpressionNode {
+    exprType: String
+    literal: LiteralNode?
+    identifier: IdentifierNode?
+    binary: BinaryNode?
+    call: CallNode?
+}
+
+struct LiteralNode {
+    literalType: String
+    intValue: Int?
+    stringValue: String?
+}
+
+struct IdentifierNode {
+    name: String
+}
+
+struct BinaryNode {
+    left: ExpressionNode
+    operator: String
+    right: ExpressionNode
+}
+
+struct CallNode {
+    function: ExpressionNode
+    arguments: Array<ExpressionNode>
+}
+
+struct ClassNode {
+    name: String
+}
 
 class CompleteCodeGenerator {
     var output: String

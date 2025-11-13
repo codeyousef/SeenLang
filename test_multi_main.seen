@@ -1,0 +1,8 @@
+import test_file1.{useItem}
+import test_file2.{createItem}
+
+fun main() -> Int {
+    let item = createItem()
+    let name = useItem(item)
+    return 0
+}
