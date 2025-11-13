@@ -23,7 +23,7 @@ fun TestCompilerWithSeenSyntax() {
         let user: User? = FindUser(id);       // Nullable type
         
         // Safe navigation and elvis operator
-        let name = user?.Name ?: "Unknown"
+        let name = user?.name ?: "Unknown"
         
         // Word operators
         if user != null and user.Age >= 18 {
@@ -82,13 +82,13 @@ fun TestCompilerWithSeenSyntax() {
     let parser = RealParser{ tokens: tokens }
     let ast = parser.parse()
     
-    println("  ✓ Built AST with {ast.Items.size()} top-level items")
+    println("  ✓ Built AST with {ast.items.size()} top-level items")
     
     // Show parsed items
     println("\n  Parsed items:")
-    for item in ast.Items {
-        let visibility = if isCapitalized(item.Name) { "public" } else { "private" }
-        println("    {item.ItemType} {item.Name} ({visibility})")
+    for item in ast.items {
+        let visibility = if isCapitalized(item.name) { "public" } else { "private" }
+        println("    {item.itemType} {item.name} ({visibility})")
     }
     
     // Step 3: Type Check

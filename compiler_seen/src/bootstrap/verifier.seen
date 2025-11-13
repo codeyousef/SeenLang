@@ -137,7 +137,7 @@ class BootstrapVerifier {
     
     fun compileWithStage(stageIndex: Int, sourcePath: String, outputPath: String) -> Result<StageArtifact, String> {
         let compiler = Stages[stageIndex]
-        log("\\n📦 Compiling with {compiler.Name}...")
+        log("\\n📦 Compiling with {compiler.name}...")
         
         let command = "{compiler.Path} compile {sourcePath} {outputPath}"
         log("   Command: {command}")

@@ -3,7 +3,7 @@
 // functions) so higher layers can start consuming deterministic data while the
 // full parser port continues.
 
-import parser.ast.{ProgramNode, ItemNode, FunctionNode, ParamNode, TypeNode, BlockNode, ImportSymbolNode}
+import parser.ast.{ProgramNode, ItemNode, FunctionNode, ParamNode, TypeNode, BlockNode, ImportSymbolNode, ClassNode}
 import lexer.real_lexer.{RealToken}
 
 class RealParser {
@@ -24,7 +24,7 @@ class RealParser {
             if matchToken("KeywordImport") {
                 let importItem = parseImportItem()
                 if importItem != null {
-                    program.Items.push(importItem)
+                    program.items.push(importItem)
                 }
                 continue
             }
@@ -32,7 +32,7 @@ class RealParser {
             if matchToken("KeywordUse") {
                 let importItem = parseImportItem()
                 if importItem != null {
-                    program.Items.push(importItem)
+                    program.items.push(importItem)
                 }
                 continue
             }
@@ -40,12 +40,20 @@ class RealParser {
             if matchToken("KeywordFun") {
                 let functionItem = parseFunctionItem()
                 if functionItem != null {
-                    program.Items.push(functionItem)
+                    program.items.push(functionItem)
                 }
                 continue
             }
 
-            // Skip tokens we do not understand yet (classes, enums, etc.).
+            if matchToken("KeywordClass") {
+                let classItem = parseClassItem()
+                if classItem != null {
+                    program.items.push(classItem)
+                }
+                continue
+            }
+
+            // Skip tokens we do not understand yet (enums, traits, etc.).
             advance()
         }
 
@@ -59,19 +67,40 @@ class RealParser {
 
         let nameToken = consume("Identifier", "Expected function name")
         let func = FunctionNode.new()
-        func.Name = nameToken.value
+        func.name = nameToken.value
 
         parseParameterList(func)
-        func.ReturnType = parseOptionalReturnType()
-        func.Body = BlockNode.new()
+        func.returnType = parseOptionalReturnType()
+        func.body = BlockNode.new()
 
         skipOptionalFunctionBody()
 
         let item = ItemNode.new()
-        item.ItemType = "Function"
-        item.Name = func.Name
-        item.Visibility = inferVisibility(func.Name)
-        item.Function = func
+        item.itemType = "Function"
+        item.name = func.name
+        item.visibility = inferVisibility(func.name)
+        item.function = func
+
+        return item
+    }
+
+    fun parseClassItem() -> ItemNode? {
+        if isAtEnd() {
+            return null
+        }
+
+        let nameToken = consume("Identifier", "Expected class name")
+        let classNode = ClassNode.new()
+        classNode.name = nameToken.value
+
+        // Methods/fields are skipped for now; we just balance the braces.
+        skipOptionalFunctionBody()
+
+        let item = ItemNode.new()
+        item.itemType = "Class"
+        item.name = classNode.name
+        item.visibility = inferVisibility(classNode.name)
+        item.classNode = classNode
 
         return item
     }
@@ -89,7 +118,7 @@ class RealParser {
         while not isAtEnd() {
             let param = parseParam()
             if param != null {
-                func.Params.push(param)
+                func.params.push(param)
             }
 
             if matchToken("Comma") {
@@ -108,8 +137,8 @@ class RealParser {
         let nameToken = advance()
 
         let param = ParamNode.new()
-        param.Name = nameToken.value
-        param.ParamType = parseOptionalTypeAnnotation()
+        param.name = nameToken.value
+        param.paramType = parseOptionalTypeAnnotation()
 
         // Skip default values for now.
         if matchToken("Equal") {
@@ -122,7 +151,7 @@ class RealParser {
     fun parseOptionalTypeAnnotation() -> TypeNode {
         if !matchToken("Colon") {
             let fallback = TypeNode.new()
-            fallback.TypeName = "Unknown"
+            fallback.typeName = "Unknown"
             return fallback
         }
 
@@ -141,13 +170,13 @@ class RealParser {
 
         if checkToken("Identifier") {
             let token = advance()
-            typeNode.TypeName = token.value
+            typeNode.typeName = token.value
         } else {
-            typeNode.TypeName = "Unknown"
+            typeNode.typeName = "Unknown"
         }
 
         if matchToken("Question") {
-            typeNode.IsNullable = true
+            typeNode.isNullable = true
         }
 
         return typeNode
@@ -160,16 +189,18 @@ class RealParser {
         }
 
         // Support trailing semicolons (declarations)
-        matchToken("Semicolon")
+        if matchToken("Semicolon") {
+            // no-op
+        }
     }
 
     fun skipBlockBody() -> Void {
         var depth = 1
         while depth > 0 and not isAtEnd() {
             let token = advance()
-            if token.type == "LeftBrace" {
+            if token.Type == "LeftBrace" {
                 depth = depth + 1
-            } else if token.type == "RightBrace" {
+            } else if token.Type == "RightBrace" {
                 depth = depth - 1
             }
         }
@@ -182,11 +213,11 @@ class RealParser {
         matchToken("Semicolon")
 
         let item = ItemNode.new()
-        item.ItemType = "Import"
-        item.Name = pathInfo.Text
-        item.ImportPath = pathInfo.Segments
-        item.ImportSymbols = importSymbols
-        item.Visibility = ""
+        item.itemType = "Import"
+        item.name = pathInfo.Text
+        item.importPath = pathInfo.Segments
+        item.importSymbols = importSymbols
+        item.visibility = ""
         return item
     }
 
@@ -274,8 +305,8 @@ class RealParser {
 
     fun makeImportSymbol(name: String, alias: String) -> ImportSymbolNode {
         let symbol = ImportSymbolNode.new()
-        symbol.Name = name
-        symbol.Alias = alias
+        symbol.name = name
+        symbol.alias = alias
         return symbol
     }
 
@@ -292,7 +323,7 @@ class RealParser {
     fun skipExpression() -> Void {
         // Skip tokens until we reach a comma, semicolon, or closing paren.
         while not isAtEnd() {
-            if peek().type == "Comma" or peek().type == "RightParen" or peek().type == "Semicolon" {
+            if peek().Type == "Comma" or peek().Type == "RightParen" or peek().Type == "Semicolon" {
                 break
             }
             advance()
@@ -324,7 +355,7 @@ class RealParser {
         if isAtEnd() {
             return false
         }
-        return peek().type == tokenType
+        return peek().Type == tokenType
     }
 
     fun advance() -> RealToken {
@@ -335,7 +366,7 @@ class RealParser {
     }
 
     fun isAtEnd() -> Bool {
-        return current >= tokens.length() or peek().type == "EOF"
+        return current >= tokens.length() or peek().Type == "EOF"
     }
 
     fun peek() -> RealToken {

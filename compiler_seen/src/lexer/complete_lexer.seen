@@ -493,7 +493,7 @@ class CompleteLexer {
         
         // Not a keyword - it's an identifier
         // Check capitalization for visibility
-        var identifierType = TokenType.Identifier
+        var identifierType = TokenType.identifier
         if isCapital {
             identifierType = TokenType.CapitalIdentifier
         }
@@ -539,7 +539,7 @@ class CompleteLexer {
         if word == "override" { return TokenType.Override; }
         if word == "extension" { return TokenType.Extension; }
         if word == "companion" { return TokenType.Companion; }
-        if word == "object" { return TokenType.Object; }
+        if word == "object" { return TokenType.object; }
         
         // Type checking
         if word == "is" { return TokenType.Is; }

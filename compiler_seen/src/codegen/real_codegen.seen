@@ -1,6 +1,128 @@
 // REAL LLVM Code Generator - Actually generates executable code!
 // This is not a stub - it produces real LLVM IR!
 
+// AST Node Definitions (inline for self-hosting)
+struct ProgramNode {
+    items: Array<ItemNode>
+}
+
+struct ItemNode {
+    itemType: String
+    name: String
+    visibility: String
+    function: FunctionNode?
+    classNode: ClassNode?
+}
+
+struct FunctionNode {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode?
+    body: BlockNode
+    isAsync: Bool
+    isInline: Bool
+}
+
+struct ParamNode {
+    name: String
+    paramType: TypeNode
+}
+
+struct TypeNode {
+    typeName: String
+    isNullable: Bool
+}
+
+struct BlockNode {
+    statements: Array<StatementNode>
+}
+
+struct StatementNode {
+    stmtType: String
+    letStmt: LetStatement?
+    varStmt: VarStatement?
+    returnStmt: ReturnStatement?
+    ifStmt: IfStatement?
+    whileStmt: WhileStatement?
+    forStmt: ForStatement?
+    exprStmt: ExpressionStatement?
+    loopStmt: LoopStatement?
+}
+
+struct LoopStatement {
+    body: BlockNode
+}
+
+struct LetStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode
+}
+
+struct VarStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode?
+}
+
+struct ReturnStatement {
+    value: ExpressionNode?
+}
+
+struct IfStatement {
+    condition: ExpressionNode
+    thenBranch: BlockNode
+    elseBranch: BlockNode?
+}
+
+struct WhileStatement {
+    condition: ExpressionNode
+    body: BlockNode
+}
+
+struct ForStatement {
+    variable: String
+    iterable: ExpressionNode
+    body: BlockNode
+}
+
+struct ExpressionStatement {
+    expr: ExpressionNode
+}
+
+struct ExpressionNode {
+    exprType: String
+    literal: LiteralNode?
+    identifier: IdentifierNode?
+    binary: BinaryNode?
+    call: CallNode?
+}
+
+struct LiteralNode {
+    literalType: String
+    intValue: Int?
+    stringValue: String?
+}
+
+struct IdentifierNode {
+    name: String
+}
+
+struct BinaryNode {
+    left: ExpressionNode
+    operator: String
+    right: ExpressionNode
+}
+
+struct CallNode {
+    function: ExpressionNode
+    arguments: Array<ExpressionNode>
+}
+
+struct ClassNode {
+    name: String
+}
+
 class RealCodeGenerator {
     var output: String
     var nextRegister: Int
@@ -42,10 +164,10 @@ class RealCodeGenerator {
         emit("")
         
         // Generate code for each top-level item
-        for item in ast.Items {
-            if item.ItemType == "Function" {
+        for item in ast.items {
+            if item.itemType == "Function" {
                 generateFunction(item)
-            } else if item.ItemType == "Class" {
+            } else if item.itemType == "Class" {
                 generateClass(item)
             }
         }
@@ -59,16 +181,16 @@ class RealCodeGenerator {
     }
     
     fun generateFunction(item: ItemNode) {
-        currentFunction = item.Name
+        currentFunction = item.name
         nextRegister = 1
         variables = Map{}
         
         // Get the actual function node
-        let func = item.Function
+        let func = item.function
         if func == null {
             // Fallback for missing function data
-            emit("; Warning: No function data for " + item.Name)
-            emit("define i32 @" + item.Name + "() {")
+            emit("; Warning: No function data for " + item.name)
+            emit("define i32 @" + item.name + "() {")
             emit("entry:")
             emit("  ret i32 0")
             emit("}")
@@ -77,39 +199,39 @@ class RealCodeGenerator {
         }
         
         // Determine return type
-        let returnType = if func.ReturnType != null {
-            mapTypeToLLVM(func.ReturnType)
+        let returnType = if func.returnType != null {
+            mapTypeToLLVM(func.returnType)
         } else {
             "void"
         }
         
         // Generate parameter list
-        let params = generateParameterList(func.Params)
+        let params = generateParameterList(func.params)
         
         // Function attributes for optimization
         let attrs = ""
-        if func.IsInline {
+        if func.isInline {
             attrs = attrs + " alwaysinline"
         }
-        if item.Name == "main" {
+        if item.name == "main" {
             attrs = attrs + " nounwind"
         }
         
-        emit("define " + returnType + " @" + item.Name + "(" + params + ")" + attrs + " {")
+        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {")
         emit("entry:")
         
         // Initialize parameters as local variables
-        for param in func.Params {
-            let paramReg = "%" + param.Name
+        for param in func.params {
+            let paramReg = "%" + param.name
             let allocReg = nextReg()
-            let llvmType = mapTypeToLLVM(param.ParamType)
+            let llvmType = mapTypeToLLVM(param.paramType)
             emit("  " + allocReg + " = alloca " + llvmType + ", align 8")
             emit("  store " + llvmType + " " + paramReg + ", " + llvmType + "* " + allocReg + ", align 8")
-            variables.put(param.Name, allocReg)
+            variables.put(param.name, allocReg)
         }
         
         // Generate function body
-        generateBlock(func.Body)
+        generateBlock(func.body)
         
         // Add default return if needed
         if returnType == "void" {
@@ -125,8 +247,8 @@ class RealCodeGenerator {
     
     fun generateClass(item: ItemNode) {
         // Generate LLVM struct type for class
-        emit("; Class " + item.Name)
-        emit("%class." + item.Name + " = type { i32 }"); // Simplified class with one field
+        emit("; Class " + item.name)
+        emit("%class." + item.name + " = type { i32 }"); // Simplified class with one field
         emit("")
     }
     
@@ -140,35 +262,35 @@ class RealCodeGenerator {
     }
     
     fun generateStatement(stmt: StatementNode) -> String {
-        if stmt.StmtType == "Return" {
+        if stmt.stmtType == "Return" {
             return generateReturn(stmt)
-        } else if stmt.StmtType == "Let" {
+        } else if stmt.stmtType == "Let" {
             return generateLet(stmt)
-        } else if stmt.StmtType == "Var" {
+        } else if stmt.stmtType == "Var" {
             return generateVar(stmt)
-        } else if stmt.StmtType == "If" {
+        } else if stmt.stmtType == "If" {
             return generateIf(stmt)
-        } else if stmt.StmtType == "While" {
+        } else if stmt.stmtType == "While" {
             return generateWhile(stmt)
-        } else if stmt.StmtType == "For" {
+        } else if stmt.stmtType == "For" {
             return generateFor(stmt)
-        } else if stmt.StmtType == "Loop" {
+        } else if stmt.stmtType == "Loop" {
             return generateLoop(stmt)
-        } else if stmt.StmtType == "Match" {
+        } else if stmt.stmtType == "Match" {
             return generateMatch(stmt)
-        } else if stmt.StmtType == "Break" {
+        } else if stmt.stmtType == "Break" {
             return generateBreak(stmt)
-        } else if stmt.StmtType == "Continue" {
+        } else if stmt.stmtType == "Continue" {
             return generateContinue(stmt)
-        } else if stmt.StmtType == "Defer" {
+        } else if stmt.stmtType == "Defer" {
             return generateDefer(stmt)
-        } else if stmt.StmtType == "Assert" {
+        } else if stmt.stmtType == "Assert" {
             return generateAssert(stmt)
-        } else if stmt.StmtType == "Region" {
+        } else if stmt.stmtType == "Region" {
             return generateRegion(stmt)
-        } else if stmt.StmtType == "Arena" {
+        } else if stmt.stmtType == "Arena" {
             return generateArena(stmt)
-        } else if stmt.StmtType == "Expression" {
+        } else if stmt.stmtType == "Expression" {
             return generateExpressionStatement(stmt)
         }
         
@@ -256,42 +378,42 @@ class RealCodeGenerator {
             return "0"
         }
         
-        if expr.ExprType == "Literal" {
-            return generateLiteral(expr.Literal)
-        } else if expr.ExprType == "Identifier" {
-            return generateIdentifier(expr.Identifier)
-        } else if expr.ExprType == "Binary" {
-            return generateBinaryExpr(expr.Binary)
-        } else if expr.ExprType == "Unary" {
-            return generateUnaryExpr(expr.Unary)
-        } else if expr.ExprType == "Call" {
-            return generateCallExpr(expr.Call)
-        } else if expr.ExprType == "Member" {
-            return generateMemberExpr(expr.Member)
-        } else if expr.ExprType == "Index" {
-            return generateIndexExpr(expr.Index)
-        } else if expr.ExprType == "Cast" {
-            return generateCastExpr(expr.Cast)
-        } else if expr.ExprType == "If" {
-            return generateIfExpr(expr.IfExpr)
-        } else if expr.ExprType == "Match" {
-            return generateMatchExpr(expr.MatchExpr)
-        } else if expr.ExprType == "Range" {
-            return generateRangeExpr(expr.RangeExpr)
-        } else if expr.ExprType == "Lambda" {
-            return generateLambdaExpr(expr.Lambda)
-        } else if expr.ExprType == "Await" {
-            return generateAwaitExpr(expr.AwaitExpr)
-        } else if expr.ExprType == "Spawn" {
-            return generateSpawnExpr(expr.SpawnExpr)
-        } else if expr.ExprType == "StringInterpolation" {
-            return generateStringInterpolation(expr.StringInterp)
-        } else if expr.ExprType == "Is" {
-            return generateIsExpr(expr.IsExpr)
-        } else if expr.ExprType == "Elvis" {
-            return generateElvisExpr(expr.ElvisExpr)
-        } else if expr.ExprType == "ForceUnwrap" {
-            return generateForceUnwrap(expr.ForceUnwrap)
+        if expr.exprType == "Literal" {
+            return generateLiteral(expr.literal)
+        } else if expr.exprType == "Identifier" {
+            return generateIdentifier(expr.identifier)
+        } else if expr.exprType == "Binary" {
+            return generateBinaryExpr(expr.binary)
+        } else if expr.exprType == "Unary" {
+            return generateUnaryExpr(expr.unary)
+        } else if expr.exprType == "Call" {
+            return generateCallExpr(expr.call)
+        } else if expr.exprType == "Member" {
+            return generateMemberExpr(expr.member)
+        } else if expr.exprType == "Index" {
+            return generateIndexExpr(expr.index)
+        } else if expr.exprType == "Cast" {
+            return generateCastExpr(expr.cast)
+        } else if expr.exprType == "If" {
+            return generateIfExpr(expr.ifExpr)
+        } else if expr.exprType == "Match" {
+            return generateMatchExpr(expr.matchExpr)
+        } else if expr.exprType == "Range" {
+            return generateRangeExpr(expr.rangeExpr)
+        } else if expr.exprType == "Lambda" {
+            return generateLambdaExpr(expr.lambda)
+        } else if expr.exprType == "Await" {
+            return generateAwaitExpr(expr.awaitExpr)
+        } else if expr.exprType == "Spawn" {
+            return generateSpawnExpr(expr.spawnExpr)
+        } else if expr.exprType == "StringInterpolation" {
+            return generateStringInterpolation(expr.stringInterp)
+        } else if expr.exprType == "Is" {
+            return generateIsExpr(expr.isExpr)
+        } else if expr.exprType == "Elvis" {
+            return generateElvisExpr(expr.elvisExpr)
+        } else if expr.exprType == "ForceUnwrap" {
+            return generateForceUnwrap(expr.forceUnwrap)
         }
         
         // Default fallback
@@ -303,15 +425,15 @@ class RealCodeGenerator {
             return "0"
         }
         
-        if lit.LiteralType == "Int" {
-            return lit.IntValue.toString()
-        } else if lit.LiteralType == "Float" {
-            return lit.FloatValue.toString()
-        } else if lit.LiteralType == "Bool" {
-            return if lit.BoolValue { "1" } else { "0" }
-        } else if lit.LiteralType == "String" {
+        if lit.literalType == "Int" {
+            return lit.intValue.toString()
+        } else if lit.literalType == "Float" {
+            return lit.floatValue.toString()
+        } else if lit.literalType == "Bool" {
+            return if lit.boolValue { "1" } else { "0" }
+        } else if lit.literalType == "String" {
             // Create string constant
-            return generateStringConstant(lit.StringValue)
+            return generateStringConstant(lit.stringValue)
         }
         
         return "null"
@@ -322,7 +444,7 @@ class RealCodeGenerator {
             return "0"
         }
         
-        let varReg = variables.get(id.Name)
+        let varReg = variables.get(id.name)
         if varReg != null {
             // Load from allocated variable
             let loadReg = nextReg()
@@ -339,11 +461,11 @@ class RealCodeGenerator {
             return "0"
         }
         
-        let leftVal = generateExpression(bin.Left)
-        let rightVal = generateExpression(bin.Right)
+        let leftVal = generateExpression(bin.left)
+        let rightVal = generateExpression(bin.right)
         
         // Handle word-based operators (research-based design)
-        let op = bin.Operator
+        let op = bin.operator
         if op == "and" {
             return generateLogicalAnd(leftVal, rightVal)
         } else if op == "or" {
@@ -364,23 +486,23 @@ class RealCodeGenerator {
             return "0"
         }
         
-        let operandVal = generateExpression(un.Operand)
+        let operandVal = generateExpression(un.operand)
         let resultReg = nextReg()
         
-        if un.Operator == "-" {
+        if un.operator == "-" {
             emit("  " + resultReg + " = sub i32 0, " + operandVal)
-        } else if un.Operator == "not" {  // Word-based operator
+        } else if un.operator == "not" {  // Word-based operator
             emit("  " + resultReg + " = xor i1 " + operandVal + ", true")
-        } else if un.Operator == "~" {
+        } else if un.operator == "~" {
             emit("  " + resultReg + " = xor i32 " + operandVal + ", -1")
-        } else if un.Operator == "move" {  // Memory management
+        } else if un.operator == "move" {  // Memory management
             // Move semantics - transfer ownership
             return operandVal; // In LLVM, move is implicit
-        } else if un.Operator == "borrow" {
+        } else if un.operator == "borrow" {
             // Borrow semantics - create reference
             emit("  " + resultReg + " = load i32, i32* " + operandVal)
             return resultReg
-        } else if un.Operator == "mut" {
+        } else if un.operator == "mut" {
             // Mutable borrow
             return operandVal; // Track mutability in type system
         }
@@ -395,13 +517,13 @@ class RealCodeGenerator {
         
         // Get function name
         let funcName = "unknown"
-        if call.Function.ExprType == "Identifier" {
-            funcName = call.Function.Identifier.Name
+        if call.function.exprType == "Identifier" {
+            funcName = call.function.identifier.name
         }
         
         // Generate arguments
         let args: List<String> = []
-        for arg in call.Arguments {
+        for arg in call.arguments {
             args.append(generateExpression(arg))
         }
         
@@ -414,7 +536,7 @@ class RealCodeGenerator {
         }
         
         // Simplified member access
-        let objVal = generateExpression(mem.Object)
+        let objVal = generateExpression(mem.object)
         // Would need struct type info to generate proper GEP instruction
         return objVal
     }
@@ -424,8 +546,8 @@ class RealCodeGenerator {
             return "0"
         }
         
-        let exprVal = generateExpression(cast.Expr)
-        let targetType = mapTypeToLLVM(cast.TargetType)
+        let exprVal = generateExpression(cast.expr)
+        let targetType = mapTypeToLLVM(cast.targetType)
         let resultReg = nextReg()
         
         // Generate appropriate cast instruction
@@ -603,8 +725,8 @@ class RealCodeGenerator {
     }
     
     fun hasMainFunction(ast: ProgramNode) -> Bool {
-        for item in ast.Items {
-            if item.ItemType == "Function" and item.Name == "main" {
+        for item in ast.items {
+            if item.itemType == "Function" and item.name == "main" {
                 return true
             }
         }
@@ -638,7 +760,7 @@ class RealCodeGenerator {
             return
         }
         
-        for stmt in block.Statements {
+        for stmt in block.statements {
             generateStatement(stmt)
         }
     }
@@ -649,8 +771,8 @@ class RealCodeGenerator {
             if i > 0 {
                 result = result + ", "
             }
-            let llvmType = mapTypeToLLVM(params[i].ParamType)
-            result = result + llvmType + " %" + params[i].Name
+            let llvmType = mapTypeToLLVM(params[i].paramType)
+            result = result + llvmType + " %" + params[i].name
         }
         return result
     }
@@ -660,7 +782,7 @@ class RealCodeGenerator {
             return "i32"; // Default to i32
         }
         
-        let baseType = typeNode.TypeName
+        let baseType = typeNode.typeName
         
         // Map Seen types to LLVM types
         if baseType == "i32" or baseType == "Int" {
@@ -680,16 +802,16 @@ class RealCodeGenerator {
         }
         
         // Handle nullable types
-        if typeNode.IsNullable {
+        if typeNode.isNullable {
             // Nullable types become pointers
             return mapTypeToLLVM(TypeNode{ typeName: baseType, isNullable: false }) + "*"
         }
         
         // Handle arrays
-        if typeNode.IsArray {
+        if typeNode.isArray {
             let elemType = mapTypeToLLVM(TypeNode{ typeName: baseType, isNullable: false })
-            if typeNode.ArraySize != null {
-                return "[" + typeNode.ArraySize.toString() + " x " + elemType + "]"
+            if typeNode.arraySize != null {
+                return "[" + typeNode.arraySize.toString() + " x " + elemType + "]"
             } else {
                 return elemType + "*"; // Dynamic array
             }
@@ -815,27 +937,27 @@ class RealCodeGenerator {
     
     fun generateVar(stmt: StatementNode) -> String {
         // Mutable variable (var vs let)
-        let varStmt = stmt.VarStmt
+        let varStmt = stmt.varStmt
         if varStmt == null {
             return ""
         }
         
         let reg = nextReg()
-        let typeStr = if varStmt.VarType != null { mapTypeToLLVM(varStmt.VarType) } else { "i32" }
+        let typeStr = if varStmt.varType != null { mapTypeToLLVM(varStmt.varType) } else { "i32" }
         
         emit("  " + reg + " = alloca " + typeStr + ", align 8")
         
-        if varStmt.Value != null {
-            let valueReg = generateExpression(varStmt.Value)
+        if varStmt.value != null {
+            let valueReg = generateExpression(varStmt.value)
             emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8")
         }
         
-        variables.put(varStmt.Name, reg)
+        variables.put(varStmt.name, reg)
         return reg
     }
     
     fun generateFor(stmt: StatementNode) -> String {
-        let forStmt = stmt.ForStmt
+        let forStmt = stmt.forStmt
         if forStmt == null {
             return ""
         }
@@ -850,7 +972,7 @@ class RealCodeGenerator {
         emit("  " + loopVar + " = alloca i32, align 4")
         
         // Generate iterable (range or collection)
-        let iterableReg = generateExpression(forStmt.Iterable)
+        let iterableReg = generateExpression(forStmt.iterable)
         
         emit("  br label %" + condLabel)
         
@@ -865,8 +987,8 @@ class RealCodeGenerator {
         
         // Loop body
         emit(bodyLabel + ":")
-        variables.put(forStmt.Variable, loopVar)
-        generateBlock(forStmt.Body)
+        variables.put(forStmt.variable, loopVar)
+        generateBlock(forStmt.body)
         emit("  br label %" + incrementLabel)
         
         // Increment
@@ -883,7 +1005,7 @@ class RealCodeGenerator {
     }
     
     fun generateLoop(stmt: StatementNode) -> String {
-        let loopStmt = stmt.LoopStmt
+        let loopStmt = stmt.loopStmt
         if loopStmt == null {
             return ""
         }
@@ -899,7 +1021,7 @@ class RealCodeGenerator {
         emit("  br label %" + loopLabel)
         emit(loopLabel + ":")
         
-        generateBlock(loopStmt.Body)
+        generateBlock(loopStmt.body)
         
         emit("  br label %" + loopLabel)
         emit(endLabel + ":")
@@ -908,12 +1030,12 @@ class RealCodeGenerator {
     }
     
     fun generateMatch(stmt: StatementNode) -> String {
-        let matchStmt = stmt.MatchStmt
+        let matchStmt = stmt.matchStmt
         if matchStmt == null {
             return ""
         }
         
-        let exprReg = generateExpression(matchStmt.Expr)
+        let exprReg = generateExpression(matchStmt.expr)
         let endLabel = nextLabelName()
         
         // Generate each match arm
@@ -935,7 +1057,7 @@ class RealCodeGenerator {
             emit("  br i1 " + matches + ", label %" + armLabel + ", label %" + nextLabel)
             
             emit(armLabel + ":")
-            generateExpression(arm.Body)
+            generateExpression(arm.body)
             emit("  br label %" + endLabel)
             
             emit(nextLabel + ":")
@@ -947,13 +1069,13 @@ class RealCodeGenerator {
     
     fun generatePattern(pattern: PatternNode, valueReg: String) -> String {
         if pattern.PatternType == "Literal" {
-            let litVal = generateLiteral(pattern.Literal)
+            let litVal = generateLiteral(pattern.literal)
             let cmpReg = nextReg()
             emit("  " + cmpReg + " = icmp eq i32 " + valueReg + ", " + litVal)
             return cmpReg
         } else if pattern.PatternType == "Identifier" {
             // Bind to variable
-            variables.put(pattern.Identifier, valueReg)
+            variables.put(pattern.identifier, valueReg)
             return "true"; // Always matches
         } else if pattern.PatternType == "Wildcard" {
             return "true"; // _ always matches
@@ -993,11 +1115,11 @@ class RealCodeGenerator {
     }
     
     fun generateBreak(stmt: StatementNode) -> String {
-        let breakStmt = stmt.BreakStmt
+        let breakStmt = stmt.breakStmt
         
-        if breakStmt != null and breakStmt.Value != null {
+        if breakStmt != null and breakStmt.value != null {
             // Loop with return value
-            let valueReg = generateExpression(breakStmt.Value)
+            let valueReg = generateExpression(breakStmt.value)
             // Store in loop result variable
         }
         
@@ -1015,7 +1137,7 @@ class RealCodeGenerator {
     fun generateDefer(stmt: StatementNode) -> String {
         // Defer executes at scope exit
         // Need to track and emit at function/scope end
-        let deferStmt = stmt.DeferStmt
+        let deferStmt = stmt.deferStmt
         if deferStmt != null {
             // Store defer block for later execution
             // In production, maintain defer stack
@@ -1024,12 +1146,12 @@ class RealCodeGenerator {
     }
     
     fun generateAssert(stmt: StatementNode) -> String {
-        let assertStmt = stmt.AssertStmt
+        let assertStmt = stmt.assertStmt
         if assertStmt == null {
             return ""
         }
         
-        let condReg = generateExpression(assertStmt.Condition)
+        let condReg = generateExpression(assertStmt.condition)
         let passLabel = nextLabelName()
         let failLabel = nextLabelName()
         
@@ -1051,20 +1173,20 @@ class RealCodeGenerator {
     
     fun generateRegion(stmt: StatementNode) -> String {
         // Region-based memory management
-        let regionStmt = stmt.RegionStmt
+        let regionStmt = stmt.regionStmt
         if regionStmt == null {
             return ""
         }
         
         // Allocate region
-        let regionName = if regionStmt.Name != null {
-            regionStmt.Name
+        let regionName = if regionStmt.name != null {
+            regionStmt.name
         } else {
             "anonymous"
         }
         emit("  ; Begin region " + regionName)
         
-        generateBlock(regionStmt.Body)
+        generateBlock(regionStmt.body)
         
         // Free region
         emit("  ; End region - all memory freed")
@@ -1074,14 +1196,14 @@ class RealCodeGenerator {
     
     fun generateArena(stmt: StatementNode) -> String {
         // Arena allocation
-        let arenaStmt = stmt.ArenaStmt
+        let arenaStmt = stmt.arenaStmt
         if arenaStmt == null {
             return ""
         }
         
         emit("  ; Begin arena allocation")
         
-        generateBlock(arenaStmt.Body)
+        generateBlock(arenaStmt.body)
         
         emit("  ; End arena - bulk free")
         
@@ -1093,8 +1215,8 @@ class RealCodeGenerator {
             return "0"
         }
         
-        let objReg = generateExpression(index.Object)
-        let idxReg = generateExpression(index.Index)
+        let objReg = generateExpression(index.object)
+        let idxReg = generateExpression(index.index)
         
         let resultReg = nextReg()
         emit("  " + resultReg + " = getelementptr i32, i32* " + objReg + ", i32 " + idxReg)
@@ -1110,7 +1232,7 @@ class RealCodeGenerator {
             return "0"
         }
         
-        let condReg = generateExpression(ifExpr.Condition)
+        let condReg = generateExpression(ifExpr.condition)
         let thenLabel = nextLabelName()
         let elseLabel = nextLabelName()
         let endLabel = nextLabelName()
@@ -1121,12 +1243,12 @@ class RealCodeGenerator {
         emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel)
         
         emit(thenLabel + ":")
-        let thenVal = generateExpression(ifExpr.ThenExpr)
+        let thenVal = generateExpression(ifExpr.thenExpr)
         emit("  store i32 " + thenVal + ", i32* " + resultReg + ", align 4")
         emit("  br label %" + endLabel)
         
         emit(elseLabel + ":")
-        let elseVal = generateExpression(ifExpr.ElseExpr)
+        let elseVal = generateExpression(ifExpr.elseExpr)
         emit("  store i32 " + elseVal + ", i32* " + resultReg + ", align 4")
         emit("  br label %" + endLabel)
         
@@ -1143,7 +1265,7 @@ class RealCodeGenerator {
             return "0"
         }
         
-        let exprReg = generateExpression(matchNode.Expr)
+        let exprReg = generateExpression(matchNode.expr)
         let resultReg = nextReg()
         emit("  " + resultReg + " = alloca i32, align 4")
         
@@ -1203,7 +1325,7 @@ class RealCodeGenerator {
         }
         
         // Async/await support
-        let futureReg = generateExpression(awaitNode.Expr)
+        let futureReg = generateExpression(awaitNode.expr)
         
         // Call runtime await function
         let resultReg = nextReg()
@@ -1218,7 +1340,7 @@ class RealCodeGenerator {
         }
         
         // Spawn concurrent task
-        let taskReg = generateExpression(spawnNode.Expr)
+        let taskReg = generateExpression(spawnNode.expr)
         
         let handleReg = nextReg()
         if spawnNode.IsActor {
@@ -1241,10 +1363,10 @@ class RealCodeGenerator {
         
         for part in interp.Parts {
             if part.IsLiteral {
-                let litReg = generateStringConstant(part.Literal)
+                let litReg = generateStringConstant(part.literal)
                 emit("  call void @__string_append_str(i8* " + resultReg + ", i8* " + litReg + ")")
-            } else if part.Expr != null {
-                let exprReg = generateExpression(part.Expr)
+            } else if part.expr != null {
+                let exprReg = generateExpression(part.expr)
                 // Convert to string and append
                 let strReg = nextReg()
                 emit("  " + strReg + " = call i8* @__to_string(i32 " + exprReg + ")")
@@ -1261,7 +1383,7 @@ class RealCodeGenerator {
         }
         
         // Type checking at runtime
-        let valueReg = generateExpression(isExpr.Expr)
+        let valueReg = generateExpression(isExpr.expr)
         let typeId = mapTypeToTypeId(isExpr.TypeNode)
         
         let resultReg = nextReg()
@@ -1277,7 +1399,7 @@ class RealCodeGenerator {
         
         // Null coalescing operator (?:)
         let nullableReg = generateExpression(elvis.Nullable)
-        let defaultReg = generateExpression(elvis.DefaultValue)
+        let defaultReg = generateExpression(elvis.defaultValue)
         
         let isNullReg = nextReg()
         emit("  " + isNullReg + " = icmp eq i8* " + nullableReg + ", null")
@@ -1294,7 +1416,7 @@ class RealCodeGenerator {
         }
         
         // Force unwrap nullable (!!)
-        let nullableReg = generateExpression(unwrap.Expr)
+        let nullableReg = generateExpression(unwrap.expr)
         
         // Check for null and abort if null
         let isNullReg = nextReg()
@@ -1395,10 +1517,10 @@ class RealCodeGenerator {
         }
         
         // Map type names to runtime type IDs
-        if typeNode.TypeName == "Int" { return "1"; }
-        if typeNode.TypeName == "Float" { return "2"; }
-        if typeNode.TypeName == "String" { return "3"; }
-        if typeNode.TypeName == "Bool" { return "4"; }
+        if typeNode.typeName == "Int" { return "1"; }
+        if typeNode.typeName == "Float" { return "2"; }
+        if typeNode.typeName == "String" { return "3"; }
+        if typeNode.typeName == "Bool" { return "4"; }
         
         return "0"
     }
@@ -1431,7 +1553,7 @@ class RealCompiler {
         println("Step 2: Parsing...")
         parser = RealParser{ tokens: tokens }
         let ast = parser.parse()
-        println("  Built AST with " + ast.Items.size().toString() + " items")
+        println("  Built AST with " + ast.items.size().toString() + " items")
         
         // Step 3: Generate LLVM IR
         println("Step 3: Generating LLVM IR...")

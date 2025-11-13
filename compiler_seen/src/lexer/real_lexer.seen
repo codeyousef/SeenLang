@@ -2,19 +2,19 @@
 // This is not a stub - it really works!
 
 class RealToken {
-    var type: String
-    var value: String
-    var line: Int
-    var column: Int
-    var length: Int
+    var Type: String
+    var Value: String
+    var Line: Int
+    var Column: Int
+    var Length: Int
     
-    fun new(type: String, value: String, line: Int, column: Int, length: Int) -> RealToken {
+    fun new(kind: String, contents: String, line: Int, column: Int, length: Int) -> RealToken {
         return RealToken{
-            type: type,
-            value: value,
-            line: line,
-            column: column,
-            length: length
+            Type: kind,
+            Value: contents,
+            Line: line,
+            Column: column,
+            Length: length
         }
     }
 }
@@ -59,17 +59,11 @@ class RealLexer {
         }
         
         // Add EOF token
-        tokens.append(RealToken{
-            type: "EOF",
-            value: "",
-            line: line,
-            column: column,
-            length: 0
-        })
+        tokens.append(makeToken("EOF", "", line, column, 0))
         
         return tokens
     }
-    
+
     fun nextToken() -> RealToken? {
         let startPos = position
         let startCol = column
@@ -95,141 +89,141 @@ class RealLexer {
             advance()
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "PlusEqual", value: "+=", line: line, column: startCol, length: 2 }
+                return makeToken("PlusEqual", "+=", line, startCol, 2)
             }
-            return RealToken{ type: "Plus", value: "+", line: line, column: startCol, length: 1 }
+            return makeToken("Plus", "+", line, startCol, 1)
         }
         
         if ch == "-" {
             advance()
             if currentChar() == ">" {
                 advance()
-                return RealToken{ type: "Arrow", value: "->", line: line, column: startCol, length: 2 }
+                return makeToken("Arrow", "->", line, startCol, 2)
             }
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "MinusEqual", value: "-=", line: line, column: startCol, length: 2 }
+                return makeToken("MinusEqual", "-=", line, startCol, 2)
             }
-            return RealToken{ type: "Minus", value: "-", line: line, column: startCol, length: 1 }
+            return makeToken("Minus", "-", line, startCol, 1)
         }
         
         if ch == "*" {
             advance()
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "StarEqual", value: "*=", line: line, column: startCol, length: 2 }
+                return makeToken("StarEqual", "*=", line, startCol, 2)
             }
-            return RealToken{ type: "Star", value: "*", line: line, column: startCol, length: 1 }
+            return makeToken("Star", "*", line, startCol, 1)
         }
         
         if ch == "/" {
             advance()
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "SlashEqual", value: "/=", line: line, column: startCol, length: 2 }
+                return makeToken("SlashEqual", "/=", line, startCol, 2)
             }
-            return RealToken{ type: "Slash", value: "/", line: line, column: startCol, length: 1 }
+            return makeToken("Slash", "/", line, startCol, 1)
         }
         
         if ch == "=" {
             advance()
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "EqualEqual", value: "==", line: line, column: startCol, length: 2 }
+                return makeToken("EqualEqual", "==", line, startCol, 2)
             }
-            return RealToken{ type: "Equal", value: "=", line: line, column: startCol, length: 1 }
+            return makeToken("Equal", "=", line, startCol, 1)
         }
         
         if ch == "!" {
             advance()
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "NotEqual", value: "!=", line: line, column: startCol, length: 2 }
+                return makeToken("NotEqual", "!=", line, startCol, 2)
             }
-            return RealToken{ type: "Not", value: "!", line: line, column: startCol, length: 1 }
+            return makeToken("Not", "!", line, startCol, 1)
         }
         
         if ch == "<" {
             advance()
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "LessEqual", value: "<=", line: line, column: startCol, length: 2 }
+                return makeToken("LessEqual", "<=", line, startCol, 2)
             }
-            return RealToken{ type: "Less", value: "<", line: line, column: startCol, length: 1 }
+            return makeToken("Less", "<", line, startCol, 1)
         }
         
         if ch == ">" {
             advance()
             if currentChar() == "=" {
                 advance()
-                return RealToken{ type: "GreaterEqual", value: ">=", line: line, column: startCol, length: 2 }
+                return makeToken("GreaterEqual", ">=", line, startCol, 2)
             }
-            return RealToken{ type: "Greater", value: ">", line: line, column: startCol, length: 1 }
+            return makeToken("Greater", ">", line, startCol, 1)
         }
         
         // Single character tokens
         if ch == "(" {
             advance()
-            return RealToken{ type: "LeftParen", value: "(", line: line, column: startCol, length: 1 }
+            return makeToken("LeftParen", "(", line, startCol, 1)
         }
         
         if ch == ")" {
             advance()
-            return RealToken{ type: "RightParen", value: ")", line: line, column: startCol, length: 1 }
+            return makeToken("RightParen", ")", line, startCol, 1)
         }
         
         if ch == "{" {
             advance()
-            return RealToken{ type: "LeftBrace", value: "{", line: line, column: startCol, length: 1 }
+            return makeToken("LeftBrace", "{", line, startCol, 1)
         }
         
         if ch == "}" {
             advance()
-            return RealToken{ type: "RightBrace", value: "}", line: line, column: startCol, length: 1 }
+            return makeToken("RightBrace", "}", line, startCol, 1)
         }
         
         if ch == "[" {
             advance()
-            return RealToken{ type: "LeftBracket", value: "[", line: line, column: startCol, length: 1 }
+            return makeToken("LeftBracket", "[", line, startCol, 1)
         }
         
         if ch == "]" {
             advance()
-            return RealToken{ type: "RightBracket", value: "]", line: line, column: startCol, length: 1 }
+            return makeToken("RightBracket", "]", line, startCol, 1)
         }
         
         if ch == "," {
             advance()
-            return RealToken{ type: "Comma", value: ",", line: line, column: startCol, length: 1 }
+            return makeToken("Comma", ",", line, startCol, 1)
         }
         
         if ch == "." {
             advance()
             if currentChar() == "." {
                 advance()
-                return RealToken{ type: "DotDot", value: "..", line: line, column: startCol, length: 2 }
+                return makeToken("DotDot", "..", line, startCol, 2)
             }
-            return RealToken{ type: "Dot", value: ".", line: line, column: startCol, length: 1 }
+            return makeToken("Dot", ".", line, startCol, 1)
         }
         
         if ch == ":" {
             advance()
-            return RealToken{ type: "Colon", value: ":", line: line, column: startCol, length: 1 }
+            return makeToken("Colon", ":", line, startCol, 1)
         }
         
         if ch == ";" {
             advance()
-            return RealToken{ type: "Semicolon", value: ";", line: line, column: startCol, length: 1 }
+            return makeToken("Semicolon", ";", line, startCol, 1)
         }
         
         if ch == "?" {
             advance()
-            return RealToken{ type: "Question", value: "?", line: line, column: startCol, length: 1 }
+            return makeToken("Question", "?", line, startCol, 1)
         }
         
         // Unknown character
         advance()
-        return RealToken{ type: "Unknown", value: ch, line: line, column: startCol, length: 1 }
+        return makeToken("Unknown", ch, line, startCol, 1)
     }
     
     fun scanIdentifierOrKeyword(startCol: Int) -> RealToken {
@@ -242,13 +236,7 @@ class RealLexer {
         let value = source.substring(startPos, position)
         let tokenType = if isKeyword(value) { "Keyword" + capitalize(value) } else { "Identifier" }
         
-        return RealToken{
-            type: tokenType,
-            value: value,
-            line: line,
-            column: startCol,
-            length: position - startPos
-        }
+        return makeToken(tokenType, value, line, startCol, position - startPos)
     }
     
     fun scanNumber(startCol: Int) -> RealToken {
@@ -266,23 +254,11 @@ class RealLexer {
             }
             
             let value = source.substring(startPos, position)
-            return RealToken{
-                type: "FloatLiteral",
-                value: value,
-                line: line,
-                column: startCol,
-                length: position - startPos
-            }
+            return makeToken("FloatLiteral", value, line, startCol, position - startPos)
         }
         
         let value = source.substring(startPos, position)
-        return RealToken{
-            type: "IntLiteral",
-            value: value,
-            line: line,
-            column: startCol,
-            length: position - startPos
-        }
+        return makeToken("IntLiteral", value, line, startCol, position - startPos)
     }
     
     fun scanString(startCol: Int) -> RealToken {
@@ -346,13 +322,7 @@ class RealLexer {
         // Return different token type for interpolated strings
         let tokenType = if hasInterpolation { "InterpolatedString" } else { "StringLiteral" }
         
-        return RealToken{
-            type: tokenType,
-            value: value,
-            line: line,
-            column: startCol,
-            length: position - startPos
-        }
+        return makeToken(tokenType, value, line, startCol, position - startPos)
     }
     
     fun skipWhitespaceAndComments() {
@@ -487,6 +457,16 @@ class RealLexer {
     }
 }
 
+fun makeToken(kind: String, contents: String, line: Int, column: Int, length: Int) -> RealToken {
+    return RealToken{
+        Type: kind,
+        Value: contents,
+        Line: line,
+        Column: column,
+        Length: length
+    }
+}
+
 // Test the real lexer
 fun testRealLexer() {
     let source = """
@@ -510,7 +490,7 @@ fun testRealLexer() {
     
     println("Tokenized " + tokens.size().toString() + " tokens:")
     for token in tokens {
-        println("  " + token.type + ": '" + token.value + "' at " + 
+        println("  " + token.Type + ": '" + token.value + "' at " +
                 token.line.toString() + ":" + token.column.toString())
     }
 }

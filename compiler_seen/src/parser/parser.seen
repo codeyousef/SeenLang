@@ -2,7 +2,7 @@
 // Implements complete Seen language parsing with recursive descent
 
 import lexer.{Token, TokenType, SeenLexer}
-import parser.interfaces.{AST, ParseError, Function, Type, Parameter, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, MatchStatement, Class, Interface, Enum, Import, Literal, BinaryExpression}
+// import parser.interfaces.{AST, ParseError, Function, Type, Parameter, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, MatchStatement, Class, Interface, Enum, Import, Literal, BinaryExpression}
 
 class SeenParser {
     let tokens: Array<Token>
@@ -66,7 +66,7 @@ class SeenParser {
     fun parseFunction() -> Function {
         expect(TokenType.KeywordFun)
         
-        let nameToken = expect(TokenType.Identifier)
+        let nameToken = expect(TokenType.identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftParen)
@@ -110,7 +110,7 @@ class SeenParser {
     }
     
     fun parseParameter() -> Parameter {
-        let nameToken = expect(TokenType.Identifier)
+        let nameToken = expect(TokenType.identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.Colon)
@@ -138,7 +138,7 @@ class SeenParser {
     }
     
     fun parseType() -> Type {
-        let nameToken = expect(TokenType.Identifier)
+        let nameToken = expect(TokenType.identifier)
         let name = nameToken.getValue()
         let isNullable = false
         
@@ -239,7 +239,7 @@ class SeenParser {
             expect(TokenType.KeywordLet)
         }
         
-        let nameToken = expect(TokenType.Identifier)
+        let nameToken = expect(TokenType.identifier)
         let name = nameToken.getValue()
         
         let decl = VariableDeclaration.new(name, isMutable)
@@ -408,7 +408,7 @@ class SeenParser {
                 Literal.new(token.getValue(), token.getType(), token.getLine(), token.getColumn())
             }
             
-            TokenType.Identifier -> {
+            TokenType.identifier -> {
                 advance()
                 IdentifierExpression.new(token.getValue(), token.getLine(), token.getColumn())
             }
@@ -454,7 +454,7 @@ class SeenParser {
     
     fun parseClass() -> Class {
         expect(TokenType.KeywordClass)
-        let nameToken = expect(TokenType.Identifier)
+        let nameToken = expect(TokenType.identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftBrace)
@@ -481,7 +481,7 @@ class SeenParser {
     
     fun parseInterface() -> Interface {
         expect(TokenType.KeywordInterface)
-        let nameToken = expect(TokenType.Identifier)
+        let nameToken = expect(TokenType.identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftBrace)
@@ -504,7 +504,7 @@ class SeenParser {
     
     fun parseEnum() -> Enum {
         expect(TokenType.KeywordEnum)
-        let nameToken = expect(TokenType.Identifier)
+        let nameToken = expect(TokenType.identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftBrace)
@@ -512,7 +512,7 @@ class SeenParser {
         let enumNode = Enum.new(name)
         
         while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
-            let variantToken = expect(TokenType.Identifier)
+            let variantToken = expect(TokenType.identifier)
             enumNode.variants.push(variantToken.getValue())
             
             if getCurrentToken().getType() == TokenType.Comma {
@@ -528,7 +528,7 @@ class SeenParser {
         expect(TokenType.KeywordImport)
         
         // Parse import path - simplified for TDD
-        let pathToken = expect(TokenType.Identifier)
+        let pathToken = expect(TokenType.identifier)
         let path = pathToken.getValue()
         
         let importNode = Import.new(path)
@@ -539,7 +539,7 @@ class SeenParser {
             expect(TokenType.LeftBrace)
             
             while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
-                let itemToken = expect(TokenType.Identifier)
+                let itemToken = expect(TokenType.identifier)
                 importNode.items.push(itemToken.getValue())
                 
                 if getCurrentToken().getType() == TokenType.Comma {

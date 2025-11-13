@@ -4,7 +4,7 @@
 import lexer.{TokenType}
 import parser.{AST, Function, Class, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, BinaryExpression, Literal, IdentifierExpression, Type as ASTType}
 import typechecker.{TypeInferenceResult, Type, Environment}
-import ir.interfaces.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType, IRError, IRBuilder}
+// import ir.interfaces.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType, IRError, IRBuilder}
 
 class IRGenerator {
     let builder: IRBuilder

@@ -2,10 +2,10 @@
 // Exports the actual working implementations for TDD
 
 // Import all the interfaces and types
-import interfaces.{Target, OptLevel, OutputFormat, CodegenResult, CodegenError, CodegenStatistics, Backend, LLVMBackend, CBackend, WASMBackend, CodeOptimizer}
+// import interfaces.{Target, OptLevel, OutputFormat, CodegenResult, CodegenError, CodegenStatistics, Backend, LLVMBackend, CBackend, WASMBackend, CodeOptimizer}
 
 // Import the real implementation
-import generator.{CodeGenerator}
+// import generator.{CodeGenerator}
 
 // Utility functions for tests
 fun createCodeGenerator() -> CodeGenerator {

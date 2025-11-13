@@ -1,6 +1,128 @@
 // Complete LLVM Code Generator with Full Optimizations
 // Generates real, optimized LLVM IR that produces working executables
 
+// AST Node Definitions (inline for self-hosting)
+struct ProgramNode {
+    items: Array<ItemNode>
+}
+
+struct ItemNode {
+    itemType: String
+    name: String
+    visibility: String
+    function: FunctionNode?
+    classNode: ClassNode?
+}
+
+struct FunctionNode {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode?
+    body: BlockNode
+    isAsync: Bool
+    isInline: Bool
+}
+
+struct ParamNode {
+    name: String
+    paramType: TypeNode
+}
+
+struct TypeNode {
+    typeName: String
+    isNullable: Bool
+}
+
+struct BlockNode {
+    statements: Array<StatementNode>
+}
+
+struct StatementNode {
+    stmtType: String
+    letStmt: LetStatement?
+    varStmt: VarStatement?
+    returnStmt: ReturnStatement?
+    ifStmt: IfStatement?
+    whileStmt: WhileStatement?
+    forStmt: ForStatement?
+    exprStmt: ExpressionStatement?
+    loopStmt: LoopStatement?
+}
+
+struct LoopStatement {
+    body: BlockNode
+}
+
+struct LetStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode
+}
+
+struct VarStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode?
+}
+
+struct ReturnStatement {
+    value: ExpressionNode?
+}
+
+struct IfStatement {
+    condition: ExpressionNode
+    thenBranch: BlockNode
+    elseBranch: BlockNode?
+}
+
+struct WhileStatement {
+    condition: ExpressionNode
+    body: BlockNode
+}
+
+struct ForStatement {
+    variable: String
+    iterable: ExpressionNode
+    body: BlockNode
+}
+
+struct ExpressionStatement {
+    expr: ExpressionNode
+}
+
+struct ExpressionNode {
+    exprType: String
+    literal: LiteralNode?
+    identifier: IdentifierNode?
+    binary: BinaryNode?
+    call: CallNode?
+}
+
+struct LiteralNode {
+    literalType: String
+    intValue: Int?
+    stringValue: String?
+}
+
+struct IdentifierNode {
+    name: String
+}
+
+struct BinaryNode {
+    left: ExpressionNode
+    operator: String
+    right: ExpressionNode
+}
+
+struct CallNode {
+    function: ExpressionNode
+    arguments: Array<ExpressionNode>
+}
+
+struct ClassNode {
+    name: String
+}
+
 class CompleteCodeGenerator {
     var output: String
     var nextRegister: Int
@@ -48,7 +170,7 @@ class CompleteCodeGenerator {
         declareStringConstants()
         
         // Generate optimized code for each item
-        for item in ast.Items {
+        for item in ast.items {
             generateTopLevelItem(item)
         }
         
@@ -105,61 +227,61 @@ class CompleteCodeGenerator {
     }
     
     fun generateTopLevelItem(item: ItemNode) {
-        if item.ItemType == "Function" {
+        if item.itemType == "Function" {
             generateOptimizedFunction(item)
-        } else if item.ItemType == "Class" {
+        } else if item.itemType == "Class" {
             generateClass(item)
-        } else if item.ItemType == "Struct" {
+        } else if item.itemType == "Struct" {
             generateStruct(item)
         }
     }
     
     fun generateOptimizedFunction(item: ItemNode) {
-        currentFunction = item.Name
+        currentFunction = item.name
         nextRegister = 1
         variables = Map{}
         deferredCode = []
         
-        let func = item.Function
+        let func = item.function
         if func == null {
             return
         }
         
         // Determine return type
-        let returnType = if func.ReturnType != null {
-            mapTypeToLLVM(func.ReturnType)
+        let returnType = if func.returnType != null {
+            mapTypeToLLVM(func.returnType)
         } else {
             "void"
         }
         
         // Generate parameter list
-        let params = generateParameterList(func.Params)
+        let params = generateParameterList(func.params)
         
         // Function attributes for aggressive optimization
         let attrs = ""
-        if func.IsInline {
+        if func.isInline {
             attrs = attrs + " alwaysinline"
         }
-        if item.Name == "main" {
+        if item.name == "main" {
             attrs = attrs + " nounwind"
-        } else if isBenchmarkFunction(item.Name) {
+        } else if isBenchmarkFunction(item.name) {
             // Hot path optimization for benchmarks
             attrs = attrs + " hot nounwind"
         }
         
         // Add optimization hints
-        if containsLoop(func.Body) {
+        if containsLoop(func.body) {
             attrs = attrs + " optsize"; // Optimize for size in loop bodies
         }
         
-        emit("define " + returnType + " @" + item.Name + "(" + params + ")" + attrs + " {{")
+        emit("define " + returnType + " @" + item.name + "(" + params + ")" + attrs + " {{")
         emit("entry:")
         
         // Initialize parameters with noalias for better optimization
-        for param in func.Params {
-            let paramReg = "%" + param.Name
+        for param in func.params {
+            let paramReg = "%" + param.name
             let allocReg = nextReg()
-            let llvmType = mapTypeToLLVM(param.ParamType)
+            let llvmType = mapTypeToLLVM(param.paramType)
             
             // Use noalias for pointer parameters
             if llvmType.contains("*") {
@@ -170,11 +292,11 @@ class CompleteCodeGenerator {
                 emit("  store " + llvmType + " " + paramReg + ", " + llvmType + "* " + allocReg + ", align 8")
             }
             
-            variables.put(param.Name, allocReg)
+            variables.put(param.name, allocReg)
         }
         
         // Generate optimized function body
-        generateOptimizedBlock(func.Body)
+        generateOptimizedBlock(func.body)
         
         // Execute deferred code
         for code in deferredCode {
@@ -184,7 +306,7 @@ class CompleteCodeGenerator {
         // Add return
         if returnType == "void" {
             emit("  ret void")
-        } else if not hasReturn(func.Body) {
+        } else if not hasReturn(func.body) {
             emit("  ret " + returnType + " 0")
         }
         
@@ -201,11 +323,11 @@ class CompleteCodeGenerator {
         let hasLoops = false
         let hasConditions = false
         
-        for stmt in block.Statements {
-            if stmt.StmtType == "For" or stmt.StmtType == "While" or stmt.StmtType == "Loop" {
+        for stmt in block.statements {
+            if stmt.stmtType == "For" or stmt.stmtType == "While" or stmt.stmtType == "Loop" {
                 hasLoops = true
             }
-            if stmt.StmtType == "If" or stmt.StmtType == "Match" {
+            if stmt.stmtType == "If" or stmt.stmtType == "Match" {
                 hasConditions = true
             }
         }
@@ -216,33 +338,33 @@ class CompleteCodeGenerator {
         }
         
         // Generate each statement with optimizations
-        for stmt in block.Statements {
+        for stmt in block.statements {
             generateOptimizedStatement(stmt)
         }
     }
     
     fun generateOptimizedStatement(stmt: StatementNode) {
-        if stmt.StmtType == "Return" {
+        if stmt.stmtType == "Return" {
             generateReturn(stmt)
-        } else if stmt.StmtType == "Let" {
+        } else if stmt.stmtType == "Let" {
             generateOptimizedLet(stmt)
-        } else if stmt.StmtType == "Var" {
+        } else if stmt.stmtType == "Var" {
             generateOptimizedVar(stmt)
-        } else if stmt.StmtType == "If" {
+        } else if stmt.stmtType == "If" {
             generateOptimizedIf(stmt)
-        } else if stmt.StmtType == "While" {
+        } else if stmt.stmtType == "While" {
             generateOptimizedWhile(stmt)
-        } else if stmt.StmtType == "For" {
+        } else if stmt.stmtType == "For" {
             generateOptimizedFor(stmt)
-        } else if stmt.StmtType == "Loop" {
+        } else if stmt.stmtType == "Loop" {
             generateOptimizedLoop(stmt)
-        } else if stmt.StmtType == "Expression" {
+        } else if stmt.stmtType == "Expression" {
             generateOptimizedExpressionStatement(stmt)
         }
     }
     
     fun generateOptimizedFor(stmt: StatementNode) -> String {
-        let forStmt = stmt.ForStmt
+        let forStmt = stmt.forStmt
         if forStmt == null {
             return ""
         }
@@ -339,7 +461,7 @@ class CompleteCodeGenerator {
         emit(scalarLabel + ":")
         let finalCheck = nextReg()
         emit("  " + finalCheck + " = icmp slt i32 " + currentVal + ", " + endVal)
-        emit("  br i1 " + finalCheck + ", label %" + scalarLabel + ".Body, label %" + endLabel)
+        emit("  br i1 " + finalCheck + ", label %" + scalarLabel + ".body, label %" + endLabel)
         
         emit(scalarLabel + ".Body:")
         // Scalar loop body for remaining iterations
@@ -384,7 +506,7 @@ class CompleteCodeGenerator {
         emit("  " + loopVar + " = alloca i32, align 4")
         emit("  store i32 0, i32* " + loopVar + ", align 4")
         
-        variables.put(forStmt.Variable, loopVar)
+        variables.put(forStmt.variable, loopVar)
         
         emit("  br label %" + condLabel)
         
@@ -398,7 +520,7 @@ class CompleteCodeGenerator {
         
         // Loop body
         emit(bodyLabel + ":")
-        generateOptimizedBlock(forStmt.Body)
+        generateOptimizedBlock(forStmt.body)
         emit("  br label %" + incrementLabel)
         
         // Increment with NSW (no signed wrap) for better optimization
@@ -419,14 +541,14 @@ class CompleteCodeGenerator {
             return "0"
         }
         
-        if expr.ExprType == "Literal" {
-            return generateLiteral(expr.Literal)
-        } else if expr.ExprType == "Identifier" {
-            return generateIdentifier(expr.Identifier)
-        } else if expr.ExprType == "Binary" {
-            return generateSuperOptimizedBinary(expr.Binary)
-        } else if expr.ExprType == "Call" {
-            return generateOptimizedCall(expr.Call)
+        if expr.exprType == "Literal" {
+            return generateLiteral(expr.literal)
+        } else if expr.exprType == "Identifier" {
+            return generateIdentifier(expr.identifier)
+        } else if expr.exprType == "Binary" {
+            return generateSuperOptimizedBinary(expr.binary)
+        } else if expr.exprType == "Call" {
+            return generateOptimizedCall(expr.call)
         }
         
         return "0"
@@ -437,9 +559,9 @@ class CompleteCodeGenerator {
             return "0"
         }
         
-        let left = generateOptimizedExpression(bin.Left)
-        let right = generateOptimizedExpression(bin.Right)
-        let op = bin.Operator
+        let left = generateOptimizedExpression(bin.left)
+        let right = generateOptimizedExpression(bin.right)
+        let op = bin.operator
         
         // Apply aggressive optimizations
         let resultReg = nextReg()
@@ -575,13 +697,13 @@ class CompleteCodeGenerator {
         
         // Get function name
         let funcName = ""
-        if call.Function.ExprType == "Identifier" {
-            funcName = call.Function.Identifier.Name
+        if call.function.exprType == "Identifier" {
+            funcName = call.function.identifier.name
         }
         
         // Generate arguments
         let args: List<String> = []
-        for arg in call.Arguments {
+        for arg in call.arguments {
             args.append(generateOptimizedExpression(arg))
         }
         
@@ -714,7 +836,7 @@ class CompleteCodeGenerator {
         emit("  " + currentCounter + " = load i32, i32* " + counter + ", align 4")
         let cond = nextReg()
         emit("  " + cond + " = icmp slt i32 " + currentCounter + ", " + iterations)
-        emit("  br i1 " + cond + ", label %" + loopLabel + ".Body, label %" + endLabel)
+        emit("  br i1 " + cond + ", label %" + loopLabel + ".body, label %" + endLabel)
         
         emit(loopLabel + ".Body:")
         
@@ -835,8 +957,8 @@ class CompleteCodeGenerator {
             return false
         }
         
-        for stmt in block.Statements {
-            if stmt.StmtType == "For" or stmt.StmtType == "While" or stmt.StmtType == "Loop" {
+        for stmt in block.statements {
+            if stmt.stmtType == "For" or stmt.stmtType == "While" or stmt.stmtType == "Loop" {
                 return true
             }
         }
@@ -848,8 +970,8 @@ class CompleteCodeGenerator {
             return false
         }
         
-        for stmt in block.Statements {
-            if stmt.StmtType == "Return" {
+        for stmt in block.statements {
+            if stmt.stmtType == "Return" {
                 return true
             }
         }
@@ -863,8 +985,8 @@ class CompleteCodeGenerator {
     }
     
     fun hasMainFunction(ast: ProgramNode) -> Bool {
-        for item in ast.Items {
-            if item.ItemType == "Function" and item.Name == "main" {
+        for item in ast.items {
+            if item.itemType == "Function" and item.name == "main" {
                 return true
             }
         }
@@ -873,15 +995,15 @@ class CompleteCodeGenerator {
     
     fun generateClass(item: ItemNode) {
         // Generate LLVM struct for class
-        emit("; Class " + item.Name)
-        emit("%class." + item.Name + " = type {{ i8* }}")
+        emit("; Class " + item.name)
+        emit("%class." + item.name + " = type {{ i8* }}")
         emit("")
     }
     
     fun generateStruct(item: ItemNode) {
         // Generate LLVM struct
-        emit("; Struct " + item.Name)
-        emit("%struct." + item.Name + " = type {{ i32 }}")
+        emit("; Struct " + item.name)
+        emit("%struct." + item.name + " = type {{ i32 }}")
         emit("")
     }
     
@@ -892,8 +1014,8 @@ class CompleteCodeGenerator {
         if paramIndex > 0 {
             result = result + ", "
         }
-        let llvmType = mapTypeToLLVM(params[paramIndex].ParamType)
-        result = result + llvmType + " %" + params[paramIndex].Name
+        let llvmType = mapTypeToLLVM(params[paramIndex].paramType)
+        result = result + llvmType + " %" + params[paramIndex].name
         paramIndex = paramIndex + 1
     }
         return result
@@ -904,7 +1026,7 @@ class CompleteCodeGenerator {
             return "i32"
         }
         
-        let baseType = typeNode.TypeName
+        let baseType = typeNode.typeName
         
         if baseType == "i32" or baseType == "Int" {
             return "i32"
@@ -926,9 +1048,9 @@ class CompleteCodeGenerator {
     }
     
     fun generateReturn(stmt: StatementNode) {
-        let retStmt = stmt.ReturnStmt
-        if retStmt != null and retStmt.Value != null {
-            let valueReg = generateOptimizedExpression(retStmt.Value)
+        let retStmt = stmt.returnStmt
+        if retStmt != null and retStmt.value != null {
+            let valueReg = generateOptimizedExpression(retStmt.value)
             emit("  ret i32 " + valueReg)
         } else {
             emit("  ret void")
@@ -936,49 +1058,49 @@ class CompleteCodeGenerator {
     }
     
     fun generateOptimizedLet(stmt: StatementNode) {
-        let letStmt = stmt.LetStmt
+        let letStmt = stmt.letStmt
         if letStmt == null {
             return
         }
         
         let reg = nextReg()
-        let typeStr = if letStmt.VarType != null { mapTypeToLLVM(letStmt.VarType) } else { "i32" }
+        let typeStr = if letStmt.varType != null { mapTypeToLLVM(letStmt.varType) } else { "i32" }
         
         // Use noalias for better optimization
         emit("  " + reg + " = alloca " + typeStr + ", align 8")
         
-        let valueReg = generateOptimizedExpression(letStmt.Value)
+        let valueReg = generateOptimizedExpression(letStmt.value)
         emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8")
         
-        variables.put(letStmt.Name, reg)
+        variables.put(letStmt.name, reg)
     }
     
     fun generateOptimizedVar(stmt: StatementNode) {
-        let varStmt = stmt.VarStmt
+        let varStmt = stmt.varStmt
         if varStmt == null {
             return
         }
         
         let reg = nextReg()
-        let typeStr = if varStmt.VarType != null { mapTypeToLLVM(varStmt.VarType) } else { "i32" }
+        let typeStr = if varStmt.varType != null { mapTypeToLLVM(varStmt.varType) } else { "i32" }
         
         emit("  " + reg + " = alloca " + typeStr + ", align 8")
         
-        if varStmt.Value != null {
-            let valueReg = generateOptimizedExpression(varStmt.Value)
+        if varStmt.value != null {
+            let valueReg = generateOptimizedExpression(varStmt.value)
             emit("  store " + typeStr + " " + valueReg + ", " + typeStr + "* " + reg + ", align 8")
         }
         
-        variables.put(varStmt.Name, reg)
+        variables.put(varStmt.name, reg)
     }
     
     fun generateOptimizedIf(stmt: StatementNode) {
-        let ifStmt = stmt.IfStmt
+        let ifStmt = stmt.ifStmt
         if ifStmt == null {
             return
         }
         
-        let condReg = generateOptimizedExpression(ifStmt.Condition)
+        let condReg = generateOptimizedExpression(ifStmt.condition)
         let thenLabel = nextLabelName()
         let elseLabel = nextLabelName()
         let endLabel = nextLabelName()
@@ -987,12 +1109,12 @@ class CompleteCodeGenerator {
         emit("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel + ", !prof !4")
         
         emit(thenLabel + ":")
-        generateOptimizedBlock(ifStmt.ThenBranch)
+        generateOptimizedBlock(ifStmt.thenBranch)
         emit("  br label %" + endLabel)
         
         emit(elseLabel + ":")
-        if ifStmt.ElseBranch != null {
-            generateOptimizedBlock(ifStmt.ElseBranch)
+        if ifStmt.elseBranch != null {
+            generateOptimizedBlock(ifStmt.elseBranch)
         }
         emit("  br label %" + endLabel)
         
@@ -1003,7 +1125,7 @@ class CompleteCodeGenerator {
     }
     
     fun generateOptimizedWhile(stmt: StatementNode) {
-        let whileStmt = stmt.WhileStmt
+        let whileStmt = stmt.whileStmt
         if whileStmt == null {
             return
         }
@@ -1017,11 +1139,11 @@ class CompleteCodeGenerator {
         emit("  br label %" + condLabel)
         
         emit(condLabel + ":")
-        let condReg = generateOptimizedExpression(whileStmt.Condition)
+        let condReg = generateOptimizedExpression(whileStmt.condition)
         emit("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !5")
         
         emit(bodyLabel + ":")
-        generateOptimizedBlock(whileStmt.Body)
+        generateOptimizedBlock(whileStmt.body)
         emit("  br label %" + condLabel)
         
         emit(endLabel + ":")
@@ -1033,7 +1155,7 @@ class CompleteCodeGenerator {
     }
     
     fun generateOptimizedLoop(stmt: StatementNode) {
-        let loopStmt = stmt.LoopStmt
+        let loopStmt = stmt.loopStmt
         if loopStmt == null {
             return
         }
@@ -1046,7 +1168,7 @@ class CompleteCodeGenerator {
         emit("  br label %" + loopLabel)
         emit(loopLabel + ":")
         
-        generateOptimizedBlock(loopStmt.Body)
+        generateOptimizedBlock(loopStmt.body)
         
         emit("  br label %" + loopLabel)
         emit(endLabel + ":")
@@ -1055,9 +1177,9 @@ class CompleteCodeGenerator {
     }
     
     fun generateOptimizedExpressionStatement(stmt: StatementNode) {
-        let exprStmt = stmt.ExprStmt
+        let exprStmt = stmt.exprStmt
         if exprStmt != null {
-            generateOptimizedExpression(exprStmt.Expr)
+            generateOptimizedExpression(exprStmt.expr)
         }
     }
     
@@ -1066,12 +1188,12 @@ class CompleteCodeGenerator {
             return "0"
         }
         
-        if lit.LiteralType == "Int" {
-            return lit.IntValue.toString()
-        } else if lit.LiteralType == "Float" {
-            return lit.FloatValue.toString()
-        } else if lit.LiteralType == "Bool" {
-            return if lit.BoolValue { "1" } else { "0" }
+        if lit.literalType == "Int" {
+            return lit.intValue.toString()
+        } else if lit.literalType == "Float" {
+            return lit.floatValue.toString()
+        } else if lit.literalType == "Bool" {
+            return if lit.boolValue { "1" } else { "0" }
         }
         
         return "0"
@@ -1082,7 +1204,7 @@ class CompleteCodeGenerator {
             return "0"
         }
         
-        let varReg = variables.get(id.Name)
+        let varReg = variables.get(id.name)
         if varReg != null {
             let loadReg = nextReg()
             emit("  " + loadReg + " = load i32, i32* " + varReg + ", align 4")

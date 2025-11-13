@@ -1,0 +1,34 @@
+import lexer.real_lexer.{RealLexer}
+import parser.real_parser.{RealParser}
+
+fun main() -> Int {
+    let source = """
+class Foo {
+    fun value() -> Int {
+        return 42
+    }
+}
+"""
+
+    let lexer = RealLexer.new(source)
+    let tokens = lexer.tokenize()
+    let parser = RealParser.new(tokens)
+    let ast = parser.parse()
+
+    if ast.Items.length() == 0 {
+        println("parser failed to produce any items")
+        return 1
+    }
+
+    let classItem = ast.Items[0]
+    if classItem.ItemType != "Class" {
+        println("expected first item to be a class, found {classItem.ItemType}")
+        return 1
+    }
+    if classItem.Name != "Foo" {
+        println("expected class name Foo, found {classItem.Name}")
+        return 1
+    }
+
+    return 0
+}

@@ -2,11 +2,11 @@
 // Exports the actual working implementations for TDD
 
 // Import all the interfaces and types
-import interfaces.{TokenType, Token, Position, LexerError}
+// import interfaces.{TokenType, Token, Position, LexerError}
 
 // Import the real implementations
 import lexer.{SeenLexer}
-import keyword_manager.{KeywordManager}
+// import keyword_manager.{KeywordManager}
 
 // Utility functions for tests
 fun createLexer(source: String, language: String) -> SeenLexer {

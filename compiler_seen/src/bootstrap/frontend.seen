@@ -4,7 +4,7 @@
 import lexer.{SeenLexer, LexerError}
 import parser.{SeenParser, ParseError, AST}
 import typechecker.{TypeChecker}
-import typechecker.interfaces.{TypeError}
+// import typechecker.interfaces.{TypeError}
 
 class FrontendDiagnostic {
     var file: String

@@ -1,7 +1,7 @@
 // Keyword Manager - Real Implementation for Dynamic Keyword Loading
 // Loads keywords from TOML files based on language
 
-import lexer.interfaces.{TokenType}
+// import lexer.interfaces.{TokenType}
 
 class KeywordManager {
     let language: String

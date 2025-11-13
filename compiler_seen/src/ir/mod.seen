@@ -2,10 +2,10 @@
 // Exports the actual working implementations for TDD
 
 // Import all the interfaces and types
-import interfaces.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType, IRError, IRBuilder}
+// import interfaces.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType, IRError, IRBuilder}
 
 // Import the real implementation
-import generator.{IRGenerator}
+// import generator.{IRGenerator}
 
 // Utility functions for tests
 fun createIRGenerator() -> IRGenerator {

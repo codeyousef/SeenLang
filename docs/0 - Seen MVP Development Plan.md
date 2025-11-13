@@ -642,7 +642,11 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
     4. Backfill regression coverage for the new lexer/parser behaviors (literal braces inside strings, interpolation
        lookahead, semicolon tokens, hexadecimal literals, keyword identifiers, tuple/range `for` bindings) so future
        refactors do not silently reintroduce these bootstrap regressions.
-    5. Latest Stage-1 runs (2025-01-06) highlight three new classes of blockers:
+        * Added a `parser_class_detection` regression that drives the Seen lexer/parser pipeline through a sample class
+          declaration using the canonical AST (`compiler_seen/tests/parser_class_detection.seen`). The real parser
+          (`parser/real_parser.seen`) now recognizes `class Foo { ... }` items, recording visibility/name metadata so
+          downstream passes can start folding real class items into the manifest bundles.
+    5. Latest Stage-1 runs (2025-01-13) highlight remaining blockers:
         - ✅ `seen_std` string helpers now avoid `"string" + char` hacks and expose the bootstrap-safe process APIs.
           `str.string.StringBuilder.appendChar` builds via interpolation instead of `"" + ch`, the string hash map
           converts code points deterministically, and `process.process` exports `commandWasSuccessful/commandOutput`

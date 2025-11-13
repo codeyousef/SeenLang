@@ -2,7 +2,7 @@
 // Implements comprehensive code generation with multiple backends
 
 import ir.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType}
-import codegen.interfaces.{Target, OptLevel, OutputFormat, CodegenResult, CodegenError, CodegenStatistics, Backend, LLVMBackend, CBackend, WASMBackend, CodeOptimizer}
+// import codegen.interfaces.{Target, OptLevel, OutputFormat, CodegenResult, CodegenError, CodegenStatistics, Backend, LLVMBackend, CBackend, WASMBackend, CodeOptimizer}
 
 class CodeGenerator {
     let backends: Map<Target, Backend>
@@ -73,7 +73,7 @@ class CodeGenerator {
             result.output = generatedCode
             
             // Generate binary output if needed
-            if outputFormat == OutputFormat.Binary or target == Target.Executable {
+            if outputFormat == OutputFormat.binary or target == Target.Executable {
                 result.setBinaryOutput(generateBinary(generatedCode, target))
             }
             

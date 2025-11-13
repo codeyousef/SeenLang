@@ -1,7 +1,7 @@
 // Real Lexer Implementation - Following TDD
 // Implements ONLY what the tests require - no more, no less
 
-import lexer.interfaces.{Token, TokenType, Position, LexerError, KeywordManager}
+// import lexer.interfaces.{Token, TokenType, Position, LexerError, KeywordManager}
 
 class SeenLexer {
     let source: String
@@ -464,7 +464,7 @@ class SeenLexer {
         if keywordType != null {
             emitToken(keywordType, value, length)
         } else {
-            emitToken(TokenType.Identifier, value, length)
+            emitToken(TokenType.identifier, value, length)
         }
     }
     
