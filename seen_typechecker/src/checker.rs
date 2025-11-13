@@ -863,6 +863,10 @@ impl TypeChecker {
             }
         }
         
+        // CRITICAL: Fix up struct field types that reference other structs
+        // When struct A has field of type B, it may have captured B's empty placeholder
+        self.fixup_struct_field_types();
+        
         // NOW predeclare function signatures (they'll see complete struct types)
         self.predeclare_signatures(program);
         
@@ -888,6 +892,100 @@ impl TypeChecker {
     }
 
     /// Collect environment data into the result
+    /// Fix up struct field types after all structs are fully defined
+    /// This resolves cases where struct A has a field of type struct B,
+    /// but B was only a placeholder when A was defined
+    fn fixup_struct_field_types(&mut self) {
+        if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+            eprintln!("[DEBUG] Starting fixup of {} struct types", self.env.types.len());
+        }
+        
+        let type_names: Vec<String> = self.env.types.keys().cloned().collect();
+        
+        for type_name in type_names {
+            if let Some(struct_type) = self.env.types.get(&type_name).cloned() {
+                if let Type::Struct { name, fields, generics } = struct_type {
+                    let mut fixed_fields = HashMap::new();
+                    let mut changed = false;
+                    
+                    for (field_name, field_type) in &fields {
+                        let fixed_type = self.fixup_type_recursive(field_type);
+                        // Compare by actual equality, not pointer
+                        if field_type != &fixed_type {
+                            changed = true;
+                            if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                                eprintln!("[DEBUG] Fixed field {}.{}: changed type", name, field_name);
+                            }
+                        }
+                        fixed_fields.insert(field_name.clone(), fixed_type);
+                    }
+                    
+                    if changed {
+                        if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                            eprintln!("[DEBUG] Updating struct '{}' with fixed fields", name);
+                        }
+                        let fixed_struct = Type::Struct {
+                            name,
+                            fields: fixed_fields,
+                            generics,
+                        };
+                        self.env.define_type(type_name, fixed_struct);
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Recursively fix up a type by replacing empty struct placeholders with full definitions
+    fn fixup_type_recursive(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Struct { name, fields, generics } if fields.is_empty() => {
+                // This might be an empty placeholder - try to get the full definition
+                if let Some(full_type) = self.env.get_type(name) {
+                    if let Type::Struct { fields: full_fields, .. } = full_type {
+                        if !full_fields.is_empty() {
+                            if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                                eprintln!("[DEBUG] Replacing empty {} with {} fields", name, full_fields.len());
+                            }
+                            // Found a better definition!
+                            return full_type.clone();
+                        }
+                    }
+                }
+                ty.clone()
+            }
+            Type::Nullable(inner) => {
+                let fixed_inner = self.fixup_type_recursive(inner);
+                if &fixed_inner != inner.as_ref() {
+                    Type::Nullable(Box::new(fixed_inner))
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Array(inner) => {
+                let fixed_inner = self.fixup_type_recursive(inner);
+                if &fixed_inner != inner.as_ref() {
+                    Type::Array(Box::new(fixed_inner))
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Map { key_type, value_type } => {
+                let fixed_key = self.fixup_type_recursive(key_type);
+                let fixed_val = self.fixup_type_recursive(value_type);
+                if &fixed_key != key_type.as_ref() || &fixed_val != value_type.as_ref() {
+                    Type::Map {
+                        key_type: Box::new(fixed_key),
+                        value_type: Box::new(fixed_val),
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
+            _ => ty.clone(),
+        }
+    }
+
     fn collect_environment(&mut self) {
         for (name, var_type) in &self.env.variables {
             self.result.add_variable(name.clone(), var_type.clone());
@@ -1528,7 +1626,27 @@ impl TypeChecker {
         is_safe: bool,
         pos: Position,
     ) -> Type {
-        let object_type = self.check_expression(object);
+        let mut object_type = self.check_expression(object);
+
+        // CRITICAL FIX: If we got a struct with empty fields, it might be a stale placeholder
+        // Look it up fresh from the environment
+        if let Type::Struct { name, fields, .. } = &object_type {
+            if fields.is_empty() {
+                if let Some(fresh_type) = self.env.get_type(name) {
+                    if let Type::Struct { fields: fresh_fields, .. } = fresh_type {
+                        if !fresh_fields.is_empty() {
+                            object_type = fresh_type.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Debug: log field access attempts
+        if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+            eprintln!("[DEBUG] Field access: {}.{} on type {:?}", 
+                self.extract_struct_name_from_type(&object_type), member, object_type);
+        }
 
         match &object_type {
             Type::Struct { fields, .. } => {
@@ -1638,6 +1756,14 @@ impl TypeChecker {
                 generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
             }
         });
+
+        // Debug: log struct registration
+        if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+            if let Type::Struct { fields: ref f, .. } = struct_type {
+                eprintln!("[DEBUG] Registering struct '{}' with {} fields: {:?}", 
+                    name, f.len(), f.keys().collect::<Vec<_>>());
+            }
+        }
 
         self.env.define_type(name.to_string(), struct_type);
         Type::Unit
