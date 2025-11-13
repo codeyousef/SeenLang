@@ -207,8 +207,15 @@ impl Type {
             // Logical operations
             (Type::Bool, "and" | "or", Type::Bool) => Some(Type::Bool),
 
-            // Equality for any type
+            // Equality for any type - allow comparing same types even if one is nullable
             (a, "==" | "!=", b) if a == b => Some(Type::Bool),
+
+            // Allow comparing nullable with its base type
+            (Type::Nullable(inner), "==" | "!=", b) if inner.as_ref() == b => Some(Type::Bool),
+            (a, "==" | "!=", Type::Nullable(inner)) if a == inner.as_ref() => Some(Type::Bool),
+
+            // Allow comparing different nullable types if their inner types match
+            (Type::Nullable(a_inner), "==" | "!=", Type::Nullable(b_inner)) if a_inner.as_ref() == b_inner.as_ref() => Some(Type::Bool),
 
             _ => None,
         }?;

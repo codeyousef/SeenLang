@@ -6,6 +6,7 @@ description = "Self-hosted Seen compiler - written in Seen"
 authors = ["Seen Language Team"]
 edition = "2025"
 modules = [
+    "src/compiler_utils.seen",
     "src/bootstrap",
     "src/lexer",
     "src/parser",

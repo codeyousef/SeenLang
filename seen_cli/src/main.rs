@@ -24,11 +24,15 @@ use seen_shaders::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::fs::File;
+#[cfg(feature = "llvm")]
+use std::io::{self, BufRead, Read, Write};
+#[cfg(not(feature = "llvm"))]
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "llvm")]
@@ -1886,7 +1890,7 @@ fn compile_file_llvm(
         } else {
             default_link_output_path(link_mode, target_triple)
         };
-        let mut out_path = if let Some(path) = output.cloned() {
+        let out_path = if let Some(path) = output.cloned() {
             path
         } else if bundling_android {
             PathBuf::from("bundle.aab")

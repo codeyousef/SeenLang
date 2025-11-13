@@ -127,6 +127,9 @@ pub struct TypeChecker {
     generic_stack: Vec<Vec<String>>,
     /// Depth of structured concurrency scopes
     scope_depth: usize,
+    /// Global prelude scope for manifest modules
+    /// Contains all top-level functions from bundled modules
+    prelude: HashMap<String, FunctionSignature>,
 }
 
 impl TypeChecker {
@@ -456,6 +459,49 @@ impl TypeChecker {
             current_function_return_type: None,
             generic_stack: Vec::new(),
             scope_depth: 0,
+            prelude: HashMap::new(),
+        }
+    }
+
+    /// Populate prelude scope with all top-level functions from the program
+    /// This enables cross-module function visibility for manifest-bundled modules
+    fn populate_prelude(&mut self, program: &Program) {
+        // Only populate prelude when manifest modules are enabled
+        if std::env::var("SEEN_ENABLE_MANIFEST_MODULES").is_ok() {
+            for expr in &program.expressions {
+                if let Expression::Function {
+                    name,
+                    params,
+                    return_type,
+                    ..
+                } = expr
+                {
+                    // Build parameter types
+                    let mut checker_params = Vec::new();
+                    for p in params {
+                        let pty = if let Some(ta) = &p.type_annotation {
+                            self.resolve_ast_type(ta, Position::start())
+                        } else {
+                            Type::Unknown
+                        };
+                        checker_params.push(crate::Parameter {
+                            name: p.name.clone(),
+                            param_type: pty,
+                        });
+                    }
+                    // Return type (default Unit)
+                    let ret = return_type
+                        .as_ref()
+                        .map(|t| self.resolve_ast_type(t, Position::start()))
+                        .or(Some(Type::Unit));
+                    let sig = FunctionSignature {
+                        name: name.clone(),
+                        parameters: checker_params,
+                        return_type: ret,
+                    };
+                    self.prelude.insert(name.clone(), sig);
+                }
+            }
         }
     }
 
@@ -860,6 +906,10 @@ impl TypeChecker {
 
     /// Type check a program
     pub fn check_program(&mut self, program: &Program) -> TypeCheckResult {
+        // FIRST: Populate prelude with all top-level functions for manifest modules
+        // This makes functions from all bundled modules visible to each other
+        self.populate_prelude(program);
+        
         // Predeclare type names first (placeholders with empty fields)
         self.predeclare_types(program);
         
@@ -1802,7 +1852,11 @@ impl TypeChecker {
                 };
             }
 
-            if let Some(signature) = self.env.get_function(name).cloned() {
+            // Try to find function in environment first, then prelude
+            let signature = self.env.get_function(name).cloned()
+                .or_else(|| self.prelude.get(name).cloned());
+
+            if let Some(signature) = signature {
                 // Check argument count
                 if args.len() != signature.parameters.len() {
                     self.result.add_error(TypeError::ArgumentCountMismatch {

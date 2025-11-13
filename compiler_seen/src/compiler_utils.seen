@@ -1,0 +1,118 @@
+// Compiler utilities - standalone functions for bootstrap compiler
+// These wrap runtime builtins and provide helper utilities
+fun readText(path: String) -> String {
+    return __ReadFile(path)
+}
+
+fun writeText(path: String, contents: String) -> Bool {
+    return __WriteFile(path, contents)
+}
+
+fun appendText(path: String, contents: String) -> Bool {
+    return __AppendFile(path, contents)
+}
+
+fun FileExists(path: String) -> Bool {
+    return __FileExists(path)
+}
+
+fun GetFileSize(path: String) -> Int {
+    return __GetFileSize(path)
+}
+
+fun GetFileHash(path: String) -> String {
+    return __GetFileHash(path)
+}
+
+fun getCurrentTime() -> Float {
+    return __GetTimestamp().toFloat()
+}
+
+fun runCommand(command: String) -> Int {
+    return __ExecuteCommand(command)
+}
+
+fun commandWasSuccessful(exitCode: Int) -> Bool {
+    return exitCode == 0
+}
+
+fun commandOutput(command: String) -> String {
+    return __CommandOutput(command)
+}
+
+fun shellQuote(arg: String) -> String {
+    // Simple shell quoting - wrap in single quotes and escape existing single quotes
+    return "'" + arg.replace("'", "'\\''") + "'"
+}
+
+fun mergeLines(lines: Array<String>) -> String {
+    var result = ""
+    for line in lines {
+        result = result + line + "\n"
+    }
+    return result
+}
+
+fun ensureParentDirectories(path: String) -> Bool {
+    let dir = dirname(path)
+    if dir.length() > 0 {
+        return __CreateDirectory(dir)
+    }
+    return true
+}
+
+fun lastSlashIndex(path: String) -> Int {
+    var index = path.length() - 1
+    while index >= 0 {
+        let char = path.charAt(index)
+        if char == "/" or char == "\\" {
+            return index
+        }
+        index = index - 1
+    }
+    return -1
+}
+
+fun dirname(path: String) -> String {
+    let idx = lastSlashIndex(path)
+    if idx < 0 {
+        return ""
+    }
+    return path.substring(0, idx)
+}
+
+// Hash map utilities
+fun nextPowerOfTwo(value: Int) -> Int {
+    var size = 1
+    while size < value {
+        size = size * 2
+    }
+    return size
+}
+
+fun hashString(value: String) -> Int {
+    var hash = 0
+    var index = 0
+    while index < value.length() {
+        hash = ((hash * 31) + value[index].toInt()) % 2147483647
+        index = index + 1
+    }
+    return hash
+}
+
+fun defaultCapacity() -> Int {
+    return 16
+}
+
+fun maxLoadPercent() -> Int {
+    return 75
+}
+
+fun tombstoneState() -> Int {
+    return -1
+}
+
+// String utilities
+fun trim(value: String) -> String {
+    return value.trimStart().trimEnd()
+}
