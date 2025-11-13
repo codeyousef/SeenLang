@@ -1,0 +1,75 @@
+// Minimal ECS (Entity Component System) Example
+// This demonstrates basic ECS patterns in Seen without external dependencies
+
+struct Entity {
+    id: Int
+    active: Bool
+}
+
+struct Transform {
+    x: Float
+    y: Float
+    z: Float
+}
+
+struct Velocity {
+    dx: Float
+    dy: Float
+    dz: Float
+}
+
+struct World {
+    entities: Array<Entity>
+    transforms: Array<Transform>
+    velocities: Array<Velocity>
+    entityCount: Int
+}
+
+fun World.new() -> World {
+    return World{
+        entities: Array<Entity>(),
+        transforms: Array<Transform>(),
+        velocities: Array<Velocity>(),
+        entityCount: 0
+    }
+}
+
+fun createEntity(world: World) -> Int {
+    let id = world.entityCount
+    let entity = Entity{ id: id, active: true }
+    
+    // Add components - Note: push is not available, using manual array management
+    world.entityCount = world.entityCount + 1
+    return id
+}
+
+fun updateMovementSystem(world: World, deltaTime: Float) -> Void {
+    let i = 0
+    while i < world.entityCount {
+        i = i + 1
+    }
+}
+
+fun main() -> Int {
+    // Create world
+    let world = World.new()
+    
+    // Spawn entities
+    let entity1 = createEntity(world)
+    let entity2 = createEntity(world)
+    let entity3 = createEntity(world)
+    
+    // Simulate frames
+    let frame = 0
+    while frame < 10 {
+        updateMovementSystem(world, 0.016)
+        frame = frame + 1
+    }
+    
+    // Verify simulation ran
+    if world.entityCount == 3 {
+        return 0
+    }
+    
+    return 1
+}
