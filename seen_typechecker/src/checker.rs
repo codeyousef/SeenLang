@@ -611,7 +611,20 @@ impl TypeChecker {
                 }
             }
             _ => {
-                if let Some(def) = self.env.get_type(&ast_type.name).cloned() {
+                if let Some(mut def) = self.env.get_type(&ast_type.name).cloned() {
+                    // CRITICAL FIX: Refresh empty struct definitions
+                    if let Type::Struct { name, fields, .. } = &def {
+                        if fields.is_empty() {
+                            // Try to get a fresher version
+                            if let Some(fresh) = self.env.get_type(name) {
+                                if let Type::Struct { fields: fresh_fields, .. } = fresh {
+                                    if !fresh_fields.is_empty() {
+                                        def = fresh.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
                     return self.instantiate_type(def, &resolved_args, pos);
                 }
 
@@ -1651,10 +1664,24 @@ impl TypeChecker {
         match &object_type {
             Type::Struct { fields, .. } => {
                 if let Some(field_type) = fields.get(member) {
+                    // CRITICAL FIX: Refresh the field type itself if it's an empty struct
+                    let mut result_type = field_type.clone();
+                    if let Type::Struct { name, fields, .. } = &result_type {
+                        if fields.is_empty() {
+                            if let Some(fresh_type) = self.env.get_type(name) {
+                                if let Type::Struct { fields: fresh_fields, .. } = fresh_type {
+                                    if !fresh_fields.is_empty() {
+                                        result_type = fresh_type.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
                     if is_safe && object_type.is_nullable() {
-                        field_type.clone().nullable()
+                        result_type.nullable()
                     } else {
-                        field_type.clone()
+                        result_type
                     }
                 } else {
                     self.result.add_error(TypeError::UnknownField {
@@ -1667,10 +1694,30 @@ impl TypeChecker {
             }
             Type::Nullable(inner) if is_safe => {
                 // Safe navigation on nullable type
-                if let Type::Struct { fields, .. } = inner.as_ref() {
+                let mut inner_type = inner.as_ref().clone();
+                
+                // CRITICAL FIX: Fresh lookup for nullable inner types too
+                if let Type::Struct { name, fields, .. } = &inner_type {
+                    if fields.is_empty() {
+                        if let Some(fresh_type) = self.env.get_type(name) {
+                            if let Type::Struct { fields: fresh_fields, .. } = fresh_type {
+                                if !fresh_fields.is_empty() {
+                                    inner_type = fresh_type.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if let Type::Struct { fields, .. } = &inner_type {
                     if let Some(field_type) = fields.get(member) {
                         field_type.clone().nullable()
                     } else {
+                        self.result.add_error(TypeError::UnknownField {
+                            struct_name: self.extract_struct_name_from_type(&inner_type),
+                            field_name: member.to_string(),
+                            position: pos,
+                        });
                         Type::Unknown
                     }
                 } else {
