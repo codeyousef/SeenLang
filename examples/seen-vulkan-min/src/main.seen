@@ -89,7 +89,8 @@ fun run_vulkan_sample(config: VulkanAppConfig) -> VulkanFrameSummary {
         total_frame_time = total_frame_time + result.estimated_ms
     }
 
-    let average_frame_time = total_frame_time / frames.toFloat()
+    let frames_float = frames * 1.0
+    let average_frame_time = total_frame_time / frames_float
 
     return VulkanFrameSummary {
         frames_rendered: frames,
@@ -134,9 +135,12 @@ fun record_frame(frame_index: Int, vertices: List<VulkanVertex>, state: VulkanRe
 
 fun estimate_frame_time(frame_index: Int, commands: Int, swapchain_images: Int) -> Float {
     let base = 0.9
-    let command_penalty = commands.toFloat() * 0.2
-    let swapchain_bonus = swapchain_images.toFloat() * 0.05
-    let jitter = frame_index.toFloat() * 0.03
+    let commands_float = commands * 1.0
+    let swapchain_float = swapchain_images * 1.0
+    let frame_float = frame_index * 1.0
+    let command_penalty = commands_float * 0.2
+    let swapchain_bonus = swapchain_float * 0.05
+    let jitter = frame_float * 0.03
     return base + command_penalty - swapchain_bonus + jitter
 }
 

@@ -65,7 +65,7 @@ impl SeenLanguageServer {
     }
 
     /// Analyze a document and return diagnostics
-    async fn analyze_document(&self, uri: &Url, content: &str) -> Vec<Diagnostic> {
+    async fn analyze_document(&self, _uri: &Url, content: &str) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
         // Load keyword manager for the current language

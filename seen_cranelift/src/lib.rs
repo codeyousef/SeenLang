@@ -61,6 +61,7 @@ fn module_to_clif_with_profile(module: &IRModule, profile: &HardwareProfile) -> 
     out
 }
 
+#[allow(dead_code)]
 fn module_to_clif(module: &IRModule) -> String {
     module_to_clif_with_profile(module, &HardwareProfile::default())
 }

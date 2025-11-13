@@ -94,5 +94,5 @@ fn directory_scans_require_recursive_flag() {
         .assert()
         .success();
 
-    assert!(temp.path().join("triangle.wgsl").exists());
+    assert!(temp.path().join("shaders/triangle.wgsl").exists());
 }
