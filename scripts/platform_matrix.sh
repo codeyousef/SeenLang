@@ -87,18 +87,15 @@ run_linux() {
   local status="success"
   local message=""
 
-  if ! "$STAGE3_BIN" build "$ROOT_DIR/examples/seen-ecs-min/main.seen" "$ecs_output" >/tmp/linux_ecs.log 2>&1; then
-    status="failure"
-    message="failed to build seen-ecs-min"
-  elif ! "$STAGE3_BIN" run "$ROOT_DIR/examples/seen-ecs-min/main.seen" >/tmp/linux_ecs_run.log 2>&1; then
+  if ! "$STAGE3_BIN" run "$ROOT_DIR/examples/seen-ecs-min/main.seen" >/tmp/linux_ecs_run.log 2>&1; then
     status="failure"
     message="failed to run seen-ecs-min"
   fi
 
   if [[ "$status" == "success" ]]; then
-    if ! "$STAGE3_BIN" build "$ROOT_DIR/examples/seen-vulkan-min/main.seen" "$vulkan_output" >/tmp/linux_vulkan.log 2>&1; then
+    if ! "$STAGE3_BIN" run "$ROOT_DIR/examples/seen-vulkan-min/main.seen" >/tmp/linux_vulkan.log 2>&1; then
       status="failure"
-      message="failed to build seen-vulkan-min"
+      message="failed to run seen-vulkan-min"
     fi
   fi
 

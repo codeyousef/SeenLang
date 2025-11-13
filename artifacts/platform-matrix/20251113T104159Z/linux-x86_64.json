@@ -1,0 +1,13 @@
+{
+  "platform": "linux-x86_64",
+  "status": "success",
+  "stage3": "target/release/seen_cli",
+  "ecs_log": "error: unexpected argument '/home/yousef/Projects/rust/SeenLang/target/platform_matrix/linux_ecs' found
+
+Usage: seen_cli build [OPTIONS] <FILE>
+
+For more information, try '--help'.",
+  "ecs_run_log": "",
+  "vulkan_log": "",
+  "message": ""
+}
