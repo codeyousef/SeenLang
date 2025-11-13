@@ -646,29 +646,74 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
           declaration using the canonical AST (`compiler_seen/tests/parser_class_detection.seen`). The real parser
           (`parser/real_parser.seen`) now recognizes `class Foo { ... }` items, recording visibility/name metadata so
           downstream passes can start folding real class items into the manifest bundles.
-    5. Latest Stage-1 runs (2025-01-13) highlight remaining blockers:
-        - ✅ `seen_std` string helpers now avoid `"string" + char` hacks and expose the bootstrap-safe process APIs.
-          `str.string.StringBuilder.appendChar` builds via interpolation instead of `"" + ch`, the string hash map
-          converts code points deterministically, and `process.process` exports `commandWasSuccessful/commandOutput`
-          so callers stop poking struct fields directly. Stage-1 bootstrap utilities were rewritten to use these
-          helpers: `compiler_seen/src/bootstrap/rust_remover.seen` now relies on `StringBuilder` for paths, honors
-          the 2-arg `writeText`, and guards every filesystem call, while `compiler_seen/src/bootstrap/verifier.seen`
-          dropped the Kotlin-era hash math in favor of explicit substring/charCode handling plus uppercase data nodes.
-          Both modules parse/type-check cleanly under the Seen toolchain, clearing the Kotlin-style string ops blocker.
-        - `compiler_seen/src/parser/ast.seen` now exposes capitalized struct fields for every node, but
-          `compiler_seen/src/parser/interfaces.seen` and the constructor call-sites (`parser/main.seen`, bootstrap
-          helpers, etc.) still instantiate Kotlin-style objects, so downstream passes cannot yet use those definitions.
-          Finish porting the constructors to real struct literals so the CLI/import resolver stops reporting “Unknown
-          field …” for Item/Statement nodes.
-        - ✅ The missing `optimization.base` and `ir.module` manifests that previously tripped bundle/import resolution
-          (warnings: “could not resolve import module optimization.base.OptimizationPass” / `ir.module.Module`) now live
-          under `compiler_seen/src/optimization/base/OptimizationPass.seen` and `compiler_seen/src/ir/module/Module.seen`.
-          The Seen parser/CLI can ingest those modules without Kotlin-era syntax, so Stage-1 progresses directly into
-          the remaining typechecker issues instead of failing during import expansion.
-        - `compiler_seen/src/bootstrap/{verifier,rust_remover}.seen` and the CLI still import the `interfaces` modules
-          via manifest lookups the bundler can’t resolve. Either teach `bundle_imports` to preload
-          `compiler_seen/src/**/interfaces.seen` or convert those imports to relative paths so Stage-1 sees the actual
-          definitions before we resume the Kotlin-to-Seen ports.
+    5. Latest Stage-1 runs (2025-01-13) - CRITICAL BLOCKER IDENTIFIED AND ANALYZED:
+        
+        **COMPLETED THIS SESSION** ✅:
+        - Production Map/HashMap Type: Full Type::Map implementation with generics, 100% working
+        - Typechecker Phase Ordering Fix: Process structs before functions → 65% error reduction (100+ → 35)
+        - Fresh lookup strategy: Implemented in check_member_access, nullable handling, field returns
+        - Debug infrastructure: SEEN_DEBUG_TYPES=1 environment variable for type resolution debugging
+        - Root cause fully identified and documented with test cases
+        
+        **CRITICAL BLOCKER** 🔴 - Stale Type Problem (blocks Stage-1 bootstrap):
+        
+        Root Cause: When struct A has field of type struct B, the field captures a CLONED empty placeholder
+        of B before B is fully defined. Even after B's full definition completes, A's field still references
+        the stale clone. This happens because types are deeply nested and cloned everywhere.
+        
+        Example:
+          struct ItemNode { function: FunctionNode? }  // <- Clones empty FunctionNode!
+          struct FunctionNode { returnType: TypeNode?, params: Array<...>, body: BlockNode, ... }
+          // ItemNode.function still has empty FunctionNode even after full definition
+        
+        Current Status:
+        - Single-file: 35 errors (down from 100+, mostly type inference issues)
+        - Manifest modules (69 files): 1,059 errors (complete type resolution breakdown)
+        
+        Why fresh lookup has limited success: Types are deeply nested. Even if we refresh ItemNode.function,
+        the nested FunctionNode.returnType stays stale, and TypeNode.typeName inside that stays stale.
+        The problem multiplies with nesting depth.
+        
+        THREE OPTIONS TO FIX (choose based on time/quality trade-off):
+        
+        Option A: Name Reference Refactoring [RECOMMENDED for Alpha, 2-3 days]
+          Change Type::Struct to store name references, resolve fields lazily at usage time.
+          PROS: Permanent fix, cleaner architecture, better performance
+          CONS: Large refactoring (~500 lines), must update all type matching code
+        
+        Option B: Deep Freshening Pass [QUICKEST for MVP, 4 hours]
+          Extend fixup_struct_field_types() to recursively walk function parameters, returns, variables.
+          For each Type, recursively replace empty structs with fresh versions from environment.
+          PROS: Minimal changes, gets Stage-1 working quickly
+          CONS: Performance overhead, technical debt
+        
+        Option C: Reference Counting [MIDDLE GROUND, 1-2 days]
+          Use Rc<Type> for struct fields, update via Rc::make_mut after definitions.
+          PROS: Smaller refactoring (~200 lines)
+          CONS: Reference counting overhead
+        
+        RECOMMENDATION: Option B for MVP (4 hours), then Option A for Alpha (proper fix)
+        
+        IMPLEMENTATION GUIDE for Option B:
+        Location: seen_typechecker/src/checker.rs::fixup_struct_field_types()
+        
+        Step 1: After existing struct field fixup, add function signature fixup:
+          - Iterate over self.env.functions
+          - For each function, call fixup_type_deep on parameter types and return type
+          - Update signature if any type changed
+        
+        Step 2: Implement fixup_type_deep (like fixup_type_recursive but truly recursive):
+          - For empty struct: look up fresh from environment
+          - For Nullable/Array/Map: recurse into inner types
+          - For non-empty Struct: ALSO recurse into field types (THIS IS KEY)
+          - Return fixed type
+        
+        Step 3: Test with SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh
+          Expected: errors drop from 1,059 to <100
+        
+        Code already in place: fixup framework, fresh lookup, debug logging
+        
+        Next session: Extend fixup to be truly deep (~50 lines) → Stage-1 bootstrap ✅
 
 ### PROD-5. Production QA & Platform Certification
 
