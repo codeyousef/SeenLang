@@ -1,0 +1,13 @@
+// Test: struct defined in same file
+struct World {
+    count: Int
+}
+
+fun test(w: World) -> Int {
+    return w.count
+}
+
+fun main() -> Int {
+    let w = World{ count: 5 }
+    return test(w)
+}

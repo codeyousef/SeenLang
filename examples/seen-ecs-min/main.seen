@@ -25,7 +25,7 @@ struct World {
     entityCount: Int
 }
 
-fun World.new() -> World {
+fun newWorld() -> World {
     return World{
         entities: Array<Entity>(),
         transforms: Array<Transform>(),
@@ -52,7 +52,7 @@ fun updateMovementSystem(world: World, deltaTime: Float) -> Void {
 
 fun main() -> Int {
     // Create world
-    let world = World.new()
+    let world = newWorld()
     
     // Spawn entities
     let entity1 = createEntity(world)

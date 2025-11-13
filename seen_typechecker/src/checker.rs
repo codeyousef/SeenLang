@@ -827,11 +827,38 @@ impl TypeChecker {
 
     /// Type check a program
     pub fn check_program(&mut self, program: &Program) -> TypeCheckResult {
-        // Predeclare types/signatures so that order of definitions doesn't matter
+        // Predeclare type names first (placeholders with empty fields)
         self.predeclare_types(program);
-        self.predeclare_signatures(program);
+        
+        // Then fully process all struct/class/enum definitions to populate fields
         for expression in &program.expressions {
-            self.check_expression(expression);
+            match expression {
+                Expression::StructDefinition { .. }
+                | Expression::ClassDefinition { .. }
+                | Expression::EnumDefinition { .. }
+                | Expression::Interface { .. } => {
+                    self.check_expression(expression);
+                }
+                _ => {}
+            }
+        }
+        
+        // NOW predeclare function signatures (they'll see complete struct types)
+        self.predeclare_signatures(program);
+        
+        // Finally check remaining expressions
+        for expression in &program.expressions {
+            match expression {
+                Expression::StructDefinition { .. }
+                | Expression::ClassDefinition { .. }
+                | Expression::EnumDefinition { .. }
+                | Expression::Interface { .. } => {
+                    // Already processed above
+                }
+                _ => {
+                    self.check_expression(expression);
+                }
+            }
         }
 
         // Collect all variables and functions into the result
