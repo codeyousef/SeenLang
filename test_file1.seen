@@ -1,8 +1,0 @@
-struct ItemNode {
-    itemType: String
-    name: String
-}
-
-fun useItem(item: ItemNode) -> String {
-    return item.name
-}
