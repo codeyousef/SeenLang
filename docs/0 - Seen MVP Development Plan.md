@@ -643,15 +643,24 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
        lookahead, semicolon tokens, hexadecimal literals, keyword identifiers, tuple/range `for` bindings) so future
        refactors do not silently reintroduce these bootstrap regressions.
     5. Latest Stage-1 runs (2025-01-06) highlight three new classes of blockers:
-        - `seen_std/src/io/file.seen` and `compiler_seen/src/bootstrap/rust_remover.seen` still lean on Kotlin-era
-          `"string" + char` concatenation and a three-argument `WriteFile`. Port those helpers onto the shared
-          `str.string` builder utilities, tighten the stdlib APIs (`writeText`, `shellQuote`), and ensure the runtime
-          shims expose the same signatures that Stage-1 now expects.
+        - ✅ `seen_std` string helpers now avoid `"string" + char` hacks and expose the bootstrap-safe process APIs.
+          `str.string.StringBuilder.appendChar` builds via interpolation instead of `"" + ch`, the string hash map
+          converts code points deterministically, and `process.process` exports `commandWasSuccessful/commandOutput`
+          so callers stop poking struct fields directly. Stage-1 bootstrap utilities were rewritten to use these
+          helpers: `compiler_seen/src/bootstrap/rust_remover.seen` now relies on `StringBuilder` for paths, honors
+          the 2-arg `writeText`, and guards every filesystem call, while `compiler_seen/src/bootstrap/verifier.seen`
+          dropped the Kotlin-era hash math in favor of explicit substring/charCode handling plus uppercase data nodes.
+          Both modules parse/type-check cleanly under the Seen toolchain, clearing the Kotlin-style string ops blocker.
         - `compiler_seen/src/parser/ast.seen` now exposes capitalized struct fields for every node, but
           `compiler_seen/src/parser/interfaces.seen` and the constructor call-sites (`parser/main.seen`, bootstrap
           helpers, etc.) still instantiate Kotlin-style objects, so downstream passes cannot yet use those definitions.
           Finish porting the constructors to real struct literals so the CLI/import resolver stops reporting “Unknown
           field …” for Item/Statement nodes.
+        - ✅ The missing `optimization.base` and `ir.module` manifests that previously tripped bundle/import resolution
+          (warnings: “could not resolve import module optimization.base.OptimizationPass” / `ir.module.Module`) now live
+          under `compiler_seen/src/optimization/base/OptimizationPass.seen` and `compiler_seen/src/ir/module/Module.seen`.
+          The Seen parser/CLI can ingest those modules without Kotlin-era syntax, so Stage-1 progresses directly into
+          the remaining typechecker issues instead of failing during import expansion.
         - `compiler_seen/src/bootstrap/{verifier,rust_remover}.seen` and the CLI still import the `interfaces` modules
           via manifest lookups the bundler can’t resolve. Either teach `bundle_imports` to preload
           `compiler_seen/src/**/interfaces.seen` or convert those imports to relative paths so Stage-1 sees the actual

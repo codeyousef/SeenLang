@@ -1,0 +1,101 @@
+// Minimal IR Module scaffolding so optimizer passes can share a common data model
+// while the real IR generator continues to live in Rust.
+
+struct FunctionSummary {
+    Name: String
+    Attributes: Array<String>
+    InstructionCount: Int
+}
+
+fun FunctionSummary.new(name: String) -> FunctionSummary {
+    return FunctionSummary{
+        Name: name,
+        Attributes: Array<String>(),
+        InstructionCount: 0
+    }
+}
+
+struct ModuleMetadata {
+    Key: String
+    Value: String
+}
+
+fun ModuleMetadata.new(key: String, value: String) -> ModuleMetadata {
+    return ModuleMetadata{
+        Key: key,
+        Value: value
+    }
+}
+
+class Module {
+    var name: String
+    var target: String
+    var functions: Array<FunctionSummary>
+    var metadata: Array<ModuleMetadata>
+
+    fun new(name: String = "anonymous", target: String = "unknown") -> Module {
+        return Module{
+            name: name,
+            target: target,
+            functions: Array<FunctionSummary>(),
+            metadata: Array<ModuleMetadata>()
+        }
+    }
+
+    fun addFunction(summary: FunctionSummary) -> Void {
+        functions.push(summary)
+    }
+
+    fun addFunctionWithStats(name: String, instructions: Int) -> Void {
+        let summary = FunctionSummary{
+            Name: name,
+            Attributes: Array<String>(),
+            InstructionCount: instructions
+        }
+        addFunction(summary)
+    }
+
+    fun functionCount() -> Int {
+        return functions.length()
+    }
+
+    fun hasFunction(name: String) -> Bool {
+        var index = 0
+        while index < functions.length() {
+            let summary = functions[index]
+            if summary.Name == name {
+                return true
+            }
+            index = index + 1
+        }
+        return false
+    }
+
+    fun setMetadata(key: String, value: String) -> Void {
+        var index = 0
+        while index < metadata.length() {
+            if metadata[index].Key == key {
+                metadata[index].Value = value
+                return
+            }
+            index = index + 1
+        }
+        metadata.push(ModuleMetadata.new(key, value))
+    }
+
+    fun getMetadata(key: String) -> String {
+        var index = 0
+        while index < metadata.length() {
+            let entry = metadata[index]
+            if entry.Key == key {
+                return entry.Value
+            }
+            index = index + 1
+        }
+        return ""
+    }
+
+    fun describe() -> String {
+        return "{name}<{target}> ({functionCount()} functions)"
+    }
+}

@@ -17,6 +17,14 @@ fun runCommand(command: String) -> CommandResult {
     return result
 }
 
+fun commandWasSuccessful(result: CommandResult) -> Bool {
+    return result.success
+}
+
+fun commandOutput(result: CommandResult) -> String {
+    return result.output
+}
+
 fun runCommandOrAbort(command: String) -> CommandResult {
     let result: CommandResult = runCommand(command)
     if not result.success {

@@ -1,6 +1,6 @@
 import str.string.{lines, trim, StringBuilder}
 import io.file.{readText, writeText, createDirectory, deleteFile}
-import process.process.{runCommand, shellQuote}
+import process.process.{runCommand, shellQuote, CommandResult, commandWasSuccessful, commandOutput}
 
 struct RemovalResult {
     success: Bool
@@ -109,11 +109,11 @@ class RustRemover {
         builder.append(" && find ")
         builder.append(shellQuote(root))
         builder.append(" -type f -name '*.rs'")
-        let result = runCommand(builder.toString())
-        if not result.success {
+        let result: CommandResult = runCommand(builder.toString())
+        if not commandWasSuccessful(result) {
             return Array<String>()
         }
-        return lines(result.output, true)
+        return lines(commandOutput(result), true)
     }
 
     fun backupFile(relativePath: String, absolutePath: String) -> Void {
@@ -123,7 +123,11 @@ class RustRemover {
         let backupTarget = backupPath(relativePath)
         ensureParentDirectories(backupTarget)
         let contents = readText(absolutePath)
-        let _ = writeText(backupTarget, contents)
+        let wrote = writeText(backupTarget, contents)
+        if not wrote {
+            println("rust_remover: failed to back up {relativePath} -> {backupTarget}")
+        }
+        return
     }
 
     fun backupPath(relativePath: String) -> String {
@@ -182,7 +186,10 @@ fun parentDirectory(path: String) -> String {
             let builder = StringBuilder.new()
             builder.append("rmdir -p --ignore-fail-on-non-empty ")
             builder.append(shellQuote(dir))
-            let _ = runCommand(builder.toString())
+            let result: CommandResult = runCommand(builder.toString())
+            if not commandWasSuccessful(result) {
+                println("rust_remover: failed to remove directory {dir}")
+            }
         }
     }
 }
@@ -227,7 +234,10 @@ fun createDirectoryRecursive(path: String) -> Void {
         let parent = path.substring(0, lastSlash)
         createDirectoryRecursive(parent)
     }
-    let _ = createDirectory(path)
+    if not createDirectory(path) {
+        // Directory may already exist; ignore errors to keep removal idempotent.
+    }
+    return
 }
 
 fun lastSlashIndex(path: String) -> Int {
@@ -236,7 +246,8 @@ fun lastSlashIndex(path: String) -> Int {
     }
     var index = path.length() - 1
     while index >= 0 {
-        if path.charAt(index) == '/' {
+        let ch: String = path.substring(index, index + 1)
+        if ch == "/" {
             return index
         }
         index = index - 1

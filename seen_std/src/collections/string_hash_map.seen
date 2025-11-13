@@ -244,8 +244,8 @@ fun hashString(text: String) -> Int {
     var hash = 2166136261
     var index = 0
     while index < text.length() {
-        let raw = text.charAt(index)
-        let code = (raw - '0') + 48
+        let slice: String = text.substring(index, index + 1)
+        let code = slice.charCodeAt(0)
         hash = hash + code
         hash = (hash * 131) % 2147483647
         index = index + 1

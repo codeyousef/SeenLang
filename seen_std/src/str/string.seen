@@ -24,7 +24,7 @@ class StringBuilder {
 
     fun appendChar(ch: Char) -> Void {
         totalLength = totalLength + 1
-        parts.push("" + ch)
+        parts.push("{ch}")
     }
 
     fun appendLine(text: String = "") -> Void {
@@ -266,7 +266,7 @@ fun lines(text: String, dropEmpty: Bool = false) -> Array<String> {
         index = index + 1
     }
     if lineStart <= length {
-        let tail = text.substring(lineStart, length)
+        let tail: String = text.substring(lineStart, length)
         if not(dropEmpty and tail.length() == 0) {
             result.push(tail)
         }
