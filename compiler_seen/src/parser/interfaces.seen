@@ -1,380 +1,388 @@
 // Parser Module Interfaces - To Be Implemented Following TDD
 // These are the contracts that the parser implementation must fulfill
+//
+// NOTE: These type definitions conflict with parser/ast.seen during bootstrap.
+// The types here use different field names (parameters vs params, Type vs TypeNode, etc.)
+// which confuses the typechecker. Temporarily disabled for bootstrap.
+// TODO: Consolidate with ast.seen or implement proper module namespacing.
 
-import lexer.{Token, TokenType, SeenLexer}
+// import lexer.{Token, TokenType, SeenLexer}
 
+// === TYPES TEMPORARILY DISABLED FOR BOOTSTRAP ===
+// These conflict with parser/ast.seen. See BOOTSTRAP_BLOCKER_ANALYSIS.md
+//
 // Parse error types
-class ParseError extends Error {
-    let token: Token
-    let expected: String
-    let actual: String
+// class ParseError extends Error {
+//     let token: Token
+//     let expected: String
+//     let actual: String
     
-    fun new(message: String, token: Token, expected: String, actual: String) -> ParseError {
-        super(message)
-        this.token = token
-        this.expected = expected
-        this.actual = actual
-    }
+//     fun new(message: String, token: Token, expected: String, actual: String) -> ParseError {
+//         super(message)
+//         this.token = token
+//         this.expected = expected
+//         this.actual = actual
+//     }
     
-    fun getToken() -> Token {
-        return token
-    }
+//     fun getToken() -> Token {
+//         return token
+//     }
     
-    fun getExpected() -> String {
-        return expected
-    }
+//     fun getExpected() -> String {
+//         return expected
+//     }
     
-    fun getActual() -> String {
-        return actual
-    }
-}
+//     fun getActual() -> String {
+//         return actual
+//     }
+// }
 
 // Base AST node
-struct ASTNode {
-    line: Int
-    column: Int
-}
+// struct ASTNode {
+//     line: Int
+//     column: Int
+// }
 
-fun ASTNode.new(line: Int, column: Int) -> ASTNode {
-    return ASTNode{
-        line: line,
-        column: column
-    }
-}
+// fun ASTNode.new(line: Int, column: Int) -> ASTNode {
+//     return ASTNode{
+//         line: line,
+//         column: column
+//     }
+// }
 
 // Program AST (root node)
-struct AST {
-    functions: Array<Function>
-    classes: Array<Class>
-    interfaces: Array<Interface>
-    enums: Array<Enum>
-    imports: Array<Import>
-}
+// struct AST {
+//     functions: Array<Function>
+//     classes: Array<Class>
+//     interfaces: Array<Interface>
+//     enums: Array<Enum>
+//     imports: Array<Import>
+// }
 
-fun AST.new() -> AST {
-    return AST{
-        functions: Array<Function>(),
-        classes: Array<Class>(),
-        interfaces: Array<Interface>(),
-        enums: Array<Enum>(),
-        imports: Array<Import>()
-    }
-}
+// fun AST.new() -> AST {
+//     return AST{
+//         functions: Array<Function>(),
+//         classes: Array<Class>(),
+//         interfaces: Array<Interface>(),
+//         enums: Array<Enum>(),
+//         imports: Array<Import>()
+//     }
+// }
 
 // Type representation
-struct Type {
-    name: String
-    isNullable: Bool
-    generics: Array<Type>
-}
+// struct Type {
+//     name: String
+//     isNullable: Bool
+//     generics: Array<Type>
+// }
 
-fun Type.new(name: String, isNullable: Bool = false) -> Type {
-    return Type{
-        name: name,
-        isNullable: isNullable,
-        generics: Array<Type>()
-    }
-}
+// fun Type.new(name: String, isNullable: Bool = false) -> Type {
+//     return Type{
+//         name: name,
+//         isNullable: isNullable,
+//         generics: Array<Type>()
+//     }
+// }
 
 // Function declaration
-struct Function {
-    name: String
-    parameters: Array<Parameter>
-    returnType: Type
-    body: Block
-    isAsync: Bool
-}
+// struct Function {
+//     name: String
+//     parameters: Array<Parameter>
+//     returnType: Type
+//     body: Block
+//     isAsync: Bool
+// }
 
-fun Function.new(name: String, returnType: Type) -> Function {
-    return Function{
-        name: name,
-        parameters: Array<Parameter>(),
-        returnType: returnType,
-        body: Block.new(),
-        isAsync: false
-    }
-}
+// fun Function.new(name: String, returnType: Type) -> Function {
+//     return Function{
+//         name: name,
+//         parameters: Array<Parameter>(),
+//         returnType: returnType,
+//         body: Block.new(),
+//         isAsync: false
+//     }
+// }
 
 // Function parameter
-struct Parameter {
-    name: String
-    type: Type
-    defaultValue: Expression?
-}
+// struct Parameter {
+//     name: String
+//     type: Type
+//     defaultValue: Expression?
+// }
 
-fun Parameter.new(name: String, type: Type) -> Parameter {
-    return Parameter{
-        name: name,
-        type: type,
-        defaultValue: null
-    }
-}
+// fun Parameter.new(name: String, type: Type) -> Parameter {
+//     return Parameter{
+//         name: name,
+//         type: type,
+//         defaultValue: null
+//     }
+// }
 
 // Base expression
-struct Expression {
-    line: Int
-    column: Int
-}
+// struct Expression {
+//     line: Int
+//     column: Int
+// }
 
-fun Expression.new(line: Int, column: Int) -> Expression {
-    return Expression{
-        line: line,
-        column: column
-    }
-}
+// fun Expression.new(line: Int, column: Int) -> Expression {
+//     return Expression{
+//         line: line,
+//         column: column
+//     }
+// }
 
 // Literal expression
-struct Literal {
-    expr: Expression
-    value: String
-    type: TokenType
-}
+// struct Literal {
+//     expr: Expression
+//     value: String
+//     type: TokenType
+// }
 
-fun Literal.new(value: String, type: TokenType, line: Int, column: Int) -> Literal {
-    return Literal{
-        expr: Expression.new(line, column),
-        value: value,
-        type: type
-    }
-}
+// fun Literal.new(value: String, type: TokenType, line: Int, column: Int) -> Literal {
+//     return Literal{
+//         expr: Expression.new(line, column),
+//         value: value,
+//         type: type
+//     }
+// }
 
 // Binary expression (a + b, a && b, etc.)
-struct BinaryExpression {
-    expr: Expression
-    left: Expression
-    operator: TokenType
-    right: Expression
-}
+// struct BinaryExpression {
+//     expr: Expression
+//     left: Expression
+//     operator: TokenType
+//     right: Expression
+// }
 
-fun BinaryExpression.new(left: Expression, operator: TokenType, right: Expression) -> BinaryExpression {
-    return BinaryExpression{
-        expr: Expression.new(left.line, left.column),
-        left: left,
-        operator: operator,
-        right: right
-    }
-}
+// fun BinaryExpression.new(left: Expression, operator: TokenType, right: Expression) -> BinaryExpression {
+//     return BinaryExpression{
+//         expr: Expression.new(left.line, left.column),
+//         left: left,
+//         operator: operator,
+//         right: right
+//     }
+// }
 
 // Statement base
-struct Statement {
-    line: Int
-    column: Int
-}
+// struct Statement {
+//     line: Int
+//     column: Int
+// }
 
-fun Statement.new(line: Int, column: Int) -> Statement {
-    return Statement{
-        line: line,
-        column: column
-    }
-}
+// fun Statement.new(line: Int, column: Int) -> Statement {
+//     return Statement{
+//         line: line,
+//         column: column
+//     }
+// }
 
 // Block statement (contains multiple statements)
-struct Block {
-    stmt: Statement
-    statements: Array<Statement>
-}
+// struct Block {
+//     stmt: Statement
+//     statements: Array<Statement>
+// }
 
-fun Block.new() -> Block {
-    return Block{
-        stmt: Statement.new(0, 0),
-        statements: Array<Statement>()
-    }
-}
+// fun Block.new() -> Block {
+//     return Block{
+//         stmt: Statement.new(0, 0),
+//         statements: Array<Statement>()
+//     }
+// }
 
 // Return statement
-struct ReturnStatement {
-    stmt: Statement
-    value: Expression?
-}
+// struct ReturnStatement {
+//     stmt: Statement
+//     value: Expression?
+// }
 
-fun ReturnStatement.new(value: Expression?) -> ReturnStatement {
-    return ReturnStatement{
-        stmt: Statement.new(0, 0),
-        value: value
-    }
-}
+// fun ReturnStatement.new(value: Expression?) -> ReturnStatement {
+//     return ReturnStatement{
+//         stmt: Statement.new(0, 0),
+//         value: value
+//     }
+// }
 
 // Variable declaration
-struct VariableDeclaration {
-    stmt: Statement
-    name: String
-    type: Type?
-    initializer: Expression?
-    isMutable: Bool
-}
+// struct VariableDeclaration {
+//     stmt: Statement
+//     name: String
+//     type: Type?
+//     initializer: Expression?
+//     isMutable: Bool
+// }
 
-fun VariableDeclaration.new(name: String, isMutable: Bool = false) -> VariableDeclaration {
-    return VariableDeclaration{
-        stmt: Statement.new(0, 0),
-        name: name,
-        type: null,
-        initializer: null,
-        isMutable: isMutable
-    }
-}
+// fun VariableDeclaration.new(name: String, isMutable: Bool = false) -> VariableDeclaration {
+//     return VariableDeclaration{
+//         stmt: Statement.new(0, 0),
+//         name: name,
+//         type: null,
+//         initializer: null,
+//         isMutable: isMutable
+//     }
+// }
 
 // If statement
-struct IfStatement {
-    stmt: Statement
-    condition: Expression
-    thenBranch: Statement
-    elseBranch: Statement?
-}
+// struct IfStatement {
+//     stmt: Statement
+//     condition: Expression
+//     thenBranch: Statement
+//     elseBranch: Statement?
+// }
 
-fun IfStatement.new(condition: Expression, thenBranch: Statement) -> IfStatement {
-    return IfStatement{
-        stmt: Statement.new(0, 0),
-        condition: condition,
-        thenBranch: thenBranch,
-        elseBranch: null
-    }
-}
+// fun IfStatement.new(condition: Expression, thenBranch: Statement) -> IfStatement {
+//     return IfStatement{
+//         stmt: Statement.new(0, 0),
+//         condition: condition,
+//         thenBranch: thenBranch,
+//         elseBranch: null
+//     }
+// }
 
 // Match statement
-struct MatchStatement {
-    stmt: Statement
-    expression: Expression
-    arms: Array<MatchArm>
-}
+// struct MatchStatement {
+//     stmt: Statement
+//     expression: Expression
+//     arms: Array<MatchArm>
+// }
 
-fun MatchStatement.new(expression: Expression) -> MatchStatement {
-    return MatchStatement{
-        stmt: Statement.new(0, 0),
-        expression: expression,
-        arms: Array<MatchArm>()
-    }
-}
+// fun MatchStatement.new(expression: Expression) -> MatchStatement {
+//     return MatchStatement{
+//         stmt: Statement.new(0, 0),
+//         expression: expression,
+//         arms: Array<MatchArm>()
+//     }
+// }
 
 // Match arm
-struct MatchArm {
-    pattern: Pattern
-    body: Statement
-}
+// struct MatchArm {
+//     pattern: Pattern
+//     body: Statement
+// }
 
-fun MatchArm.new(pattern: Pattern, body: Statement) -> MatchArm {
-    return MatchArm{
-        pattern: pattern,
-        body: body
-    }
-}
+// fun MatchArm.new(pattern: Pattern, body: Statement) -> MatchArm {
+//     return MatchArm{
+//         pattern: pattern,
+//         body: body
+//     }
+// }
 
 // Pattern for pattern matching
-struct Pattern {
-    line: Int
-    column: Int
-}
+// struct Pattern {
+//     line: Int
+//     column: Int
+// }
 
-fun Pattern.new(line: Int, column: Int) -> Pattern {
-    return Pattern{
-        line: line,
-        column: column
-    }
-}
+// fun Pattern.new(line: Int, column: Int) -> Pattern {
+//     return Pattern{
+//         line: line,
+//         column: column
+//     }
+// }
 
 // Class declaration
-struct Class {
-    name: String
-    methods: Array<Function>
-    fields: Array<VariableDeclaration>
-}
+// struct Class {
+//     name: String
+//     methods: Array<Function>
+//     fields: Array<VariableDeclaration>
+// }
 
-fun Class.new(name: String) -> Class {
-    return Class{
-        name: name,
-        methods: Array<Function>(),
-        fields: Array<VariableDeclaration>()
-    }
-}
+// fun Class.new(name: String) -> Class {
+//     return Class{
+//         name: name,
+//         methods: Array<Function>(),
+//         fields: Array<VariableDeclaration>()
+//     }
+// }
 
 // Interface declaration
-struct Interface {
-    name: String
-    methods: Array<Function>
-}
+// struct Interface {
+//     name: String
+//     methods: Array<Function>
+// }
 
-fun Interface.new(name: String) -> Interface {
-    return Interface{
-        name: name,
-        methods: Array<Function>()
-    }
-}
+// fun Interface.new(name: String) -> Interface {
+//     return Interface{
+//         name: name,
+//         methods: Array<Function>()
+//     }
+// }
 
 // Enum declaration
-struct Enum {
-    name: String
-    variants: Array<String>
-}
+// struct Enum {
+//     name: String
+//     variants: Array<String>
+// }
 
-fun Enum.new(name: String) -> Enum {
-    return Enum{
-        name: name,
-        variants: Array<String>()
-    }
-}
+// fun Enum.new(name: String) -> Enum {
+//     return Enum{
+//         name: name,
+//         variants: Array<String>()
+//     }
+// }
 
 // Import declaration
-struct Import {
-    path: String
-    items: Array<String>
-}
+// struct Import {
+//     path: String
+//     items: Array<String>
+// }
 
-fun Import.new(path: String) -> Import {
-    return Import{
-        path: path,
-        items: Array<String>()
-    }
-}
+// fun Import.new(path: String) -> Import {
+//     return Import{
+//         path: path,
+//         items: Array<String>()
+//     }
+// }
 
 // Main parser interface
-class SeenParser {
-    let tokens: Array<Token>
-    var current: Int
-    var errorRecoveryMode: Bool
+// class SeenParser {
+//     let tokens: Array<Token>
+//     var current: Int
+//     var errorRecoveryMode: Bool
     
-    fun new(tokens: Array<Token>) -> SeenParser {
-        // Note: This interface stub is replaced by the actual implementation in real_parser.seen
-        return SeenParser{}
-    }
+//     fun new(tokens: Array<Token>) -> SeenParser {
+//         // Note: This interface stub is replaced by the actual implementation in real_parser.seen
+//         return SeenParser{}
+//     }
     
-    fun parse() -> AST {
-        // Default implementation - should be overridden
-        return AST.new()
-    }
+//     fun parse() -> AST {
+//         // Default implementation - should be overridden
+//         return AST.new()
+//     }
     
-    fun setErrorRecoveryMode(enabled: Bool) -> Void {
-        // Default implementation - no-op
-    }
+//     fun setErrorRecoveryMode(enabled: Bool) -> Void {
+//         // Default implementation - no-op
+//     }
     
-    fun getCurrentToken() -> Token {
-        // Default implementation - EOF token
-        return Token.new(TokenType.EOF, "", Position.start())
-    }
+//     fun getCurrentToken() -> Token {
+//         // Default implementation - EOF token
+//         return Token.new(TokenType.EOF, "", Position.start())
+//     }
     
-    fun advance() -> Token {
-        // Default implementation - EOF token
-        return Token.new(TokenType.EOF, "", Position.start())
-    }
+//     fun advance() -> Token {
+//         // Default implementation - EOF token
+//         return Token.new(TokenType.EOF, "", Position.start())
+//     }
     
-    fun peek(offset: Int = 1) -> Token {
-        // Default implementation - EOF token
-        return Token.new(TokenType.EOF, "", Position.start())
-    }
+//     fun peek(offset: Int = 1) -> Token {
+//         // Default implementation - EOF token
+//         return Token.new(TokenType.EOF, "", Position.start())
+//     }
     
-    fun match(types: Array<TokenType>) -> Bool {
-        // Default implementation - always false
-        return false
-    }
+//     fun match(types: Array<TokenType>) -> Bool {
+//         // Default implementation - always false
+//         return false
+//     }
     
-    fun expect(type: TokenType) -> Token {
-        // Default implementation - EOF token
-        return Token.new(TokenType.EOF, "", Position.start())
-    }
-}
+//     fun expect(type: TokenType) -> Token {
+//         // Default implementation - EOF token
+//         return Token.new(TokenType.EOF, "", Position.start())
+//     }
+// }
 
 // Utility function for tests
-fun parseSource(source: String, language: String = "en") -> AST {
-    let lexer = SeenLexer.new(source, 1, language)
-    let tokens = lexer.tokenize()
-    let parser = SeenParser.new(tokens)
-    return parser.parse()
-}
+// fun parseSource(source: String, language: String = "en") -> AST {
+//     let lexer = SeenLexer.new(source, 1, language)
+//     let tokens = lexer.tokenize()
+//     let parser = SeenParser.new(tokens)
+//     return parser.parse()
+// }
