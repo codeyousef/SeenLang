@@ -910,57 +910,130 @@ impl TypeChecker {
     /// but B was only a placeholder when A was defined
     fn fixup_struct_field_types(&mut self) {
         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-            eprintln!("[DEBUG] Starting fixup of {} struct types", self.env.types.len());
+            eprintln!("[FIXUP] Starting fixup of {} struct types", self.env.types.len());
         }
-        
-        let type_names: Vec<String> = self.env.types.keys().cloned().collect();
-        
-        for type_name in type_names {
-            if let Some(struct_type) = self.env.types.get(&type_name).cloned() {
-                if let Type::Struct { name, fields, generics } = struct_type {
-                    let mut fixed_fields = HashMap::new();
-                    let mut changed = false;
-                    
-                    for (field_name, field_type) in &fields {
-                        let fixed_type = self.fixup_type_recursive(field_type);
-                        // Compare by actual equality, not pointer
-                        if field_type != &fixed_type {
-                            changed = true;
-                            if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                                eprintln!("[DEBUG] Fixed field {}.{}: changed type", name, field_name);
+
+        // Multiple passes to handle deeply nested struct fields
+        // Each pass resolves one level of nesting, avoiding expensive deep traversal
+        let max_passes = 10;
+        for pass in 0..max_passes {
+            let type_names: Vec<String> = self.env.types.keys().cloned().collect();
+            let mut any_changed = false;
+            let mut changed_count = 0;
+
+            if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                eprintln!("[FIXUP] Pass {} starting...", pass);
+            }
+
+            // Phase 1: Fix empty placeholder structs (single shallow pass per iteration)
+            // This replaces all empty struct types with their full definitions
+            for type_name in &type_names {
+                if let Some(struct_type) = self.env.types.get(type_name).cloned() {
+                    if let Type::Struct { name, fields, generics } = &struct_type {
+                        if fields.is_empty() {
+                            continue;
+                        }
+
+                        // For non-empty structs, do ONE shallow pass to replace empty field types
+                        let mut fixed_fields = HashMap::new();
+                        let mut changed = false;
+
+                        for (field_name, field_type) in fields {
+                            let fixed_type = self.fixup_type_shallow(field_type);
+                            if field_type != &fixed_type {
+                                changed = true;
+                                any_changed = true;
                             }
+                            fixed_fields.insert(field_name.clone(), fixed_type);
                         }
-                        fixed_fields.insert(field_name.clone(), fixed_type);
+
+                        if changed {
+                            changed_count += 1;
+                            let fixed_struct = Type::Struct {
+                                name: name.clone(),
+                                fields: fixed_fields,
+                                generics: generics.clone(),
+                            };
+                            self.env.define_type(type_name.clone(), fixed_struct);
+                        }
                     }
-                    
-                    if changed {
+                }
+            }
+
+            if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                eprintln!("[FIXUP] Pass {} updated {} structs", pass, changed_count);
+            }
+
+            // If nothing changed this pass, we're done
+            if !any_changed {
+                if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                    eprintln!("[FIXUP] Fixup converged after {} passes", pass + 1);
+                }
+                break;
+            }
+        }
+
+        // Phase 2: Fix function signatures (parameters and return types)
+        // Functions just use shallow fixup since structs are already fixed
+        let func_names: Vec<String> = self.env.functions.keys().cloned().collect();
+
+        for func_name in func_names {
+            if let Some(signature) = self.env.functions.get(&func_name).cloned() {
+                let mut changed = false;
+                let mut fixed_params = Vec::new();
+
+                for param in &signature.parameters {
+                    let fixed_type = self.fixup_type_shallow(&param.param_type);
+                    if fixed_type != param.param_type {
+                        changed = true;
                         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                            eprintln!("[DEBUG] Updating struct '{}' with fixed fields", name);
+                            eprintln!("[DEBUG] Fixed function {} param {}: changed type", func_name, param.name);
                         }
-                        let fixed_struct = Type::Struct {
-                            name,
-                            fields: fixed_fields,
-                            generics,
-                        };
-                        self.env.define_type(type_name, fixed_struct);
                     }
+                    fixed_params.push(Parameter {
+                        name: param.name.clone(),
+                        param_type: fixed_type,
+                    });
+                }
+
+                let fixed_return = if let Some(ret_ty) = &signature.return_type {
+                    let fixed = self.fixup_type_shallow(ret_ty);
+                    if &fixed != ret_ty {
+                        changed = true;
+                        if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                            eprintln!("[DEBUG] Fixed function {} return type", func_name);
+                        }
+                    }
+                    Some(fixed)
+                } else {
+                    None
+                };
+
+                if changed {
+                    let fixed_signature = FunctionSignature {
+                        name: signature.name,
+                        parameters: fixed_params,
+                        return_type: fixed_return,
+                    };
+                    self.env.define_function(func_name, fixed_signature);
                 }
             }
         }
     }
-    
-    /// Recursively fix up a type by replacing empty struct placeholders with full definitions
-    fn fixup_type_recursive(&self, ty: &Type) -> Type {
+
+    /// Shallow fixup - only replaces empty structs with full definitions from environment,
+    /// but doesn't recursively process non-empty struct fields. This is much faster for
+    /// large codebases and prevents exponential blowup.
+    fn fixup_type_shallow(&self, ty: &Type) -> Type {
         match ty {
-            Type::Struct { name, fields, generics } if fields.is_empty() => {
-                // This might be an empty placeholder - try to get the full definition
+            Type::Struct { name, fields, .. } if fields.is_empty() => {
+                // Try to get the full definition from environment
                 if let Some(full_type) = self.env.get_type(name) {
                     if let Type::Struct { fields: full_fields, .. } = full_type {
                         if !full_fields.is_empty() {
                             if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
                                 eprintln!("[DEBUG] Replacing empty {} with {} fields", name, full_fields.len());
                             }
-                            // Found a better definition!
                             return full_type.clone();
                         }
                     }
@@ -968,7 +1041,7 @@ impl TypeChecker {
                 ty.clone()
             }
             Type::Nullable(inner) => {
-                let fixed_inner = self.fixup_type_recursive(inner);
+                let fixed_inner = self.fixup_type_shallow(inner);
                 if &fixed_inner != inner.as_ref() {
                     Type::Nullable(Box::new(fixed_inner))
                 } else {
@@ -976,7 +1049,7 @@ impl TypeChecker {
                 }
             }
             Type::Array(inner) => {
-                let fixed_inner = self.fixup_type_recursive(inner);
+                let fixed_inner = self.fixup_type_shallow(inner);
                 if &fixed_inner != inner.as_ref() {
                     Type::Array(Box::new(fixed_inner))
                 } else {
@@ -984,8 +1057,8 @@ impl TypeChecker {
                 }
             }
             Type::Map { key_type, value_type } => {
-                let fixed_key = self.fixup_type_recursive(key_type);
-                let fixed_val = self.fixup_type_recursive(value_type);
+                let fixed_key = self.fixup_type_shallow(key_type);
+                let fixed_val = self.fixup_type_shallow(value_type);
                 if &fixed_key != key_type.as_ref() || &fixed_val != value_type.as_ref() {
                     Type::Map {
                         key_type: Box::new(fixed_key),
@@ -995,9 +1068,170 @@ impl TypeChecker {
                     ty.clone()
                 }
             }
+            Type::Function { params, return_type, is_async } => {
+                let mut fixed_params = Vec::new();
+                let mut changed = false;
+
+                for param_ty in params {
+                    let fixed = self.fixup_type_shallow(param_ty);
+                    if &fixed != param_ty {
+                        changed = true;
+                    }
+                    fixed_params.push(fixed);
+                }
+
+                let fixed_return = self.fixup_type_shallow(return_type);
+                if &fixed_return != return_type.as_ref() {
+                    changed = true;
+                }
+
+                if changed {
+                    Type::Function {
+                        params: fixed_params,
+                        return_type: Box::new(fixed_return),
+                        is_async: *is_async,
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
             _ => ty.clone(),
         }
     }
+
+    /// Deeply fix up a type by replacing empty struct placeholders with full definitions
+    /// and recursively processing all nested types including non-empty struct fields.
+    /// This is the critical fix for the "stale type problem" where nested struct types
+    /// remain empty even after their definitions are complete.
+    ///
+    /// Note: This is kept for compatibility but shallow fixup is preferred for performance.
+    #[allow(dead_code)]
+    fn fixup_type_deep(&self, ty: &Type) -> Type {
+        use std::collections::HashSet;
+        let mut visited = HashSet::new();
+        self.fixup_type_deep_impl(ty, &mut visited)
+    }
+
+    /// Internal implementation with cycle detection
+    fn fixup_type_deep_impl(&self, ty: &Type, visited: &mut std::collections::HashSet<String>) -> Type {
+        match ty {
+            Type::Struct { name, fields, generics } => {
+                // Cycle detection: if we're already processing this struct, return it as-is
+                if visited.contains(name) {
+                    return ty.clone();
+                }
+
+                // Mark this struct as being processed
+                visited.insert(name.clone());
+
+                // First, check if this is an empty placeholder that should be replaced
+                if fields.is_empty() {
+                    if let Some(full_type) = self.env.get_type(name) {
+                        if let Type::Struct { fields: full_fields, .. } = full_type {
+                            if !full_fields.is_empty() {
+                                if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                                    eprintln!("[DEBUG] Replacing empty {} with {} fields", name, full_fields.len());
+                                }
+                                // Recursively fix the full type to catch nested stale types
+                                let result = self.fixup_type_deep_impl(full_type, visited);
+                                visited.remove(name);
+                                return result;
+                            }
+                        }
+                    }
+                    visited.remove(name);
+                    return ty.clone();
+                }
+
+                // Even for non-empty structs, recursively fix all field types
+                // This is KEY to solving the deep nesting problem
+                let mut fixed_fields = HashMap::new();
+                let mut changed = false;
+
+                for (field_name, field_type) in fields {
+                    let fixed_type = self.fixup_type_deep_impl(field_type, visited);
+                    if &fixed_type != field_type {
+                        changed = true;
+                        if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
+                            eprintln!("[DEBUG] Fixed nested field {}.{}", name, field_name);
+                        }
+                    }
+                    fixed_fields.insert(field_name.clone(), fixed_type);
+                }
+
+                // Remove from visited set before returning
+                visited.remove(name);
+
+                if changed {
+                    Type::Struct {
+                        name: name.clone(),
+                        fields: fixed_fields,
+                        generics: generics.clone(),
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Nullable(inner) => {
+                let fixed_inner = self.fixup_type_deep_impl(inner, visited);
+                if &fixed_inner != inner.as_ref() {
+                    Type::Nullable(Box::new(fixed_inner))
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Array(inner) => {
+                let fixed_inner = self.fixup_type_deep_impl(inner, visited);
+                if &fixed_inner != inner.as_ref() {
+                    Type::Array(Box::new(fixed_inner))
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Map { key_type, value_type } => {
+                let fixed_key = self.fixup_type_deep_impl(key_type, visited);
+                let fixed_val = self.fixup_type_deep_impl(value_type, visited);
+                if &fixed_key != key_type.as_ref() || &fixed_val != value_type.as_ref() {
+                    Type::Map {
+                        key_type: Box::new(fixed_key),
+                        value_type: Box::new(fixed_val),
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Function { params, return_type, is_async } => {
+                // Fix parameter types and return type
+                let mut fixed_params = Vec::new();
+                let mut changed = false;
+
+                for param_ty in params {
+                    let fixed = self.fixup_type_deep_impl(param_ty, visited);
+                    if &fixed != param_ty {
+                        changed = true;
+                    }
+                    fixed_params.push(fixed);
+                }
+
+                let fixed_return = self.fixup_type_deep_impl(return_type, visited);
+                if &fixed_return != return_type.as_ref() {
+                    changed = true;
+                }
+
+                if changed {
+                    Type::Function {
+                        params: fixed_params,
+                        return_type: Box::new(fixed_return),
+                        is_async: *is_async,
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
+            _ => ty.clone(),
+        }
+    }
+
 
     fn collect_environment(&mut self) {
         for (name, var_type) in &self.env.variables {
