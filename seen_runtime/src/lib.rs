@@ -6,10 +6,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ptr;
 use std::slice;
-use std::sync::atomic::AtomicI32;
 use std::sync::{
-    Arc, Condvar, Mutex,
-    atomic::{AtomicI32, Ordering},
+    atomic::{AtomicI32, Ordering}, Arc, Condvar,
+    Mutex,
 };
 use std::time::{Duration, Instant};
 

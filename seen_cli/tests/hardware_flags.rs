@@ -290,5 +290,5 @@ fn simd_report_writes_json() {
 
     let contents = fs::read_to_string(&report_path).expect("read simd report");
     let parsed: Value = serde_json::from_str(&contents).expect("valid json");
-    assert_eq!(parsed["policy"], "max");
+    assert_eq!(parsed["requested_policy"], "max");
 }

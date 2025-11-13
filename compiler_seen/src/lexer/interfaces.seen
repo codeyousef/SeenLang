@@ -300,38 +300,36 @@ class KeywordManager {
     }
 }
 
-// Extension methods for TokenType
-extension TokenType {
-    fun isOperator() -> Bool {
-        return match this {
-            Plus, Minus, Multiply, Divide, Modulo,
-            Equal, PlusEqual, MinusEqual, MultiplyEqual, DivideEqual,
-            EqualEqual, NotEqual, LessThan, LessEqual, GreaterThan, GreaterEqual,
-            LogicalAnd, LogicalOr, LogicalNot,
-            SafeNavigation, Elvis -> true
-            _ -> false
-        }
+// Helper functions for TokenType
+fun tokenTypeIsOperator(tokenType: TokenType) -> Bool {
+    return match tokenType {
+        Plus, Minus, Multiply, Divide, Modulo,
+        Equal, PlusEqual, MinusEqual, MultiplyEqual, DivideEqual,
+        EqualEqual, NotEqual, LessThan, LessEqual, GreaterThan, GreaterEqual,
+        LogicalAnd, LogicalOr, LogicalNot,
+        SafeNavigation, Elvis -> true
+        _ -> false
     }
-    
-    fun isLiteral() -> Bool {
-        return match this {
-            IntegerLiteral, FloatLiteral, StringLiteral, BooleanLiteral -> true
-            _ -> false
-        }
+}
+
+fun tokenTypeIsLiteral(tokenType: TokenType) -> Bool {
+    return match tokenType {
+        IntegerLiteral, FloatLiteral, StringLiteral, BooleanLiteral -> true
+        _ -> false
     }
-    
-    fun isKeyword() -> Bool {
-        return match this {
-            KeywordFun, KeywordLet, KeywordVar, KeywordIf, KeywordElse,
-            KeywordWhile, KeywordFor, KeywordIn, KeywordReturn, KeywordBreak,
-            KeywordContinue, KeywordClass, KeywordInterface, KeywordEnum,
-            KeywordExtends, KeywordImplements, KeywordAsync, KeywordAwait,
-            KeywordSpawn, KeywordMatch, KeywordTry, KeywordCatch, KeywordFinally,
-            KeywordThrow, KeywordImport, KeywordExport, KeywordAs, KeywordIs,
-            KeywordNull, KeywordTrue, KeywordFalse, KeywordThis, KeywordSuper,
-            KeywordMove, KeywordBorrow -> true
-            _ -> false
-        }
+}
+
+fun tokenTypeIsKeyword(tokenType: TokenType) -> Bool {
+    return match tokenType {
+        KeywordFun, KeywordLet, KeywordVar, KeywordIf, KeywordElse,
+        KeywordWhile, KeywordFor, KeywordIn, KeywordReturn, KeywordBreak,
+        KeywordContinue, KeywordClass, KeywordInterface, KeywordEnum,
+        KeywordExtends, KeywordImplements, KeywordAsync, KeywordAwait,
+        KeywordSpawn, KeywordMatch, KeywordTry, KeywordCatch, KeywordFinally,
+        KeywordThrow, KeywordImport, KeywordExport, KeywordAs, KeywordIs,
+        KeywordNull, KeywordTrue, KeywordFalse, KeywordThis, KeywordSuper,
+        KeywordMove, KeywordBorrow -> true
+        _ -> false
     }
 }
 

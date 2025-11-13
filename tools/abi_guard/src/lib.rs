@@ -1,8 +1,8 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
-    io::{BufRead, BufReader, Write},
-    path::{Path, PathBuf},
+    io::{BufReader, Read, Write},
+    path::Path,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -167,7 +167,7 @@ pub fn build_snapshot(manifest: &ManifestToml, module_hashes: &[(String, String)
 }
 
 pub fn verify_against_lock(
-    manifest: &ManifestToml,
+    _manifest: &ManifestToml,
     lock: &LockFile,
     module_hashes: &[(String, String)],
 ) -> Result<()> {

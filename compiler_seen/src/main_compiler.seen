@@ -164,8 +164,8 @@ class TypeResult {
     var errors: List<String>
     
     fun new() -> TypeResult {
-        let errors: List<String> = []
-        return TypeResult{ success: true, errors: errors }
+        let errorList: List<String> = []
+        return TypeResult{ success: true, errors: errorList }
     }
 }
 
@@ -176,8 +176,8 @@ class RealTypeChecker {
     }
     
     fun check(ast: ProgramNode) -> TypeResult {
-        let errors: List<String> = []
-        return TypeResult{ success: true, errors: errors }
+        let checkErrors: List<String> = []
+        return TypeResult{ success: true, errors: checkErrors }
     }
 }
 
@@ -242,6 +242,108 @@ class BenchmarkResult {
     fun new() -> BenchmarkResult {
         return BenchmarkResult{ success: false, opsPerSecond: 0 }
     }
+}
+
+// Stub lexer components for self-contained compilation
+class KeywordManager {
+    fun new() -> KeywordManager {
+        return KeywordManager{}
+    }
+}
+
+class SeenLexer {
+    fun new(source: String, fileId: Int, keywordManager: KeywordManager) -> SeenLexer {
+        return SeenLexer{}
+    }
+    
+    fun tokenize() -> Array<Token> {
+        return []
+    }
+}
+
+class SeenParser {
+    fun new(tokens: Array<Token>) -> SeenParser {
+        return SeenParser{}
+    }
+    
+    fun parseProgram() -> ProgramNode {
+        return ProgramNode{ items: [] }
+    }
+}
+
+class TypeChecker {
+    fun new() -> TypeChecker {
+        return TypeChecker{}
+    }
+    
+    fun checkProgram(program: ProgramNode) -> ProgramNode {
+        return program
+    }
+    
+    fun hasErrors() -> Bool {
+        return false
+    }
+    
+    fun getErrors() -> Array<TypecheckError> {
+        return []
+    }
+}
+
+class TypecheckError {
+    fun getMessage() -> String {
+        return ""
+    }
+}
+
+class IRGenerator {
+    fun new() -> IRGenerator {
+        return IRGenerator{}
+    }
+    
+    fun generateProgram(program: ProgramNode) -> CFG {
+        return CFG{ blocks: [] }
+    }
+}
+
+class CFG {
+    var blocks: Array<Block>
+}
+
+class Block {}
+
+class CCodeGenerator {
+    fun new() -> CCodeGenerator {
+        return CCodeGenerator{}
+    }
+    
+    fun generateProgram(cfg: CFG) -> String {
+        return "/* Generated C code */\n"
+    }
+}
+
+// Factory functions
+fun createKeywordManager() -> KeywordManager {
+    return KeywordManager.new()
+}
+
+fun createLexer(source: String, fileId: Int, keywordManager: KeywordManager) -> SeenLexer {
+    return SeenLexer.new(source, fileId, keywordManager)
+}
+
+fun createParser(tokens: Array<Token>) -> SeenParser {
+    return SeenParser.new(tokens)
+}
+
+fun createTypeChecker() -> TypeChecker {
+    return TypeChecker.new()
+}
+
+fun createIRGenerator() -> IRGenerator {
+    return IRGenerator.new()
+}
+
+fun createCCodeGenerator() -> CCodeGenerator {
+    return CCodeGenerator.new()
 }
 
 // Public entry point for the compiler
