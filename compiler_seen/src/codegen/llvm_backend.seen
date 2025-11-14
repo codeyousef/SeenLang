@@ -88,13 +88,13 @@ class LLVMBackend {
             " " + inputFile +
             " -o " + outputFile
         
-        let exitCode = executeCommand(optCommand)
+        let res: CommandResult = __ExecuteCommand(optCommand)
         
-        if exitCode == 0 {
+        if res.success {
             println("     ✓ LLVM optimization completed")
             return true
         } else {
-            println("     ❌ Optimization failed with exit code: " + exitCode.toString())
+            println("     ❌ Optimization failed with exit code/output: " + res.output)
             return false
         }
     }
@@ -119,13 +119,13 @@ class LLVMBackend {
             " " + irFile +
             " -o " + objectFile
         
-        let exitCode = executeCommand(llcCommand)
+        let res: CommandResult = __ExecuteCommand(llcCommand)
         
-        if exitCode == 0 {
+        if res.success {
             println("     ✓ Object file generated")
             return true
         } else {
-            println("     ❌ LLC compilation failed with exit code: " + exitCode.toString())
+            println("     ❌ LLC compilation failed: " + res.output)
             return false
         }
     }
@@ -149,16 +149,16 @@ class LLVMBackend {
             " -o " + executablePath +
             " -lm -lpthread -lrt"
         
-        let exitCode = executeCommand(linkCommand)
+        let res: CommandResult = __ExecuteCommand(linkCommand)
         
-        if exitCode == 0 {
+        if res.success {
             println("     ✓ Executable linked successfully")
             
             // Make executable
-            executeCommand("chmod +x " + executablePath)
+            __ExecuteCommand("chmod +x " + executablePath)
             return true
         } else {
-            println("     ❌ Linking failed with exit code: " + exitCode.toString())
+            println("     ❌ Linking failed: " + res.output)
             
             // Try fallback linking without LTO
             return linkExecutableFallback(objectFile, executablePath)

@@ -7,6 +7,14 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
 
+fun println(text: String) -> Void {
+    let _ignored = __WriteFile("/dev/stdout", text + "\n") as Bool
+}
+fun print(text: String) -> Void {
+    let _ignored = __WriteFile("/dev/stdout", text) as Bool
+}
+
+
 fun main() -> Int {
     let args = GetCommandLineArgs()
     if args.size() < 2 {
@@ -84,7 +92,7 @@ fun main() -> Int {
     return 1
 }
 
-fun printUsage() -> Void {
+fun printUsage() -> Unit {
     println("Seen Compiler v2.0.0 - Self-hosted Implementation")
     println("")
     println("Usage: seen <command> [options]")
@@ -116,7 +124,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     // Minimal C codegen and native compile
     let cFilePath = outputPath + ".c"
     let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
-    if not WriteFile(cFilePath, cCode) { return false }
+    if not WriteFile(cFilePath, cCode) { return false } else { /* ok */ }
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath
     let compileResult: CommandResult = execCommand(compileCommand)
     return if commandWasSuccessful(compileResult) { true } else { false }
@@ -278,6 +286,7 @@ fun getTimestamp() -> String {
     return __GetTimestamp()
 }
 
+
 fun FormatSeenCode(source: String) -> String { return __FormatSeenCode(source) as String }
 
 fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> Bool {
@@ -291,14 +300,14 @@ fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> 
     return true
 }
 
-fun printFrontendDiagnostics(frontend: FrontendResult) -> Void {
+fun printFrontendDiagnostics(frontend: FrontendResult) -> Unit {
     let diagnostics = frontend.diagnostics
     for diag in diagnostics {
         println(formatFrontendDiagnostic(diag))
     }
 }
 
-fun printFrontendWarnings(frontend: FrontendResult) -> Void {
+fun printFrontendWarnings(frontend: FrontendResult) -> Unit {
     if not frontend.hasWarnings() {
         return
     }

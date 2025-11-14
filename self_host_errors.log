@@ -1,1 +1,8 @@
-bash: target/release/seen_cli: No such file or directory
+Type error: Type mismatch: expected Void, found ??? at 186:5
+Type error: Type mismatch: expected Void, found ?? at 332:5
+Type error: Type mismatch: expected Void, found ?? at 367:5
+Type error: Type mismatch: expected Void, found ?? at 266:5
+Type error: Type mismatch: expected Void, found Bool at 10:1
+Type error: Type mismatch: expected Void, found Bool at 13:1
+Type error: Type mismatch: expected Unit, found () at 95:1
+Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found ??? at 186:5", location: Some(ErrorLocation { line: 186, column: 5, offset: 5029 }) }
