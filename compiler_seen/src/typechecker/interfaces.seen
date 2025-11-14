@@ -304,8 +304,8 @@ class SmartCastContext {
 // Main type checker interface
 class TypeChecker {
     let environment: Environment
-    let errors: Array<TypeError>
-    let warnings: Array<String>
+    var errors: Array<TypeError>
+    var warnings: Array<String>
     let smartCastContext: SmartCastContext
     var strictMode: Bool
     

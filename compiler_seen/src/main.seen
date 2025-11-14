@@ -84,7 +84,7 @@ fun main() -> Int {
     return 1
 }
 
-fun printUsage() {
+fun printUsage() -> Void {
     println("Seen Compiler v2.0.0 - Self-hosted Implementation")
     println("")
     println("Usage: seen <command> [options]")

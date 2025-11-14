@@ -100,12 +100,12 @@ class CodegenResult {
     }
     
     static fun newWithErrors(typeErrors: Array<TypeError>) -> CodegenResult {
-        let errors = Array<CodegenError>()
+        let errs = Array<CodegenError>()
         for typeError in typeErrors {
             let codegenError = CodegenError.new(typeError.message, typeError.location.line, typeError.location.column)
             errors.push(codegenError)
         }
-        return CodegenResult.new(false, "", errors)
+        return CodegenResult.new(false, "", errs)
     }
 }
 

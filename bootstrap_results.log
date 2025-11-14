@@ -385,3 +385,197 @@ Type error: Type mismatch: expected T, found () at 17:1
 Type error: Type mismatch: expected T, found () at 24:1
 Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found ?? at 96:5", location: Some(ErrorLocation { line: 96, column: 5, offset: 3813 }) }
 [0;31m❌ STAGE 1 FAILED: No C code generated[0m
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+   Compiling seen_cli v0.1.0 (/mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/seen_cli)
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_typechecker` (lib) generated 1 warning
+warning: unused import: `std::env::args`
+  --> seen_cli/src/main.rs:27:5
+   |
+27 | use std::env::args;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_cli` (bin "seen_cli") generated 1 warning (run `cargo fix --bin "seen_cli"` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 30.88s
+     Running `/home/yousef/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen -o stage1_compiler.c`
+Compiling compiler_seen/src/main.seen with optimization level 0
+Type error: Type mismatch: expected Void, found ?? at 96:5
+Type error: Type mismatch: expected Void, found ?? at 296:5
+Type error: Type mismatch: expected Void, found ?? at 300:5
+Type error: Type mismatch: expected Void, found ?? at 304:5
+Type error: Type mismatch: expected Void, found ?? at 308:5
+Type error: Type mismatch: expected Void, found ?? at 312:5
+Type error: Type mismatch: expected Void, found ?? at 349:5
+Type error: Type mismatch: expected Void, found Void? at 421:5
+Type error: Type mismatch: expected Void, found ?? at 117:5
+Type error: Type mismatch: expected Void, found ?? at 213:5
+Type error: Type mismatch: expected Void, found ?? at 564:5
+Type error: Type mismatch: expected Void, found Void? at 410:5
+Type error: Type mismatch: expected Void, found ?? at 568:5
+Type error: Type mismatch: expected Void, found ?? at 572:5
+Type error: Type mismatch: expected Void, found ?? at 266:5
+Type error: Type mismatch: expected Void, found ?? at 149:5
+Type error: Type mismatch: expected Void, found ?? at 76:5
+Type error: Type mismatch: expected Void, found () at 96:5
+Type error: Type mismatch: expected Void, found () at 106:5
+Type error: Type mismatch: expected Void, found () at 110:5
+Type error: Type mismatch: expected Void, found () at 114:5
+Type error: Type mismatch: expected Void, found () at 118:5
+Type error: Type mismatch: expected Void, found () at 122:5
+Type error: Type mismatch: expected Void, found () at 18:5
+Type error: Type mismatch: expected Void, found () at 22:5
+Type error: Type mismatch: expected Void, found () at 16:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Type mismatch: expected Void, found ??? at 186:5
+Type error: Type mismatch: expected Void, found () at 8:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Type mismatch: expected Void, found ?? at 332:5
+Type error: Type mismatch: expected Void, found ?? at 367:5
+Type error: Type mismatch: expected Void, found () at 7:1
+Type error: Type mismatch: expected Never, found () at 13:1
+Type error: Type mismatch: expected T, found () at 17:1
+Type error: Type mismatch: expected T, found () at 24:1
+Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found ?? at 96:5", location: Some(ErrorLocation { line: 96, column: 5, offset: 3813 }) }
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+   Compiling seen_cli v0.1.0 (/mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/seen_cli)
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_typechecker` (lib) generated 1 warning
+warning: unused import: `std::env::args`
+  --> seen_cli/src/main.rs:27:5
+   |
+27 | use std::env::args;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_cli` (bin "seen_cli") generated 1 warning (run `cargo fix --bin "seen_cli"` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 30.74s
+     Running `/home/yousef/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen -o stage1_compiler.c`
+Compiling compiler_seen/src/main.seen with optimization level 0
+Type error: Type mismatch: expected Void, found ?? at 96:5
+Type error: Type mismatch: expected Void, found ?? at 296:5
+Type error: Type mismatch: expected Void, found ?? at 300:5
+Type error: Type mismatch: expected Void, found ?? at 304:5
+Type error: Type mismatch: expected Void, found ?? at 308:5
+Type error: Type mismatch: expected Void, found ?? at 312:5
+Type error: Type mismatch: expected Void, found ?? at 349:5
+Type error: Type mismatch: expected Void, found Void? at 421:5
+Type error: Type mismatch: expected Void, found ?? at 117:5
+Type error: Type mismatch: expected Void, found ?? at 213:5
+Type error: Type mismatch: expected Void, found ?? at 564:5
+Type error: Type mismatch: expected Void, found Void? at 410:5
+Type error: Type mismatch: expected Void, found ?? at 568:5
+Type error: Type mismatch: expected Void, found ?? at 572:5
+Type error: Type mismatch: expected Void, found ?? at 266:5
+Type error: Type mismatch: expected Void, found ?? at 149:5
+Type error: Type mismatch: expected Void, found ?? at 76:5
+Type error: Type mismatch: expected Void, found () at 96:5
+Type error: Type mismatch: expected Void, found () at 106:5
+Type error: Type mismatch: expected Void, found () at 110:5
+Type error: Type mismatch: expected Void, found () at 114:5
+Type error: Type mismatch: expected Void, found () at 118:5
+Type error: Type mismatch: expected Void, found () at 122:5
+Type error: Type mismatch: expected Void, found () at 18:5
+Type error: Type mismatch: expected Void, found () at 22:5
+Type error: Type mismatch: expected Void, found () at 16:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Type mismatch: expected Void, found ??? at 186:5
+Type error: Type mismatch: expected Void, found () at 8:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Type mismatch: expected Void, found ?? at 332:5
+Type error: Type mismatch: expected Void, found ?? at 367:5
+Type error: Type mismatch: expected Void, found () at 7:1
+Type error: Type mismatch: expected Never, found () at 13:1
+Type error: Type mismatch: expected T, found () at 17:1
+Type error: Type mismatch: expected T, found () at 24:1
+Type error: Type mismatch: expected Unit, found () at 87:1
+Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found ?? at 96:5", location: Some(ErrorLocation { line: 96, column: 5, offset: 3813 }) }
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+   Compiling seen_cli v0.1.0 (/mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/seen_cli)
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_typechecker` (lib) generated 1 warning
+warning: unused import: `std::env::args`
+  --> seen_cli/src/main.rs:27:5
+   |
+27 | use std::env::args;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_cli` (bin "seen_cli") generated 1 warning (run `cargo fix --bin "seen_cli"` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 30.74s
+     Running `/home/yousef/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen -o stage1_compiler.c`
+Compiling compiler_seen/src/main.seen with optimization level 0
+Type error: Type mismatch: expected Void, found ?? at 96:5
+Type error: Type mismatch: expected Void, found ?? at 296:5
+Type error: Type mismatch: expected Void, found ?? at 300:5
+Type error: Type mismatch: expected Void, found ?? at 304:5
+Type error: Type mismatch: expected Void, found ?? at 308:5
+Type error: Type mismatch: expected Void, found ?? at 312:5
+Type error: Type mismatch: expected Void, found ?? at 349:5
+Type error: Type mismatch: expected Void, found Void? at 421:5
+Type error: Type mismatch: expected Void, found ?? at 117:5
+Type error: Type mismatch: expected Void, found ?? at 213:5
+Type error: Type mismatch: expected Void, found ?? at 564:5
+Type error: Type mismatch: expected Void, found Void? at 410:5
+Type error: Type mismatch: expected Void, found ?? at 568:5
+Type error: Type mismatch: expected Void, found ?? at 572:5
+Type error: Type mismatch: expected Void, found ?? at 266:5
+Type error: Type mismatch: expected Void, found ?? at 149:5
+Type error: Type mismatch: expected Void, found ?? at 76:5
+Type error: Type mismatch: expected Void, found () at 96:5
+Type error: Type mismatch: expected Void, found () at 106:5
+Type error: Type mismatch: expected Void, found () at 110:5
+Type error: Type mismatch: expected Void, found () at 114:5
+Type error: Type mismatch: expected Void, found () at 118:5
+Type error: Type mismatch: expected Void, found () at 122:5
+Type error: Type mismatch: expected Void, found () at 18:5
+Type error: Type mismatch: expected Void, found () at 22:5
+Type error: Type mismatch: expected Void, found () at 16:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Type mismatch: expected Void, found ??? at 186:5
+Type error: Type mismatch: expected Void, found () at 8:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Type mismatch: expected Void, found ?? at 332:5
+Type error: Type mismatch: expected Void, found ?? at 367:5
+Type error: Type mismatch: expected Void, found () at 7:1
+Type error: Type mismatch: expected Never, found () at 13:1
+Type error: Type mismatch: expected T, found () at 17:1
+Type error: Type mismatch: expected T, found () at 24:1
+Type error: Type mismatch: expected Void, found () at 87:1
+Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found ?? at 96:5", location: Some(ErrorLocation { line: 96, column: 5, offset: 3813 }) }
