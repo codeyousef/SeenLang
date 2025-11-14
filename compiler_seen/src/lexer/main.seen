@@ -3,16 +3,16 @@
 
 // Token type representing all possible tokens in Seen
 class Token {
-    var tokenType: String
+    var type: TokenType
     var value: String
     var line: Int
     var column: Int
     var length: Int
     var fileId: Int
     
-    fun new(tokenType: String, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
+    fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
         let token = Token{}
-        token.tokenType = tokenType
+        token.type = tokenType
         token.value = value
         token.line = line
         token.column = column
@@ -21,8 +21,8 @@ class Token {
         return token
     }
     
-    fun getType() -> String {
-        return this.tokenType
+    fun getType() -> TokenType {
+        return this.type
     }
     
     fun getValue() -> String {
@@ -200,7 +200,7 @@ class SeenLexer {
             }
         }
         
-        let tokenType = if isFloat { "FloatLiteral" } else { "IntegerLiteral" }
+        let tokenType = if isFloat { TokenType.FloatLiteral } else { TokenType.IntegerLiteral }
         return Token.new(tokenType, value, startPos.line, startPos.column, value.length(), this.fileId)
     }
     
@@ -223,7 +223,7 @@ class SeenLexer {
             this.advance() // skip closing quote
         }
         
-        let tokenType = if hasInterpolation { "InterpolatedString" } else { "StringLiteral" }
+        let tokenType = if hasInterpolation { TokenType.InterpolatedStringStart } else { TokenType.StringLiteral }
         return Token.new(tokenType, value, startPos.line, startPos.column, value.length() + 2, this.fileId)
     }
     
@@ -237,11 +237,12 @@ class SeenLexer {
         }
         
         let tokenType = if this.keywordManager.isKeyword(value) {
-            this.keywordManager.getKeywordType(value)
+            // Fallback to Identifier if not mapped
+            this.keywordManager.getKeywordType(value) ?? TokenType.Identifier
         } else if this.isUpperCase(value.charAt(0)) {
-            "PublicIdentifier"
+            TokenType.Identifier // treat capitalized identifiers uniformly here
         } else {
-            "PrivateIdentifier"
+            TokenType.Identifier
         }
         
         return Token.new(tokenType, value, startPos.line, startPos.column, value.length(), this.fileId)
@@ -276,12 +277,12 @@ class SeenLexer {
             let startPos = this.pos
             
             if this.currentChar == "" {
-                return Token.new("EOF", "", startPos.line, startPos.column, 0, this.fileId)
+                return Token.new(TokenType.EOF, "", startPos.line, startPos.column, 0, this.fileId)
             }
             
             if this.currentChar == "\n" {
                 this.advance()
-                return Token.new("Newline", "\n", startPos.line, startPos.column, 1, this.fileId)
+                return Token.new(TokenType.Newline, "\n", startPos.line, startPos.column, 1, this.fileId)
             }
             
             if this.isDigit(this.currentChar) {
@@ -301,63 +302,63 @@ class SeenLexer {
             this.advance()
             
             match ch {
-                "(" -> return Token.new("LeftParen", "(", startPos.line, startPos.column, 1, this.fileId)
-                ")" -> return Token.new("RightParen", ")", startPos.line, startPos.column, 1, this.fileId)
-                "{" -> return Token.new("LeftBrace", "{", startPos.line, startPos.column, 1, this.fileId)
-                "}" -> return Token.new("RightBrace", "}", startPos.line, startPos.column, 1, this.fileId)
-                "[" -> return Token.new("LeftBracket", "[", startPos.line, startPos.column, 1, this.fileId)
-                "]" -> return Token.new("RightBracket", "]", startPos.line, startPos.column, 1, this.fileId)
-                "," -> return Token.new("Comma", ",", startPos.line, startPos.column, 1, this.fileId)
-                ";" -> return Token.new("Semicolon", ";", startPos.line, startPos.column, 1, this.fileId)
-                ":" -> return Token.new("Colon", ":", startPos.line, startPos.column, 1, this.fileId)
-                "." -> return Token.new("Dot", ".", startPos.line, startPos.column, 1, this.fileId)
-                "+" -> return Token.new("Plus", "+", startPos.line, startPos.column, 1, this.fileId)
+                "(" -> return Token.new(TokenType.LeftParen, "(", startPos.line, startPos.column, 1, this.fileId)
+                )" -> return Token.new(TokenType.RightParen, ")", startPos.line, startPos.column, 1, this.fileId)
+                "{" -> return Token.new(TokenType.LeftBrace, "{", startPos.line, startPos.column, 1, this.fileId)
+                "}" -> return Token.new(TokenType.RightBrace, "}", startPos.line, startPos.column, 1, this.fileId)
+                "[" -> return Token.new(TokenType.LeftBracket, "[", startPos.line, startPos.column, 1, this.fileId)
+                "]" -> return Token.new(TokenType.RightBracket, "]", startPos.line, startPos.column, 1, this.fileId)
+                "," -> return Token.new(TokenType.Comma, ",", startPos.line, startPos.column, 1, this.fileId)
+                ";" -> return Token.new(TokenType.Semicolon, ";", startPos.line, startPos.column, 1, this.fileId)
+                ":" -> return Token.new(TokenType.Colon, ":", startPos.line, startPos.column, 1, this.fileId)
+                "." -> return Token.new(TokenType.Dot, ".", startPos.line, startPos.column, 1, this.fileId)
+                "+" -> return Token.new(TokenType.Plus, "+", startPos.line, startPos.column, 1, this.fileId)
                 "-" -> {
                     if this.currentChar == ">" {
                         this.advance()
-                        return Token.new("Arrow", "->", startPos.line, startPos.column, 2, this.fileId)
+                        return Token.new(TokenType.Arrow, "->", startPos.line, startPos.column, 2, this.fileId)
                     }
-                    return Token.new("Minus", "-", startPos.line, startPos.column, 1, this.fileId)
+                    return Token.new(TokenType.Minus, "-", startPos.line, startPos.column, 1, this.fileId)
                 }
-                "*" -> return Token.new("Multiply", "*", startPos.line, startPos.column, 1, this.fileId)
-                "/" -> return Token.new("Divide", "/", startPos.line, startPos.column, 1, this.fileId)
+                "*" -> return Token.new(TokenType.Multiply, "*", startPos.line, startPos.column, 1, this.fileId)
+                "/" -> return Token.new(TokenType.Divide, "/", startPos.line, startPos.column, 1, this.fileId)
                 "=" -> {
                     if this.currentChar == "=" {
                         this.advance()
-                        return Token.new("Equal", "==", startPos.line, startPos.column, 2, this.fileId)
+                        return Token.new(TokenType.EqualEqual, "==", startPos.line, startPos.column, 2, this.fileId)
                     }
-                    return Token.new("Assign", "=", startPos.line, startPos.column, 1, this.fileId)
+                    return Token.new(TokenType.Equal, "=", startPos.line, startPos.column, 1, this.fileId)
                 }
                 "!" -> {
                     if this.currentChar == "=" {
                         this.advance()
-                        return Token.new("NotEqual", "!=", startPos.line, startPos.column, 2, this.fileId)
+                        return Token.new(TokenType.NotEqual, "!=", startPos.line, startPos.column, 2, this.fileId)
                     }
-                    return Token.new("Bang", "!", startPos.line, startPos.column, 1, this.fileId)
+                    // '!' not used as logical not; treat as error char by skipping
                 }
                 "<" -> {
                     if this.currentChar == "=" {
                         this.advance()
-                        return Token.new("LessEqual", "<=", startPos.line, startPos.column, 2, this.fileId)
+                        return Token.new(TokenType.LessEqual, "<=", startPos.line, startPos.column, 2, this.fileId)
                     }
-                    return Token.new("Less", "<", startPos.line, startPos.column, 1, this.fileId)
+                    return Token.new(TokenType.Less, "<", startPos.line, startPos.column, 1, this.fileId)
                 }
                 ">" -> {
                     if this.currentChar == "=" {
                         this.advance()
-                        return Token.new("GreaterEqual", ">=", startPos.line, startPos.column, 2, this.fileId)
+                        return Token.new(TokenType.GreaterEqual, ">=", startPos.line, startPos.column, 2, this.fileId)
                     }
-                    return Token.new("Greater", ">", startPos.line, startPos.column, 1, this.fileId)
+                    return Token.new(TokenType.Greater, ">", startPos.line, startPos.column, 1, this.fileId)
                 }
                 "?" -> {
                     if this.currentChar == "." {
                         this.advance()
-                        return Token.new("SafeNavigation", "?.", startPos.line, startPos.column, 2, this.fileId)
+                        return Token.new(TokenType.SafeNavigation, "?.", startPos.line, startPos.column, 2, this.fileId)
                     } else if this.currentChar == ":" {
                         this.advance()
-                        return Token.new("Elvis", "?:", startPos.line, startPos.column, 2, this.fileId)
+                        return Token.new(TokenType.Elvis, "?:", startPos.line, startPos.column, 2, this.fileId)
                     }
-                    return Token.new("Question", "?", startPos.line, startPos.column, 1, this.fileId)
+                    return Token.new(TokenType.Question, "?", startPos.line, startPos.column, 1, this.fileId)
                 }
                 _ -> {
                     // Skip unknown characters
