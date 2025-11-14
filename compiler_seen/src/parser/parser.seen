@@ -1,7 +1,8 @@
 // Real Parser Implementation - Following TDD
 // Implements complete Seen language parsing with recursive descent
 
-import lexer.{Token, TokenType, SeenLexer}
+import lexer.interfaces.{Token, TokenType}
+import lexer.lexer.{SeenLexer}
 // import parser.interfaces.{AST, ParseError, Function, Type, Parameter, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, MatchStatement, Class, Interface, Enum, Import, Literal, BinaryExpression}
 
 class SeenParser {

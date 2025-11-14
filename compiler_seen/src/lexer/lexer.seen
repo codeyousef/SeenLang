@@ -1,7 +1,7 @@
 // Real Lexer Implementation - Following TDD
 // Implements ONLY what the tests require - no more, no less
 
-// import lexer.interfaces.{Token, TokenType, Position, LexerError, KeywordManager}
+import lexer.interfaces.{Token, TokenType, Position, LexerError, KeywordManager}
 
 class SeenLexer {
     let source: String
@@ -135,7 +135,7 @@ class SeenLexer {
         if position >= source.length() {
             return "\u{0000}"
         }
-        return source[position]
+        return source.charAt(position)
     }
     
     fun peekChar(offset: Int = 1) -> String {
@@ -143,12 +143,12 @@ class SeenLexer {
         if peekPos >= source.length() {
             return "\u{0000}"
         }
-        return source[peekPos]
+        return source.charAt(peekPos)
     }
     
     fun advance() -> Void {
         if position < source.length() {
-            if source[position] == '\n' {
+            if source.charAt(position) == '\n' {
                 line += 1
                 column = 1
             } else {
@@ -193,7 +193,7 @@ class SeenLexer {
         // Support for Unicode identifier characters
         // This would need proper Unicode category detection
         // For now, simple check for common non-ASCII letters
-        let code = char.codePoint()
+        let code = char.charCodeAt(0)
         return (code >= 0x00C0 and code <= 0x00D6) or   // Latin-1 Supplement
                (code >= 0x00D8 and code <= 0x00F6) or   // Latin-1 Supplement
                (code >= 0x00F8 and code <= 0x00FF) or   // Latin-1 Supplement

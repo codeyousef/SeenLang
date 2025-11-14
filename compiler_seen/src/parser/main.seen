@@ -4,7 +4,8 @@
 // Import Token class from lexer
 // Note: In a real implementation, this would be an import
 // For bootstrap, we assume Token is available
-import lexer.main.{Token}
+import lexer.interfaces.{Token, TokenType}
+import lexer.lexer.{SeenLexer}
 
 // AST Node types representing all language constructs
 

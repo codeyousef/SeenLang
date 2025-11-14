@@ -312,7 +312,7 @@ class CFG {
 
 class Block {}
 
-class CCodeGenerator {
+class LegacyCCodeGenerator { // renamed to avoid conflict with codegen/main.seen
     fun new() -> CCodeGenerator {
         return CCodeGenerator{}
     }
