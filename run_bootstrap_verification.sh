@@ -63,9 +63,10 @@ if [ ! -f "compiler_seen/src/main_compiler.seen" ]; then
     exit 1
 fi
 
-if [ ! -f "target/release/seen_cli" ]; then
-    log "${RED}❌ FATAL: Rust bootstrap compiler not built!${NC}"
-    log "Please run: cargo build --release"
+# Ensure Rust bootstrap compiler is buildable
+log "${YELLOW}⏳ Ensuring Rust bootstrap compiler can build...${NC}"
+if ! cargo build -p seen_cli --release --quiet 2>&1 | tee -a "$LOG_FILE"; then
+    log "${RED}❌ FATAL: Failed to build Rust bootstrap compiler (seen_cli).${NC}"
     exit 1
 fi
 
@@ -89,9 +90,9 @@ log_header "🎯 STAGE 1: Rust Compiler → Seen Compiler"
 log "${BLUE}Using Rust bootstrap compiler to compile Seen compiler${NC}"
 
 STAGE1_START=$(date +%s)
-log "Command: cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c"
+log "Command: SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c"
 
-if cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
+if SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
     if [ -f "stage1_compiler.c" ]; then
         log "   ✅ Generated C code: stage1_compiler.c"
         

@@ -14,11 +14,11 @@ This replaces previous MVP notes. It merges **Pre‑Bootstrap (PB)**, **Pre‑Se
 - Tooling/CLI (`build/test/bench/fmt`, target triples, `--deterministic`) ✅
 - Self‑hosting (Stage0→Stage1→Stage2 deterministic) ✅
 - **🎉 Import resolution & module system** ✅ **[NEW: Nov 14, 2025]**
-- **🎉 Self-hosted compiler: 0 type errors** ✅ **[NEW: Nov 14, 2025]**
+- **⏳ Self-hosted compiler: remaining type errors tracked (not yet 0)**
 
-> **MAJOR MILESTONE (Nov 14, 2025):** The self-hosted compiler (`compiler_seen/`) now compiles **without any type errors
-**. Import resolution is fully functional, allowing cross-module symbol resolution. The Seen language is **ready for
-Rust removal** after LLVM codegen is ported to Seen. See `RUST_REMOVAL_VERIFICATION_REPORT.md` for full details.
+> **STATUS (Nov 14, 2025):** Import resolution is functional, but the self-hosted compiler still has type errors under
+> SEEN_ENABLE_MANIFEST_MODULES=1. Not yet ready for Rust removal; see the MVP Status Update and self_host_errors.log for
+> details.
 
 > **Delta from earlier plans:** This MVP now **includes multi‑platform bring‑up** for minimal runnable samples on all targets.
 
