@@ -576,7 +576,20 @@ Linux/Web/Android and are exercised via new CLI interpreter tests (`seen_cli/tes
 
 ---
 
-**End of Clarified MVP Plan**
+**End of Clarified MVP Plan
+
+## Rust Removal Gate (MVP Closure)
+
+- Status: In progress; do not delete Rust until all below pass on CI.
+- P0.1 Build pipeline (Seen-only): Replace any temp/shim shell-outs with compiler_seen pipeline and produce working
+  Stage-1 binary on Linux. Acceptance: Stage-2 == Stage-3 hashes; bootstrap script green.
+- P0.2 Codegen closure: Choose one canonical backend (LLVM preferred) and ship it end-to-end for
+  functions/structs/enums/arrays/strings/linking. Acceptance: hello_world builds+runs; compiler_seen builds itself.
+- P0.3 Core stdlib closure: Ship and wire str/vec/map/io/env/process used by compiler_seen. Acceptance: compiler_seen
+  tests pass using stdlib only (no bespoke helpers).
+- Execution order: (1) P0.1 error formatting + phase logging, (2) P0.2 backend closure, (3) P0.3 stdlib, (4) 3-stage
+  bootstrap determinism.
+  **
 
 ## 5) Phase PROD — Production Self-Hosting (Active)
 
