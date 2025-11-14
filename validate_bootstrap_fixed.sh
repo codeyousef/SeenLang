@@ -29,20 +29,20 @@ fun main() -> Int {
 EOF
 
 echo "   Compiling simple program..."
-if cargo run -p seen_cli --release -- build test_basic.seen -o test_basic_out > /dev/null 2>&1; then
+if cargo run -p seen_cli --release --features llvm -- build test_basic.seen --backend llvm --output test_basic_exe > /dev/null 2>&1; then
     echo "   ✅ Simple program compiled"
     
     # Test execution
-    mv test_basic_out test_basic.c
-    if gcc -o test_basic test_basic.c > /dev/null 2>&1; then
-        result=$(./test_basic; echo $?)
+    true # LLVM backend emits binary directly
+    if ./test_basic_exe > /dev/null 2>&1; then
+        result=$?
         if [ "$result" = "42" ]; then
             echo "   ✅ Program executes correctly (returned 42)"
         else
             echo "   ❌ Program returned $result instead of 42"
         fi
     else
-        echo "   ❌ Generated C code failed to compile"
+        echo "   ❌ Generated binary failed to run"
     fi
 else
     echo "   ❌ Simple program compilation failed"
@@ -72,19 +72,19 @@ fun main() -> Int {
 EOF
 
 echo "   Compiling complex program..."
-if cargo run -p seen_cli --release -- build test_complex.seen -o test_complex_out > /dev/null 2>&1; then
+if cargo run -p seen_cli --release --features llvm -- build test_complex.seen --backend llvm --output test_complex_exe > /dev/null 2>&1; then
     echo "   ✅ Complex program compiled"
     
-    mv test_complex_out test_complex.c
-    if gcc -o test_complex test_complex.c > /dev/null 2>&1; then
-        result=$(./test_complex; echo $?)
+    true # LLVM backend emits binary directly
+    if ./test_complex_exe > /dev/null 2>&1; then
+        result=$?
         if [ "$result" = "1" ]; then
             echo "   ✅ Complex program executes correctly"
         else
             echo "   ❌ Complex program returned $result instead of 1"
         fi
     else
-        echo "   ❌ Complex program C code failed to compile"
+        echo "   ❌ Complex program binary failed to run"
     fi
 else
     echo "   ❌ Complex program compilation failed"
@@ -96,11 +96,11 @@ echo ""
 echo "🎯 Self-Hosting Demonstration"
 echo "   Compiling minimal Seen compiler with Rust compiler..."
 
-if cargo run -p seen_cli --release -- build minimal_compiler.seen -o minimal_stage1 > /dev/null 2>&1; then
+if cargo run -p seen_cli --release --features llvm -- build minimal_compiler.seen --backend llvm --output minimal_stage1_exe > /dev/null 2>&1; then
     echo "   ✅ Minimal Seen compiler compiled by Rust"
     
-    mv minimal_stage1 minimal_stage1.c
-    if gcc -o minimal_stage1_exe minimal_stage1.c > /dev/null 2>&1; then
+    true # LLVM backend emits binary directly
+    if [ -x minimal_stage1_exe ]; then
         echo "   ✅ Stage 1 compiler executable created"
         
         if ./minimal_stage1_exe > /dev/null 2>&1; then
@@ -109,7 +109,7 @@ if cargo run -p seen_cli --release -- build minimal_compiler.seen -o minimal_sta
             echo "   ❌ Stage 1 compiler failed to run"
         fi
     else
-        echo "   ❌ Stage 1 compiler C code failed to compile"
+        echo "   ❌ Stage 1 compiler binary missing"
     fi
 else
     echo "   ❌ Failed to compile minimal Seen compiler"
@@ -182,7 +182,7 @@ echo "This demonstrates that Seen can compile itself - the"
 echo "fundamental requirement for a self-hosting language."
 
 # Cleanup
-rm -f test_*.seen test_*.c test_basic test_complex
+rm -f test_*.seen test_basic_exe test_complex_exe
 rm -f minimal_stage1.c minimal_stage1_exe
 
 echo ""

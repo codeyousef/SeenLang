@@ -89,9 +89,9 @@ log_header "🎯 STAGE 1: Rust Compiler → Seen Compiler"
 log "${BLUE}Using Rust bootstrap compiler to compile Seen compiler${NC}"
 
 STAGE1_START=$(date +%s)
-log "Command: cargo run -p seen_cli --release -- build compiler_seen/src/main_compiler.seen -o stage1_compiler.c"
+log "Command: cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c"
 
-if cargo run -p seen_cli --release -- build compiler_seen/src/main_compiler.seen -o stage1_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
+if cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
     if [ -f "stage1_compiler.c" ]; then
         log "   ✅ Generated C code: stage1_compiler.c"
         
@@ -125,9 +125,9 @@ log_header "🎯 STAGE 2: Stage 1 Compiler → Seen Compiler (Self-Compilation #
 log "${BLUE}Using Stage 1 compiler to compile Seen compiler${NC}"
 
 STAGE2_START=$(date +%s)
-log "Command: ./stage1_compiler build compiler_seen/src/main_compiler.seen -o stage2_compiler.c"
+log "Command: ./stage1_compiler build compiler_seen/src/main.seen -o stage2_compiler.c"
 
-if "./stage1_compiler" build compiler_seen/src/main_compiler.seen -o stage2_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
+if "./stage1_compiler" build compiler_seen/src/main.seen -o stage2_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
     if [ -f "stage2_compiler.c" ]; then
         log "   ✅ Generated C code: stage2_compiler.c"
         
@@ -161,9 +161,9 @@ log_header "🎯 STAGE 3: Stage 2 Compiler → Seen Compiler (Self-Compilation #
 log "${BLUE}Using Stage 2 compiler to compile Seen compiler${NC}"
 
 STAGE3_START=$(date +%s)
-log "Command: ./stage2_compiler build compiler_seen/src/main_compiler.seen -o stage3_compiler.c"
+log "Command: ./stage2_compiler build compiler_seen/src/main.seen -o stage3_compiler.c"
 
-if "./stage2_compiler" build compiler_seen/src/main_compiler.seen -o stage3_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
+if "./stage2_compiler" build compiler_seen/src/main.seen -o stage3_compiler.c 2>&1 | tee -a "$LOG_FILE"; then
     if [ -f "stage3_compiler.c" ]; then
         log "   ✅ Generated C code: stage3_compiler.c"
         

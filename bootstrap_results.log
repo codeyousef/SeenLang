@@ -4594,3 +4594,43 @@ Error: Failed to parse source
 Caused by:
     Unexpected token: found EOF, expected end of expression
 [0;31m❌ STAGE 1 FAILED: No C code generated[0m
+Fri 14 Nov 14:23:52 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:30:48 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:43:45 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:45:49 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:46:47 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:47:03 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:49:06 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:49:42 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:50:07 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release
+Fri 14 Nov 14:50:24 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[0;31m❌ FATAL: Rust bootstrap compiler not built![0m
+Please run: cargo build --release

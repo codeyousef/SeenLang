@@ -1,5 +1,4 @@
-// Code Generation Module Interfaces - To Be Implemented Following TDD
-// These are the contracts that the code generation implementation must fulfill
+// Code Generation Module Interfaces - Production implementation contracts
 
 import ir.{IRModule, IRFunction, IRValue, IRType}
 
@@ -285,7 +284,7 @@ class CodeGenerator {
     var outputFormat: OutputFormat
     
     fun new() -> CodeGenerator {
-        // Note: This interface stub is replaced by the actual implementation in generator.seen
+        // Implemented concretely in generator.seen
         return CodeGenerator{}
     }
     

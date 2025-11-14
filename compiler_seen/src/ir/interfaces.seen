@@ -1,5 +1,4 @@
-// IR Generation Module Interfaces - To Be Implemented Following TDD
-// These are the contracts that the IR generation implementation must fulfill
+// IR Generation Module Interfaces - Production implementation contracts
 
 import parser.{AST, Function, Class, Expression, Statement}
 import typechecker.{TypeInferenceResult, Type, TypeError}
@@ -547,7 +546,7 @@ class IRGenerator {
     let variables: Map<String, IRValue>
     
     fun new() -> IRGenerator {
-        // Note: This interface stub is replaced by the actual implementation in generator.seen
+        // Implemented concretely in generator.seen
         return IRGenerator{}
     }
     

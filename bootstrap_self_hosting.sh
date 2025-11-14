@@ -43,37 +43,7 @@ else
     echo "⚠️  Self-hosting compiler needs syntax fixes"
 fi
 
-# Step 5: Create simplified version for bootstrap
-echo "🔄 Step 5: Creating simplified bootstrap version..."
-
-# Create a simplified version of the compiler for initial bootstrap
-mkdir -p bootstrap_compiler
-cat > bootstrap_compiler/main.seen << 'EOF'
-// Simplified Bootstrap Compiler
-// This is a minimal version to prove self-hosting concept
-
-fun main() -> Int {
-    println("Seen Bootstrap Compiler v1.0");
-    println("Successfully self-hosted!");
-    return 0;
-}
-EOF
-
-echo "Compiling simplified bootstrap compiler..."
-if ./target-wsl/release/seen_cli compile bootstrap_compiler/main.seen 2>/dev/null; then
-    echo "✅ Simplified bootstrap compiler compiled!"
-    
-    if [ -f "main" ] && [ -x "main" ]; then
-        echo "🎉 Running self-compiled program:"
-        ./main
-        echo "✅ Self-hosting successful!"
-    else
-        echo "⚠️  Executable not found"
-    fi
-else
-    echo "⚠️  Bootstrap compilation failed"
-fi
-
+# Step 5 removed: Always build the real self-hosted compiler; no simplified bootstrap.
 echo ""
 echo "📊 Bootstrap Summary:"
 echo "- Rust compiler: ✅ Built"

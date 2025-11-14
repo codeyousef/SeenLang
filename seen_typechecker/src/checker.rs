@@ -2100,21 +2100,64 @@ impl TypeChecker {
                 Type::Unknown
             }
         } else if let Expression::MemberAccess { object, member, .. } = callee {
-            // Method-style call like array.size() or string.length()
+            // Method-style call like obj.method(...)
             let recv_ty = self.check_expression(object);
-            // Validate no arguments for simple accessors
-            for arg in args {
-                let _ = self.check_expression(arg);
-            }
             let base = recv_ty.non_nullable().clone();
-            match (&base, member.as_str()) {
-                (Type::Array(_), "size") | (Type::Array(_), "length") => Type::Int,
-                (Type::String, "size") | (Type::String, "length") => Type::Int,
-                _ => {
-                    // Unknown method; treat as unknown return
-                    Type::Unknown
+
+            // Fast-path: common accessors
+            if matches!((&base, member.as_str()),
+                (Type::Array(_), "size") | (Type::Array(_), "length") |
+                (Type::String, "size") | (Type::String, "length")
+            ) {
+                // Validate no-arg accessors but still type-check the provided args for side diagnostics
+                for arg in args { let _ = self.check_expression(arg); }
+                return Type::Int;
+            }
+
+            // Resolve methods declared as "Type::method" in the environment/prelude
+            if let Type::Struct { name: struct_name, .. } = &base {
+                let method_name = format!("{}::{}", struct_name, member);
+                if let Some(signature) = self.env.get_function(&method_name).cloned()
+                    .or_else(|| self.prelude.get(&method_name).cloned())
+                {
+                    // Determine expected parameters: drop implicit receiver if present
+                    let expected_params = if let Some(first) = signature.parameters.first() {
+                        if let Type::Struct { name, .. } = &first.param_type {
+                            if name == struct_name { &signature.parameters[1..] } else { &signature.parameters[..] }
+                        } else {
+                            &signature.parameters[..]
+                        }
+                    } else { &signature.parameters[..] };
+
+                    // Check argument count allowing defaults (fewer args ok)
+                    if args.len() > expected_params.len() {
+                        self.result.add_error(TypeError::ArgumentCountMismatch {
+                            name: method_name.clone(),
+                            expected: expected_params.len(),
+                            actual: args.len(),
+                            position: pos,
+                        });
+                    }
+
+                    // Validate argument types against expected parameters (zip stops at shorter)
+                    for (arg_expr, param) in args.iter().zip(expected_params.iter()) {
+                        let arg_ty = self.check_expression(arg_expr);
+                        if !arg_ty.is_assignable_to(&param.param_type) {
+                            self.result.add_error(TypeError::TypeMismatch {
+                                expected: param.param_type.clone(),
+                                actual: arg_ty,
+                                position: pos,
+                            });
+                        }
+                    }
+
+                    return signature.return_type.clone().unwrap_or(Type::Unit);
                 }
             }
+
+            // Fallback: type-check args and return Unknown (unresolved method)
+            for arg in args { let _ = self.check_expression(arg); }
+            Type::Unknown
         } else {
             // For complex callee expressions, just type check them and assume unknown return
             self.check_expression(callee);

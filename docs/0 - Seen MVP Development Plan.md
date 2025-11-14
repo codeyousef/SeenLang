@@ -576,11 +576,23 @@ Linux/Web/Android and are exercised via new CLI interpreter tests (`seen_cli/tes
 
 ---
 
+## MVP Status Update (2025-11-14)
+
+- Current self-host status: Running SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli build compiler_seen/src/main.seen --backend
+  ir yields non-zero diagnostics. See self_host_errors.log for details.
+- Next actions to reach 0 errors (P0.0): T1 method resolution/inference fixes, T2 enum variant/member access parity, T3
+  super/throw/exit semantics in ctors, T4 operator typing (>=, <=, +) across types, T5 default params handling, T6
+  prelude builtin export audit.
+- Validation gates: cargo test --workspace; SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh;
+  ./verify_rust_needed.sh
+
 **End of Clarified MVP Plan
 
 ## Rust Removal Gate (MVP Closure)
 
-- Status: In progress; do not delete Rust until all below pass on CI.
+- Status: Self-host not yet at 0 errors (see below); do not delete Rust until all below pass on CI. Current count from
+  SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli build compiler_seen/src/main.seen --backend ir: see self_host_errors.log and
+  verify_rust_needed.sh.
 - P0.0 Error floor: 0 self-host type errors in compiler_seen. Acceptance:
   `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` completes with Stage-2 == Stage-3 and no diagnostics;
   `./verify_rust_needed.sh` reports "Rust not needed".
