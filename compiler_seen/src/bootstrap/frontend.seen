@@ -36,8 +36,9 @@ class FrontendResult {
         }
     }
 
-    fun addDiagnostic(diag: FrontendDiagnostic) -> Void {
+    fun addDiagnostic(diag: FrontendDiagnostic) -> Unit {
         diagnostics.push(diag)
+        return
     }
 
     fun hasErrors() -> Bool {

@@ -584,11 +584,16 @@ impl TypeChecker {
                         param_type: pty,
                     });
                 }
-                // Return type (default Unit)
-                let ret = return_type
+                // Return type (default Unit). Accept either explicit Unit or legacy Void.
+                let ret_ty = return_type
                     .as_ref()
                     .map(|t| self.resolve_ast_type(t, Position::start()))
                     .or(Some(Type::Unit));
+                // Normalize legacy Void to Unit
+                let ret = match ret_ty {
+                    Some(Type::Struct { name, .. }) if name == "Void" => Some(Type::Unit),
+                    other => other,
+                };
                 let sig = FunctionSignature {
                     name: name.clone(),
                     parameters: checker_params,

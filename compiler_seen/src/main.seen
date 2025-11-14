@@ -7,11 +7,13 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
 
-fun println(text: String) -> Void {
+fun println(text: String) -> Unit {
     let _ignored = __WriteFile("/dev/stdout", text + "\n") as Bool
+    return
 }
-fun print(text: String) -> Void {
+fun print(text: String) -> Unit {
     let _ignored = __WriteFile("/dev/stdout", text) as Bool
+    return
 }
 
 
@@ -112,6 +114,7 @@ fun printUsage() -> Unit {
     println("  seen run hello.seen           Run program immediately")
     println("  seen check src/*.seen         Type check all files")
     println("  seen init my_project          Create new project")
+    return
 }
 
 fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
