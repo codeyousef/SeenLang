@@ -5,6 +5,7 @@ import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
 // import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
+import process.process.{runCommand as runShellCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -117,7 +118,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
     if not WriteFile(cFilePath, cCode) { return false }
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath
-    let compileResult = ExecuteCommand(compileCommand)
+    let compileResult = runShellCommand(compileCommand)
     return compileResult.success
 }
 
@@ -361,11 +362,3 @@ fun DeleteFile(path: String) -> Bool { return __DeleteFile(path) }
 
 fun ExecuteProgram(path: String) -> Int { return __ExecuteProgram(path) }
 
-// Minimal command execution wrapper with output capture
-struct CommandResult { success: Bool, output: String }
-
-fun ExecuteCommand(command: String) -> CommandResult {
-    let exitCode = __ExecuteCommand(command)
-    let output = __CommandOutput(command)
-    return CommandResult{ success: exitCode == 0, output: output }
-}

@@ -109,7 +109,7 @@ class RustRemover {
         builder.append(" && find ")
         builder.append(shellQuote(root))
         builder.append(" -type f -name '*.rs'")
-        let result: CommandResult = runCommandWithOutput(builder.toString())
+        let result: CommandResult = runCommand(builder.toString())
         if not commandWasSuccessful(result) {
             return Array<String>()
         }
@@ -186,7 +186,7 @@ fun parentDirectory(path: String) -> String {
             let builder = StringBuilder.new()
             builder.append("rmdir -p --ignore-fail-on-non-empty ")
             builder.append(shellQuote(dir))
-            let result: CommandResult = runCommandWithOutput(builder.toString())
+            let result: CommandResult = runCommand(builder.toString())
             if not commandWasSuccessful(result) {
                 println("rust_remover: failed to remove directory {dir}")
             }

@@ -1,7 +1,17 @@
+import process.process.{runCommand, CommandResult}
+import str.string.{trim}
+
 fun GetCurrentTimeNanos() -> Int {
-    return 0
+    let res: CommandResult = runCommand("date +%s%N 2>/dev/null || date +%s000000000")
+    if res.success {
+        let txt = trim(res.output)
+        if txt.length() > 0 { return txt.toInt() }
+    }
+    // Fallback to ms precision if needed
+    return (__GetTimestamp().toInt()) * 1000000000
 }
 
 fun AllocateMemory(size: Int) -> Int {
+    // MVP: allocator is handled by host runtime; keep signature for FFI completeness
     return size
 }

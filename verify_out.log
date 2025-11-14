@@ -1,0 +1,45 @@
+======================================
+Seen Bootstrap Verification Process
+======================================
+
+Cleaning up previous bootstrap attempts...
+[1;33mStage 0: Building Rust bootstrap compiler[0m
+warning: unused import: `Write`
+ --> tools/abi_guard/src/lib.rs:4:27
+  |
+4 |     io::{BufReader, Read, Write},
+  |                           ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Method`
+ --> seen_oop/src/interface_manager.rs:7:41
+  |
+7 |     Interface, InterfaceImplementation, Method, MethodError, MethodSignature, Parameter,
+  |                                         ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::env::args`
+  --> seen_cli/src/main.rs:27:5
+   |
+27 | use std::env::args;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[0;32m✓ Rust bootstrap compiler built successfully[0m
+
+[1;33mStage 1: Compiling Seen compiler with Rust bootstrap[0m
+scripts/verify_bootstrap.sh: line 42: ./target/release/seen: No such file or directory

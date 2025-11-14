@@ -410,34 +410,22 @@ class LLVMBackend {
     // Helper functions
     
     fun executeCommand(command: String) -> Int {
-        // Execute shell command and return exit code
         println("     🔧 " + command)
-        
-        // In real implementation, would use system() call
-        // For now, simulate successful execution
-        return 0
+        return __ExecuteCommand(command)
     }
     
     fun writeFile(path: String, content: String) -> Bool {
-        // Write content to file
-        println("     📁 Writing: " + path)
-        
-        // In real implementation, would write to filesystem
-        return true
+        return __WriteFile(path, content)
     }
     
     fun readFile(path: String) -> String? {
-        // Read file content
-        println("     📖 Reading: " + path)
-        
-        // In real implementation, would read from filesystem
-        return "File content"
+        return __ReadFile(path)
     }
     
     fun getCurrentTimeNanos() -> Int {
-        // Get current time in nanoseconds
-        // In real implementation, would use clock_gettime
-        return 1000000000; // Placeholder
+        // Prefer high-resolution when available
+        let ts = __GetTimestamp()
+        return (ts.toInt()) * 1000000000
     }
 }
 

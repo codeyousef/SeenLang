@@ -1,4 +1,3 @@
-Compiling compiler_seen/src/main.seen with optimization level 0 (LLVM)
 Type error: Type mismatch: expected CommandResult, found Int at 112:9
 Type error: Type mismatch: expected Int, found CommandResult at 113:36
 Type error: Type mismatch: expected CommandResult, found Int at 146:9
@@ -61,4 +60,5 @@ Type error: Type mismatch: expected Void, found () at 7:1
 Type error: Type mismatch: expected Never, found () at 13:1
 Type error: Type mismatch: expected T, found () at 17:1
 Type error: Type mismatch: expected T, found () at 24:1
+Type error: Undefined function 'runShellCommand' at 121:40
 Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected CommandResult, found Int at 112:9", location: Some(ErrorLocation { line: 112, column: 9, offset: 3193 }) }
