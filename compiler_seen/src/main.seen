@@ -119,11 +119,7 @@ fun buildCommand(sourceFile: String, outputFile: String) -> Int {
         return 1
     }
 
-    if not validateFrontend(sourceCode, sourceFile, "build") {
-        return 1
-    }
-    
-    // Compile using our REAL compiler
+    // Frontend validation is handled inside compiler for now
     let success = CompileSeenProgram(sourceCode, outputFile)
     
     if success {

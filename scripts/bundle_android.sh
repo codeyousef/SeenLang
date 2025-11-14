@@ -93,13 +93,8 @@ fi
 if compgen -G "$BASE_DIR/dex/*.dex" > /dev/null; then
   :
 else
-  STUB_DEX="$REPO_ROOT/seen_cli/src/android_stub/classes.dex"
-  if [[ -f "$STUB_DEX" ]]; then
-    cp "$STUB_DEX" "$BASE_DIR/dex/classes.dex"
-  else
-    echo "warning: stub classes.dex not found at $STUB_DEX" >&2
-  fi
-  echo "info: inserted stub classes.dex"
+  echo "error: no dex files found under $BASE_DIR/dex. Provide classes.dex before bundling." >&2
+  exit 1
 fi
 
 if [[ -f "$PROJECT_DIR/BundleConfig.pb" ]]; then

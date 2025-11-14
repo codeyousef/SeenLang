@@ -13,6 +13,73 @@ warning: method `predeclare_enum_type` is never used
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `seen_typechecker` (lib) generated 1 warning
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.69s
-     Running `/home/yousef/.cargo/target-shared/debug/seen_cli build compiler_seen/src/main.seen --backend ir -o a.ir`
-Error: Categorised { kind: Parser, message: "Invalid expression at Position { line: 241, column: 55, offset: 7411 } (while parsing compiler_seen/src/lexer/main.seen)", location: Some(ErrorLocation { line: 241, column: 55, offset: 7411 }) }
+    Finished `release` profile [optimized] target(s) in 31.18s
+     Running `/home/yousef/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen --backend ir -O1`
+Compiling compiler_seen/src/main.seen with optimization level 1
+Warning: could not resolve import module program_synthesis
+Type error: Type mismatch: expected Void, found ?? at 96:5
+Type error: Variable 'errors' is already defined at 103:9
+Type error: Type mismatch: expected Void, found ?? at 296:5
+Type error: Type mismatch: expected Void, found ?? at 300:5
+Type error: Type mismatch: expected Void, found ?? at 304:5
+Type error: Type mismatch: expected Void, found ?? at 308:5
+Type error: Type mismatch: expected Void, found ?? at 312:5
+Type error: Type mismatch: expected Void, found ?? at 349:5
+Type error: Unknown field 'executionTime' in struct 'BenchmarkResult' at 276:37
+Type error: Unknown field 'opsPerSecond' in struct 'BenchmarkResult' at 276:37
+Type error: Unknown field 'success' in struct 'BenchmarkResult' at 276:37
+Type error: Type mismatch: expected Void, found Void? at 421:5
+Type error: Type mismatch: expected Void, found ?? at 117:5
+Type error: Type mismatch: expected Void, found ?? at 213:5
+Type error: Type mismatch: expected Void, found ?? at 564:5
+Type error: Type mismatch: expected Void, found Void? at 410:5
+Type error: Type mismatch: expected Void, found ?? at 568:5
+Type error: Type mismatch: expected Void, found ?? at 572:5
+Type error: Type mismatch: expected Void, found ?? at 266:5
+Type error: Type mismatch: expected Void, found ?? at 149:5
+Type error: Type mismatch: expected Void, found ?? at 76:5
+Type error: Type mismatch: expected Void, found () at 96:5
+Type error: Type mismatch: expected Void, found () at 106:5
+Type error: Type mismatch: expected Void, found () at 110:5
+Type error: Type mismatch: expected Void, found () at 114:5
+Type error: Type mismatch: expected Void, found () at 118:5
+Type error: Type mismatch: expected Void, found () at 122:5
+Type error: Type mismatch: expected Void, found () at 18:5
+Type error: Type mismatch: expected Void, found () at 22:5
+Type error: Type mismatch: expected Void, found () at 16:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Unknown type 'Formula' at 45:30
+Type error: Type mismatch: expected TokenType, found String at 507:83
+Type error: Invalid operation '==' for types TokenType and String at 582:44
+Type error: Type mismatch: expected Type, found ?? at 588:9
+Type error: Type mismatch: expected Expression, found ?? at 621:9
+Type error: Invalid operation '==' for types TokenType and String at 869:56
+Type error: Type mismatch: expected Type, found ?? at 939:9
+Type error: Type mismatch: expected Expression, found ?? at 957:9
+Type error: Invalid operation '==' for types TokenType and String at 1045:44
+Type error: Type mismatch: expected Array<Parameter>, found Type at 83:32
+Type error: Type mismatch: expected Array<Type>, found Bool at 152:28
+Type error: Type mismatch: expected Expression, found ?? at 222:9
+Type error: Type mismatch: expected Void, found ?? at 559:5
+Type error: Type mismatch: expected Void, found Token? at 644:5
+Type error: Unknown field 'line' in struct 'Expression' at 662:25
+Type error: Unknown field 'column' in struct 'Expression' at 662:42
+Type error: Unknown field 'line' in struct 'Expression' at 672:22
+Type error: Unknown field 'column' in struct 'Expression' at 672:36
+Type error: Type mismatch: expected Void, found ??? at 187:5
+Type error: Type mismatch: expected Void, found () at 8:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Invalid operation '>=' for types Bool and Bool at 31:46
+Type error: Type mismatch: expected Void, found ?? at 329:5
+Type error: Type mismatch: expected Void, found ?? at 364:5
+Type error: Type mismatch: expected Void, found () at 7:1
+Type error: Type mismatch: expected Never, found () at 13:1
+Type error: Type mismatch: expected T, found () at 17:1
+Type error: Type mismatch: expected T, found () at 24:1
+Type error: Type mismatch: expected Array<RealToken>, found Array<String> at 82:28
+Type error: Missing field 'current' for struct 'RealParser' at 82:28
+Type error: Missing field 'errors' for struct 'RealTypeChecker' at 96:38
+Type error: Missing field 'symbols' for struct 'RealTypeChecker' at 96:38
+Type error: Unknown field 'isValid' in struct 'TypeResult' at 99:18
+Type error: Undefined function 'TestPanicException' at 202:29
+Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found ?? at 96:5", location: Some(ErrorLocation { line: 96, column: 5, offset: 3813 }) }

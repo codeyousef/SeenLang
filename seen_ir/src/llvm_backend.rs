@@ -480,7 +480,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.declare_main_wrapper();
         }
 
-        self.inject_runtime_stubs(self.use_channel_runtime_stubs)?;
+        // Do not inject any runtime stubs in production builds; rely on real runtime symbols.
+        // If a symbol is genuinely missing, the linker should fail to reveal the gap.
         Ok(())
     }
 

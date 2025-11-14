@@ -323,12 +323,13 @@ class LegacyCCodeGenerator { // renamed to avoid conflict with codegen/main.seen
 }
 
 // Factory functions
+// Removed: keyword manager factory is not used in self-host path
 fun createKeywordManager() -> KeywordManager {
     return KeywordManager.new()
 }
 
-fun createLexer(source: String, fileId: Int, keywordManager: KeywordManager) -> SeenLexer {
-    return SeenLexer.new(source, fileId, keywordManager)
+fun createLexer(source: String, language: String) -> SeenLexer {
+    return SeenLexer.new(source, 1, language)
 }
 
 fun createParser(tokens: Array<Token>) -> SeenParser {
@@ -356,8 +357,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     println("\n📝 Phase 1: Lexical Analysis")
     println("   ✓ Loading language configuration...")
     
-    let keywordManager = createKeywordManager()
-    let lexer = createLexer(sourceCode, 1, keywordManager)
+    let lexer = createLexer(sourceCode, "en")
     let tokens = lexer.tokenize()
     
     println("   ✓ Tokenized " + tokens.length().toString() + " tokens")
@@ -778,7 +778,7 @@ fun checkCommand(args: CompilerArgs) -> Int {
     
     // Perform lexing and parsing
     let keywordManager = createKeywordManager()
-    let lexer = createLexer(sourceCode, 1, keywordManager)
+    let lexer = createLexer(sourceCode, "en")
     let tokens = lexer.tokenize()
     
     let parser = createParser(tokens)

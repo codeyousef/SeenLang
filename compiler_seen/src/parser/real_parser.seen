@@ -6,7 +6,7 @@
 import parser.ast.{ProgramNode, ItemNode, FunctionNode, ParamNode, TypeNode, BlockNode, ImportSymbolNode, ClassNode}
 import lexer.interfaces.{TokenType}
 // Use the canonical Token from lexer.interfaces for type consistency
-import lexer.interfaces.{Token as RealToken}
+import lexer.interfaces.{Token as RealToken}  // uses tokenType field
 
 class RealParser {
     var tokens: Array<RealToken>

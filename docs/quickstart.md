@@ -102,8 +102,9 @@ Note: The legacy C backend is removed. Use IR (text) or LLVM (native) backends.
   `examples/android/hello_ndk`
     - Build shared lib:
       `seen build --backend llvm --target aarch64-linux-android --output libhello_android.so examples/android/hello_ndk/main.seen`
-  - Produce a bundle-ready `.aab` directly from the CLI (adds assets/res/dex automatically, inserts a stub `classes.dex`
-    if none are supplied):
+  - Produce a bundle-ready `.aab` directly from the CLI (adds assets/res/dex automatically; requires a valid
+    `classes.dex`
+    under `dex/`):
     `seen build --backend llvm --target aarch64-linux-android --bundle examples/android/hello_ndk/main.seen --output hello_ndk.aab`
       - Provide `SEEN_ANDROID_KEYSTORE`, `SEEN_ANDROID_KEY_ALIAS`, `SEEN_ANDROID_KEYSTORE_PASS`, and optionally
         `SEEN_ANDROID_KEY_PASS`/`SEEN_ANDROID_TIMESTAMP_URL` to sign the bundle with `jarsigner` automatically.

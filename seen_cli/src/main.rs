@@ -24,7 +24,7 @@ use seen_shaders::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-
+use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -2937,18 +2937,11 @@ fn bundle_android_artifacts(
             .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
     }
 
-    let mut inserted_stub_dex = false;
     if dex_stats.dex_files == 0 {
-        writer
-            .start_file(
-                "base/dex/classes.dex",
-                FileOptions::default().compression_method(CompressionMethod::Stored),
-            )
-            .map_err(|err| SeenError::new(SeenErrorKind::Tooling, format!("{:?}", err)))?;
-        writer
-            .write_all(STUB_CLASSES_DEX)
-            .map_err(|err| SeenError::new(SeenErrorKind::Io, format!("{:?}", err)))?;
-        inserted_stub_dex = true;
+        return Err(SeenError::new(
+            SeenErrorKind::Tooling,
+            "No dex files found under dex/. Provide classes.dex before bundling.",
+        ));
     }
 
     writer
@@ -2957,14 +2950,7 @@ fn bundle_android_artifacts(
 
     maybe_sign_android_bundle(bundle_path)?;
 
-    if inserted_stub_dex {
-        println!(
-            "Generated Android bundle: {} (note: inserted stub classes.dex; add dex/ to override)",
-            bundle_path.display()
-        );
-    } else {
-        println!("Generated Android bundle: {}", bundle_path.display());
-    }
+    println!("Generated Android bundle: {}", bundle_path.display());
 
     if assets_stats.files > 0 {
         println!(
@@ -5800,7 +5786,7 @@ mod tests {
         use zip::ZipArchive;
 
         #[test]
-        fn bundle_inserts_stub_dex_when_missing() {
+        fn bundle_requires_dex_when_missing() {
             let temp = tempdir().expect("temp dir");
             let project_dir = temp.path();
 
@@ -5808,39 +5794,13 @@ mod tests {
             fs::write(&shared_lib, b"fake so").expect("write shared lib");
             let bundle_path = project_dir.join("app.aab");
 
-            bundle_android_artifacts(
+            let res = bundle_android_artifacts(
                 &shared_lib,
                 &bundle_path,
                 project_dir,
                 Some("aarch64-linux-android"),
-            )
-            .expect("bundle");
-
-            let file = File::open(&bundle_path).expect("open bundle");
-            let mut archive = ZipArchive::new(file).expect("zip archive");
-
-            let mut manifest = String::new();
-            archive
-                .by_name("base/manifest/AndroidManifest.xml")
-                .expect("manifest entry")
-                .read_to_string(&mut manifest)
-                .expect("read manifest");
-            assert!(
-                manifest.contains("SeenApp"),
-                "expected default manifest, got {}",
-                manifest
             );
-
-            let mut dex_bytes = Vec::new();
-            archive
-                .by_name("base/dex/classes.dex")
-                .expect("dex entry")
-                .read_to_end(&mut dex_bytes)
-                .expect("read dex");
-            assert_eq!(
-                dex_bytes, STUB_CLASSES_DEX,
-                "stub dex should be inserted when project provides none"
-            );
+            assert!(res.is_err(), "expected error when no dex provided");
         }
 
         #[test]

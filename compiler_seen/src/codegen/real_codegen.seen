@@ -1,0 +1,4 @@
+// real_codegen shim that re-exports C/LLVM codegen entrypoints
+import codegen.generator.{CCodeGenerator, CodeGen, IRGenerator}
+class RealCodeGenerator {
+}

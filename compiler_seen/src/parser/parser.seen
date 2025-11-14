@@ -409,7 +409,7 @@ class SeenParser {
                 Literal.new(token.getValue(), token.getType(), token.getLine(), token.getColumn())
             }
             
-            TokenType.identifier -> {
+            TokenType.Identifier -> {
                 advance()
                 IdentifierExpression.new(token.getValue(), token.getLine(), token.getColumn())
             }
@@ -513,7 +513,7 @@ class SeenParser {
         let enumNode = Enum.new(name)
         
         while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
-            let variantToken = expect(TokenType.identifier)
+            let variantToken = expect(TokenType.Identifier)
             enumNode.variants.push(variantToken.getValue())
             
             if getCurrentToken().getType() == TokenType.Comma {
@@ -529,7 +529,7 @@ class SeenParser {
         expect(TokenType.KeywordImport)
         
         // Parse import path - simplified for TDD
-        let pathToken = expect(TokenType.identifier)
+        let pathToken = expect(TokenType.Identifier)
         let path = pathToken.getValue()
         
         let importNode = Import.new(path)
@@ -540,7 +540,7 @@ class SeenParser {
             expect(TokenType.LeftBrace)
             
             while getCurrentToken().getType() != TokenType.RightBrace and !isAtEnd() {
-                let itemToken = expect(TokenType.identifier)
+                let itemToken = expect(TokenType.Identifier)
                 importNode.items.push(itemToken.getValue())
                 
                 if getCurrentToken().getType() == TokenType.Comma {

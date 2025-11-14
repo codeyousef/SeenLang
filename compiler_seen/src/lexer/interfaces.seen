@@ -1,5 +1,4 @@
-// Lexer Module Interfaces - To Be Implemented Following TDD
-// These are the contracts that the lexer implementation must fulfill
+// Lexer Module Interfaces - Production contracts
 import lexer.keyword_manager.{KeywordManager as RealKeywordManager}
 
 // Token types for the Seen language
@@ -11,7 +10,8 @@ enum TokenType {
     BooleanLiteral,
     
     // Identifiers and keywords
-    Identifier,
+    Identifier,  // Canonical name
+
     KeywordFun,
     KeywordLet,
     KeywordVar,
@@ -104,7 +104,7 @@ enum TokenType {
 
 // Individual token representation
 class Token {
-    let type: TokenType
+    let tokenType: TokenType
     let value: String
     let line: Int
     let column: Int
@@ -112,7 +112,7 @@ class Token {
     let fileId: Int
     
     fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
-        this.type = tokenType
+        this.tokenType = tokenType
         this.value = value
         this.line = line
         this.column = column
@@ -121,7 +121,7 @@ class Token {
     }
     
     fun getType() -> TokenType {
-        return type
+        return tokenType
     }
     
     fun getValue() -> String {
