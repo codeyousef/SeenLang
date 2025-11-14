@@ -5,7 +5,7 @@ import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
 // import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
-import process.process.{runCommand as runShellCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -48,7 +48,7 @@ fun main() -> Int {
             return 1
         }
 
-        return runCommand(sourceResult.unwrap())
+        return runProgramEntry(sourceResult.unwrap())
     }
 
     if command == "format" {
@@ -118,8 +118,8 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
     if not WriteFile(cFilePath, cCode) { return false }
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath
-    let compileResult = runShellCommand(compileCommand)
-    return compileResult.success
+    let compileResult: CommandResult = runCommand(compileCommand)
+    return if compileResult.success { true } else { false }
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) -> Int {
@@ -165,7 +165,7 @@ fun checkCommand(sourceFile: String) -> Int {
     return 0
 }
 
-fun runCommand(sourceFile: String) -> Int {
+fun runProgramEntry(sourceFile: String) -> Int {
     println("⚡ Running {sourceFile}...")
     
     // Build to temporary file
@@ -278,7 +278,7 @@ fun getTimestamp() -> String {
     return __GetTimestamp()
 }
 
-fun FormatSeenCode(source: String) -> String { return __FormatSeenCode(source) }
+fun FormatSeenCode(source: String) -> String { return __FormatSeenCode(source) as String }
 
 fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> Bool {
     let frontend = run_frontend(sourceCode, sourceFile, "en")
@@ -354,7 +354,7 @@ fun GetCommandLineArgs() -> List<String> { return __GetCommandLineArgs() }
 
 fun ReadFile(path: String) -> String { return __ReadFile(path) }
 
-fun WriteFile(path: String, content: String) -> Bool { return __WriteFile(path, content) }
+fun WriteFile(path: String, content: String) -> Bool { return __WriteFile(path, content) as Bool }
 
 fun CreateDirectory(path: String) -> Bool { return __CreateDirectory(path) }
 

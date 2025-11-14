@@ -273,11 +273,7 @@ class LLVMBackend {
     fun benchmarkExecutable(executablePath: String) -> BenchmarkResult {
         println("🏃 Running performance benchmark")
         
-        let result = BenchmarkResult{
-            executionTime: 0,
-            opsPerSecond: 0,
-            success: false
-        }
+        let result = BenchmarkResult.new()
         
         // Run the executable and measure performance
         let startTime = getCurrentTimeNanos()
@@ -411,11 +407,12 @@ class LLVMBackend {
     
     fun executeCommand(command: String) -> Int {
         println("     🔧 " + command)
-        return __ExecuteCommand(command)
+        let res: CommandResult = __ExecuteCommand(command)
+        return if res.success { 0 } else { 1 }
     }
     
     fun writeFile(path: String, content: String) -> Bool {
-        return __WriteFile(path, content)
+        return __WriteFile(path, content) as Bool
     }
     
     fun readFile(path: String) -> String? {
