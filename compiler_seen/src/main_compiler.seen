@@ -913,12 +913,30 @@ fun runCommand(command: String) -> Int {
     return __ExecuteCommand(command)
 }
 
+// MVP: CommandResult-returning version for process module compatibility
+fun runCommandWithOutput(command: String) -> CommandResult {
+    let exitCode = __ExecuteCommand(command)
+    let output = __CommandOutput(command)
+    return CommandResult {
+        success: exitCode == 0,
+        output: output
+    }
+}
+
 fun commandWasSuccessful(exitCode: Int) -> Bool {
     return exitCode == 0
 }
 
+fun commandWasSuccessful(result: CommandResult) -> Bool {
+    return result.success
+}
+
 fun commandOutput(command: String) -> String {
     return __CommandOutput(command)
+}
+
+fun commandOutput(result: CommandResult) -> String {
+    return result.output
 }
 
 fun shellQuote(arg: String) -> String {

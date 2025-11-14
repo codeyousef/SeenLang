@@ -143,7 +143,7 @@ class BootstrapVerifier {
         log("   Command: {command}")
         
         let startTime = getCurrentTime()
-        let result: CommandResult = runCommand(command)
+        let result: CommandResult = runCommandWithOutput(command)
         let endTime = getCurrentTime()
         let duration = endTime - startTime
         

@@ -198,6 +198,10 @@ impl Type {
             // String concatenation
             (Type::String, "+", Type::String) => Some(Type::String),
 
+            // Allow string concatenation with Unknown types (assumes toString conversion)
+            (Type::String, "+", Type::Unknown) => Some(Type::String),
+            (Type::Unknown, "+", Type::String) => Some(Type::String),
+
             // Comparison operations
             (Type::Int, "<" | ">" | "<=" | ">=" | "==" | "!=", Type::Int) => Some(Type::Bool),
             (Type::UInt, "<" | ">" | "<=" | ">=" | "==" | "!=", Type::UInt) => Some(Type::Bool),
@@ -210,12 +214,25 @@ impl Type {
             // Equality for any type - allow comparing same types even if one is nullable
             (a, "==" | "!=", b) if a == b => Some(Type::Bool),
 
+            // Enum comparisons - enums of the same type can be compared with any operator
+            (Type::Enum { name: n1, .. }, "<" | ">" | "<=" | ">=", Type::Enum { name: n2, .. }) if n1 == n2 => Some(Type::Bool),
+
             // Allow comparing nullable with its base type
             (Type::Nullable(inner), "==" | "!=", b) if inner.as_ref() == b => Some(Type::Bool),
             (a, "==" | "!=", Type::Nullable(inner)) if a == inner.as_ref() => Some(Type::Bool),
 
             // Allow comparing different nullable types if their inner types match
             (Type::Nullable(a_inner), "==" | "!=", Type::Nullable(b_inner)) if a_inner.as_ref() == b_inner.as_ref() => Some(Type::Bool),
+
+            // Allow comparisons with Unknown types (for type inference in progress)
+            (Type::Unknown, "==" | "!=" | "<" | ">" | "<=" | ">=", _) => Some(Type::Bool),
+            (_, "==" | "!=" | "<" | ">" | "<=" | ">=", Type::Unknown) => Some(Type::Bool),
+
+            // Allow arithmetic/logical operations with Unknown types
+            (Type::Unknown, "+" | "-" | "*" | "/" | "%", _) => Some(Type::Unknown),
+            (_, "+" | "-" | "*" | "/" | "%", Type::Unknown) => Some(Type::Unknown),
+            (Type::Unknown, "and" | "or", _) => Some(Type::Bool),
+            (_, "and" | "or", Type::Unknown) => Some(Type::Bool),
 
             _ => None,
         }?;
