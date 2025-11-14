@@ -56,6 +56,7 @@ impl BuiltinRegistry {
         registry.register_exact("__DeleteFile", builtin_delete_file, 1);
         registry.register_exact("__ExecuteProgram", builtin_execute_program, 1);
         registry.register_exact("__ExecuteCommand", builtin_execute_command, 1);
+        registry.register_exact("__CommandOutput", builtin_command_output, 1);
         registry.register_exact("__GetEnv", builtin_get_env, 1);
         registry.register_exact("__HasEnv", builtin_has_env, 1);
         registry.register_exact("__SetEnv", builtin_set_env, 2);
@@ -475,6 +476,19 @@ fn builtin_execute_command(args: &[Value], _position: Position) -> InterpreterRe
         "CommandResult".to_string(),
         fields,
     ))
+}
+
+fn builtin_command_output(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let cmd = args[0].to_string();
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd").arg("/C").arg(cmd).output();
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("sh").arg("-c").arg(cmd).output();
+
+    match output {
+        Ok(o) => Ok(Value::String(String::from_utf8_lossy(&o.stdout).to_string())),
+        Err(_) => Ok(Value::String(String::new())),
+    }
 }
 
 fn builtin_get_env(args: &[Value], _position: Position) -> InterpreterResult<Value> {

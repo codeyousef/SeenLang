@@ -343,6 +343,17 @@ impl TypeChecker {
             },
         );
         env.define_function(
+            "__CommandOutput".to_string(),
+            FunctionSignature {
+                name: "__CommandOutput".to_string(),
+                parameters: vec![Parameter {
+                    name: "command".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
             "__FormatSeenCode".to_string(),
             FunctionSignature {
                 name: "__FormatSeenCode".to_string(),
