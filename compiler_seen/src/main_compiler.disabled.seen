@@ -137,15 +137,15 @@ class RealLexer {
 
 // Simple parser class for self-hosting  
 class RealParser {
-    var tokens: List<String>
+    var tokens: Array<Token>
+    var current: Int
     
-    fun new(tokens: List<String>) -> RealParser {
-        return RealParser{ tokens: tokens }
+    fun new(tokens: Array<Token>) -> RealParser {
+        return RealParser{ tokens: tokens, current: 0 }
     }
     
     fun parse() -> ProgramNode {
-        let items: List<String> = []
-        return ProgramNode{ items: items }
+        return ProgramNode.new()
     }
 }
 
@@ -159,7 +159,7 @@ class ProgramNode {
 }
 
 // Type checker result
-class TypeResult {
+class TypeResult { // minimal shim for bootstrap
     var success: Bool
     var errors: List<String>
     
@@ -169,17 +169,17 @@ class TypeResult {
     }
 }
 
-// Simple type checker
-class RealTypeChecker {
-    fun new() -> RealTypeChecker {
-        return RealTypeChecker{}
-    }
-    
-    fun check(ast: ProgramNode) -> TypeResult {
-        let checkErrors: List<String> = []
-        return TypeResult{ success: true, errors: checkErrors }
-    }
-}
+// Simple type checker (removed duplicate to avoid conflict)
+// class RealTypeChecker {
+//     fun new() -> RealTypeChecker {
+//         return RealTypeChecker{}
+//     }
+//     
+//     fun check(ast: ProgramNode) -> TypeResult {
+//         let checkErrors: List<String> = []
+//         return TypeResult{ success: true, errors: checkErrors }
+//     }
+// }
 
 // E-graph optimizer
 class EGraphOptimizer {
@@ -230,20 +230,25 @@ class LLVMBackend {
     }
     
     fun benchmarkExecutable(path: String) -> BenchmarkResult {
-        return BenchmarkResult{ success: true, opsPerSecond: 1000000, executionTime: 0 }
+        let result = BenchmarkResult.new()
+        result.success = true
+        result.opsPerSecond = 1000000
+        result.executionTime = 0
+        return result
     }
 }
 
 // Benchmark result
-class BenchmarkResult {
-    var executionTime: Int;  // nanoseconds
-    var opsPerSecond: Int
-    var success: Bool
-    
-    fun new() -> BenchmarkResult {
-        return BenchmarkResult{ executionTime: 0, opsPerSecond: 0, success: false }
-    }
-}
+// Use the canonical BenchmarkResult from llvm_backend
+// class BenchmarkResult {
+//     var executionTime: Int;  // nanoseconds
+//     var opsPerSecond: Int
+//     var success: Bool
+//     
+//     fun new() -> BenchmarkResult {
+//         return BenchmarkResult{ executionTime: 0, opsPerSecond: 0, success: false }
+//     }
+// }
 
 // Stub lexer components for self-contained compilation
 class KeywordManager {

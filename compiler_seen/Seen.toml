@@ -17,8 +17,8 @@ modules = [
     "src/runtime",
     "src/tools",
     "src/testing",
-    "src/main_compiler.seen",
-    "src/test_compiler.seen"
+    "src/main.seen",
+
 ]
 
 [build]

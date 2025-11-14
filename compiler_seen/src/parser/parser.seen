@@ -67,7 +67,7 @@ class SeenParser {
     fun parseFunction() -> Function {
         expect(TokenType.KeywordFun)
         
-        let nameToken = expect(TokenType.identifier)
+        let nameToken = expect(TokenType.Identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftParen)
@@ -111,7 +111,7 @@ class SeenParser {
     }
     
     fun parseParameter() -> Parameter {
-        let nameToken = expect(TokenType.identifier)
+        let nameToken = expect(TokenType.Identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.Colon)
@@ -139,7 +139,7 @@ class SeenParser {
     }
     
     fun parseType() -> Type {
-        let nameToken = expect(TokenType.identifier)
+        let nameToken = expect(TokenType.Identifier)
         let name = nameToken.getValue()
         let isNullable = false
         
@@ -152,7 +152,7 @@ class SeenParser {
         let type = Type.new(name, isNullable)
         
         // Check for generic types (List<T>)
-        if getCurrentToken().getType() == TokenType.LessThan {
+        if getCurrentToken().getType() == TokenType.LessThan { // using operator token
             advance()
             while true {
                 let genericType = parseType()
@@ -240,7 +240,7 @@ class SeenParser {
             expect(TokenType.KeywordLet)
         }
         
-        let nameToken = expect(TokenType.identifier)
+        let nameToken = expect(TokenType.Identifier)
         let name = nameToken.getValue()
         
         let decl = VariableDeclaration.new(name, isMutable)
@@ -455,7 +455,7 @@ class SeenParser {
     
     fun parseClass() -> Class {
         expect(TokenType.KeywordClass)
-        let nameToken = expect(TokenType.identifier)
+        let nameToken = expect(TokenType.Identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftBrace)
@@ -482,7 +482,7 @@ class SeenParser {
     
     fun parseInterface() -> Interface {
         expect(TokenType.KeywordInterface)
-        let nameToken = expect(TokenType.identifier)
+        let nameToken = expect(TokenType.Identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftBrace)
@@ -505,7 +505,7 @@ class SeenParser {
     
     fun parseEnum() -> Enum {
         expect(TokenType.KeywordEnum)
-        let nameToken = expect(TokenType.identifier)
+        let nameToken = expect(TokenType.Identifier)
         let name = nameToken.getValue()
         
         expect(TokenType.LeftBrace)

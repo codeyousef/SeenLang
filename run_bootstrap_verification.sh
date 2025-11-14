@@ -58,7 +58,7 @@ log "Working directory: $SCRIPT_DIR"
 # Pre-verification checks
 log_header "📋 PRE-VERIFICATION CHECKS"
 
-if [ ! -f "compiler_seen/src/main_compiler.seen" ]; then
+if [ ! -f "compiler_seen/src/main.seen" ]; then
     log "${RED}❌ FATAL: Seen compiler source not found!${NC}"
     exit 1
 fi

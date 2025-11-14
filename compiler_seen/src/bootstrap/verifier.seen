@@ -86,7 +86,7 @@ class BootstrapVerifier {
         let result: VerificationResult = VerificationResult.new()
         
         // Stage 1: Compile with Rust bootstrap
-        let stage1Result = compileWithStage(0, "compiler_seen/src/main_compiler.seen", "stage1_compiler")
+        let stage1Result = compileWithStage(0, "compiler_seen/src/main.seen", "stage1_compiler")
         if stage1Result.isErr() {
             let error = stage1Result.unwrapErr()
             return Err("Stage 1 compilation failed: {error}")
@@ -94,7 +94,7 @@ class BootstrapVerifier {
         result.addStageArtifact(1, stage1Result.unwrap())
         
         // Stage 2: Compile with Stage 1 output
-        let stage2Result = compileWithStage(1, "compiler_seen/src/main_compiler.seen", "stage2_compiler")
+        let stage2Result = compileWithStage(1, "compiler_seen/src/main.seen", "stage2_compiler")
         if stage2Result.isErr() {
             let error = stage2Result.unwrapErr()
             return Err("Stage 2 compilation failed: {error}")
@@ -102,7 +102,7 @@ class BootstrapVerifier {
         result.addStageArtifact(2, stage2Result.unwrap())
         
         // Stage 3: Compile with Stage 2 output
-        let stage3Result = compileWithStage(2, "compiler_seen/src/main_compiler.seen", "stage3_compiler")
+        let stage3Result = compileWithStage(2, "compiler_seen/src/main.seen", "stage3_compiler")
         if stage3Result.isErr() {
             let error = stage3Result.unwrapErr()
             return Err("Stage 3 compilation failed: {error}")

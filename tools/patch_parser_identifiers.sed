@@ -1,0 +1,1 @@
+s/TokenType\.identifier/TokenType.Identifier/g

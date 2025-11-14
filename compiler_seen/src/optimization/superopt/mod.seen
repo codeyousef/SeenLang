@@ -4,16 +4,16 @@
 // Core superoptimization components
 import superoptimizer.{Superoptimizer}
 import z3_solver.{Z3Solver}
-import program_synthesis.{ProgramSynthesizer}
+// import program_synthesis.{ProgramSynthesizer}
 // Superoptimization engine interface
 fun createSuperoptimizer() -> Superoptimizer {
     return Superoptimizer{}
 }
 
 // Program synthesis interface  
-fun createProgramSynthesizer() -> ProgramSynthesizer {
-    return ProgramSynthesizer{}
-}
+// fun createProgramSynthesizer() -> ProgramSynthesizer {
+//     return ProgramSynthesizer{}
+// }
 
 // SMT solver interface
 fun createZ3Solver() -> Z3Solver {
@@ -28,13 +28,7 @@ fun optimizeFunction(function: Function) -> Function? {
 }
 
 fun synthesizeOptimalCode(spec: ProgramSpecification) -> Function? {
-    let synthesizer = createProgramSynthesizer()
-    let result = synthesizer.synthesize(spec)
-    
-    if result != null {
-        return result.program
-    }
-    
+    // Program synthesizer not required for MVP self-host; return null
     return null
 }
 

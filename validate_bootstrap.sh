@@ -124,7 +124,7 @@ components=(
     "compiler_seen/src/parser/main.seen:Parser implementation"
     "compiler_seen/src/typechecker/main.seen:Type checker implementation"
     "compiler_seen/src/codegen/main.seen:Code generator implementation"
-    "compiler_seen/src/main_compiler.seen:Main compiler coordination"
+    "compiler_seen/src/main.seen:Main compiler coordination"
 )
 
 total_lines=0

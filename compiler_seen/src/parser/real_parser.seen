@@ -12,9 +12,9 @@ class RealParser {
     var tokens: Array<RealToken>
     var current: Int
 
-    fun new(rawTokens: List<RealToken>) -> RealParser {
+    fun new(rawTokens: Array<RealToken>) -> RealParser {
         return RealParser{
-            tokens: toArray(rawTokens),
+            tokens: rawTokens,
             current: 0
         }
     }

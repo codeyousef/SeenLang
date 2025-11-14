@@ -2,7 +2,7 @@
 // Full LSP support with all Alpha optimization features
 
 import lexer.{SeenLexer}
-import parser.{SeenParser}
+import parser.real_parser.{RealParser as SeenParser}
 import typechecker.{SeenTypeChecker}
 import optimization.egraph.{EGraphOptimizer}
 import optimization.ml.{MLOptimizer}

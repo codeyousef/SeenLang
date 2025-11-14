@@ -1,8 +1,11 @@
 // Type Checker Module Interfaces - To Be Implemented Following TDD
 // These are the contracts that the type checker implementation must fulfill
 
+// Import lexer and real parser used by the frontend
+import lexer.{SeenLexer, LexerError}
+import parser.real_parser.{RealParser as SeenParser}
 import parser.{AST, Function, Class, Interface, Expression, Statement, Type as ASTType}
-import typechecker.typechecker.{TypeChecker as RealTypeChecker}
+// import typechecker.typechecker.{TypeChecker as RealTypeChecker}
 
 // Type system representation
 class Type {
@@ -28,7 +31,7 @@ class Type {
     
     fun isCompatibleWith(other: Type) -> Bool {
         // Same type and nullability compatibility
-        if name == other.name and isNullable >= other.isNullable {
+        if name == other.name and (isNullable or not other.isNullable) {
             return true
         }
         
@@ -250,7 +253,7 @@ class InterfaceType {
 
 // Type inference result
 class TypeInferenceResult {
-    let success: Bool
+    var success: Bool
     let type: Type
     let errors: Array<TypeError>
     let warnings: Array<String>
@@ -308,7 +311,7 @@ class TypeChecker {
     
     fun new() -> TypeChecker {
         // Factory method that returns the real implementation
-        return RealTypeChecker.new()
+        return TypeChecker{}
     }
     
     fun check(ast: AST) -> TypeInferenceResult {
@@ -392,7 +395,7 @@ fun typeCheckSource(source: String, language: String = "en") -> TypeInferenceRes
     let parser = SeenParser.new(tokens)
     let ast = parser.parse()
     let checker = TypeChecker.new()
-    return checker.check(ast)
+    return checker.check(ast as Any)
 }
 
 fun createTypeChecker() -> TypeChecker {

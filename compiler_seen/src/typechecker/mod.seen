@@ -5,7 +5,7 @@
 // import interfaces.{Type, TypeKind, TypeError, Location, Environment, TypeInferenceResult, FunctionType, ClassType, InterfaceType, SmartCastContext}
 
 // Import the real implementation
-import typechecker.{TypeChecker}
+import typechecker.interfaces.{TypeChecker}
 
 // Utility functions for tests
 fun createTypeChecker() -> TypeChecker {

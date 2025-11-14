@@ -26,6 +26,8 @@ class TestResult {
     }
 }
 
+class TestPanicException extends Error { fun new(message: String) -> TestPanicException { super(message) } }
+
 class AssertionError {
     var message: String
     var expected: String
