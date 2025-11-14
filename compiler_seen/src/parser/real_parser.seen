@@ -4,15 +4,14 @@
 // full parser port continues.
 
 import parser.ast.{ProgramNode, ItemNode, FunctionNode, ParamNode, TypeNode, BlockNode, ImportSymbolNode, ClassNode}
-import lexer.interfaces.{TokenType}
+import lexer.interfaces.{TokenType, Token}
 // Use the canonical Token from lexer.interfaces for type consistency
-import lexer.interfaces.{Token as RealToken}  // uses tokenType field
 
 class RealParser {
-    var tokens: Array<RealToken>
+    var tokens: Array<Token>
     var current: Int
 
-    fun new(rawTokens: Array<RealToken>) -> RealParser {
+    fun new(rawTokens: Array<Token>) -> RealParser {
         return RealParser{
             tokens: rawTokens,
             current: 0
@@ -361,7 +360,7 @@ class RealParser {
         return peek().getType() == tokenType
     }
 
-    fun advance() -> RealToken {
+    fun advance() -> Token {
         if not isAtEnd() {
             current = current + 1
         }
@@ -372,21 +371,21 @@ class RealParser {
         return current >= tokens.length() or peek().getType() == TokenType.EndOfFile
     }
 
-    fun peek() -> RealToken {
+    fun peek() -> Token {
         if current >= tokens.length() {
             return tokens[tokens.length() - 1]
         }
         return tokens[current]
     }
 
-    fun previous() -> RealToken {
+    fun previous() -> Token {
         if current == 0 {
             return tokens[0]
         }
         return tokens[current - 1]
     }
 
-    fun consume(tokenType: TokenType, message: String) -> RealToken {
+    fun consume(tokenType: TokenType, message: String) -> Token {
         if checkToken(tokenType) {
             return advance()
         }
@@ -394,8 +393,8 @@ class RealParser {
         return peek()
     }
 
-    fun toArray(raw: List<RealToken>) -> Array<RealToken> {
-        let buffer = Array<RealToken>()
+    fun toArray(raw: List<Token>) -> Array<Token> {
+        let buffer = Array<Token>()
         for token in raw {
             buffer.push(token)
         }

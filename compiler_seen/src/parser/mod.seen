@@ -5,19 +5,19 @@
 // import interfaces.{AST, ParseError, Function, Type, Parameter, Expression, Statement, Block, ReturnStatement, VariableDeclaration, IfStatement, MatchStatement, Class, Interface, Enum, Import, Literal, BinaryExpression}
 
 // Import the real implementation
-import parser.real_parser.{RealParser as SeenParser}
+import parser.real_parser.{RealParser}
 import lexer.interfaces.{Token}
 import lexer.lexer.{SeenLexer}
 import parser.ast.{ProgramNode}
 
 // Utility functions for tests
-fun createParser(tokens: Array<Token>) -> SeenParser {
-    return SeenParser.new(tokens)
+fun createParser(tokens: Array<Token>) -> RealParser {
+    return RealParser.new(tokens)
 }
 
 fun parseString(source: String, language: String = "en") -> ProgramNode {
     let lexer = SeenLexer.new(source, 1, language)
     let tokens = lexer.tokenize()
-    let parser = SeenParser.new(tokens)
+    let parser = RealParser.new(tokens)
     return parser.parse()
 }

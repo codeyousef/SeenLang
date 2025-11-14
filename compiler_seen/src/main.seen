@@ -5,7 +5,7 @@ import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
 // import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
-import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand as runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()
@@ -118,8 +118,8 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
     if not WriteFile(cFilePath, cCode) { return false }
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath
-    let compileResult: CommandResult = runCommand(compileCommand)
-    return if compileResult.success { true } else { false }
+    let compileResult: CommandResult = execCommand(compileCommand)
+    return if commandWasSuccessful(compileResult) { true } else { false }
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) -> Int {

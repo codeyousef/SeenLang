@@ -12,9 +12,13 @@ fun runProgram(path: String) -> Int {
     return __ExecuteProgram(path)
 }
 
-fun runCommand(command: String) -> CommandResult {
+fun execCommand(command: String) -> CommandResult {
     let result: CommandResult = __ExecuteCommand(command)
     return result
+}
+
+fun runCommand(command: String) -> CommandResult {
+    return execCommand(command)
 }
 
 fun commandWasSuccessful(result: CommandResult) -> Bool {
@@ -26,7 +30,7 @@ fun commandOutput(result: CommandResult) -> String {
 }
 
 fun runCommandOrAbort(command: String) -> CommandResult {
-    let result: CommandResult = runCommand(command)
+    let result: CommandResult = execCommand(command)
     if not result.success {
         abort("Command failed: {command}\n{result.output}")
     }
@@ -34,7 +38,7 @@ fun runCommandOrAbort(command: String) -> CommandResult {
 }
 
 fun runCommandOutput(command: String) -> String {
-    return runCommand(command).output
+    return execCommand(command).output
 }
 
 fun isSuccess(status: Int) -> Bool {

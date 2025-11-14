@@ -2,7 +2,7 @@
 // Verifies that each stage of bootstrap produces identical output
 
 import io.file.{readText, appendText}
-import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand as runCommand, CommandResult, commandWasSuccessful, commandOutput}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import str.string.{replace}
@@ -10,7 +10,7 @@ import str.string.{replace}
 fun FileExists(path: String) -> Bool {
     let escaped = escapePath(path)
     let command = "test -f '{escaped}'"
-    let result = runCommand(command)
+    let result = execCommand(command)
     return commandWasSuccessful(result)
 }
 
@@ -143,7 +143,7 @@ class BootstrapVerifier {
         log("   Command: {command}")
         
         let startTime = getCurrentTime()
-        let result: CommandResult = runCommand(command)
+        let result: CommandResult = execCommand(command)
         let endTime = getCurrentTime()
         let duration = endTime - startTime
         

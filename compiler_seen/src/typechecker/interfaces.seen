@@ -3,8 +3,8 @@
 
 // Import lexer and real parser used by the frontend
 import lexer.{SeenLexer, LexerError}
-import parser.real_parser.{RealParser as SeenParser}
-import parser.{AST, Function, Class, Interface, Expression, Statement, Type as ASTType}
+import parser.real_parser.{RealParser}
+// Parser types intentionally decoupled for bootstrap; use Any in signatures
 // import typechecker.typechecker.{TypeChecker as RealTypeChecker}
 
 // Type system representation
@@ -392,7 +392,7 @@ class TypeChecker {
 fun typeCheckSource(source: String, language: String = "en") -> TypeInferenceResult {
     let lexer = SeenLexer.new(source, 1, language)
     let tokens = lexer.tokenize()
-    let parser = SeenParser.new(tokens)
+    let parser = RealParser.new(tokens)
     let ast = parser.parse()
     let checker = TypeChecker.new()
     return checker.check(ast as Any)

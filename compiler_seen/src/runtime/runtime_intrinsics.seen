@@ -2,7 +2,7 @@ import process.process.{runCommand, CommandResult}
 import str.string.{trim}
 
 fun GetCurrentTimeNanos() -> Int {
-    let res: CommandResult = runCommand("date +%s%N 2>/dev/null || date +%s000000000")
+    let res: CommandResult = execCommand("date +%s%N 2>/dev/null || date +%s000000000")
     if res.success {
         let txt = trim(res.output)
         if txt.length() > 0 { return txt.toInt() }
