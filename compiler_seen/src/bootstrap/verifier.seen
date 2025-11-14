@@ -2,7 +2,7 @@
 // Verifies that each stage of bootstrap produces identical output
 
 import io.file.{readText, appendText}
-import process.process.{execCommand as runCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import str.string.{replace}

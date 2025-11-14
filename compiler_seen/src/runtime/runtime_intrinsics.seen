@@ -1,4 +1,4 @@
-import process.process.{runCommand, CommandResult}
+import process.process.{execCommand, CommandResult}
 import str.string.{trim}
 
 fun GetCurrentTimeNanos() -> Int {

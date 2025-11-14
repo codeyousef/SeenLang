@@ -5,7 +5,7 @@ import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
 // import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
-import process.process.{execCommand as runCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun main() -> Int {
     let args = GetCommandLineArgs()

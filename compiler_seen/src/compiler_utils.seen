@@ -32,11 +32,11 @@ fun runCommandStatus(command: String) -> Int {
     return __ExecuteProgram(command)
 }
 
-fun commandWasSuccessful(exitCode: Int) -> Bool {
+fun isExitSuccess(exitCode: Int) -> Bool {
     return exitCode == 0
 }
 
-fun commandOutput(command: String) -> String {
+fun getCommandOutput(command: String) -> String {
     return __CommandOutput(command)
 }
 

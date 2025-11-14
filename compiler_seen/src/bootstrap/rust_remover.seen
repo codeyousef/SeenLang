@@ -1,6 +1,6 @@
 import str.string.{lines, trim, StringBuilder}
 import io.file.{readText, writeText, createDirectory, deleteFile}
-import process.process.{runCommand, shellQuote, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand as runCommand, shellQuote, CommandResult, commandWasSuccessful, commandOutput}
 
 struct RemovalResult {
     success: Bool
