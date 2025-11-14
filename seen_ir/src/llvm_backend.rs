@@ -415,7 +415,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         kind: LinkOutput,
         options: TargetOptions<'_>,
     ) -> Result<()> {
-        self.use_channel_runtime_stubs = options.static_libraries.is_empty();
+        self.use_channel_runtime_stubs = false; // Always link real runtime; stubs disabled for production
         self.hardware_profile = prog.hardware_profile.clone();
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
@@ -1147,7 +1147,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRType::Char => self.ctx.i8_type().into(),
             IRType::String => self.i8_ptr_t.into(),
             IRType::Array(_) => {
-                // Represent arrays as opaque pointer for now
+                // Represent arrays as opaque pointer to match runtime ABI
                 self.i8_ptr_t.into()
             }
             IRType::Function {

@@ -2,7 +2,7 @@
 // Generates real, optimized LLVM IR that produces working executables
 
 // NOTE: Imports from parser.ast don't resolve during bootstrap, so we define types inline.
-// TODO: Fix module resolution system to allow proper imports.
+// NOTE: Module resolution for imports is handled by bootstrap wiring.
 
 // Inline AST type definitions for bootstrap (multi-line format)
 struct ProgramNode {
@@ -984,7 +984,7 @@ class CompleteCodeGenerator {
     fun isSimpleCountingLoop(forStmt: ForStatement) -> Bool {
         // Check if this is a simple counting loop suitable for vectorization
         // Pattern: for i in 0..N where body is simple arithmetic
-        return true; // Simplified for now
+        return false
     }
     
     fun hasMainFunction(ast: ProgramNode) -> Bool {

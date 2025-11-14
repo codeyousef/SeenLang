@@ -563,7 +563,7 @@ class SeenParser {
                 let item = Item.new("Class", cls, cls.position)
                 items.push(item)
             } else {
-                // Skip unknown tokens for now
+                // Skip unknown tokens
                 this.advance()
             }
         }

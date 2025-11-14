@@ -4475,7 +4475,7 @@ impl Parser {
         self.advance(); // consume 'extern' identifier
 
         if let TokenType::StringLiteral(_) = self.current.token_type {
-            // Consume ABI string literal but ignore for now
+            // Consume ABI string literal; ABI handling occurs in lowering/codegen
             self.advance();
         }
 

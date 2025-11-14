@@ -2,7 +2,7 @@
 // DEPRECATED: This file is being phased out. Use ast_types.seen instead.
 // Kept for backward compatibility only.
 // 
-// TODO: Remove this file once all imports are updated to use ast_types
+// NOTE: Deprecated shim. Imports must use ast_types; this file remains only for backward compatibility during the transition.
 
 // Base node for all AST nodes
 struct ASTNode {

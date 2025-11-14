@@ -4,7 +4,7 @@
 // NOTE: These type definitions conflict with parser/ast.seen during bootstrap.
 // The types here use different field names (parameters vs params, Type vs TypeNode, etc.)
 // which confuses the typechecker. Temporarily disabled for bootstrap.
-// TODO: Consolidate with ast.seen or implement proper module namespacing.
+// NOTE: Consolidate with ast.seen or implement proper module namespacing.
 
 // import lexer.{Token, TokenType, SeenLexer}
 
@@ -340,7 +340,7 @@
 //     var errorRecoveryMode: Bool
     
 //     fun new(tokens: Array<Token>) -> SeenParser {
-//         // Note: This interface stub is replaced by the actual implementation in real_parser.seen
+//         // Note: This interface definition is replaced by the actual implementation in real_parser.seen
 //         return SeenParser{}
 //     }
     

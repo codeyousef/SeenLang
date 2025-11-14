@@ -1,6 +1,6 @@
 // Test Basic Syntax Design Features that work with bootstrap parser
 
-// Basic functions (avoiding class limitations for now)
+// Basic functions (avoiding class limitations)
 fun simpleFunction(x: Int) -> Int {
     return x + 1;
 }

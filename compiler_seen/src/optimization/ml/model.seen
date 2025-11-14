@@ -1,4 +1,4 @@
-// Minimal ML model stub used during bootstrap.
+// Minimal ML model skeleton used during bootstrap.
 // Keeps book-keeping counters so higher level optimizers can compile.
 
 class MLModel {

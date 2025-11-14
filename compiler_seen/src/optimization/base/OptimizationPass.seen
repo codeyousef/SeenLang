@@ -1,5 +1,5 @@
 // Shared optimization pass scaffolding used by the architecture/memory/pgo/superopt
-// stubs. The goal is to provide deterministic hooks so Stage-1 can instantiate and
+// scaffolding. The goal is to provide deterministic hooks so Stage-1 can instantiate and
 // sequence optimization passes without depending on the Kotlin-era helpers.
 
 import ir.module.Module

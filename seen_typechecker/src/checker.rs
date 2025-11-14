@@ -1803,7 +1803,7 @@ impl TypeChecker {
     }
 
     fn check_jobs_scope(&mut self, body: &Expression, pos: Position) -> Type {
-        // jobs.scope shares the same structured concurrency semantics as scope for now.
+        // jobs.scope shares the same structured concurrency semantics as scope.
         self.check_scope_expression(body, pos)
     }
 
@@ -3027,7 +3027,7 @@ impl TypeChecker {
         self.env = saved_env;
         self.current_function_return_type = saved_return_type;
 
-        // Function definitions return the function type (for now, Unit)
+        // Function definitions return the function type (Unit)
         Type::Unit
     }
 

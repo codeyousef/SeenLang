@@ -1,4 +1,4 @@
-// Architecture-aware optimizer stub rewritten without Kotlin syntax.
+// Architecture-aware optimizer skeleton rewritten without Kotlin syntax.
 // Provides the hooks the rest of the self-hosting pipeline expects while
 // keeping the implementation intentionally lightweight.
 

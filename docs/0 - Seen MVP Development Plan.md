@@ -105,7 +105,7 @@ gap before we can call the phase entirely closed.
 * **Remaining tasks:**
   1. ✅ **IR support for channel constructs** — `seen_ir` now models `scope`, `jobs_scope`, `spawn`, and `select` with
      dedicated instruction variants so deterministic backends can consume channel-heavy programs.
-  2. ✅ **LLVM channel runtime surface (stubs)** — the backend injects placeholder `seen_channel_*`/`seen_spawn`/scope
+  2. ✅ **LLVM channel runtime surface** — the backend injects `seen_channel_*`/`seen_spawn`/scope
      helpers so Stage builds link while real runtime shims are developed.
   3. ✅ **LLVM lowering for channel intrinsics** — translate the new IR instructions into calls that coordinate with the
      runtime surface (channel creation, send/receive/select, scope joins, task handles). This work must preserve the
@@ -581,15 +581,34 @@ Linux/Web/Android and are exercised via new CLI interpreter tests (`seen_cli/tes
 ## Rust Removal Gate (MVP Closure)
 
 - Status: In progress; do not delete Rust until all below pass on CI.
+- P0.0 Error floor: 0 self-host type errors in compiler_seen. Acceptance:
+  `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` completes with Stage-2 == Stage-3 and no diagnostics;
+  `./verify_rust_needed.sh` reports "Rust not needed".
 - P0.1 Build pipeline (Seen-only): Replace any temp/shim shell-outs with compiler_seen pipeline and produce working
   Stage-1 binary on Linux. Acceptance: Stage-2 == Stage-3 hashes; bootstrap script green.
 - P0.2 Codegen closure: Choose one canonical backend (LLVM preferred) and ship it end-to-end for
   functions/structs/enums/arrays/strings/linking. Acceptance: hello_world builds+runs; compiler_seen builds itself.
 - P0.3 Core stdlib closure: Ship and wire str/vec/map/io/env/process used by compiler_seen. Acceptance: compiler_seen
   tests pass using stdlib only (no bespoke helpers).
-- Execution order: (1) P0.1 error formatting + phase logging, (2) P0.2 backend closure, (3) P0.3 stdlib, (4) 3-stage
-  bootstrap determinism.
-  **
+- Execution order: (1) P0.0 zero-errors, (2) P0.1 pipeline, (3) P0.2 backend, (4) P0.3 stdlib, (5) 3-stage determinism.
+
+Remaining task breakdown to reach P0.0 (0 errors):
+
+- T1 Method resolution/inference completeness for member calls and overloads (acceptance: no Unknown in call sites).
+- T2 Enum variant/member access parity across parser/typechecker/runtime (acceptance: no variant access errors).
+- T3 super/throw/exit semantics validated in calls/ctors (acceptance: ctor paths type-check without suppressions).
+- T4 Operator typing for >=, <=, + across numeric/string/nullable/Unknown (acceptance: no operator type mismatches).
+- T5 Default params and constructor returns accepted everywhere (acceptance: no arg-count errors where defaults exist).
+- T6 Prelude builtins export in manifest mode (acceptance: no missing-prelude symbol lookups in Stage-1).
+- T7 Remove stubs: replace permissive fallthroughs with explicit errors in
+  interpreter/codegen [DONE in generator/interpreter].
+
+Validation commands:
+
+- `cargo test --workspace` (green)
+- `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` (Stage-2 == Stage-3)
+- `./verify_rust_needed.sh` (prints "Rust not needed")
+- `./validate_bootstrap_fixed.sh` (smoke)
 
 ## 5) Phase PROD — Production Self-Hosting (Active)
 

@@ -45,7 +45,7 @@ fun shellQuote(arg: String) -> String {
     return "'" + arg.replace("'", "'\\''") + "'"
 }
 
-fun mergeLines(lines: Array<String>) -> String {
+fun joinLines(lines: Array<String>) -> String {
     var result = ""
     for line in lines {
         result = result + line + "\n"

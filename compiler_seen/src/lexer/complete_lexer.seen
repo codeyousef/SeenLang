@@ -149,19 +149,21 @@ enum TokenType {
 }
 
 class Token {
-    var type: TokenType
+    var tokenType: TokenType
     var value: String
     var line: Int
     var column: Int
     var length: Int
+    var fileId: Int
     
     fun new() -> Token {
         return Token{
-            type: TokenType.EOF,
+            tokenType: TokenType.EOF,
             value: "",
             line: 0,
             column: 0,
-            length: 0
+            length: 0,
+            fileId: 0
         }
     }
 }

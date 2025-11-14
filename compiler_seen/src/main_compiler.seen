@@ -230,17 +230,18 @@ class LLVMBackend {
     }
     
     fun benchmarkExecutable(path: String) -> BenchmarkResult {
-        return BenchmarkResult{ success: true, opsPerSecond: 1000000 }
+        return BenchmarkResult{ success: true, opsPerSecond: 1000000, executionTime: 0 }
     }
 }
 
 // Benchmark result
 class BenchmarkResult {
-    var success: Bool
+    var executionTime: Int;  // nanoseconds
     var opsPerSecond: Int
+    var success: Bool
     
     fun new() -> BenchmarkResult {
-        return BenchmarkResult{ success: false, opsPerSecond: 0 }
+        return BenchmarkResult{ executionTime: 0, opsPerSecond: 0, success: false }
     }
 }
 
@@ -943,7 +944,7 @@ fun shellQuote(arg: String) -> String {
     return "'" + arg.replace("'", "'\\''") + "'"
 }
 
-fun mergeLines(lines: Array<String>) -> String {
+fun joinLines(lines: Array<String>) -> String {
     var result = ""
     for line in lines {
         result = result + line + "\n"

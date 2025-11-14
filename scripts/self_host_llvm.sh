@@ -5,11 +5,19 @@ set -euo pipefail
 # Prereqs: cargo, clang/llvm installed; build with: cargo build -p seen_cli --release --features llvm
 
 ROOT_DIR="$(cd "$(dirname "$0")"/.. && pwd)"
-CLI_BIN="${CARGO_TARGET_DIR:-$HOME/.cargo/target-shared}/release/seen_cli"
-
-if [[ ! -x "$CLI_BIN" ]]; then
-  echo "seen_cli not found at $CLI_BIN" >&2
-  echo "Build it with: cargo build -p seen_cli --release --features llvm" >&2
+CLI_BIN_CANDIDATES=(
+  "${CARGO_TARGET_DIR:-$ROOT_DIR/target}/release/seen_cli"
+  "$ROOT_DIR/target/release/seen_cli"
+  "${CARGO_TARGET_DIR:-$HOME/.cargo/target-shared}/release/seen_cli"
+)
+CLI_BIN=""
+for cand in "${CLI_BIN_CANDIDATES[@]}"; do
+  if [[ -x "$cand" ]]; then
+    CLI_BIN="$cand"; break
+  fi
+done
+if [[ -z "$CLI_BIN" ]]; then
+  echo "seen_cli not found. Build it with: cargo build -p seen_cli --release --features llvm" >&2
   exit 1
 fi
 

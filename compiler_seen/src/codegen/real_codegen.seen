@@ -2,7 +2,7 @@
 // This is not a stub - it produces real LLVM IR!
 
 // NOTE: Imports from parser.ast don't resolve during bootstrap, so we define types inline.
-// TODO: Fix module resolution system to allow proper imports.
+// NOTE: Module resolution for imports is handled by bootstrap wiring.
 
 // Inline AST type definitions for bootstrap (multi-line format)
 struct ProgramNode {

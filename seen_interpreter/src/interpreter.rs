@@ -1070,7 +1070,7 @@ impl Interpreter {
                 BinaryOperator::RightShift => left_val
                     .right_shift(&right_val)
                     .map_err(|e| InterpreterError::runtime(e, pos)),
-                _ => Ok(Value::Unit), // Other operators not implemented yet
+                _ => Err(InterpreterError::runtime("Unsupported operator", pos)),
             }
         }
     }
@@ -2734,7 +2734,7 @@ impl Interpreter {
                     ))
                 }
             }
-            _ => Ok(Value::Unit), // Other sources not implemented yet
+            _ => Err(InterpreterError::runtime("Unsupported observable source", pos))
         }
     }
 

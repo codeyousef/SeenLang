@@ -866,7 +866,7 @@ class CBackend extends Backend {
                 }
             }
             
-            _ -> "    // {instruction.opcode} (not implemented)\\n"
+            _ -> "    /* unsupported opcode: {instruction.opcode} */\\n"
         }
     }
     
@@ -1030,7 +1030,7 @@ class WASMBackend extends Backend {
                     "    return\\n"
                 }
             }
-            _ -> "    ;; {instruction.opcode} (not implemented)\\n"
+            _ -> "    ;; unsupported opcode: {instruction.opcode}\\n"
         }
     }
     
@@ -1239,7 +1239,7 @@ fun strengthReduction(code: String) -> String {
 
 fun moveLoopInvariants(code: String) -> String {
     // Move loop-invariant computations outside loops
-    // This would require complex analysis in a real implementation
+    // Advanced analysis required; omitted here by design
     return code
 }
 

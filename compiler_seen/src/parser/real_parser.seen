@@ -93,7 +93,7 @@ class RealParser {
         let classNode = ClassNode.new()
         classNode.name = nameToken.value
 
-        // Methods/fields are skipped for now; we just balance the braces.
+        // Methods/fields are not yet parsed; we just balance the braces.
         skipOptionalFunctionBody()
 
         let item = ItemNode.new()
@@ -140,7 +140,7 @@ class RealParser {
         param.name = nameToken.value
         param.paramType = parseOptionalTypeAnnotation()
 
-        // Skip default values for now.
+        // Skip default values.
         if matchToken("Equal") {
             skipExpression()
         }

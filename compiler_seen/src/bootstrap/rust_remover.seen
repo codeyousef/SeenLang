@@ -93,11 +93,11 @@ class RustRemover {
     fun collectRustFiles() -> Array<String> {
         let collected = Array<String>()
         if this.searchRoots.length() == 0 {
-            mergeLines(collected, runFindCommand("."))
+            appendAll(collected, runFindCommand("."))
             return collected
         }
         for root in this.searchRoots {
-            mergeLines(collected, runFindCommand(root))
+            appendAll(collected, runFindCommand(root))
         }
         return collected
     }
@@ -194,7 +194,7 @@ fun parentDirectory(path: String) -> String {
     }
 }
 
-fun mergeLines(target: Array<String>, values: Array<String>) -> Void {
+fun appendAll(target: Array<String>, values: Array<String>) -> Void {
     for value in values {
         let trimmed = trim(value)
         if trimmed.length() == 0 {

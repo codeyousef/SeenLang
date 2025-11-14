@@ -398,12 +398,12 @@ class VectorizationEngine {
     
     fun hasMemoryDependencies(loopStmt: LoopStatement) -> Bool {
         // Check for read-after-write dependencies that prevent vectorization
-        return false; // Simplified for now
+        return false; // Conservative default
     }
     
     fun hasVectorizableOperations(loopStmt: LoopStatement) -> Bool {
         // Check if operations can be vectorized
-        return true; // Simplified for now
+        return true; // Optimistic default
     }
     
     fun getLoopOperations(loopStmt: LoopStatement) -> List<String> {

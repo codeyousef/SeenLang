@@ -538,7 +538,7 @@ impl SeenLanguageServer {
 
     /// Count references to a symbol in content
     fn count_references(&self, content: &str, symbol_name: &str) -> u32 {
-        // Simple reference counting - in a real implementation this would be more sophisticated
+        // Simple reference counting heuristic; refine as needed
         let mut count = 0;
         let mut current_pos = 0;
 
