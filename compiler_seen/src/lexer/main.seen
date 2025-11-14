@@ -237,8 +237,7 @@ class SeenLexer {
         }
         
         let tokenType = if this.keywordManager.isKeyword(value) {
-            // Fallback to Identifier if not mapped
-            this.keywordManager.getKeywordType(value) ?? TokenType.Identifier
+            this.keywordManager.getKeywordType(value)
         } else if this.isUpperCase(value.charAt(0)) {
             TokenType.Identifier // treat capitalized identifiers uniformly here
         } else {
@@ -303,7 +302,7 @@ class SeenLexer {
             
             match ch {
                 "(" -> return Token.new(TokenType.LeftParen, "(", startPos.line, startPos.column, 1, this.fileId)
-                )" -> return Token.new(TokenType.RightParen, ")", startPos.line, startPos.column, 1, this.fileId)
+                ")" -> return Token.new(TokenType.RightParen, ")", startPos.line, startPos.column, 1, this.fileId)
                 "{" -> return Token.new(TokenType.LeftBrace, "{", startPos.line, startPos.column, 1, this.fileId)
                 "}" -> return Token.new(TokenType.RightBrace, "}", startPos.line, startPos.column, 1, this.fileId)
                 "[" -> return Token.new(TokenType.LeftBracket, "[", startPos.line, startPos.column, 1, this.fileId)
@@ -366,7 +365,7 @@ class SeenLexer {
             }
         }
         
-        return Token.new("EOF", "", this.pos.line, this.pos.column, 0, this.fileId)
+        return Token.new(TokenType.EOF, "", this.pos.line, this.pos.column, 0, this.fileId)
     }
     
     fun tokenize() -> Array<Token> {
@@ -375,7 +374,7 @@ class SeenLexer {
         while true {
             let token = this.nextToken()
             this.tokens.push(token)
-            if token.getType() == "EOF" {
+            if token.getType() == TokenType.EOF {
                 break
             }
         }

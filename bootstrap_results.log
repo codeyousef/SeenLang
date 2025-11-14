@@ -6130,3 +6130,316 @@ Type error: Missing field 'variables' for struct 'RealCodeGenerator' at 110:36
 Type error: Missing field 'currentFunction' for struct 'RealCodeGenerator' at 110:36
 Type error: Undefined function 'TestPanicException' at 202:29
 Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected (), found String? at 1182:5", location: Some(ErrorLocation { line: 1182, column: 5, offset: 39821 }) }
+Fri 14 Nov 15:37:14 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[1;33m⏳ Ensuring Rust bootstrap compiler can build...[0m
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[0;32m✅ Seen compiler source found[0m
+[0;32m✅ Rust bootstrap compiler ready[0m
+[0;32m✅ clang compiler available[0m
+🧹 Cleaning up previous bootstrap attempts...
+[0;34mUsing Rust bootstrap compiler to compile Seen compiler[0m
+Command: SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+   Compiling seen_cli v0.1.0 (/mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/seen_cli)
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_typechecker` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 30.77s
+     Running `/home/yousef/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen -o stage1_compiler.c`
+Compiling compiler_seen/src/main.seen with optimization level 0
+Error: Categorised { kind: Parser, message: "Invalid expression at Position { line: 241, column: 55, offset: 7411 } (while parsing compiler_seen/src/lexer/main.seen)", location: Some(ErrorLocation { line: 241, column: 55, offset: 7411 }) }
+[0;31m❌ STAGE 1 FAILED: No C code generated[0m
+Fri 14 Nov 15:38:49 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[1;33m⏳ Ensuring Rust bootstrap compiler can build...[0m
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[0;32m✅ Seen compiler source found[0m
+[0;32m✅ Rust bootstrap compiler ready[0m
+[0;32m✅ clang compiler available[0m
+🧹 Cleaning up previous bootstrap attempts...
+[0;34mUsing Rust bootstrap compiler to compile Seen compiler[0m
+Command: SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+   Compiling seen_cli v0.1.0 (/mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/seen_cli)
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_typechecker` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 30.69s
+     Running `/home/yousef/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen -o stage1_compiler.c`
+Compiling compiler_seen/src/main.seen with optimization level 0
+Error: Categorised { kind: Parser, message: "Invalid pattern: Expected pattern (while parsing compiler_seen/src/lexer/main.seen)", location: Some(ErrorLocation { line: 305, column: 17, offset: 9530 }) }
+[0;31m❌ STAGE 1 FAILED: No C code generated[0m
+Fri 14 Nov 15:40:22 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[1;33m⏳ Ensuring Rust bootstrap compiler can build...[0m
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[0;32m✅ Seen compiler source found[0m
+[0;32m✅ Rust bootstrap compiler ready[0m
+[0;32m✅ clang compiler available[0m
+🧹 Cleaning up previous bootstrap attempts...
+[0;34mUsing Rust bootstrap compiler to compile Seen compiler[0m
+Command: SEEN_ENABLE_MANIFEST_MODULES=1 cargo run -p seen_cli --release -- build compiler_seen/src/main.seen -o stage1_compiler.c
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+   Compiling seen_cli v0.1.0 (/mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang/seen_cli)
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:616:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+616 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_typechecker` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 30.82s
+     Running `/home/yousef/.cargo/target-shared/release/seen_cli build compiler_seen/src/main.seen -o stage1_compiler.c`
+Compiling compiler_seen/src/main.seen with optimization level 0
+Type error: Type mismatch: expected (), found String? at 1182:5
+Type error: Type mismatch: expected Void, found ?? at 96:5
+Type error: Variable 'errors' is already defined at 103:9
+Type error: Type mismatch: expected Void, found ?? at 296:5
+Type error: Type mismatch: expected Void, found ?? at 300:5
+Type error: Type mismatch: expected Void, found ?? at 304:5
+Type error: Type mismatch: expected Void, found ?? at 308:5
+Type error: Type mismatch: expected Void, found ?? at 312:5
+Type error: Type mismatch: expected Void, found ?? at 349:5
+Type error: Unknown field 'executionTime' in struct 'BenchmarkResult' at 276:37
+Type error: Unknown field 'opsPerSecond' in struct 'BenchmarkResult' at 276:37
+Type error: Unknown field 'success' in struct 'BenchmarkResult' at 276:37
+Type error: Missing field 'type' for struct 'IRValue' at 12:28
+Type error: Missing field 'isSSA' for struct 'IRValue' at 12:28
+Type error: Missing field 'definition' for struct 'IRValue' at 12:28
+Type error: Missing field 'name' for struct 'IRValue' at 12:28
+Type error: Missing field 'operands' for struct 'IRInstruction' at 41:34
+Type error: Missing field 'opcode' for struct 'IRInstruction' at 41:34
+Type error: Missing field 'result' for struct 'IRInstruction' at 41:34
+Type error: Missing field 'basicBlock' for struct 'IRInstruction' at 41:34
+Type error: Missing field 'label' for struct 'BasicBlock' at 71:28
+Type error: Missing field 'predecessors' for struct 'BasicBlock' at 71:28
+Type error: Missing field 'instructions' for struct 'BasicBlock' at 71:28
+Type error: Missing field 'successors' for struct 'BasicBlock' at 71:28
+Type error: Missing field 'dominator' for struct 'BasicBlock' at 71:28
+Type error: Missing field 'entry' for struct 'ControlFlowGraph' at 106:35
+Type error: Missing field 'blocks' for struct 'ControlFlowGraph' at 106:35
+Type error: Missing field 'currentBlock' for struct 'ControlFlowGraph' at 106:35
+Type error: Missing field 'valueCounter' for struct 'SSABuilder' at 136:33
+Type error: Missing field 'variableMap' for struct 'SSABuilder' at 136:33
+Type error: Missing field 'phiNodes' for struct 'SSABuilder' at 136:33
+Type error: Missing field 'stringLiterals' for struct 'IRGenerator' at 179:36
+Type error: Missing field 'globalValues' for struct 'IRGenerator' at 179:36
+Type error: Missing field 'cfg' for struct 'IRGenerator' at 179:36
+Type error: Missing field 'ssaBuilder' for struct 'IRGenerator' at 179:36
+Type error: Missing field 'functionContext' for struct 'IRGenerator' at 179:36
+Type error: Type mismatch: expected Void, found () at 188:5
+Type error: Type mismatch: expected Void, found () at 195:5
+Type error: Type mismatch: expected IRValue, found ?? at 224:46
+Type error: Type mismatch: expected IRValue, found ?? at 232:46
+Type error: Type mismatch: expected IRValue, found ?? at 239:48
+Type error: Type mismatch: expected IRValue, found ?? at 352:44
+Type error: Type mismatch: expected IRValue, found ?? at 362:41
+Type error: Type mismatch: expected IRValue, found ?? at 369:41
+Type error: Type mismatch: expected IRValue, found ?? at 396:45
+Type error: Type mismatch: expected IRValue, found ?? at 403:44
+Type error: Type mismatch: expected IRValue, found ?? at 411:41
+Type error: Type mismatch: expected IRValue, found ?? at 428:45
+Type error: Type mismatch: expected IRValue, found ?? at 435:44
+Type error: Type mismatch: expected IRValue, found ?? at 443:41
+Type error: Type mismatch: expected IRValue, found ?? at 456:9
+Type error: Missing field 'functionDeclarations' for struct 'CCodeGenerator' at 475:39
+Type error: Missing field 'variableMap' for struct 'CCodeGenerator' at 475:39
+Type error: Missing field 'indentLevel' for struct 'CCodeGenerator' at 475:39
+Type error: Missing field 'output' for struct 'CCodeGenerator' at 475:39
+Type error: Missing field 'entryBlock' for struct 'FunctionContext' at 693:38
+Type error: Missing field 'parameters' for struct 'FunctionContext' at 693:38
+Type error: Missing field 'name' for struct 'FunctionContext' at 693:38
+Type error: Missing field 'returnType' for struct 'FunctionContext' at 693:38
+Type error: Type mismatch: expected ExpressionNode, found ?? at 305:42
+Type error: Type mismatch: expected ExpressionNode, found ?? at 316:42
+Type error: Type mismatch: expected ExpressionNode, found ?? at 326:41
+Type error: Type mismatch: expected ExpressionNode, found ?? at 361:41
+Type error: Unknown field 'isArray' in struct 'TypeNode' at 814:20
+Type error: Unknown field 'arraySize' in struct 'TypeNode' at 816:24
+Type error: Type mismatch: expected String, found String? at 926:35
+Type error: Unknown field 'Label' in struct 'LoopStatement' at 1019:20
+Type error: Unknown field 'matchStmt' in struct 'StatementNode' at 1036:29
+Type error: Unknown field 'breakStmt' in struct 'StatementNode' at 1121:29
+Type error: Unknown field 'deferStmt' in struct 'StatementNode' at 1143:29
+Type error: Unknown field 'assertStmt' in struct 'StatementNode' at 1152:30
+Type error: Unknown field 'regionStmt' in struct 'StatementNode' at 1179:30
+Type error: Unknown field 'arenaStmt' in struct 'StatementNode' at 1202:29
+Type error: Type mismatch: expected Void, found Void? at 421:5
+Type error: Type mismatch: expected Void, found ?? at 117:5
+Type error: Unknown field 'expression' in struct 'ExpressionStatement' at 192:66
+Type error: Type mismatch: expected Expression, found ExpressionNode at 206:43
+Type error: Type mismatch: expected Void, found ?? at 213:5
+Type error: Type mismatch: expected Expression, found ExpressionNode at 229:43
+Type error: Type mismatch: expected Statement, found BlockNode at 243:26
+Type error: Type mismatch: expected Statement, found BlockNode at 252:30
+Type error: Type mismatch: expected Array<IRValue>, found IRValue at 446:44
+Type error: Type mismatch: expected Array<IRValue>, found IRValue at 456:44
+Type error: Function 'IRValue::new' expects 3 arguments, but 4 were provided at 577:40
+Type error: Type mismatch: expected Void, found ?? at 564:5
+Type error: Type mismatch: expected Array<IRValue>, found IRValue at 689:44
+Type error: Function 'IRValue::new' expects 3 arguments, but 4 were provided at 695:43
+Type error: Function 'IRValue::new' expects 3 arguments, but 4 were provided at 696:43
+Type error: Type mismatch: expected Void, found Void? at 410:5
+Type error: Type mismatch: expected String, found IRType at 449:33
+Type error: Type mismatch: expected Array<IRValue>, found IRValue at 450:44
+Type error: Type mismatch: expected String, found IRType at 451:43
+Type error: Type mismatch: expected String, found IRType at 470:33
+Type error: Type mismatch: expected Array<IRValue>, found IRValue at 471:44
+Type error: Type mismatch: expected String, found IRType at 479:33
+Type error: Type mismatch: expected Array<IRValue>, found IRValue at 480:44
+Type error: Type mismatch: expected String, found IRType at 489:33
+Type error: Type mismatch: expected Array<IRValue>, found IRValue at 490:44
+Type error: Function 'IRValue::new' expects 3 arguments, but 4 were provided at 491:43
+Type error: Type mismatch: expected String, found IRType at 491:43
+Type error: Type mismatch: expected String, found IRType at 500:43
+Type error: Type mismatch: expected String, found IRType at 507:43
+Type error: Type mismatch: expected String, found IRType at 508:43
+Type error: Type mismatch: expected String, found IRType at 517:47
+Type error: Type mismatch: expected String, found IRType at 527:37
+Type error: Type mismatch: expected String, found IRType at 531:43
+Type error: Type mismatch: expected Void, found ?? at 568:5
+Type error: Type mismatch: expected Void, found ?? at 572:5
+Type error: Unknown field 'type' in struct 'Token' at 211:28
+Type error: Missing field 'fileId' for struct 'Token' at 211:28
+Type error: Missing field 'tokenType' for struct 'Token' at 211:28
+Type error: Type mismatch: expected (), found ?? at 817:5
+Type error: Type mismatch: expected Void, found ?? at 266:5
+Type error: Invalid operation 'indexing' for types String and Int at 151:22
+Type error: Type mismatch: expected Void, found ?? at 149:5
+Type error: Function 'Token::new' expects 0 arguments, but 6 were provided at 166:30
+Type error: Missing field 'fileId' for struct 'Token' at 14:26
+Type error: Missing field 'value' for struct 'Token' at 14:26
+Type error: Missing field 'line' for struct 'Token' at 14:26
+Type error: Missing field 'length' for struct 'Token' at 14:26
+Type error: Missing field 'column' for struct 'Token' at 14:26
+Type error: Missing field 'type' for struct 'Token' at 14:26
+Type error: Missing field 'currentLanguage' for struct 'KeywordManager' at 55:37
+Type error: Missing field 'keywords' for struct 'KeywordManager' at 55:37
+Type error: Missing field 'column' for struct 'Position' at 119:27
+Type error: Missing field 'line' for struct 'Position' at 119:27
+Type error: Missing field 'offset' for struct 'Position' at 119:27
+Type error: Missing field 'fileId' for struct 'SeenLexer' at 148:30
+Type error: Missing field 'tokens' for struct 'SeenLexer' at 148:30
+Type error: Missing field 'source' for struct 'SeenLexer' at 148:30
+Type error: Missing field 'currentChar' for struct 'SeenLexer' at 148:30
+Type error: Missing field 'pos' for struct 'SeenLexer' at 148:30
+Type error: Missing field 'keywordManager' for struct 'SeenLexer' at 148:30
+Type error: Missing field 'position' for struct 'SeenLexer' at 148:30
+Type error: Type mismatch: expected (), found ?? at 394:5
+Type error: Type mismatch: expected Void, found ?? at 76:5
+Type error: Type mismatch: expected Void, found () at 96:5
+Type error: Type mismatch: expected Void, found () at 106:5
+Type error: Type mismatch: expected Void, found () at 110:5
+Type error: Type mismatch: expected Void, found () at 114:5
+Type error: Type mismatch: expected Void, found () at 118:5
+Type error: Type mismatch: expected Void, found () at 122:5
+Type error: Type mismatch: expected Void, found () at 18:5
+Type error: Type mismatch: expected Void, found () at 22:5
+Type error: Type mismatch: expected Void, found () at 16:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Unknown type 'Formula' at 45:30
+Type error: Function 'Token::new' expects 0 arguments, but 6 were provided at 506:83
+Type error: Invalid operation '==' for types TokenType and String at 581:44
+Type error: Type mismatch: expected Type, found ?? at 587:9
+Type error: Type mismatch: expected Expression, found ?? at 620:9
+Type error: Invalid operation '==' for types TokenType and String at 868:56
+Type error: Type mismatch: expected Type, found ?? at 938:9
+Type error: Type mismatch: expected Expression, found ?? at 956:9
+Type error: Invalid operation '==' for types TokenType and String at 1044:44
+Type error: Type mismatch: expected Array<Parameter>, found Type at 82:32
+Type error: Type mismatch: expected Array<Type>, found Bool at 151:28
+Type error: Type mismatch: expected Expression, found ?? at 221:9
+Type error: Type mismatch: expected Void, found ?? at 558:5
+Type error: Type mismatch: expected Void, found Token? at 643:5
+Type error: Unknown field 'line' in struct 'Expression' at 661:25
+Type error: Unknown field 'column' in struct 'Expression' at 661:42
+Type error: Unknown field 'line' in struct 'Expression' at 671:22
+Type error: Unknown field 'column' in struct 'Expression' at 671:36
+Type error: Type mismatch: expected Void, found ??? at 185:5
+Type error: Unknown field 'value' in struct 'RealToken' at 228:36
+Type error: Unknown field 'value' in struct 'RealToken' at 269:58
+Type error: Type mismatch: expected Void, found () at 8:5
+Type error: Type mismatch: expected Void, found () at 6:5
+Type error: Invalid operation '>=' for types Bool and Bool at 31:46
+Type error: Type mismatch: expected Void, found ?? at 329:5
+Type error: Type mismatch: expected Void, found ?? at 364:5
+Type error: Type mismatch: expected Void, found () at 7:1
+Type error: Type mismatch: expected Never, found () at 13:1
+Type error: Type mismatch: expected T, found () at 17:1
+Type error: Type mismatch: expected T, found () at 24:1
+Type error: Missing field 'codegen' for struct 'RealCompiler' at 1652:32
+Type error: Missing field 'parser' for struct 'RealCompiler' at 1652:32
+Type error: Missing field 'lexer' for struct 'RealCompiler' at 1652:32
+Type error: Type mismatch: expected Program, found ProgramNode at 397:42
+Type error: Missing field 'current' for struct 'RealParser' at 82:28
+Type error: Missing field 'symbols' for struct 'RealTypeChecker' at 96:38
+Type error: Missing field 'errors' for struct 'RealTypeChecker' at 96:38
+Type error: Unknown field 'isValid' in struct 'TypeResult' at 99:18
+Type error: Missing field 'variables' for struct 'RealCodeGenerator' at 110:36
+Type error: Missing field 'nextRegister' for struct 'RealCodeGenerator' at 110:36
+Type error: Missing field 'output' for struct 'RealCodeGenerator' at 110:36
+Type error: Missing field 'currentFunction' for struct 'RealCodeGenerator' at 110:36
+Type error: Missing field 'nextLabel' for struct 'RealCodeGenerator' at 110:36
+Type error: Undefined function 'TestPanicException' at 202:29
+Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected (), found String? at 1182:5", location: Some(ErrorLocation { line: 1182, column: 5, offset: 39821 }) }
+[0;31m❌ STAGE 1 FAILED: No C code generated[0m
+Fri 14 Nov 15:43:37 +03 2025: Starting bootstrap verification
+Working directory: /mnt/38a24835-0bcb-4215-bbd3-6951873512a5/Projects/Rust/seenlang
+[1;33m⏳ Ensuring Rust bootstrap compiler can build...[0m
