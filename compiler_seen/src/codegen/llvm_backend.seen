@@ -88,7 +88,7 @@ class LLVMBackend {
             " " + inputFile +
             " -o " + outputFile
         
-        let res: CommandResult = __ExecuteCommand(optCommand)
+        let res: CommandResult = execCommand(optCommand)
         
         if res.success {
             println("     ✓ LLVM optimization completed")
@@ -119,7 +119,7 @@ class LLVMBackend {
             " " + irFile +
             " -o " + objectFile
         
-        let res: CommandResult = __ExecuteCommand(llcCommand)
+        let res: CommandResult = execCommand(llcCommand)
         
         if res.success {
             println("     ✓ Object file generated")
@@ -149,13 +149,13 @@ class LLVMBackend {
             " -o " + executablePath +
             " -lm -lpthread -lrt"
         
-        let res: CommandResult = __ExecuteCommand(linkCommand)
+        let res: CommandResult = execCommand(linkCommand)
         
         if res.success {
             println("     ✓ Executable linked successfully")
             
             // Make executable
-            __ExecuteCommand("chmod +x " + executablePath)
+            execCommand("chmod +x " + executablePath)
             return true
         } else {
             println("     ❌ Linking failed: " + res.output)
@@ -407,7 +407,7 @@ class LLVMBackend {
     
     fun executeCommand(command: String) -> Int {
         println("     🔧 " + command)
-        let res: CommandResult = __ExecuteCommand(command)
+        let res: CommandResult = execCommand(command)
         return if res.success { 0 } else { 1 }
     }
     

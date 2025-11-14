@@ -5,13 +5,13 @@ import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
 // import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
-import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
+import process.process.{execCommand, runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
-fun println(text: String) -> Unit {
+fun println(text: String) -> Void {
     let _ignored = __WriteFile("/dev/stdout", text + "\n") as Bool
     return
 }
-fun print(text: String) -> Unit {
+fun print(text: String) -> Void {
     let _ignored = __WriteFile("/dev/stdout", text) as Bool
     return
 }
@@ -23,78 +23,68 @@ fun main() -> Int {
         printUsage()
         return 1
     }
-    
+
+    var exit: Int = 0
     let command = args[1]
     if command == "build" {
         let sourceResult = requireArg(args, 2, "Error: build command requires a source file")
         if sourceResult.isErr() {
             println(sourceResult.unwrapErr())
             println("Usage: seen build <source.seen> [output]")
-            return 1
+            exit = 1
+        } else {
+            let sourceFile = sourceResult.unwrap()
+            let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
+            exit = buildCommand(sourceFile, outputFile)
         }
-
-        let sourceFile = sourceResult.unwrap()
-        let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
-
-        return buildCommand(sourceFile, outputFile)
-    }
-
-    if command == "check" {
+    } else if command == "check" {
         let sourceResult = requireArg(args, 2, "Error: check command requires a source file")
         if sourceResult.isErr() {
             println(sourceResult.unwrapErr())
             println("Usage: seen check <source.seen>")
-            return 1
+            exit = 1
+        } else {
+            exit = checkCommand(sourceResult.unwrap())
         }
-
-        return checkCommand(sourceResult.unwrap())
-    }
-
-    if command == "run" {
+    } else if command == "run" {
         let sourceResult = requireArg(args, 2, "Error: run command requires a source file")
         if sourceResult.isErr() {
             println(sourceResult.unwrapErr())
             println("Usage: seen run <source.seen>")
-            return 1
+            exit = 1
+        } else {
+            exit = runProgramEntry(sourceResult.unwrap())
         }
-
-        return runProgramEntry(sourceResult.unwrap())
-    }
-
-    if command == "format" {
+    } else if command == "format" {
         let sourceResult = requireArg(args, 2, "Error: format command requires a source file")
         if sourceResult.isErr() {
             println(sourceResult.unwrapErr())
             println("Usage: seen format <source.seen>")
-            return 1
+            exit = 1
+        } else {
+            exit = formatCommand(sourceResult.unwrap())
         }
-
-        return formatCommand(sourceResult.unwrap())
-    }
-
-    if command == "init" {
+    } else if command == "init" {
         let projectName = getOptionalArg(args, 2).unwrapOr("new_project")
-        return initCommand(projectName)
-    }
-
-    if command == "--version" or command == "-v" {
+        exit = initCommand(projectName)
+    } else if command == "--version" or command == "-v" {
         println("Seen Compiler v2.0.0 (Self-hosted)")
         println("Language: Seen (س)")
         println("Status: REAL IMPLEMENTATION - Not a stub!")
-        return 0
-    }
-
-    if command == "--help" or command == "-h" {
+        exit = 0
+    } else if command == "--help" or command == "-h" {
         printUsage()
-        return 0
+        exit = 0
+    } else {
+        println("Error: Unknown command '{command}'")
+        printUsage()
+        exit = 1
     }
 
-    println("Error: Unknown command '{command}'")
-    printUsage()
-    return 1
+    return exit
 }
 
-fun printUsage() -> Unit {
+fun printUsage() -> Void {
     println("Seen Compiler v2.0.0 - Self-hosted Implementation")
     println("")
     println("Usage: seen <command> [options]")
@@ -117,6 +107,8 @@ fun printUsage() -> Unit {
     return
 }
 
+fun runCommand(command: String) -> CommandResult { return execCommand(command) }
+
 fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     // Run real frontend (lexer+parser+typechecker)
     let result = run_frontend(sourceCode, "<memory>", "en")
@@ -129,7 +121,9 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
     if not WriteFile(cFilePath, cCode) { return false } else { /* ok */ }
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath
-    let compileResult: CommandResult = execCommand(compileCommand)
+    // Fallback direct invocation while process module linking finalizes
+    // Use standard process API
+    let compileResult: CommandResult = runCommand(compileCommand)
     return if commandWasSuccessful(compileResult) { true } else { false }
 }
 
@@ -148,7 +142,7 @@ fun buildCommand(sourceFile: String, outputFile: String) -> Int {
     
     if success {
         println("✅ Build successful: {outputFile}")
-        return 0
+        exit = 0
     } else {
         println("❌ Build failed")
         return 1
@@ -303,14 +297,14 @@ fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> 
     return true
 }
 
-fun printFrontendDiagnostics(frontend: FrontendResult) -> Unit {
+fun printFrontendDiagnostics(frontend: FrontendResult) -> Void {
     let diagnostics = frontend.diagnostics
     for diag in diagnostics {
         println(formatFrontendDiagnostic(diag))
     }
 }
 
-fun printFrontendWarnings(frontend: FrontendResult) -> Unit {
+fun printFrontendWarnings(frontend: FrontendResult) -> Void {
     if not frontend.hasWarnings() {
         return
     }

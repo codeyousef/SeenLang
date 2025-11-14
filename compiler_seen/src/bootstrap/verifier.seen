@@ -348,6 +348,13 @@ fun runBootstrapVerification() -> Result<VerificationResult, String> {
 
 // Helper functions that will be implemented by the runtime
 fun getCurrentTime() -> Int {
-    // Returns current time in milliseconds since epoch
-    return 1640995200000 // Placeholder - would use actual system time
+    // Returns current time in milliseconds since epoch using system clock
+    let result = execCommand("date +%s")
+    if commandWasSuccessful(result) {
+        let out = commandOutput(result).trim()
+        if out.length() > 0 {
+            return out.toInt() * 1000
+        }
+    }
+    return 0
 }

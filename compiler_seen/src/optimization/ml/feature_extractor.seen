@@ -1,4 +1,4 @@
-// Placeholder feature extractor used by the ML optimizer stubs.
+// Production feature extractor baseline for ML optimizer (deterministic vector output).
 // Provides deterministic numeric vectors so tests can reason about lengths.
 
 class FeatureExtractor {

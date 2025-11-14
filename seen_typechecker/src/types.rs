@@ -275,6 +275,12 @@ impl Type {
         match (self, other) {
             (Type::Generic(_), _) => true,
             (_, Type::Generic(_)) => true,
+            // Treat legacy Void (struct) and Unit as identical
+            (Type::Unit, Type::Struct { name, .. }) if name == "Void" => true,
+            (Type::Struct { name, .. }, Type::Unit) if name == "Void" => true,
+            // Handle nullable Unit/Void equivalence
+            (Type::Nullable(inner), Type::Unit) if matches!(inner.as_ref(), Type::Unit) => true,
+            (Type::Unit, Type::Nullable(inner)) if matches!(inner.as_ref(), Type::Unit) => true,
             // Exact match
             (a, b) if a == b => true,
 

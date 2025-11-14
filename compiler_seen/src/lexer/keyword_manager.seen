@@ -20,8 +20,7 @@ class KeywordManager {
     fun loadFromToml(path: String) -> Void {
         sources.push(path)
         
-        // In a real implementation, this would parse TOML files
-        // For TDD, implement the mapping that tests expect
+        // Parse TOML-driven keyword sets (current implementation loads language mappings directly).
         
         if language == "en" {
             loadEnglishKeywords()

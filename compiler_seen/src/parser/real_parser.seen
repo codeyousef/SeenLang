@@ -171,15 +171,28 @@ class RealParser {
 
         if checkToken(TokenType.Identifier) {
             let token = advance()
-            typeNode.typeName = token.getValue()
+            var name = token.getValue()
+            // Support qualified names
+            while matchToken(TokenType.Dot) {
+                if checkToken(TokenType.Identifier) {
+                    name = name + "." + advance().getValue()
+                } else { break }
+            }
+            // Skip generic parameters <...>
+            if matchToken(TokenType.LessThan) {
+                var depth = 1
+                while depth > 0 and not isAtEnd() {
+                    if matchToken(TokenType.LessThan) { depth = depth + 1; continue }
+                    if matchToken(TokenType.GreaterThan) { depth = depth - 1; continue }
+                    advance()
+                }
+            }
+            typeNode.typeName = name
         } else {
             typeNode.typeName = "Unknown"
         }
 
-        if matchToken(TokenType.Question) {
-            typeNode.isNullable = true
-        }
-
+        if matchToken(TokenType.Question) { typeNode.isNullable = true }
         return typeNode
     }
 

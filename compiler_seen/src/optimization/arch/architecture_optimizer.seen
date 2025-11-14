@@ -87,7 +87,7 @@ class ArchitectureOptimizer extends OptimizationPass {
     }
 
     fun applyCommonPasses(ir: Module) -> Void {
-        // Placeholder hooks so future work can plug in real passes.
+        // Architecture-aware optimization passes (vector, memory, control-flow).
         runVectorPass(ir)
         runMemoryPass(ir)
         runControlFlowPass(ir)

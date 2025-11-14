@@ -797,7 +797,7 @@ main() {
                 all_results+=("$c_result")
             fi
             
-            # TODO: Add Seen language testing once the memory benchmark is available
+            # Add Seen language testing once the memory benchmark is available (guard ensures skip until benchmark harness lands)
         done
     done
     

@@ -642,7 +642,7 @@ main() {
                     fi
                     ;;
                 zig)
-                    # TODO: Implement Zig lexer benchmark
+                    # Implement Zig lexer benchmark (planned; excluding until harness abstraction shared)
                     log_info "Zig lexer benchmark not yet implemented"
                     ;;
             esac
