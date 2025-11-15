@@ -765,7 +765,7 @@ impl TypeChecker {
             "Bool" => Type::Bool,
             "String" => Type::String,
             "Char" => Type::Char,
-            "()" => Type::Unit,
+            "Void" | "()" => Type::Unit,
             "Array" | "List" | "Vec" => {
                 if resolved_args.len() == 1 {
                     Type::Array(Box::new(resolved_args[0].clone()))
@@ -2894,8 +2894,8 @@ impl TypeChecker {
                 .define_variable(name.to_string(), declared_type.clone());
         }
 
-        // Let expressions return the bound value
-        declared_type
+        // Let declarations are statements; they evaluate to Unit
+        Type::Unit
     }
 
     /// Type check array literal

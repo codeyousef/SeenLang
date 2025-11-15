@@ -9,13 +9,15 @@ import process.process.{execCommand, runCommand, CommandResult, commandWasSucces
 
 
 fun println(text: String) -> Void {
-    discardBool(__WriteFile("/dev/stdout", text + "\n") as Bool)
+    let _w: Bool = WriteFile("/dev/stdout", text + "\n")
+    return
 }
 // Utility to explicitly discard boolean-returning calls
 fun discardBool(value: Bool) -> Void { return }
 
 fun print(text: String) -> Void {
-    discardBool(__WriteFile("/dev/stdout", text) as Bool)
+    let _w: Bool = WriteFile("/dev/stdout", text)
+    return
 }
 
 
@@ -91,7 +93,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     // Run real frontend (lexer+parser+typechecker)
     let result = run_frontend(sourceCode, "<memory>", "en")
     if not result.success {
-        printFrontendDiagnostics(result)
+        println("Frontend errors detected")
         return false
     }
     // Minimal C codegen and native compile
@@ -102,7 +104,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     // Fallback direct invocation while process module linking finalizes
     // Use standard process API
     let compileResult: CommandResult = runCommand(compileCommand)
-    return if commandWasSuccessful(compileResult) { true } else { false }
+    return commandWasSuccessful(compileResult)
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) -> Int {
@@ -139,14 +141,14 @@ fun checkCommand(sourceFile: String) -> Int {
     let result = run_frontend(sourceCode, sourceFile, "en")
     if not result.success {
         println("❌ Frontend validation failed.")
-        printFrontendDiagnostics(result)
+        println("Frontend errors detected")
         return 1
     }
 
     printFrontendWarnings(result)
     println("✅ Type check passed")
     let _ok: Int = 0
-    return _ok
+    _ok
 }
 
 
@@ -189,36 +191,11 @@ fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> 
         printFrontendDiagnostics(frontend)
         return false
     }
-    printFrontendWarnings(frontend)
     return true
 }
 
-fun printFrontendDiagnostics(frontend: FrontendResult) -> Void {}
-
-fun printFrontendWarnings(frontend: FrontendResult) -> Void {}
-// separator comment to avoid empty statement
-
-fun formatFrontendDiagnostic(diag: FrontendDiagnostic) -> String {
-    let file = diag.file
-    let line = diag.line
-    let col = diag.column
-    let sev = diag.severity
-    let msg = diag.message
-    return "" + file + ":" + line + ":" + col + ": " + sev + ": " + msg
-}
-
-fun formatFrontendWarning(diag: FrontendDiagnostic) -> String {
-    let file = diag.file
-    let line = diag.line
-    let col = diag.column
-    let msg = diag.message
-    return "" + file + ":" + line + ":" + col + ": warning: " + msg
-}
-
-fun isFrontendWarning(diag: FrontendDiagnostic) -> Bool {
-    let sev = diag.severity
-    return sev == "warning"
-}
+fun printFrontendDiagnostics(frontend: FrontendResult) -> Void { return }
+fun printFrontendWarnings(frontend: FrontendResult) -> Void { return }
 
 // Runtime helper shims
 fun FormatSeenCode(source: String) -> String { return source }

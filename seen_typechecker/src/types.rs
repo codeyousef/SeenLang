@@ -155,6 +155,7 @@ impl Type {
                 "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!="
             ),
             Type::String => {
+                // Permit String + any (toString at codegen), and comparisons
                 matches!(op, "+" | "==" | "!=" | "<" | ">" | "<=" | ">=")
             }
             Type::Bool => {
@@ -210,6 +211,10 @@ impl Type {
 
             // Logical operations
             (Type::Bool, "and" | "or", Type::Bool) => Some(Type::Bool),
+
+            // String + any coerces to String
+            (Type::String, "+", _) => Some(Type::String),
+            (_, "+", Type::String) => Some(Type::String),
 
             // Equality for any type - allow comparing same types even if one is nullable
             (a, "==" | "!=", b) if a == b => Some(Type::Bool),
@@ -483,7 +488,7 @@ impl From<&seen_parser::ast::Type> for Type {
             "Bool" => Type::Bool,
             "String" => Type::String,
             "Char" => Type::Char,
-            "()" => Type::Unit,
+            "Void" | "()" => Type::Unit,
             _ => {
                 // Single-letter uppercase identifiers are treated as generics by convention
                 if ast_type.generics.is_empty()
