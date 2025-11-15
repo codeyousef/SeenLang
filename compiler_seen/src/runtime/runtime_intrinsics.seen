@@ -1,5 +1,6 @@
 import process.process.{execCommand, CommandResult}
 import str.string.{trim}
+import time.time.{nowNanos}
 
 fun GetCurrentTimeNanos() -> Int {
     let res: CommandResult = execCommand("date +%s%N 2>/dev/null || date +%s000000000")
@@ -7,8 +8,8 @@ fun GetCurrentTimeNanos() -> Int {
         let txt = trim(res.output)
         if txt.length() > 0 { return txt.toInt() }
     }
-    // Fallback to ms precision if needed
-    return (__GetTimestamp().toInt()) * 1000000000
+    // Deterministic fallback through std time helpers
+    return nowNanos()
 }
 
 fun AllocateMemory(size: Int) -> Int {

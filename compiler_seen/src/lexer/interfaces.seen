@@ -1,5 +1,7 @@
 // Lexer Module Interfaces - Production contracts
 import lexer.keyword_manager.{KeywordManager as RealKeywordManager}
+import str.string.{StringBuilder}
+import time.time.{nowMillis}
 
 // Token types for the Seen language
 enum TokenType {
@@ -333,18 +335,6 @@ fun tokenTypeIsKeyword(tokenType: TokenType) -> Bool {
     }
 }
 
-// Utility functions expected by tests
-class StringBuilder {
-    var parts: Array<String>
-    fun new() -> StringBuilder { this.parts = Array<String>(); return this }
-    fun append(s: String) -> Void { parts.push(s) }
-    fun toString() -> String {
-        var out = ""
-        for p in parts { out = out + p }
-        return out
-    }
-}
-
 fun generateLargeSource(tokenCount: Int) -> String {
     let builder = StringBuilder.new()
     for i in 0..tokenCount/10 {
@@ -354,6 +344,5 @@ fun generateLargeSource(tokenCount: Int) -> String {
 }
 
 fun getCurrentTime() -> Int {
-    // System time in milliseconds - to be implemented by runtime
-    return 0
+    return nowMillis()
 }

@@ -1,35 +1,41 @@
-// Compiler utilities - standalone functions for bootstrap compiler
-// These wrap runtime builtins and provide helper utilities
+// Compiler utilities - thin adapters over seen_std modules.
+
+import io.file.{readText as stdReadText, writeText as stdWriteText, appendText as stdAppendText, exists as stdExists, size as stdFileSize, hash as stdFileHash, ensureParentDirectories as stdEnsureParents}
+import fs.path.{dirname as stdDirname}
+import process.process.{runProgram, runCommandOutput, shellQuote as stdShellQuote}
+import time.time.{nowSeconds}
+import str.string.{trim as stdTrim, join}
+
 fun readText(path: String) -> String {
-    return __ReadFile(path)
+    return stdReadText(path)
 }
 
 fun writeText(path: String, contents: String) -> Bool {
-    return __WriteFile(path, contents)
+    return stdWriteText(path, contents)
 }
 
 fun appendText(path: String, contents: String) -> Bool {
-    return __AppendFile(path, contents)
+    return stdAppendText(path, contents)
 }
 
 fun FileExists(path: String) -> Bool {
-    return __FileExists(path)
+    return stdExists(path)
 }
 
 fun GetFileSize(path: String) -> Int {
-    return __GetFileSize(path)
+    return stdFileSize(path)
 }
 
 fun GetFileHash(path: String) -> String {
-    return __GetFileHash(path)
+    return stdFileHash(path)
 }
 
 fun getCurrentTime() -> Float {
-    return __GetTimestamp().toFloat()
+    return nowSeconds().toFloat()
 }
 
 fun runCommandStatus(command: String) -> Int {
-    return __ExecuteProgram(command)
+    return runProgram(command)
 }
 
 fun isExitSuccess(exitCode: Int) -> Bool {
@@ -37,82 +43,29 @@ fun isExitSuccess(exitCode: Int) -> Bool {
 }
 
 fun getCommandOutput(command: String) -> String {
-    return __CommandOutput(command)
+    return runCommandOutput(command)
 }
 
 fun shellQuote(arg: String) -> String {
-    // Simple shell quoting - wrap in single quotes and escape existing single quotes
-    return "'" + arg.replace("'", "'\\''") + "'"
+    return stdShellQuote(arg)
 }
 
 fun joinLines(lines: Array<String>) -> String {
-    var result = ""
-    for line in lines {
-        result = result + line + "\n"
+    if lines.length() == 0 {
+        return ""
     }
-    return result
+    let combined = join(lines, "\n")
+    return combined + "\n"
 }
 
 fun ensureParentDirectories(path: String) -> Bool {
-    let dir = dirname(path)
-    if dir.length() > 0 {
-        return __CreateDirectory(dir)
-    }
-    return true
-}
-
-fun lastSlashIndex(path: String) -> Int {
-    var index = path.length() - 1
-    while index >= 0 {
-        let char = path.charAt(index)
-        if char == "/" or char == "\\" {
-            return index
-        }
-        index = index - 1
-    }
-    return -1
+    return stdEnsureParents(path)
 }
 
 fun dirname(path: String) -> String {
-    let idx = lastSlashIndex(path)
-    if idx < 0 {
-        return ""
-    }
-    return path.substring(0, idx)
+    return stdDirname(path)
 }
 
-// Hash map utilities
-fun nextPowerOfTwo(value: Int) -> Int {
-    var size = 1
-    while size < value {
-        size = size * 2
-    }
-    return size
-}
-
-fun hashString(value: String) -> Int {
-    var hash = 0
-    var index = 0
-    while index < value.length() {
-        hash = ((hash * 31) + value[index].toInt()) % 2147483647
-        index = index + 1
-    }
-    return hash
-}
-
-fun defaultCapacity() -> Int {
-    return 16
-}
-
-fun maxLoadPercent() -> Int {
-    return 75
-}
-
-fun tombstoneState() -> Int {
-    return -1
-}
-
-// String utilities
 fun trim(value: String) -> String {
-    return value.trimStart().trimEnd()
+    return stdTrim(value)
 }

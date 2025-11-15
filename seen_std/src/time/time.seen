@@ -9,6 +9,10 @@ fun nowMillis() -> Int {
     return nowSeconds() * 1000
 }
 
+fun nowNanos() -> Int {
+    return nowSeconds() * 1000000000
+}
+
 fun parseTimestamp(value: String) -> Int {
     if value.length() == 0 {
         return 0

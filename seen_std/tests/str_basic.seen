@@ -57,7 +57,9 @@ fun main() -> Int {
     expect(trimmed == "bootstrap", "trim should remove whitespace")
     expect(trimStart("   seen") == "seen", "trimStart mismatch")
     expect(trimEnd("alpha  ") == "alpha", "trimEnd mismatch")
+    expect(trim("\u00A0wide\u00A0") == "wide", "trim should drop unicode whitespace")
     expect(isBlank(" \t\r"), "isBlank should treat whitespace as blank")
+    expect(isBlank("\u00A0"), "NBSP should count as whitespace")
     expect(not isBlank("  seen"), "isBlank should reject non-whitespace text")
 
     expect(contains("deterministic", "mini"), "substring match expected")
@@ -80,6 +82,8 @@ fun main() -> Int {
 
     let tokens = splitWhitespace(" Seen \tstd\nplan ", true)
     expect(tokens.length() == 3, "splitWhitespace dropEmpty mismatch")
+    let unicodeTokens = splitWhitespace("\u00A0alpha\u000Bbeta", true)
+    expect(unicodeTokens.length() == 2, "splitWhitespace should treat unicode whitespace as separators")
     expect(words("two  words").length() == 2, "words should skip double spaces")
 
     expect(replaceFirst("foofoo", "foo", "bar") == "barfoo", "replaceFirst mismatch")

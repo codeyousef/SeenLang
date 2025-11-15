@@ -46,7 +46,7 @@ fn compiler_complete_lexer_parses() {
     let workspace = workspace_root();
     Command::new(assert_cmd::cargo::cargo_bin!("seen_cli"))
         .current_dir(&workspace)
-        .args(["parse", "compiler_seen/src/lexer/complete_lexer.seen"])
+        .args(["parse", "compiler_seen/src/lexer/real_lexer.seen"])
         .assert()
         .success();
 }

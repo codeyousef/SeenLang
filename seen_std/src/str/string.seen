@@ -439,5 +439,15 @@ fun CString.toSeenString() -> String {
 }
 
 fun isWhitespace(ch: Char) -> Bool {
-    return ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r'
+    if ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' {
+        return true
+    }
+    let code = ch.toInt()
+    if code == 11 or code == 12 {
+        return true
+    }
+    if code == 160 {
+        return true
+    }
+    return false
 }

@@ -25,6 +25,7 @@ import math.math.{
     remap,
     saturatingAdd,
     saturatingSub,
+    saturatingMul,
     sign,
     sin,
     smoothstep,
@@ -33,6 +34,9 @@ import math.math.{
     wrappingAdd,
     wrappingMul,
     wrappingSub,
+    checkedAdd,
+    checkedSub,
+    checkedMul,
     checkedDiv,
     pow
 }
@@ -75,11 +79,15 @@ fun main() -> Int {
 
     expect(saturatingAdd(Int.max(), 10) == Int.max(), "saturatingAdd upper bound")
     expect(saturatingSub(Int.min(), 10) == Int.min(), "saturatingSub lower bound")
+    expect(saturatingMul(Int.max(), 2) == Int.max(), "saturatingMul should clamp upper bound")
 
     let wrap = wrappingAdd(Int.max(), 2)
     expect(wrap < 0, "wrappingAdd should wrap around overflow")
     expect(wrappingMul(Int.max(), 2) != 0, "wrappingMul should overflow via wrap")
 
+    expect(checkedAdd(10, 5) == 15, "checkedAdd should add values")
+    expect(checkedSub(10, 5) == 5, "checkedSub should subtract values")
+    expect(checkedMul(3, 4) == 12, "checkedMul should multiply values")
     expect(checkedDiv(10, 2) == 5, "checkedDiv should divide values")
     expect(approxEqual(lerp(0.0, 10.0, 0.25), 2.5), "lerp mismatch")
     expect(approxEqual(remap(5.0, 0.0, 10.0, 0.0, 1.0), 0.5), "remap mismatch")

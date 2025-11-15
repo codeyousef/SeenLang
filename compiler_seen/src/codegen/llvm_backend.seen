@@ -1,6 +1,10 @@
 // LLVM Backend - Compiles LLVM IR to Native Executables
 // Handles the complete compilation pipeline from LLVM IR to optimized binaries
 
+import io.file.{writeText as stdWriteText, readText as stdReadText}
+import time.time.{nowNanos}
+import process.process.{execCommand, CommandResult}
+
 class LLVMBackend {
     var optimizationLevel: Int
     var targetTriple: String
@@ -412,17 +416,15 @@ class LLVMBackend {
     }
     
     fun writeFile(path: String, content: String) -> Bool {
-        return __WriteFile(path, content) as Bool
+        return stdWriteText(path, content)
     }
     
     fun readFile(path: String) -> String? {
-        return __ReadFile(path)
+        return stdReadText(path)
     }
     
     fun getCurrentTimeNanos() -> Int {
-        // Prefer high-resolution when available
-        let ts = __GetTimestamp()
-        return (ts.toInt()) * 1000000000
+        return nowNanos()
     }
 }
 

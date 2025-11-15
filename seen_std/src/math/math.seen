@@ -262,6 +262,50 @@ fun saturatingSub(a: Int, b: Int) -> Int {
     return result
 }
 
+fun saturatingMul(a: Int, b: Int) -> Int {
+    if a == 0 or b == 0 {
+        return 0
+    }
+    let result = a * b
+    if (a == -1 and b == Int.min()) or (b == -1 and a == Int.min()) {
+        return Int.max()
+    }
+    if (result / b) != a {
+        if (a > 0 and b > 0) or (a < 0 and b < 0) {
+            return Int.max()
+        }
+        return Int.min()
+    }
+    return result
+}
+
+fun checkedAdd(a: Int, b: Int) -> Int {
+    let result = a + b
+    if (a > 0 and b > 0 and result < 0) or (a < 0 and b < 0 and result > 0) {
+        abort("checkedAdd overflow")
+    }
+    return result
+}
+
+fun checkedSub(a: Int, b: Int) -> Int {
+    let result = a - b
+    if (a >= 0 and b < 0 and result < 0) or (a <= 0 and b > 0 and result > 0) {
+        abort("checkedSub overflow")
+    }
+    return result
+}
+
+fun checkedMul(a: Int, b: Int) -> Int {
+    if a == 0 or b == 0 {
+        return 0
+    }
+    let result = a * b
+    if result / b != a {
+        abort("checkedMul overflow")
+    }
+    return result
+}
+
 fun wrappingAdd(a: Int, b: Int) -> Int {
     return (a + b) // wrap via overflow semantics
 }

@@ -2,6 +2,7 @@
 // File-system helpers backed by deterministic host builtins.
 
 import str.string.{StringBuilder, lines}
+import fs.path.{dirname, normalize, isAbsolute, splitComponents}
 
 fun readText(path: String) -> String {
     return __ReadFile(path)
@@ -33,15 +34,65 @@ fun writeLines(path: String, values: Array<String>, separator: String = "\n") ->
 }
 
 fun appendText(path: String, contents: String) -> Bool {
-    let current = readText(path)
-    let builder = StringBuilder.new()
-    builder.append(current)
-    builder.append(contents)
-    return writeText(path, builder.toString())
+    return __AppendFile(path, contents)
+}
+
+fun exists(path: String) -> Bool {
+    return __FileExists(path)
+}
+
+fun size(path: String) -> Int {
+    return __GetFileSize(path)
+}
+
+fun hash(path: String) -> String {
+    return __GetFileHash(path)
 }
 
 fun createDirectory(path: String) -> Bool {
     return __CreateDirectory(path)
+}
+
+fun ensureDirectory(path: String) -> Bool {
+    if path.length() == 0 or path == "." {
+        return true
+    }
+    let normalized = normalize(path)
+    if normalized == "." {
+        return true
+    }
+    if normalized == "/" {
+        return true
+    }
+    let components = splitComponents(normalized)
+    if components.length() == 0 {
+        return __CreateDirectory(normalized) or exists(normalized)
+    }
+    var current = if isAbsolute(normalized) { "/" } else { "" }
+    var index = 0
+    while index < components.length() {
+        if current.length() == 0 {
+            current = components[index]
+        } else if current == "/" {
+            current = current + components[index]
+        } else {
+            current = current + "/" + components[index]
+        }
+        let created = __CreateDirectory(current)
+        if not created and not exists(current) {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun ensureParentDirectories(path: String) -> Bool {
+    let parent = dirname(path)
+    if parent.length() == 0 or parent == "." {
+        return true
+    }
+    return ensureDirectory(parent)
 }
 
 fun deleteFile(path: String) -> Bool {

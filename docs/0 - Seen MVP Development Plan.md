@@ -641,14 +641,18 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 
 #### Stdlib Completion (Only pieces compiler_seen depends on for production)
 
-- [ ] S1: std.str finalize (remaining whitespace/search edge cases; confirm bootstrap uses it exclusively).
-- [ ] S2: std.math finalize (checked/saturating/wrapping ops used by compiler code paths if any).
-- [ ] S3: Collections: confirm compiler_seen uses std Vec/Map/StdString/StringHashMap exclusively (remove bespoke
+- [x] S1: std.str finalize (remaining whitespace/search edge cases; confirm bootstrap uses it exclusively).
+- [x] S2: std.math finalize (checked/saturating/wrapping ops used by compiler code paths if any).
+- [x] S3: Collections: confirm compiler_seen uses std Vec/Map/StdString/StringHashMap exclusively (remove bespoke
   builders/maps).
-- [ ] S4: std.io / std.fs: route all file and path operations through stdlib wrappers; remove raw builtins.
-- [ ] S5: std.process / std.env / std.time: confirm all subprocess/env/time usage goes through stdlib.
-- [ ] S6: Concurrency primitives actually used by compiler (channels/tasks) stabilized; remove any runtime stub
+- [x] S4: std.io / std.fs: route all file and path operations through stdlib wrappers; remove raw builtins.
+- [x] S5: std.process / std.env / std.time: confirm all subprocess/env/time usage goes through stdlib.
+- [x] S6: Concurrency primitives actually used by compiler (channels/tasks) stabilized; remove any runtime stub
   fallbacks.
+
+> std.str now owns the builder/whitespace helpers, std.math exposes the checked/saturating ops the compiler relies on,
+> compiler utilities route through std.io/fs/process/env/time, and the async/task wrappers call the seen_runtime
+> symbols directly so there are no stub fallbacks in stage1.
 
 #### Determinism & Build Pipeline
 
