@@ -8,16 +8,14 @@ import core.result.{Result, Ok, Err}
 import process.process.{execCommand, runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 
-fun println(text: String) -> Void {
+fun println(text: String) -> Unit {
     let _w: Bool = WriteFile("/dev/stdout", text + "\n")
-    return
 }
 // Utility to explicitly discard boolean-returning calls
-fun discardBool(value: Bool) -> Void { return }
+fun discardBool(value: Bool) -> Unit { }
 
-fun print(text: String) -> Void {
+fun print(text: String) -> Unit {
     let _w: Bool = WriteFile("/dev/stdout", text)
-    return
 }
 
 
@@ -68,7 +66,7 @@ fun main() -> Int {
     return exit
 }
 
-fun printUsage() -> Void {
+fun printUsage() -> Unit {
     println("Seen Compiler v2.0.0 - Self-hosted Implementation")
     println("")
     println("Usage: seen <command> [options]")
@@ -85,6 +83,7 @@ fun printUsage() -> Void {
     println("  seen run hello.seen           Run program immediately")
     println("  seen check src/*.seen         Type check all files")
     println("  seen init my_project          Create new project")
+    ()
 }
 
 fun runCommand(command: String) -> CommandResult { return execCommand(command) }
@@ -162,8 +161,8 @@ fun formatCommand(sourceFile: String) -> Int {
         return 1
     }
     
-    // Format the code
-    let formatted: String = FormatSeenCode(sourceCode)
+    // Format the code (formatter integrated later)
+    let formatted: String = sourceCode
     
     // Write back to file
     discardBool(WriteFile(sourceFile, formatted))
@@ -194,11 +193,9 @@ fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> 
     return true
 }
 
-fun printFrontendDiagnostics(frontend: FrontendResult) -> Void { return }
-fun printFrontendWarnings(frontend: FrontendResult) -> Void { return }
+fun printFrontendDiagnostics(frontend: FrontendResult) -> Unit { }
+fun printFrontendWarnings(frontend: FrontendResult) -> Unit { }
 
-// Runtime helper shims
-fun FormatSeenCode(source: String) -> String { return source }
 
 // Argument helpers backed by seen_std Option/Result
 

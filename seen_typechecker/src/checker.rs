@@ -765,7 +765,7 @@ impl TypeChecker {
             "Bool" => Type::Bool,
             "String" => Type::String,
             "Char" => Type::Char,
-            "Void" | "()" => Type::Unit,
+            "Void" | "()" | "Unit" => Type::Unit,
             "Array" | "List" | "Vec" => {
                 if resolved_args.len() == 1 {
                     Type::Array(Box::new(resolved_args[0].clone()))

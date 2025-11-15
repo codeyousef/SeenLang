@@ -488,7 +488,7 @@ impl From<&seen_parser::ast::Type> for Type {
             "Bool" => Type::Bool,
             "String" => Type::String,
             "Char" => Type::Char,
-            "Void" | "()" => Type::Unit,
+            "Void" | "()" | "Unit" => Type::Unit,
             _ => {
                 // Single-letter uppercase identifiers are treated as generics by convention
                 if ast_type.generics.is_empty()
