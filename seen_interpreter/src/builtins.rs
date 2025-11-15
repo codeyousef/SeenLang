@@ -486,7 +486,9 @@ fn builtin_command_output(args: &[Value], _position: Position) -> InterpreterRes
     let output = Command::new("sh").arg("-c").arg(cmd).output();
 
     match output {
-        Ok(o) => Ok(Value::String(String::from_utf8_lossy(&o.stdout).to_string())),
+        Ok(o) => Ok(Value::String(
+            String::from_utf8_lossy(&o.stdout).to_string(),
+        )),
         Err(_) => Ok(Value::String(String::new())),
     }
 }

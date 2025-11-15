@@ -71,7 +71,12 @@ impl SmartCastContext {
 
 /// Helper function to check if two types match for smart casting purposes
 fn types_match(left: &Type, right: &Type) -> bool {
+    if left.is_unit_like() && right.is_unit_like() {
+        return true;
+    }
+
     match (left, right) {
+        (Type::Never, _) | (_, Type::Never) => true,
         (Type::Int, Type::Int) => true,
         (Type::Float, Type::Float) => true,
         (Type::Bool, Type::Bool) => true,

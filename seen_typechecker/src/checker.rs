@@ -147,9 +147,12 @@ impl TypeChecker {
             Expression::ClassDefinition { name, generics, .. } => {
                 self.predeclare_struct_type(name, generics)
             }
-            Expression::EnumDefinition { name, generics, variants, .. } => {
-                self.predeclare_enum_type_with_variants(name, generics, variants)
-            }
+            Expression::EnumDefinition {
+                name,
+                generics,
+                variants,
+                ..
+            } => self.predeclare_enum_type_with_variants(name, generics, variants),
             Expression::Interface { name, generics, .. } => {
                 self.predeclare_interface_type(name, generics)
             }
@@ -630,7 +633,12 @@ impl TypeChecker {
         self.env.define_type(name.to_string(), placeholder);
     }
 
-    fn predeclare_enum_type_with_variants(&mut self, name: &str, generics: &[String], variants: &[seen_parser::ast::EnumVariant]) {
+    fn predeclare_enum_type_with_variants(
+        &mut self,
+        name: &str,
+        generics: &[String],
+        variants: &[seen_parser::ast::EnumVariant],
+    ) {
         if self.env.get_type(name).is_some() {
             return;
         }
@@ -657,7 +665,12 @@ impl TypeChecker {
         self.env.define_type(name.to_string(), placeholder);
     }
 
-    fn handle_import(&mut self, module_path: &[String], symbols: &[seen_parser::ast::ImportSymbol], _pos: Position) {
+    fn handle_import(
+        &mut self,
+        module_path: &[String],
+        symbols: &[seen_parser::ast::ImportSymbol],
+        _pos: Position,
+    ) {
         // Special handling for commonly imported modules - add stubs for known functions
         // This allows the self-hosted compiler to reference standard functions
         let module_name = module_path.join(".");
@@ -670,12 +683,18 @@ impl TypeChecker {
                         "FrontendResult" => {
                             let mut fields = HashMap::new();
                             fields.insert("success".to_string(), Type::Bool);
-                            fields.insert("diagnostics".to_string(), Type::Array(Box::new(Type::Unknown)));
-                            self.env.define_type("FrontendResult".to_string(), Type::Struct {
-                                name: "FrontendResult".to_string(),
-                                fields,
-                                generics: vec![],
-                            });
+                            fields.insert(
+                                "diagnostics".to_string(),
+                                Type::Array(Box::new(Type::Unknown)),
+                            );
+                            self.env.define_type(
+                                "FrontendResult".to_string(),
+                                Type::Struct {
+                                    name: "FrontendResult".to_string(),
+                                    fields,
+                                    generics: vec![],
+                                },
+                            );
                         }
                         "FrontendDiagnostic" => {
                             let mut fields = HashMap::new();
@@ -684,31 +703,49 @@ impl TypeChecker {
                             fields.insert("column".to_string(), Type::Int);
                             fields.insert("severity".to_string(), Type::String);
                             fields.insert("message".to_string(), Type::String);
-                            self.env.define_type("FrontendDiagnostic".to_string(), Type::Struct {
-                                name: "FrontendDiagnostic".to_string(),
-                                fields,
-                                generics: vec![],
-                            });
+                            self.env.define_type(
+                                "FrontendDiagnostic".to_string(),
+                                Type::Struct {
+                                    name: "FrontendDiagnostic".to_string(),
+                                    fields,
+                                    generics: vec![],
+                                },
+                            );
                         }
                         "run_frontend" => {
                             // Register run_frontend function
                             let mut result_fields = HashMap::new();
                             result_fields.insert("success".to_string(), Type::Bool);
-                            result_fields.insert("diagnostics".to_string(), Type::Array(Box::new(Type::Unknown)));
+                            result_fields.insert(
+                                "diagnostics".to_string(),
+                                Type::Array(Box::new(Type::Unknown)),
+                            );
 
-                            self.env.define_function("run_frontend".to_string(), FunctionSignature {
-                                name: "run_frontend".to_string(),
-                                parameters: vec![
-                                    Parameter { name: "source".to_string(), param_type: Type::String },
-                                    Parameter { name: "fileLabel".to_string(), param_type: Type::String },
-                                    Parameter { name: "language".to_string(), param_type: Type::String },
-                                ],
-                                return_type: Some(Type::Struct {
-                                    name: "FrontendResult".to_string(),
-                                    fields: result_fields,
-                                    generics: vec![],
-                                }),
-                            });
+                            self.env.define_function(
+                                "run_frontend".to_string(),
+                                FunctionSignature {
+                                    name: "run_frontend".to_string(),
+                                    parameters: vec![
+                                        Parameter {
+                                            name: "source".to_string(),
+                                            param_type: Type::String,
+                                        },
+                                        Parameter {
+                                            name: "fileLabel".to_string(),
+                                            param_type: Type::String,
+                                        },
+                                        Parameter {
+                                            name: "language".to_string(),
+                                            param_type: Type::String,
+                                        },
+                                    ],
+                                    return_type: Some(Type::Struct {
+                                        name: "FrontendResult".to_string(),
+                                        fields: result_fields,
+                                        generics: vec![],
+                                    }),
+                                },
+                            );
                         }
                         _ => {}
                     }
@@ -802,7 +839,11 @@ impl TypeChecker {
                         if fields.is_empty() {
                             // Try to get a fresher version
                             if let Some(fresh) = self.env.get_type(name) {
-                                if let Type::Struct { fields: fresh_fields, .. } = fresh {
+                                if let Type::Struct {
+                                    fields: fresh_fields,
+                                    ..
+                                } = fresh
+                                {
                                     if !fresh_fields.is_empty() {
                                         def = fresh.clone();
                                     }
@@ -881,7 +922,11 @@ impl TypeChecker {
                 // CRITICAL FIX: Refresh enum variants if empty (predeclared but not yet fully defined)
                 let actual_variants = if variants.is_empty() {
                     if let Some(fresh_type) = self.env.get_type(&name) {
-                        if let Type::Enum { variants: fresh_variants, .. } = fresh_type {
+                        if let Type::Enum {
+                            variants: fresh_variants,
+                            ..
+                        } = fresh_type
+                        {
                             if !fresh_variants.is_empty() {
                                 fresh_variants.clone()
                             } else {
@@ -952,6 +997,8 @@ impl TypeChecker {
             "Bool" => Some(Type::Bool),
             "String" => Some(Type::String),
             "Char" => Some(Type::Char),
+            "Unit" | "Void" | "()" => Some(Type::Unit),
+            "Never" => Some(Type::Never),
             "Array" | "List" => Some(Type::Array(Box::new(Type::Unknown))),
             _ => None,
         }
@@ -984,7 +1031,10 @@ impl TypeChecker {
         match ty {
             Type::Generic(name) => mapping.get(name).cloned().unwrap_or_else(|| ty.clone()),
             Type::Array(inner) => Type::Array(Box::new(self.substitute_generics(inner, mapping))),
-            Type::Map { key_type, value_type } => Type::Map {
+            Type::Map {
+                key_type,
+                value_type,
+            } => Type::Map {
                 key_type: Box::new(self.substitute_generics(key_type, mapping)),
                 value_type: Box::new(self.substitute_generics(value_type, mapping)),
             },
@@ -1067,10 +1117,10 @@ impl TypeChecker {
         // FIRST: Populate prelude with all top-level functions for manifest modules
         // This makes functions from all bundled modules visible to each other
         self.populate_prelude(program);
-        
+
         // Predeclare type names first (placeholders with empty fields)
         self.predeclare_types(program);
-        
+
         // Then fully process all struct/class/enum definitions to populate fields
         for expression in &program.expressions {
             match expression {
@@ -1083,14 +1133,14 @@ impl TypeChecker {
                 _ => {}
             }
         }
-        
+
         // CRITICAL: Fix up struct field types that reference other structs
         // When struct A has field of type B, it may have captured B's empty placeholder
         self.fixup_struct_field_types();
-        
+
         // NOW predeclare function signatures (they'll see complete struct types)
         self.predeclare_signatures(program);
-        
+
         // Finally check remaining expressions
         for expression in &program.expressions {
             match expression {
@@ -1118,7 +1168,10 @@ impl TypeChecker {
     /// but B was only a placeholder when A was defined
     fn fixup_struct_field_types(&mut self) {
         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-            eprintln!("[FIXUP] Starting fixup of {} struct types", self.env.types.len());
+            eprintln!(
+                "[FIXUP] Starting fixup of {} struct types",
+                self.env.types.len()
+            );
         }
 
         // Multiple passes to handle deeply nested struct fields
@@ -1137,7 +1190,12 @@ impl TypeChecker {
             // This replaces all empty struct types with their full definitions
             for type_name in &type_names {
                 if let Some(struct_type) = self.env.types.get(type_name).cloned() {
-                    if let Type::Struct { name, fields, generics } = &struct_type {
+                    if let Type::Struct {
+                        name,
+                        fields,
+                        generics,
+                    } = &struct_type
+                    {
                         if fields.is_empty() {
                             continue;
                         }
@@ -1195,7 +1253,10 @@ impl TypeChecker {
                     if fixed_type != param.param_type {
                         changed = true;
                         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                            eprintln!("[DEBUG] Fixed function {} param {}: changed type", func_name, param.name);
+                            eprintln!(
+                                "[DEBUG] Fixed function {} param {}: changed type",
+                                func_name, param.name
+                            );
                         }
                     }
                     fixed_params.push(Parameter {
@@ -1237,10 +1298,18 @@ impl TypeChecker {
             Type::Struct { name, fields, .. } if fields.is_empty() => {
                 // Try to get the full definition from environment
                 if let Some(full_type) = self.env.get_type(name) {
-                    if let Type::Struct { fields: full_fields, .. } = full_type {
+                    if let Type::Struct {
+                        fields: full_fields,
+                        ..
+                    } = full_type
+                    {
                         if !full_fields.is_empty() {
                             if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                                eprintln!("[DEBUG] Replacing empty {} with {} fields", name, full_fields.len());
+                                eprintln!(
+                                    "[DEBUG] Replacing empty {} with {} fields",
+                                    name,
+                                    full_fields.len()
+                                );
                             }
                             return full_type.clone();
                         }
@@ -1264,7 +1333,10 @@ impl TypeChecker {
                     ty.clone()
                 }
             }
-            Type::Map { key_type, value_type } => {
+            Type::Map {
+                key_type,
+                value_type,
+            } => {
                 let fixed_key = self.fixup_type_shallow(key_type);
                 let fixed_val = self.fixup_type_shallow(value_type);
                 if &fixed_key != key_type.as_ref() || &fixed_val != value_type.as_ref() {
@@ -1276,7 +1348,11 @@ impl TypeChecker {
                     ty.clone()
                 }
             }
-            Type::Function { params, return_type, is_async } => {
+            Type::Function {
+                params,
+                return_type,
+                is_async,
+            } => {
                 let mut fixed_params = Vec::new();
                 let mut changed = false;
 
@@ -1321,9 +1397,17 @@ impl TypeChecker {
     }
 
     /// Internal implementation with cycle detection
-    fn fixup_type_deep_impl(&self, ty: &Type, visited: &mut std::collections::HashSet<String>) -> Type {
+    fn fixup_type_deep_impl(
+        &self,
+        ty: &Type,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> Type {
         match ty {
-            Type::Struct { name, fields, generics } => {
+            Type::Struct {
+                name,
+                fields,
+                generics,
+            } => {
                 // Cycle detection: if we're already processing this struct, return it as-is
                 if visited.contains(name) {
                     return ty.clone();
@@ -1335,10 +1419,18 @@ impl TypeChecker {
                 // First, check if this is an empty placeholder that should be replaced
                 if fields.is_empty() {
                     if let Some(full_type) = self.env.get_type(name) {
-                        if let Type::Struct { fields: full_fields, .. } = full_type {
+                        if let Type::Struct {
+                            fields: full_fields,
+                            ..
+                        } = full_type
+                        {
                             if !full_fields.is_empty() {
                                 if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                                    eprintln!("[DEBUG] Replacing empty {} with {} fields", name, full_fields.len());
+                                    eprintln!(
+                                        "[DEBUG] Replacing empty {} with {} fields",
+                                        name,
+                                        full_fields.len()
+                                    );
                                 }
                                 // Recursively fix the full type to catch nested stale types
                                 let result = self.fixup_type_deep_impl(full_type, visited);
@@ -1396,7 +1488,10 @@ impl TypeChecker {
                     ty.clone()
                 }
             }
-            Type::Map { key_type, value_type } => {
+            Type::Map {
+                key_type,
+                value_type,
+            } => {
                 let fixed_key = self.fixup_type_deep_impl(key_type, visited);
                 let fixed_val = self.fixup_type_deep_impl(value_type, visited);
                 if &fixed_key != key_type.as_ref() || &fixed_val != value_type.as_ref() {
@@ -1408,7 +1503,11 @@ impl TypeChecker {
                     ty.clone()
                 }
             }
-            Type::Function { params, return_type, is_async } => {
+            Type::Function {
+                params,
+                return_type,
+                is_async,
+            } => {
                 // Fix parameter types and return type
                 let mut fixed_params = Vec::new();
                 let mut changed = false;
@@ -1439,7 +1538,6 @@ impl TypeChecker {
             _ => ty.clone(),
         }
     }
-
 
     fn collect_environment(&mut self) {
         for (name, var_type) in &self.env.variables {
@@ -1481,7 +1579,15 @@ impl TypeChecker {
                     // MVP: 'throw' is a statement keyword, but parser treats it as identifier
                     // Allow it without error - will be validated at runtime
                     Type::Unknown
-                } else if matches!(name.as_str(), "I8" | "AST" | "VariableDeclaration" | "Interface" | "Enum" | "Import" | "ParseError") {
+                } else if matches!(
+                    name.as_str(),
+                    "I8" | "AST"
+                        | "VariableDeclaration"
+                        | "Interface"
+                        | "Enum"
+                        | "Import"
+                        | "ParseError"
+                ) {
                     // MVP: Type names used as identifiers (likely enum variants or type constructors)
                     // Allow without error - these are probably enum variants from unloaded modules
                     Type::Unknown
@@ -2054,7 +2160,10 @@ impl TypeChecker {
             }
 
             // Try to find function in environment first, then prelude
-            let signature = self.env.get_function(name).cloned()
+            let signature = self
+                .env
+                .get_function(name)
+                .cloned()
                 .or_else(|| self.prelude.get(name).cloned());
 
             if let Some(signature) = signature {
@@ -2110,29 +2219,46 @@ impl TypeChecker {
             let base = recv_ty.non_nullable().clone();
 
             // Fast-path: common accessors
-            if matches!((&base, member.as_str()),
-                (Type::Array(_), "size") | (Type::Array(_), "length") |
-                (Type::String, "size") | (Type::String, "length")
+            if matches!(
+                (&base, member.as_str()),
+                (Type::Array(_), "size")
+                    | (Type::Array(_), "length")
+                    | (Type::String, "size")
+                    | (Type::String, "length")
             ) {
                 // Validate no-arg accessors but still type-check the provided args for side diagnostics
-                for arg in args { let _ = self.check_expression(arg); }
+                for arg in args {
+                    let _ = self.check_expression(arg);
+                }
                 return Type::Int;
             }
 
             // Resolve methods declared as "Type::method" in the environment/prelude
-            if let Type::Struct { name: struct_name, .. } = &base {
+            if let Type::Struct {
+                name: struct_name, ..
+            } = &base
+            {
                 let method_name = format!("{}::{}", struct_name, member);
-                if let Some(signature) = self.env.get_function(&method_name).cloned()
+                if let Some(signature) = self
+                    .env
+                    .get_function(&method_name)
+                    .cloned()
                     .or_else(|| self.prelude.get(&method_name).cloned())
                 {
                     // Determine expected parameters: drop implicit receiver if present
                     let expected_params = if let Some(first) = signature.parameters.first() {
                         if let Type::Struct { name, .. } = &first.param_type {
-                            if name == struct_name { &signature.parameters[1..] } else { &signature.parameters[..] }
+                            if name == struct_name {
+                                &signature.parameters[1..]
+                            } else {
+                                &signature.parameters[..]
+                            }
                         } else {
                             &signature.parameters[..]
                         }
-                    } else { &signature.parameters[..] };
+                    } else {
+                        &signature.parameters[..]
+                    };
 
                     // Check argument count allowing defaults (fewer args ok)
                     if args.len() > expected_params.len() {
@@ -2161,7 +2287,9 @@ impl TypeChecker {
             }
 
             // Fallback: type-check args and return Unknown (unresolved method)
-            for arg in args { let _ = self.check_expression(arg); }
+            for arg in args {
+                let _ = self.check_expression(arg);
+            }
             Type::Unknown
         } else {
             // For complex callee expressions, just type check them and assume unknown return
@@ -2188,7 +2316,11 @@ impl TypeChecker {
         if let Type::Struct { name, fields, .. } = &object_type {
             if fields.is_empty() {
                 if let Some(fresh_type) = self.env.get_type(name) {
-                    if let Type::Struct { fields: fresh_fields, .. } = fresh_type {
+                    if let Type::Struct {
+                        fields: fresh_fields,
+                        ..
+                    } = fresh_type
+                    {
                         if !fresh_fields.is_empty() {
                             object_type = fresh_type.clone();
                         }
@@ -2202,12 +2334,23 @@ impl TypeChecker {
             if variants.is_empty() {
                 if let Some(fresh_type) = self.env.get_type(name) {
                     if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                        eprintln!("[DEBUG] Attempting to refresh enum '{}', fresh type: {:?}", name, fresh_type);
+                        eprintln!(
+                            "[DEBUG] Attempting to refresh enum '{}', fresh type: {:?}",
+                            name, fresh_type
+                        );
                     }
-                    if let Type::Enum { variants: fresh_variants, .. } = fresh_type {
+                    if let Type::Enum {
+                        variants: fresh_variants,
+                        ..
+                    } = fresh_type
+                    {
                         if !fresh_variants.is_empty() {
                             if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                                eprintln!("[DEBUG] Successfully refreshed enum '{}' with {} variants", name, fresh_variants.len());
+                                eprintln!(
+                                    "[DEBUG] Successfully refreshed enum '{}' with {} variants",
+                                    name,
+                                    fresh_variants.len()
+                                );
                             }
                             object_type = fresh_type.clone();
                         }
@@ -2218,8 +2361,12 @@ impl TypeChecker {
 
         // Debug: log field access attempts
         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-            eprintln!("[DEBUG] Field access: {}.{} on type {:?}", 
-                self.extract_struct_name_from_type(&object_type), member, object_type);
+            eprintln!(
+                "[DEBUG] Field access: {}.{} on type {:?}",
+                self.extract_struct_name_from_type(&object_type),
+                member,
+                object_type
+            );
         }
 
         match &object_type {
@@ -2248,14 +2395,18 @@ impl TypeChecker {
                 if fields.is_empty() {
                     return Type::Unknown;
                 }
-                
+
                 if let Some(field_type) = fields.get(member) {
                     // CRITICAL FIX: Refresh the field type itself if it's an empty struct
                     let mut result_type = field_type.clone();
                     if let Type::Struct { name, fields, .. } = &result_type {
                         if fields.is_empty() {
                             if let Some(fresh_type) = self.env.get_type(name) {
-                                if let Type::Struct { fields: fresh_fields, .. } = fresh_type {
+                                if let Type::Struct {
+                                    fields: fresh_fields,
+                                    ..
+                                } = fresh_type
+                                {
                                     if !fresh_fields.is_empty() {
                                         result_type = fresh_type.clone();
                                     }
@@ -2263,7 +2414,7 @@ impl TypeChecker {
                             }
                         }
                     }
-                    
+
                     if is_safe && object_type.is_nullable() {
                         result_type.nullable()
                     } else {
@@ -2281,12 +2432,16 @@ impl TypeChecker {
             Type::Nullable(inner) if is_safe => {
                 // Safe navigation on nullable type
                 let mut inner_type = inner.as_ref().clone();
-                
+
                 // CRITICAL FIX: Fresh lookup for nullable inner types too
                 if let Type::Struct { name, fields, .. } = &inner_type {
                     if fields.is_empty() {
                         if let Some(fresh_type) = self.env.get_type(name) {
-                            if let Type::Struct { fields: fresh_fields, .. } = fresh_type {
+                            if let Type::Struct {
+                                fields: fresh_fields,
+                                ..
+                            } = fresh_type
+                            {
                                 if !fresh_fields.is_empty() {
                                     inner_type = fresh_type.clone();
                                 }
@@ -2294,7 +2449,7 @@ impl TypeChecker {
                         }
                     }
                 }
-                
+
                 if let Type::Struct { fields, .. } = &inner_type {
                     if let Some(field_type) = fields.get(member) {
                         field_type.clone().nullable()
@@ -2397,8 +2552,12 @@ impl TypeChecker {
         // Debug: log struct registration
         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
             if let Type::Struct { fields: ref f, .. } = struct_type {
-                eprintln!("[DEBUG] Registering struct '{}' with {} fields: {:?}", 
-                    name, f.len(), f.keys().collect::<Vec<_>>());
+                eprintln!(
+                    "[DEBUG] Registering struct '{}' with {} fields: {:?}",
+                    name,
+                    f.len(),
+                    f.keys().collect::<Vec<_>>()
+                );
             }
         }
 
@@ -2425,9 +2584,16 @@ impl TypeChecker {
 
         // Debug: log enum registration
         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-            if let Type::Enum { variants: ref v, .. } = enum_type {
-                eprintln!("[DEBUG] Registering enum '{}' with {} variants: {:?}",
-                          name, v.len(), v);
+            if let Type::Enum {
+                variants: ref v, ..
+            } = enum_type
+            {
+                eprintln!(
+                    "[DEBUG] Registering enum '{}' with {} variants: {:?}",
+                    name,
+                    v.len(),
+                    v
+                );
             }
         }
 
@@ -2664,7 +2830,12 @@ impl TypeChecker {
         let saved_return_type = self.current_function_return_type.clone();
         self.current_function_return_type = info.return_type.clone();
 
-        let body_type = self.check_expression(&method.body);
+        let mut body_type = self.check_expression(&method.body);
+        if let Some(expected_return) = &info.return_type {
+            if expected_return.is_unit_like() && !body_type.is_never() {
+                body_type = Type::Unit;
+            }
+        }
 
         // MVP: Skip return type check for constructors named "new" - they implicitly return this
         let is_constructor = method.name == "new" || method.name == "constructor";
@@ -2852,11 +3023,34 @@ impl TypeChecker {
             return Type::Unit;
         }
 
-        let mut result_type = Type::Unit;
-        for expr in expressions {
-            result_type = self.check_expression(expr);
+        if expressions.len() == 1 {
+            return self.check_expression(&expressions[0]);
         }
-        result_type
+
+        let (last, rest) = expressions.split_last().expect("non-empty vector");
+        let mut short_circuited = false;
+        for expr in rest {
+            let ty = self.check_statement_expression(expr);
+            if ty.is_never() {
+                short_circuited = true;
+            }
+        }
+
+        let last_type = self.check_expression(last);
+        if short_circuited {
+            Type::Never
+        } else {
+            last_type
+        }
+    }
+
+    fn check_statement_expression(&mut self, expression: &Expression) -> Type {
+        let ty = self.check_expression(expression);
+        if ty.is_never() {
+            Type::Never
+        } else {
+            Type::Unit
+        }
     }
 
     /// Type check let expression
@@ -3056,7 +3250,12 @@ impl TypeChecker {
         self.current_function_return_type = checker_return_type.clone();
 
         // Type check the function body
-        let body_type = self.check_expression(body);
+        let mut body_type = self.check_expression(body);
+        if let Some(expected_return) = &checker_return_type {
+            if expected_return.is_unit_like() && !body_type.is_never() {
+                body_type = Type::Unit;
+            }
+        }
 
         // Verify return type matches
         // MVP: Skip return type check for constructors named "new" - they implicitly return this

@@ -2734,7 +2734,10 @@ impl Interpreter {
                     ))
                 }
             }
-            _ => Err(InterpreterError::runtime("Unsupported observable source", pos))
+            _ => Err(InterpreterError::runtime(
+                "Unsupported observable source",
+                pos,
+            )),
         }
     }
 

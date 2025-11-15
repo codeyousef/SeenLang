@@ -61,6 +61,8 @@ pub enum Type {
     Generic(String),
     /// Unit/void type
     Unit,
+    /// Diverging type (never returns)
+    Never,
     /// Unknown type (for inference)
     Unknown,
     /// Error type (for error recovery)
@@ -113,6 +115,10 @@ impl Type {
 
     /// Check if this type supports a specific operation
     pub fn supports_operation(&self, op: &str) -> bool {
+        if matches!(self, Type::Never) {
+            return true;
+        }
+
         match self.non_nullable() {
             Type::Int => matches!(
                 op,
@@ -170,6 +176,10 @@ impl Type {
 
     /// Get the result type of a binary operation
     pub fn binary_operation_result(&self, op: &str, other: &Type) -> Option<Type> {
+        if matches!(self, Type::Never) || matches!(other, Type::Never) {
+            return Some(Type::Never);
+        }
+
         // Handle nullable operands
         let (left, right) = (self.non_nullable(), other.non_nullable());
         let result_nullable = self.is_nullable() || other.is_nullable();
@@ -220,14 +230,22 @@ impl Type {
             (a, "==" | "!=", b) if a == b => Some(Type::Bool),
 
             // Enum comparisons - enums of the same type can be compared with any operator
-            (Type::Enum { name: n1, .. }, "<" | ">" | "<=" | ">=", Type::Enum { name: n2, .. }) if n1 == n2 => Some(Type::Bool),
+            (Type::Enum { name: n1, .. }, "<" | ">" | "<=" | ">=", Type::Enum { name: n2, .. })
+            if n1 == n2 =>
+                {
+                    Some(Type::Bool)
+                }
 
             // Allow comparing nullable with its base type
             (Type::Nullable(inner), "==" | "!=", b) if inner.as_ref() == b => Some(Type::Bool),
             (a, "==" | "!=", Type::Nullable(inner)) if a == inner.as_ref() => Some(Type::Bool),
 
             // Allow comparing different nullable types if their inner types match
-            (Type::Nullable(a_inner), "==" | "!=", Type::Nullable(b_inner)) if a_inner.as_ref() == b_inner.as_ref() => Some(Type::Bool),
+            (Type::Nullable(a_inner), "==" | "!=", Type::Nullable(b_inner))
+            if a_inner.as_ref() == b_inner.as_ref() =>
+                {
+                    Some(Type::Bool)
+                }
 
             // Allow comparisons with Unknown types (for type inference in progress)
             (Type::Unknown, "==" | "!=" | "<" | ">" | "<=" | ">=", _) => Some(Type::Bool),
@@ -247,6 +265,21 @@ impl Type {
         } else {
             result
         })
+    }
+
+    /// Returns true if this represents a diverging code path
+    pub fn is_never(&self) -> bool {
+        matches!(self, Type::Never)
+    }
+
+    /// Returns true if this behaves like the Unit/Void type (including nullable forms)
+    pub fn is_unit_like(&self) -> bool {
+        match self {
+            Type::Unit => true,
+            Type::Struct { name, .. } if name == "Void" => true,
+            Type::Nullable(inner) => inner.is_unit_like(),
+            _ => false,
+        }
     }
 
     /// Helper constructors for common types
@@ -277,15 +310,15 @@ impl Type {
 
     /// Check if two types are compatible for assignment
     pub fn is_assignable_to(&self, other: &Type) -> bool {
+        if self.is_unit_like() && other.is_unit_like() {
+            return true;
+        }
+
         match (self, other) {
+            (Type::Never, _) => true,
+            (_, Type::Never) => matches!(self, Type::Never),
             (Type::Generic(_), _) => true,
             (_, Type::Generic(_)) => true,
-            // Treat legacy Void (struct) and Unit as identical
-            (Type::Unit, Type::Struct { name, .. }) if name == "Void" => true,
-            (Type::Struct { name, .. }, Type::Unit) if name == "Void" => true,
-            // Handle nullable Unit/Void equivalence
-            (Type::Nullable(inner), Type::Unit) if matches!(inner.as_ref(), Type::Unit) => true,
-            (Type::Unit, Type::Nullable(inner)) if matches!(inner.as_ref(), Type::Unit) => true,
             // Exact match
             (a, b) if a == b => true,
 
@@ -399,10 +432,15 @@ impl Type {
             Type::String => "String".to_string(),
             Type::Char => "Char".to_string(),
             Type::Array(inner) => format!("Array<{}>", inner.name()),
-            Type::Map { key_type, value_type } => {
+            Type::Map {
+                key_type,
+                value_type,
+            } => {
                 format!("Map<{}, {}>", key_type.name(), value_type.name())
             }
             Type::Nullable(inner) => format!("{}?", inner.name()),
+            Type::Unit => "Unit".to_string(),
+            Type::Never => "Never".to_string(),
             Type::Function {
                 params,
                 return_type,
@@ -437,7 +475,6 @@ impl Type {
             }
             Type::Task(inner) => format!("Task<{}>", inner.name()),
             Type::Generic(name) => name.clone(),
-            Type::Unit => "()".to_string(),
             Type::Unknown => "?".to_string(),
             Type::Error => "Error".to_string(),
         }

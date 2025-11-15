@@ -632,12 +632,12 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 
 #### Typechecker & Parser Hardening
 
-- [ ] C1: Statement typing rule: treat expression statements uniformly as Unit; accept Void-only functions with no value
+- [x] C1: Statement typing rule: treat expression statements uniformly as Unit; accept Void-only functions with no value
   paths.
-- [ ] C2: Let/var declarations return Unit – verify no mismatches remain.
-- [ ] C3: Ensure Never, Unit, Void interactions: unify Void/Unit aliasing or enforce single canonical type (decide and
+- [x] C2: Let/var declarations return Unit – verify no mismatches remain.
+- [x] C3: Ensure Never, Unit, Void interactions: unify Void/Unit aliasing or enforce single canonical type (decide and
   implement; update checker.rs types_match).
-- [ ] C4: Add regression tests for each fixed category (method resolution, enum variant access, operator typing).
+- [x] C4: Add regression tests for each fixed category (method resolution, enum variant access, operator typing).
 
 #### Stdlib Completion (Only pieces compiler_seen depends on for production)
 
