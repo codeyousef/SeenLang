@@ -621,14 +621,14 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 
 #### Bootstrap Compiler Source Cleanup
 
-- [ ] B1: Normalize Unit/Void usage across compiler_seen sources (consistent Unit semantics, remove mismatched
+- [x] B1: Normalize Unit/Void usage across compiler_seen sources (consistent Unit semantics, remove mismatched
   expectations).
-- [ ] B2: Remove temporary print/diagnostic shims; route through finalized stdlib (no Bool leakage from wrappers).
-- [ ] B3: Lock process API (std.process runCommand/CommandResult only) – remove custom execCommand/runCommand shims.
-- [ ] B4: Validate string interpolation braces and formatting in all bootstrap sources (no parser fallbacks).
-- [ ] B5: Remove any remaining Kotlin-era constructs (ranges 0..n, Elvis operators, safe-navigation, tuple for-bindings)
+- [x] B2: Remove temporary print/diagnostic shims; route through finalized stdlib (no Bool leakage from wrappers).
+- [x] B3: Lock process API (std.process runCommand/CommandResult only) – remove custom execCommand/runCommand shims.
+- [x] B4: Validate string interpolation braces and formatting in all bootstrap sources (no parser fallbacks).
+- [x] B5: Remove any remaining Kotlin-era constructs (ranges 0..n, Elvis operators, safe-navigation, tuple for-bindings)
   from compiler_seen.
-- [ ] B6: Eliminate residual placeholder diagnostics functions (use real simplified versions or stdlib logging).
+- [x] B6: Eliminate residual placeholder diagnostics functions (use real simplified versions or stdlib logging).
 
 #### Typechecker & Parser Hardening
 
