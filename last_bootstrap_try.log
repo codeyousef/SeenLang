@@ -1,11 +1,1 @@
 Compiling compiler_seen/src/main.seen with optimization level 0
-Type error: Type mismatch: expected (), found ??? at 199:5
-Type error: Type mismatch: expected (), found ?? at 333:5
-Type error: Type mismatch: expected (), found ?? at 368:5
-Type error: Type mismatch: expected (), found ?? at 266:5
-Type error: Type mismatch: expected Unit, found () at 11:1
-Type error: Type mismatch: expected Unit, found ?? at 15:1
-Type error: Type mismatch: expected Unit, found () at 17:1
-Type error: Type mismatch: expected Unit, found ?? at 196:1
-Type error: Type mismatch: expected Unit, found ?? at 197:1
-Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected (), found ??? at 199:5", location: Some(ErrorLocation { line: 199, column: 5, offset: 5695 }) }

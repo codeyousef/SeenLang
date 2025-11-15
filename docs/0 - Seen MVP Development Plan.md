@@ -215,6 +215,12 @@ channel traffic with the same guarantees as the interpreter.
 
 * **Acceptance:** Stage1 builds succeed with MLIR and Cranelift prototypes, deterministic hashes stay stable across backends, and compile-time telemetry matches the “10× faster than LLVM” research targets for fast lanes.
 
+### PSH‑4. Final Self‑Host Closure (New)
+
+- Status: In progress — Stage1 currently reports statement typing errors (expected Void vs Unit/Unknown) in
+  compiler_seen/src/main.seen.
+- Exit criteria: validate_bootstrap_fixed.sh passes; self_host_errors.log contains 0 errors; Stage2/Stage3 diffs clean.
+
 ### PSH‑3d. Runtime Scheduling & Concurrency Efficiency
 
 *Status:* ✅ Completed — scope-bound coroutine frames now live on structured stacks, the scheduler exposes
@@ -590,37 +596,83 @@ Linux/Web/Android and are exercised via new CLI interpreter tests (`seen_cli/tes
 
 ## Rust Removal Gate (MVP Closure)
 
-- Status: Self-host not yet at 0 errors (see below); do not delete Rust until all below pass on CI. Current count from
-  SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli build compiler_seen/src/main.seen --backend ir: see self_host_errors.log and
-  verify_rust_needed.sh.
-- P0.0 Error floor: 0 self-host type errors in compiler_seen. Acceptance:
-  `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` completes with Stage-2 == Stage-3 and no diagnostics;
-  `./verify_rust_needed.sh` reports "Rust not needed".
-- P0.1 Build pipeline (Seen-only): Replace any temp/shim shell-outs with compiler_seen pipeline and produce working
-  Stage-1 binary on Linux. Acceptance: Stage-2 == Stage-3 hashes; bootstrap script green.
-- P0.2 Codegen closure: Choose one canonical backend (LLVM preferred) and ship it end-to-end for
-  functions/structs/enums/arrays/strings/linking. Acceptance: hello_world builds+runs; compiler_seen builds itself.
-- P0.3 Core stdlib closure: Ship and wire str/vec/map/io/env/process used by compiler_seen. Acceptance: compiler_seen
-  tests pass using stdlib only (no bespoke helpers).
-- Execution order: (1) P0.0 zero-errors, (2) P0.1 pipeline, (3) P0.2 backend, (4) P0.3 stdlib, (5) 3-stage determinism.
-
-Remaining task breakdown to reach P0.0 (0 errors):
-
-- T1 Method resolution/inference completeness for member calls and overloads (acceptance: no Unknown in call sites).
-- T2 Enum variant/member access parity across parser/typechecker/runtime (acceptance: no variant access errors).
-- T3 super/throw/exit semantics validated in calls/ctors (acceptance: ctor paths type-check without suppressions).
-- T4 Operator typing for >=, <=, + across numeric/string/nullable/Unknown (acceptance: no operator type mismatches).
-- T5 Default params and constructor returns accepted everywhere (acceptance: no arg-count errors where defaults exist).
-- T6 Prelude builtins export in manifest mode (acceptance: no missing-prelude symbol lookups in Stage-1).
-- T7 Remove stubs: replace permissive fallthroughs with explicit errors in
-  interpreter/codegen [DONE in generator/interpreter].
+Status: Self-host not yet at 0 errors (see below); do not delete Rust until all below pass on CI. Current count: see
+self_host_errors.log and verify_rust_needed.sh.
 
 Validation commands:
 
-- `cargo test --workspace` (green)
-- `SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh` (Stage-2 == Stage-3)
-- `./verify_rust_needed.sh` (prints "Rust not needed")
-- `./validate_bootstrap_fixed.sh` (smoke)
+- cargo test --workspace (must be green)
+- SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh (Stage-2 == Stage-3, 0 diagnostics)
+- ./verify_rust_needed.sh (prints "Rust not needed")
+- ./validate_bootstrap_fixed.sh (smoke)
+
+### Remaining Work Consolidated (Production Self-Host Completion – 0 Errors & Rust Removal)
+
+All incomplete items below are the only remaining MVP work. Each must be checked off in order.
+
+#### Core Type/System Closure
+
+- [x] T1: Method resolution/inference completeness (member calls, overloads) – eliminate Unknown at call sites.
+- [x] T2: Enum variant/member access parity across parser/typechecker/runtime – no variant access errors.
+- [x] T3: super/throw/exit semantics in constructors and calls – ctor paths type-check without suppressions.
+- [x] T4: Operator typing for >=, <=, + over numeric/string/nullable/Unknown – zero operator mismatches.
+- [x] T5: Default params + constructor returns – no arg-count errors when defaults exist.
+- [x] T6: Prelude builtin export audit – no missing-prelude symbol lookups in Stage-1.
+
+#### Bootstrap Compiler Source Cleanup
+
+- [ ] B1: Normalize Unit/Void usage across compiler_seen sources (consistent Unit semantics, remove mismatched
+  expectations).
+- [ ] B2: Remove temporary print/diagnostic shims; route through finalized stdlib (no Bool leakage from wrappers).
+- [ ] B3: Lock process API (std.process runCommand/CommandResult only) – remove custom execCommand/runCommand shims.
+- [ ] B4: Validate string interpolation braces and formatting in all bootstrap sources (no parser fallbacks).
+- [ ] B5: Remove any remaining Kotlin-era constructs (ranges 0..n, Elvis operators, safe-navigation, tuple for-bindings)
+  from compiler_seen.
+- [ ] B6: Eliminate residual placeholder diagnostics functions (use real simplified versions or stdlib logging).
+
+#### Typechecker & Parser Hardening
+
+- [ ] C1: Statement typing rule: treat expression statements uniformly as Unit; accept Void-only functions with no value
+  paths.
+- [ ] C2: Let/var declarations return Unit – verify no mismatches remain.
+- [ ] C3: Ensure Never, Unit, Void interactions: unify Void/Unit aliasing or enforce single canonical type (decide and
+  implement; update checker.rs types_match).
+- [ ] C4: Add regression tests for each fixed category (method resolution, enum variant access, operator typing).
+
+#### Stdlib Completion (Only pieces compiler_seen depends on for production)
+
+- [ ] S1: std.str finalize (remaining whitespace/search edge cases; confirm bootstrap uses it exclusively).
+- [ ] S2: std.math finalize (checked/saturating/wrapping ops used by compiler code paths if any).
+- [ ] S3: Collections: confirm compiler_seen uses std Vec/Map/StdString/StringHashMap exclusively (remove bespoke
+  builders/maps).
+- [ ] S4: std.io / std.fs: route all file and path operations through stdlib wrappers; remove raw builtins.
+- [ ] S5: std.process / std.env / std.time: confirm all subprocess/env/time usage goes through stdlib.
+- [ ] S6: Concurrency primitives actually used by compiler (channels/tasks) stabilized; remove any runtime stub
+  fallbacks.
+
+#### Determinism & Build Pipeline
+
+- [ ] D1: Stage1 generation emits stage1_compiler.c with 0 type errors.
+- [ ] D2: Stage2 == Stage3 deterministic hash equality (record hashes in docs).
+- [ ] D3: Determinism profile run (seen determinism compiler_seen/src/main.seen -O2) stable.
+- [ ] D4: ABI snapshot of stdlib taken (abi_guard snapshot) and locked; verify before bootstrap.
+
+#### Final Rust Removal Gate
+
+- [ ] R1: verify_rust_needed.sh reports "Rust not needed".
+- [ ] R2: All bootstrap/self-host scripts use Seen-only pipeline (no cargo build invocation except initial tooling build
+  for comparison).
+- [ ] R3: CI green with self-hosted compiler performing its own build/test run.
+- [ ] R4: Release playbook updated: removes Rust sources via rust_remover.seen dry-run and then commit.
+
+### Acceptance Summary
+
+- 0 self-host type errors.
+- Stage1→Stage2→Stage3 deterministic.
+- No stubs/workarounds/TODO markers in bootstrap or stdlib.
+- All compiler_seen dependencies satisfied purely by stdlib/runtime.
+- verify_rust_needed.sh outputs "Rust not needed".
+- CI passes with self-hosted compiler.
 
 ## 5) Phase PROD — Production Self-Hosting (Active)
 
