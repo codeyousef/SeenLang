@@ -5,7 +5,7 @@ import lexer.{SeenLexer, LexerError}
 import parser.real_parser.{RealParser}
 import parser.ast.{ProgramNode}
 import typechecker.interfaces.{TypeChecker}
-// import typechecker.interfaces.{TypeError}
+import typechecker.interfaces.{TypeError}
 
 class FrontendDiagnostic {
     var file: String
@@ -29,6 +29,9 @@ class FrontendResult {
     var success: Bool
     var diagnostics: Array<FrontendDiagnostic>
 
+    fun getDiagnostics() -> Array<FrontendDiagnostic> { return diagnostics }
+    fun setSuccess(v: Bool) -> Void { success = v }
+
     fun new() -> FrontendResult {
         return FrontendResult{
             success: false,
@@ -36,9 +39,8 @@ class FrontendResult {
         }
     }
 
-    fun addDiagnostic(diag: FrontendDiagnostic) -> Unit {
+    fun addDiagnostic(diag: FrontendDiagnostic) -> Void {
         diagnostics.push(diag)
-        return
     }
 
     fun hasErrors() -> Bool {
@@ -75,18 +77,24 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") -> 
 
         if typeResult.errors.length() > 0 {
             let typeErrors = typeResult.errors
-            for error in typeErrors {
+            let i: Int = 0
+            while i < typeErrors.length() {
+                let error = typeErrors[i]
                 result.addDiagnostic(diagnostic_from_type_error(error, fileLabel))
+                i = i + 1
             }
             return result
         }
 
         if typeResult.warnings.length() > 0 {
             let typeWarnings = typeResult.warnings
-            for warning in typeWarnings {
+            let j: Int = 0
+            while j < typeWarnings.length() {
+                let warning = typeWarnings[j]
                 result.addDiagnostic(
                     FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
                 )
+                j = j + 1
             }
         }
 

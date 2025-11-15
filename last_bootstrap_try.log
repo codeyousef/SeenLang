@@ -43,7 +43,7 @@ warning: unused import: `std::env::args`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: `seen_cli` (bin "seen_cli") generated 1 warning (run `cargo fix --bin "seen_cli"` to apply 1 suggestion)
-    Finished `release` profile [optimized] target(s) in 33.98s
+    Finished `release` profile [optimized] target(s) in 39.76s
 ✅ Bootstrap compiler built successfully
 ⚙️  Step 2: Creating bootstrap process...
 🧪 Step 3: Testing bootstrap compiler capabilities...

@@ -1,40 +1,6 @@
 Compiling compiler_seen/src/main.seen with optimization level 0
-Type error: Type mismatch: expected Void, found Unit at 72:5
-Type error: Type mismatch: expected Void, found ?? at 96:5
-Type error: Type mismatch: expected Void, found ?? at 296:5
-Type error: Type mismatch: expected Void, found ?? at 300:5
-Type error: Type mismatch: expected Void, found ?? at 304:5
-Type error: Type mismatch: expected Void, found ?? at 308:5
-Type error: Type mismatch: expected Void, found ?? at 312:5
-Type error: Type mismatch: expected Void, found ?? at 349:5
-Type error: Type mismatch: expected Void, found Void? at 421:5
-Type error: Type mismatch: expected Void, found ?? at 117:5
-Type error: Type mismatch: expected Void, found ?? at 213:5
-Type error: Type mismatch: expected Void, found ?? at 564:5
-Type error: Type mismatch: expected Void, found Void? at 410:5
-Type error: Type mismatch: expected Void, found ?? at 568:5
-Type error: Type mismatch: expected Void, found ?? at 572:5
+Type error: Type mismatch: expected Void, found ??? at 199:5
+Type error: Type mismatch: expected Void, found ?? at 333:5
+Type error: Type mismatch: expected Void, found ?? at 368:5
 Type error: Type mismatch: expected Void, found ?? at 266:5
-Type error: Type mismatch: expected Void, found ?? at 149:5
-Type error: Type mismatch: expected Void, found ?? at 76:5
-Type error: Type mismatch: expected Void, found () at 96:5
-Type error: Type mismatch: expected Void, found () at 106:5
-Type error: Type mismatch: expected Void, found () at 110:5
-Type error: Type mismatch: expected Void, found () at 114:5
-Type error: Type mismatch: expected Void, found () at 118:5
-Type error: Type mismatch: expected Void, found () at 122:5
-Type error: Type mismatch: expected Void, found () at 18:5
-Type error: Type mismatch: expected Void, found () at 22:5
-Type error: Type mismatch: expected Void, found () at 16:5
-Type error: Type mismatch: expected Void, found () at 6:5
-Type error: Type mismatch: expected Void, found ??? at 186:5
-Type error: Type mismatch: expected Void, found () at 8:5
-Type error: Type mismatch: expected Void, found () at 6:5
-Type error: Type mismatch: expected Void, found ?? at 332:5
-Type error: Type mismatch: expected Void, found ?? at 367:5
-Type error: Type mismatch: expected Void, found () at 7:1
-Type error: Type mismatch: expected Never, found () at 13:1
-Type error: Type mismatch: expected T, found () at 17:1
-Type error: Type mismatch: expected T, found () at 24:1
-Type error: Type mismatch: expected Void, found () at 219:1
-Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found Unit at 72:5", location: Some(ErrorLocation { line: 72, column: 5, offset: 2034 }) }
+Error: Categorised { kind: TypeChecker, message: "Type mismatch: expected Void, found ??? at 199:5", location: Some(ErrorLocation { line: 199, column: 5, offset: 5695 }) }

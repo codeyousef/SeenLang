@@ -194,7 +194,7 @@ class BootstrapVerifier {
         ))
     }
     
-    fun log(message: String) -> Unit {
+    fun log(message: String) -> Void {
         println(message)
         let appended = appendText(LogPath, "{message}\\n")
         if not appended {
