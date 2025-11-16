@@ -1,103 +1,161 @@
 // Matrix Multiplication (SGEMM) Benchmark
 // Tiled matrix multiplication with cache optimization
 
+extern fun __GetTime() -> Float
+extern fun __Print(s: String) -> Void
+extern fun __PrintInt(i: Int) -> Void
+extern fun __PrintFloat(f: Float) -> Void
+extern fun __IntToFloat(i: Int) -> Float
+extern fun __ArrayNew() -> Array<Float>
+extern fun __ArrayPush(arr: Array<Float>, val: Float) -> Void
+extern fun __ArrayGet(arr: Array<Float>, idx: Int) -> Float
+extern fun __ArraySet(arr: Array<Float>, idx: Int, val: Float) -> Void
+extern fun __ArrayLen(arr: Array<Float>) -> Int
+
 fun create_matrix(n: Int, seed: Int) -> Array<Float> {
-    let size = n * n;
-    let matrix = Array::with_capacity<Float>(size);
-    let mut rng = seed;
+    let size = n * n
+    let matrix = __ArrayNew()
+    var rng = seed
     
-    for i in 0..size {
-        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF;
-        let val = (rng as Float) / 2147483647.0;
-        matrix.push(val);
+    var i = 0
+    while i < size {
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        let val = (__IntToFloat(rng)) / 2147483647.0
+        __ArrayPush(matrix, val)
+        i = i + 1
     }
     
     matrix
 }
 
 fun matrix_multiply_tiled(a: Array<Float>, b: Array<Float>, n: Int, tile_size: Int) -> Array<Float> {
-    let size = n * n;
-    let mut c = Array::with_capacity<Float>(size);
+    let size = n * n
+    let c = __ArrayNew()
     
-    for _ in 0..size {
-        c.push(0.0);
+    var i = 0
+    while i < size {
+        __ArrayPush(c, 0.0)
+        i = i + 1
     }
     
-    let tiles = n / tile_size;
+    let tiles = n / tile_size
     
-    for ti in 0..tiles {
-        for tj in 0..tiles {
-            for tk in 0..tiles {
-                let i_start = ti * tile_size;
-                let j_start = tj * tile_size;
-                let k_start = tk * tile_size;
+    var ti = 0
+    while ti < tiles {
+        var tj = 0
+        while tj < tiles {
+            var tk = 0
+            while tk < tiles {
+                let i_start = ti * tile_size
+                let j_start = tj * tile_size
+                let k_start = tk * tile_size
+                let i_end = i_start + tile_size
+                let k_end = k_start + tile_size
+                let j_end = j_start + tile_size
                 
-                for i in i_start..(i_start + tile_size) {
-                    for k in k_start..(k_start + tile_size) {
-                        let a_ik = a[i * n + k];
-                        for j in j_start..(j_start + tile_size) {
-                            let idx = i * n + j;
-                            c[idx] = c[idx] + a_ik * b[k * n + j];
+                var ii = i_start
+                while ii < i_end {
+                    var kk = k_start
+                    while kk < k_end {
+                        let a_ik = __ArrayGet(a, ii * n + kk)
+                        var jj = j_start
+                        while jj < j_end {
+                            let idx = ii * n + jj
+                            let old_val = __ArrayGet(c, idx)
+                            let b_kj = __ArrayGet(b, kk * n + jj)
+                            __ArraySet(c, idx, old_val + a_ik * b_kj)
+                            jj = jj + 1
                         }
+                        kk = kk + 1
                     }
+                    ii = ii + 1
                 }
+                tk = tk + 1
             }
+            tj = tj + 1
         }
+        ti = ti + 1
     }
     
     c
 }
 
 fun checksum(matrix: Array<Float>) -> Float {
-    let mut sum = 0.0;
-    for i in 0..matrix.len() {
-        sum = sum + matrix[i];
+    var sum = 0.0
+    let len = __ArrayLen(matrix)
+    var i = 0
+    while i < len {
+        sum = sum + __ArrayGet(matrix, i)
+        i = i + 1
     }
     sum
 }
 
 fun main() {
-    let n = 1920;
-    let tile_size = 48;
-    let seed = 42;
+    let n = 1920
+    let tile_size = 48
+    let seed = 42
     
-    println("Matrix Multiplication Benchmark");
-    println("Matrix size: {}x{}", n, n);
-    println("Tile size: {}", tile_size);
+    __Print("Matrix Multiplication Benchmark\n")
+    __Print("Matrix size: ")
+    __PrintInt(n)
+    __Print("x")
+    __PrintInt(n)
+    __Print("\n")
+    __Print("Tile size: ")
+    __PrintInt(tile_size)
+    __Print("\n")
     
-    let a = create_matrix(n, seed);
-    let b = create_matrix(n, seed + 1);
+    let a = create_matrix(n, seed)
+    let b = create_matrix(n, seed + 1)
     
-    let warmup_runs = 5;
-    println("Warming up ({} runs)...", warmup_runs);
-    for _ in 0..warmup_runs {
-        let _ = matrix_multiply_tiled(a, b, n, tile_size);
+    let warmup_runs = 5
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var i = 0
+    while i < warmup_runs {
+        let _ = matrix_multiply_tiled(a, b, n, tile_size)
+        i = i + 1
     }
     
-    let measured_runs = 10;
-    println("Running {} measured iterations...", measured_runs);
+    let measured_runs = 10
+    __Print("Running ")
+    __PrintInt(measured_runs)
+    __Print(" measured iterations...\n")
     
-    let mut min_time = 999999.0;
-    let mut result_checksum = 0.0;
+    var min_time = 999999.0
+    var result_checksum = 0.0
     
-    for run in 0..measured_runs {
-        let start = __GetTime();
-        let c = matrix_multiply_tiled(a, b, n, tile_size);
-        let end = __GetTime();
+    var run = 0
+    while run < measured_runs {
+        let start = __GetTime()
+        let c = matrix_multiply_tiled(a, b, n, tile_size)
+        let end = __GetTime()
         
-        let time_ms = (end - start) * 1000.0;
+        let time_ms = (end - start) * 1000.0
         if time_ms < min_time {
-            min_time = time_ms;
+            min_time = time_ms
         }
         
         if run == 0 {
-            result_checksum = checksum(c);
+            result_checksum = checksum(c)
         }
+        run = run + 1
     }
     
-    let gflops = (2.0 * (n as Float) * (n as Float) * (n as Float)) / (min_time * 1000000.0);
+    let n_float = __IntToFloat(n)
+    let gflops = (2.0 * n_float * n_float * n_float) / (min_time * 1000000.0)
     
-    println("Checksum: {}", result_checksum);
-    println("Min time: {} ms", min_time);
-    println("Performance: {} GFLOPS", gflops);
+    __Print("Checksum: ")
+    __PrintFloat(result_checksum)
+    __Print("\n")
+    __Print("Min time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Performance: ")
+    __PrintFloat(gflops)
+    __Print(" GFLOPS\n")
 }
+
+main()

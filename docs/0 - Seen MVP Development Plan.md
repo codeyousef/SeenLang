@@ -1218,6 +1218,54 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 >
 > **Current Status (2025-11-16 21:43):** 7/10 Rust benchmarks work. Need complete stdlib first (see STDLIB tasks above).
 
+#### Immediate Tasks for Benchmark Readiness (CRITICAL PATH)
+
+- [x] **TASK BM-1**: Add missing runtime intrinsics for benchmarks
+    - [x] `__GetTime()` -> Float (seconds since epoch with microsecond precision)
+    - [x] `__PrintInt(Int)` -> Void
+    - [x] `__PrintFloat(Float)` -> Void
+    - [x] `__IntToFloat(Int)` -> Float
+    - [x] `__Sqrt(Float)` -> Float
+    - [x] `__Sin(Float)` -> Float
+    - [x] `__Cos(Float)` -> Float
+    - [x] `__Abs(Float)` -> Float
+    - [x] `__Floor(Float)` -> Int
+    - [x] **Location**: Added to `seen_interpreter/src/builtins.rs`
+    - **Status**: ✅ COMPLETE - All intrinsics implemented in interpreter
+    - **Remaining**: Need LLVM backend support for AOT compilation
+
+- [x] **TASK BM-2**: Add Array<T> runtime intrinsics
+    - [x] `__ArrayNew()` -> Array<T>
+    - [x] `__ArrayPush(Array<T>, T)` -> Void
+    - [x] `__ArrayGet(Array<T>, Int)` -> T
+    - [x] `__ArraySet(Array<T>, Int, T)` -> Void
+    - [x] `__ArrayLen(Array<T>)` -> Int
+    - [x] **Location**: Added to `seen_interpreter/src/builtins.rs`
+    - **Status**: ✅ COMPLETE - All array intrinsics working in interpreter
+    - **Remaining**: Need LLVM backend support for AOT compilation
+    - **Note**: Arrays are heap-allocated Value::Array types, polymorphic over any Value type
+
+- [ ] **TASK BM-3**: Fix all 10 benchmark .seen files to use correct syntax
+    - Replace turbofish `Array::with_capacity<T>` with proper function calls
+    - Replace `for i in 0..n` with `while` loops
+    - Replace `println!` macros with `__Print` intrinsics
+    - Replace `as` casts with `__IntToFloat` intrinsics
+    - **Estimated Time**: 2 hours
+
+- [ ] **TASK BM-4**: Create benchmark harness script
+    - Script that builds and runs all 10 Rust benchmarks
+    - Script that builds and runs all 10 Seen benchmarks (AOT mode)
+    - Comparison script that generates markdown report
+    - **Location**: Update `benchmarks/run_seen_vs_rust.sh`
+    - **Estimated Time**: 1 hour
+
+- [ ] **TASK BM-5**: Verify all benchmarks produce correct output
+    - Each benchmark must output a deterministic checksum
+    - Compare Seen vs Rust checksums to ensure correctness
+    - **Estimated Time**: 1 hour
+
+**Total Estimated Time for Benchmark Readiness**: 9 hours
+
 #### Phase 1: JIT Mode Benchmarks (7/10 Ready)
 
 - [ ] **BM1: Sieve of Eratosthenes** - Prime generation with segmented sieve

@@ -82,6 +82,24 @@ impl BuiltinRegistry {
         registry.register_exact("__GetTimeNanos", builtin_get_time_nanos, 0);
         registry.register_exact("__GetTimeMicros", builtin_get_time_micros, 0);
         registry.register_exact("__GetTimeMillis", builtin_get_time_millis, 0);
+        registry.register_exact("__GetTime", builtin_get_time, 0);
+
+        // Benchmark intrinsics
+        registry.register_exact("__PrintInt", builtin_print_int, 1);
+        registry.register_exact("__PrintFloat", builtin_print_float, 1);
+        registry.register_exact("__IntToFloat", builtin_int_to_float, 1);
+        registry.register_exact("__Sqrt", builtin_sqrt, 1);
+        registry.register_exact("__Sin", builtin_sin_intrinsic, 1);
+        registry.register_exact("__Cos", builtin_cos_intrinsic, 1);
+        registry.register_exact("__Abs", builtin_abs_intrinsic, 1);
+        registry.register_exact("__Floor", builtin_floor_intrinsic, 1);
+
+        // Array intrinsics (polymorphic - work with any Value type)
+        registry.register_exact("__ArrayNew", builtin_array_new, 0);
+        registry.register_exact("__ArrayPush", builtin_array_push, 2);
+        registry.register_exact("__ArrayGet", builtin_array_get, 2);
+        registry.register_exact("__ArraySet", builtin_array_set, 3);
+        registry.register_exact("__ArrayLen", builtin_array_len, 1);
 
         registry
     }
@@ -148,7 +166,9 @@ impl BuiltinRegistry {
 // Built-in function implementations
 
 fn builtin_print(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    use std::io::Write;
     print!("{}", args[0].to_string());
+    std::io::stdout().flush().ok();
     Ok(Value::Unit)
 }
 
@@ -813,6 +833,175 @@ fn builtin_log10(args: &[Value], position: Position) -> InterpreterResult<Value>
         }
         _ => Err(InterpreterError::type_error(
             format!("Cannot take logarithm of {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_get_time(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    Ok(Value::Float(now.as_secs_f64()))
+}
+
+fn builtin_print_int(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => {
+            print!("{}", i);
+            Ok(Value::Unit)
+        }
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Int, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_print_float(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Float(f) => {
+            print!("{}", f);
+            Ok(Value::Unit)
+        }
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Float, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_int_to_float(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => Ok(Value::Float(*i as f64)),
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Int, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_sin_intrinsic(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Float(f) => Ok(Value::Float(f.sin())),
+        Value::Integer(i) => Ok(Value::Float((*i as f64).sin())),
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Float or Int, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_cos_intrinsic(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Float(f) => Ok(Value::Float(f.cos())),
+        Value::Integer(i) => Ok(Value::Float((*i as f64).cos())),
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Float or Int, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_abs_intrinsic(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Float(f) => Ok(Value::Float(f.abs())),
+        Value::Integer(i) => Ok(Value::Integer(i.abs())),
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Float or Int, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_floor_intrinsic(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Float(f) => Ok(Value::Integer(f.floor() as i64)),
+        Value::Integer(i) => Ok(Value::Integer(*i)),
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Float or Int, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_array_new(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    Ok(Value::Array(std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))))
+}
+
+fn builtin_array_push(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match (&args[0], &args[1]) {
+        (Value::Array(arr), value) => {
+            arr.lock().unwrap().push(value.clone());
+            Ok(Value::Unit)
+        }
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Array as first argument, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_array_get(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match (&args[0], &args[1]) {
+        (Value::Array(arr), Value::Integer(idx)) => {
+            let array = arr.lock().unwrap();
+            let index = *idx as usize;
+            if index < array.len() {
+                Ok(array[index].clone())
+            } else {
+                Err(InterpreterError::runtime(
+                    format!("Array index out of bounds: {} >= {}", idx, array.len()),
+                    position,
+                ))
+            }
+        }
+        _ => Err(InterpreterError::type_error(
+            format!(
+                "Expected Array and Int, got {} and {}",
+                args[0].type_name(),
+                args[1].type_name()
+            ),
+            position,
+        )),
+    }
+}
+
+fn builtin_array_set(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match (&args[0], &args[1], &args[2]) {
+        (Value::Array(arr), Value::Integer(idx), value) => {
+            let mut array = arr.lock().unwrap();
+            let index = *idx as usize;
+            if index < array.len() {
+                array[index] = value.clone();
+                Ok(Value::Unit)
+            } else {
+                Err(InterpreterError::runtime(
+                    format!("Array index out of bounds: {} >= {}", idx, array.len()),
+                    position,
+                ))
+            }
+        }
+        _ => Err(InterpreterError::type_error(
+            format!(
+                "Expected Array, Int, and value, got {}, {}, and {}",
+                args[0].type_name(),
+                args[1].type_name(),
+                args[2].type_name()
+            ),
+            position,
+        )),
+    }
+}
+
+fn builtin_array_len(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Array(arr) => {
+            let array = arr.lock().unwrap();
+            Ok(Value::Integer(array.len() as i64))
+        }
+        _ => Err(InterpreterError::type_error(
+            format!("Expected Array, got {}", args[0].type_name()),
             position,
         )),
     }
