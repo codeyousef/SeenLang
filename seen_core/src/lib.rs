@@ -42,7 +42,7 @@ pub use seen_lsp::*;
 // Optional LLVM backend re-export.
 #[cfg(feature = "llvm")]
 pub use seen_ir::llvm_backend::{
-    Avx10Width, CpuFeature, LinkOutput, LlvmBackend, MemoryTopologyHint, SveVectorLength,
+    Avx10Width, CpuFeature, LinkOutput, LlvmBackend, LlvmOptLevel, MemoryTopologyHint, SveVectorLength,
     TargetOptions,
 };
 

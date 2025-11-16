@@ -25,7 +25,8 @@ use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue,
     UnnamedAddress, VectorValue,
 };
-use inkwell::OptimizationLevel as LlvmOptLevel;
+// Re-export for public API
+pub use inkwell::OptimizationLevel as LlvmOptLevel;
 
 use crate::function::{IRFunction, InlineHint, RegisterPressureClass};
 use crate::instruction::{BasicBlock, IRSelectArm, Instruction};
@@ -102,6 +103,7 @@ pub struct TargetOptions<'a> {
     pub static_libraries: Vec<PathBuf>,
     pub hardware_features: Vec<CpuFeature>,
     pub memory_topology: MemoryTopologyHint,
+    pub opt_level: LlvmOptLevel,
 }
 
 impl<'a> Default for TargetOptions<'a> {
@@ -113,6 +115,7 @@ impl<'a> Default for TargetOptions<'a> {
             static_libraries: Vec::new(),
             hardware_features: Vec::new(),
             memory_topology: MemoryTopologyHint::Default,
+            opt_level: LlvmOptLevel::Default,
         }
     }
 }
@@ -424,6 +427,10 @@ impl<'ctx> LlvmBackend<'ctx> {
         let static_libs = options.static_libraries.clone();
         let (target_triple, target_machine) = Self::target_machine_for(&options)?;
         self.configure_module_target(&target_triple, &target_machine);
+
+        // Run LLVM optimization passes on the module
+        self.run_llvm_passes(&target_machine, options.opt_level)?;
+        
         let obj_path = Self::object_file_path(out_path, &target_triple);
         eprintln!("LLVM backend: writing object file {:?}", obj_path);
         target_machine
@@ -440,6 +447,24 @@ impl<'ctx> LlvmBackend<'ctx> {
             .unwrap_or_else(|_| "")
             .to_string();
         self.link_artifact(kind, &obj_path, out_path, &triple_string, &static_libs)
+    }
+
+    fn run_llvm_passes(&self, target_machine: &TargetMachine, opt_level: LlvmOptLevel) -> Result<()> {
+        use inkwell::passes::PassBuilderOptions;
+
+        // Map optimization level to pass pipeline
+        let passes = match opt_level {
+            LlvmOptLevel::None => return Ok(()), // No optimization
+            LlvmOptLevel::Less => "default<O1>",
+            LlvmOptLevel::Default => "default<O2>",
+            LlvmOptLevel::Aggressive => "default<O3>",
+        };
+
+        eprintln!("Running LLVM optimization passes: {}", passes);
+        let options = PassBuilderOptions::create();
+        self.module
+            .run_passes(passes, target_machine, options)
+            .map_err(|e| anyhow!("Failed to run LLVM passes: {}", e))
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
@@ -493,8 +518,18 @@ impl<'ctx> LlvmBackend<'ctx> {
         };
         let target = Target::from_triple(&triple)
             .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
-        let cpu = options.cpu.unwrap_or("generic");
+        // Use native CPU by default for maximum performance unless explicitly overridden
+        let host_cpu_name = TargetMachine::get_host_cpu_name();
+        let host_cpu_str = host_cpu_name.to_str().unwrap_or("generic");
+        let cpu = options.cpu.unwrap_or(host_cpu_str);
         let mut feature_parts = Vec::new();
+        // Add native CPU features by default for maximum performance
+        if options.features.is_none() && options.cpu.is_none() {
+            let native_features = TargetMachine::get_host_cpu_features().to_string();
+            if !native_features.is_empty() {
+                feature_parts.push(native_features);
+            }
+        }
         if let Some(explicit) = options.features.as_deref() {
             if !explicit.trim().is_empty() {
                 feature_parts.push(explicit.to_string());
@@ -514,12 +549,14 @@ impl<'ctx> LlvmBackend<'ctx> {
         } else {
             feature_string.as_str()
         };
+        eprintln!("Creating target machine: CPU={}, features={}, opt_level={:?}",
+                  cpu, features, options.opt_level);
         let machine = target
             .create_target_machine(
                 &triple,
                 cpu,
                 features,
-                LlvmOptLevel::Default,
+                options.opt_level,
                 RelocMode::Default,
                 CodeModel::Default,
             )

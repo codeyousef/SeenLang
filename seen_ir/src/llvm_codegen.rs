@@ -1,18 +1,19 @@
-use std::collections::HashMap;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
-use inkwell::types::{BasicTypeEnum, BasicType};
-use inkwell::OptimizationLevel;
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::types::{BasicType, BasicTypeEnum};
+use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::Either;
-
-use seen_parser::ast::{self, Expression, Statement, Declaration, Program};
+use inkwell::OptimizationLevel;
+use std::collections::HashMap;
+use std::task::Context;
+use std::thread::Builder;
 use crate::error::{CodeGenError, Result};
 use crate::mapping::{map_binary_operator, map_unary_operator};
 use crate::types::TypeSystem;
+use seen_parser::ast::{self, Declaration, Expression, Program, Statement};
 
 /// Environment for storing variables during code generation
 struct Environment<'ctx> {
@@ -837,39 +838,30 @@ impl<'ctx> CodeGenerator<'ctx> {
         let target_triple = TargetMachine::get_default_triple();
         let target = Target::from_triple(&target_triple)
             .map_err(|e| CodeGenError::CodeGeneration(format!("Failed to create target from triple: {:?}", e)))?;
+
+        // Create a target machine for the host with native CPU targeting for maximum performance
+        let cpu = TargetMachine::get_host_cpu_name().to_string();
+        let features = TargetMachine::get_host_cpu_features().to_string();
         
-        // Create a target machine for the host
-        // Target CPU and features can be configured based on deployment requirements
         let target_machine = target.create_target_machine(
-                &target_triple, 
-                "generic", // Use "native" for host CPU, or "generic" for general compatibility
-                "", // CPU features. Use "+avx2" for example, or an empty string for no specific features.
-                OptimizationLevel::Default, // This opt level is for the TM, passes are specified below
-                RelocMode::Default, // Or RelocMode::PIC for position-independent code
-                CodeModel::Default, // Or CodeModel::Small, Medium, Large
+                &target_triple,
+                &cpu, // Use native CPU for maximum performance
+                &features, // Use all available CPU features (AVX2, SSE4.2, etc.)
+                OptimizationLevel::Aggressive, // Maximum optimization for target machine
+                RelocMode::Default,
+                CodeModel::Default,
             ).ok_or_else(|| CodeGenError::CodeGeneration("Failed to create target machine".to_string()))?;
 
-        // Define the sequence of passes to run.
-        // These are common and generally safe starting passes.
-        let passes = [
-            "instcombine",       // Combine redundant instructions
-            "reassociate",       // Reassociate expressions
-            "gvn",               // Global Value Numbering
-            "simplifycfg",       // Simplify control-flow graph
-            "mem2reg",           // Promote memory to registers (SROA)
-            // Add more passes as needed, e.g.:
-            // "early-cse",         // Early Common Subexpression Elimination
-            // "loop-simplify",     // Simplify loops
-            // "loop-unroll",       // Unroll loops
-            // "sccp",              // Sparse Conditional Constant Propagation
-            // "adce",              // Aggressive Dead Code Elimination
-            // "dce"                // Dead Code Elimination
-        ].join(",");
+        // Use standard O3 pipeline - inkwell uses the new pass manager format
+        // Format: function(passes),module(passes)  
+        let passes = "function(mem2reg,sroa,early-cse,simplifycfg,reassociate,instcombine,tailcallelim),module(always-inline,globaldce)";
 
         let pass_builder_options = PassBuilderOptions::create();
-        // Example: Set optimization level for the pass pipeline if desired
-        // pass_builder_options.set_optimization_level(OptimizationLevel::Aggressive);
-        // pass_builder_options.set_verify_each(true); // For debugging passes
+        pass_builder_options.set_verify_each(false); // Disable for performance
+        pass_builder_options.set_merge_functions(true); // Merge identical functions
+        pass_builder_options.set_loop_vectorization(true); // Enable loop vectorization
+        pass_builder_options.set_slp_vectorization(true); // Enable SLP vectorization
+        pass_builder_options.set_loop_unrolling(true); // Enable loop unrolling
 
         self.module.run_passes(&passes, &target_machine, pass_builder_options)
             .map_err(|e_str| CodeGenError::CodeGeneration(format!("Failed to run optimization passes: {}", e_str)))?;

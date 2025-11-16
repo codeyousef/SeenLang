@@ -397,6 +397,252 @@ pub extern "C" fn __await(_handle: *mut SeenTaskHandle) -> i32 {
     1
 }
 
+// ============================================================================
+// Timing Intrinsics (for benchmarks and performance measurement)
+// ============================================================================
+
+/// Get current timestamp in milliseconds since Unix epoch
+#[unsafe(no_mangle)]
+pub extern "C" fn __GetTimestamp() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+/// Get current timestamp in nanoseconds since Unix epoch
+#[unsafe(no_mangle)]
+pub extern "C" fn __GetTimestampNanos() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as i64
+}
+
+/// Sleep for specified milliseconds
+#[unsafe(no_mangle)]
+pub extern "C" fn __Sleep(ms: i64) {
+    if ms > 0 {
+        std::thread::sleep(Duration::from_millis(ms as u64));
+    }
+}
+
+// ============================================================================
+// Math Intrinsics (for scientific computing and benchmarks)
+// ============================================================================
+
+/// Square root
+#[unsafe(no_mangle)]
+pub extern "C" fn __Sqrt(x: f64) -> f64 {
+    x.sqrt()
+}
+
+/// Sine function
+#[unsafe(no_mangle)]
+pub extern "C" fn __Sin(x: f64) -> f64 {
+    x.sin()
+}
+
+/// Cosine function
+#[unsafe(no_mangle)]
+pub extern "C" fn __Cos(x: f64) -> f64 {
+    x.cos()
+}
+
+/// Power function (x^y)
+#[unsafe(no_mangle)]
+pub extern "C" fn __Pow(x: f64, y: f64) -> f64 {
+    x.powf(y)
+}
+
+/// Absolute value
+#[unsafe(no_mangle)]
+pub extern "C" fn __Abs(x: f64) -> f64 {
+    x.abs()
+}
+
+/// Floor function
+#[unsafe(no_mangle)]
+pub extern "C" fn __Floor(x: f64) -> f64 {
+    x.floor()
+}
+
+/// Ceiling function
+#[unsafe(no_mangle)]
+pub extern "C" fn __Ceil(x: f64) -> f64 {
+    x.ceil()
+}
+
+// ============================================================================
+// I/O Intrinsics (for output and file operations)
+// ============================================================================
+
+/// Print a C-string to stdout
+#[unsafe(no_mangle)]
+pub extern "C" fn __Print(msg: *const u8) {
+    if msg.is_null() {
+        return;
+    }
+
+    unsafe {
+        let c_str = std::ffi::CStr::from_ptr(msg as *const i8);
+        if let Ok(s) = c_str.to_str() {
+            print!("{}", s);
+        }
+    }
+}
+
+/// Print a C-string to stdout with newline
+#[unsafe(no_mangle)]
+pub extern "C" fn __Println(msg: *const u8) {
+    if msg.is_null() {
+        println!();
+        return;
+    }
+
+    unsafe {
+        let c_str = std::ffi::CStr::from_ptr(msg as *const i8);
+        if let Ok(s) = c_str.to_str() {
+            println!("{}", s);
+        }
+    }
+}
+
+// ============================================================================
+// String Conversion Intrinsics (for B3 - String operations)
+// ============================================================================
+
+/// Convert Int to String (returns heap-allocated null-terminated string)
+/// Caller must free the returned pointer with __FreeString
+#[unsafe(no_mangle)]
+pub extern "C" fn __IntToString(value: i64) -> *mut u8 {
+    use std::ffi::CString;
+    let s = value.to_string();
+    match CString::new(s) {
+        Ok(c_str) => c_str.into_raw() as *mut u8,
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Convert Float to String (returns heap-allocated null-terminated string)
+/// Caller must free the returned pointer with __FreeString
+#[unsafe(no_mangle)]
+pub extern "C" fn __FloatToString(value: f64) -> *mut u8 {
+    use std::ffi::CString;
+    let s = value.to_string();
+    match CString::new(s) {
+        Ok(c_str) => c_str.into_raw() as *mut u8,
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Convert Bool to String (returns heap-allocated null-terminated string)
+/// Caller must free the returned pointer with __FreeString
+#[unsafe(no_mangle)]
+pub extern "C" fn __BoolToString(value: i32) -> *mut u8 {
+    use std::ffi::CString;
+    let s = if value != 0 { "true" } else { "false" };
+    match CString::new(s) {
+        Ok(c_str) => c_str.into_raw() as *mut u8,
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Parse String to Int (returns 0 on error)
+#[unsafe(no_mangle)]
+pub extern "C" fn __StringToInt(s: *const u8) -> i64 {
+    if s.is_null() {
+        return 0;
+    }
+
+    unsafe {
+        let c_str = std::ffi::CStr::from_ptr(s as *const i8);
+        if let Ok(rust_str) = c_str.to_str() {
+            rust_str.trim().parse::<i64>().unwrap_or(0)
+        } else {
+            0
+        }
+    }
+}
+
+/// Parse String to Float (returns 0.0 on error)
+#[unsafe(no_mangle)]
+pub extern "C" fn __StringToFloat(s: *const u8) -> f64 {
+    if s.is_null() {
+        return 0.0;
+    }
+
+    unsafe {
+        let c_str = std::ffi::CStr::from_ptr(s as *const i8);
+        if let Ok(rust_str) = c_str.to_str() {
+            rust_str.trim().parse::<f64>().unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Free a string returned by __IntToString, __FloatToString, or __BoolToString
+#[unsafe(no_mangle)]
+pub extern "C" fn __FreeString(s: *mut u8) {
+    if s.is_null() {
+        return;
+    }
+    unsafe {
+        use std::ffi::CString;
+        drop(CString::from_raw(s as *mut i8));
+    }
+}
+
+/// Get string length (number of bytes in UTF-8, excluding null terminator)
+#[unsafe(no_mangle)]
+pub extern "C" fn __StringLength(s: *const u8) -> i64 {
+    if s.is_null() {
+        return 0;
+    }
+
+    unsafe {
+        let c_str = std::ffi::CStr::from_ptr(s as *const i8);
+        c_str.to_bytes().len() as i64
+    }
+}
+
+/// Concatenate two strings (returns heap-allocated null-terminated string)
+/// Caller must free the returned pointer with __FreeString
+#[unsafe(no_mangle)]
+pub extern "C" fn __StringConcat(a: *const u8, b: *const u8) -> *mut u8 {
+    use std::ffi::CString;
+
+    if a.is_null() && b.is_null() {
+        return match CString::new("") {
+            Ok(c_str) => c_str.into_raw() as *mut u8,
+            Err(_) => ptr::null_mut(),
+        };
+    }
+
+    unsafe {
+        let str_a = if a.is_null() {
+            ""
+        } else {
+            std::ffi::CStr::from_ptr(a as *const i8).to_str().unwrap_or("")
+        };
+
+        let str_b = if b.is_null() {
+            ""
+        } else {
+            std::ffi::CStr::from_ptr(b as *const i8).to_str().unwrap_or("")
+        };
+
+        let result = format!("{}{}", str_a, str_b);
+        match CString::new(result) {
+            Ok(c_str) => c_str.into_raw() as *mut u8,
+            Err(_) => ptr::null_mut(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

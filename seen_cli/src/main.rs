@@ -1916,11 +1916,21 @@ fn compile_file_llvm(
         if let Some(triple) = target_triple {
             println!("Configuring LLVM backend for target {}", triple);
         }
+        // Convert optimization level to LLVM format
+        use seen_core::LlvmOptLevel;
+        let llvm_opt = match opt_level {
+            0 => LlvmOptLevel::None,
+            1 => LlvmOptLevel::Less,
+            2 => LlvmOptLevel::Default,
+            _ => LlvmOptLevel::Aggressive,
+        };
+        
         let mut target_options = TargetOptions {
             triple: target_triple,
             cpu: target_cpu,
             hardware_features: convert_cpu_features(cpu_features),
             memory_topology: convert_memory_topology_hint(memory_topology),
+            opt_level: llvm_opt,
             ..Default::default()
         };
         if !cpu_features.is_empty() {
