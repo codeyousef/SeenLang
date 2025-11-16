@@ -65,6 +65,13 @@ impl BuiltinRegistry {
         registry.register_exact("__Abort", builtin_abort, 1);
         registry.register_range("Channel", builtin_channel, 0, Some(1));
 
+        // Additional I/O and conversion functions for benchmarks
+        registry.register_exact("__Print", builtin_print, 1);
+        registry.register_exact("__Println", builtin_println, 1);
+        registry.register_exact("__IntToString", builtin_int_to_string, 1);
+        registry.register_exact("__FloatToString", builtin_float_to_string, 1);
+        registry.register_exact("__BoolToString", builtin_bool_to_string, 1);
+
         registry
     }
 
@@ -294,6 +301,36 @@ fn builtin_abort(args: &[Value], position: Position) -> InterpreterResult<Value>
     };
 
     Err(InterpreterError::abort(message, position))
+}
+
+fn builtin_int_to_string(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => Ok(Value::String(i.to_string())),
+        _ => Err(InterpreterError::type_error(
+            format!("__IntToString expects Int, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_float_to_string(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Float(f) => Ok(Value::String(f.to_string())),
+        _ => Err(InterpreterError::type_error(
+            format!("__FloatToString expects Float, got {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_bool_to_string(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Boolean(b) => Ok(Value::String(b.to_string())),
+        _ => Err(InterpreterError::type_error(
+            format!("__BoolToString expects Bool, got {}", args[0].type_name()),
+            position,
+        )),
+    }
 }
 
 fn builtin_floor(args: &[Value], position: Position) -> InterpreterResult<Value> {

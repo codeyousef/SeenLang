@@ -480,6 +480,65 @@ impl TypeChecker {
             },
         );
 
+        // Add print functions for benchmarks
+        env.define_function(
+            "__Print".to_string(),
+            FunctionSignature {
+                name: "__Print".to_string(),
+                parameters: vec![Parameter {
+                    name: "msg".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
+        env.define_function(
+            "__Println".to_string(),
+            FunctionSignature {
+                name: "__Println".to_string(),
+                parameters: vec![Parameter {
+                    name: "msg".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
+
+        // String conversion functions
+        env.define_function(
+            "__IntToString".to_string(),
+            FunctionSignature {
+                name: "__IntToString".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Int,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__FloatToString".to_string(),
+            FunctionSignature {
+                name: "__FloatToString".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__BoolToString".to_string(),
+            FunctionSignature {
+                name: "__BoolToString".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Bool,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
+
         // Add super as a variadic function for calling parent constructors
         // Accepts any parameters (we can't easily specify variadic in type system)
         // In practice, the code generator will handle super calls specially

@@ -1,0 +1,266 @@
+// JSON parsing and serialization
+pub enum JsonValue {
+    Null,
+    Bool(Bool),
+    Number(Float),
+    String(String),
+    Array(Array<JsonValue>),
+    Object(HashMap<String, JsonValue>)
+}
+
+pub class JsonParser {
+    input: String
+    pos: Int
+    
+    pub fun parse(json: String) -> Result<JsonValue, String> {
+        let parser = JsonParser { input: json, pos: 0 }
+        parser.parse_value()
+    }
+    
+    fun parse_value() -> Result<JsonValue, String> {
+        this.skip_whitespace()
+        
+        if this.pos >= this.input.len() {
+            return Result::Err("Unexpected end of input")
+        }
+        
+        let ch = this.input.char_at(this.pos)
+        
+        if ch == 'n' {
+            this.parse_null()
+        } else if ch == 't' || ch == 'f' {
+            this.parse_bool()
+        } else if ch == '"' {
+            this.parse_string()
+        } else if ch == '[' {
+            this.parse_array()
+        } else if ch == '{' {
+            this.parse_object()
+        } else if ch == '-' || (ch >= '0' && ch <= '9') {
+            this.parse_number()
+        } else {
+            Result::Err("Unexpected character: " + ch)
+        }
+    }
+    
+    fun parse_null() -> Result<JsonValue, String> {
+        if this.consume("null") {
+            Result::Ok(JsonValue::Null)
+        } else {
+            Result::Err("Expected 'null'")
+        }
+    }
+    
+    fun parse_bool() -> Result<JsonValue, String> {
+        if this.consume("true") {
+            Result::Ok(JsonValue::Bool(true))
+        } else if this.consume("false") {
+            Result::Ok(JsonValue::Bool(false))
+        } else {
+            Result::Err("Expected boolean")
+        }
+    }
+    
+    fun parse_string() -> Result<JsonValue, String> {
+        if !this.expect('"') {
+            return Result::Err("Expected '\"'")
+        }
+        
+        let start = this.pos
+        while this.pos < this.input.len() && this.input.char_at(this.pos) != '"' {
+            if this.input.char_at(this.pos) == '\\' {
+                this.pos = this.pos + 1
+            }
+            this.pos = this.pos + 1
+        }
+        
+        if this.pos >= this.input.len() {
+            return Result::Err("Unterminated string")
+        }
+        
+        let str_val = this.input.substring(start, this.pos)
+        this.pos = this.pos + 1
+        Result::Ok(JsonValue::String(str_val))
+    }
+    
+    fun parse_number() -> Result<JsonValue, String> {
+        let start = this.pos
+        
+        if this.input.char_at(this.pos) == '-' {
+            this.pos = this.pos + 1
+        }
+        
+        while this.pos < this.input.len() {
+            let ch = this.input.char_at(this.pos)
+            if (ch >= '0' && ch <= '9') || ch == '.' || ch == 'e' || ch == 'E' || ch == '+' || ch == '-' {
+                this.pos = this.pos + 1
+            } else {
+                break
+            }
+        }
+        
+        let num_str = this.input.substring(start, this.pos)
+        match num_str.parse_float() {
+            Ok(num) => Result::Ok(JsonValue::Number(num)),
+            Err(e) => Result::Err("Invalid number: " + e)
+        }
+    }
+    
+    fun parse_array() -> Result<JsonValue, String> {
+        if !this.expect('[') {
+            return Result::Err("Expected '['")
+        }
+        
+        let arr = Array::new()
+        this.skip_whitespace()
+        
+        if this.peek() == ']' {
+            this.pos = this.pos + 1
+            return Result::Ok(JsonValue::Array(arr))
+        }
+        
+        loop {
+            match this.parse_value() {
+                Ok(val) => arr.push(val),
+                Err(e) => return Result::Err(e)
+            }
+            
+            this.skip_whitespace()
+            
+            if this.peek() == ']' {
+                this.pos = this.pos + 1
+                break
+            }
+            
+            if !this.expect(',') {
+                return Result::Err("Expected ',' or ']'")
+            }
+        }
+        
+        Result::Ok(JsonValue::Array(arr))
+    }
+    
+    fun parse_object() -> Result<JsonValue, String> {
+        if !this.expect('{') {
+            return Result::Err("Expected '{'")
+        }
+        
+        let obj = HashMap::new()
+        this.skip_whitespace()
+        
+        if this.peek() == '}' {
+            this.pos = this.pos + 1
+            return Result::Ok(JsonValue::Object(obj))
+        }
+        
+        loop {
+            this.skip_whitespace()
+            
+            let key = match this.parse_string() {
+                Ok(JsonValue::String(s)) => s,
+                Ok(_) => return Result::Err("Expected string key"),
+                Err(e) => return Result::Err(e)
+            }
+            
+            this.skip_whitespace()
+            
+            if !this.expect(':') {
+                return Result::Err("Expected ':'")
+            }
+            
+            match this.parse_value() {
+                Ok(val) => { obj.insert(key, val); },
+                Err(e) => return Result::Err(e)
+            }
+            
+            this.skip_whitespace()
+            
+            if this.peek() == '}' {
+                this.pos = this.pos + 1
+                break
+            }
+            
+            if !this.expect(',') {
+                return Result::Err("Expected ',' or '}'")
+            }
+        }
+        
+        Result::Ok(JsonValue::Object(obj))
+    }
+    
+    fun skip_whitespace() {
+        while this.pos < this.input.len() {
+            let ch = this.input.char_at(this.pos)
+            if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+                this.pos = this.pos + 1
+            } else {
+                break
+            }
+        }
+    }
+    
+    fun peek() -> String {
+        if this.pos < this.input.len() {
+            this.input.char_at(this.pos)
+        } else {
+            ""
+        }
+    }
+    
+    fun expect(ch: String) -> Bool {
+        this.skip_whitespace()
+        if this.pos < this.input.len() && this.input.char_at(this.pos) == ch {
+            this.pos = this.pos + 1
+            true
+        } else {
+            false
+        }
+    }
+    
+    fun consume(s: String) -> Bool {
+        let len = s.len()
+        if this.pos + len <= this.input.len() {
+            let substr = this.input.substring(this.pos, this.pos + len)
+            if substr == s {
+                this.pos = this.pos + len
+                return true
+            }
+        }
+        false
+    }
+}
+
+pub fun stringify(value: JsonValue) -> String {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(b) => if b { "true" } else { "false" },
+        JsonValue::Number(n) => n.to_string(),
+        JsonValue::String(s) => "\"" + s + "\"",
+        JsonValue::Array(arr) => {
+            let result = "["
+            let i = 0
+            while i < arr.len() {
+                if i > 0 {
+                    result = result + ","
+                }
+                result = result + stringify(arr.get(i))
+                i = i + 1
+            }
+            result + "]"
+        },
+        JsonValue::Object(obj) => {
+            let result = "{"
+            let keys = obj.keys()
+            let i = 0
+            while i < keys.len() {
+                if i > 0 {
+                    result = result + ","
+                }
+                let key = keys.get(i)
+                result = result + "\"" + key + "\":" + stringify(obj.get(key).unwrap())
+                i = i + 1
+            }
+            result + "}"
+        }
+    }
+}

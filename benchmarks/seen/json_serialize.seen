@@ -1,0 +1,168 @@
+// JSON Serialization Benchmark
+// String formatting and escaping
+
+struct User {
+    id: Int,
+    name: String,
+    active: Bool,
+    score: Float,
+}
+
+fun escape_string(s: String) -> String {
+    let mut result = String::new();
+    
+    for i in 0..s.len() {
+        let ch = s[i];
+        if ch == '"' {
+            result = result + "\\\"";
+        } else if ch == '\\' {
+            result = result + "\\\\";
+        } else if ch == '\n' {
+            result = result + "\\n";
+        } else if ch == '\t' {
+            result = result + "\\t";
+        } else if ch == '\r' {
+            result = result + "\\r";
+        } else {
+            result = result + (ch as String);
+        }
+    }
+    
+    result
+}
+
+fun int_to_string(n: Int) -> String {
+    if n == 0 {
+        return "0";
+    }
+    
+    let mut result = String::new();
+    let mut num = n;
+    let mut digits = Array::with_capacity<Int>(20);
+    
+    while num > 0 {
+        digits.push(num % 10);
+        num = num / 10;
+    }
+    
+    let mut i = digits.len() - 1;
+    while i >= 0 {
+        result = result + ((48 + digits[i]) as String);
+        i = i - 1;
+    }
+    
+    result
+}
+
+fun float_to_string(f: Float) -> String {
+    let int_part = f as Int;
+    let frac_part = ((f - (int_part as Float)) * 1000000.0) as Int;
+    
+    let mut result = int_to_string(int_part);
+    result = result + ".";
+    result = result + int_to_string(frac_part);
+    result
+}
+
+fun serialize_user(user: User) -> String {
+    let mut json = String::new();
+    json = json + "{\"id\":";
+    json = json + int_to_string(user.id);
+    json = json + ",\"name\":\"";
+    json = json + escape_string(user.name);
+    json = json + "\",\"active\":";
+    if user.active {
+        json = json + "true";
+    } else {
+        json = json + "false";
+    }
+    json = json + ",\"score\":";
+    json = json + float_to_string(user.score);
+    json = json + "}";
+    json
+}
+
+fun serialize_users(users: Array<User>) -> String {
+    let mut json = "[";
+    
+    for i in 0..users.len() {
+        if i > 0 {
+            json = json + ",";
+        }
+        json = json + serialize_user(users[i]);
+    }
+    
+    json = json + "]";
+    json
+}
+
+fun generate_users(count: Int) -> Array<User> {
+    let mut users = Array::with_capacity<User>(count);
+    
+    for i in 0..count {
+        let mut name = "User_";
+        let id_str = int_to_string(i);
+        let padding_needed = 5 - id_str.len();
+        for _ in 0..padding_needed {
+            name = name + "0";
+        }
+        name = name + id_str;
+        
+        users.push(User {
+            id: i,
+            name: name,
+            active: (i % 2) == 0,
+            score: (i as Float) * 1.5,
+        });
+    }
+    
+    users
+}
+
+fun checksum(s: String) -> Int {
+    let mut sum = 0;
+    for i in 0..s.len() {
+        sum = sum + (s[i] as Int);
+    }
+    sum
+}
+
+fun main() {
+    let count = 1000000;
+    
+    println("JSON Serialization Benchmark");
+    println("Serializing {} objects", count);
+    
+    let users = generate_users(count);
+    
+    println("Warming up...");
+    for _ in 0..2 {
+        let _ = serialize_users(Array::slice(users, 0, count / 100));
+    }
+    
+    println("Running 10 measured iterations...");
+    let mut min_time = 999999.0;
+    let mut result_checksum = 0;
+    let mut result_size = 0;
+    
+    for run in 0..10 {
+        let start = __GetTime();
+        let json = serialize_users(users);
+        let end = __GetTime();
+        
+        let time_ms = (end - start) * 1000.0;
+        if time_ms < min_time {
+            min_time = time_ms;
+        }
+        
+        if run == 0 {
+            result_checksum = checksum(json);
+            result_size = json.len();
+        }
+    }
+    
+    println("JSON size: {} bytes", result_size);
+    println("Checksum: {}", result_checksum);
+    println("Min time: {} ms", min_time);
+    println("Throughput: {} MB/s", (result_size as Float) / (min_time * 1000.0));
+}

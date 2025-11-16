@@ -1,0 +1,119 @@
+// Reverse Complement Benchmark
+// String processing with lookup tables
+
+fun create_complement_table() -> Array<Int> {
+    let mut table = Array::with_capacity<Int>(256);
+    for _ in 0..256 {
+        table.push(0);
+    }
+    
+    table[65] = 84;
+    table[67] = 71;
+    table[71] = 67;
+    table[84] = 65;
+    table[97] = 116;
+    table[99] = 103;
+    table[103] = 99;
+    table[116] = 97;
+    
+    table
+}
+
+fun generate_sequence(size: Int, seed: Int) -> String {
+    let mut result = String::new();
+    let nucleotides = "ACGT";
+    let mut rng = seed;
+    
+    let line_len = 60;
+    let mut pos = 0;
+    
+    while pos < size {
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF;
+        let idx = (rng % 4) as Int;
+        result = result + nucleotides[idx..idx+1];
+        pos = pos + 1;
+        
+        if pos % line_len == 0 {
+            result = result + "\n";
+        }
+    }
+    
+    if pos % line_len != 0 {
+        result = result + "\n";
+    }
+    
+    result
+}
+
+fun reverse_complement(seq: String, table: Array<Int>) -> String {
+    let mut result = String::new();
+    let len = seq.len();
+    
+    let mut i = len - 1;
+    while i >= 0 {
+        let ch = seq[i] as Int;
+        if ch == 10 {
+            i = i - 1;
+            continue;
+        }
+        
+        let comp = table[ch];
+        if comp != 0 {
+            result = result + (comp as String);
+        } else {
+            result = result + (ch as String);
+        }
+        
+        i = i - 1;
+    }
+    
+    result
+}
+
+fun checksum(s: String) -> Int {
+    let mut sum = 0;
+    for i in 0..s.len() {
+        sum = sum + (s[i] as Int);
+    }
+    sum
+}
+
+fun main() {
+    let size = 25000000;
+    
+    println("Reverse Complement Benchmark");
+    println("Sequence size: {} bytes", size);
+    
+    let table = create_complement_table();
+    
+    println("Generating sequence...");
+    let seq = generate_sequence(size, 42);
+    
+    println("Warming up...");
+    for _ in 0..3 {
+        let _ = reverse_complement(seq, table);
+    }
+    
+    println("Running 10 measured iterations...");
+    let mut min_time = 999999.0;
+    let mut result_checksum = 0;
+    
+    for run in 0..10 {
+        let start = __GetTime();
+        let rev = reverse_complement(seq, table);
+        let end = __GetTime();
+        
+        let time_ms = (end - start) * 1000.0;
+        if time_ms < min_time {
+            min_time = time_ms;
+        }
+        
+        if run == 0 {
+            result_checksum = checksum(rev);
+        }
+    }
+    
+    println("Checksum: {}", result_checksum);
+    println("Min time: {} ms", min_time);
+    println("Throughput: {} MB/s", (size as Float) / (min_time * 1000.0));
+}

@@ -1,0 +1,164 @@
+// String escape/unescape utilities for JSON and other formats
+// Production-quality implementation
+
+class StringEscape {
+    // Escape a string for JSON output
+    fun escapeJson(input: String): String {
+        let result = ""
+        let i = 0
+        let len = input.length()
+        
+        while i < len {
+            let ch = input.charAt(i)
+            
+            if ch == '"' {
+                result = result + "\\\""
+            } else if ch == '\\' {
+                result = result + "\\\\"
+            } else if ch == '\n' {
+                result = result + "\\n"
+            } else if ch == '\r' {
+                result = result + "\\r"
+            } else if ch == '\t' {
+                result = result + "\\t"
+            } else if ch == '\b' {
+                result = result + "\\b"
+            } else if ch == '\f' {
+                result = result + "\\f"
+            } else {
+                result = result + String.fromCharCode(ch)
+            }
+            
+            i = i + 1
+        }
+        
+        result
+    }
+    
+    // Check if a string needs escaping for JSON
+    fun needsEscaping(input: String): Bool {
+        let i = 0
+        let len = input.length()
+        
+        while i < len {
+            let ch = input.charAt(i)
+            if ch == '"' or ch == '\\' or ch == '\n' or ch == '\r' or ch == '\t' or ch == '\b' or ch == '\f' {
+                true
+            }
+            i = i + 1
+        }
+        
+        false
+    }
+    
+    // URL encode a string
+    fun urlEncode(input: String): String {
+        let result = ""
+        let i = 0
+        let len = input.length()
+        
+        while i < len {
+            let ch = input.charAt(i)
+            
+            if isAlphaNum(ch) or ch == '-' or ch == '_' or ch == '.' or ch == '~' {
+                result = result + String.fromCharCode(ch)
+            } else if ch == ' ' {
+                result = result + "+"
+            } else {
+                result = result + "%" + toHex(ch / 16) + toHex(ch % 16)
+            }
+            
+            i = i + 1
+        }
+        
+        result
+    }
+    
+    // HTML escape
+    fun escapeHtml(input: String): String {
+        let result = ""
+        let i = 0
+        let len = input.length()
+        
+        while i < len {
+            let ch = input.charAt(i)
+            
+            if ch == '<' {
+                result = result + "&lt;"
+            } else if ch == '>' {
+                result = result + "&gt;"
+            } else if ch == '&' {
+                result = result + "&amp;"
+            } else if ch == '"' {
+                result = result + "&quot;"
+            } else if ch == '\'' {
+                result = result + "&#39;"
+            } else {
+                result = result + String.fromCharCode(ch)
+            }
+            
+            i = i + 1
+        }
+        
+        result
+    }
+    
+    // Unescape JSON string
+    fun unescapeJson(input: String): String {
+        let result = ""
+        let i = 0
+        let len = input.length()
+        
+        while i < len {
+            let ch = input.charAt(i)
+            
+            if ch == '\\' and i + 1 < len {
+                let next = input.charAt(i + 1)
+                if next == '"' {
+                    result = result + "\""
+                    i = i + 1
+                } else if next == '\\' {
+                    result = result + "\\"
+                    i = i + 1
+                } else if next == 'n' {
+                    result = result + "\n"
+                    i = i + 1
+                } else if next == 'r' {
+                    result = result + "\r"
+                    i = i + 1
+                } else if next == 't' {
+                    result = result + "\t"
+                    i = i + 1
+                } else if next == 'b' {
+                    result = result + "\b"
+                    i = i + 1
+                } else if next == 'f' {
+                    result = result + "\f"
+                    i = i + 1
+                } else {
+                    result = result + String.fromCharCode(ch)
+                }
+            } else {
+                result = result + String.fromCharCode(ch)
+            }
+            
+            i = i + 1
+        }
+        
+        result
+    }
+    
+    // Helper: check if character is alphanumeric
+    fun isAlphaNum(ch: Int): Bool {
+        (ch >= 48 and ch <= 57) or (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122)
+    }
+    
+    // Helper: convert number to hex digit
+    fun toHex(n: Int): String {
+        if n < 10 {
+            String.fromCharCode(48 + n)
+        } else {
+            String.fromCharCode(65 + (n - 10))
+        }
+    }
+}

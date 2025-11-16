@@ -1,0 +1,50 @@
+// HashSet implementation
+pub class HashSet<T> {
+    map: HashMap<T, Bool>
+    
+    pub fun new() -> HashSet<T> {
+        HashSet {
+            map: HashMap::new()
+        }
+    }
+    
+    pub fun with_capacity(capacity: Int) -> HashSet<T> {
+        HashSet {
+            map: HashMap::with_capacity(capacity)
+        }
+    }
+    
+    pub fun insert(value: T) -> Bool {
+        match this.map.insert(value, true) {
+            Some(_) => false,  // Already existed
+            None => true       // Newly inserted
+        }
+    }
+    
+    pub fun remove(value: T) -> Bool {
+        match this.map.remove(value) {
+            Some(_) => true,
+            None => false
+        }
+    }
+    
+    pub fun contains(value: T) -> Bool {
+        this.map.contains_key(value)
+    }
+    
+    pub fun len() -> Int {
+        this.map.len()
+    }
+    
+    pub fun is_empty() -> Bool {
+        this.map.is_empty()
+    }
+    
+    pub fun clear() {
+        this.map.clear()
+    }
+    
+    pub fun to_array() -> Array<T> {
+        this.map.keys()
+    }
+}

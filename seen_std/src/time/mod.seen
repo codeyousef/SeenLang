@@ -1,0 +1,65 @@
+// Time and duration utilities
+pub class Duration {
+    nanos: Int
+    
+    pub fun from_secs(secs: Int) -> Duration {
+        Duration { nanos: secs * 1_000_000_000 }
+    }
+    
+    pub fun from_millis(millis: Int) -> Duration {
+        Duration { nanos: millis * 1_000_000 }
+    }
+    
+    pub fun from_micros(micros: Int) -> Duration {
+        Duration { nanos: micros * 1_000 }
+    }
+    
+    pub fun from_nanos(nanos: Int) -> Duration {
+        Duration { nanos: nanos }
+    }
+    
+    pub fun as_secs() -> Int {
+        this.nanos / 1_000_000_000
+    }
+    
+    pub fun as_millis() -> Int {
+        this.nanos / 1_000_000
+    }
+    
+    pub fun as_micros() -> Int {
+        this.nanos / 1_000
+    }
+    
+    pub fun as_nanos() -> Int {
+        this.nanos
+    }
+    
+    pub fun add(other: Duration) -> Duration {
+        Duration { nanos: this.nanos + other.nanos }
+    }
+    
+    pub fun sub(other: Duration) -> Duration {
+        Duration { nanos: this.nanos - other.nanos }
+    }
+}
+
+pub class Instant {
+    nanos: Int
+    
+    pub fun now() -> Instant {
+        Instant { nanos: __TimeNow() }
+    }
+    
+    pub fun elapsed() -> Duration {
+        let now = __TimeNow()
+        Duration { nanos: now - this.nanos }
+    }
+    
+    pub fun duration_since(earlier: Instant) -> Duration {
+        Duration { nanos: this.nanos - earlier.nanos }
+    }
+}
+
+pub fun sleep(duration: Duration) {
+    __ThreadSleep(duration.as_millis())
+}

@@ -163,6 +163,18 @@ fun ceil(value: Float) -> Float {
     return whole
 }
 
+fun round(value: Float) -> Float {
+    let floored = floor(value)
+    let fraction = value - floored
+    if fraction >= 0.5 {
+        return floored + 1.0
+    }
+    if fraction <= -0.5 {
+        return floored - 1.0
+    }
+    return floored
+}
+
 fun pow(base: Float, exponent: Float) -> Float {
     if exponent == 0.0 {
         return 1.0

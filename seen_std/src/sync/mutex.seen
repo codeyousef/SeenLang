@@ -1,0 +1,44 @@
+// Mutex for thread synchronization
+pub class Mutex<T> {
+    lock: Int
+    data: T
+    
+    pub fun new(data: T) -> Mutex<T> {
+        let lock = __MutexCreate()
+        Mutex {
+            lock: lock,
+            data: data
+        }
+    }
+    
+    pub fun lock() -> MutexGuard<T> {
+        __MutexLock(this.lock)
+        MutexGuard {
+            mutex: this
+        }
+    }
+    
+    pub fun try_lock() -> Option<MutexGuard<T>> {
+        if __MutexTryLock(this.lock) {
+            Option::Some(MutexGuard { mutex: this })
+        } else {
+            Option::None()
+        }
+    }
+}
+
+pub class MutexGuard<T> {
+    mutex: Mutex<T>
+    
+    pub fun get() -> T {
+        this.mutex.data
+    }
+    
+    pub fun set(value: T) {
+        this.mutex.data = value
+    }
+    
+    pub fun drop() {
+        __MutexUnlock(this.mutex.lock)
+    }
+}

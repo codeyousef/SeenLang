@@ -1,0 +1,196 @@
+// LRU Cache Benchmark
+// Hash table and linked list performance
+
+struct LRUNode {
+    key: Int,
+    value: Int,
+    prev: Int,
+    next: Int,
+}
+
+struct LRUCache {
+    capacity: Int,
+    size: Int,
+    nodes: Array<LRUNode>,
+    hash_table: Array<Int>,
+    head: Int,
+    tail: Int,
+    free_list: Array<Int>,
+}
+
+fun LRUCache::new(capacity: Int) -> LRUCache {
+    let table_size = (capacity as Float * 1.5) as Int;
+    let mut nodes = Array::with_capacity<LRUNode>(capacity + 2);
+    let mut hash_table = Array::with_capacity<Int>(table_size);
+    let mut free_list = Array::with_capacity<Int>(capacity);
+    
+    for _ in 0..table_size {
+        hash_table.push(-1);
+    }
+    
+    for i in 0..capacity {
+        free_list.push(i);
+    }
+    
+    nodes.push(LRUNode { key: -1, value: 0, prev: -1, next: 1 });
+    nodes.push(LRUNode { key: -1, value: 0, prev: 0, next: -1 });
+    
+    for _ in 0..capacity {
+        nodes.push(LRUNode { key: -1, value: 0, prev: -1, next: -1 });
+    }
+    
+    LRUCache {
+        capacity: capacity,
+        size: 0,
+        nodes: nodes,
+        hash_table: hash_table,
+        head: 0,
+        tail: 1,
+        free_list: free_list,
+    }
+}
+
+fun LRUCache::hash(cache: LRUCache, key: Int) -> Int {
+    ((key * 2654435761) % cache.hash_table.len() + cache.hash_table.len()) % cache.hash_table.len()
+}
+
+fun LRUCache::find(cache: LRUCache, key: Int) -> Int {
+    let idx = LRUCache::hash(cache, key);
+    let node_idx = cache.hash_table[idx];
+    
+    if node_idx >= 0 && cache.nodes[node_idx].key == key {
+        node_idx
+    } else {
+        -1
+    }
+}
+
+fun LRUCache::move_to_front(cache: LRUCache, node_idx: Int) {
+    if node_idx == cache.nodes[cache.head].next {
+        return;
+    }
+    
+    let prev = cache.nodes[node_idx].prev;
+    let next = cache.nodes[node_idx].next;
+    
+    if prev >= 0 {
+        cache.nodes[prev].next = next;
+    }
+    if next >= 0 {
+        cache.nodes[next].prev = prev;
+    }
+    
+    let old_first = cache.nodes[cache.head].next;
+    cache.nodes[cache.head].next = node_idx;
+    cache.nodes[node_idx].prev = cache.head;
+    cache.nodes[node_idx].next = old_first;
+    cache.nodes[old_first].prev = node_idx;
+}
+
+fun LRUCache::get(cache: LRUCache, key: Int) -> Int {
+    let node_idx = LRUCache::find(cache, key);
+    
+    if node_idx < 0 {
+        return -1;
+    }
+    
+    LRUCache::move_to_front(cache, node_idx);
+    cache.nodes[node_idx].value
+}
+
+fun LRUCache::put(cache: LRUCache, key: Int, value: Int) {
+    let existing = LRUCache::find(cache, key);
+    
+    if existing >= 0 {
+        cache.nodes[existing].value = value;
+        LRUCache::move_to_front(cache, existing);
+        return;
+    }
+    
+    let mut node_idx = -1;
+    if cache.size < cache.capacity {
+        node_idx = cache.free_list[cache.size] + 2;
+        cache.size = cache.size + 1;
+    } else {
+        node_idx = cache.nodes[cache.tail].prev;
+        let old_key = cache.nodes[node_idx].key;
+        let old_hash = LRUCache::hash(cache, old_key);
+        cache.hash_table[old_hash] = -1;
+    }
+    
+    cache.nodes[node_idx].key = key;
+    cache.nodes[node_idx].value = value;
+    
+    let hash_idx = LRUCache::hash(cache, key);
+    cache.hash_table[hash_idx] = node_idx;
+    
+    LRUCache::move_to_front(cache, node_idx);
+}
+
+fun generate_trace(count: Int, key_range: Int, seed: Int) -> Array<Int> {
+    let mut trace = Array::with_capacity<Int>(count * 2);
+    let mut rng = seed;
+    
+    for _ in 0..count {
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF;
+        let op = rng % 100;
+        
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF;
+        let key = rng % key_range;
+        
+        if op < 70 {
+            trace.push(0);
+        } else {
+            trace.push(1);
+        }
+        trace.push(key);
+    }
+    
+    trace
+}
+
+fun main() {
+    let capacity = 100000;
+    let operations = 10000000;
+    let key_range = 1000000;
+    
+    println("LRU Cache Benchmark");
+    println("Capacity: {}", capacity);
+    println("Operations: {}", operations);
+    
+    let trace = generate_trace(operations, key_range, 42);
+    
+    println("Preloading {} entries...", capacity / 2);
+    let cache = LRUCache::new(capacity);
+    for i in 0..(capacity / 2) {
+        LRUCache::put(cache, i, i * 2);
+    }
+    
+    println("Running benchmark...");
+    let start = __GetTime();
+    
+    let mut sum = 0;
+    let mut idx = 0;
+    while idx < trace.len() {
+        let op = trace[idx];
+        let key = trace[idx + 1];
+        
+        if op == 0 {
+            let val = LRUCache::get(cache, key);
+            if val >= 0 {
+                sum = sum + val;
+            }
+        } else {
+            LRUCache::put(cache, key, key * 2);
+        }
+        
+        idx = idx + 2;
+    }
+    
+    let end = __GetTime();
+    let time_ms = (end - start) * 1000.0;
+    
+    println("Sum of retrieved values: {}", sum);
+    println("Time: {} ms", time_ms);
+    println("Operations per second: {}", (operations as Float) / (time_ms / 1000.0));
+}

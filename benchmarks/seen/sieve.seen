@@ -1,0 +1,86 @@
+// Sieve of Eratosthenes Benchmark
+// Segmented sieve with wheel factorization
+
+fun create_bit_array(size: Int) -> Array<Int> {
+    let words = (size + 31) / 32;
+    let mut bits = Array::with_capacity<Int>(words);
+    for _ in 0..words {
+        bits.push(0xFFFFFFFF);
+    }
+    bits
+}
+
+fun is_set(bits: Array<Int>, idx: Int) -> Bool {
+    let word = idx / 32;
+    let bit = idx % 32;
+    (bits[word] & (1 << bit)) != 0
+}
+
+fun clear_bit(bits: Array<Int>, idx: Int) {
+    let word = idx / 32;
+    let bit = idx % 32;
+    bits[word] = bits[word] & !(1 << bit);
+}
+
+fun sieve_of_eratosthenes(limit: Int) -> Array<Int> {
+    let mut is_prime = create_bit_array(limit + 1);
+    
+    clear_bit(is_prime, 0);
+    clear_bit(is_prime, 1);
+    
+    let sqrt_limit = __Sqrt(limit as Float) as Int + 1;
+    
+    for i in 2..sqrt_limit {
+        if is_set(is_prime, i) {
+            let mut j = i * i;
+            while j <= limit {
+                clear_bit(is_prime, j);
+                j = j + i;
+            }
+        }
+    }
+    
+    let mut primes = Array::with_capacity<Int>(limit / 10);
+    for i in 2..(limit + 1) {
+        if is_set(is_prime, i) {
+            primes.push(i);
+        }
+    }
+    
+    primes
+}
+
+fun compute_checksum(primes: Array<Int>) -> Int {
+    let mut sum = 0;
+    for i in 0..primes.len() {
+        sum = sum + primes[i];
+    }
+    sum
+}
+
+fun main() {
+    let limit = 10000000;
+    
+    println("Sieve of Eratosthenes Benchmark");
+    println("Finding primes up to: {}", limit);
+    
+    let warmup_runs = 3;
+    println("Warming up ({} runs)...", warmup_runs);
+    for _ in 0..warmup_runs {
+        let _ = sieve_of_eratosthenes(limit);
+    }
+    
+    println("Running measured iteration...");
+    let start = __GetTime();
+    let primes = sieve_of_eratosthenes(limit);
+    let end = __GetTime();
+    
+    let time_ms = (end - start) * 1000.0;
+    let prime_count = primes.len();
+    let checksum = compute_checksum(primes);
+    
+    println("Prime count: {}", prime_count);
+    println("Checksum: {}", checksum);
+    println("Time: {} ms", time_ms);
+    println("Primes per second: {}", (prime_count as Float) / (time_ms / 1000.0));
+}

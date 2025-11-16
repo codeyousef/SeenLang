@@ -1,0 +1,86 @@
+// seen_std::collections::bit_set
+// Bit-packed boolean array for memory-efficient boolean storage.
+// Used for Sieve of Eratosthenes and other algorithms requiring dense bit storage.
+
+import collections.vec.{Vec}
+
+class BitSet {
+    var words: Vec<Int>
+    var capacity: Int
+
+    fun new(size: Int) -> BitSet {
+        let numWords = (size + 63) / 64
+        let words = Vec<Int>.new()
+        let i = 0
+        while i < numWords {
+            words.push(0)
+            i = i + 1
+        }
+        return BitSet {
+            words: words,
+            capacity: size
+        }
+    }
+
+    fun set(this: BitSet, index: Int) -> Void {
+        if index < 0 || index >= this.capacity {
+            abort("BitSet.set: index out of bounds")
+        }
+        let wordIndex = index / 64
+        let bitIndex = index % 64
+        let word = this.words.get(wordIndex)
+        this.words.set(wordIndex, word | (1 << bitIndex))
+    }
+
+    fun clear(this: BitSet, index: Int) -> Void {
+        if index < 0 || index >= this.capacity {
+            abort("BitSet.clear: index out of bounds")
+        }
+        let wordIndex = index / 64
+        let bitIndex = index % 64
+        let word = this.words.get(wordIndex)
+        this.words.set(wordIndex, word & ~(1 << bitIndex))
+    }
+
+    fun get(this: BitSet, index: Int) -> Bool {
+        if index < 0 || index >= this.capacity {
+            abort("BitSet.get: index out of bounds")
+        }
+        let wordIndex = index / 64
+        let bitIndex = index % 64
+        let word = this.words.get(wordIndex)
+        return (word & (1 << bitIndex)) != 0
+    }
+
+    fun size(this: BitSet) -> Int {
+        return this.capacity
+    }
+
+    fun countOnes(this: BitSet) -> Int {
+        let count = 0
+        let i = 0
+        while i < this.capacity {
+            if this.get(i) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    fun clearAll(this: BitSet) -> Void {
+        let i = 0
+        while i < this.words.size() {
+            this.words.set(i, 0)
+            i = i + 1
+        }
+    }
+
+    fun setAll(this: BitSet) -> Void {
+        let i = 0
+        while i < this.words.size() {
+            this.words.set(i, -1)
+            i = i + 1
+        }
+    }
+}

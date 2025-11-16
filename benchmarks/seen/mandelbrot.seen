@@ -1,0 +1,97 @@
+// Mandelbrot Set Benchmark
+// Complex arithmetic and iteration
+
+fun mandelbrot_iter(cx: Float, cy: Float, max_iter: Int) -> Int {
+    let mut zx = 0.0;
+    let mut zy = 0.0;
+    let mut iter = 0;
+    
+    while iter < max_iter {
+        let zx2 = zx * zx;
+        let zy2 = zy * zy;
+        
+        if zx2 + zy2 > 4.0 {
+            return iter;
+        }
+        
+        let new_zy = 2.0 * zx * zy + cy;
+        zx = zx2 - zy2 + cx;
+        zy = new_zy;
+        iter = iter + 1;
+    }
+    
+    iter
+}
+
+fun render_mandelbrot(width: Int, height: Int, max_iter: Int) -> Array<Int> {
+    let mut pixels = Array::with_capacity<Int>(width * height);
+    
+    let x_min = -1.5;
+    let x_max = 0.5;
+    let y_min = -1.0;
+    let y_max = 1.0;
+    
+    let x_scale = (x_max - x_min) / (width as Float);
+    let y_scale = (y_max - y_min) / (height as Float);
+    
+    for py in 0..height {
+        let cy = y_min + (py as Float) * y_scale;
+        
+        for px in 0..width {
+            let cx = x_min + (px as Float) * x_scale;
+            let iter = mandelbrot_iter(cx, cy, max_iter);
+            pixels.push(iter);
+        }
+    }
+    
+    pixels
+}
+
+fun compute_checksum(pixels: Array<Int>) -> Int {
+    let mut sum = 0;
+    for i in 0..pixels.len() {
+        sum = sum + pixels[i];
+    }
+    sum
+}
+
+fun main() {
+    let width = 16000;
+    let height = 16000;
+    let max_iter = 10000;
+    
+    println("Mandelbrot Set Benchmark");
+    println("Resolution: {}x{}", width, height);
+    println("Max iterations: {}", max_iter);
+    
+    println("Warming up...");
+    let _ = render_mandelbrot(width / 100, height / 100, max_iter / 100);
+    
+    println("Running 5 measured iterations...");
+    let mut times = Array::with_capacity<Float>(5);
+    let mut checksum = 0;
+    
+    for run in 0..5 {
+        let start = __GetTime();
+        let pixels = render_mandelbrot(width, height, max_iter);
+        let end = __GetTime();
+        
+        let time_s = end - start;
+        times.push(time_s);
+        
+        if run == 0 {
+            checksum = compute_checksum(pixels);
+        }
+    }
+    
+    times = Array::sort(times);
+    let median_time = times[2];
+    
+    let total_pixels = width * height;
+    let total_iters = (total_pixels as Float) * (max_iter as Float);
+    
+    println("Checksum: {}", checksum);
+    println("Median time: {} s", median_time);
+    println("Pixels/second: {}", (total_pixels as Float) / median_time);
+    println("Iterations/second: {}", total_iters / median_time);
+}

@@ -1,0 +1,41 @@
+// seen_std::hash::mod
+// Generic hashing traits and utility functions.
+
+trait Hash {
+    fun hash(this: Self) -> Int
+}
+
+fun hashInt(value: Int) -> Int {
+    var h = value
+    h = h ^ (h >> 16)
+    h = h * 0x85ebca6b
+    h = h ^ (h >> 13)
+    h = h * 0xc2b2ae35
+    h = h ^ (h >> 16)
+    return h
+}
+
+fun hashString(value: String) -> Int {
+    var hash = 5381
+    let len = value.length()
+    let i = 0
+    while i < len {
+        let c = value.charCodeAt(i)
+        hash = ((hash << 5) + hash) + c
+        i = i + 1
+    }
+    return hash
+}
+
+fun hashFloat(value: Float) -> Int {
+    let bits = floatToInt(value * 1000000.0)
+    return hashInt(bits)
+}
+
+fun hashBool(value: Bool) -> Int {
+    return if value { 1 } else { 0 }
+}
+
+fun combineHashes(h1: Int, h2: Int) -> Int {
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2))
+}

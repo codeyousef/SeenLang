@@ -1,0 +1,193 @@
+// HashMap implementation
+pub class HashMap<K, V> {
+    buckets: Array<Array<Tuple<K, V>>>
+    size: Int
+    capacity: Int
+    load_factor: Float
+    
+    pub fun new() -> HashMap<K, V> {
+        let capacity = 16
+        let buckets = Array::with_capacity(capacity)
+        let i = 0
+        while i < capacity {
+            buckets.push(Array::new())
+            i = i + 1
+        }
+        HashMap {
+            buckets: buckets,
+            size: 0,
+            capacity: capacity,
+            load_factor: 0.75
+        }
+    }
+    
+    pub fun with_capacity(capacity: Int) -> HashMap<K, V> {
+        let buckets = Array::with_capacity(capacity)
+        let i = 0
+        while i < capacity {
+            buckets.push(Array::new())
+            i = i + 1
+        }
+        HashMap {
+            buckets: buckets,
+            size: 0,
+            capacity: capacity,
+            load_factor: 0.75
+        }
+    }
+    
+    fun hash(key: K) -> Int {
+        // Simple hash for now - in production use proper hashing
+        let hash_val = 0
+        // Use address or value-based hashing
+        hash_val = __Hash(key)
+        if hash_val < 0 {
+            hash_val = -hash_val
+        }
+        hash_val % this.capacity
+    }
+    
+    pub fun insert(key: K, value: V) -> Option<V> {
+        if (this.size as Float / this.capacity as Float) >= this.load_factor {
+            this.resize()
+        }
+        
+        let bucket_idx = this.hash(key)
+        let bucket = this.buckets.get(bucket_idx)
+        
+        // Check if key exists
+        let i = 0
+        while i < bucket.len() {
+            let entry = bucket.get(i)
+            if entry.0 == key {
+                let old_val = entry.1
+                bucket.set(i, (key, value))
+                return Option::Some(old_val)
+            }
+            i = i + 1
+        }
+        
+        // Insert new entry
+        bucket.push((key, value))
+        this.size = this.size + 1
+        Option::None()
+    }
+    
+    pub fun get(key: K) -> Option<V> {
+        let bucket_idx = this.hash(key)
+        let bucket = this.buckets.get(bucket_idx)
+        
+        let i = 0
+        while i < bucket.len() {
+            let entry = bucket.get(i)
+            if entry.0 == key {
+                return Option::Some(entry.1)
+            }
+            i = i + 1
+        }
+        
+        Option::None()
+    }
+    
+    pub fun remove(key: K) -> Option<V> {
+        let bucket_idx = this.hash(key)
+        let bucket = this.buckets.get(bucket_idx)
+        
+        let i = 0
+        while i < bucket.len() {
+            let entry = bucket.get(i)
+            if entry.0 == key {
+                let val = entry.1
+                bucket.remove(i)
+                this.size = this.size - 1
+                return Option::Some(val)
+            }
+            i = i + 1
+        }
+        
+        Option::None()
+    }
+    
+    pub fun contains_key(key: K) -> Bool {
+        match this.get(key) {
+            Some(_) => true,
+            None => false
+        }
+    }
+    
+    pub fun len() -> Int {
+        this.size
+    }
+    
+    pub fun is_empty() -> Bool {
+        this.size == 0
+    }
+    
+    pub fun clear() {
+        let i = 0
+        while i < this.capacity {
+            this.buckets.get(i).clear()
+            i = i + 1
+        }
+        this.size = 0
+    }
+    
+    fun resize() {
+        let new_capacity = this.capacity * 2
+        let new_buckets = Array::with_capacity(new_capacity)
+        let i = 0
+        while i < new_capacity {
+            new_buckets.push(Array::new())
+            i = i + 1
+        }
+        
+        let old_capacity = this.capacity
+        this.capacity = new_capacity
+        
+        // Rehash all entries
+        let i = 0
+        while i < old_capacity {
+            let bucket = this.buckets.get(i)
+            let j = 0
+            while j < bucket.len() {
+                let entry = bucket.get(j)
+                let new_idx = this.hash(entry.0)
+                new_buckets.get(new_idx).push(entry)
+                j = j + 1
+            }
+            i = i + 1
+        }
+        
+        this.buckets = new_buckets
+    }
+    
+    pub fun keys() -> Array<K> {
+        let result = Array::new()
+        let i = 0
+        while i < this.capacity {
+            let bucket = this.buckets.get(i)
+            let j = 0
+            while j < bucket.len() {
+                result.push(bucket.get(j).0)
+                j = j + 1
+            }
+            i = i + 1
+        }
+        result
+    }
+    
+    pub fun values() -> Array<V> {
+        let result = Array::new()
+        let i = 0
+        while i < this.capacity {
+            let bucket = this.buckets.get(i)
+            let j = 0
+            while j < bucket.len() {
+                result.push(bucket.get(j).1)
+                j = j + 1
+            }
+            i = i + 1
+        }
+        result
+    }
+}

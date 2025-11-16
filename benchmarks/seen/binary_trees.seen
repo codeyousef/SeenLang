@@ -1,0 +1,79 @@
+// Binary Trees Benchmark
+// Memory allocation and pointer chasing
+
+struct TreeNode {
+    item: Int,
+    left: Option<TreeNode>,
+    right: Option<TreeNode>,
+}
+
+fun make_tree(depth: Int, item: Int) -> TreeNode {
+    if depth == 0 {
+        TreeNode {
+            item: item,
+            left: None,
+            right: None,
+        }
+    } else {
+        let left_item = 2 * item;
+        let right_item = 2 * item + 1;
+        TreeNode {
+            item: item,
+            left: Some(make_tree(depth - 1, left_item)),
+            right: Some(make_tree(depth - 1, right_item)),
+        }
+    }
+}
+
+fun check_tree(node: TreeNode) -> Int {
+    match node.left {
+        Some(left) => match node.right {
+            Some(right) => node.item + check_tree(left) - check_tree(right),
+            None => node.item,
+        },
+        None => node.item,
+    }
+}
+
+fun run_iteration(depth: Int) -> Int {
+    let tree = make_tree(depth, 0);
+    check_tree(tree)
+}
+
+fun main() {
+    let max_depth = 20;
+    
+    println("Binary Trees Benchmark");
+    println("Maximum depth: {}", max_depth);
+    println("Total nodes: {}", (1 << (max_depth + 1)) - 1);
+    
+    let iterations = 10;
+    println("Warming up...");
+    for _ in 0..3 {
+        let _ = run_iteration(max_depth);
+    }
+    
+    println("Running {} measured iterations...", iterations);
+    
+    let mut total_time = 0.0;
+    let mut checksum_value = 0;
+    
+    for i in 0..iterations {
+        let start = __GetTime();
+        let check = run_iteration(max_depth);
+        let end = __GetTime();
+        
+        let time_ms = (end - start) * 1000.0;
+        total_time = total_time + time_ms;
+        
+        if i == 0 {
+            checksum_value = check;
+        }
+    }
+    
+    let avg_time = total_time / (iterations as Float);
+    
+    println("Checksum: {}", checksum_value);
+    println("Average time: {} ms", avg_time);
+    println("Total time: {} ms", total_time);
+}

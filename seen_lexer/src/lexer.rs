@@ -784,6 +784,38 @@ impl Lexer {
             }
         }
 
+        // Check for scientific notation (e or E)
+        if let Some('e') | Some('E') = self.current_char {
+            is_float = true;
+            number_str.push(self.current_char.unwrap());
+            self.advance();
+
+            // Optional +/- sign
+            if let Some('+') | Some('-') = self.current_char {
+                number_str.push(self.current_char.unwrap());
+                self.advance();
+            }
+
+            // Exponent digits (required)
+            let exp_start = number_str.len();
+            while let Some(ch) = self.current_char {
+                if ch.is_ascii_digit() {
+                    number_str.push(ch);
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Validate we got at least one exponent digit
+            if number_str.len() == exp_start {
+                return Err(LexerError::InvalidNumber {
+                    position: start_pos,
+                    message: "Expected digits after exponent indicator (e/E)".to_string(),
+                });
+            }
+        }
+
         // Check for unsigned suffix
         if self.current_char == Some('u') && !is_float {
             is_unsigned = true;

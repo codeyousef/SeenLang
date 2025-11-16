@@ -1,0 +1,75 @@
+// HTTP Echo Server Benchmark
+// Network I/O and connection handling simulation
+
+struct Connection {
+    id: Int,
+    requests: Int,
+    total_bytes: Int,
+}
+
+fun simulate_echo_server(num_connections: Int, requests_per_conn: Int, payload_size: Int) -> Int {
+    let mut connections = Array::with_capacity<Connection>(num_connections);
+    
+    for i in 0..num_connections {
+        connections.push(Connection {
+            id: i,
+            requests: 0,
+            total_bytes: 0,
+        });
+    }
+    
+    let mut total_requests = 0;
+    let mut active_conns = num_connections;
+    
+    while active_conns > 0 {
+        for i in 0..connections.len() {
+            if connections[i].requests < requests_per_conn {
+                connections[i].total_bytes = connections[i].total_bytes + payload_size;
+                connections[i].requests = connections[i].requests + 1;
+                total_requests = total_requests + 1;
+                
+                if connections[i].requests >= requests_per_conn {
+                    active_conns = active_conns - 1;
+                }
+            }
+        }
+    }
+    
+    total_requests
+}
+
+fun compute_checksum(connections: Array<Connection>) -> Int {
+    let mut sum = 0;
+    for i in 0..connections.len() {
+        sum = sum + connections[i].total_bytes;
+    }
+    sum
+}
+
+fun main() {
+    let num_connections = 10000;
+    let requests_per_conn = 10;
+    let payload_size = 100;
+    
+    println("HTTP Echo Server Benchmark");
+    println("Connections: {}", num_connections);
+    println("Requests per connection: {}", requests_per_conn);
+    println("Payload size: {} bytes", payload_size);
+    
+    println("Warming up...");
+    for _ in 0..2 {
+        let _ = simulate_echo_server(num_connections / 100, requests_per_conn, payload_size);
+    }
+    
+    println("Running benchmark...");
+    let start = __GetTime();
+    let total_requests = simulate_echo_server(num_connections, requests_per_conn, payload_size);
+    let end = __GetTime();
+    
+    let time_s = end - start;
+    let requests_per_second = (total_requests as Float) / time_s;
+    
+    println("Total requests: {}", total_requests);
+    println("Total time: {} s", time_s);
+    println("Requests/second: {}", requests_per_second);
+}

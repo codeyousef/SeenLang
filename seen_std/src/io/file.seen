@@ -1,115 +1,95 @@
-// seen_std::io::file
-// File-system helpers backed by deterministic host builtins.
-
-import str.string.{StringBuilder, lines}
-import fs.path.{dirname, normalize, isAbsolute, splitComponents}
-
-// External runtime intrinsics
-extern fun __ReadFile(path: String): String
-extern fun __WriteFile(path: String, contents: String): Bool
-extern fun __AppendFile(path: String, contents: String): Bool
-extern fun __FileExists(path: String): Bool
-extern fun __GetFileSize(path: String): Int
-extern fun __GetFileHash(path: String): String
-extern fun __CreateDirectory(path: String): Bool
-extern fun __DeleteFile(path: String): Bool
-extern fun __ExecuteProgram(path: String): Int
-
-fun readText(path: String) -> String {
-    return __ReadFile(path)
-}
-
-fun readLines(path: String) -> Array<String> {
-    let text = readText(path)
-    return lines(text, false)
-}
-
-fun writeText(path: String, contents: String) -> Bool {
-    return __WriteFile(path, contents)
-}
-
-fun writeLines(path: String, values: Array<String>, separator: String = "\n") -> Bool {
-    if values.length() == 0 {
-        return writeText(path, "")
-    }
-    let builder = StringBuilder.new()
-    var index = 0
-    while index < values.length() {
-        builder.append(values[index])
-        if index != values.length() - 1 {
-            builder.append(separator)
+// File I/O operations
+pub class File {
+    handle: Int
+    path: String
+    
+    pub fun open(path: String) -> Result<File, String> {
+        let handle = __OpenFile(path, "r")
+        if handle < 0 {
+            return Result::Err("Failed to open file: " + path)
         }
-        index = index + 1
+        Result::Ok(File { handle: handle, path: path })
     }
-    return writeText(path, builder.toString())
-}
-
-fun appendText(path: String, contents: String) -> Bool {
-    return __AppendFile(path, contents)
-}
-
-fun exists(path: String) -> Bool {
-    return __FileExists(path)
-}
-
-fun size(path: String) -> Int {
-    return __GetFileSize(path)
-}
-
-fun hash(path: String) -> String {
-    return __GetFileHash(path)
-}
-
-fun createDirectory(path: String) -> Bool {
-    return __CreateDirectory(path)
-}
-
-fun ensureDirectory(path: String) -> Bool {
-    if path.length() == 0 or path == "." {
-        return true
-    }
-    let normalized = normalize(path)
-    if normalized == "." {
-        return true
-    }
-    if normalized == "/" {
-        return true
-    }
-    let components = splitComponents(normalized)
-    if components.length() == 0 {
-        return __CreateDirectory(normalized) or exists(normalized)
-    }
-    var current = if isAbsolute(normalized) { "/" } else { "" }
-    var index = 0
-    while index < components.length() {
-        if current.length() == 0 {
-            current = components[index]
-        } else if current == "/" {
-            current = current + components[index]
-        } else {
-            current = current + "/" + components[index]
+    
+    pub fun create(path: String) -> Result<File, String> {
+        let handle = __OpenFile(path, "w")
+        if handle < 0 {
+            return Result::Err("Failed to create file: " + path)
         }
-        let created = __CreateDirectory(current)
-        if not created and not exists(current) {
-            return false
+        Result::Ok(File { handle: handle, path: path })
+    }
+    
+    pub fun read_to_string() -> Result<String, String> {
+        let content = __ReadFile(this.handle)
+        if content == "" && __FileError(this.handle) {
+            return Result::Err("Failed to read file")
         }
-        index = index + 1
+        Result::Ok(content)
     }
-    return true
-}
-
-fun ensureParentDirectories(path: String) -> Bool {
-    let parent = dirname(path)
-    if parent.length() == 0 or parent == "." {
-        return true
+    
+    pub fun read_bytes() -> Result<Array<Byte>, String> {
+        let bytes = __ReadFileBytes(this.handle)
+        if bytes.len() == 0 && __FileError(this.handle) {
+            return Result::Err("Failed to read file")
+        }
+        Result::Ok(bytes)
     }
-    return ensureDirectory(parent)
+    
+    pub fun write(content: String) -> Result<Int, String> {
+        let written = __WriteFile(this.handle, content)
+        if written < 0 {
+            return Result::Err("Failed to write to file")
+        }
+        Result::Ok(written)
+    }
+    
+    pub fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
+        let written = __WriteFileBytes(this.handle, bytes)
+        if written < 0 {
+            return Result::Err("Failed to write bytes to file")
+        }
+        Result::Ok(written)
+    }
+    
+    pub fun close() -> Result<Unit, String> {
+        let result = __CloseFile(this.handle)
+        if result < 0 {
+            return Result::Err("Failed to close file")
+        }
+        Result::Ok(())
+    }
+    
+    pub fun size() -> Result<Int, String> {
+        let size = __FileSize(this.handle)
+        if size < 0 {
+            return Result::Err("Failed to get file size")
+        }
+        Result::Ok(size)
+    }
 }
 
-fun deleteFile(path: String) -> Bool {
-    return __DeleteFile(path)
+pub fun read_to_string(path: String) -> Result<String, String> {
+    match File::open(path) {
+        Ok(file) => {
+            let content = file.read_to_string()
+            let _ = file.close()
+            content
+        },
+        Err(e) => Result::Err(e)
+    }
 }
 
-fun executeProgram(path: String) -> Int {
-    return __ExecuteProgram(path)
+pub fun write_string(path: String, content: String) -> Result<Unit, String> {
+    match File::create(path) {
+        Ok(file) => {
+            match file.write(content) {
+                Ok(_) => {
+                    let _ = file.close()
+                    Result::Ok(())
+                },
+                Err(e) => Result::Err(e)
+            }
+        },
+        Err(e) => Result::Err(e)
+    }
 }

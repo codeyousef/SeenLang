@@ -1,0 +1,32 @@
+// Seen Standard Library
+// Complete production-ready standard library
+
+pub mod collections {
+    pub mod array;
+    pub mod hashmap;
+    pub mod hashset;
+}
+
+pub mod io {
+    pub mod print;
+    pub mod file;
+}
+
+pub mod net {
+    pub mod tcp;
+}
+
+pub mod sync {
+    pub mod mutex;
+    pub mod channel;
+}
+
+pub mod thread;
+
+pub mod time;
+
+pub mod json;
+
+pub mod math;
+
+pub mod string;

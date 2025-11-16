@@ -1,0 +1,119 @@
+// FASTA Generation Benchmark
+// Random sequence generation with weighted selection
+
+let IM = 139968;
+let IA = 3877;
+let IC = 29573;
+
+struct Random {
+    seed: Int,
+}
+
+fun Random::new(seed: Int) -> Random {
+    Random { seed: seed }
+}
+
+fun Random::next(rng: Random) -> Float {
+    rng.seed = (rng.seed * IA + IC) % IM;
+    (rng.seed as Float) / (IM as Float)
+}
+
+struct Nucleotide {
+    c: String,
+    prob: Float,
+}
+
+fun select_nucleotide(rng: Random, table: Array<Nucleotide>) -> String {
+    let r = Random::next(rng);
+    let mut cumulative = 0.0;
+    
+    for i in 0..table.len() {
+        cumulative = cumulative + table[i].prob;
+        if r < cumulative {
+            return table[i].c;
+        }
+    }
+    
+    table[table.len() - 1].c
+}
+
+fun generate_fasta(count: Int, table: Array<Nucleotide>, seed: Int) -> String {
+    let mut rng = Random::new(seed);
+    let mut result = String::new();
+    let line_len = 60;
+    
+    let mut pos = 0;
+    while pos < count {
+        let char = select_nucleotide(rng, table);
+        result = result + char;
+        pos = pos + 1;
+        
+        if pos % line_len == 0 {
+            result = result + "\n";
+        }
+    }
+    
+    if pos % line_len != 0 {
+        result = result + "\n";
+    }
+    
+    result
+}
+
+fun compute_checksum(seq: String) -> Int {
+    let mut sum = 0;
+    for i in 0..seq.len() {
+        sum = sum + (seq[i] as Int);
+    }
+    sum
+}
+
+fun main() {
+    let count = 25000000;
+    
+    let mut nucleotides = Array::with_capacity<Nucleotide>(4);
+    nucleotides.push(Nucleotide { c: "A", prob: 0.27 });
+    nucleotides.push(Nucleotide { c: "C", prob: 0.12 });
+    nucleotides.push(Nucleotide { c: "G", prob: 0.12 });
+    nucleotides.push(Nucleotide { c: "T", prob: 0.27 });
+    
+    let mut sum = 0.0;
+    for i in 0..nucleotides.len() {
+        sum = sum + nucleotides[i].prob;
+    }
+    for i in 0..nucleotides.len() {
+        nucleotides[i].prob = nucleotides[i].prob / sum;
+    }
+    
+    println("FASTA Generation Benchmark");
+    println("Generating {} nucleotides", count);
+    
+    println("Warming up...");
+    for _ in 0..2 {
+        let _ = generate_fasta(count / 100, nucleotides, 42);
+    }
+    
+    println("Running 5 measured iterations...");
+    let mut times = Array::with_capacity<Float>(5);
+    let mut checksum = 0;
+    
+    for run in 0..5 {
+        let start = __GetTime();
+        let seq = generate_fasta(count, nucleotides, 42);
+        let end = __GetTime();
+        
+        let time_ms = (end - start) * 1000.0;
+        times.push(time_ms);
+        
+        if run == 0 {
+            checksum = compute_checksum(seq);
+        }
+    }
+    
+    times = Array::sort(times);
+    let median_time = times[2];
+    
+    println("Checksum: {}", checksum);
+    println("Median time: {} ms", median_time);
+    println("Throughput: {} MB/s", (count as Float) / (median_time * 1000.0));
+}
