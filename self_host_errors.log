@@ -1,2 +1,0 @@
-Compiling compiler_seen/src/main.seen with optimization level 0
-Error: Categorised { kind: Parser, message: "Unexpected token: found LeftParen, expected identifier at Position { line: 11, column: 30, offset: 447 } (while parsing compiler_seen/src/main.seen)", location: Some(ErrorLocation { line: 11, column: 30, offset: 447 }) }
