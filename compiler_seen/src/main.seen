@@ -7,7 +7,7 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import io.file.{readText, writeText}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
-import env.env.{args as cliArgs}
+import env.env.{args}
 import collections.list_utils.{push}
 
 
@@ -262,7 +262,7 @@ fun requireArg(args: List<String>, index: Int, message: String) -> Result<String
 // System interface functions (would be implemented in runtime)
 
 fun GetCommandLineArgs() -> List<String> {
-    let rawArgs = cliArgs()
+    let rawArgs = args()
     var list: List<String> = []
     var index = 0
     while index < rawArgs.length() {

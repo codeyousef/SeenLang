@@ -386,7 +386,7 @@ impl TypeChecker {
                     name: "message".to_string(),
                     param_type: Type::String,
                 }],
-                return_type: Some(Type::Unit),
+                return_type: Some(Type::Never),
             },
         );
         env.define_function(
@@ -1746,6 +1746,7 @@ impl TypeChecker {
                 return_type,
                 body,
                 receiver,
+                is_external,
                 pos,
                 ..
             } => self.check_function_definition(
@@ -1755,6 +1756,7 @@ impl TypeChecker {
                 return_type,
                 receiver.as_ref(),
                 body,
+                *is_external,
                 *pos,
             ),
 
@@ -3157,6 +3159,7 @@ impl TypeChecker {
         return_type: &Option<seen_parser::ast::Type>,
         receiver: Option<&Receiver>,
         body: &Expression,
+        is_external: bool,
         pos: Position,
     ) -> Type {
         self.with_generics(generics, |checker| {
@@ -3166,6 +3169,7 @@ impl TypeChecker {
                 return_type,
                 receiver,
                 body,
+                is_external,
                 pos.clone(),
             )
         })
@@ -3178,6 +3182,7 @@ impl TypeChecker {
         return_type: &Option<seen_parser::ast::Type>,
         receiver: Option<&Receiver>,
         body: &Expression,
+        is_external: bool,
         pos: Position,
     ) -> Type {
         // Convert AST parameter types to checker types
@@ -3224,6 +3229,12 @@ impl TypeChecker {
         // Register (or update) the function in the environment without duplicate error
         if !self.env.has_function(name) {
             self.env.define_function(name.to_string(), signature);
+        }
+
+        // For external functions, skip body type checking
+        if is_external {
+            // External functions are just declarations, no body to check
+            return Type::Unit;
         }
 
         // Create new scope for function body

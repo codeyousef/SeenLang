@@ -3,6 +3,10 @@
 
 import str.string.{StringBuilder}
 
+// External runtime intrinsics
+extern fun __ExecuteProgram(path: String): Int
+extern fun __ExecuteCommand(command: String): CommandResult
+
 struct CommandResult {
     success: Bool
     output: String

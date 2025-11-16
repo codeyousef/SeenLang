@@ -4,6 +4,17 @@
 import str.string.{StringBuilder, lines}
 import fs.path.{dirname, normalize, isAbsolute, splitComponents}
 
+// External runtime intrinsics
+extern fun __ReadFile(path: String): String
+extern fun __WriteFile(path: String, contents: String): Bool
+extern fun __AppendFile(path: String, contents: String): Bool
+extern fun __FileExists(path: String): Bool
+extern fun __GetFileSize(path: String): Int
+extern fun __GetFileHash(path: String): String
+extern fun __CreateDirectory(path: String): Bool
+extern fun __DeleteFile(path: String): Bool
+extern fun __ExecuteProgram(path: String): Int
+
 fun readText(path: String) -> String {
     return __ReadFile(path)
 }

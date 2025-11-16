@@ -430,6 +430,11 @@ fun join(parts: Array<String>, separator: String) -> String {
     return result
 }
 
+// Extension method for Array<String>
+fun Array<String>.join(separator: String) -> String {
+    return join(this, separator)
+}
+
 fun String.toCString() -> CString {
     return toCString(this)
 }

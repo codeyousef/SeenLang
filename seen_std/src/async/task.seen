@@ -1,6 +1,18 @@
 // seen_std::async::task
 // Deterministic task + channel helpers backed by seen_runtime primitives.
 
+// External runtime intrinsics
+extern fun __await(handle: Any?): Int
+extern fun __scope_push(kind: Int): Void
+extern fun __scope_pop(kind: Int): Void
+extern fun __spawn_task(): Any?
+extern fun __spawn_detached(): Any?
+extern fun __spawn_actor(): Any?
+extern fun seen_channel_new(capacity: Int): Any?
+extern fun seen_channel_send(channel: Any?, payload: Any?): Void
+extern fun seen_channel_recv(channel: Any?): Any?
+extern fun seen_channel_close(channel: Any?): Void
+
 enum TaskKind {
     Task,
     Detached,

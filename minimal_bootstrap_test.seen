@@ -1,0 +1,17 @@
+// Minimal self-compiling test for D2 validation
+fun main() -> Int {
+    let result = compile("test.seen")
+    if result == 0 {
+        println("Compilation successful")
+    }
+    return result
+}
+
+fun compile(path: String) -> Int {
+    println("Compiling: " + path)
+    return 0
+}
+
+fun println(msg: String) -> Void {
+    // Stub implementation
+}

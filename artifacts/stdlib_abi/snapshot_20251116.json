@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "package": "seen_std",
+  "version": "0.1.0",
+  "timestamp": "2025-11-16T14:27:16.955Z",
+  "modules": [
+    {
+      "path": "src/core/option.seen",
+      "sha256": "aa26556f44aed04b6842eace409a4e7333bd5ca6d4a35892df52c3a0ec052692"
+    },
+    {
+      "path": "src/core/result.seen",
+      "sha256": "8cdc1fea2976614d2bb2d3c99ce0d1ae1c01370334f6894a9e05de5249f7db37"
+    },
+    {
+      "path": "src/core/prelude.seen",
+      "sha256": "b74ef5b4cdc72c487f3d56f19cc9ea3c8c35985c358594c53dfff56b5bd9ee3f"
+    },
+    {
+      "path": "src/collections/list_utils.seen",
+      "sha256": "ed804cb338e6d11867063c40c44f9fec99b738842986465eba129ce9c45366e7"
+    },
+    {
+      "path": "src/collections/vec.seen",
+      "sha256": "f65d9e7e119193edbfa817fb1ccbdd113c65a060ac20b4d20f5a6991f7e8fe06"
+    },
+    {
+      "path": "src/collections/std_string.seen",
+      "sha256": "d2cb02a3f0b77a4c7ae2e29ceeadb24a0a655dd3cee91cceed199bf8a91f6689"
+    },
+    {
+      "path": "src/collections/string_hash_map.seen",
+      "sha256": "3d2bb584a3fa98d9eed8e53e87c94c63f59ff243423a706ad9362ce36b907ead"
+    },
+    {
+      "path": "src/collections/string_buffer.seen",
+      "sha256": "9cd067fa0af4954bb7650035747bb0db5855a7e72a57e39461eb50771b32a38e"
+    },
+    {
+      "path": "src/io/file.seen",
+      "sha256": "990f4acef73bf2c2fe657410912ca822e98082a24a7cd9dade6962a574fb5be9"
+    },
+    {
+      "path": "src/env/env.seen",
+      "sha256": "d486098df35bf5d02e8a43e50fe6465a20b89ed92802c277d135ae307a02a13b"
+    },
+    {
+      "path": "src/fs/path.seen",
+      "sha256": "1bbc1eeefe2843b858d8c3fba1bb5f9433a605d422060211fd8ca6492665dbc8"
+    },
+    {
+      "path": "src/process/process.seen",
+      "sha256": "79e505e192f7c9968f7fa93747975418e5c8e39271a87ae102c20c7a87c0e6c1"
+    },
+    {
+      "path": "src/time/time.seen",
+      "sha256": "305c472283a062c305b28e41fc72f20746e11f11505b672f79337367e4c4da0c"
+    },
+    {
+      "path": "src/async/task.seen",
+      "sha256": "6c6815a62f880edf7f88ef01ef603505f9884f51aea357285a519f081733fb61"
+    },
+    {
+      "path": "src/ffi/cinterop.seen",
+      "sha256": "30649d07117d08f2b7d4ebaa67a62b80454ff4d76fd25dafcf04e57efcd132a7"
+    },
+    {
+      "path": "src/str/string.seen",
+      "sha256": "464e148fecf12e556982f58c40792788f8d1bcf370e36d63c6c5f79a6b07a965"
+    },
+    {
+      "path": "src/math/math.seen",
+      "sha256": "52a038150aa4b5f1b25f1d5b01578767a2adfd826f261c43e36355c93c054352"
+    }
+  ]
+}

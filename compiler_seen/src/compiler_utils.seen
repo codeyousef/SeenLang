@@ -4,7 +4,7 @@ import io.file.{readText as stdReadText, writeText as stdWriteText, appendText a
 import fs.path.{dirname as stdDirname}
 import process.process.{runProgram, runCommandOutput, shellQuote as stdShellQuote}
 import time.time.{nowSeconds}
-import str.string.{trim as stdTrim, join}
+import str.string.{trim as stdTrim}
 
 fun readText(path: String) -> String {
     return stdReadText(path)
@@ -54,7 +54,7 @@ fun joinLines(lines: Array<String>) -> String {
     if lines.length() == 0 {
         return ""
     }
-    let combined = join(lines, "\n")
+    let combined = lines.join("\n")
     return combined + "\n"
 }
 

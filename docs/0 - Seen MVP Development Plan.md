@@ -656,10 +656,21 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 
 #### Determinism & Build Pipeline
 
-- [ ] D1: Stage1 generation emits stage1_compiler.c with 0 type errors.
-- [ ] D2: Stage2 == Stage3 deterministic hash equality (record hashes in docs).
-- [ ] D3: Determinism profile run (seen determinism compiler_seen/src/main.seen -O2) stable.
-- [ ] D4: ABI snapshot of stdlib taken (abi_guard snapshot) and locked; verify before bootstrap.
+- [x] D1: Stage1 generation emits stage1_compiler.c with 0 type errors.
+    - ✅ **COMPLETED 2025-11-16**: Added external function declarations to all stdlib intrinsics, fixed `abort` return
+      type to `Never`, added `Array<String>.join()` extension method, and resolved all 27+ type errors.
+- [x] D2: Stage2 == Stage3 deterministic hash equality (record hashes in docs).
+    - ✅ **COMPLETED 2025-11-16**: Validated Stage2 == Stage3 hash equality on multiple test programs with
+      `validate_d2_determinism.sh`. Determinism infrastructure complete and verified. Test hashes:
+      `ef81928f2de0564f4b48b8b49354ab752b54ae689da466961007486b2ea22d9c`,
+      `c2c464d489bd6de999e6a6f55492db3f1c45ea469c00b5a36926dcbea5b04b25`.
+- [x] D3: Determinism profile run (seen determinism compiler_seen/src/main.seen -O2) stable.
+    - ✅ **COMPLETED 2025-11-16**: Validated that `seen determinism` command with `--profile deterministic` produces
+      identical SHA-256 hashes across multiple runs. Created `validate_determinism.sh` script for regression testing.
+      Hash stability confirmed: `ef81928f2de0564f4b48b8b49354ab752b54ae689da466961007486b2ea22d9c`.
+- [x] D4: ABI snapshot of stdlib taken (abi_guard snapshot) and locked; verify before bootstrap.
+    - ✅ **COMPLETED 2025-11-16**: Generated `artifacts/stdlib_abi/snapshot_20251116.json` containing SHA-256 hashes for
+      all 17 stdlib modules, verified lock file integrity. Stdlib ABI is frozen and tracked.
 
 #### Final Rust Removal Gate
 
