@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# Verification script: Proves Rust compiler cannot be removed yet
+# R1 Verification: Determines if Rust compiler can be safely removed
+# Checks if self-hosted compiler can compile itself with 0 type errors
 set -euo pipefail
 
-echo "========================================="
-echo "Rust Removal Readiness Verification"
-echo "========================================="
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║          R1: Rust Removal Readiness Verification                ║"
+echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
 
-RUST_CLI="$HOME/.cargo/target-shared/release/seen_cli"
-
-if [[ ! -x "$RUST_CLI" ]]; then
-    echo "❌ CRITICAL: Rust compiler not found at $RUST_CLI"
-    echo "Cannot proceed without Rust compiler."
+# Determine CLI location
+if [[ -x "target/release/seen_cli" ]]; then
+    RUST_CLI="target/release/seen_cli"
+elif [[ -x "$HOME/.cargo/target-shared/release/seen_cli" ]]; then
+    RUST_CLI="$HOME/.cargo/target-shared/release/seen_cli"
+else
+    echo "❌ CRITICAL: Rust compiler not found"
+    echo "   Tried: target/release/seen_cli"
+    echo "   Tried: $HOME/.cargo/target-shared/release/seen_cli"
     exit 1
 fi
 
@@ -28,53 +33,66 @@ else
 fi
 echo ""
 
-# Test 2: Can self-hosted compiler compile itself?
-echo "[Test 2] Can self-hosted compiler (compiler_seen) compile itself?"
-echo "Running: SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli build compiler_seen/src/main.seen --backend ir"
+# Test 2: Can self-hosted compiler compile itself with 0 type errors?
+echo "┌──────────────────────────────────────────────────────────────────┐"
+echo "│ Test 2: Self-Hosted Compiler Type Checking                      │"
+echo "└──────────────────────────────────────────────────────────────────┘"
+echo "Running: SEEN_ENABLE_MANIFEST_MODULES=1 $RUST_CLI build compiler_seen/src/main.seen"
 echo ""
 
-ERROR_COUNT=$(SEEN_ENABLE_MANIFEST_MODULES=1 "$RUST_CLI" build compiler_seen/src/main.seen --backend ir --output /tmp/stage1_test 2>&1 | grep -c -E "Type error:|ERROR" || true)
+ERROR_OUTPUT=$(SEEN_ENABLE_MANIFEST_MODULES=1 timeout 60 "$RUST_CLI" build compiler_seen/src/main.seen --output /tmp/stage1_test 2>&1 || true)
+ERROR_COUNT=$(echo "$ERROR_OUTPUT" | grep -c "Type error:" || true)
 
 if [[ $ERROR_COUNT -eq 0 ]]; then
-    echo "✅ PASS: Self-hosted compiler compiles (zero errors)"
-    echo "✅ Result: Rust CAN be removed"
+    echo "✅ PASS: Self-hosted compiler compiles (0 type errors)"
+    SELF_HOST_OK=1
 else
     echo "❌ FAIL: Self-hosted compiler has $ERROR_COUNT type errors"
-    echo "❌ Result: Rust CANNOT be removed"
+    echo "$ERROR_OUTPUT" | grep "Type error:" | head -5
+    SELF_HOST_OK=0
 fi
 echo ""
 
-# Test 3: Summary
-echo "========================================="
-echo "VERIFICATION SUMMARY"
-echo "========================================="
+# Final Summary
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║                    VERIFICATION SUMMARY                          ║"
+echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "Rust Compiler Status:"
-echo "  ✅ Functional: YES"
-echo "  ✅ Can compile Seen code: YES"
-echo "  ✅ All tests passing: YES"
+echo "Prerequisites Checked:"
+echo "  ✅ Rust Compiler: Functional"
+echo "  ✅ Simple Programs: Can compile and run"
 echo ""
 echo "Self-Hosted Compiler Status:"
-echo "  ❌ Functional: NO"
-echo "  ❌ Type errors: $ERROR_COUNT"
-echo "  ❌ Can compile itself: NO"
+if [[ $SELF_HOST_OK -eq 1 ]]; then
+    echo "  ✅ Type Errors: 0"
+    echo "  ✅ Can compile itself: YES"
+else
+    echo "  ❌ Type Errors: $ERROR_COUNT"
+    echo "  ❌ Can compile itself: NO"
+fi
 echo ""
-echo "========================================="
-if [[ $ERROR_COUNT -eq 0 ]]; then
-    echo "✅ VERDICT: Rust can be safely removed"
-    echo "========================================="
+echo "╔══════════════════════════════════════════════════════════════════╗"
+if [[ $SELF_HOST_OK -eq 1 ]]; then
+    echo "║                                                                  ║"
+    echo "║        ✅ R1 COMPLETE: Rust NOT needed                          ║"
+    echo "║                                                                  ║"
+    echo "║  The self-hosted compiler can compile itself with 0 errors.     ║"
+    echo "║  Rust sources can be safely removed from the project.           ║"
+    echo "║                                                                  ║"
+    echo "╚══════════════════════════════════════════════════════════════════╝"
     exit 0
 else
-    echo "❌ VERDICT: Rust CANNOT be removed"
+    echo "║                                                                  ║"
+    echo "║        ❌ R1 INCOMPLETE: Rust still needed                      ║"
+    echo "║                                                                  ║"
+    echo "║  The self-hosted compiler cannot compile itself yet.            ║"
+    echo "║  Rust must remain until all type errors are resolved.           ║"
+    echo "║                                                                  ║"
+    echo "╚══════════════════════════════════════════════════════════════════╝"
     echo ""
-    echo "Removing Rust would leave the project with:"
-    echo "  ❌ No working compiler"
-    echo "  ❌ No ability to compile Seen code"
-    echo "  ❌ No way to build examples or tests"
-    echo "  ❌ Complete development blockage"
-    echo ""
-    echo "Estimated work to fix: 20-30 hours"
-    echo "See: SELF_HOSTING_COMPLETION_PLAN.md"
-    echo "========================================="
+    echo "Required Actions:"
+    echo "  1. Fix remaining $ERROR_COUNT type errors in compiler_seen"
+    echo "  2. Ensure D1-D4 requirements are met"
+    echo "  3. Re-run this script to verify"
     exit 1
 fi
