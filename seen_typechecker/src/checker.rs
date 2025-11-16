@@ -588,6 +588,162 @@ impl TypeChecker {
             },
         );
 
+        // High-precision timing functions for benchmarks
+        env.define_function(
+            "__GetTimeNanos".to_string(),
+            FunctionSignature {
+                name: "__GetTimeNanos".to_string(),
+                parameters: vec![],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "__GetTimeMicros".to_string(),
+            FunctionSignature {
+                name: "__GetTimeMicros".to_string(),
+                parameters: vec![],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "__GetTimeMillis".to_string(),
+            FunctionSignature {
+                name: "__GetTimeMillis".to_string(),
+                parameters: vec![],
+                return_type: Some(Type::Int),
+            },
+        );
+
+        // Math functions for benchmarks
+        env.define_function(
+            "sin".to_string(),
+            FunctionSignature {
+                name: "sin".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "cos".to_string(),
+            FunctionSignature {
+                name: "cos".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "tan".to_string(),
+            FunctionSignature {
+                name: "tan".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "exp".to_string(),
+            FunctionSignature {
+                name: "exp".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "log".to_string(),
+            FunctionSignature {
+                name: "log".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "log10".to_string(),
+            FunctionSignature {
+                name: "log10".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "sqrt".to_string(),
+            FunctionSignature {
+                name: "sqrt".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "min".to_string(),
+            FunctionSignature {
+                name: "min".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "a".to_string(),
+                        param_type: Type::Int,
+                    },
+                    Parameter {
+                        name: "b".to_string(),
+                        param_type: Type::Int,
+                    },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "max".to_string(),
+            FunctionSignature {
+                name: "max".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "a".to_string(),
+                        param_type: Type::Int,
+                    },
+                    Parameter {
+                        name: "b".to_string(),
+                        param_type: Type::Int,
+                    },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "pow".to_string(),
+            FunctionSignature {
+                name: "pow".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "base".to_string(),
+                        param_type: Type::Float,
+                    },
+                    Parameter {
+                        name: "exp".to_string(),
+                        param_type: Type::Float,
+                    },
+                ],
+                return_type: Some(Type::Float),
+            },
+        );
+
         Self {
             env,
             result: TypeCheckResult::new(),

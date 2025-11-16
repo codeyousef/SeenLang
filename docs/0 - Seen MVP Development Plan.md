@@ -1046,68 +1046,50 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 
 ### LF-1. Mutable Variables (`var` keyword)
 
-*Status:* ⚠️ **BLOCKER** - Required for 8/10 benchmarks
+*Status:* ✅ **COMPLETE** - Working in JIT mode
 
-* **Problem:** Parser recognizes `var` but typechecker/interpreter don't support reassignment
-* **Impact:** Blocks BM1-5, BM7-9 (all iterative algorithms, accumulations, counters)
-* **Tasks:**
-    - [ ] LF-1a: Extend typechecker to track mutable bindings in environment
-    - [ ] LF-1b: Add reassignment instruction to IR
-    - [ ] LF-1c: Implement variable mutation in interpreter
-    - [ ] LF-1d: Generate proper LLVM store instructions for mutations
-    - [ ] LF-1e: Add regression tests for mutation semantics
-* **Estimated:** 3-4 hours
-* **Priority:** P0 - Must complete before any benchmark work
+* **Verified:** Variable mutation works in run mode
+* **Remaining:**
+    - [ ] LF-1x: Verify LLVM AOT compilation preserves mutation semantics
+    - [ ] LF-1y: Add comprehensive mutation tests for AOT mode
+* **Estimated:** 1 hour remaining
+* **Priority:** P0 - Validation only
 
 ### LF-2. While/For Loops
 
-*Status:* ⚠️ **BLOCKER** - Required for 9/10 benchmarks
+*Status:* ✅ **COMPLETE** - Working in JIT mode
 
-* **Problem:** Parser has `while` but no iteration support in runtime
-* **Impact:** All numeric benchmarks need loops
-* **Tasks:**
-    - [ ] LF-2a: Implement while loop in typechecker (condition must be Bool)
-    - [ ] LF-2b: Add While instruction to IR with continue/break support
-    - [ ] LF-2c: Implement while loop execution in interpreter
-    - [ ] LF-2d: Generate LLVM loop blocks with proper PHI nodes
-    - [ ] LF-2e: Implement for-range syntax (`for i in 0..n`)
-    - [ ] LF-2f: Add loop regression tests
-* **Estimated:** 4-5 hours
-* **Priority:** P0 - Blocks all iterative benchmarks
+* **Verified:** While loops and for-range work in run mode
+* **Remaining:**
+    - [ ] LF-2x: Verify LLVM AOT loop codegen with PHI nodes
+    - [ ] LF-2y: Add nested loop tests for AOT mode
+    - [ ] LF-2z: Implement break/continue if not present
+* **Estimated:** 2 hours remaining
+* **Priority:** P0 - Validation + break/continue
 
 ### LF-3. Array Indexing & Mutation
 
-*Status:* ⚠️ **BLOCKER** - Required for 7/10 benchmarks
+*Status:* ✅ **COMPLETE** - Working in JIT mode
 
-* **Problem:** Can create arrays but can't index or mutate elements
-* **Impact:** Matrix, Binary Trees, Sieve, Mandelbrot all need array ops
-* **Tasks:**
-    - [ ] LF-3a: Implement array index expression (`arr[i]`) in parser
-    - [ ] LF-3b: Type-check array indexing (index must be Int)
-    - [ ] LF-3c: Add ArrayGet/ArraySet instructions to IR
-    - [ ] LF-3d: Implement array get/set in interpreter
-    - [ ] LF-3e: Generate LLVM GEP instructions for array access
-    - [ ] LF-3f: Array bounds checking (debug mode only)
-    - [ ] LF-3g: Add array mutation tests
-* **Estimated:** 3-4 hours
-* **Priority:** P0 - Core data structure operations
+* **Verified:** Array indexing and mutation work in run mode
+* **Remaining:**
+    - [ ] LF-3x: Verify LLVM GEP instructions for array access
+    - [ ] LF-3y: Add bounds checking tests (debug vs release)
+    - [ ] LF-3z: Optimize array access patterns in AOT mode
+* **Estimated:** 1-2 hours remaining
+* **Priority:** P0 - Validation + optimization
 
 ### LF-4. Struct Field Mutation
 
-*Status:* ⚠️ **BLOCKER** - Required for 5/10 benchmarks
+*Status:* 🔄 **IN PROGRESS** - Needs validation
 
-* **Problem:** Structs are immutable, can't update fields
-* **Impact:** N-Body (position updates), Binary Trees (node linking), LRU Cache
-* **Tasks:**
-    - [ ] LF-4a: Support mutable struct fields (`var` in struct definition)
-    - [ ] LF-4b: Implement field assignment (`obj.field = value`) in parser
-    - [ ] LF-4c: Type-check field mutations (field must be var)
-    - [ ] LF-4d: Add SetField instruction to IR
-    - [ ] LF-4e: Implement field mutation in interpreter
-    - [ ] LF-4f: Generate LLVM field stores
-    - [ ] LF-4g: Add struct mutation regression tests
-* **Estimated:** 2-3 hours
-* **Priority:** P0 - OOP and scientific computing
+* **Tasks Remaining:**
+    - [ ] LF-4a: Test if struct field mutation works in JIT mode
+    - [ ] LF-4b: If not, implement field assignment (`obj.field = value`)
+    - [ ] LF-4c: Verify LLVM field stores in AOT mode
+    - [ ] LF-4d: Add struct mutation regression tests
+* **Estimated:** 2-4 hours
+* **Priority:** P0 - Required for N-Body, Binary Trees, LRU Cache
 
 ### LF-5. Operator Overloading
 
@@ -1125,18 +1107,15 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 
 ### LF-6. Floating Point Literals & Operations
 
-*Status:* ⚠️ **BLOCKER** - Required for 4/10 benchmarks
+*Status:* ✅ **COMPLETE** - Working in JIT mode
 
-* **Problem:** Float64 type exists but no float literal syntax
-* **Impact:** N-Body, Matrix, Mandelbrot need float constants
-* **Tasks:**
-    - [ ] LF-6a: Extend lexer to recognize float literals (1.5, 3.14e-2)
-    - [ ] LF-6b: Type float literals as Float64
-    - [ ] LF-6c: Ensure float arithmetic operations work
-    - [ ] LF-6d: Add Float64 to/from Int conversions
-    - [ ] LF-6e: Test float precision and operations
-* **Estimated:** 2-3 hours
-* **Priority:** P0 - Scientific computing essential
+* **Verified:** Float literals (3.14) work in run mode
+* **Remaining:**
+    - [ ] LF-6x: Test scientific notation (3.14e-2)
+    - [ ] LF-6y: Verify LLVM float codegen accuracy
+    - [ ] LF-6z: Add Float64/Int conversion tests
+* **Estimated:** 1 hour remaining
+* **Priority:** P0 - Validation only
 
 ### LF-7. Break/Continue in Loops
 
@@ -1690,3 +1669,213 @@ statement parser (with newline terminators) restored trailing-lambda call sites 
 - [x] Replace operations
 
 All stdlib modules are now production-ready with complete implementations.
+
+---
+
+## 7) Production Benchmark Implementation Plan
+
+### Current Status (2025-11-16)
+
+**Infrastructure:** ✅ READY
+
+- `run_all_production_benchmarks.sh` created
+- `benchmarks/production/` directory created
+- Benchmark runner script with timing and comparison logic
+
+**Language Features:** 🔄 MOSTLY READY
+
+- ✅ Mutable variables (`var`)
+- ✅ While/for loops
+- ✅ Array indexing and mutation
+- ✅ Float literals and operations
+- �� Struct field mutation (needs validation)
+- ⏳ Break/continue (may need implementation)
+
+**Stdlib Status:** ⚠️ INCOMPLETE
+
+- ✅ Basic types (Int, Float64, String, Bool)
+- ✅ Vec/Array operations
+- ⏳ Missing: I/O functions (print, println, file I/O)
+- ⏳ Missing: Time intrinsics (now_nanos, sleep)
+- ⏳ Missing: Math intrinsics (min, max, sqrt, sin, cos, pow)
+- ⏳ Missing: String methods (to_string, format)
+
+### Phase 1: Complete Core Stdlib (4-6 hours)
+
+#### STDLIB-1: I/O Functions
+
+- [ ] S1a: Implement `print(s: String)` intrinsic in interpreter
+- [ ] S1b: Implement `println(s: String)` intrinsic
+- [ ] S1c: Wire I/O functions to LLVM runtime
+- [ ] S1d: Add file I/O (File::open, read, write, close)
+- [ ] S1e: Test I/O in both JIT and AOT modes
+
+#### STDLIB-2: Time Functions
+
+- [ ] S2a: Implement `time::now_nanos()` returning Int
+- [ ] S2b: Add `time::now_micros()` and `time::now_millis()`
+- [ ] S2c: Implement `time::sleep(ms: Int)`
+- [ ] S2d: Wire timing to LLVM (clock_gettime on Linux)
+- [ ] S2e: Test timing accuracy in benchmarks
+
+#### STDLIB-3: Math Intrinsics
+
+- [ ] S3a: Implement Float64 math (sqrt, sin, cos, tan, pow, exp, log)
+- [ ] S3b: Implement Int math (min, max, abs)
+- [ ] S3c: Add Float64::MAX, Float64::MIN constants
+- [ ] S3d: Wire to LLVM (llvm.sqrt.f64, etc.)
+- [ ] S3e: Test precision and performance
+
+#### STDLIB-4: String Methods
+
+- [ ] S4a: Implement `Int::to_string()`
+- [ ] S4b: Implement `Float64::to_string()`
+- [ ] S4c: Add `String::format()` for templates
+- [ ] S4d: Implement `String::split()`, `join()`, `trim()`
+- [ ] S4e: Test string operations
+
+#### STDLIB-5: Collection Methods
+
+- [ ] S5a: Verify Vec::new(), with_capacity(), push(), pop()
+- [ ] S5b: Implement Vec::reserve(), clear(), len()
+- [ ] S5c: Add Vec iteration (iter(), for-each)
+- [ ] S5d: Implement HashMap (new, insert, get, remove)
+- [ ] S5e: Test collection performance
+
+### Phase 2: Implement All 10 Benchmarks (16-24 hours)
+
+Each benchmark requires both Rust and Seen versions plus validation.
+
+#### BM1: Matrix Multiplication (2-3 hours)
+
+- [ ] BM1a: Implement Rust version with tiled algorithm
+- [ ] BM1b: Implement Seen version matching Rust
+- [ ] BM1c: Verify checksum matches
+- [ ] BM1d: Optimize LLVM codegen for cache locality
+- [ ] BM1e: Compare performance (target: within 10% of Rust)
+
+#### BM2: Sieve of Eratosthenes (2 hours)
+
+- [ ] BM2a: Implement Rust version with segmented sieve
+- [ ] BM2b: Implement Seen version with bit-packing
+- [ ] BM2c: Verify prime count (664579)
+- [ ] BM2d: Optimize memory access patterns
+- [ ] BM2e: Compare performance
+
+#### BM3: Binary Trees (2 hours)
+
+- [ ] BM3a: Implement Rust version with heap allocation
+- [ ] BM3b: Implement Seen version with recursive tree
+- [ ] BM3c: Verify checksum (-1 for depth 20)
+- [ ] BM3d: Test allocator performance
+- [ ] BM3e: Compare performance
+
+#### BM4: FASTA Generation (2 hours)
+
+- [ ] BM4a: Implement Rust version with LCG
+- [ ] BM4b: Implement Seen version matching Rust
+- [ ] BM4c: Verify checksum of generated sequence
+- [ ] BM4d: Optimize buffered I/O
+- [ ] BM4e: Compare performance
+
+#### BM5: N-Body Simulation (3 hours)
+
+- [ ] BM5a: Implement Rust version with symplectic integrator
+- [ ] BM5b: Implement Seen version with Float64 precision
+- [ ] BM5c: Verify energy conservation (< 1e-9 error)
+- [ ] BM5d: Optimize float operations
+- [ ] BM5e: Compare performance
+
+#### BM6: Reverse-Complement (2 hours)
+
+- [ ] BM6a: Implement Rust version with lookup table
+- [ ] BM6b: Implement Seen version with SIMD hints
+- [ ] BM6c: Verify MD5 checksum
+- [ ] BM6d: Optimize byte manipulation
+- [ ] BM6e: Compare performance
+
+#### BM7: Mandelbrot Set (3 hours)
+
+- [ ] BM7a: Implement Rust version with SIMD
+- [ ] BM7b: Implement Seen version with parallel loops
+- [ ] BM7c: Verify checksum of iteration counts
+- [ ] BM7d: Test multi-threading
+- [ ] BM7e: Compare performance (target: 7x speedup on 8 cores)
+
+#### BM8: LRU Cache (2-3 hours)
+
+- [ ] BM8a: Implement Rust version with robin-hood hashing
+- [ ] BM8b: Implement Seen version with intrusive list
+- [ ] BM8c: Verify sum of Get operations (3.5B)
+- [ ] BM8d: Optimize hash table performance
+- [ ] BM8e: Compare performance
+
+#### BM9: JSON Serialization (2 hours)
+
+- [ ] BM9a: Implement Rust version with buffering
+- [ ] BM9b: Implement Seen version with String building
+- [ ] BM9c: Verify MD5 of output
+- [ ] BM9d: Optimize memory allocations
+- [ ] BM9e: Compare performance
+
+#### BM10: HTTP Echo Server (2-3 hours)
+
+- [ ] BM10a: Implement Rust version with epoll
+- [ ] BM10b: Implement Seen version with async I/O
+- [ ] BM10c: Verify 100% success rate (100K requests)
+- [ ] BM10d: Test connection handling
+- [ ] BM10e: Compare requests/second
+
+### Phase 3: Performance Analysis & Optimization (4-6 hours)
+
+#### OPT-1: Analyze Performance Gaps
+
+- [ ] O1a: Profile each benchmark with perf/vtune
+- [ ] O1b: Identify hot paths and bottlenecks
+- [ ] O1c: Compare assembly output (Rust vs Seen)
+- [ ] O1d: Document optimization opportunities
+- [ ] O1e: Create optimization priority list
+
+#### OPT-2: Apply Targeted Optimizations
+
+- [ ] O2a: Tune LLVM optimization flags (-O3, -march=native)
+- [ ] O2b: Add SIMD hints where applicable
+- [ ] O2c: Optimize memory allocation patterns
+- [ ] O2d: Improve cache locality
+- [ ] O2e: Re-run benchmarks and measure gains
+
+#### OPT-3: Generate Final Report
+
+- [ ] O3a: Run full benchmark suite (10 iterations each)
+- [ ] O3b: Calculate statistics (min, mean, stddev)
+- [ ] O3c: Generate comparison tables
+- [ ] O3d: Create performance graphs
+- [ ] O3e: Write HackerNews-ready report
+
+### Acceptance Criteria for 100% Benchmark Completion
+
+- [ ] All 10 benchmarks implemented in both Rust and Seen
+- [ ] All checksums verified (deterministic outputs)
+- [ ] Seen performance within 20% of Rust (80-120% range)
+- [ ] At least 3 benchmarks where Seen beats Rust
+- [ ] Zero compilation warnings
+- [ ] Zero test failures
+- [ ] Comprehensive performance report generated
+- [ ] Report ready for public release (HackerNews, etc.)
+
+### Estimated Total Time
+
+- **Phase 1 (Stdlib):** 4-6 hours
+- **Phase 2 (Benchmarks):** 16-24 hours
+- **Phase 3 (Optimization):** 4-6 hours
+- **Total:** 24-36 hours of focused implementation
+
+### Current Blockers (Priority Order)
+
+1. **HIGH:** Complete stdlib I/O functions (print, println)
+2. **HIGH:** Implement time intrinsics (now_nanos)
+3. **HIGH:** Add math intrinsics (min, max, sqrt, etc.)
+4. **MEDIUM:** Verify struct field mutation works
+5. **MEDIUM:** Implement break/continue if missing
+6. **LOW:** Optimize LLVM codegen for specific patterns
+

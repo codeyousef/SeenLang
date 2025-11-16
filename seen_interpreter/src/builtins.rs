@@ -46,6 +46,12 @@ impl BuiltinRegistry {
         registry.register_exact("round", builtin_round, 1);
         registry.register_exact("sqrt", builtin_sqrt, 1);
         registry.register_exact("pow", builtin_pow, 2);
+        registry.register_exact("sin", builtin_sin, 1);
+        registry.register_exact("cos", builtin_cos, 1);
+        registry.register_exact("tan", builtin_tan, 1);
+        registry.register_exact("exp", builtin_exp, 1);
+        registry.register_exact("log", builtin_log, 1);
+        registry.register_exact("log10", builtin_log10, 1);
 
         // System/IO builtins (double-underscore to avoid name clashes with user code)
         registry.register_exact("__GetCommandLineArgs", builtin_get_command_line_args, 0);
@@ -71,6 +77,11 @@ impl BuiltinRegistry {
         registry.register_exact("__IntToString", builtin_int_to_string, 1);
         registry.register_exact("__FloatToString", builtin_float_to_string, 1);
         registry.register_exact("__BoolToString", builtin_bool_to_string, 1);
+
+        // High-precision timing for benchmarks
+        registry.register_exact("__GetTimeNanos", builtin_get_time_nanos, 0);
+        registry.register_exact("__GetTimeMicros", builtin_get_time_micros, 0);
+        registry.register_exact("__GetTimeMillis", builtin_get_time_millis, 0);
 
         registry
     }
@@ -681,5 +692,128 @@ mod tests {
 impl Default for BuiltinRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn builtin_get_time_nanos(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    Ok(Value::Integer(now.as_nanos() as i64))
+}
+
+fn builtin_get_time_micros(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    Ok(Value::Integer(now.as_micros() as i64))
+}
+
+fn builtin_get_time_millis(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    Ok(Value::Integer(now.as_millis() as i64))
+}
+
+fn builtin_sin(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => Ok(Value::Float((*i as f64).sin())),
+        Value::Float(f) => Ok(Value::Float(f.sin())),
+        _ => Err(InterpreterError::type_error(
+            format!("Cannot take sine of {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_cos(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => Ok(Value::Float((*i as f64).cos())),
+        Value::Float(f) => Ok(Value::Float(f.cos())),
+        _ => Err(InterpreterError::type_error(
+            format!("Cannot take cosine of {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_tan(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => Ok(Value::Float((*i as f64).tan())),
+        Value::Float(f) => Ok(Value::Float(f.tan())),
+        _ => Err(InterpreterError::type_error(
+            format!("Cannot take tangent of {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_exp(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => Ok(Value::Float((*i as f64).exp())),
+        Value::Float(f) => Ok(Value::Float(f.exp())),
+        _ => Err(InterpreterError::type_error(
+            format!("Cannot take exponential of {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_log(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => {
+            if *i <= 0 {
+                Err(InterpreterError::runtime(
+                    "Cannot take logarithm of non-positive number",
+                    position,
+                ))
+            } else {
+                Ok(Value::Float((*i as f64).ln()))
+            }
+        }
+        Value::Float(f) => {
+            if *f <= 0.0 {
+                Err(InterpreterError::runtime(
+                    "Cannot take logarithm of non-positive number",
+                    position,
+                ))
+            } else {
+                Ok(Value::Float(f.ln()))
+            }
+        }
+        _ => Err(InterpreterError::type_error(
+            format!("Cannot take logarithm of {}", args[0].type_name()),
+            position,
+        )),
+    }
+}
+
+fn builtin_log10(args: &[Value], position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(i) => {
+            if *i <= 0 {
+                Err(InterpreterError::runtime(
+                    "Cannot take logarithm of non-positive number",
+                    position,
+                ))
+            } else {
+                Ok(Value::Float((*i as f64).log10()))
+            }
+        }
+        Value::Float(f) => {
+            if *f <= 0.0 {
+                Err(InterpreterError::runtime(
+                    "Cannot take logarithm of non-positive number",
+                    position,
+                ))
+            } else {
+                Ok(Value::Float(f.log10()))
+            }
+        }
+        _ => Err(InterpreterError::type_error(
+            format!("Cannot take logarithm of {}", args[0].type_name()),
+            position,
+        )),
     }
 }
