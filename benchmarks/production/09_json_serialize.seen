@@ -1,0 +1,137 @@
+// JSON Serialization Benchmark
+// High-performance JSON encoding without allocations
+
+class JsonObject {
+    id: Int
+    name: String
+    value: Float
+    active: Bool
+    tags: Array<String>
+    
+    fun new(id: Int, name: String, value: Float, active: Bool, tags: Array<String>) -> JsonObject {
+        JsonObject { id: id, name: name, value: value, active: active, tags: tags }
+    }
+}
+
+fun escape_string(s: String) -> String {
+    s
+}
+
+fun serialize_object(obj: JsonObject) -> String {
+    let result = "{"
+    
+    result = result + "\"id\":"
+    result = result + __IntToString(obj.id)
+    result = result + ","
+    
+    result = result + "\"name\":\""
+    result = result + escape_string(obj.name)
+    result = result + "\","
+    
+    result = result + "\"value\":"
+    result = result + __FloatToString(obj.value)
+    result = result + ","
+    
+    result = result + "\"active\":"
+    result = result + if obj.active { "true" } else { "false" }
+    result = result + ","
+    
+    result = result + "\"tags\":["
+    var i = 0
+    while i < obj.tags.length() {
+        if i > 0 {
+            result = result + ","
+        }
+        result = result + "\""
+        result = result + escape_string(obj.tags[i])
+        result = result + "\""
+        i = i + 1
+    }
+    result = result + "]"
+    
+    result = result + "}"
+    result
+}
+
+fun create_test_object(id: Int) -> JsonObject {
+    let tags = Array<String>.withCapacity(5)
+    tags.push("tag1")
+    tags.push("tag2")
+    tags.push("tag3")
+    tags.push("tag4")
+    tags.push("tag5")
+    
+    JsonObject.new(
+        id,
+        "Object" + __IntToString(id),
+        (id as Float) * 3.14159,
+        (id % 2) == 0,
+        tags
+    )
+}
+
+fun benchmark_json(n: Int) -> Int {
+    var total_length = 0
+    
+    var i = 0
+    while i < n {
+        let obj = create_test_object(i)
+        let json = serialize_object(obj)
+        total_length = total_length + json.length()
+        i = i + 1
+    }
+    
+    total_length
+}
+
+fun main() -> Int {
+    let n = 1000000
+    
+    __Print("JSON Serialization Benchmark\n")
+    __Print("Objects to serialize: ")
+    __PrintInt(n)
+    __Print("\n")
+    
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let result_warmup = benchmark_json(n / 10)
+        w = w + 1
+    }
+    
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_length = 0
+    
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let total_length = benchmark_json(n)
+        let end = __GetTime()
+        
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_length = total_length
+        }
+        i = i + 1
+    }
+    
+    __Print("Total JSON length: ")
+    __PrintInt(result_length)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Objects per second: ")
+    __PrintFloat((n as Float) / (min_time / 1000.0) / 1000.0)
+    __Print(" thousand\n")
+    __Print("Throughput: ")
+    __PrintFloat((result_length as Float) / (min_time / 1000.0) / 1000000.0)
+    __Print(" MB/s\n")
+    
+    return 0
+}

@@ -527,6 +527,28 @@ impl TypeChecker {
                 return_type: Some(Type::Unit),
             },
         );
+        env.define_function(
+            "__PrintInt".to_string(),
+            FunctionSignature {
+                name: "__PrintInt".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Int,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
+        env.define_function(
+            "__PrintFloat".to_string(),
+            FunctionSignature {
+                name: "__PrintFloat".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
 
         // String conversion functions
         env.define_function(
@@ -589,6 +611,14 @@ impl TypeChecker {
         );
 
         // High-precision timing functions for benchmarks
+        env.define_function(
+            "__GetTime".to_string(),
+            FunctionSignature {
+                name: "__GetTime".to_string(),
+                parameters: vec![],
+                return_type: Some(Type::Float),
+            },
+        );
         env.define_function(
             "__GetTimeNanos".to_string(),
             FunctionSignature {

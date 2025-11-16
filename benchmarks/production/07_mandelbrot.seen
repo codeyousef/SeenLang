@@ -1,0 +1,124 @@
+// Mandelbrot Set Benchmark
+// Fractal generation with escape-time algorithm
+
+fun mandelbrot_pixel(cx: Float, cy: Float, max_iter: Int) -> Int {
+    var zx = 0.0
+    var zy = 0.0
+    var iteration = 0
+    
+    while iteration < max_iter {
+        let zx2 = zx * zx
+        let zy2 = zy * zy
+        
+        if zx2 + zy2 > 4.0 {
+            return iteration
+        }
+        
+        let new_zy = 2.0 * zx * zy + cy
+        zx = zx2 - zy2 + cx
+        zy = new_zy
+        
+        iteration = iteration + 1
+    }
+    
+    iteration
+}
+
+fun compute_mandelbrot(width: Int, height: Int, max_iter: Int) -> Array<Int> {
+    let pixels = Array<Int>.withCapacity(width * height)
+    
+    let x_min = -2.5
+    let x_max = 1.0
+    let y_min = -1.0
+    let y_max = 1.0
+    
+    let x_scale = (x_max - x_min) / (width as Float)
+    let y_scale = (y_max - y_min) / (height as Float)
+    
+    var y = 0
+    while y < height {
+        var x = 0
+        while x < width {
+            let cx = x_min + (x as Float) * x_scale
+            let cy = y_min + (y as Float) * y_scale
+            
+            let iter = mandelbrot_pixel(cx, cy, max_iter)
+            pixels.push(iter)
+            
+            x = x + 1
+        }
+        y = y + 1
+    }
+    
+    pixels
+}
+
+fun compute_checksum(pixels: Array<Int>) -> Int {
+    var sum = 0
+    var i = 0
+    while i < pixels.length() {
+        sum = sum + pixels[i]
+        i = i + 1
+    }
+    sum
+}
+
+fun main() -> Int {
+    let width = 4000
+    let height = 4000
+    let max_iter = 1000
+    
+    __Print("Mandelbrot Set Benchmark\n")
+    __Print("Image size: ")
+    __PrintInt(width)
+    __Print("x")
+    __PrintInt(height)
+    __Print("\nMax iterations: ")
+    __PrintInt(max_iter)
+    __Print("\n")
+    
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let pixels_warmup = compute_mandelbrot(width / 4, height / 4, max_iter)
+        w = w + 1
+    }
+    
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_pixels = Array<Int>.withCapacity(0)
+    
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let pixels = compute_mandelbrot(width, height, max_iter)
+        let end = __GetTime()
+        
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_pixels = pixels
+        }
+        i = i + 1
+    }
+    
+    let checksum = compute_checksum(result_pixels)
+    let total_pixels = width * height
+    
+    __Print("Total pixels: ")
+    __PrintInt(total_pixels)
+    __Print("\nChecksum: ")
+    __PrintInt(checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Pixels per second: ")
+    __PrintFloat((total_pixels as Float) / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+    
+    return 0
+}

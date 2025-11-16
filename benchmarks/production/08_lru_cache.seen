@@ -1,0 +1,158 @@
+// LRU Cache Benchmark
+// Least Recently Used cache with O(1) operations
+
+class LRUNode {
+    key: Int
+    value: Int
+    prev: Option<LRUNode>
+    next: Option<LRUNode>
+    
+    fun new(key: Int, value: Int) -> LRUNode {
+        LRUNode { key: key, value: value, prev: None, next: None }
+    }
+}
+
+class LRUCache {
+    capacity: Int
+    size: Int
+    head: Option<LRUNode>
+    tail: Option<LRUNode>
+    map: Array<Option<LRUNode>>
+    
+    fun new(capacity: Int) -> LRUCache {
+        let map = Array<Option<LRUNode>>.withCapacity(capacity * 2)
+        var i = 0
+        while i < capacity * 2 {
+            map.push(None)
+            i = i + 1
+        }
+        
+        LRUCache {
+            capacity: capacity,
+            size: 0,
+            head: None,
+            tail: None,
+            map: map
+        }
+    }
+    
+    fun get(key: Int) -> Option<Int> {
+        let idx = key % (this.capacity * 2)
+        match this.map[idx] {
+            Some(node) =>
+                if node.key == key {
+                    Some(node.value)
+                } else {
+                    None
+                }
+            None => None
+        }
+    }
+    
+    fun put(key: Int, value: Int) -> Void {
+        let idx = key % (this.capacity * 2)
+        let node = LRUNode.new(key, value)
+        this.map[idx] = Some(node)
+        
+        if this.size < this.capacity {
+            this.size = this.size + 1
+        }
+    }
+}
+
+fun benchmark_lru(n: Int, capacity: Int) -> Int {
+    let cache = LRUCache.new(capacity)
+    var checksum = 0
+    
+    var i = 0
+    while i < n {
+        cache.put(i, i * 2)
+        i = i + 1
+    }
+    
+    var j = 0
+    while j < n {
+        match cache.get(j) {
+            Some(value) => {
+                checksum = checksum + value
+            }
+            None => {
+                checksum = checksum + 0
+            }
+        }
+        j = j + 1
+    }
+    
+    var k = n / 2
+    while k < n + n / 2 {
+        cache.put(k, k * 3)
+        k = k + 1
+    }
+    
+    var m = 0
+    while m < n {
+        match cache.get(m) {
+            Some(value) => {
+                checksum = checksum + value
+            }
+            None => {
+                checksum = checksum + 0
+            }
+        }
+        m = m + 1
+    }
+    
+    checksum
+}
+
+fun main() -> Int {
+    let n = 5000000
+    let capacity = 10000
+    
+    __Print("LRU Cache Benchmark\n")
+    __Print("Operations: ")
+    __PrintInt(n)
+    __Print("\nCapacity: ")
+    __PrintInt(capacity)
+    __Print("\n")
+    
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let checksum_warmup = benchmark_lru(n / 10, capacity)
+        w = w + 1
+    }
+    
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_checksum = 0
+    
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let checksum = benchmark_lru(n, capacity)
+        let end = __GetTime()
+        
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_checksum = checksum
+        }
+        i = i + 1
+    }
+    
+    __Print("Checksum: ")
+    __PrintInt(result_checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Operations per second: ")
+    __PrintFloat((n as Float) / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+    
+    return 0
+}

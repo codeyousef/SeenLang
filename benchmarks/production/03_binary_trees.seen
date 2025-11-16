@@ -1,0 +1,86 @@
+// Binary Trees Benchmark
+// GC stress test with tree allocation/deallocation
+
+class TreeNode {
+    item: Int
+    left: Option<TreeNode>
+    right: Option<TreeNode>
+    
+    fun new(item: Int) -> TreeNode {
+        TreeNode { item: item, left: None, right: None }
+    }
+    
+    fun with_children(item: Int, left: TreeNode, right: TreeNode) -> TreeNode {
+        TreeNode { item: item, left: Some(left), right: Some(right) }
+    }
+    
+    fun check() -> Int {
+        match this.left {
+            Some(l) => match this.right {
+                Some(r) => this.item + l.check() - r.check()
+                None => this.item + l.check()
+            }
+            None => match this.right {
+                Some(r) => this.item - r.check()
+                None => this.item
+            }
+        }
+    }
+}
+
+fun make_tree(depth: Int) -> TreeNode {
+    if depth == 0 {
+        TreeNode.new(0)
+    } else {
+        let left = make_tree(depth - 1)
+        let right = make_tree(depth - 1)
+        TreeNode.with_children(0, left, right)
+    }
+}
+
+fun main() -> Int {
+    let min_depth = 4
+    let max_depth = 20
+    let stretch_depth = max_depth + 1
+    
+    __Print("Binary Trees Benchmark\n")
+    __Print("stretch tree of depth ")
+    __PrintInt(stretch_depth)
+    __Print("\t check: ")
+    
+    let stretch_tree = make_tree(stretch_depth)
+    __PrintInt(stretch_tree.check())
+    __Print("\n")
+    
+    let long_lived_tree = make_tree(max_depth)
+    
+    var depth = min_depth
+    while depth <= max_depth {
+        let iterations = 1 << (max_depth - depth + min_depth)
+        var check = 0
+        
+        var i = 0
+        while i < iterations {
+            let temp_tree = make_tree(depth)
+            check = check + temp_tree.check()
+            i = i + 1
+        }
+        
+        __PrintInt(iterations)
+        __Print("\t trees of depth ")
+        __PrintInt(depth)
+        __Print("\t check: ")
+        __PrintInt(check)
+        __Print("\n")
+        
+        depth = depth + 2
+    }
+    
+    __Print("long lived tree of depth ")
+    __PrintInt(max_depth)
+    __Print("\t check: ")
+    __PrintInt(long_lived_tree.check())
+    __Print("\n")
+    
+    return 0
+}

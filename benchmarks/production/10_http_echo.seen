@@ -1,0 +1,132 @@
+// HTTP Echo Server Benchmark
+// Simulated HTTP request/response processing
+
+class HttpRequest {
+    method: String
+    path: String
+    headers: Array<String>
+    body: String
+    
+    fun new(method: String, path: String, headers: Array<String>, body: String) -> HttpRequest {
+        HttpRequest { method: method, path: path, headers: headers, body: body }
+    }
+}
+
+class HttpResponse {
+    status: Int
+    headers: Array<String>
+    body: String
+    
+    fun new(status: Int, headers: Array<String>, body: String) -> HttpResponse {
+        HttpResponse { status: status, headers: headers, body: body }
+    }
+}
+
+fun parse_request(data: String) -> HttpRequest {
+    let headers = Array<String>.withCapacity(5)
+    headers.push("Content-Type: application/json")
+    headers.push("Content-Length: 100")
+    headers.push("Connection: keep-alive")
+    
+    HttpRequest.new("POST", "/echo", headers, data)
+}
+
+fun create_response(req: HttpRequest) -> HttpResponse {
+    let response_headers = Array<String>.withCapacity(3)
+    response_headers.push("Content-Type: application/json")
+    response_headers.push("Server: Seen/1.0")
+    
+    let response_body = "{\"echo\":\"" + req.body + "\"}"
+    
+    HttpResponse.new(200, response_headers, response_body)
+}
+
+fun serialize_response(resp: HttpResponse) -> String {
+    let result = "HTTP/1.1 "
+    result = result + __IntToString(resp.status)
+    result = result + " OK\r\n"
+    
+    var i = 0
+    while i < resp.headers.length() {
+        result = result + resp.headers[i]
+        result = result + "\r\n"
+        i = i + 1
+    }
+    
+    result = result + "\r\n"
+    result = result + resp.body
+    
+    result
+}
+
+fun process_request(data: String) -> String {
+    let req = parse_request(data)
+    let resp = create_response(req)
+    serialize_response(resp)
+}
+
+fun benchmark_http(n: Int) -> Int {
+    let test_data = "{\"user\":\"test\",\"action\":\"ping\",\"timestamp\":1234567890}"
+    var total_length = 0
+    
+    var i = 0
+    while i < n {
+        let response = process_request(test_data)
+        total_length = total_length + response.length()
+        i = i + 1
+    }
+    
+    total_length
+}
+
+fun main() -> Int {
+    let n = 5000000
+    
+    __Print("HTTP Echo Server Benchmark\n")
+    __Print("Requests to process: ")
+    __PrintInt(n)
+    __Print("\n")
+    
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let result_warmup = benchmark_http(n / 10)
+        w = w + 1
+    }
+    
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_length = 0
+    
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let total_length = benchmark_http(n)
+        let end = __GetTime()
+        
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_length = total_length
+        }
+        i = i + 1
+    }
+    
+    __Print("Total response length: ")
+    __PrintInt(result_length)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Requests per second: ")
+    __PrintFloat((n as Float) / (min_time / 1000.0) / 1000.0)
+    __Print(" thousand\n")
+    __Print("Throughput: ")
+    __PrintFloat((result_length as Float) / (min_time / 1000.0) / 1000000.0)
+    __Print(" MB/s\n")
+    
+    return 0
+}

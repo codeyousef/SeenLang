@@ -2128,6 +2128,87 @@ impl<'ctx> LlvmBackend<'ctx> {
                             }
                             return Ok(());
                         }
+                        "__GetTime" => {
+                            // Returns current time in seconds as Float using clock_gettime
+                            let timespec_ty = self.ctx.opaque_struct_type("timespec");
+                            timespec_ty.set_body(&[self.i64_t.into(), self.i64_t.into()], false);
+                            let clock_gettime = self.declare_c_fn(
+                                "clock_gettime",
+                                self.ctx.i32_type().into(),
+                                &[
+                                    self.ctx.i32_type().into(),
+                                    timespec_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into(),
+                                ],
+                                false,
+                            );
+                            let timespec_ptr = self.builder.build_alloca(timespec_ty, "timespec")?;
+                            let clock_monotonic = self.ctx.i32_type().const_int(1, false);
+                            let _ = self.builder.build_call(
+                                clock_gettime,
+                                &[clock_monotonic.into(), timespec_ptr.into()],
+                                "clock_gettime",
+                            )?;
+                            let tv_sec_ptr = self.builder.build_struct_gep(timespec_ty, timespec_ptr, 0, "tv_sec_ptr")?;
+                            let tv_nsec_ptr = self.builder.build_struct_gep(timespec_ty, timespec_ptr, 1, "tv_nsec_ptr")?;
+                            let tv_sec = self.builder.build_load(self.i64_t, tv_sec_ptr, "tv_sec")?.into_int_value();
+                            let tv_nsec = self.builder.build_load(self.i64_t, tv_nsec_ptr, "tv_nsec")?.into_int_value();
+                            let sec_float = self.builder.build_signed_int_to_float(tv_sec, self.ctx.f64_type(), "sec_float")?;
+                            let nsec_float = self.builder.build_signed_int_to_float(tv_nsec, self.ctx.f64_type(), "nsec_float")?;
+                            let billion = self.ctx.f64_type().const_float(1_000_000_000.0);
+                            let nsec_frac = self.builder.build_float_div(nsec_float, billion, "nsec_frac")?;
+                            let total_time = self.builder.build_float_add(sec_float, nsec_frac, "total_time")?;
+                            if let Some(r) = result {
+                                self.assign_value(r, total_time.as_basic_value_enum())?;
+                            }
+                            return Ok(());
+                        }
+                        "__PrintInt" => {
+                            if let Some(arg0) = args.get(0) {
+                                let val = self.eval_value(arg0, fn_map)?;
+                                let int_val = self.as_i64(val)?;
+                                let printf = self.get_printf();
+                                let fmt = self.builder.build_global_string_ptr("%lld", "fmt_int")?;
+                                self.builder.build_call(
+                                    printf,
+                                    &[fmt.as_pointer_value().into(), int_val.into()],
+                                    "printf_int",
+                                )?;
+                                if let Some(r) = result {
+                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        "__PrintFloat" => {
+                            if let Some(arg0) = args.get(0) {
+                                let val = self.eval_value(arg0, fn_map)?;
+                                let float_val = val.into_float_value();
+                                let printf = self.get_printf();
+                                let fmt = self.builder.build_global_string_ptr("%f", "fmt_float")?;
+                                self.builder.build_call(
+                                    printf,
+                                    &[fmt.as_pointer_value().into(), float_val.into()],
+                                    "printf_float",
+                                )?;
+                                if let Some(r) = result {
+                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        "__Sqrt" => {
+                            if let Some(arg0) = args.get(0) {
+                                let val = self.eval_value(arg0, fn_map)?;
+                                let float_val = val.into_float_value();
+                                let sqrt_intrinsic = inkwell::intrinsics::Intrinsic::find("llvm.sqrt").unwrap();
+                                let sqrt_fn = sqrt_intrinsic.get_declaration(&self.module, &[self.ctx.f64_type().into()]).unwrap();
+                                let sqrt_result = self.builder.build_call(sqrt_fn, &[float_val.into()], "sqrt")?;
+                                if let Some(r) = result {
+                                    self.assign_value(r, sqrt_result.try_as_basic_value().left().unwrap())?;
+                                }
+                                return Ok(());
+                            }
+                        }
                         "__ReadFile" => {
                             // FILE* f = fopen(path, "rb"); if !f return ""
                             let fnty = self.i8_ptr_t; // FILE* opaque as i8*

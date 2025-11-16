@@ -434,6 +434,9 @@ impl IRGenerator {
             Expression::Spawn { expr, detached, .. } => {
                 self.generate_spawn_expression(expr, *detached)
             }
+            Expression::Cast { expr, target_type, .. } => {
+                self.generate_cast_expression(expr, target_type)
+            }
             // Handle other expression types...
             _ => Err(IRError::Other(format!(
                 "Unsupported expression type: {:?}",
@@ -2626,6 +2629,36 @@ impl IRGenerator {
             result: Some(result_value.clone()),
         });
 
+        Ok((result_value, instructions))
+    }
+
+    fn generate_cast_expression(
+        &mut self,
+        expr: &Expression,
+        target_type: &seen_parser::Type,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let (value, mut instructions) = self.generate_expression(expr)?;
+
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+
+        let ir_target_type = match target_type.name.as_str() {
+            "Int" => IRType::Integer,
+            "Float" => IRType::Float,
+            "Bool" => IRType::Boolean,
+            "String" => IRType::String,
+            _ => IRType::Struct {
+                name: target_type.name.clone(),
+                fields: vec![],
+            },
+        };
+
+        instructions.push(Instruction::Cast {
+            value: value,
+            target_type: ir_target_type,
+            result: result_value.clone(),
+        });
+        
         Ok((result_value, instructions))
     }
 
