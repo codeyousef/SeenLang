@@ -1,50 +1,45 @@
 // HashSet implementation
-pub class HashSet<T> {
-    map: HashMap<T, Bool>
+import collections.hash_map.{HashMap}
+
+class HashSet<T> {
+    var map: HashMap<T, Bool>
     
-    pub fun new() -> HashSet<T> {
-        HashSet {
-            map: HashMap::new()
+    fun new() -> HashSet<T> {
+        return HashSet {
+            map: HashMap<T, Bool>.new()
         }
     }
     
-    pub fun with_capacity(capacity: Int) -> HashSet<T> {
-        HashSet {
-            map: HashMap::with_capacity(capacity)
+    fun withCapacity(capacity: Int) -> HashSet<T> {
+        return HashSet {
+            map: HashMap<T, Bool>.withCapacity(capacity)
         }
     }
     
-    pub fun insert(value: T) -> Bool {
-        match this.map.insert(value, true) {
-            Some(_) => false,  // Already existed
-            None => true       // Newly inserted
-        }
+    fun insert(value: T) -> Bool {
+        let hadValue = this.map.containsKey(value)
+        this.map.insert(value, true)
+        return not hadValue
     }
     
-    pub fun remove(value: T) -> Bool {
-        match this.map.remove(value) {
-            Some(_) => true,
-            None => false
-        }
+    fun remove(value: T) -> Bool {
+        let result = this.map.remove(value)
+        return result.isSome()
     }
     
-    pub fun contains(value: T) -> Bool {
-        this.map.contains_key(value)
+    fun contains(value: T) -> Bool {
+        return this.map.containsKey(value)
     }
     
-    pub fun len() -> Int {
-        this.map.len()
+    fun len() -> Int {
+        return this.map.size()
     }
     
-    pub fun is_empty() -> Bool {
-        this.map.is_empty()
+    fun isEmpty() -> Bool {
+        return this.map.isEmpty()
     }
     
-    pub fun clear() {
+    fun clear() -> Void {
         this.map.clear()
-    }
-    
-    pub fun to_array() -> Array<T> {
-        this.map.keys()
     }
 }

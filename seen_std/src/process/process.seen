@@ -1,4 +1,4 @@
-// seen_std::process::process
+// seen_std.process.process
 // Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
 
 import str.string.{StringBuilder}

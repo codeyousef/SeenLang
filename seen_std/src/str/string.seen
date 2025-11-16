@@ -1,4 +1,4 @@
-// seen_std::str::string
+// seen_std.str.string
 // UTF-8 friendly helpers and CString bridges used by bootstrap tooling.
 
 import ffi.cinterop.{CString, toCString, fromCString}
@@ -18,13 +18,13 @@ class StringBuilder {
         if text.length() == 0 {
             return
         }
-        totalLength = totalLength + text.length()
-        parts.push(text)
+        this.totalLength = this.totalLength + text.length()
+        this.parts.push(text)
     }
 
     fun appendChar(ch: Char) -> Void {
-        totalLength = totalLength + 1
-        parts.push("{ch}")
+        this.totalLength = this.totalLength + 1
+        this.parts.push("{ch}")
     }
 
     fun appendLine(text: String = "") -> Void {
@@ -42,12 +42,12 @@ class StringBuilder {
     }
 
     fun clear() -> Void {
-        parts = Array<String>()
-        totalLength = 0
+        this.parts = Array<String>()
+        this.totalLength = 0
     }
 
     fun isEmpty() -> Bool {
-        return totalLength == 0
+        return this.totalLength == 0
     }
 
     fun length() -> Int {

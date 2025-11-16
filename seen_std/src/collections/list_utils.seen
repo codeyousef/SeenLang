@@ -1,4 +1,4 @@
-// seen_std::collections::list_utils
+// seen_std.collections.list_utils
 // Small helpers that make List<T>/Map<K, V> usage saner inside Stage-1.
 
 fun <T> List<T>.isEmpty() -> Bool {

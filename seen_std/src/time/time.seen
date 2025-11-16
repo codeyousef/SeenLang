@@ -1,4 +1,4 @@
-// seen_std::time::time
+// seen_std.time.time
 // Deterministic timestamp + duration helpers atop __GetTimestamp.
 
 // External runtime intrinsics

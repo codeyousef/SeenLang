@@ -1,0 +1,126 @@
+fun main() -> i32 {
+    let DATA_SIZE: i64 = 10000000;
+    let LINE_LEN: i64 = 60;
+    let WARMUP_RUNS: i64 = 3;
+    let MEASURED_RUNS: i64 = 10;
+    
+    let mut complement: [i64; 256] = [0; 256];
+    let mut i: i64 = 0;
+    while i < 256 {
+        complement[i] = i;
+        i = i + 1;
+    }
+    complement[65] = 84;
+    complement[84] = 65;
+    complement[67] = 71;
+    complement[71] = 67;
+    
+    let lines = DATA_SIZE / LINE_LEN;
+    let total_size = DATA_SIZE + lines;
+    let mut original_data: [i64; 10166667] = [0; 10166667];
+    
+    let mut rng_state: i64 = 42;
+    let mut pos: i64 = 0;
+    let mut line: i64 = 0;
+    while line < lines {
+        let mut col: i64 = 0;
+        while col < LINE_LEN {
+            rng_state = (rng_state * 1103515245 + 12345) & 0x7FFFFFFF;
+            let idx = ((rng_state / 65536) % 4) as i64;
+            let nucleotide = if idx == 0 { 65 } else if idx == 1 { 67 } else if idx == 2 { 71 } else { 84 };
+            original_data[pos] = nucleotide;
+            pos = pos + 1;
+            col = col + 1;
+        }
+        original_data[pos] = 10;
+        pos = pos + 1;
+        line = line + 1;
+    }
+    
+    let mut data: [i64; 10166667] = [0; 10166667];
+    
+    let mut warmup: i64 = 0;
+    while warmup < WARMUP_RUNS {
+        let mut i: i64 = 0;
+        while i < total_size {
+            data[i] = original_data[i];
+            i = i + 1;
+        }
+        
+        let mut i: i64 = 0;
+        let mut j: i64 = total_size - 1;
+        while i < j {
+            if data[i] == 10 {
+                i = i + 1;
+            } else if data[j] == 10 {
+                j = j - 1;
+            } else {
+                let ci = complement[data[i]];
+                let cj = complement[data[j]];
+                data[i] = cj;
+                data[j] = ci;
+                i = i + 1;
+                j = j - 1;
+            }
+        }
+        
+        warmup = warmup + 1;
+    }
+    
+    let mut min_time: f64 = 1000000.0;
+    let mut run: i64 = 0;
+    while run < MEASURED_RUNS {
+        let mut i: i64 = 0;
+        while i < total_size {
+            data[i] = original_data[i];
+            i = i + 1;
+        }
+        
+        let start_time = __GetTimeNanos();
+        
+        let mut i: i64 = 0;
+        let mut j: i64 = total_size - 1;
+        while i < j {
+            if data[i] == 10 {
+                i = i + 1;
+            } else if data[j] == 10 {
+                j = j - 1;
+            } else {
+                let ci = complement[data[i]];
+                let cj = complement[data[j]];
+                data[i] = cj;
+                data[j] = ci;
+                i = i + 1;
+                j = j - 1;
+            }
+        }
+        
+        let end_time = __GetTimeNanos();
+        let elapsed_ms = (end_time - start_time) as f64 / 1000000.0;
+        
+        if elapsed_ms < min_time {
+            min_time = elapsed_ms;
+        }
+        
+        run = run + 1;
+    }
+    
+    let mut checksum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < total_size {
+        checksum = checksum + data[i];
+        i = i + 1;
+    }
+    
+    let throughput_mbs = (DATA_SIZE as f64 / 1000000.0) / (min_time / 1000.0);
+    
+    __PrintString("Checksum: ");
+    __PrintInt(checksum);
+    __PrintString("\nMin time: ");
+    __PrintFloat(min_time);
+    __PrintString(" ms\nThroughput: ");
+    __PrintFloat(throughput_mbs);
+    __PrintString(" MB/s\n");
+    
+    0
+}

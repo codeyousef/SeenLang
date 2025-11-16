@@ -1,0 +1,48 @@
+fun main() -> i32 {
+    let N: i64 = 250000000;
+    let LINE_LEN: i64 = 60;
+    let IM: i64 = 139968;
+    let IA: i64 = 3877;
+    let IC: i64 = 29573;
+    
+    let mut seed: i64 = 42;
+    let mut checksum: i64 = 0;
+    let mut line_pos: i64 = 0;
+    
+    let start_time = __GetTimeNanos();
+    
+    let mut i: i64 = 0;
+    while i < N {
+        seed = (seed * IA + IC) % IM;
+        let r = seed as f64 / IM as f64;
+        
+        let mut nucleotide: i64 = 84;
+        if r < 0.27 {
+            nucleotide = 65;
+        } else if r < 0.39 {
+            nucleotide = 67;
+        } else if r < 0.51 {
+            nucleotide = 71;
+        }
+        
+        checksum = checksum + nucleotide;
+        line_pos = line_pos + 1;
+        
+        if line_pos >= LINE_LEN {
+            line_pos = 0;
+        }
+        
+        i = i + 1;
+    }
+    
+    let end_time = __GetTimeNanos();
+    let elapsed_ms = (end_time - start_time) as f64 / 1000000.0;
+    
+    __PrintString("Checksum: ");
+    __PrintInt(checksum);
+    __PrintString("\nTime: ");
+    __PrintFloat(elapsed_ms);
+    __PrintString(" ms\n");
+    
+    0
+}

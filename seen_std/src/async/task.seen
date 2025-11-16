@@ -1,4 +1,4 @@
-// seen_std::async::task
+// seen_std.async.task
 // Deterministic task + channel helpers backed by seen_runtime primitives.
 
 // External runtime intrinsics

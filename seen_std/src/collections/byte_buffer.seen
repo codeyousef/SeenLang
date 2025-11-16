@@ -16,7 +16,7 @@ class ByteBuffer {
     
     fun fromArray(bytes: Array<Int>): ByteBuffer {
         let buf = ByteBuffer.new(bytes.length())
-        let i = 0
+        var i = 0
         while i < bytes.length() {
             buf.data.push(bytes[i])
             i = i + 1
@@ -26,68 +26,68 @@ class ByteBuffer {
     }
     
     fun length(): Int {
-        self.len
+        this.len
     }
     
     fun get(index: Int): Int {
-        if index < 0 or index >= self.len {
+        if index < 0 or index >= this.len {
             abort("ByteBuffer index out of bounds")
         }
-        self.data[index]
+        this.data[index]
     }
     
     fun set(index: Int, value: Int) {
-        if index < 0 or index >= self.len {
+        if index < 0 or index >= this.len {
             abort("ByteBuffer index out of bounds")
         }
-        self.data[index] = value and 255
+        this.data[index] = value and 255
     }
     
     fun push(byte: Int) {
-        if self.len >= self.capacity {
-            self.grow()
+        if this.len >= this.capacity {
+            this.grow()
         }
-        self.data.push(byte and 255)
-        self.len = self.len + 1
+        this.data.push(byte and 255)
+        this.len = this.len + 1
     }
     
     fun grow() {
-        let newCapacity = self.capacity * 2
+        let newCapacity = this.capacity * 2
         if newCapacity < 16 {
             newCapacity = 16
         }
         let newData = Array<Int>(newCapacity)
-        let i = 0
-        while i < self.len {
-            newData.push(self.data[i])
+        var i = 0
+        while i < this.len {
+            newData.push(this.data[i])
             i = i + 1
         }
-        self.data = newData
-        self.capacity = newCapacity
+        this.data = newData
+        this.capacity = newCapacity
     }
     
     fun clear() {
-        self.len = 0
+        this.len = 0
     }
     
     fun toArray(): Array<Int> {
-        let result = Array<Int>(self.len)
-        let i = 0
-        while i < self.len {
-            result.push(self.data[i])
+        let result = Array<Int>(this.len)
+        var i = 0
+        while i < this.len {
+            result.push(this.data[i])
             i = i + 1
         }
         result
     }
     
     fun slice(start: Int, end: Int): ByteBuffer {
-        if start < 0 or end > self.len or start > end {
+        if start < 0 or end > this.len or start > end {
             abort("ByteBuffer slice out of bounds")
         }
         let result = ByteBuffer.new(end - start)
         let i = start
         while i < end {
-            result.push(self.data[i])
+            result.push(this.data[i])
             i = i + 1
         }
         result
@@ -95,11 +95,11 @@ class ByteBuffer {
     
     fun reverse() {
         let left = 0
-        let right = self.len - 1
+        let right = this.len - 1
         while left < right {
-            let temp = self.data[left]
-            self.data[left] = self.data[right]
-            self.data[right] = temp
+            let temp = this.data[left]
+            this.data[left] = this.data[right]
+            this.data[right] = temp
             left = left + 1
             right = right - 1
         }
@@ -107,9 +107,9 @@ class ByteBuffer {
     
     fun fill(value: Int) {
         let byte = value and 255
-        let i = 0
-        while i < self.len {
-            self.data[i] = byte
+        var i = 0
+        while i < this.len {
+            this.data[i] = byte
             i = i + 1
         }
     }
@@ -119,7 +119,7 @@ class ByteBuffer {
 class LookupTable {
     fun createComplement(): Array<Int> {
         let table = Array<Int>(256)
-        let i = 0
+        var i = 0
         while i < 256 {
             table.push(0)
             i = i + 1
@@ -144,7 +144,7 @@ class LookupTable {
     
     fun applyLookup(buffer: ByteBuffer, table: Array<Int>): ByteBuffer {
         let result = ByteBuffer.new(buffer.length())
-        let i = 0
+        var i = 0
         while i < buffer.length() {
             let byte = buffer.get(i)
             result.push(table[byte])

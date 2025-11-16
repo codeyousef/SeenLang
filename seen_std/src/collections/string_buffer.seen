@@ -1,4 +1,4 @@
-// seen_std::collections::string_buffer
+// seen_std.collections.string_buffer
 // High-performance growable UTF-8 string builder backed by Vec<Char>.
 
 import collections.vec.{Vec}

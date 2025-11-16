@@ -1,95 +1,97 @@
 // File I/O operations
-pub class File {
-    handle: Int
-    path: String
+import core.result.{Result, Ok, Err}
+
+class File {
+    var handle: Int
+    var path: String
     
-    pub fun open(path: String) -> Result<File, String> {
+    fun open(path: String) -> Result<File, String> {
         let handle = __OpenFile(path, "r")
         if handle < 0 {
-            return Result::Err("Failed to open file: " + path)
+            return Err<File, String>("Failed to open file: " + path)
         }
-        Result::Ok(File { handle: handle, path: path })
+        return Ok<File, String>(File { handle: handle, path: path })
     }
     
-    pub fun create(path: String) -> Result<File, String> {
+    fun create(path: String) -> Result<File, String> {
         let handle = __OpenFile(path, "w")
         if handle < 0 {
-            return Result::Err("Failed to create file: " + path)
+            return Err<File, String>("Failed to create file: " + path)
         }
-        Result::Ok(File { handle: handle, path: path })
+        return Ok<File, String>(File { handle: handle, path: path })
     }
     
-    pub fun read_to_string() -> Result<String, String> {
+    fun readToString() -> Result<String, String> {
         let content = __ReadFile(this.handle)
-        if content == "" && __FileError(this.handle) {
-            return Result::Err("Failed to read file")
+        if content == "" and __FileError(this.handle) {
+            return Err<String, String>("Failed to read file")
         }
-        Result::Ok(content)
+        return Ok<String, String>(content)
     }
     
-    pub fun read_bytes() -> Result<Array<Byte>, String> {
+    fun read_bytes() -> Result<Array<Byte>, String> {
         let bytes = __ReadFileBytes(this.handle)
-        if bytes.len() == 0 && __FileError(this.handle) {
-            return Result::Err("Failed to read file")
+        if bytes.len() == 0 and __FileError(this.handle) {
+            return Err("Failed to read file")
         }
-        Result::Ok(bytes)
+        Ok(bytes)
     }
     
-    pub fun write(content: String) -> Result<Int, String> {
+    fun write(content: String) -> Result<Int, String> {
         let written = __WriteFile(this.handle, content)
         if written < 0 {
-            return Result::Err("Failed to write to file")
+            return Err("Failed to write to file")
         }
-        Result::Ok(written)
+        Ok(written)
     }
     
-    pub fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
+    fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
         let written = __WriteFileBytes(this.handle, bytes)
         if written < 0 {
-            return Result::Err("Failed to write bytes to file")
+            return Err("Failed to write bytes to file")
         }
-        Result::Ok(written)
+        Ok(written)
     }
     
-    pub fun close() -> Result<Unit, String> {
+    fun close() -> Result<Void, String> {
         let result = __CloseFile(this.handle)
         if result < 0 {
-            return Result::Err("Failed to close file")
+            return Err("Failed to close file")
         }
-        Result::Ok(())
+        Ok<Void, String>()
     }
     
-    pub fun size() -> Result<Int, String> {
+    fun size() -> Result<Int, String> {
         let size = __FileSize(this.handle)
         if size < 0 {
-            return Result::Err("Failed to get file size")
+            return Err("Failed to get file size")
         }
-        Result::Ok(size)
+        Ok(size)
     }
 }
 
-pub fun read_to_string(path: String) -> Result<String, String> {
-    match File::open(path) {
+fun read_to_string(path: String) -> Result<String, String> {
+    match File.open(path) {
         Ok(file) => {
             let content = file.read_to_string()
             let _ = file.close()
             content
         },
-        Err(e) => Result::Err(e)
+        Err(e) => Err(e)
     }
 }
 
-pub fun write_string(path: String, content: String) -> Result<Unit, String> {
-    match File::create(path) {
+fun write_string(path: String, content: String) -> Result<Void, String> {
+    match File.create(path) {
         Ok(file) => {
             match file.write(content) {
                 Ok(_) => {
                     let _ = file.close()
-                    Result::Ok(())
+                    Ok<Void, String>()
                 },
-                Err(e) => Result::Err(e)
+                Err(e) => Err(e)
             }
         },
-        Err(e) => Result::Err(e)
+        Err(e) => Err(e)
     }
 }

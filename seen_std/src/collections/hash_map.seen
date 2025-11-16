@@ -1,4 +1,4 @@
-// seen_std::collections::hash_map
+// seen_std.collections.hash_map
 // Generic HashMap<K, V> with robin-hood hashing for excellent performance.
 
 import collections.vec.{Vec}
@@ -32,8 +32,8 @@ class HashMap<K, V> {
     }
 
     fun withCapacity(cap: Int) -> HashMap<K, V> {
-        let buckets = Vec<Option<Entry<K, V>>>.new()
-        let i = 0
+        var buckets = Vec<Option<Entry<K, V>>>.new()
+        var i = 0
         while i < cap {
             buckets.push(None<Entry<K, V>>())
             i = i + 1
@@ -46,8 +46,10 @@ class HashMap<K, V> {
         }
     }
 
-    fun insert(this: HashMap<K, V>, key: K, value: V) -> Void {
-        if intToFloat(this.length + 1) > intToFloat(this.capacity) * this.loadFactor {
+    fun insert(key: K, value: V) -> Void {
+        let currentLoad = (this.length + 1) * 100 / this.capacity
+        let maxLoad = 75  // 75% load factor
+        if currentLoad > maxLoad {
             this.resize()
         }
 
@@ -69,7 +71,7 @@ class HashMap<K, V> {
 
             let existing = bucket.unwrap()
             
-            if existing.hash == hash && this.keysEqual(existing.key, key) {
+            if existing.hash == hash and this.keysEqual(existing.key, key) {
                 existing.value = value
                 return
             }
@@ -85,7 +87,7 @@ class HashMap<K, V> {
         }
     }
 
-    fun get(this: HashMap<K, V>, key: K) -> Option<V> {
+    fun get(key: K) -> Option<V> {
         let hash = this.hashKey(key)
         let index = hash % this.capacity
 
@@ -100,7 +102,7 @@ class HashMap<K, V> {
 
             let entry = bucket.unwrap()
             
-            if entry.hash == hash && this.keysEqual(entry.key, key) {
+            if entry.hash == hash and this.keysEqual(entry.key, key) {
                 return Some<V>(entry.value)
             }
 
@@ -114,11 +116,11 @@ class HashMap<K, V> {
         return None<V>()
     }
 
-    fun containsKey(this: HashMap<K, V>, key: K) -> Bool {
+    fun containsKey(key: K) -> Bool {
         return this.get(key).isSome()
     }
 
-    fun remove(this: HashMap<K, V>, key: K) -> Option<V> {
+    fun remove(key: K) -> Option<V> {
         let hash = this.hashKey(key)
         let index = hash % this.capacity
 
@@ -133,7 +135,7 @@ class HashMap<K, V> {
 
             let entry = bucket.unwrap()
             
-            if entry.hash == hash && this.keysEqual(entry.key, key) {
+            if entry.hash == hash and this.keysEqual(entry.key, key) {
                 let value = entry.value
                 this.shiftBack(bucketIndex)
                 this.length = this.length - 1
@@ -150,7 +152,7 @@ class HashMap<K, V> {
         return None<V>()
     }
 
-    fun shiftBack(this: HashMap<K, V>, startIndex: Int) -> Void {
+    fun shiftBack(startIndex: Int) -> Void {
         var i = startIndex
         while i < this.capacity {
             let nextIndex = (i + 1) % this.capacity
@@ -173,13 +175,13 @@ class HashMap<K, V> {
         }
     }
 
-    fun resize(this: HashMap<K, V>) -> Void {
+    fun resize() -> Void {
         let oldBuckets = this.buckets
         let oldCapacity = this.capacity
         
         this.capacity = this.capacity * 2
         this.buckets = Vec<Option<Entry<K, V>>>.new()
-        let i = 0
+        var i = 0
         while i < this.capacity {
             this.buckets.push(None<Entry<K, V>>())
             i = i + 1
@@ -197,16 +199,16 @@ class HashMap<K, V> {
         }
     }
 
-    fun size(this: HashMap<K, V>) -> Int {
+    fun size() -> Int {
         return this.length
     }
 
-    fun isEmpty(this: HashMap<K, V>) -> Bool {
+    fun isEmpty() -> Bool {
         return this.length == 0
     }
 
-    fun clear(this: HashMap<K, V>) -> Void {
-        let i = 0
+    fun clear() -> Void {
+        var i = 0
         while i < this.capacity {
             this.buckets.set(i, None<Entry<K, V>>())
             i = i + 1
@@ -214,11 +216,11 @@ class HashMap<K, V> {
         this.length = 0
     }
 
-    fun hashKey(this: HashMap<K, V>, key: K) -> Int {
+    fun hashKey(key: K) -> Int {
         return hashInt(0)
     }
 
-    fun keysEqual(this: HashMap<K, V>, k1: K, k2: K) -> Bool {
+    fun keysEqual(k1: K, k2: K) -> Bool {
         return false
     }
 }

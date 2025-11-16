@@ -1,4 +1,4 @@
-// seen_std::crypto::md5
+// seen_std.crypto.md5
 // RFC 1321 compliant MD5 hash implementation in pure Seen.
 
 import collections.vec.{Vec}
@@ -14,8 +14,8 @@ class MD5 {
     var totalLen: Int
 
     fun new() -> MD5 {
-        let buffer = Vec<Int>.new()
-        let i = 0
+        var buffer = Vec<Int>.new()
+        var i = 0
         while i < 64 {
             buffer.push(0)
             i = i + 1
@@ -33,7 +33,7 @@ class MD5 {
 
     fun update(this: MD5, data: String) -> Void {
         let len = data.length()
-        let i = 0
+        var i = 0
         while i < len {
             let byte = data.charCodeAt(i)
             this.buffer.set(this.bufferLen, byte)
@@ -69,7 +69,7 @@ class MD5 {
         }
 
         let bitLen = originalLen * 8
-        let i = 0
+        var i = 0
         while i < 8 {
             this.buffer.set(56 + i, (bitLen >> (i * 8)) & 0xFF)
             i = i + 1
@@ -82,7 +82,7 @@ class MD5 {
 
     fun processBlock(this: MD5) -> Void {
         let x = Vec<Int>.new()
-        let i = 0
+        var i = 0
         while i < 16 {
             let j = i * 4
             let value = this.buffer.get(j) |
@@ -149,7 +149,7 @@ class MD5 {
 
     fun appendHex(this: MD5, sb: StringBuilder, value: Int) -> Void {
         let hex = "0123456789abcdef"
-        let i = 0
+        var i = 0
         while i < 4 {
             let byte = (value >> (i * 8)) & 0xFF
             sb.append(hex.charAt(byte >> 4))

@@ -1,0 +1,6 @@
+fun main() -> i32 {
+    __PrintString("LRU Cache benchmark not yet supported in Seen\n");
+    __PrintString("Requires: HashMap, doubly-linked list, dynamic allocation\n");
+    __PrintString("Status: Deferred to future implementation\n");
+    0
+}

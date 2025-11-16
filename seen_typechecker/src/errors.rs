@@ -146,6 +146,16 @@ pub enum TypeError {
     TaskRequiresScope { position: Position },
     #[error("cancel expects a Task handle, found {actual} at {position}")]
     CancelRequiresTask { actual: Type, position: Position },
+
+    #[error("Invalid assignment target at {position}")]
+    InvalidAssignmentTarget { position: Position },
+
+    #[error("Invalid operand type for operator '{operator}': {operand_type} at {position}")]
+    InvalidOperandType {
+        operator: String,
+        operand_type: Type,
+        position: Position,
+    },
 }
 
 /// Kind of type error for categorization
@@ -195,7 +205,9 @@ impl TypeError {
             | TypeError::SealedTypeExtension { position, .. }
             | TypeError::InvalidAwaitTarget { position, .. }
             | TypeError::TaskRequiresScope { position, .. }
-            | TypeError::CancelRequiresTask { position, .. } => *position,
+            | TypeError::CancelRequiresTask { position, .. }
+            | TypeError::InvalidAssignmentTarget { position, .. }
+            | TypeError::InvalidOperandType { position, .. } => *position,
         }
     }
 
@@ -228,7 +240,9 @@ impl TypeError {
             TypeError::SealedTypeExtension { .. }
             | TypeError::InvalidAwaitTarget { .. }
             | TypeError::TaskRequiresScope { .. }
-            | TypeError::CancelRequiresTask { .. } => TypeErrorKind::InvalidOperation,
+            | TypeError::CancelRequiresTask { .. }
+            | TypeError::InvalidOperandType { .. } => TypeErrorKind::InvalidOperation,
+            TypeError::InvalidAssignmentTarget { .. } => TypeErrorKind::AssignmentError,
             TypeError::InferenceFailed { .. } => TypeErrorKind::InferenceError,
             TypeError::CircularDependency { .. } => TypeErrorKind::CircularDependency,
         }
@@ -307,7 +321,9 @@ impl From<TypeError> for SeenError {
             | TypeError::SealedTypeExtension { position, .. }
             | TypeError::InvalidAwaitTarget { position, .. }
             | TypeError::TaskRequiresScope { position, .. }
-            | TypeError::CancelRequiresTask { position, .. } => Some(ErrorLocation::new(
+            | TypeError::CancelRequiresTask { position, .. }
+            | TypeError::InvalidAssignmentTarget { position, .. }
+            | TypeError::InvalidOperandType { position, .. } => Some(ErrorLocation::new(
                 position.line as u32,
                 position.column as u32,
                 position.offset as u32,

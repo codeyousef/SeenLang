@@ -1,0 +1,143 @@
+import std.time
+import std.array
+import std.crypto
+import std.io
+
+let BUFFER_SIZE: Int = 1000000000
+
+fun create_complement_table() -> Array<Byte> {
+    let mut table = Array<Byte>.new(256)
+    for i in 0..256 {
+        table[i] = i as Byte
+    }
+    table[b'A'] = b'T'
+    table[b'T'] = b'A'
+    table[b'C'] = b'G'
+    table[b'G'] = b'C'
+    table[b'a'] = b't'
+    table[b't'] = b'a'
+    table[b'c'] = b'g'
+    table[b'g'] = b'c'
+    table
+}
+
+fun generate_fasta_data(size: Int) -> Array<Byte> {
+    let mut data = Array<Byte>.new(0)
+    let nucleotides = [b'A', b'C', b'G', b'T']
+    let mut rng = 42
+    
+    data.push_str(">Sequence_1\n")
+    
+    let mut count = 0
+    while data.len() < size {
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        let nucleotide = nucleotides[(rng % 4) as Int]
+        data.push(nucleotide)
+        count = count + 1
+        
+        if count % 60 == 0 {
+            data.push(b'\n')
+            if data.len() + 100 > size {
+                break
+            }
+            if count % 3600 == 0 {
+                data.push_str(">Sequence_")
+                data.push_str((count / 3600).to_string())
+                data.push(b'\n')
+            }
+        }
+    }
+    
+    data
+}
+
+fun reverse_complement(data: Array<Byte>) -> Array<Byte> {
+    let table = create_complement_table()
+    let mut result = Array<Byte>.new(0)
+    let mut sequences = Array<Array<Byte>>.new(0)
+    let mut current_seq = Array<Byte>.new(0)
+    
+    for i in 0..data.len() {
+        let byte = data[i]
+        if byte == b'>' {
+            if current_seq.len() > 0 {
+                sequences.push(current_seq)
+                current_seq = Array<Byte>.new(0)
+            }
+            current_seq.push(byte)
+        } else if byte == b'\n' && current_seq.len() > 0 && current_seq[0] == b'>' {
+            sequences.push(current_seq)
+            current_seq = Array<Byte>.new(0)
+        } else if byte != b'\n' {
+            current_seq.push(byte)
+        }
+    }
+    
+    if current_seq.len() > 0 {
+        sequences.push(current_seq)
+    }
+    
+    let mut i = 0
+    while i < sequences.len() {
+        if sequences[i][0] == b'>' {
+            for j in 0..sequences[i].len() {
+                result.push(sequences[i][j])
+            }
+            result.push(b'\n')
+            i = i + 1
+            
+            if i < sequences.len() {
+                let seq = sequences[i]
+                let mut j = seq.len() - 1
+                while j >= 0 {
+                    result.push(table[seq[j]])
+                    if (seq.len() - j) % 60 == 0 && j > 0 {
+                        result.push(b'\n')
+                    }
+                    if j == 0 {
+                        break
+                    }
+                    j = j - 1
+                }
+                result.push(b'\n')
+                i = i + 1
+            }
+        } else {
+            i = i + 1
+        }
+    }
+    
+    result
+}
+
+fun main() {
+    println("Generating {BUFFER_SIZE} bytes of FASTA data...")
+    let data = generate_fasta_data(BUFFER_SIZE)
+    println("Generated {data.len()} bytes")
+    
+    let mut times = Array<Float>.new(10)
+    let mut final_checksum = ""
+    
+    for i in 0..10 {
+        let start = time.now()
+        let result = reverse_complement(data)
+        let elapsed = time.elapsed(start)
+        
+        times[i] = elapsed
+        
+        if i == 9 {
+            final_checksum = crypto.md5(result)
+        }
+    }
+    
+    let mut min_time = times[0]
+    for i in 1..10 {
+        if times[i] < min_time {
+            min_time = times[i]
+        }
+    }
+    
+    println("Reverse Complement (size={data.len()} bytes)")
+    println("MD5 checksum: {final_checksum}")
+    println("Min time: {min_time * 1000.0:.3} ms")
+}

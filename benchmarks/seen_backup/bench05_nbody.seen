@@ -1,0 +1,155 @@
+struct Body {
+    x: f64,
+    y: f64,
+    z: f64,
+    vx: f64,
+    vy: f64,
+    vz: f64,
+    mass: f64,
+}
+
+fun main() -> i32 {
+    let SOLAR_MASS: f64 = 39.47841760435743;
+    let DAYS_PER_YEAR: f64 = 365.24;
+    let N_STEPS: i64 = 50000000;
+    let DT: f64 = 0.01;
+    
+    let mut bodies: [Body; 5] = [
+        Body { x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, mass: 0.0 },
+        Body { x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, mass: 0.0 },
+        Body { x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, mass: 0.0 },
+        Body { x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, mass: 0.0 },
+        Body { x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, mass: 0.0 }
+    ];
+    
+    bodies[0].mass = SOLAR_MASS;
+    
+    bodies[1].x = 4.84143144246472090;
+    bodies[1].y = -1.16032004402742839;
+    bodies[1].z = -0.103622044471123109;
+    bodies[1].vx = 0.00166007664274403694 * DAYS_PER_YEAR;
+    bodies[1].vy = 0.00769901118419740425 * DAYS_PER_YEAR;
+    bodies[1].vz = -0.0000690460016972063023 * DAYS_PER_YEAR;
+    bodies[1].mass = 0.000954791938424326609 * SOLAR_MASS;
+    
+    bodies[2].x = 8.34336671824457987;
+    bodies[2].y = 4.12479856412430479;
+    bodies[2].z = -0.403523417114321381;
+    bodies[2].vx = -0.00276742510726862411 * DAYS_PER_YEAR;
+    bodies[2].vy = 0.00499852801234917238 * DAYS_PER_YEAR;
+    bodies[2].vz = 0.0000230417297573763929 * DAYS_PER_YEAR;
+    bodies[2].mass = 0.000285885980666130812 * SOLAR_MASS;
+    
+    bodies[3].x = 12.8943695621391310;
+    bodies[3].y = -15.1111514016986312;
+    bodies[3].z = -0.223307578892655734;
+    bodies[3].vx = 0.00296460137564761618 * DAYS_PER_YEAR;
+    bodies[3].vy = 0.00237847173959480950 * DAYS_PER_YEAR;
+    bodies[3].vz = -0.0000296589568540237556 * DAYS_PER_YEAR;
+    bodies[3].mass = 0.0000436624404335156298 * SOLAR_MASS;
+    
+    bodies[4].x = 15.3796971148509165;
+    bodies[4].y = -25.9193146099879641;
+    bodies[4].z = 0.179258772950371181;
+    bodies[4].vx = 0.00268067772490389322 * DAYS_PER_YEAR;
+    bodies[4].vy = 0.00162824170038242295 * DAYS_PER_YEAR;
+    bodies[4].vz = -0.0000951592254519715870 * DAYS_PER_YEAR;
+    bodies[4].mass = 0.0000515138902046611451 * SOLAR_MASS;
+    
+    let mut px: f64 = 0.0;
+    let mut py: f64 = 0.0;
+    let mut pz: f64 = 0.0;
+    let mut i: i64 = 0;
+    while i < 5 {
+        px = px + bodies[i].vx * bodies[i].mass;
+        py = py + bodies[i].vy * bodies[i].mass;
+        pz = pz + bodies[i].vz * bodies[i].mass;
+        i = i + 1;
+    }
+    bodies[0].vx = -px / SOLAR_MASS;
+    bodies[0].vy = -py / SOLAR_MASS;
+    bodies[0].vz = -pz / SOLAR_MASS;
+    
+    let start_time = __GetTimeNanos();
+    
+    let mut step: i64 = 0;
+    while step < N_STEPS {
+        let mut i: i64 = 0;
+        while i < 5 {
+            let mut j: i64 = i + 1;
+            while j < 5 {
+                let dx = bodies[i].x - bodies[j].x;
+                let dy = bodies[i].y - bodies[j].y;
+                let dz = bodies[i].z - bodies[j].z;
+                
+                let dist_sq = dx * dx + dy * dy + dz * dz;
+                let dist = __Sqrt(dist_sq);
+                let mag = DT / (dist * dist_sq);
+                
+                let mi_mag = bodies[i].mass * mag;
+                let mj_mag = bodies[j].mass * mag;
+                
+                bodies[i].vx = bodies[i].vx - dx * mj_mag;
+                bodies[i].vy = bodies[i].vy - dy * mj_mag;
+                bodies[i].vz = bodies[i].vz - dz * mj_mag;
+                
+                bodies[j].vx = bodies[j].vx + dx * mi_mag;
+                bodies[j].vy = bodies[j].vy + dy * mi_mag;
+                bodies[j].vz = bodies[j].vz + dz * mi_mag;
+                
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        
+        let mut i: i64 = 0;
+        while i < 5 {
+            bodies[i].x = bodies[i].x + DT * bodies[i].vx;
+            bodies[i].y = bodies[i].y + DT * bodies[i].vy;
+            bodies[i].z = bodies[i].z + DT * bodies[i].vz;
+            i = i + 1;
+        }
+        
+        step = step + 1;
+    }
+    
+    let end_time = __GetTimeNanos();
+    let elapsed_s = (end_time - start_time) as f64 / 1000000000.0;
+    
+    let mut energy: f64 = 0.0;
+    let mut i: i64 = 0;
+    while i < 5 {
+        energy = energy + 0.5 * bodies[i].mass * 
+            (bodies[i].vx * bodies[i].vx + 
+             bodies[i].vy * bodies[i].vy + 
+             bodies[i].vz * bodies[i].vz);
+        
+        let mut j: i64 = i + 1;
+        while j < 5 {
+            let dx = bodies[i].x - bodies[j].x;
+            let dy = bodies[i].y - bodies[j].y;
+            let dz = bodies[i].z - bodies[j].z;
+            let dist = __Sqrt(dx * dx + dy * dy + dz * dz);
+            energy = energy - (bodies[i].mass * bodies[j].mass) / dist;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    let mut pos_checksum: f64 = 0.0;
+    let mut i: i64 = 0;
+    while i < 5 {
+        pos_checksum = pos_checksum + bodies[i].x + bodies[i].y + bodies[i].z;
+        i = i + 1;
+    }
+    
+    __PrintString("Final energy: ");
+    __PrintFloat(energy);
+    __PrintString("\nPosition checksum: ");
+    __PrintFloat(pos_checksum);
+    __PrintString("\nTime: ");
+    __PrintFloat(elapsed_s);
+    __PrintString(" s\n");
+    
+    0
+}

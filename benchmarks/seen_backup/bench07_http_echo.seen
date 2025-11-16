@@ -1,0 +1,6 @@
+fun main() -> i32 {
+    __PrintString("HTTP Echo Server benchmark not yet supported in Seen\n");
+    __PrintString("Requires: TCP socket, non-blocking I/O, async runtime\n");
+    __PrintString("Status: Deferred to future implementation\n");
+    0
+}

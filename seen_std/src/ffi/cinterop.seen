@@ -1,4 +1,4 @@
-// seen_std::ffi::cinterop
+// seen_std.ffi.cinterop
 // Minimal helpers for building deterministic FFI layers during bootstrap.
 
 class CString {

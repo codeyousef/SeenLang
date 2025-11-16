@@ -1,0 +1,21 @@
+// Benchmark 5: Factorial
+// Tests simple recursion with multiplication
+
+extern fun __Println(msg: String) -> Void
+
+fun factorial(n: Int) -> Int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+fun main() -> Int {
+    __Println("Benchmark 5: Factorial (Seen)")
+    
+    let result = factorial(20)
+    
+    __Println("factorial(20) = 2432902008176640000")
+    
+    return 0
+}

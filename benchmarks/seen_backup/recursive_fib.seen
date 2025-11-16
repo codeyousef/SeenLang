@@ -1,0 +1,25 @@
+// Fibonacci recursive benchmark - matches Rust version exactly
+extern fun __GetTimestampNanos() -> Int
+extern fun __Print(msg: String) -> Void
+
+fun fibonacci(n: Int) -> Int {
+    if n <= 1 {
+        return n
+    } else {
+        return fibonacci(n - 1) + fibonacci(n - 2)
+    }
+}
+
+fun main() -> Int {
+    let start: Int = __GetTimestampNanos()
+    let result: Int = fibonacci(40)
+    let end: Int = __GetTimestampNanos()
+    
+    let elapsed_ns: Int = end - start
+    let elapsed_ms: Int = elapsed_ns / 1000000
+    
+    __Print("Fibonacci(40) = ")
+    // Result should be 102334155
+    
+    return 0
+}

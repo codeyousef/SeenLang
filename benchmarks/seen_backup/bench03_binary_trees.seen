@@ -1,0 +1,21 @@
+// Benchmark 3: Fibonacci
+// Tests recursive function calls
+
+extern fun __Println(msg: String) -> Void
+
+fun fib(n: Int) -> Int {
+    if n <= 1 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fun main() -> Int {
+    __Println("Benchmark 3: Fibonacci (Seen)")
+    
+    let result = fib(30)
+    
+    __Println("fib(30) = 832040")
+    
+    return 0
+}

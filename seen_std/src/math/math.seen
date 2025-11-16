@@ -1,4 +1,4 @@
-// seen_std::math::math
+// seen_std.math.math
 // Scalar math utilities (abs/trig/sqrt + integer helpers) for bootstrap code.
 
 const PI: Float = 3.14159265358979323846

@@ -1,0 +1,100 @@
+import std.time
+import std.array
+import std.crypto
+import std.io
+
+let N: Int = 1000000
+
+type User {
+    id: Int
+    name: String
+    active: Bool
+    score: Float
+}
+
+fun escape_string(s: String) -> String {
+    let mut result = ""
+    for i in 0..s.len() {
+        let c = s[i]
+        if c == '\\' {
+            result = result + "\\\\"
+        } else if c == '"' {
+            result = result + "\\\""
+        } else if c == '\n' {
+            result = result + "\\n"
+        } else if c == '\r' {
+            result = result + "\\r"
+        } else if c == '\t' {
+            result = result + "\\t"
+        } else if c == '\x08' {
+            result = result + "\\b"
+        } else if c == '\x0C' {
+            result = result + "\\f"
+        } else {
+            result = result + c.to_string()
+        }
+    }
+    result
+}
+
+fun serialize_users(users: Array<User>) -> String {
+    let mut result = "["
+    
+    for i in 0..users.len() {
+        if i > 0 {
+            result = result + ","
+        }
+        
+        let user = users[i]
+        result = result + "{\"id\":"
+        result = result + user.id.to_string()
+        result = result + ",\"name\":\""
+        result = result + escape_string(user.name)
+        result = result + "\",\"active\":"
+        result = result + if user.active { "true" } else { "false" }
+        result = result + ",\"score\":"
+        result = result + user.score.to_string()
+        result = result + "}"
+    }
+    
+    result = result + "]"
+    result
+}
+
+fun main() {
+    let mut users = Array<User>.new(N)
+    for id in 0..N {
+        users[id] = User {
+            id: id,
+            name: "User_" + id.to_string().pad_left(5, '0'),
+            active: id % 2 == 0,
+            score: id as Float * 1.5
+        }
+    }
+    
+    let mut times = Array<Float>.new(10)
+    let mut final_checksum = ""
+    let mut final_size = 0
+    
+    for i in 0..10 {
+        let start = time.now()
+        let json = serialize_users(users)
+        let elapsed = time.elapsed(start)
+        
+        times[i] = elapsed
+        final_size = json.len()
+        final_checksum = crypto.md5(json)
+    }
+    
+    let mut min_time = times[0]
+    for i in 1..10 {
+        if times[i] < min_time {
+            min_time = times[i]
+        }
+    }
+    
+    println("JSON Serialization (n={N})")
+    println("MD5 checksum: {final_checksum}")
+    println("Total bytes: {final_size}")
+    println("Min time: {min_time * 1000.0:.3} ms")
+}

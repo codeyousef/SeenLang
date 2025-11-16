@@ -1,0 +1,197 @@
+import std.time
+import std.collections
+import std.io
+
+let CAPACITY: Int = 100000
+let N_OPS: Int = 10000000
+
+type Node {
+    key: Int
+    value: Int
+    prev: Option<Int>
+    next: Option<Int>
+}
+
+type LRUCache {
+    capacity: Int
+    map: HashMap<Int, Int>
+    nodes: Array<Node>
+    head: Option<Int>
+    tail: Option<Int>
+    free_list: Array<Int>
+}
+
+fun LRUCache.new(capacity: Int) -> LRUCache {
+    LRUCache {
+        capacity: capacity,
+        map: HashMap.new(),
+        nodes: Array.new(0),
+        head: None,
+        tail: None,
+        free_list: Array.new(0)
+    }
+}
+
+fun LRUCache.get(self: mut LRUCache, key: Int) -> Option<Int> {
+    match self.map.get(key) {
+        Some(node_idx) => {
+            let value = self.nodes[node_idx].value
+            self.move_to_front(node_idx)
+            Some(value)
+        },
+        None => None
+    }
+}
+
+fun LRUCache.put(self: mut LRUCache, key: Int, value: Int) {
+    match self.map.get(key) {
+        Some(node_idx) => {
+            self.nodes[node_idx].value = value
+            self.move_to_front(node_idx)
+        },
+        None => {
+            if self.map.len() >= self.capacity {
+                self.evict_lru()
+            }
+            
+            let node_idx = if self.free_list.len() > 0 {
+                let idx = self.free_list.pop().unwrap()
+                self.nodes[idx] = Node {
+                    key: key,
+                    value: value,
+                    prev: None,
+                    next: self.head
+                }
+                idx
+            } else {
+                let idx = self.nodes.len()
+                self.nodes.push(Node {
+                    key: key,
+                    value: value,
+                    prev: None,
+                    next: self.head
+                })
+                idx
+            }
+            
+            match self.head {
+                Some(head_idx) => {
+                    self.nodes[head_idx].prev = Some(node_idx)
+                },
+                None => {
+                    self.tail = Some(node_idx)
+                }
+            }
+            
+            self.head = Some(node_idx)
+            self.map.insert(key, node_idx)
+        }
+    }
+}
+
+fun LRUCache.move_to_front(self: mut LRUCache, node_idx: Int) {
+    if self.head == Some(node_idx) {
+        return
+    }
+    
+    let prev_idx = self.nodes[node_idx].prev
+    let next_idx = self.nodes[node_idx].next
+    
+    match prev_idx {
+        Some(prev) => {
+            self.nodes[prev].next = next_idx
+        },
+        None => {}
+    }
+    
+    match next_idx {
+        Some(next) => {
+            self.nodes[next].prev = prev_idx
+        },
+        None => {
+            self.tail = prev_idx
+        }
+    }
+    
+    self.nodes[node_idx].prev = None
+    self.nodes[node_idx].next = self.head
+    
+    match self.head {
+        Some(head_idx) => {
+            self.nodes[head_idx].prev = Some(node_idx)
+        },
+        None => {}
+    }
+    
+    self.head = Some(node_idx)
+}
+
+fun LRUCache.evict_lru(self: mut LRUCache) {
+    match self.tail {
+        Some(tail_idx) => {
+            let key = self.nodes[tail_idx].key
+            self.map.remove(key)
+            
+            match self.nodes[tail_idx].prev {
+                Some(prev_idx) => {
+                    self.nodes[prev_idx].next = None
+                    self.tail = Some(prev_idx)
+                },
+                None => {
+                    self.head = None
+                    self.tail = None
+                }
+            }
+            
+            self.free_list.push(tail_idx)
+        },
+        None => {}
+    }
+}
+
+fun generate_trace() -> Array<(Bool, Int, Int)> {
+    let mut rng = 42
+    let mut trace = Array.new(0)
+    
+    for _ in 0..N_OPS {
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        let is_get = (rng % 100) < 70
+        let key = ((rng / 65536) % 1000000) as Int
+        let value = ((rng / 256) % 1000) as Int
+        trace.push((is_get, key, value))
+    }
+    
+    trace
+}
+
+fun main() {
+    let trace = generate_trace()
+    
+    let mut cache = LRUCache.new(CAPACITY)
+    for i in 0..50000 {
+        cache.put(i, (i * 7) as Int)
+    }
+    
+    let start = time.now()
+    let mut sum = 0
+    
+    for i in 0..trace.len() {
+        let (is_get, key, value) = trace[i]
+        if is_get {
+            match cache.get(key) {
+                Some(v) => {
+                    sum = sum + v
+                },
+                None => {}
+            }
+        } else {
+            cache.put(key, value)
+        }
+    }
+    
+    let elapsed = time.elapsed(start)
+    
+    println("LRU Cache (capacity={CAPACITY}, ops={N_OPS})")
+    println("Sum of Get values: {sum}")
+    println("Time: {elapsed * 1000.0:.3} ms")
+}

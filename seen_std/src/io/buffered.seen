@@ -15,38 +15,38 @@ class BufferedWriter {
     }
     
     fun write(data: String) {
-        self.buffer.push(data)
-        self.currentSize = self.currentSize + data.length()
+        this.buffer.push(data)
+        this.currentSize = this.currentSize + data.length()
         
-        if self.currentSize >= self.bufferSize {
-            self.flush()
+        if this.currentSize >= this.bufferSize {
+            this.flush()
         }
     }
     
     fun writeLine(line: String) {
-        self.write(line + "\n")
+        this.write(line + "\n")
     }
     
     fun flush(): String {
-        if self.currentSize == 0 {
+        if this.currentSize == 0 {
             ""
         }
         
         let result = ""
-        let i = 0
-        while i < self.buffer.length() {
-            result = result + self.buffer[i]
+        var i = 0
+        while i < this.buffer.length() {
+            result = result + this.buffer[i]
             i = i + 1
         }
         
-        self.buffer = Array<String>(self.bufferSize)
-        self.currentSize = 0
+        this.buffer = Array<String>(this.bufferSize)
+        this.currentSize = 0
         
         result
     }
     
     fun getContents(): String {
-        self.flush()
+        this.flush()
     }
 }
 
@@ -64,55 +64,55 @@ class BufferedReader {
     }
     
     fun readChar(): Int {
-        if self.position >= self.length {
+        if this.position >= this.length {
             -1
         }
         
-        let ch = self.data.charAt(self.position)
-        self.position = self.position + 1
+        let ch = this.data.charAt(this.position)
+        this.position = this.position + 1
         ch
     }
     
     fun readLine(): String {
-        if self.position >= self.length {
+        if this.position >= this.length {
             ""
         }
         
         let result = ""
-        let ch = self.readChar()
+        let ch = this.readChar()
         
         while ch != -1 and ch != 10 {
             if ch != 13 {
                 result = result + String.fromCharCode(ch)
             }
-            ch = self.readChar()
+            ch = this.readChar()
         }
         
         result
     }
     
     fun readAll(): String {
-        if self.position >= self.length {
+        if this.position >= this.length {
             ""
         }
         
-        let result = self.data.substring(self.position, self.length)
-        self.position = self.length
+        let result = this.data.substring(this.position, this.length)
+        this.position = this.length
         result
     }
     
     fun skip(count: Int) {
-        self.position = self.position + count
-        if self.position > self.length {
-            self.position = self.length
+        this.position = this.position + count
+        if this.position > this.length {
+            this.position = this.length
         }
     }
     
     fun hasMore(): Bool {
-        self.position < self.length
+        this.position < this.length
     }
     
     fun remaining(): Int {
-        self.length - self.position
+        this.length - this.position
     }
 }

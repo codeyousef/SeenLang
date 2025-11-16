@@ -1,0 +1,9 @@
+fun main() {
+    let a = true
+    let b = false
+    if a and b {
+        1
+    } else {
+        0
+    }
+}

@@ -1,0 +1,75 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Functions
+fn __GetTimestampNanos() -> i64 {
+; Entry: entry
+entry:
+  ret null
+
+}
+
+fn __Print(msg: string) -> i64 {
+; Entry: entry
+entry:
+  ret null
+
+}
+
+fn fibonacci(n: i64) -> i64 {
+; Entry: entry
+entry:
+  le %n 1 -> %r0
+  jif %r0 .then_0
+
+block_0:
+  jmp .else_1
+
+then_0:
+  ret %n
+
+block_1:
+  mov %n -> %r1
+  jmp .if_end_2
+
+else_1:
+  sub %n 1 -> %r2
+  call %fibonacci (%r2) -> %r3
+  sub %n 2 -> %r4
+  call %fibonacci (%r4) -> %r5
+  add %r3 %r5 -> %r6
+  ret %r6
+
+block_2:
+  mov %r6 -> %r1
+  jmp .if_end_2
+
+if_end_2:
+  ret %r1
+
+}
+
+fn main() -> i64 {
+; Entry: entry
+entry:
+  call %__GetTimestampNanos () -> %r0
+  store %r0 -> %start
+  call %fibonacci (40) -> %r1
+  store %r1 -> %result
+  call %__GetTimestampNanos () -> %r2
+  store %r2 -> %end
+  sub %end %start -> %r3
+  store %r3 -> %elapsed_ns
+  div %elapsed_ns 1000000 -> %r4
+  store %r4 -> %elapsed_ms
+  call %__Print ("Fibonacci(40) = ") -> %r5
+  ret 0
+
+block_0:
+  ret 0
+
+}
+
+

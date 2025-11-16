@@ -12,6 +12,8 @@ use std::collections::HashMap;
 pub struct Environment {
     /// Variables in scope with their types
     variables: HashMap<String, Type>,
+    /// Mutability tracking for variables (var vs let)
+    mutable_vars: HashMap<String, bool>,
     /// Functions in scope with their signatures  
     functions: HashMap<String, FunctionSignature>,
     /// User-defined types in scope
@@ -27,6 +29,7 @@ impl Environment {
     fn new() -> Self {
         Self {
             variables: HashMap::new(),
+            mutable_vars: HashMap::new(),
             functions: HashMap::new(),
             types: HashMap::new(),
             parent: None,
@@ -38,6 +41,7 @@ impl Environment {
     fn with_parent(parent: Environment) -> Self {
         Self {
             variables: HashMap::new(),
+            mutable_vars: HashMap::new(),
             functions: HashMap::new(),
             types: HashMap::new(),
             parent: Some(Box::new(parent)),
@@ -47,7 +51,27 @@ impl Environment {
 
     /// Define a variable in this environment
     pub fn define_variable(&mut self, name: String, var_type: Type) {
-        self.variables.insert(name, var_type);
+        self.variables.insert(name.clone(), var_type);
+        self.mutable_vars.insert(name, false);
+    }
+
+    /// Define a mutable variable in this environment
+    pub fn define_mutable_variable(&mut self, name: String, var_type: Type) {
+        self.variables.insert(name.clone(), var_type);
+        self.mutable_vars.insert(name, true);
+    }
+
+    /// Check if a variable is mutable
+    pub fn is_mutable(&self, name: &str) -> bool {
+        self.mutable_vars
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| {
+                self.parent
+                    .as_ref()
+                    .map(|p| p.is_mutable(name))
+                    .unwrap_or(false)
+            })
     }
 
     /// Define a function in this environment
@@ -1786,9 +1810,15 @@ impl TypeChecker {
                 name,
                 type_annotation,
                 value,
+                is_mutable,
                 pos,
                 ..
-            } => self.check_let_expression(name, type_annotation, value, *pos),
+            } => self.check_let_expression(name, type_annotation, value, *is_mutable, *pos),
+
+            // Assignment
+            Expression::Assignment { target, value, op, pos } => {
+                self.check_assignment_expression(target, value, op, *pos)
+            }
 
             // Collections
             Expression::ArrayLiteral { elements, pos } => self.check_array_literal(elements, *pos),
@@ -3120,6 +3150,7 @@ impl TypeChecker {
         name: &str,
         type_annotation: &Option<seen_parser::ast::Type>,
         value: &Expression,
+        is_mutable: bool,
         pos: Position,
     ) -> Type {
         let value_type = self.check_expression(value);
@@ -3145,11 +3176,100 @@ impl TypeChecker {
                 position: pos,
             });
         } else {
-            self.env
-                .define_variable(name.to_string(), declared_type.clone());
+            if is_mutable {
+                self.env
+                    .define_mutable_variable(name.to_string(), declared_type.clone());
+            } else {
+                self.env
+                    .define_variable(name.to_string(), declared_type.clone());
+            }
         }
 
-        // Let declarations are statements; they evaluate to Unit
+        // Let/var declarations are statements; they evaluate to Unit
+        Type::Unit
+    }
+
+    fn check_assignment_expression(
+        &mut self,
+        target: &Expression,
+        value: &Expression,
+        op: &seen_parser::ast::AssignmentOperator,
+        pos: Position,
+    ) -> Type {
+        use seen_parser::ast::AssignmentOperator;
+
+        let value_type = self.check_expression(value);
+
+        match target {
+            Expression::Identifier { name, .. } => {
+                if let Some(var_type) = self.env.get_variable(name) {
+                    if !self.env.is_mutable(name) {
+                        self.result.add_error(TypeError::ImmutableAssignment {
+                            name: name.clone(),
+                            position: pos,
+                        });
+                        return Type::Unit;
+                    }
+
+                    match op {
+                        AssignmentOperator::Assign => {
+                            if !value_type.is_assignable_to(var_type) {
+                                self.result.add_error(TypeError::TypeMismatch {
+                                    expected: var_type.clone(),
+                                    actual: value_type,
+                                    position: pos,
+                                });
+                            }
+                        }
+                        AssignmentOperator::AddAssign
+                        | AssignmentOperator::SubAssign
+                        | AssignmentOperator::MulAssign
+                        | AssignmentOperator::DivAssign
+                        | AssignmentOperator::ModAssign => {
+                            if !var_type.is_numeric() {
+                                self.result.add_error(TypeError::InvalidOperandType {
+                                    operator: format!("{:?}", op),
+                                    operand_type: var_type.clone(),
+                                    position: pos,
+                                });
+                            }
+                            if !value_type.is_numeric() {
+                                self.result.add_error(TypeError::InvalidOperandType {
+                                    operator: format!("{:?}", op),
+                                    operand_type: value_type,
+                                    position: pos,
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    self.result.add_error(TypeError::UndefinedVariable {
+                        name: name.clone(),
+                        position: pos,
+                    });
+                }
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let _object_type = self.check_expression(object);
+                if !value_type.is_assignable_to(&Type::Unknown) {
+                    self.result.add_error(TypeError::TypeMismatch {
+                        expected: Type::Unknown,
+                        actual: value_type,
+                        position: pos,
+                    });
+                }
+            }
+            Expression::IndexAccess { object, index, .. } => {
+                let _object_type = self.check_expression(object);
+                let _index_type = self.check_expression(index);
+            }
+            _ => {
+                self.result.add_error(TypeError::InvalidAssignmentTarget {
+                    position: pos,
+                });
+            }
+        }
+
         Type::Unit
     }
 

@@ -1,0 +1,72 @@
+import std.time
+import std.io
+
+let DEPTH: Int = 20
+
+type Node {
+    item: Int
+    left: Option<Box<Node>>
+    right: Option<Box<Node>>
+}
+
+fun make_node(item: Int, depth: Int) -> Option<Box<Node>> {
+    if depth == 0 {
+        Some(Box.new(Node {
+            item: item,
+            left: None,
+            right: None
+        }))
+    } else {
+        Some(Box.new(Node {
+            item: item,
+            left: make_node(2 * item, depth - 1),
+            right: make_node(2 * item + 1, depth - 1)
+        }))
+    }
+}
+
+fun checksum(node: Node) -> Int {
+    let left_sum = match node.left {
+        Some(n) => checksum(*n),
+        None => 0
+    }
+    let right_sum = match node.right {
+        Some(n) => checksum(*n),
+        None => 0
+    }
+    node.item + left_sum - right_sum
+}
+
+fun run_benchmark() -> (Int, Int) {
+    let tree = make_node(0, DEPTH).unwrap()
+    let sum = checksum(*tree)
+    let memory = 48 * ((1 << (DEPTH + 1)) - 1)
+    (sum, memory)
+}
+
+fun main() {
+    let mut times = Array<Float>.new(10)
+    let mut final_checksum = 0
+    let mut final_memory = 0
+    
+    for i in 0..10 {
+        let start = time.now()
+        let (sum, memory) = run_benchmark()
+        let elapsed = time.elapsed(start)
+        
+        times[i] = elapsed
+        final_checksum = sum
+        final_memory = memory
+    }
+    
+    let mut avg = 0.0
+    for i in 0..10 {
+        avg = avg + times[i]
+    }
+    avg = avg / 10.0
+    
+    println("Binary Trees (depth={DEPTH})")
+    println("Checksum: {final_checksum} (expected: -1)")
+    println("Memory allocated: {final_memory} bytes")
+    println("Average time: {avg * 1000.0:.3} ms")
+}

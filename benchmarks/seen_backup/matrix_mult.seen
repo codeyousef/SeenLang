@@ -1,0 +1,91 @@
+import std.time
+import std.array
+import std.math
+import std.io
+
+let N: Int = 1920
+let TILE_SIZE: Int = 48
+
+fun random_matrix(seed: Int) -> Array<Float> {
+    let rng = seed
+    let matrix = Array<Float>.new(N * N)
+    
+    for i in 0..(N * N) {
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF
+        matrix[i] = ((rng / 65536) % 32768) as Float / 32768.0
+    }
+    
+    matrix
+}
+
+fun matrix_multiply(a: Array<Float>, b: Array<Float>) -> Array<Float> {
+    let c = Array<Float>.new(N * N)
+    for i in 0..(N * N) {
+        c[i] = 0.0
+    }
+    
+    let mut ii = 0
+    while ii < N {
+        let mut kk = 0
+        while kk < N {
+            let mut jj = 0
+            while jj < N {
+                let i_end = min(ii + TILE_SIZE, N)
+                let k_end = min(kk + TILE_SIZE, N)
+                let j_end = min(jj + TILE_SIZE, N)
+                
+                for i in ii..i_end {
+                    for k in kk..k_end {
+                        let a_ik = a[i * N + k]
+                        for j in jj..j_end {
+                            c[i * N + j] = c[i * N + j] + a_ik * b[k * N + j]
+                        }
+                    }
+                }
+                
+                jj = jj + TILE_SIZE
+            }
+            kk = kk + TILE_SIZE
+        }
+        ii = ii + TILE_SIZE
+    }
+    
+    c
+}
+
+fun main() {
+    let a = random_matrix(42)
+    let b = random_matrix(84)
+    
+    for _ in 0..5 {
+        let _ = matrix_multiply(a, b)
+    }
+    
+    let mut times = Array<Float>.new(10)
+    let mut min_time = 1000000.0
+    
+    for i in 0..10 {
+        let start = time.now()
+        let c = matrix_multiply(a, b)
+        let elapsed = time.elapsed(start)
+        times[i] = elapsed
+        
+        if elapsed < min_time {
+            min_time = elapsed
+        }
+        
+        if i == 9 {
+            let mut checksum = 0.0
+            for j in 0..(N * N) {
+                checksum = checksum + c[j]
+            }
+            println("Checksum: {checksum}")
+        }
+    }
+    
+    let gflops = (2.0 * (N as Float) * (N as Float) * (N as Float)) / (min_time * 1000000000.0)
+    
+    println("Matrix Multiplication ({N}x{N})")
+    println("Min time: {min_time * 1000.0:.3} ms")
+    println("GFLOPS: {gflops:.2}")
+}

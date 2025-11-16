@@ -1,4 +1,4 @@
-// seen_std::fs::path
+// seen_std.fs.path
 // Deterministic path utilities (normalize/join/basename/dirname/extension).
 
 import str.string.{StringBuilder, lastIndexOf, endsWith}

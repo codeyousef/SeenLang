@@ -1,7 +1,5 @@
 // seen_std::collections::vec
-// Chunked, doubling Vec<T> optimized for deterministic, amortized O(1) push/pop.
-
-const DEFAULT_CHUNK_SIZE: Int = 8
+// Chunked Vec<T> for deterministic, amortized O(1) push/pop.
 
 class VecChunk<T> {
     var values: Array<T>
@@ -27,161 +25,118 @@ class Vec<T> {
             usage: Array<Int>(),
             length: 0,
             totalCapacity: 0,
-            nextChunkSize: DEFAULT_CHUNK_SIZE
+            nextChunkSize: 8
         }
     }
 
     fun withCapacity(capacity: Int) -> Vec<T> {
-        let vec = Vec.new()
+        var vec = Vec<T>.new()
         vec.reserve(capacity)
         return vec
     }
 
     fun len() -> Int {
-        return length
+        return this.length
     }
 
     fun isEmpty() -> Bool {
-        return length == 0
+        return this.length == 0
     }
 
     fun capacity() -> Int {
-        return totalCapacity
+        return this.totalCapacity
     }
 
     fun push(value: T) -> Void {
-        ensureChunkSpace(1)
-        let lastIndex = chunks.length() - 1
-        let chunk = chunks[lastIndex]
-        let used = usage[lastIndex]
+        if this.length >= this.totalCapacity {
+            this.growChunk()
+        }
+        let lastIndex = this.chunks.length() - 1
+        let chunk = this.chunks[lastIndex]
+        let used = this.usage[lastIndex]
         if used < chunk.values.length() {
             chunk.values[used] = value
         } else {
             chunk.values.push(value)
         }
-        usage[lastIndex] = used + 1
-        length = length + 1
+        this.usage[lastIndex] = used + 1
+        this.length = this.length + 1
     }
 
     fun pop() -> T {
-        if length == 0 {
+        if this.length == 0 {
             abort("Vec.pop() called on empty Vec")
         }
-        var chunkIndex = chunks.length() - 1
-        while chunkIndex >= 0 and usage[chunkIndex] == 0 {
+        var chunkIndex = this.chunks.length() - 1
+        while chunkIndex >= 0 and this.usage[chunkIndex] == 0 {
             chunkIndex = chunkIndex - 1
         }
         if chunkIndex < 0 {
             abort("Vec internal state corrupted")
         }
-        let used = usage[chunkIndex] - 1
-        usage[chunkIndex] = used
-        length = length - 1
-        return chunks[chunkIndex].values[used]
+        let used = this.usage[chunkIndex] - 1
+        this.usage[chunkIndex] = used
+        this.length = this.length - 1
+        return this.chunks[chunkIndex].values[used]
     }
 
     fun get(index: Int) -> T {
-        let slot = locateSlot(index)
-        return chunks[slot.chunk].values[slot.offset]
+        let slot = this.locateSlot(index)
+        return this.chunks[slot.chunk].values[slot.offset]
     }
 
     fun set(index: Int, value: T) -> Void {
-        let slot = locateSlot(index)
-        chunks[slot.chunk].values[slot.offset] = value
+        let slot = this.locateSlot(index)
+        this.chunks[slot.chunk].values[slot.offset] = value
     }
 
     fun clear() -> Void {
-        chunks = Array<VecChunk<T>>()
-        capacities = Array<Int>()
-        usage = Array<Int>()
-        length = 0
-        totalCapacity = 0
-        nextChunkSize = DEFAULT_CHUNK_SIZE
+        this.chunks = Array<VecChunk<T>>()
+        this.capacities = Array<Int>()
+        this.usage = Array<Int>()
+        this.length = 0
+        this.totalCapacity = 0
+        this.nextChunkSize = 8
     }
 
     fun reserve(capacity: Int) -> Void {
-        if capacity <= totalCapacity {
+        if capacity <= this.totalCapacity {
             return
         }
-        var remaining = capacity - totalCapacity
-        while remaining > 0 {
-            addChunk(remaining)
-            remaining = capacity - totalCapacity
+        while this.totalCapacity < capacity {
+            this.growChunk()
         }
     }
 
-    fun ensureCapacity(capacity: Int) -> Void {
-        if capacity <= totalCapacity {
-            return
+    fun growChunk() -> Void {
+        var chunk = VecChunk<T>{ values: Array<T>() }
+        var i = 0
+        while i < this.nextChunkSize {
+            chunk.values.push(__default<T>())
+            i = i + 1
         }
-        reserve(capacity)
-    }
-
-    fun toArray() -> Array<T> {
-        let out = Array<T>()
-        var chunkIndex = 0
-        while chunkIndex < chunks.length() {
-            let chunk = chunks[chunkIndex]
-            let used = usage[chunkIndex]
-            var offset = 0
-            while offset < used {
-                out.push(chunk.values[offset])
-                offset = offset + 1
-            }
-            chunkIndex = chunkIndex + 1
-        }
-        return out
-    }
-
-    fun ensureChunkSpace(required: Int) -> Void {
-        if chunks.length() == 0 {
-            addChunk(required)
-            return
-        }
-        let lastIndex = chunks.length() - 1
-        let capacity = capacities[lastIndex]
-        let used = usage[lastIndex]
-        if used + required > capacity {
-            addChunk(required)
-        }
-        return
-    }
-
-    fun addChunk(minCapacity: Int) -> Void {
-        var capacity = nextChunkSize
-        while capacity < minCapacity {
-            capacity = capacity * 2
-        }
-        let chunk = VecChunk<T>{ values: Array<T>() }
-        chunks.push(chunk)
-        capacities.push(capacity)
-        usage.push(0)
-        totalCapacity = totalCapacity + capacity
-        nextChunkSize = capacity * 2
+        this.chunks.push(chunk)
+        this.capacities.push(this.nextChunkSize)
+        this.usage.push(0)
+        this.totalCapacity = this.totalCapacity + this.nextChunkSize
+        this.nextChunkSize = this.nextChunkSize * 2
     }
 
     fun locateSlot(index: Int) -> VecSlot {
-        if index < 0 or index >= length {
+        if index < 0 or index >= this.length {
             abort("Vec index out of bounds")
         }
         var remaining = index
         var chunkIndex = 0
-        while chunkIndex < usage.length() {
-            let used = usage[chunkIndex]
-            if remaining < used {
+        while chunkIndex < this.chunks.length() {
+            let chunkUsage = this.usage[chunkIndex]
+            if remaining < chunkUsage {
                 return VecSlot{ chunk: chunkIndex, offset: remaining }
             }
-            remaining = remaining - used
+            remaining = remaining - chunkUsage
             chunkIndex = chunkIndex + 1
         }
-        abort("Vec locateSlot internal error")
+        abort("Vec index out of bounds")
         return VecSlot{ chunk: 0, offset: 0 }
     }
-}
-
-fun maxIntValue(a: Int, b: Int) -> Int {
-    if a > b {
-        return a
-    }
-    return b
 }

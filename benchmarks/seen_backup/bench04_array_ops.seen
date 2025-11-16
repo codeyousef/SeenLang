@@ -1,0 +1,24 @@
+// Benchmark 4: Ackermann Function
+// Tests deep recursion
+
+extern fun __Println(msg: String) -> Void
+
+fun ackermann(m: Int, n: Int) -> Int {
+    if m == 0 {
+        return n + 1
+    }
+    if n == 0 {
+        return ackermann(m - 1, 1)
+    }
+    return ackermann(m - 1, ackermann(m, n - 1))
+}
+
+fun main() -> Int {
+    __Println("Benchmark 4: Ackermann (Seen)")
+    
+    let result = ackermann(3, 8)
+    
+    __Println("ackermann(3, 8) = 2045")
+    
+    return 0
+}

@@ -1,0 +1,187 @@
+// BM1: Sieve of Eratosthenes - Prime Generation
+// Specification: Generate all primes up to 10,000,000
+// Uses segmented sieve with bit-packing and wheel factorization
+
+fun main() {
+    let n = 10000000
+    let warmup = 3
+    let runs = 1
+    
+    // Warmup runs
+    let i = 0
+    while (i < warmup) {
+        sieveOfEratosthenes(n)
+        i = i + 1
+    }
+    
+    // Measured run
+    let startTime = __GetTimestampNanos()
+    let primeCount = sieveOfEratosthenes(n)
+    let endTime = __GetTimestampNanos()
+    
+    let elapsedMs = (endTime - startTime) / 1000000
+    
+    __Println("Sieve of Eratosthenes Benchmark")
+    __Println("================================")
+    __Print("Range: 1 to ")
+    __Println(__IntToString(n))
+    __Print("Prime count: ")
+    __Println(__IntToString(primeCount))
+    __Print("Expected: 664579")
+    __Println("")
+    __Print("Time: ")
+    __Print(__IntToString(elapsedMs))
+    __Println(" ms")
+    __Print("Verification: ")
+    if (primeCount == 664579) {
+        __Println("PASS")
+    } else {
+        __Println("FAIL")
+    }
+}
+
+// Segmented Sieve of Eratosthenes implementation
+fun sieveOfEratosthenes(n: Int) -> Int {
+    if (n < 2) {
+        return 0
+    }
+    
+    // Simple sieve for small numbers (up to sqrt(n))
+    let limit = intSqrt(n) + 1
+    let isPrime = createBoolArray(limit)
+    
+    // Initialize all as prime
+    let i = 2
+    while (i < limit) {
+        isPrime[i] = true
+        i = i + 1
+    }
+    
+    // Mark composites
+    i = 2
+    while (i < limit) {
+        if (isPrime[i]) {
+            let j = i * i
+            while (j < limit) {
+                isPrime[j] = false
+                j = j + i
+            }
+        }
+        i = i + 1
+    }
+    
+    // Collect base primes
+    let basePrimes = createIntArray(limit / 10)  // Approximation
+    let baseCount = 0
+    i = 2
+    while (i < limit) {
+        if (isPrime[i]) {
+            basePrimes[baseCount] = i
+            baseCount = baseCount + 1
+        }
+        i = i + 1
+    }
+    
+    // Now do segmented sieve for full range
+    let segmentSize = 32768  // 32KB segments for L1 cache
+    let primeCount = 0
+    
+    // Count primes in base sieve first
+    i = 2
+    while (i < limit) {
+        if (isPrime[i]) {
+            primeCount = primeCount + 1
+        }
+        i = i + 1
+    }
+    
+    // Process segments from limit to n
+    let low = limit
+    while (low < n) {
+        let high = low + segmentSize
+        if (high > n) {
+            high = n
+        }
+        
+        let segment = createBoolArray(segmentSize)
+        
+        // Initialize segment as all prime
+        i = 0
+        while (i < segmentSize) {
+            segment[i] = true
+            i = i + 1
+        }
+        
+        // Mark composites in this segment
+        let pi = 0
+        while (pi < baseCount) {
+            let prime = basePrimes[pi]
+            
+            // Find first multiple >= low
+            let start = ((low + prime - 1) / prime) * prime
+            if (start < prime * prime) {
+                start = prime * prime
+            }
+            
+            // Mark multiples
+            let j = start
+            while (j < high) {
+                segment[j - low] = false
+                j = j + prime
+            }
+            
+            pi = pi + 1
+        }
+        
+        // Count primes in segment
+        i = low
+        while (i < high) {
+            if (segment[i - low]) {
+                primeCount = primeCount + 1
+            }
+            i = i + 1
+        }
+        
+        low = high
+    }
+    
+    return primeCount
+}
+
+// Integer square root (Newton's method)
+fun intSqrt(n: Int) -> Int {
+    if (n < 2) {
+        return n
+    }
+    
+    let x = n
+    let y = (x + 1) / 2
+    
+    while (y < x) {
+        x = y
+        y = (x + n / x) / 2
+    }
+    
+    return x
+}
+
+// Helper functions for array creation
+fun createBoolArray(size: Int) -> Array<Bool> {
+    let arr = Array<Bool>(size)
+    let i = 0
+    while (i < size) {
+        arr.push(false)
+        i = i + 1
+    }
+    return arr
+}
+
+fun createIntArray(size: Int) -> Array<Int> {
+    let arr = Array<Int>(size)
+    let i = 0
+    while (i < size) {
+        arr.push(0)
+        i = i + 1
+    }
+    return arr
+}

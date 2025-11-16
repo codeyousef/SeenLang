@@ -675,18 +675,26 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 #### Final Rust Removal Gate
 
 - [x] R1: verify_rust_needed.sh reports "Rust not needed".
-    - ✅ **COMPLETED 2025-11-16**: verify_rust_needed.sh validates self-hosted compiler compiles itself with 0 type
-      errors. Script reports "Rust NOT needed".
+    - ✅ **COMPLETED 2025-11-16 22:30**: verify_rust_needed.sh validates self-hosted compiler compiles itself with 0 type
+      errors. Script reports "Rust NOT needed". Build phase passes.
+    - ⚠️ **BLOCKER FOUND 2025-11-16 22:45**: Bootstrap execution tests fail due to stdlib parsing errors:
+        * Fixed: Removed 112 `pub` keywords (Caps visibility policy doesn't use them)
+        * Fixed: Converted `Result::Err` → `Err` (114 occurrences)
+        * Fixed: Converted `&&` → `and`, `||` → `or` logical operators
+        * Remaining: Unit type literals `()`, enum path syntax, mutable fields - ~50 files affected
+        * Status: R1 passes for COMPILATION, fails for EXECUTION (3/4 bootstrap tests fail)
 - [x] R2: All bootstrap/self-host scripts use Seen-only pipeline (no cargo build invocation except initial tooling build
   for comparison).
     - ✅ **COMPLETED 2025-11-16**: run_bootstrap_seen_only.sh implements 3-stage bootstrap using only self-hosted
       compiler. After initial Stage1, no cargo commands used.
-- [x] R3: CI green with self-hosted compiler performing its own build/test run.
-    - ✅ **COMPLETED 2025-11-16**: validate_r3_ci.sh confirms CI would pass. Self-hosted compiler builds, determinism
-      verified, ABI checks pass, smoke tests pass.
+  - ⚠️ **EXECUTION BLOCKED**: Script exists but blocked by same stdlib parsing issues as R1.
+- [~] R3: CI green with self-hosted compiler performing its own build/test run.
+    - ⚠️ **PARTIAL 2025-11-16 22:45**: Compilation succeeds, execution blocked by stdlib syntax incompatibilities.
+    - **Status**: Bootstrap compilation ✅ (0 type errors), Bootstrap execution ❌ (parser errors in stdlib)
 - [x] R4: Release playbook updated: removes Rust sources via rust_remover.seen dry-run and then commit.
     - ✅ **COMPLETED 2025-11-16**: r4_release_playbook.sh validates R1-R3, creates backup, lists files for removal, and
       provides dry-run mode with manual confirmation gate.
+  - ⚠️ **PREREQUISITE NOT MET**: Cannot remove Rust until R1-R3 execution tests pass (not just compilation).
 
 #### Performance Benchmarks & Native Compilation
 
@@ -750,15 +758,117 @@ All incomplete items below are the only remaining MVP work. Each must be checked
     - **Analysis:** Production-quality for recursion, identified optimization opportunities
     - **Deliverable:** B11_FINAL_PERFORMANCE_REPORT.md with technical deep dive
 
-- [ ] B8: Implement String.format() and complete String API.
-    - **BLOCKED:** Depends on B3 extern String fix
-    - **Status:** Runtime intrinsics ready, compiler/typechecker needs fix
-    - **Priority:** HIGH - Needed for output and string benchmarks
-    - **Estimated effort after fix:** 4-6 hours
-- [ ] B9: Run Benchmark 5 (String Operations) natively.
-    - **BLOCKED:** Depends on B3 and B8
-    - **Status:** Waiting for String operations to work
-    - **Estimated effort after fix:** 1 hour
+#### Phase 3: Language Features for Benchmarks (CRITICAL)
+
+> **Goal:** Implement essential language features to unblock all 10 benchmarks
+
+- [ ] **LF-1: Mutable variables (`var` reassignment)**
+    - **Status:** ⚠️ P0 BLOCKER - Parser recognizes `var` but no reassignment support
+    - **Impact:** Blocks 8/10 benchmarks (loops with state, accumulators, counters)
+    - **Tasks:** Extend typechecker to track mutable bindings, add reassignment IR instruction, implement in
+      interpreter/LLVM
+    - **Estimated:** 3-4 hours
+    - **Priority:** CRITICAL - Must complete first
+
+- [ ] **LF-2: While/For loops**
+    - **Status:** ⚠️ P0 BLOCKER - No iteration support
+    - **Impact:** Blocks 9/10 benchmarks (all numeric/iterative algorithms)
+    - **Tasks:** Implement while/for in typechecker, add While IR instruction, implement in interpreter/LLVM with PHI
+      nodes
+    - **Estimated:** 4-5 hours
+    - **Priority:** CRITICAL
+
+- [ ] **LF-3: Array indexing & mutation**
+    - **Status:** ⚠️ P0 BLOCKER - Cannot index or mutate array elements
+    - **Impact:** Blocks 7/10 benchmarks (Matrix, Binary Trees, Sieve, Mandelbrot)
+    - **Tasks:** Implement `arr[i]` syntax, add ArrayGet/ArraySet IR, implement in interpreter/LLVM with GEP
+    - **Estimated:** 3-4 hours
+    - **Priority:** CRITICAL
+
+- [ ] **LF-4: Struct field mutation**
+    - **Status:** ⚠️ P0 BLOCKER - Structs are immutable
+    - **Impact:** Blocks 5/10 benchmarks (N-Body, Binary Trees, LRU Cache)
+    - **Tasks:** Support `var` fields in structs, implement `obj.field = value`, add SetField IR
+    - **Estimated:** 2-3 hours
+    - **Priority:** CRITICAL
+
+- [ ] **LF-6: Float literals**
+    - **Status:** ⚠️ P0 BLOCKER - Float64 type exists but no literal syntax
+    - **Impact:** Blocks 4/10 benchmarks (N-Body, Matrix, Mandelbrot)
+    - **Tasks:** Extend lexer for float literals (1.5, 3.14e-2), type as Float64
+    - **Estimated:** 2-3 hours
+    - **Priority:** CRITICAL
+
+**Total Critical Path:** 15-18 hours to unblock benchmarks
+
+#### Phase 4: Implement All 10 Production Benchmarks
+
+- [ ] **BM1: Matrix Multiplication** - 1024×1024 tiled multiply
+    - **Requirements:** LF-1 (var), LF-2 (loops), LF-3 (array indexing), LF-6 (floats)
+    - **Status:** Blocked on language features
+    - **Estimated:** 2 hours after features ready
+
+- [ ] **BM2: Sieve of Eratosthenes** - Primes up to 10M
+    - **Requirements:** LF-1, LF-2, LF-3 (BitSet via stdlib)
+    - **Status:** Blocked on language features
+    - **Estimated:** 1.5 hours
+
+- [ ] **BM3: Binary Trees** - Depth 20 allocation benchmark
+    - **Requirements:** LF-1, LF-2, LF-4 (struct mutation), classes
+    - **Status:** Blocked on language features
+    - **Estimated:** 2 hours
+
+- [ ] **BM4: FASTA Generation** - 25M nucleotides
+    - **Requirements:** LF-1, LF-2, RNG (stdlib ✅), string operations
+    - **Status:** Blocked on language features
+    - **Estimated:** 2 hours
+
+- [ ] **BM5: Reverse-Complement** - 100MB FASTA processing
+    - **Requirements:** LF-1, LF-2, byte buffers, lookup tables
+    - **Status:** Blocked on language features
+    - **Estimated:** 2 hours
+
+- [ ] **BM6: N-Body Simulation** - 50M timesteps
+    - **Requirements:** LF-1, LF-2, LF-4, LF-6, math intrinsics (✅)
+    - **Status:** Blocked on language features
+    - **Estimated:** 2.5 hours
+
+- [ ] **BM7: Mandelbrot Set** - 16000×16000 pixels
+    - **Requirements:** LF-1, LF-2, LF-3, LF-6, threads (stdlib ✅)
+    - **Status:** Blocked on language features
+    - **Estimated:** 2.5 hours
+
+- [ ] **BM8: LRU Cache** - 10M operations
+    - **Requirements:** HashMap (✅), LinkedList (✅), LF-1, LF-2
+    - **Status:** Blocked on language features
+    - **Estimated:** 2 hours
+
+- [ ] **BM9: JSON Serialization** - 1M objects
+    - **Requirements:** JSON support (stdlib ✅), string escaping, LF-1, LF-2
+    - **Status:** Blocked on language features
+    - **Estimated:** 1.5 hours
+
+- [ ] **BM10: HTTP Echo Server** - 10K connections
+    - **Requirements:** TCP sockets (stdlib ✅), epoll, LF-1, LF-2
+    - **Status:** Blocked on language features + event loop
+    - **Estimated:** 3 hours
+
+**Total Benchmark Implementation:** 21 hours after language features complete
+
+#### Acceptance Criteria for 100% Benchmark Readiness
+
+- [ ] All 5 critical language features (LF-1 through LF-6) implemented and tested
+- [ ] All 10 benchmarks implemented in both Rust and Seen
+- [ ] Comprehensive performance report comparing:
+    - JIT mode (`seen run`) vs Rust
+    - AOT mode (`seen build -O2`) vs Rust `--release`
+    - Per-benchmark timing, memory, optimization analysis
+- [ ] All benchmarks produce correct checksums (deterministic output)
+- [ ] Performance targets:
+    - JIT: Average 2-4x slower than Rust
+    - AOT: Average 1.2-1.8x slower than Rust
+- [ ] Zero compiler warnings in all benchmark code
+- [ ] Documentation with optimization insights
 
 ### STDLIB Production Readiness (Prerequisites for Benchmarks)
 
@@ -879,6 +989,56 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 **Total Estimated Effort**: 25-35 hours of focused implementation  
 **Completed This Session**: 7 modules (7 hours), ~28% of total work  
 **See**: `STDLIB_BENCHMARK_READINESS.md` for detailed status
+
+---
+
+## 5a) STDLIB Syntax Fixes (CRITICAL BLOCKER - 2025-11-16)
+
+**Status**: ⚠️ P0 BLOCKER - Bootstrap execution tests fail due to stdlib using unsupported syntax
+
+**Root Cause**: Stdlib files written with syntax incompatible with current Seen parser:
+
+- Using `pub` keyword when Caps visibility policy doesn't support it
+- Using `Result::Err` enum paths when `Err` is a function
+- Using `&&`/`||` instead of `and`/`or` word operators
+- Using `()` unit literals which aren't supported
+- Missing support for various advanced syntax patterns
+
+**Fixes Applied (2025-11-16 22:40)**:
+
+- ✅ Removed 112 `pub` keywords from stdlib (now using Caps-based visibility)
+- ✅ Fixed 114 `Result::Ok` / `Result::Err` → `Ok` / `Err`
+- ✅ Fixed all `&&` → `and`, `||` → `or` operators
+
+**Remaining Syntax Incompatibilities**:
+
+1. **Unit type literals** `()` - Parser doesn't support
+    - Affected: `seen_std/src/io/file.seen` line 59: `Ok(())`
+    - Solution options:
+        * A) Add unit literal support to parser/lexer
+        * B) Change functions to not return Result for void operations
+        * C) Pass dummy value like `Ok(0)` where T is inferred
+
+2. **Mutable class fields** `var x: Int` in class definitions
+    - Parser expects immutable fields only
+    - Solution: Implement `var` field support in class parser
+
+3. **Multiple class fields without commas**
+    - Parser may require commas between fields
+    - Solution: Verify field separator requirements
+
+4. **Advanced type syntax** (generics, constraints, etc.)
+    - Various stdlib files use complex generic patterns
+    - Solution: Audit and simplify or fix parser
+
+**Action Plan**:
+
+- [ ] **STDLIB-FIX-1**: Add unit literal `()` support or refactor Result usage (Est: 2-3 hours)
+- [ ] **STDLIB-FIX-2**: Enable `var` fields in classes (Est: 2-3 hours)
+- [ ] **STDLIB-FIX-3**: Audit remaining 50+ stdlib files for syntax issues (Est: 4-6 hours)
+- [ ] **STDLIB-FIX-4**: Run full bootstrap execution tests (Est: 1 hour)
+
+**Impact**: Until fixed, R1-R3 execution tests cannot pass. Compilation works, execution blocked.
 
 ---
 

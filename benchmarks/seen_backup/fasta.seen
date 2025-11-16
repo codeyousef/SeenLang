@@ -1,0 +1,84 @@
+import std.time
+import std.array
+import std.io
+
+let N: Int = 250000000
+let IM: Int = 139968
+let IA: Int = 3877
+let BUFFER_SIZE: Int = 8192
+
+type Random {
+    last: Int
+}
+
+fun Random.new(seed: Int) -> Random {
+    Random { last: seed }
+}
+
+fun Random.next(self: mut Random) -> Float {
+    self.last = (self.last * IA) % IM
+    self.last as Float / IM as Float
+}
+
+fun generate_fasta(n: Int) -> (Int, Array<Byte>) {
+    let nucleotides = [b'A', b'C', b'G', b'T']
+    let probabilities = [0.25, 0.5, 0.75, 1.0]
+    
+    let mut rng = Random.new(42)
+    let mut buffer = Array<Byte>.new(0)
+    let mut checksum = 0
+    let mut count = 0
+    
+    buffer.push_str(">HEADER\n")
+    
+    for _ in 0..n {
+        let r = rng.next()
+        let mut nucleotide = b'T'
+        
+        for i in 0..4 {
+            if r < probabilities[i] {
+                nucleotide = nucleotides[i]
+                break
+            }
+        }
+        
+        buffer.push(nucleotide)
+        checksum = checksum + (nucleotide as Int)
+        count = count + 1
+        
+        if count % 60 == 0 {
+            buffer.push(b'\n')
+        }
+        
+        if buffer.len() >= BUFFER_SIZE - 100 {
+            buffer.clear()
+        }
+    }
+    
+    if count % 60 != 0 {
+        buffer.push(b'\n')
+    }
+    
+    (checksum, buffer)
+}
+
+fun main() {
+    let mut times = Array<Float>.new(5)
+    let mut final_checksum = 0
+    
+    for i in 0..5 {
+        let start = time.now()
+        let (checksum, _buffer) = generate_fasta(N)
+        let elapsed = time.elapsed(start)
+        
+        times[i] = elapsed
+        final_checksum = checksum
+    }
+    
+    times.sort()
+    let median = times[times.len() / 2]
+    
+    println("FASTA Generation (n={N})")
+    println("Checksum: {final_checksum}")
+    println("Median time: {median * 1000.0:.3} ms")
+}

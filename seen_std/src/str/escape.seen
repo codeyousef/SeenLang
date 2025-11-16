@@ -3,27 +3,34 @@
 
 class StringEscape {
     // Escape a string for JSON output
-    fun escapeJson(input: String): String {
-        let result = ""
-        let i = 0
+    fun escapeJson(input: String) -> String {
+        var result = ""
+        var i = 0
         let len = input.length()
         
         while i < len {
             let ch = input.charAt(i)
+            let backslash = 92  // '\'
+            let quote = 34      // '"'
+            let newline = 10    // '\n'
+            let carriageReturn = 13  // '\r'
+            let tab = 9         // '\t'
+            let backspace = 8   // '\b'
+            let formfeed = 12   // '\f'
             
-            if ch == '"' {
+            if ch == quote {
                 result = result + "\\\""
-            } else if ch == '\\' {
+            } else if ch == backslash {
                 result = result + "\\\\"
-            } else if ch == '\n' {
+            } else if ch == newline {
                 result = result + "\\n"
-            } else if ch == '\r' {
+            } else if ch == carriageReturn {
                 result = result + "\\r"
-            } else if ch == '\t' {
+            } else if ch == tab {
                 result = result + "\\t"
-            } else if ch == '\b' {
+            } else if ch == backspace {
                 result = result + "\\b"
-            } else if ch == '\f' {
+            } else if ch == formfeed {
                 result = result + "\\f"
             } else {
                 result = result + String.fromCharCode(ch)
@@ -32,12 +39,12 @@ class StringEscape {
             i = i + 1
         }
         
-        result
+        return result
     }
     
     // Check if a string needs escaping for JSON
     fun needsEscaping(input: String): Bool {
-        let i = 0
+        var i = 0
         let len = input.length()
         
         while i < len {
@@ -54,7 +61,7 @@ class StringEscape {
     // URL encode a string
     fun urlEncode(input: String): String {
         let result = ""
-        let i = 0
+        var i = 0
         let len = input.length()
         
         while i < len {
@@ -77,7 +84,7 @@ class StringEscape {
     // HTML escape
     fun escapeHtml(input: String): String {
         let result = ""
-        let i = 0
+        var i = 0
         let len = input.length()
         
         while i < len {
@@ -106,7 +113,7 @@ class StringEscape {
     // Unescape JSON string
     fun unescapeJson(input: String): String {
         let result = ""
-        let i = 0
+        var i = 0
         let len = input.length()
         
         while i < len {

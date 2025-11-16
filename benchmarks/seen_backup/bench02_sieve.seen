@@ -1,0 +1,149 @@
+// Benchmark 2: Sieve of Eratosthenes
+// Measures: Memory access patterns, branch prediction, integer arithmetic
+
+fun sieve_of_eratosthenes(n: Int) -> (Int, Array<Int>) {
+    // Bit-packed boolean array (using Int for simplicity)
+    let size = (n + 63) / 64
+    let mut sieve = Array<Int>(size, -1) // All bits set
+    
+    // 0 and 1 are not prime
+    sieve[0] = sieve[0] & (~3)
+    
+    let limit = sqrt_int(n) + 1
+    
+    // Mark composites
+    let mut i = 3
+    while i <= limit {
+        let word = i / 64
+        let bit = i % 64
+        
+        if (sieve[word] >> bit) & 1 == 1 {
+            // Mark multiples starting at i*i
+            let mut j = i * i
+            while j <= n {
+                let word_j = j / 64
+                let bit_j = j % 64
+                sieve[word_j] = sieve[word_j] & ~(1 << bit_j)
+                j = j + i * 2
+            }
+        }
+        
+        i = i + 2
+    }
+    
+    // Count primes
+    let mut primes = Array<Int>(700000, 0)
+    let mut count = 0
+    primes[count] = 2
+    count = count + 1
+    
+    i = 3
+    while i <= n {
+        let word = i / 64
+        let bit = i % 64
+        if (sieve[word] >> bit) & 1 == 1 {
+            primes[count] = i
+            count = count + 1
+        }
+        i = i + 2
+    }
+    
+    return (count, primes)
+}
+
+fun sqrt_int(n: Int) -> Int {
+    if n < 2 {
+        return n
+    }
+    
+    let mut x = n
+    let mut y = (x + 1) / 2
+    
+    while y < x {
+        x = y
+        y = (x + n / x) / 2
+    }
+    
+    return x
+}
+
+fun checksum_primes(primes: Array<Int>, count: Int) -> Int {
+    let mut sum = 0
+    let mut i = 0
+    while i < count {
+        sum = sum + primes[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun get_time_ms() -> Int {
+    return __GetTimestamp()
+}
+
+extern fun __GetTimestamp(): Int
+
+fun main() -> Int {
+    let n = 10000000
+    
+    // Warmup
+    let mut i = 0
+    while i < 3 {
+        let result = sieve_of_eratosthenes(n)
+        i = i + 1
+    }
+    
+    // Measured run
+    let start = get_time_ms()
+    let result = sieve_of_eratosthenes(n)
+    let elapsed = get_time_ms() - start
+    
+    let count = result.0
+    let primes = result.1
+    let checksum = checksum_primes(primes, count)
+    
+    println("Benchmark 2: Sieve of Eratosthenes")
+    println("n = " + int_to_string(n))
+    println("Prime count: " + int_to_string(count) + " (expected 664579)")
+    println("Checksum: " + int_to_string(checksum))
+    println("Time: " + int_to_string(elapsed) + " ms")
+    
+    return 0
+}
+
+fun println(msg: String) -> Void {
+    __WriteFile("/dev/stdout", msg + "\n")
+}
+
+fun int_to_string(n: Int) -> String {
+    if n == 0 {
+        return "0"
+    }
+    
+    let mut result = ""
+    let mut num = n
+    let negative = n < 0
+    
+    if negative {
+        num = -num
+    }
+    
+    while num > 0 {
+        let digit = num % 10
+        result = char_to_string(48 + digit) + result
+        num = num / 10
+    }
+    
+    if negative {
+        result = "-" + result
+    }
+    
+    return result
+}
+
+fun char_to_string(code: Int) -> String {
+    // Stub - would need proper implementation
+    return "?"
+}
+
+extern fun __WriteFile(path: String, contents: String): Bool

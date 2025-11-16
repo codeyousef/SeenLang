@@ -1,0 +1,13 @@
+// Pure Fibonacci - no I/O, just computation
+fun fibonacci(n: Int) -> Int {
+    if n <= 1 {
+        return n
+    } else {
+        return fibonacci(n - 1) + fibonacci(n - 2)
+    }
+}
+
+fun main() -> Int {
+    let result: Int = fibonacci(40)
+    return result
+}

@@ -1,0 +1,107 @@
+import std.time
+import std.io
+import std.net
+import std.async
+import std.array
+
+let PORT: Int = 8080
+let N_CONNECTIONS: Int = 10000
+let N_REQUESTS: Int = 10
+let PAYLOAD_SIZE: Int = 100
+
+async fun handle_client(socket: mut TcpStream, counter: mut Atomic<Int>) {
+    let mut buffer = Array<Byte>.new(PAYLOAD_SIZE)
+    
+    for _ in 0..N_REQUESTS {
+        match socket.read_exact(buffer).await {
+            Ok(_) => {
+                if socket.write_all(buffer).await.is_err() {
+                    return
+                }
+            },
+            Err(_) => return
+        }
+    }
+    
+    counter.fetch_add(N_REQUESTS)
+}
+
+async fun run_server(counter: mut Atomic<Int>) {
+    let listener = TcpListener.bind("127.0.0.1:{PORT}").await.unwrap()
+    
+    loop {
+        match listener.accept().await {
+            Ok((socket, _addr)) => {
+                async.spawn(async {
+                    handle_client(socket, counter).await
+                })
+            },
+            Err(_) => continue
+        }
+    }
+}
+
+async fun run_client() -> Int {
+    let payload = Array<Byte>.new_filled(PAYLOAD_SIZE, b'X')
+    
+    let handles = Array.new(0)
+    
+    for _ in 0..N_CONNECTIONS {
+        let payload_copy = payload.clone()
+        let handle = async.spawn(async {
+            match TcpStream.connect("127.0.0.1:{PORT}").await {
+                Ok(mut socket) => {
+                    let mut success = 0
+                    let mut buffer = Array<Byte>.new(PAYLOAD_SIZE)
+                    
+                    for _ in 0..N_REQUESTS {
+                        if socket.write_all(payload_copy).await.is_err() {
+                            break
+                        }
+                        
+                        if socket.read_exact(buffer).await.is_err() {
+                            break
+                        }
+                        
+                        success = success + 1
+                    }
+                    success
+                },
+                Err(_) => 0
+            }
+        })
+        handles.push(handle)
+    }
+    
+    let mut total = 0
+    for handle in handles {
+        total = total + handle.await
+    }
+    
+    total
+}
+
+async fun main() {
+    let counter = Atomic.new(0)
+    
+    async.spawn(async {
+        run_server(counter).await
+    })
+    
+    async.sleep(Duration.from_millis(500)).await
+    
+    let start = time.now()
+    let successful = run_client().await
+    let elapsed = time.elapsed(start)
+    
+    let total_requests = N_CONNECTIONS * N_REQUESTS
+    let success_rate = (successful as Float / total_requests as Float) * 100.0
+    let rps = successful as Float / elapsed
+    
+    println("HTTP Echo Server")
+    println("Connections: {N_CONNECTIONS}")
+    println("Requests per connection: {N_REQUESTS}")
+    println("Successful requests: {successful}/{total_requests} ({success_rate:.1}%)")
+    println("Requests/second: {rps:.0}")
+    println("Total time: {elapsed:.3} s")
+}

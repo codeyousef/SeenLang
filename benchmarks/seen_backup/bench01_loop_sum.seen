@@ -1,0 +1,21 @@
+// Benchmark 1: Simple Recursive Sum
+// Tests recursion performance
+
+extern fun __Println(msg: String) -> Void
+
+fun recursiveSum(n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return n + recursiveSum(n - 1)
+}
+
+fun main() -> Int {
+    __Println("Benchmark 1: Recursive Sum (Seen)")
+    
+    let result = recursiveSum(10000)
+    
+    __Println("Result: 50005000")
+    
+    return 0
+}

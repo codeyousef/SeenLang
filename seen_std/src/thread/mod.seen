@@ -1,58 +1,26 @@
-// Thread management
-pub class Thread {
-    id: Int
+// Thread management - basic support
+import core.result.{Result, Ok, Err}
+
+class Thread {
+    var id: Int
     
-    pub fun spawn(f: Fun() -> Unit) -> Thread {
-        let thread_id = __ThreadSpawn(f)
-        Thread { id: thread_id }
+    fun current() -> Thread {
+        return Thread { id: __ThreadCurrent() }
     }
     
-    pub fun join() -> Result<Unit, String> {
-        if __ThreadJoin(this.id) {
-            Result::Ok(())
-        } else {
-            Result::Err("Failed to join thread")
-        }
+    fun sleep(durationMs: Int) -> Void {
+        __ThreadSleep(durationMs)
     }
     
-    pub fun current() -> Thread {
-        Thread { id: __ThreadCurrent() }
-    }
-    
-    pub fun sleep(duration_ms: Int) {
-        __ThreadSleep(duration_ms)
-    }
-    
-    pub fun yield_now() {
+    fun yieldNow() -> Void {
         __ThreadYield()
     }
 }
 
-pub class JoinHandle<T> {
-    thread: Thread
-    
-    pub fun join() -> Result<T, String> {
-        match this.thread.join() {
-            Ok(_) => {
-                let result = __ThreadGetResult(this.thread.id)
-                Result::Ok(result)
-            },
-            Err(e) => Result::Err(e)
-        }
-    }
+fun sleep(durationMs: Int) -> Void {
+    __ThreadSleep(durationMs)
 }
 
-pub fun spawn<T>(f: Fun() -> T) -> JoinHandle<T> {
-    let thread_id = __ThreadSpawnWithResult(f)
-    JoinHandle {
-        thread: Thread { id: thread_id }
-    }
-}
-
-pub fun sleep(duration_ms: Int) {
-    Thread::sleep(duration_ms)
-}
-
-pub fun yield_now() {
-    Thread::yield_now()
+fun yieldNow() -> Void {
+    __ThreadYield()
 }

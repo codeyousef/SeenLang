@@ -1,89 +1,89 @@
 // TCP networking
-pub class TcpListener {
+class TcpListener {
     socket: Int
     addr: String
     
-    pub fun bind(addr: String) -> Result<TcpListener, String> {
+    fun bind(addr: String) -> Result<TcpListener, String> {
         let socket = __TcpBind(addr)
         if socket < 0 {
-            return Result::Err("Failed to bind to: " + addr)
+            return Err("Failed to bind to: " + addr)
         }
-        Result::Ok(TcpListener { socket: socket, addr: addr })
+        Ok(TcpListener { socket: socket, addr: addr })
     }
     
-    pub fun accept() -> Result<TcpStream, String> {
+    fun accept() -> Result<TcpStream, String> {
         let client_socket = __TcpAccept(this.socket)
         if client_socket < 0 {
-            return Result::Err("Failed to accept connection")
+            return Err("Failed to accept connection")
         }
-        Result::Ok(TcpStream { socket: client_socket })
+        Ok(TcpStream { socket: client_socket })
     }
     
-    pub fun close() -> Result<Unit, String> {
+    fun close() -> Result<Void, String> {
         let result = __TcpClose(this.socket)
         if result < 0 {
-            return Result::Err("Failed to close listener")
+            return Err("Failed to close listener")
         }
-        Result::Ok(())
+        Ok<Void, String>()
     }
 }
 
-pub class TcpStream {
+class TcpStream {
     socket: Int
     
-    pub fun connect(addr: String) -> Result<TcpStream, String> {
+    fun connect(addr: String) -> Result<TcpStream, String> {
         let socket = __TcpConnect(addr)
         if socket < 0 {
-            return Result::Err("Failed to connect to: " + addr)
+            return Err("Failed to connect to: " + addr)
         }
-        Result::Ok(TcpStream { socket: socket })
+        Ok(TcpStream { socket: socket })
     }
     
-    pub fun read() -> Result<String, String> {
+    fun read() -> Result<String, String> {
         let data = __TcpRead(this.socket)
-        if data == "" && __TcpError(this.socket) {
-            return Result::Err("Failed to read from socket")
+        if data == "" and __TcpError(this.socket) {
+            return Err("Failed to read from socket")
         }
-        Result::Ok(data)
+        Ok(data)
     }
     
-    pub fun read_bytes(size: Int) -> Result<Array<Byte>, String> {
+    fun read_bytes(size: Int) -> Result<Array<Byte>, String> {
         let bytes = __TcpReadBytes(this.socket, size)
-        if bytes.len() == 0 && __TcpError(this.socket) {
-            return Result::Err("Failed to read from socket")
+        if bytes.len() == 0 and __TcpError(this.socket) {
+            return Err("Failed to read from socket")
         }
-        Result::Ok(bytes)
+        Ok(bytes)
     }
     
-    pub fun write(data: String) -> Result<Int, String> {
+    fun write(data: String) -> Result<Int, String> {
         let written = __TcpWrite(this.socket, data)
         if written < 0 {
-            return Result::Err("Failed to write to socket")
+            return Err("Failed to write to socket")
         }
-        Result::Ok(written)
+        Ok(written)
     }
     
-    pub fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
+    fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
         let written = __TcpWriteBytes(this.socket, bytes)
         if written < 0 {
-            return Result::Err("Failed to write bytes to socket")
+            return Err("Failed to write bytes to socket")
         }
-        Result::Ok(written)
+        Ok(written)
     }
     
-    pub fun close() -> Result<Unit, String> {
+    fun close() -> Result<Void, String> {
         let result = __TcpClose(this.socket)
         if result < 0 {
-            return Result::Err("Failed to close stream")
+            return Err("Failed to close stream")
         }
-        Result::Ok(())
+        Ok<Void, String>()
     }
     
-    pub fun set_nonblocking(nonblocking: Bool) -> Result<Unit, String> {
+    fun set_nonblocking(nonblocking: Bool) -> Result<Void, String> {
         let result = __TcpSetNonblocking(this.socket, nonblocking)
         if result < 0 {
-            return Result::Err("Failed to set nonblocking mode")
+            return Err("Failed to set nonblocking mode")
         }
-        Result::Ok(())
+        Ok<Void, String>()
     }
 }

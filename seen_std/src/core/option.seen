@@ -1,4 +1,4 @@
-// seen_std::core::option
+// seen_std.core.option
 // Deterministic Option<T> container with storage that the bootstrap type checker understands.
 
 class Option<T> {

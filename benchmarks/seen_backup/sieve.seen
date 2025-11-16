@@ -1,0 +1,98 @@
+import std.time
+import std.array
+import std.math
+import std.io
+import std.crypto
+
+let N: Int = 10000000
+let SEGMENT_SIZE: Int = 262144
+
+fun sieve_of_eratosthenes() -> (Int, Array<Int>) {
+    let limit = (sqrt(N as Float) as Int) + 1
+    let mut is_prime = Array<Bool>.new(limit + 1)
+    
+    for i in 0..(limit + 1) {
+        is_prime[i] = true
+    }
+    is_prime[0] = false
+    is_prime[1] = false
+    
+    let sqrt_limit = sqrt(limit as Float) as Int
+    for i in 2..sqrt_limit {
+        if is_prime[i] {
+            let mut j = i * i
+            while j <= limit {
+                is_prime[j] = false
+                j = j + i
+            }
+        }
+    }
+    
+    let mut base_primes = Array<Int>.new(0)
+    for p in 2..(limit + 1) {
+        if is_prime[p] {
+            base_primes.push(p)
+        }
+    }
+    
+    let mut all_primes = base_primes.clone()
+    let mut low = limit + 1
+    
+    while low <= N {
+        let high = min(low + SEGMENT_SIZE - 1, N)
+        let mut segment = Array<Bool>.new(high - low + 1)
+        
+        for i in 0..(high - low + 1) {
+            segment[i] = true
+        }
+        
+        for idx in 0..base_primes.len() {
+            let p = base_primes[idx]
+            let mut start = ((low + p - 1) / p) * p
+            if start < p * p {
+                start = p * p
+            }
+            
+            let mut j = start
+            while j <= high {
+                segment[j - low] = false
+                j = j + p
+            }
+        }
+        
+        for i in 0..segment.len() {
+            if segment[i] {
+                all_primes.push(low + i)
+            }
+        }
+        
+        low = high + 1
+    }
+    
+    (all_primes.len(), all_primes)
+}
+
+fun main() {
+    for _ in 0..3 {
+        let _ = sieve_of_eratosthenes()
+    }
+    
+    let start = time.now()
+    let (count, primes) = sieve_of_eratosthenes()
+    let elapsed = time.elapsed(start)
+    
+    let mut prime_str = ""
+    for i in 0..primes.len() {
+        if i > 0 {
+            prime_str = prime_str + " "
+        }
+        prime_str = prime_str + primes[i].to_string()
+    }
+    
+    let checksum = crypto.md5(prime_str)
+    
+    println("Sieve of Eratosthenes (n={N})")
+    println("Prime count: {count} (expected: 664579)")
+    println("MD5 checksum: {checksum}")
+    println("Time: {elapsed * 1000.0:.3} ms")
+}

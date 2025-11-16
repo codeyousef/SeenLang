@@ -1,66 +1,21 @@
-// Channel for message passing between threads
-pub class Channel<T> {
-    sender: Sender<T>
-    receiver: Receiver<T>
-    
-    pub fun new() -> Channel<T> {
-        let chan_id = __ChannelCreate()
-        Channel {
-            sender: Sender { id: chan_id },
-            receiver: Receiver { id: chan_id }
-        }
-    }
-    
-    pub fun bounded(capacity: Int) -> Channel<T> {
-        let chan_id = __ChannelCreateBounded(capacity)
-        Channel {
-            sender: Sender { id: chan_id },
-            receiver: Receiver { id: chan_id }
-        }
-    }
-}
+// Channel for thread communication - simplified
+// Note: Full channel support requires more advanced features
 
-pub class Sender<T> {
-    id: Int
+class Channel {
+    var id: Int
     
-    pub fun send(value: T) -> Result<Unit, String> {
-        if __ChannelSend(this.id, value) {
-            Result::Ok(())
-        } else {
-            Result::Err("Failed to send: channel closed")
+    fun new() -> Channel {
+        let id = __ChannelCreate()
+        return Channel {
+            id: id
         }
     }
     
-    pub fun try_send(value: T) -> Result<Unit, String> {
-        if __ChannelTrySend(this.id, value) {
-            Result::Ok(())
-        } else {
-            Result::Err("Channel full or closed")
-        }
+    fun send(value: Int) -> Bool {
+        return __ChannelSend(this.id, value)
     }
     
-    pub fun clone() -> Sender<T> {
-        __ChannelCloneSender(this.id)
-        Sender { id: this.id }
-    }
-}
-
-pub class Receiver<T> {
-    id: Int
-    
-    pub fun recv() -> Result<T, String> {
-        let result = __ChannelRecv(this.id)
-        match result {
-            Some(val) => Result::Ok(val),
-            None => Result::Err("Channel closed")
-        }
-    }
-    
-    pub fun try_recv() -> Option<T> {
-        __ChannelTryRecv(this.id)
-    }
-    
-    pub fun recv_timeout(timeout_ms: Int) -> Option<T> {
-        __ChannelRecvTimeout(this.id, timeout_ms)
+    fun receive() -> Int {
+        return __ChannelReceive(this.id)
     }
 }

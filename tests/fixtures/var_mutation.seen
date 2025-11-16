@@ -1,0 +1,28 @@
+// Test variable mutation with var keyword
+
+fun main() {
+    // Basic variable mutation
+    var x: Int = 10
+    x = 20
+    x = x + 5
+    
+    // Compound assignment operators
+    var y: Int = 100
+    y += 10
+    y -= 5
+    y *= 2
+    y /= 3
+    y %= 10
+    
+    // Multiple variables
+    var a: Int = 1
+    var b: Int = 2
+    a = b
+    b = a + b
+    
+    // Let variables cannot be mutated
+    let immutable: Int = 42
+    // immutable = 50  // This should error
+    
+    print("Success: variable mutation works")
+}

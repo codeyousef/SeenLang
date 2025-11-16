@@ -1,0 +1,100 @@
+fun mandelbrot(cx: f64, cy: f64, max_iter: i64) -> i64 {
+    let mut x: f64 = 0.0;
+    let mut y: f64 = 0.0;
+    let mut iter: i64 = 0;
+    
+    while (x * x + y * y) <= 4.0 && iter < max_iter {
+        let xtemp = x * x - y * y + cx;
+        y = 2.0 * x * y + cy;
+        x = xtemp;
+        iter = iter + 1;
+    }
+    
+    iter
+}
+
+fun main() -> i32 {
+    let WIDTH: i64 = 4000;
+    let HEIGHT: i64 = 4000;
+    let MAX_ITER: i64 = 1000;
+    let WARMUP_RUNS: i64 = 2;
+    let MEASURED_RUNS: i64 = 5;
+    
+    let mut warmup: i64 = 0;
+    while warmup < WARMUP_RUNS {
+        let mut checksum: i64 = 0;
+        let mut py: i64 = 0;
+        while py < HEIGHT {
+            let mut px: i64 = 0;
+            while px < WIDTH {
+                let x0 = -1.5 + (px as f64 / WIDTH as f64) * 2.0;
+                let y0 = -1.0 + (py as f64 / HEIGHT as f64) * 2.0;
+                let iter = mandelbrot(x0, y0, MAX_ITER);
+                checksum = checksum + iter;
+                px = px + 1;
+            }
+            py = py + 1;
+        }
+        warmup = warmup + 1;
+    }
+    
+    let mut times: [f64; 5] = [0.0; 5];
+    let mut final_checksum: i64 = 0;
+    
+    let mut run: i64 = 0;
+    while run < MEASURED_RUNS {
+        let start_time = __GetTimeNanos();
+        
+        let mut checksum: i64 = 0;
+        let mut py: i64 = 0;
+        while py < HEIGHT {
+            let mut px: i64 = 0;
+            while px < WIDTH {
+                let x0 = -1.5 + (px as f64 / WIDTH as f64) * 2.0;
+                let y0 = -1.0 + (py as f64 / HEIGHT as f64) * 2.0;
+                let iter = mandelbrot(x0, y0, MAX_ITER);
+                checksum = checksum + iter;
+                px = px + 1;
+            }
+            py = py + 1;
+        }
+        
+        let end_time = __GetTimeNanos();
+        let elapsed_ms = (end_time - start_time) as f64 / 1000000.0;
+        times[run] = elapsed_ms;
+        
+        if run == 0 {
+            final_checksum = checksum;
+        }
+        
+        run = run + 1;
+    }
+    
+    let mut i: i64 = 0;
+    while i < MEASURED_RUNS - 1 {
+        let mut j: i64 = 0;
+        while j < MEASURED_RUNS - i - 1 {
+            if times[j] > times[j + 1] {
+                let temp = times[j];
+                times[j] = times[j + 1];
+                times[j + 1] = temp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    let median_time = times[MEASURED_RUNS / 2];
+    
+    __PrintString("Checksum: ");
+    __PrintInt(final_checksum);
+    __PrintString("\nMedian time: ");
+    __PrintFloat(median_time);
+    __PrintString(" ms\nResolution: ");
+    __PrintInt(WIDTH);
+    __PrintString("x");
+    __PrintInt(HEIGHT);
+    __PrintString("\nThreads: 1 (single-threaded)\n");
+    
+    0
+}

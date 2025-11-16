@@ -1,65 +1,65 @@
 // Time and duration utilities
-pub class Duration {
-    nanos: Int
+class Duration {
+    var nanos: Int
     
-    pub fun from_secs(secs: Int) -> Duration {
-        Duration { nanos: secs * 1_000_000_000 }
+    fun fromSecs(secs: Int) -> Duration {
+        return Duration { nanos: secs * 1000000000 }
     }
     
-    pub fun from_millis(millis: Int) -> Duration {
-        Duration { nanos: millis * 1_000_000 }
+    fun fromMillis(millis: Int) -> Duration {
+        return Duration { nanos: millis * 1000000 }
     }
     
-    pub fun from_micros(micros: Int) -> Duration {
-        Duration { nanos: micros * 1_000 }
+    fun fromMicros(micros: Int) -> Duration {
+        return Duration { nanos: micros * 1000 }
     }
     
-    pub fun from_nanos(nanos: Int) -> Duration {
-        Duration { nanos: nanos }
+    fun fromNanos(nanos: Int) -> Duration {
+        return Duration { nanos: nanos }
     }
     
-    pub fun as_secs() -> Int {
-        this.nanos / 1_000_000_000
+    fun asSecs() -> Int {
+        return this.nanos / 1000000000
     }
     
-    pub fun as_millis() -> Int {
-        this.nanos / 1_000_000
+    fun asMillis() -> Int {
+        return this.nanos / 1000000
     }
     
-    pub fun as_micros() -> Int {
-        this.nanos / 1_000
+    fun asMicros() -> Int {
+        return this.nanos / 1000
     }
     
-    pub fun as_nanos() -> Int {
-        this.nanos
+    fun asNanos() -> Int {
+        return this.nanos
     }
     
-    pub fun add(other: Duration) -> Duration {
-        Duration { nanos: this.nanos + other.nanos }
+    fun add(other: Duration) -> Duration {
+        return Duration { nanos: this.nanos + other.nanos }
     }
     
-    pub fun sub(other: Duration) -> Duration {
-        Duration { nanos: this.nanos - other.nanos }
+    fun sub(other: Duration) -> Duration {
+        return Duration { nanos: this.nanos - other.nanos }
     }
 }
 
-pub class Instant {
-    nanos: Int
+class Instant {
+    var nanos: Int
     
-    pub fun now() -> Instant {
-        Instant { nanos: __TimeNow() }
+    fun now() -> Instant {
+        return Instant { nanos: __TimeNow() }
     }
     
-    pub fun elapsed() -> Duration {
+    fun elapsed() -> Duration {
         let now = __TimeNow()
-        Duration { nanos: now - this.nanos }
+        return Duration { nanos: now - this.nanos }
     }
     
-    pub fun duration_since(earlier: Instant) -> Duration {
-        Duration { nanos: this.nanos - earlier.nanos }
+    fun durationSince(earlier: Instant) -> Duration {
+        return Duration { nanos: this.nanos - earlier.nanos }
     }
 }
 
-pub fun sleep(duration: Duration) {
-    __ThreadSleep(duration.as_millis())
+fun sleep(duration: Duration) -> Void {
+    __ThreadSleep(duration.asMillis())
 }

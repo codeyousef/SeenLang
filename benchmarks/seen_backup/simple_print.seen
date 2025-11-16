@@ -1,0 +1,8 @@
+// Simple print test
+
+extern fun __Println(msg: String) -> Void
+
+fun main() -> Int {
+    __Println("Hello from Seen!")
+    return 0
+}

@@ -1,0 +1,7 @@
+class Point {
+    x: Int
+    
+    fun Test() {
+        42
+    }
+}

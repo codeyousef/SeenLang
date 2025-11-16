@@ -1,4 +1,4 @@
-// seen_std::collections::linked_list
+// seen_std.collections.linked_list
 // Doubly-linked list with O(1) operations for LRU cache implementation.
 
 import core.option.{Option, Some, None}

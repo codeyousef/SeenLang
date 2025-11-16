@@ -1,0 +1,25 @@
+// Test B3: String operations with Int.to_string() via intrinsics
+
+extern fun __IntToString(n: Int) -> String
+extern fun __StringConcat(a: String, b: String) -> String
+extern fun __Println(msg: String) -> Void
+extern fun __FreeString(s: String) -> Void
+
+fun main() -> Int {
+    // Test 1: Int to string conversion
+    let num = 42
+    let str_num = __IntToString(num)
+    
+    // Test 2: String concatenation
+    let hello = "Hello, number "
+    let result = __StringConcat(hello, str_num)
+    
+    // Test 3: Print result
+    __Println(result)
+    
+    // Clean up (in real code, this would be automatic with RAII)
+    __FreeString(str_num)
+    __FreeString(result)
+    
+    return 0
+}

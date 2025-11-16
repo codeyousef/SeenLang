@@ -1,4 +1,4 @@
-// seen_std::random::rng
+// seen_std.random.rng
 // Fast deterministic random number generators for benchmarks and simulations.
 
 // Linear Congruential Generator (LCG) - fast and simple
