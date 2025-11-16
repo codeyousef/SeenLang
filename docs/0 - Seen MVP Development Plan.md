@@ -762,28 +762,25 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 
 > **Goal:** Implement essential language features to unblock all 10 benchmarks
 
-- [ ] **LF-1: Mutable variables (`var` reassignment)**
-    - **Status:** ⚠️ P0 BLOCKER - Parser recognizes `var` but no reassignment support
-    - **Impact:** Blocks 8/10 benchmarks (loops with state, accumulators, counters)
-    - **Tasks:** Extend typechecker to track mutable bindings, add reassignment IR instruction, implement in
-      interpreter/LLVM
-    - **Estimated:** 3-4 hours
-    - **Priority:** CRITICAL - Must complete first
+- [x] **LF-1: Mutable variables (`var` reassignment)**
+    - **Status:** ✅ COMPLETE (2025-11-16)
+    - **Implementation:** Parser, typechecker, IR generator, and interpreter all support `var` and reassignment
+    - **Validation:** Tested with mutable counters, accumulators, and loop state
+    - **Result:** Full mutation support working in JIT mode
 
-- [ ] **LF-2: While/For loops**
-    - **Status:** ⚠️ P0 BLOCKER - No iteration support
-    - **Impact:** Blocks 9/10 benchmarks (all numeric/iterative algorithms)
-    - **Tasks:** Implement while/for in typechecker, add While IR instruction, implement in interpreter/LLVM with PHI
-      nodes
-    - **Estimated:** 4-5 hours
-    - **Priority:** CRITICAL
+- [x] **LF-2: While/For loops**
+    - **Status:** ✅ COMPLETE (2025-11-16)
+    - **Implementation:** Added while/for/loop expression typechecking, IR generation already existed
+    - **Features:** While loops with conditions, for loops over arrays/ranges, infinite loops
+    - **Validation:** Tested loop counters, sums, and iteration patterns
+    - **Result:** All loop constructs functional
 
-- [ ] **LF-3: Array indexing & mutation**
-    - **Status:** ⚠️ P0 BLOCKER - Cannot index or mutate array elements
-    - **Impact:** Blocks 7/10 benchmarks (Matrix, Binary Trees, Sieve, Mandelbrot)
-    - **Tasks:** Implement `arr[i]` syntax, add ArrayGet/ArraySet IR, implement in interpreter/LLVM with GEP
-    - **Estimated:** 3-4 hours
-    - **Priority:** CRITICAL
+- [x] **LF-3: Array indexing & mutation**
+    - **Status:** ✅ COMPLETE (2025-11-16)
+    - **Implementation:** Array indexing (`arr[i]`) and mutation (`arr[i] = value`) fully working
+    - **IR Support:** ArrayAccess and ArraySet instructions generate correctly
+    - **Validation:** Tested read and write array operations
+    - **Result:** Array manipulation ready for benchmarks
 
 - [ ] **LF-4: Struct field mutation**
     - **Status:** ⚠️ P0 BLOCKER - Structs are immutable

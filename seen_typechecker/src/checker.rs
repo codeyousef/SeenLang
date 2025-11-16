@@ -1961,6 +1961,22 @@ impl TypeChecker {
             // Blocks
             Expression::Block { expressions, .. } => self.check_block_expression(expressions),
 
+            // Loops
+            Expression::While {
+                condition,
+                body,
+                pos,
+            } => self.check_while_expression(condition, body.as_ref(), *pos),
+
+            Expression::For {
+                binding,
+                iterable,
+                body,
+                pos,
+            } => self.check_for_expression(binding, iterable, body.as_ref(), *pos),
+
+            Expression::Loop { body, pos } => self.check_loop_expression(body.as_ref(), *pos),
+
             // Variable binding
             Expression::Let {
                 name,
@@ -3298,6 +3314,88 @@ impl TypeChecker {
         } else {
             Type::Unit
         }
+    }
+
+    /// Type check while loop
+    fn check_while_expression(
+        &mut self,
+        condition: &Expression,
+        body: &Expression,
+        pos: Position,
+    ) -> Type {
+        let condition_type = self.check_expression(condition);
+        if !condition_type.is_assignable_to(&Type::Bool) && !matches!(condition_type, Type::Unknown) {
+            self.result.add_error(TypeError::TypeMismatch {
+                expected: Type::Bool,
+                actual: condition_type,
+                position: pos,
+            });
+        }
+        self.check_expression(body);
+        Type::Unit
+    }
+
+    /// Type check for loop
+    fn check_for_expression(
+        &mut self,
+        binding: &seen_parser::ast::ForBinding,
+        iterable: &Expression,
+        body: &Expression,
+        pos: Position,
+    ) -> Type {
+        use seen_parser::ast::ForBinding;
+
+        let iterable_type = self.check_expression(iterable);
+
+        // Determine element type from iterable
+        let element_type = match &iterable_type {
+            Type::Array(elem_ty) => (**elem_ty).clone(),
+            Type::Struct { name, .. } if name == "Range" => Type::Int,
+            _ if matches!(iterable_type, Type::Unknown) => Type::Unknown,
+            _ => {
+                self.result.add_error(TypeError::InvalidOperation {
+                    operation: "for loop iteration".to_string(),
+                    left_type: iterable_type.clone(),
+                    right_type: Type::Unit,
+                    position: pos,
+                });
+                Type::Unknown
+            }
+        };
+
+        // Bind loop variable in new scope
+        let parent_env = std::mem::replace(&mut self.env, Environment::new());
+        self.env = Environment::with_parent(parent_env);
+
+        match binding {
+            ForBinding::Identifier(name) => {
+                self.env.define_variable(name.clone(), element_type);
+            }
+            ForBinding::Tuple(names) => {
+                // For tuple destructuring in for loops
+                for name in names {
+                    self.env.define_variable(name.clone(), Type::Unknown);
+                }
+            }
+        }
+
+        self.check_expression(body);
+
+        // Restore parent environment
+        let child_env = std::mem::replace(&mut self.env, Environment::new());
+        if let Some(parent) = child_env.parent {
+            self.env = *parent;
+        }
+
+        Type::Unit
+    }
+
+    /// Type check infinite loop
+    fn check_loop_expression(&mut self, body: &Expression, _pos: Position) -> Type {
+        self.check_expression(body);
+        // Infinite loops can return Never if they don't have break statements
+        // For now, return Unit
+        Type::Unit
     }
 
     /// Type check let expression
