@@ -1662,24 +1662,25 @@ impl IRGenerator {
             }
         }
 
-        // Create an entry block if missing and append instructions + return
+        // Collect all instructions (like generate_function does)
         let entry_label = crate::instruction::Label::new("entry");
-        let mut entry_block = crate::instruction::BasicBlock::new(entry_label.clone());
+        let mut instructions = vec![Instruction::Label(entry_label.clone())];
         
         // If this is a method with a receiver, emit a move: this = <first_param>
         if receiver_type_opt.is_some() && !param_names.is_empty() {
             let receiver_param_name = &param_names[0];
-            entry_block.instructions.push(Instruction::Move {
+            instructions.push(Instruction::Move {
                 source: IRValue::Variable(receiver_param_name.clone()),
                 dest: IRValue::Variable("this".to_string()),
             });
         }
         
-        entry_block.instructions.extend(body_instructions);
-        entry_block.terminator = Some(crate::instruction::Instruction::Return(Some(
-            body_value.clone(),
-        )));
-        ir_function.add_block(entry_block);
+        instructions.extend(body_instructions);
+        instructions.push(Instruction::Return(Some(body_value.clone())));
+        
+        // Build proper CFG from instruction list (like generate_function does)
+        let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);
+        ir_function.cfg = cfg;
         ir_function.register_count = self.context.register_counter;
 
         Ok(ir_function)
