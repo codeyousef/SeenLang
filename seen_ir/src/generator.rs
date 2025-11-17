@@ -29,6 +29,7 @@ pub struct GenerationContext {
     pub continue_stack: Vec<String>, // Labels for continue statements
     pub string_table: HashMap<String, u32>, // String interning table
     pub type_definitions: HashMap<String, IRType>, // Registered type definitions (structs/classes/enums)
+    pub current_receiver_type: Option<IRType>, // Type of 'this' in current method context
 }
 
 impl GenerationContext {
@@ -43,6 +44,7 @@ impl GenerationContext {
             continue_stack: Vec::new(),
             string_table: HashMap::new(),
             type_definitions: HashMap::new(),
+            current_receiver_type: None,
         }
     }
 
@@ -1590,9 +1592,11 @@ impl IRGenerator {
     ) -> IRResult<IRFunction> {
         // Methods optionally include an explicit receiver as the first parameter.
         // If absent, treat as a static method (no receiver) for bootstrap resilience.
-        let _receiver_type_opt = if !params.is_empty() {
+        // Extract receiver type (first parameter is receiver in methods)
+        let receiver_type_opt = if !params.is_empty() {
             if let Some(type_ann) = &params[0].type_annotation {
-                Some(self.convert_ast_type_to_ir(type_ann))
+                let recv_type = self.convert_ast_type_to_ir(type_ann);
+                Some(recv_type)
             } else {
                 Some(IRType::Generic("Self".to_string()))
             }
@@ -1611,9 +1615,20 @@ impl IRGenerator {
 
             ir_params.push(crate::function::Parameter {
                 name: param.name.clone(),
-                param_type: param_type,
+                param_type: param_type.clone(),
                 is_mutable: false,
             });
+            
+            // Add to variable types for body generation
+            self.context.variable_types.insert(param.name.clone(), param_type);
+        }
+
+        // Set receiver type context and register 'this' if this is a method
+        let old_receiver_type = self.context.current_receiver_type.clone();
+        if let Some(receiver_type) = receiver_type_opt.clone() {
+            self.context.current_receiver_type = Some(receiver_type.clone());
+            // Register 'this' as an alias to the receiver parameter
+            self.context.variable_types.insert("this".to_string(), receiver_type);
         }
 
         // Determine return type
@@ -1625,18 +1640,41 @@ impl IRGenerator {
 
         // Generate method body with receiver context
         let (body_value, body_instructions) = self.generate_expression(body)?;
+        
+        // Restore previous receiver context
+        self.context.current_receiver_type = old_receiver_type;
 
         // Create IR function with method semantics
         let mut ir_function = crate::function::IRFunction::new(name, ir_return_type);
 
         // Add parameters
+        let mut param_names = Vec::new();
         for param in ir_params {
+            param_names.push(param.name.clone());
             ir_function.add_parameter(param);
+        }
+
+        // If this is a method with a receiver, add 'this' as a local variable
+        if let Some(receiver_type) = receiver_type_opt.clone() {
+            if !param_names.is_empty() {
+                let this_local = crate::function::LocalVariable::new("this", receiver_type);
+                ir_function.add_local(this_local);
+            }
         }
 
         // Create an entry block if missing and append instructions + return
         let entry_label = crate::instruction::Label::new("entry");
         let mut entry_block = crate::instruction::BasicBlock::new(entry_label.clone());
+        
+        // If this is a method with a receiver, emit a move: this = <first_param>
+        if receiver_type_opt.is_some() && !param_names.is_empty() {
+            let receiver_param_name = &param_names[0];
+            entry_block.instructions.push(Instruction::Move {
+                source: IRValue::Variable(receiver_param_name.clone()),
+                dest: IRValue::Variable("this".to_string()),
+            });
+        }
+        
         entry_block.instructions.extend(body_instructions);
         entry_block.terminator = Some(crate::instruction::Instruction::Return(Some(
             body_value.clone(),
@@ -2016,8 +2054,9 @@ impl IRGenerator {
         // Generate methods as separate functions
         for method in methods {
             // Ensure receiver parameter exists for instance methods
+            // NOTE: Parser incorrectly marks all methods as static, so we always inject receiver
             let mut effective_params: Vec<seen_parser::Parameter> = Vec::new();
-            if !method.is_static {
+            if true {  // TODO: Fix parser to correctly set is_static, then use !method.is_static
                 // Inject implicit receiver as the first parameter: (self: ClassName)
                 let recv_type = seen_parser::Type {
                     name: name.to_string(),
