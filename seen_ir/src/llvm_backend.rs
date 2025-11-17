@@ -338,6 +338,7 @@ pub struct LlvmBackend<'ctx> {
     var_slots: HashMap<String, PointerValue<'ctx>>, // %var -> alloca i64 slot
     var_slot_types: HashMap<String, BasicTypeEnum<'ctx>>, // %var -> LLVM storage type
     var_ir_types: HashMap<String, IRType>,          // %var -> IR type (for element type inference)
+    reg_ir_types: HashMap<u32, IRType>,             // %rN -> IR type (for element type inference)
     blocks: HashMap<String, LlvmBasicBlock<'ctx>>,  // label name -> BB
     reg_slots: HashMap<u32, PointerValue<'ctx>>,    // %rN -> alloca i64 slot
 
@@ -389,6 +390,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             var_slots: HashMap::new(),
             var_slot_types: HashMap::new(),
             var_ir_types: HashMap::new(),
+            reg_ir_types: HashMap::new(),
             blocks: HashMap::new(),
             reg_slots: HashMap::new(),
             g_argc: None,
@@ -1415,6 +1417,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.var_slots.clear();
         self.var_slot_types.clear();
         self.var_ir_types.clear();
+        self.reg_ir_types.clear();
         self.blocks.clear();
         self.reg_slots.clear();
 
@@ -2983,18 +2986,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                 result,
             } => {
                 // Infer struct type from variable's IR type
-                let (struct_ir_type, field_index, field_ir_type) = if let IRValue::Variable(var_name) = struct_val {
+                let (struct_ir_type, field_index, field_ir_type_owned) = if let IRValue::Variable(var_name) = struct_val {
                     let ir_type = self.var_ir_types
                         .get(var_name)
                         .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
                     
                     if let IRType::Struct { name, fields } = ir_type {
-                        // Find field index and type
+                        // Find field index and type (clone to avoid borrow issues)
                         let (idx, (_, field_type)) = fields.iter().enumerate()
                             .find(|(_, (fname, _))| fname == field)
                             .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
                         
-                        (ir_type, idx as u32, field_type)
+                        (ir_type, idx as u32, field_type.clone())
                     } else {
                         return Err(anyhow!("Variable '{}' is not a struct type, got: {:?}", var_name, ir_type));
                     }
@@ -3007,7 +3010,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 ("success".to_string(), IRType::Boolean),
                                 ("output".to_string(), IRType::String),
                             ],
-                        }, 0u32, &IRType::Boolean)
+                        }, 0u32, IRType::Boolean)
                     } else if field == "output" {
                         (&IRType::Struct {
                             name: "CommandResult".to_string(),
@@ -3015,7 +3018,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 ("success".to_string(), IRType::Boolean),
                                 ("output".to_string(), IRType::String),
                             ],
-                        }, 1u32, &IRType::String)
+                        }, 1u32, IRType::String)
                     } else {
                         return Err(anyhow!(
                             "LLVM backend: cannot infer struct type for field access '{}'",
@@ -3034,7 +3037,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 } else {
                     return Err(anyhow!("Expected struct type"));
                 };
-                let field_llvm_type = self.ir_type_to_llvm(field_ir_type);
+                let field_llvm_type = self.ir_type_to_llvm(&field_ir_type_owned);
 
                 // Evaluate struct value
                 let sv = self.eval_value(struct_val, fn_map)?;
@@ -3069,6 +3072,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                     .build_load(field_llvm_type, gep, "fld_load")
                     .map_err(|e| anyhow!("{e:?}"))?;
                 
+                // Store the IR type for the result register (for array element type inference)
+                if let IRValue::Register(r) = result {
+                    self.reg_ir_types.insert(*r, field_ir_type_owned);
+                }
+                
                 self.assign_value(result, loaded.as_basic_value_enum())?;
             }
             Instruction::ChannelSelect {
@@ -3102,21 +3110,36 @@ impl<'ctx> LlvmBackend<'ctx> {
                     return Ok(());
                 }
 
-                // Infer element type from array variable's IR type
-                let element_ir_type = if let IRValue::Variable(var_name) = array {
-                    self.var_ir_types
-                        .get(var_name)
-                        .and_then(|ir_type| {
-                            if let IRType::Array(elem_type) = ir_type {
-                                Some(elem_type.as_ref())
-                            } else {
-                                None
-                            }
-                        })
-                        .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
-                } else {
-                    // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
-                    &IRType::Char
+                // Infer element type from array variable's or register's IR type
+                let element_ir_type = match array {
+                    IRValue::Variable(var_name) => {
+                        self.var_ir_types
+                            .get(var_name)
+                            .and_then(|ir_type| {
+                                if let IRType::Array(elem_type) = ir_type {
+                                    Some(elem_type.as_ref())
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                    }
+                    IRValue::Register(r) => {
+                        self.reg_ir_types
+                            .get(r)
+                            .and_then(|ir_type| {
+                                if let IRType::Array(elem_type) = ir_type {
+                                    Some(elem_type.as_ref())
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| anyhow!("Cannot infer element type for array register %r{}", r))?
+                    }
+                    _ => {
+                        // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
+                        &IRType::Char
+                    }
                 };
 
                 // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
@@ -3216,21 +3239,36 @@ impl<'ctx> LlvmBackend<'ctx> {
                 index,
                 value,
             } => {
-                // Infer element type from array variable's IR type
-                let element_ir_type = if let IRValue::Variable(var_name) = array {
-                    self.var_ir_types
-                        .get(var_name)
-                        .and_then(|ir_type| {
-                            if let IRType::Array(elem_type) = ir_type {
-                                Some(elem_type.as_ref())
-                            } else {
-                                None
-                            }
-                        })
-                        .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
-                } else {
-                    // Fallback: default to i8 for unknown arrays
-                    &IRType::Char
+                // Infer element type from array variable's or register's IR type
+                let element_ir_type = match array {
+                    IRValue::Variable(var_name) => {
+                        self.var_ir_types
+                            .get(var_name)
+                            .and_then(|ir_type| {
+                                if let IRType::Array(elem_type) = ir_type {
+                                    Some(elem_type.as_ref())
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                    }
+                    IRValue::Register(r) => {
+                        self.reg_ir_types
+                            .get(r)
+                            .and_then(|ir_type| {
+                                if let IRType::Array(elem_type) = ir_type {
+                                    Some(elem_type.as_ref())
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| anyhow!("Cannot infer element type for array register %r{}", r))?
+                    }
+                    _ => {
+                        // Fallback: default to i8 for unknown arrays
+                        &IRType::Char
+                    }
                 };
 
                 // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
