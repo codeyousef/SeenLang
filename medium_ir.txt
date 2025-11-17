@@ -1,0 +1,52 @@
+Generating IR for test_medium_array.seen
+
+=== Generated IR ===
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Functions
+fn main() -> i64 {
+  ; Local variables
+  i: i64
+  size: i64
+
+; Entry: entry
+entry:
+  call %__Print ("Creating array (10x10)\n") -> %r0
+  store 100 -> %size
+  call %__ArrayNew (%size) -> %r1
+  store %r1 -> %arr
+  call %__Print ("Filling\n") -> %r2
+  store 0 -> %i
+  jmp .loop_start_0
+
+loop_start_0:
+  lt %i %size -> %r3
+  jnot %r3 .loop_end_2
+
+loop_body_1:
+  cast %i as f64 -> %r4
+  call %push (%arr, %r4) -> %r5
+  add %i 1 -> %r6
+  store %r6 -> %i
+  jmp .loop_start_0
+
+loop_end_2:
+  call %__Print ("First: ") -> %r7
+  arr_get %arr[0] -> %r8
+  call %__PrintFloat (%r8) -> %r9
+  call %__Print ("\nLast: ") -> %r10
+  arr_get %arr[99] -> %r11
+  call %__PrintFloat (%r11) -> %r12
+  call %__Print ("\n") -> %r13
+  ret 0
+
+block_0:
+  ret 0
+
+}
+
+
+

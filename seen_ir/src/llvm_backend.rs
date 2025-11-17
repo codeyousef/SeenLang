@@ -1682,6 +1682,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.assign_value(dest, v)?;
             }
             Instruction::Store { value, dest } => {
+                // Track types: if storing a register value to a variable, propagate the type
+                if let (IRValue::Register(r), IRValue::Variable(var_name)) = (value, dest) {
+                    if let Some(ir_type) = self.reg_ir_types.get(r).cloned() {
+                        self.var_ir_types.insert(var_name.clone(), ir_type);
+                    }
+                }
+                
                 let v = self.eval_value(value, fn_map)?;
                 self.assign_value(dest, v)?;
             }

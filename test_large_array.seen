@@ -1,0 +1,32 @@
+// Test larger array allocation
+
+fun main() -> Int {
+    __Print("Creating large array (100x100)\n")
+    let size = 10000
+    let arr = Array<Float>.withCapacity(size)
+    
+    __Print("Filling array\n")
+    var i = 0
+    while i < size {
+        arr.push(i as Float)
+        i = i + 1
+    }
+    
+    __Print("Reading array elements\n")
+    __PrintFloat(arr[0])
+    __Print("\n")
+    __PrintFloat(arr[size - 1])
+    __Print("\n")
+    
+    __Print("Sum first 10:\n")
+    var sum = 0.0
+    i = 0
+    while i < 10 {
+        sum = sum + arr[i]
+        i = i + 1
+    }
+    __PrintFloat(sum)
+    __Print("\n")
+    
+    return 0
+}
