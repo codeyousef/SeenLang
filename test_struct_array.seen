@@ -1,0 +1,21 @@
+fn testArrayAccess() -> Float {
+    let arr = Array<Float>()
+    __ArrayPush(arr, 1.5)
+    __ArrayPush(arr, 2.5)
+    __ArrayPush(arr, 3.5)
+    
+    let first = arr[0]
+    let second = arr[1]
+    let third = arr[2]
+    
+    return first + second + third
+}
+
+fn main() -> Int {
+    let result = testArrayAccess()
+    __Print("Array sum: ")
+    __PrintFloat(result)
+    __Print("\n")
+    
+    return 0
+}

@@ -1,0 +1,160 @@
+# Workflow Status Template
+
+# This tracks progress through BMM methodology Analysis, Planning, and Solutioning phases.
+# Implementation phase is tracked separately in sprint-status.yaml
+
+# STATUS DEFINITIONS:
+# ==================
+# Initial Status (before completion):
+#   - required: Must be completed to progress
+#   - optional: Can be completed but not required
+#   - recommended: Strongly suggested but not required
+#   - conditional: Required only if certain conditions met (e.g., if_has_ui)
+#
+# Completion Status:
+#   - {file-path}: File created/found (e.g., "docs/product-brief.md")
+#   - skipped: Optional/conditional workflow that was skipped
+
+generated: "2025-11-17"
+project: "SeenLang"
+project_type: "language"
+selected_track: "bmad-method"
+field_type: "brownfield"
+workflow_path: "method-brownfield"
+
+workflow_status:
+  # ============================================
+  # PREREQUISITE: Documentation (Brownfield)
+  # ============================================
+  - phase: "prerequisite"
+    name: "Documentation"
+    note: "Brownfield projects need codebase documentation before planning"
+    workflows:
+      - id: "document-project"
+        status: "required"
+        agent: "analyst"
+        command: "/bmad:bmm:workflows:document-project"
+        output: "Comprehensive project documentation"
+        purpose: "Understand existing codebase structure, patterns, and constraints"
+        completed: "docs/bmm-index.md"
+
+  # ============================================
+  # PHASE 0: Discovery (Optional - User Choice)
+  # ============================================
+  - phase: 0
+    name: "Discovery"
+    note: "Optional workflows - none selected"
+    workflows:
+      - id: "brainstorm-project"
+        status: "skipped"
+        agent: "analyst"
+        command: "/bmad:bmm:workflows:brainstorm-project"
+
+      - id: "research"
+        status: "skipped"
+        agent: "analyst"
+        command: "/bmad:bmm:workflows:research"
+
+      - id: "product-brief"
+        status: "skipped"
+        agent: "analyst"
+        command: "/bmad:bmm:workflows:product-brief"
+
+  # ============================================
+  # PHASE 1: Planning
+  # ============================================
+  - phase: 1
+    name: "Planning"
+    note: "Define what to build and why"
+    workflows:
+      - id: "prd"
+        status: "required"
+        agent: "pm"
+        command: "/bmad:bmm:workflows:prd"
+        output: "Product Requirements Document"
+        note: "Focuses on new features/changes, considers existing system"
+        completed: "docs/prd.md"
+
+      - id: "validate-prd"
+        status: "optional"
+        agent: "pm"
+        command: "/bmad:bmm:workflows:validate-prd"
+        completed: null
+
+      - id: "create-epics-and-stories"
+        status: "optional"
+        agent: "pm"
+        command: "/bmad:bmm:workflows:create-epics-and-stories"
+        note: "Optional early epic breakdown (basic structure only)"
+        completed: "docs/epics-and-stories.md"
+
+      - id: "create-design"
+        status: "conditional"
+        condition: "if_has_ui"
+        agent: "ux-designer"
+        command: "/bmad:bmm:workflows:create-design"
+        completed: null
+
+      - id: "create-epics-and-stories-after-ux"
+        status: "optional"
+        agent: "pm"
+        command: "/bmad:bmm:workflows:create-epics-and-stories"
+        note: "Optional epic breakdown with UX context"
+        completed: null
+
+  # ============================================
+  # PHASE 2: Solutioning
+  # ============================================
+  - phase: 2
+    name: "Solutioning"
+    note: "Define how to build it technically"
+    workflows:
+      - id: "create-architecture"
+        status: "recommended"
+        agent: "architect"
+        command: "/bmad:bmm:workflows:create-architecture"
+        output: "Integration architecture and solution design"
+        note: "HIGHLY RECOMMENDED: Creates focused solution design from massive brownfield context"
+        completed: "docs/architecture-llvm-backend.md"
+
+      - id: "create-epics-and-stories-final"
+        status: "required"
+        agent: "pm"
+        command: "/bmad:bmm:workflows:create-epics-and-stories"
+        note: "Final epic breakdown with full context (PRD + UX + Architecture)"
+        completed: null
+
+      - id: "test-design"
+        status: "recommended"
+        agent: "tea"
+        command: "/bmad:bmm:workflows:test-design"
+        output: "System-level testability review"
+        note: "Testability assessment before implementation"
+        completed: null
+
+      - id: "validate-architecture"
+        status: "optional"
+        agent: "architect"
+        command: "/bmad:bmm:workflows:validate-architecture"
+        completed: null
+
+      - id: "implementation-readiness"
+        status: "required"
+        agent: "architect"
+        command: "/bmad:bmm:workflows:implementation-readiness"
+        note: "Gate check: Validates PRD + UX + Architecture + Epics cohesion"
+        completed: null
+
+  # ============================================
+  # PHASE 3: Implementation
+  # ============================================
+  - phase: 3
+    name: "Implementation"
+    note: "Tracked separately in sprint-status.yaml"
+    workflows:
+      - id: "sprint-planning"
+        status: "required"
+        agent: "sm"
+        command: "/bmad:bmm:workflows:sprint-planning"
+        note: "Creates initial sprint plan with stories"
+        completed: null

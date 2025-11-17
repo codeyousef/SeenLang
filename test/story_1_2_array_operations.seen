@@ -1,0 +1,42 @@
+// Test generic array operations (Story 1.2)
+// Tests: ArrayAccess, ArraySet, ArrayLength with Float[]
+
+fn main() -> int {
+    // Test 1: Array creation and access
+    let arr: Float[] = array_new_float(5);
+    
+    // Test 2: Array mutation (ArraySet)
+    array_set_float(arr, 0, 1.0);
+    array_set_float(arr, 1, 2.0);
+    array_set_float(arr, 2, 3.0);
+    
+    // Test 3: Array access (ArrayAccess)
+    let first: float = array_get_float(arr, 0);
+    let second: float = array_get_float(arr, 1);
+    let third: float = array_get_float(arr, 2);
+    
+    // Test 4: Array length (ArrayLength)
+    let len: int = array_length_float(arr);
+    
+    // Verify results
+    if first != 1.0 {
+        return 1;
+    }
+    if second != 2.0 {
+        return 2;
+    }
+    if third != 3.0 {
+        return 3;
+    }
+    if len != 5 {
+        return 4;
+    }
+    
+    return 0;
+}
+
+// Temporary runtime stubs (until stdlib integrated)
+extern fn array_new_float(capacity: int) -> Float[];
+extern fn array_set_float(arr: Float[], index: int, value: float) -> void;
+extern fn array_get_float(arr: Float[], index: int) -> float;
+extern fn array_length_float(arr: Float[]) -> int;

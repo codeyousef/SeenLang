@@ -268,6 +268,7 @@ mod tests {
     fn simd_splat_and_reduce_lower_to_vector_ir() {
         let mut backend = LlvmBackend::new();
         let mut func = IRFunction::new("simd_reduce", IRType::Float);
+        func.cfg.set_entry_block("entry".to_string());
         func.register_count = 2;
         let mut entry = BasicBlock::new(Label::new("entry"));
         entry.instructions.push(Instruction::SimdSplat {
@@ -323,6 +324,8 @@ pub struct LlvmBackend<'ctx> {
     box_int_fn: Option<FunctionValue<'ctx>>,
     box_bool_fn: Option<FunctionValue<'ctx>>,
     box_ptr_fn: Option<FunctionValue<'ctx>>,
+    // Layout registry for arrays/structs
+    layout_registry: HashMap<String, BasicTypeEnum<'ctx>>,
     use_channel_runtime_stubs: bool,
     cli_mode: bool,
 
@@ -332,6 +335,7 @@ pub struct LlvmBackend<'ctx> {
     var_values: HashMap<String, BasicValueEnum<'ctx>>, // %var -> last assigned value (SSA‑like)
     var_slots: HashMap<String, PointerValue<'ctx>>, // %var -> alloca i64 slot
     var_slot_types: HashMap<String, BasicTypeEnum<'ctx>>, // %var -> LLVM storage type
+    var_ir_types: HashMap<String, IRType>,          // %var -> IR type (for element type inference)
     blocks: HashMap<String, LlvmBasicBlock<'ctx>>,  // label name -> BB
     reg_slots: HashMap<u32, PointerValue<'ctx>>,    // %rN -> alloca i64 slot
 
@@ -373,6 +377,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             box_int_fn: None,
             box_bool_fn: None,
             box_ptr_fn: None,
+            layout_registry: HashMap::new(),
             use_channel_runtime_stubs: true,
             cli_mode: false,
             current_fn: None,
@@ -380,6 +385,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             var_values: HashMap::new(),
             var_slots: HashMap::new(),
             var_slot_types: HashMap::new(),
+            var_ir_types: HashMap::new(),
             blocks: HashMap::new(),
             reg_slots: HashMap::new(),
             g_argc: None,
@@ -468,6 +474,11 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
+        // Register all struct layouts first
+        for module in prog.modules.iter() {
+            self.register_struct_layouts_from_module(module)?;
+        }
+        
         // Predeclare all functions
         let mut fn_map: HashMap<String, FunctionValue<'ctx>> = HashMap::new();
         let mut modules: Vec<&IRModule> = prog.modules.iter().collect();
@@ -1173,6 +1184,48 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(())
     }
 
+    fn register_type_layout(&mut self, name: &str, ty: BasicTypeEnum<'ctx>) {
+        self.layout_registry.insert(name.to_string(), ty);
+    }
+
+    fn lookup_struct_layout(&self, name: &str) -> Option<BasicTypeEnum<'ctx>> {
+        self.layout_registry.get(name).cloned()
+    }
+    
+    /// Register struct layouts from all global types in a module
+    fn register_struct_layouts_from_module(&mut self, module: &IRModule) -> Result<()> {
+        // Scan through all functions to find struct types used
+        for func in module.functions_iter() {
+            self.register_struct_layouts_from_function(func)?;
+        }
+        Ok(())
+    }
+    
+    /// Scan a function for struct types and register their layouts
+    fn register_struct_layouts_from_function(&mut self, func: &IRFunction) -> Result<()> {
+        // Scan all instructions for struct field access/set to infer layouts
+        for block in func.cfg.blocks().values() {
+            for inst in &block.instructions {
+                match inst {
+                    Instruction::FieldAccess { struct_val, field, .. } |
+                    Instruction::FieldSet { struct_val, field, .. } => {
+                        // Try to infer struct type from the value
+                        if let IRValue::Register(_) | IRValue::Variable(_) = struct_val {
+                            // Register a generic single-field struct layout for this field
+                            if self.lookup_struct_layout(field).is_none() {
+                                let field_ty = self.i8_ptr_t.as_basic_type_enum();
+                                let struct_ty = self.ctx.struct_type(&[field_ty], false);
+                                self.register_type_layout(field, struct_ty.as_basic_type_enum());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn ir_type_to_llvm(&self, t: &IRType) -> BasicTypeEnum<'ctx> {
         match t {
             // Void is not a BasicType in LLVM; callers that need a function
@@ -1184,9 +1237,24 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRType::Boolean => self.bool_t.into(),
             IRType::Char => self.ctx.i8_type().into(),
             IRType::String => self.i8_ptr_t.into(),
-            IRType::Array(_) => {
-                // Represent arrays as opaque pointer to match runtime ABI
-                self.i8_ptr_t.into()
+            IRType::Array(element_type) => {
+                // Arrays are runtime-managed heap objects with layout:
+                // struct Array<T> { i64 len; i64 capacity; T* data; }
+                // Return pointer to this struct type
+                let element_llvm_type = self.ir_type_to_llvm(element_type);
+                let data_ptr = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
+                
+                let array_struct = self.ctx.struct_type(
+                    &[
+                        self.i64_t.into(),      // len field
+                        self.i64_t.into(),      // capacity field
+                        data_ptr.into(),        // data pointer (typed!)
+                    ],
+                    false,
+                );
+                
+                // Return pointer to struct (arrays are heap-allocated)
+                array_struct.ptr_type(inkwell::AddressSpace::from(0u16)).into()
             }
             IRType::Function {
                 parameters,
@@ -1208,9 +1276,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 }
             }
-            IRType::Struct { .. } => {
-                // Use i8* as a placeholder pointer to struct
-                self.i8_ptr_t.into()
+            IRType::Struct { name, fields } => {
+                // Generate proper struct type from fields
+                let field_types: Vec<BasicTypeEnum<'ctx>> = fields.iter()
+                    .map(|(_, field_type)| self.ir_type_to_llvm(field_type))
+                    .collect();
+                
+                let struct_ty = self.ctx.struct_type(&field_types, false);
+                
+                // Return pointer to struct (structs are typically heap-allocated)
+                struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into()
             }
             IRType::Enum { .. } => self.i64_t.into(),
             IRType::Pointer(inner) | IRType::Reference(inner) => self
@@ -1329,6 +1404,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.var_values.clear();
         self.var_slots.clear();
         self.var_slot_types.clear();
+        self.var_ir_types.clear();
         self.blocks.clear();
         self.reg_slots.clear();
 
@@ -1374,12 +1450,14 @@ impl<'ctx> LlvmBackend<'ctx> {
         for param in &func.parameters {
             let ty = self.ir_type_to_llvm(&param.param_type);
             self.var_slot_types.insert(param.name.clone(), ty);
+            self.var_ir_types.insert(param.name.clone(), param.param_type.clone());
             let slot = self.alloca_for_type(ty, &format!("param_slot_{}", param.name))?;
             self.var_slots.insert(param.name.clone(), slot);
         }
         for local in func.locals_iter() {
             let ty = self.ir_type_to_llvm(&local.var_type);
             self.var_slot_types.insert(local.name.clone(), ty);
+            self.var_ir_types.insert(local.name.clone(), local.var_type.clone());
             let slot = self.alloca_for_type(ty, &format!("local_slot_{}", local.name))?;
             self.var_slots.insert(local.name.clone(), slot);
         }
@@ -1652,39 +1730,59 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let r = self.eval_value(right, fn_map)?;
                 let res = match op {
                     crate::instruction::BinaryOp::Add => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_add(li, ri, "add")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder.build_float_add(lf, rf, "fadd")?.as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder.build_int_add(li, ri, "add")?.as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::Subtract => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_sub(li, ri, "sub")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder.build_float_sub(lf, rf, "fsub")?.as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder.build_int_sub(li, ri, "sub")?.as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::Multiply => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_mul(li, ri, "mul")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder.build_float_mul(lf, rf, "fmul")?.as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder.build_int_mul(li, ri, "mul")?.as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::Divide => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_signed_div(li, ri, "div")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder.build_float_div(lf, rf, "fdiv")?.as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder.build_int_signed_div(li, ri, "div")?.as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::Modulo => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_signed_rem(li, ri, "mod")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder.build_float_rem(lf, rf, "frem")?.as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder.build_int_signed_rem(li, ri, "mod")?.as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::Equal
                     | crate::instruction::BinaryOp::NotEqual => {
@@ -1890,39 +1988,74 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.assign_value(result, acc)?;
             }
             Instruction::ArrayLength { array, result } => {
-                // Constant arrays or runtime StrArray* with layout { i64 len; i8** data }
-                let arr_v = self.eval_value(array, fn_map)?;
-                let res = if let IRValue::Array(values) = array {
-                    self.i64_t
+                // Handle compile-time constant arrays
+                if let IRValue::Array(values) = array {
+                    let res = self.i64_t
                         .const_int(values.len() as u64, false)
-                        .as_basic_value_enum()
-                } else if arr_v.is_pointer_value() || arr_v.is_int_value() {
-                    let ty = self.ty_str_array();
-                    let arr_ptr = if arr_v.is_pointer_value() {
-                        arr_v.into_pointer_value()
-                    } else {
-                        self.builder
-                            .build_int_to_ptr(
-                                arr_v.into_int_value(),
-                                ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                "arr_len_ptr",
-                            )
-                            .map_err(|e| anyhow!("{e:?}"))?
-                    };
-                    let len_ptr = self.builder.build_struct_gep(ty, arr_ptr, 0, "len_ptr")?;
-                    let len = self.builder.build_load(self.i64_t, len_ptr, "len")?;
-                    len.as_basic_value_enum()
+                        .as_basic_value_enum();
+                    self.assign_value(result, res)?;
+                    return Ok(());
+                }
+
+                // Infer element type from array variable's IR type (for struct layout)
+                let element_ir_type = if let IRValue::Variable(var_name) = array {
+                    self.var_ir_types
+                        .get(var_name)
+                        .and_then(|ir_type| {
+                            if let IRType::Array(elem_type) = ir_type {
+                                Some(elem_type.as_ref())
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(&IRType::Char)
                 } else {
-                    self.i64_t.const_int(0, false).as_basic_value_enum()
+                    &IRType::Char
                 };
-                self.assign_value(result, res)?;
+
+                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
+                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
+                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
+                let array_struct_type = self.ctx.struct_type(
+                    &[
+                        self.i64_t.into(),      // len (field 0)
+                        self.i64_t.into(),      // capacity
+                        data_ptr_type.into(),   // data
+                    ],
+                    false,
+                );
+
+                // Evaluate array pointer
+                let arr_v = self.eval_value(array, fn_map)?;
+                let arr_ptr = if arr_v.is_pointer_value() {
+                    arr_v.into_pointer_value()
+                } else if arr_v.is_int_value() {
+                    self.builder
+                        .build_int_to_ptr(
+                            arr_v.into_int_value(),
+                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "arr_len_ptr",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?
+                } else {
+                    let res = self.i64_t.const_int(0, false).as_basic_value_enum();
+                    self.assign_value(result, res)?;
+                    return Ok(());
+                };
+
+                // GEP to len field (index 0)
+                let len_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 0, "len_ptr")?;
+                
+                // Load length
+                let len = self.builder.build_load(self.i64_t, len_ptr, "len")?;
+                self.assign_value(result, len.as_basic_value_enum())?;
             }
             Instruction::ArrayAccess {
                 array,
                 index,
                 result,
             } => {
-                let arr_v = self.eval_value(array, fn_map)?;
+                // Handle compile-time constant arrays
                 if let IRValue::Array(vs) = array {
                     let idx_bv = self.eval_value(index, fn_map)?;
                     let idx_val = self.as_usize(idx_bv)? as usize;
@@ -1931,43 +2064,76 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                     let elem = self.eval_value(&vs[idx_val], fn_map)?;
                     self.assign_value(result, elem)?;
-                } else if arr_v.is_pointer_value() || arr_v.is_int_value() {
-                    // Treat as StrArray*
-                    let ty = self.ty_str_array();
-                    let arr_ptr = if arr_v.is_pointer_value() {
-                        arr_v.into_pointer_value()
-                    } else {
-                        self.builder
-                            .build_int_to_ptr(
-                                arr_v.into_int_value(),
-                                ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                "arr_int_to_ptr",
-                            )
-                            .map_err(|e| anyhow!("{e:?}"))?
-                    };
-                    let data_ptr_ptr = self.builder.build_struct_gep(ty, arr_ptr, 1, "data_ptr")?;
-                    let data_pp = self.builder.build_load(
-                        self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-                        data_ptr_ptr,
-                        "data",
-                    )?;
-                    let idx_bv = self.eval_value(index, fn_map)?;
-                    let idx_iv = self.as_i64(idx_bv)?;
-                    let elem_ptr_ptr = unsafe {
-                        self.builder.build_gep(
-                            self.i8_ptr_t,
-                            data_pp.into_pointer_value(),
-                            &[idx_iv],
-                            "elempp",
-                        )?
-                    };
-                    let elem_ptr = self
-                        .builder
-                        .build_load(self.i8_ptr_t, elem_ptr_ptr, "elem")?;
-                    self.assign_value(result, elem_ptr.as_basic_value_enum())?;
+                    return Ok(());
+                }
+
+                // Infer element type from array variable's IR type
+                let element_ir_type = if let IRValue::Variable(var_name) = array {
+                    self.var_ir_types
+                        .get(var_name)
+                        .and_then(|ir_type| {
+                            if let IRType::Array(elem_type) = ir_type {
+                                Some(elem_type.as_ref())
+                            } else {
+                                None
+                            }
+                        })
+                        .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                } else {
+                    // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
+                    &IRType::Char
+                };
+
+                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
+                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
+                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
+                let array_struct_type = self.ctx.struct_type(
+                    &[
+                        self.i64_t.into(),      // len
+                        self.i64_t.into(),      // capacity
+                        data_ptr_type.into(),   // data (typed pointer!)
+                    ],
+                    false,
+                );
+
+                // Evaluate array pointer
+                let arr_v = self.eval_value(array, fn_map)?;
+                let arr_ptr = if arr_v.is_pointer_value() {
+                    arr_v.into_pointer_value()
+                } else if arr_v.is_int_value() {
+                    self.builder
+                        .build_int_to_ptr(
+                            arr_v.into_int_value(),
+                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "arr_int_to_ptr",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?
                 } else {
                     return Err(anyhow!("Unsupported array access value"));
-                }
+                };
+
+                // GEP to data field (index 2)
+                let data_ptr_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 2, "data_ptr")?;
+                
+                // Load data pointer (typed as T*)
+                let data_ptr = self.builder.build_load(data_ptr_type, data_ptr_ptr, "data")?
+                    .into_pointer_value();
+
+                // GEP to element at index
+                let idx_bv = self.eval_value(index, fn_map)?;
+                let idx_iv = self.as_i64(idx_bv)?;
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(
+                        element_llvm_type,
+                        data_ptr,
+                        &[idx_iv],
+                        "elem_ptr",
+                    )?
+                };
+
+                // Load element value
+                let elem_val = self.builder.build_load(element_llvm_type, elem_ptr, "elem")?;
+                self.assign_value(result, elem_val.as_basic_value_enum())?;
             }
             Instruction::Call {
                 target,
@@ -2648,49 +2814,85 @@ impl<'ctx> LlvmBackend<'ctx> {
                 field,
                 result,
             } => {
+                // Infer struct type from variable's IR type
+                let (struct_ir_type, field_index, field_ir_type) = if let IRValue::Variable(var_name) = struct_val {
+                    let ir_type = self.var_ir_types
+                        .get(var_name)
+                        .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
+                    
+                    if let IRType::Struct { name, fields } = ir_type {
+                        // Find field index and type
+                        let (idx, (_, field_type)) = fields.iter().enumerate()
+                            .find(|(_, (fname, _))| fname == field)
+                            .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
+                        
+                        (ir_type, idx as u32, field_type)
+                    } else {
+                        return Err(anyhow!("Variable '{}' is not a struct type", var_name));
+                    }
+                } else {
+                    // Fallback for CommandResult (CLI compatibility)
+                    if field == "success" {
+                        (&IRType::Struct {
+                            name: "CommandResult".to_string(),
+                            fields: vec![
+                                ("success".to_string(), IRType::Boolean),
+                                ("output".to_string(), IRType::String),
+                            ],
+                        }, 0u32, &IRType::Boolean)
+                    } else if field == "output" {
+                        (&IRType::Struct {
+                            name: "CommandResult".to_string(),
+                            fields: vec![
+                                ("success".to_string(), IRType::Boolean),
+                                ("output".to_string(), IRType::String),
+                            ],
+                        }, 1u32, &IRType::String)
+                    } else {
+                        return Err(anyhow!(
+                            "LLVM backend: cannot infer struct type for field access '{}'",
+                            field
+                        ));
+                    }
+                };
+
+                // Generate LLVM struct type from IR type
+                let llvm_struct_type = self.ir_type_to_llvm(struct_ir_type).into_struct_type();
+                let field_llvm_type = self.ir_type_to_llvm(field_ir_type);
+
+                // Evaluate struct value
                 let sv = self.eval_value(struct_val, fn_map)?;
-                // Support CommandResult{ success: i1, output: i8* }
-                let ty = self.ty_cmd_result();
-                let ptr = if sv.is_pointer_value() {
+                
+                let struct_ptr = if sv.is_pointer_value() {
                     sv.into_pointer_value()
                 } else if sv.is_int_value() {
                     self.builder
                         .build_int_to_ptr(
                             sv.into_int_value(),
-                            ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "cmd_field_ptr",
+                            llvm_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "struct_int_ptr",
                         )
                         .map_err(|e| anyhow!("{e:?}"))?
                 } else if sv.is_struct_value() {
-                    let tmp = self.alloca_for_type(
-                        sv.into_struct_value().get_type().as_basic_type_enum(),
-                        "cmd_field_stack",
-                    )?;
+                    let tmp = self.alloca_for_type(llvm_struct_type.as_basic_type_enum(), "struct_stack")?;
                     self.builder.build_store(tmp, sv)?;
-                    self.builder
-                        .build_pointer_cast(
-                            tmp,
-                            ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "cmd_field_ptr_stack",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?
+                    tmp
                 } else {
-                    return Err(anyhow!(format!(
-                        "Unsupported field access value for {:?}",
-                        struct_val
-                    )));
+                    return Err(anyhow!("Unsupported field access value type"));
                 };
-                let idx = match field.as_str() {
-                    "success" => 0u32,
-                    "output" => 1u32,
-                    _ => 0u32,
-                };
-                let gep = self.builder.build_struct_gep(ty, ptr, idx, "fld")?;
-                let loaded = if idx == 0 {
-                    self.builder.build_load(self.bool_t, gep, "succ")?
-                } else {
-                    self.builder.build_load(self.i8_ptr_t, gep, "out")?
-                };
+
+                // GEP to field
+                let gep = self
+                    .builder
+                    .build_struct_gep(llvm_struct_type, struct_ptr, field_index, "fld")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                
+                // Load field value with correct type
+                let loaded = self
+                    .builder
+                    .build_load(field_llvm_type, gep, "fld_load")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                
                 self.assign_value(result, loaded.as_basic_value_enum())?;
             }
             Instruction::ChannelSelect {
@@ -2706,6 +2908,292 @@ impl<'ctx> LlvmBackend<'ctx> {
                     status_result,
                     fn_map,
                 )?;
+            }
+            Instruction::ArrayAccess {
+                array,
+                index,
+                result,
+            } => {
+                // Handle compile-time constant arrays
+                if let IRValue::Array(vs) = array {
+                    let idx_bv = self.eval_value(index, fn_map)?;
+                    let idx_val = self.as_usize(idx_bv)? as usize;
+                    if idx_val >= vs.len() {
+                        return Err(anyhow!("Array index OOB"));
+                    }
+                    let elem = self.eval_value(&vs[idx_val], fn_map)?;
+                    self.assign_value(result, elem)?;
+                    return Ok(());
+                }
+
+                // Infer element type from array variable's IR type
+                let element_ir_type = if let IRValue::Variable(var_name) = array {
+                    self.var_ir_types
+                        .get(var_name)
+                        .and_then(|ir_type| {
+                            if let IRType::Array(elem_type) = ir_type {
+                                Some(elem_type.as_ref())
+                            } else {
+                                None
+                            }
+                        })
+                        .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                } else {
+                    // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
+                    &IRType::Char
+                };
+
+                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
+                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
+                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
+                let array_struct_type = self.ctx.struct_type(
+                    &[
+                        self.i64_t.into(),      // len
+                        self.i64_t.into(),      // capacity
+                        data_ptr_type.into(),   // data (typed pointer!)
+                    ],
+                    false,
+                );
+
+                // Evaluate array pointer
+                let arr_v = self.eval_value(array, fn_map)?;
+                let arr_ptr = if arr_v.is_pointer_value() {
+                    arr_v.into_pointer_value()
+                } else if arr_v.is_int_value() {
+                    self.builder
+                        .build_int_to_ptr(
+                            arr_v.into_int_value(),
+                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "arr_int_to_ptr",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?
+                } else {
+                    return Err(anyhow!("Unsupported array access value"));
+                };
+
+                // GEP to data field (index 2)
+                let data_ptr_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 2, "data_ptr")?;
+                
+                // Load data pointer (typed as T*)
+                let data_ptr = self.builder.build_load(data_ptr_type, data_ptr_ptr, "data")?
+                    .into_pointer_value();
+
+                // GEP to element at index
+                let idx_bv = self.eval_value(index, fn_map)?;
+                let idx_iv = self.as_i64(idx_bv)?;
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(
+                        element_llvm_type,
+                        data_ptr,
+                        &[idx_iv],
+                        "elem_ptr",
+                    )?
+                };
+
+                // Load element value
+                let elem_val = self.builder.build_load(element_llvm_type, elem_ptr, "elem")?;
+                self.assign_value(result, elem_val.as_basic_value_enum())?;
+            }
+            Instruction::Cast {
+                value,
+                target_type,
+                result,
+            } => {
+                let val = self.eval_value(value, fn_map)?;
+                let cast_val = match (val, target_type) {
+                    // Int to Float
+                    (BasicValueEnum::IntValue(iv), IRType::Float) => {
+                        self.builder
+                            .build_signed_int_to_float(iv, self.ctx.f64_type(), "i2f")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .as_basic_value_enum()
+                    }
+                    // Float to Int
+                    (BasicValueEnum::FloatValue(fv), IRType::Integer) => {
+                        self.builder
+                            .build_float_to_signed_int(fv, self.i64_t, "f2i")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .as_basic_value_enum()
+                    }
+                    // Bool to Int
+                    (BasicValueEnum::IntValue(iv), IRType::Integer) if iv.get_type().get_bit_width() == 1 => {
+                        self.builder
+                            .build_int_z_extend(iv, self.i64_t, "b2i")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .as_basic_value_enum()
+                    }
+                    // Int to Bool
+                    (BasicValueEnum::IntValue(iv), IRType::Boolean) => {
+                        let zero = iv.get_type().const_zero();
+                        self.builder
+                            .build_int_compare(inkwell::IntPredicate::NE, iv, zero, "i2b")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .as_basic_value_enum()
+                    }
+                    // Same type or compatible - no-op cast
+                    (v, _) => v,
+                };
+                self.assign_value(result, cast_val)?;
+            }
+            Instruction::ArraySet {
+                array,
+                index,
+                value,
+            } => {
+                // Infer element type from array variable's IR type
+                let element_ir_type = if let IRValue::Variable(var_name) = array {
+                    self.var_ir_types
+                        .get(var_name)
+                        .and_then(|ir_type| {
+                            if let IRType::Array(elem_type) = ir_type {
+                                Some(elem_type.as_ref())
+                            } else {
+                                None
+                            }
+                        })
+                        .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                } else {
+                    // Fallback: default to i8 for unknown arrays
+                    &IRType::Char
+                };
+
+                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
+                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
+                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
+                let array_struct_type = self.ctx.struct_type(
+                    &[
+                        self.i64_t.into(),      // len
+                        self.i64_t.into(),      // capacity
+                        data_ptr_type.into(),   // data (typed pointer!)
+                    ],
+                    false,
+                );
+
+                // Evaluate array pointer and value
+                let arr_v = self.eval_value(array, fn_map)?;
+                let val_v = self.eval_value(value, fn_map)?;
+
+                let arr_ptr = if arr_v.is_pointer_value() {
+                    arr_v.into_pointer_value()
+                } else if arr_v.is_int_value() {
+                    self.builder
+                        .build_int_to_ptr(
+                            arr_v.into_int_value(),
+                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "arr_int_to_ptr_set",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?
+                } else {
+                    return Err(anyhow!("Unsupported array set target"));
+                };
+
+                // GEP to data field (index 2)
+                let data_ptr_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 2, "data_ptr_set")?;
+                
+                // Load data pointer (typed as T*)
+                let data_ptr = self.builder.build_load(data_ptr_type, data_ptr_ptr, "data_set")?
+                    .into_pointer_value();
+
+                // GEP to element at index
+                let idx_bv = self.eval_value(index, fn_map)?;
+                let idx_iv = self.as_i64(idx_bv)?;
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(
+                        element_llvm_type,
+                        data_ptr,
+                        &[idx_iv],
+                        "elem_ptr_set",
+                    )?
+                };
+
+                // Store element value
+                self.builder
+                    .build_store(elem_ptr, val_v)
+                    .map_err(|e| anyhow!("{e:?}"))?;
+            }
+            Instruction::FieldSet {
+                struct_val,
+                field,
+                value,
+            } => {
+                // Infer struct type from variable's IR type
+                let (struct_ir_type, field_index) = if let IRValue::Variable(var_name) = struct_val {
+                    let ir_type = self.var_ir_types
+                        .get(var_name)
+                        .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
+                    
+                    if let IRType::Struct { name, fields } = ir_type {
+                        // Find field index
+                        let (idx, _) = fields.iter().enumerate()
+                            .find(|(_, (fname, _))| fname == field)
+                            .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
+                        
+                        (ir_type, idx as u32)
+                    } else {
+                        return Err(anyhow!("Variable '{}' is not a struct type", var_name));
+                    }
+                } else {
+                    // Fallback for CommandResult (CLI compatibility)
+                    if field == "success" {
+                        (&IRType::Struct {
+                            name: "CommandResult".to_string(),
+                            fields: vec![
+                                ("success".to_string(), IRType::Boolean),
+                                ("output".to_string(), IRType::String),
+                            ],
+                        }, 0u32)
+                    } else if field == "output" {
+                        (&IRType::Struct {
+                            name: "CommandResult".to_string(),
+                            fields: vec![
+                                ("success".to_string(), IRType::Boolean),
+                                ("output".to_string(), IRType::String),
+                            ],
+                        }, 1u32)
+                    } else {
+                        return Err(anyhow!(
+                            "LLVM backend: cannot infer struct type for field set '{}'",
+                            field
+                        ));
+                    }
+                };
+
+                // Generate LLVM struct type from IR type
+                let llvm_struct_type = self.ir_type_to_llvm(struct_ir_type).into_struct_type();
+
+                // Evaluate struct value and value to store
+                let sv = self.eval_value(struct_val, fn_map)?;
+                let val = self.eval_value(value, fn_map)?;
+                
+                let struct_ptr = if sv.is_pointer_value() {
+                    sv.into_pointer_value()
+                } else if sv.is_int_value() {
+                    self.builder
+                        .build_int_to_ptr(
+                            sv.into_int_value(),
+                            llvm_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "struct_int_ptr_store",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?
+                } else if sv.is_struct_value() {
+                    let tmp = self.alloca_for_type(llvm_struct_type.as_basic_type_enum(), "struct_stack_store")?;
+                    self.builder.build_store(tmp, sv)?;
+                    tmp
+                } else {
+                    return Err(anyhow!("Unsupported FieldSet value type"));
+                };
+
+                // GEP to field
+                let gep = self
+                    .builder
+                    .build_struct_gep(llvm_struct_type, struct_ptr, field_index, "fld_set")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                
+                // Store value
+                self.builder
+                    .build_store(gep, val)
+                    .map_err(|e| anyhow!("{e:?}"))?;
+            }
             }
             Instruction::Scoped { .. } | Instruction::Spawn { .. } => {
                 return Err(anyhow!(
