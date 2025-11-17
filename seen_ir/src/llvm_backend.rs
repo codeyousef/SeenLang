@@ -2112,21 +2112,36 @@ impl<'ctx> LlvmBackend<'ctx> {
                     return Ok(());
                 }
 
-                // Infer element type from array variable's IR type
-                let element_ir_type = if let IRValue::Variable(var_name) = array {
-                    self.var_ir_types
-                        .get(var_name)
-                        .and_then(|ir_type| {
-                            if let IRType::Array(elem_type) = ir_type {
-                                Some(elem_type.as_ref())
-                            } else {
-                                None
-                            }
-                        })
-                        .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
-                } else {
-                    // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
-                    &IRType::Char
+                // Infer element type from array variable's or register's IR type
+                let element_ir_type = match array {
+                    IRValue::Variable(var_name) => {
+                        self.var_ir_types
+                            .get(var_name)
+                            .and_then(|ir_type| {
+                                if let IRType::Array(elem_type) = ir_type {
+                                    Some(elem_type.as_ref())
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                    }
+                    IRValue::Register(r) => {
+                        self.reg_ir_types
+                            .get(r)
+                            .and_then(|ir_type| {
+                                if let IRType::Array(elem_type) = ir_type {
+                                    Some(elem_type.as_ref())
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| anyhow!("Cannot infer element type for array register %r{}", r))?
+                    }
+                    _ => {
+                        // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
+                        &IRType::Char
+                    }
                 };
 
                 // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
@@ -2992,12 +3007,25 @@ impl<'ctx> LlvmBackend<'ctx> {
                         .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
                     
                     if let IRType::Struct { name, fields } = ir_type {
-                        // Find field index and type (clone to avoid borrow issues)
-                        let (idx, (_, field_type)) = fields.iter().enumerate()
-                            .find(|(_, (fname, _))| fname == field)
-                            .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
+                        // If fields is empty, look up the full definition
+                        let resolved_ir_type = if fields.is_empty() {
+                            self.ir_type_definitions.get(name)
+                                .ok_or_else(|| anyhow!("Struct type '{}' not found in type definitions", name))?
+                        } else {
+                            ir_type
+                        };
                         
-                        (ir_type, idx as u32, field_type.clone())
+                        // Now get the fields from the resolved type
+                        if let IRType::Struct { name: _, fields: resolved_fields } = resolved_ir_type {
+                            // Find field index and type (clone to avoid borrow issues)
+                            let (idx, (_, field_type)) = resolved_fields.iter().enumerate()
+                                .find(|(_, (fname, _))| fname == field)
+                                .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
+                            
+                            (resolved_ir_type, idx as u32, field_type.clone())
+                        } else {
+                            return Err(anyhow!("Resolved type for '{}' is not a struct", name));
+                        }
                     } else {
                         return Err(anyhow!("Variable '{}' is not a struct type, got: {:?}", var_name, ir_type));
                     }

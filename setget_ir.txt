@@ -1,0 +1,97 @@
+Generating IR for test_matrix_setget.seen
+
+=== Generated IR ===
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Matrix = struct Matrix
+
+; Functions
+fn Matrix_get(self: struct Matrix, row: i64, col: i64) -> f64 {
+  ; Local variables
+  this: struct Matrix
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.data -> %r5
+  field_get %this.cols -> %r6
+  mul %row %r6 -> %r7
+  add %r7 %col -> %r8
+  arr_get %r5[%r8] -> %r9
+  ret %r9
+
+}
+
+fn Matrix_new(rows: i64, cols: i64) -> struct Matrix {
+  ; Local variables
+  i: i64
+
+; Entry: entry
+entry:
+  mul %rows %cols -> %r0
+  store %r0 -> %size
+  call %__ArrayNew (%size) -> %r1
+  store %r1 -> %arr
+  store 0 -> %i
+  jmp .loop_start_0
+
+loop_start_0:
+  lt %i %size -> %r2
+  jnot %r2 .loop_end_2
+
+loop_body_1:
+  call %push (%arr, 0) -> %r3
+  add %i 1 -> %r4
+  store %r4 -> %i
+  jmp .loop_start_0
+
+loop_end_2:
+  ret struct Matrix
+
+}
+
+fn Matrix_set(self: struct Matrix, row: i64, col: i64, value: f64) -> i64 {
+  ; Local variables
+  this: struct Matrix
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.data -> %r10
+  field_get %this.cols -> %r11
+  mul %row %r11 -> %r12
+  add %r12 %col -> %r13
+  arr_set %r10[%r13] = %value
+  ret %value
+
+}
+
+fn main() -> i64 {
+  ; Local variables
+  m: struct Matrix
+
+; Entry: entry
+entry:
+  call %__Print ("Creating matrix\n") -> %r0
+  call %Matrix_new (2, 2) -> %r1
+  store %r1 -> %m
+  call %__Print ("Setting value at (0,0) to 42.0\n") -> %r2
+  call %Matrix_set (%m, 0, 0, 42) -> %r3
+  call %__Print ("Getting value at (0,0)\n") -> %r4
+  call %Matrix_get (%m, 0, 0) -> %r5
+  store %r5 -> %val
+  call %__PrintFloat (%val) -> %r6
+  call %__Print ("\n") -> %r7
+  ret 0
+
+block_0:
+  ret 0
+
+}
+
+
+
