@@ -648,13 +648,36 @@ impl IRGenerator {
 
             // Fallback: call a free function named after the member; first arg is receiver
             let mut final_args = Vec::with_capacity(1 + arg_values.len());
-            final_args.push(obj_val);
+            final_args.push(obj_val.clone());
             final_args.extend(arg_values.into_iter());
+
+            // Try to determine if this is a class method call
+            // If the object has a struct type that's registered as a class, mangle the name
+            let method_name = if let Expression::Identifier { name: var_name, .. } = object.as_ref() {
+                if let Some(obj_type) = self.context.get_variable_type(var_name) {
+                    if let IRType::Struct { name: struct_name, .. } = obj_type {
+                        if self.context.type_definitions.contains_key(struct_name) {
+                            // This is a class instance method call
+                            format!("{}_{}", struct_name, member)
+                        } else {
+                            member.clone()
+                        }
+                    } else {
+                        member.clone()
+                    }
+                } else {
+                    member.clone()
+                }
+            } else {
+                // For non-identifier objects, try to infer from the value type
+                // For now, just use the member name
+                member.clone()
+            };
 
             let result_reg = self.context.allocate_register();
             let result_value = IRValue::Register(result_reg);
             instructions.push(Instruction::Call {
-                target: IRValue::Variable(member.clone()),
+                target: IRValue::Variable(method_name),
                 args: final_args,
                 result: Some(result_value.clone()),
             });
