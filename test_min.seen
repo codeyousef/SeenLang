@@ -1,0 +1,10 @@
+fun min(a: Int, b: Int) -> Int {
+    if a < b { a } else { b }
+}
+
+fun main() -> Int {
+    let x = min(5, 10)
+    __PrintInt(x)
+    __Print("\n")
+    return 0
+}

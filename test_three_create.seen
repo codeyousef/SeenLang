@@ -1,0 +1,27 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+}
+
+fun main() -> Int {
+    __Print("Creating matrix 1\n")
+    let a = Matrix.new(2, 2)
+    __Print("Creating matrix 2\n")
+    let b = Matrix.new(2, 2)
+    __Print("Creating matrix 3\n")
+    let c = Matrix.new(2, 2)
+    __Print("All matrices created\n")
+    return 0
+}

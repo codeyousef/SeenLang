@@ -1,0 +1,14 @@
+class Point {
+    x: Int
+    y: Int
+    
+    fun new(x_val: Int, y_val: Int) -> Point {
+        Point { x: x_val, y: y_val }
+    }
+}
+
+fun main() -> Int {
+    let p = Point.new(5, 10)
+    __Print("Created point\n")
+    return 0
+}

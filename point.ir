@@ -1,0 +1,50 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Point = struct Point
+
+; Functions
+fn Point_new(x: i64, y: i64) -> struct Point {
+; Entry: entry
+entry:
+  ret struct Point
+
+}
+
+fn main() -> i64 {
+  ; Local variables
+  a: struct Point
+  b: struct Point
+  c: struct Point
+
+; Entry: entry
+entry:
+  call %__Print ("Creating points\n") -> %r0
+  call %Point_new (1, 2) -> %r1
+  store %r1 -> %a
+  call %Point_new (3, 4) -> %r2
+  store %r2 -> %b
+  call %Point_new (5, 6) -> %r3
+  store %r3 -> %c
+  call %__Print ("Calling test_fn\n") -> %r4
+  call %test_fn (%a, %b, %c) -> %r5
+  call %__Print ("Done\n") -> %r6
+  ret 0
+
+block_0:
+  ret 0
+
+}
+
+fn test_fn(a: struct Point, b: struct Point, c: struct Point) -> i64 {
+; Entry: entry
+entry:
+  call %__Print ("In test_fn\n") -> %r0
+  ret %r0
+
+}
+
+

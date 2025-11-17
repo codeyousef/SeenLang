@@ -1,0 +1,34 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun fill_random(seed: Int) -> Void {
+        var current_seed = seed
+        var i = 0
+        while i < this.data.length() {
+            current_seed = (current_seed * 1103515245 + 12345) & 0x7fffffff
+            let value = (current_seed % 10000) as Float / 10000.0
+            this.data[i] = value
+            i = i + 1
+        }
+    }
+}
+
+fun main() -> Int {
+    let m = Matrix.new(5, 5)
+    m.fill_random(12345)
+    __Print("Done!\n")
+    return 0
+}

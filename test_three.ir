@@ -1,0 +1,82 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Matrix = struct Matrix
+
+; Functions
+fn Matrix_get(row: i64, col: i64) -> f64 {
+; Entry: entry
+entry:
+  field_get %this.data -> %r5
+  field_get %this.cols -> %r6
+  mul %row %r6 -> %r7
+  add %r7 %col -> %r8
+  arr_get %r5[%r8] -> %r9
+  ret %r9
+
+}
+
+fn Matrix_new(rows: i64, cols: i64) -> struct Matrix {
+  ; Local variables
+  i: i64
+
+; Entry: entry
+entry:
+  mul %rows %cols -> %r0
+  store %r0 -> %size
+  call %__ArrayNew (%size) -> %r1
+  store %r1 -> %arr
+  store 0 -> %i
+  jmp .loop_start_0
+
+loop_start_0:
+  lt %i %size -> %r2
+  jnot %r2 .loop_end_2
+
+loop_body_1:
+  call %push (%arr, 0) -> %r3
+  add %i 1 -> %r4
+  store %r4 -> %i
+  jmp .loop_start_0
+
+loop_end_2:
+  ret struct Matrix
+
+}
+
+fn main() -> i64 {
+  ; Local variables
+  a: struct Matrix
+  b: struct Matrix
+  c: struct Matrix
+
+; Entry: entry
+entry:
+  call %Matrix_new (2, 2) -> %r0
+  store %r0 -> %a
+  call %Matrix_new (2, 2) -> %r1
+  store %r1 -> %b
+  call %Matrix_new (2, 2) -> %r2
+  store %r2 -> %c
+  call %__Print ("Calling simple_multiply\n") -> %r3
+  call %simple_multiply (%a, %b, %c) -> %r4
+  call %__Print ("Done\n") -> %r5
+  ret 0
+
+block_0:
+  ret 0
+
+}
+
+fn simple_multiply(a: struct Matrix, b: struct Matrix, c: struct Matrix) -> i64 {
+; Entry: entry
+entry:
+  call %__Print ("In simple_multiply\n") -> %r0
+  ret %r0
+
+}
+
+

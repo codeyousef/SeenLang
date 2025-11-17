@@ -1,0 +1,26 @@
+fun min(a: Int, b: Int) -> Int {
+    if a < b { a } else { b }
+}
+
+class Matrix {
+    rows: Int
+    cols: Int
+    
+    fun new(r: Int, c: Int) -> Matrix {
+        Matrix { rows: r, cols: c }
+    }
+}
+
+fun test_min_with_matrix(a: Matrix) -> Int {
+    let block_size = 64
+    let result = min(10 + block_size, a.rows)
+    result
+}
+
+fun main() -> Int {
+    let m = Matrix.new(100, 100)
+    let val = test_min_with_matrix(m)
+    __PrintInt(val)
+    __Print("\n")
+    return 0
+}

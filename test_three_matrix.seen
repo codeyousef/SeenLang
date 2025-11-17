@@ -1,0 +1,34 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+}
+
+fun test_three_matrix(a: Matrix, b: Matrix, c: Matrix) -> Int {
+    __Print("In test_three_matrix\n")
+    return 123
+}
+
+fun main() -> Int {
+    __Print("Creating matrices\n")
+    let a = Matrix.new(2, 2)
+    let b = Matrix.new(2, 2)
+    let c = Matrix.new(2, 2)
+    __Print("Calling test_three_matrix\n")
+    let result = test_three_matrix(a, b, c)
+    __Print("Back from test_three_matrix\n")
+    __PrintInt(result)
+    __Print("\n")
+    return 0
+}

@@ -1,0 +1,14 @@
+class Test {
+    value: Int
+    
+    fun new(v: Int) -> Test {
+        Test { value: v }
+    }
+}
+
+fun main() -> Int {
+    let t = Test.new(100)
+    __PrintInt(t.value)
+    __Print("\n")
+    return 0
+}

@@ -1,0 +1,75 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun get(row: Int, col: Int) -> Float {
+        this.data[row * this.cols + col]
+    }
+    
+    fun set(row: Int, col: Int, value: Float) -> Void {
+        this.data[row * this.cols + col] = value
+    }
+}
+
+fun matrix_multiply(a: Matrix, b: Matrix, c: Matrix) -> Void {
+    var i = 0
+    while i < a.rows {
+        var j = 0
+        while j < b.cols {
+            var sum = 0.0
+            var k = 0
+            while k < a.cols {
+                sum = sum + a.get(i, k) * b.get(k, j)
+                k = k + 1
+            }
+            c.set(i, j, sum)
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+
+fun main() -> Int {
+    __Print("Creating 2x2 matrices\n")
+    let a = Matrix.new(2, 2)
+    let b = Matrix.new(2, 2)
+    let c = Matrix.new(2, 2)
+    
+    __Print("Setting values\n")
+    a.set(0, 0, 1.0)
+    a.set(0, 1, 2.0)
+    a.set(1, 0, 3.0)
+    a.set(1, 1, 4.0)
+    
+    b.set(0, 0, 5.0)
+    b.set(0, 1, 6.0)
+    b.set(1, 0, 7.0)
+    b.set(1, 1, 8.0)
+    
+    __Print("Multiplying\n")
+    matrix_multiply(a, b, c)
+    
+    __Print("Result:\n")
+    __PrintFloat(c.get(0, 0))
+    __Print(" ")
+    __PrintFloat(c.get(0, 1))
+    __Print("\n")
+    __PrintFloat(c.get(1, 0))
+    __Print(" ")
+    __PrintFloat(c.get(1, 1))
+    __Print("\n")
+    
+    return 0
+}

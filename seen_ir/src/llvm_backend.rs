@@ -1817,32 +1817,64 @@ impl<'ctx> LlvmBackend<'ctx> {
                         }
                     }
                     crate::instruction::BinaryOp::LessThan => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SLT, li, ri, "lt")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder
+                                .build_float_compare(inkwell::FloatPredicate::OLT, lf, rf, "flt")?
+                                .as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder
+                                .build_int_compare(inkwell::IntPredicate::SLT, li, ri, "lt")?
+                                .as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::LessEqual => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SLE, li, ri, "le")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder
+                                .build_float_compare(inkwell::FloatPredicate::OLE, lf, rf, "fle")?
+                                .as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder
+                                .build_int_compare(inkwell::IntPredicate::SLE, li, ri, "le")?
+                                .as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::GreaterThan => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SGT, li, ri, "gt")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder
+                                .build_float_compare(inkwell::FloatPredicate::OGT, lf, rf, "fgt")?
+                                .as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder
+                                .build_int_compare(inkwell::IntPredicate::SGT, li, ri, "gt")?
+                                .as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::GreaterEqual => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SGE, li, ri, "ge")?
-                            .as_basic_value_enum()
+                        if l.is_float_value() || r.is_float_value() {
+                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
+                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
+                            self.builder
+                                .build_float_compare(inkwell::FloatPredicate::OGE, lf, rf, "fge")?
+                                .as_basic_value_enum()
+                        } else {
+                            let li = self.as_i64(l.clone())?;
+                            let ri = self.as_i64(r.clone())?;
+                            self.builder
+                                .build_int_compare(inkwell::IntPredicate::SGE, li, ri, "ge")?
+                                .as_basic_value_enum()
+                        }
                     }
                     crate::instruction::BinaryOp::And => {
                         let li = self.as_bool(l.clone())?;
@@ -3864,8 +3896,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                     .build_int_s_extend(iv, self.i64_t, "sext")
                     .map_err(|e| anyhow!("{e:?}"))
             }
+        } else if v.is_float_value() {
+            Err(anyhow!("Expected integer value, got float"))
+        } else if v.is_pointer_value() {
+            Err(anyhow!("Expected integer value, got pointer"))
         } else {
-            Err(anyhow!("Expected integer value"))
+            Err(anyhow!("Expected integer value, got unknown type"))
         }
     }
 

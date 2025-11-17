@@ -1,0 +1,7 @@
+fun main() -> Int {
+    let x = 5
+    let y = x & 3
+    __PrintInt(y)
+    __Print("\n")
+    return 0
+}

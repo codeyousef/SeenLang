@@ -23,6 +23,8 @@ pub struct GenerationContext {
     pub current_function: Option<String>,
     pub current_block: Option<String>,
     pub variable_types: HashMap<String, IRType>,
+    pub register_types: HashMap<u32, IRType>, // Track types of registers
+    pub local_variables: Vec<crate::function::LocalVariable>, // Track local variables for current function
     pub register_counter: u32,
     pub label_counter: u32,
     pub break_stack: Vec<String>,    // Labels for break statements
@@ -38,6 +40,8 @@ impl GenerationContext {
             current_function: None,
             current_block: None,
             variable_types: HashMap::new(),
+            register_types: HashMap::new(),
+            local_variables: Vec::new(),
             register_counter: 0,
             label_counter: 0,
             break_stack: Vec::new(),
@@ -66,6 +70,14 @@ impl GenerationContext {
 
     pub fn get_variable_type(&self, name: &str) -> Option<&IRType> {
         self.variable_types.get(name)
+    }
+
+    pub fn set_register_type(&mut self, register: u32, ty: IRType) {
+        self.register_types.insert(register, ty);
+    }
+
+    pub fn get_register_type(&self, register: u32) -> Option<&IRType> {
+        self.register_types.get(&register)
     }
 
     pub fn push_loop_labels(&mut self, break_label: String, continue_label: String) {
@@ -152,9 +164,23 @@ impl GenerationContext {
                     IRType::Array(Box::new(IRType::Integer))
                 }
             }
+            IRValue::Register(reg) => {
+                // Check if we have type information for this register
+                if let Some(reg_type) = self.register_types.get(reg) {
+                    reg_type.clone()
+                } else {
+                    IRType::Void
+                }
+            }
             _ => IRType::Void,
         };
-        self.set_variable_type(name.to_string(), var_type);
+        self.set_variable_type(name.to_string(), var_type.clone());
+        
+        // Add to local variables list (skip if it's Void or already exists)
+        if var_type != IRType::Void && !self.local_variables.iter().any(|lv| lv.name == name) {
+            let local = crate::function::LocalVariable::new(name, var_type);
+            self.local_variables.push(local);
+        }
     }
 }
 
@@ -604,11 +630,15 @@ impl IRGenerator {
             // Check if this is a static method call (Class.method)
             if let Expression::Identifier { name: class_name, .. } = object.as_ref() {
                 // Check if this is a known class/type name (static method call)
-                if self.context.type_definitions.contains_key(class_name) {
+                if let Some(class_type) = self.context.type_definitions.get(class_name).cloned() {
                     // Static method call: Class.method(args) -> Class_method(args)
                     let mangled_name = format!("{}_{}", class_name, member);
                     let result_reg = self.context.allocate_register();
                     let result_value = IRValue::Register(result_reg);
+                    
+                    // Track the return type for this register
+                    self.context.set_register_type(result_reg, class_type);
+                    
                     instructions.push(Instruction::Call {
                         target: IRValue::Variable(mangled_name),
                         args: arg_values,
@@ -1624,6 +1654,9 @@ impl IRGenerator {
 
         // Update function register count
         function.register_count = self.context.register_counter;
+        
+        // Add local variables to function
+        function.locals.extend(self.context.local_variables.drain(..));
 
         // Build proper CFG from instruction list
         let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);
@@ -1644,11 +1677,12 @@ impl IRGenerator {
         params: &[seen_parser::Parameter],
         return_type: &Option<seen_parser::Type>,
         body: &Expression,
+        is_static: bool,
     ) -> IRResult<IRFunction> {
         // Methods optionally include an explicit receiver as the first parameter.
-        // If absent, treat as a static method (no receiver) for bootstrap resilience.
-        // Extract receiver type (first parameter is receiver in methods)
-        let receiver_type_opt = if !params.is_empty() {
+        // Static methods have no receiver, instance methods have receiver as first param.
+        // Extract receiver type (first parameter is receiver in instance methods)
+        let receiver_type_opt = if !is_static && !params.is_empty() {
             if let Some(type_ann) = &params[0].type_annotation {
                 let recv_type = self.convert_ast_type_to_ir(type_ann);
                 Some(recv_type)
@@ -1732,6 +1766,9 @@ impl IRGenerator {
         
         instructions.extend(body_instructions);
         instructions.push(Instruction::Return(Some(body_value.clone())));
+        
+        // Add local variables to function
+        ir_function.locals.extend(self.context.local_variables.drain(..));
         
         // Build proper CFG from instruction list (like generate_function does)
         let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);
@@ -1979,6 +2016,16 @@ impl IRGenerator {
             "Bool" => IRType::Boolean,
             "String" => IRType::String,
             "()" => IRType::Void,
+            "Array" => {
+                // Handle Array<T> generic type
+                if let Some(element_ast_type) = ast_type.generics.first() {
+                    let element_type = self.convert_ast_type_to_ir(element_ast_type);
+                    IRType::Array(Box::new(element_type))
+                } else {
+                    // Array without type parameter, default to integer elements
+                    IRType::Array(Box::new(IRType::Integer))
+                }
+            }
             _ => {
                 // Look up in registered type definitions (classes, structs, enums)
                 if let Some(ir_type) = self.context.type_definitions.get(&ast_type.name) {
@@ -2078,14 +2125,9 @@ impl IRGenerator {
         // Classes are structs with inheritance and virtual method dispatch
         // Create vtable for virtual methods and handle inheritance chain
 
-        // Add vtable pointer as first field for virtual method dispatch
-        let mut class_fields = vec![(
-            "vtable".to_string(),
-            IRType::Pointer(Box::new(IRType::Struct {
-                name: format!("{}_vtable", name),
-                fields: vec![],
-            })),
-        )];
+        // TODO: Add vtable pointer as first field for virtual method dispatch when we implement dynamic dispatch
+        // For now, skip vtable to avoid field index mismatch
+        let mut class_fields = Vec::new();
 
         // Add parent class fields if there's inheritance
         // Resolve superclass field layout and method overriding
@@ -2110,9 +2152,13 @@ impl IRGenerator {
         // Generate methods as separate functions
         for method in methods {
             // Ensure receiver parameter exists for instance methods
-            // NOTE: Parser incorrectly marks all methods as static, so we always inject receiver
+            // For classes: treat as instance method unless it's a constructor (name == "new")
+            // The parser may not correctly set is_static, so we use heuristics:
+            // - If method name is "new", it's a static constructor
+            // - Otherwise, it's an instance method that needs implicit self
+            let is_constructor = method.name == "new";
             let mut effective_params: Vec<seen_parser::Parameter> = Vec::new();
-            if true {  // TODO: Fix parser to correctly set is_static, then use !method.is_static
+            if !is_constructor {
                 // Inject implicit receiver as the first parameter: (self: ClassName)
                 let recv_type = seen_parser::Type {
                     name: name.to_string(),
@@ -2140,6 +2186,7 @@ impl IRGenerator {
                 &effective_params,
                 &method.return_type,
                 &method.body,
+                is_constructor,  // is_static: true if constructor, false if instance method
             )?;
             module.add_function(function);
         }

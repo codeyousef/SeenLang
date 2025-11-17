@@ -1,0 +1,39 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun get(row: Int, col: Int) -> Float {
+        this.data[row * this.cols + col]
+    }
+    
+    fun set(row: Int, col: Int, value: Float) -> Void {
+        this.data[row * this.cols + col] = value
+    }
+}
+
+fun main() -> Int {
+    __Print("Creating matrix\n")
+    let m = Matrix.new(2, 2)
+    __Print("Setting values\n")
+    m.set(0, 0, 1.0)
+    m.set(0, 1, 2.0)
+    m.set(1, 0, 3.0)
+    m.set(1, 1, 4.0)
+    __Print("Getting values\n")
+    let v = m.get(0, 0)
+    __PrintFloat(v)
+    __Print("\n")
+    return 0
+}

@@ -1,0 +1,40 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun get(row: Int, col: Int) -> Float {
+        this.data[row * this.cols + col]
+    }
+}
+
+fun simple_multiply(a: Matrix, b: Matrix, c: Matrix) -> Void {
+    __Print("In simple_multiply\n")
+    __Print("About to call a.get\n")
+    let val = a.get(0, 0)
+    __Print("After a.get\n")
+    __PrintFloat(val)
+    __Print("\n")
+}
+
+fun main() -> Int {
+    let a = Matrix.new(2, 2)
+    let b = Matrix.new(2, 2)
+    let c = Matrix.new(2, 2)
+    
+    __Print("Calling simple_multiply\n")
+    simple_multiply(a, b, c)
+    __Print("Done\n")
+    return 0
+}
