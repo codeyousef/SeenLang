@@ -2828,7 +2828,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                         
                         (ir_type, idx as u32, field_type)
                     } else {
-                        return Err(anyhow!("Variable '{}' is not a struct type", var_name));
+                        return Err(anyhow!("Variable '{}' is not a struct type, got: {:?}", var_name, ir_type));
                     }
                 } else {
                     // Fallback for CommandResult (CLI compatibility)
@@ -2856,8 +2856,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 };
 
-                // Generate LLVM struct type from IR type
-                let llvm_struct_type = self.ir_type_to_llvm(struct_ir_type).into_struct_type();
+                // Generate LLVM struct type directly from IRType::Struct fields
+                // (ir_type_to_llvm returns a pointer, but we need the actual struct type for GEP)
+                let llvm_struct_type = if let IRType::Struct { fields, .. } = struct_ir_type {
+                    let field_types: Vec<BasicTypeEnum<'ctx>> = fields.iter()
+                        .map(|(_, field_type)| self.ir_type_to_llvm(field_type))
+                        .collect();
+                    self.ctx.struct_type(&field_types, false)
+                } else {
+                    return Err(anyhow!("Expected struct type"));
+                };
                 let field_llvm_type = self.ir_type_to_llvm(field_ir_type);
 
                 // Evaluate struct value
@@ -3158,8 +3166,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 };
 
-                // Generate LLVM struct type from IR type
-                let llvm_struct_type = self.ir_type_to_llvm(struct_ir_type).into_struct_type();
+                // Generate LLVM struct type directly from IRType::Struct fields
+                // (ir_type_to_llvm returns a pointer, but we need the actual struct type for GEP)
+                let llvm_struct_type = if let IRType::Struct { fields, .. } = struct_ir_type {
+                    let field_types: Vec<BasicTypeEnum<'ctx>> = fields.iter()
+                        .map(|(_, field_type)| self.ir_type_to_llvm(field_type))
+                        .collect();
+                    self.ctx.struct_type(&field_types, false)
+                } else {
+                    return Err(anyhow!("Expected struct type"));
+                };
 
                 // Evaluate struct value and value to store
                 let sv = self.eval_value(struct_val, fn_map)?;

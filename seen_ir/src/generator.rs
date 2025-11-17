@@ -28,6 +28,7 @@ pub struct GenerationContext {
     pub break_stack: Vec<String>,    // Labels for break statements
     pub continue_stack: Vec<String>, // Labels for continue statements
     pub string_table: HashMap<String, u32>, // String interning table
+    pub type_definitions: HashMap<String, IRType>, // Registered type definitions (structs/classes/enums)
 }
 
 impl GenerationContext {
@@ -41,6 +42,7 @@ impl GenerationContext {
             break_stack: Vec::new(),
             continue_stack: Vec::new(),
             string_table: HashMap::new(),
+            type_definitions: HashMap::new(),
         }
     }
 
@@ -1883,7 +1885,15 @@ impl IRGenerator {
             "Bool" => IRType::Boolean,
             "String" => IRType::String,
             "()" => IRType::Void,
-            _ => IRType::Integer, // Default fallback
+            _ => {
+                // Look up in registered type definitions (classes, structs, enums)
+                if let Some(ir_type) = self.context.type_definitions.get(&ast_type.name) {
+                    ir_type.clone()
+                } else {
+                    // Default fallback for unknown types
+                    IRType::Integer
+                }
+            }
         }
     }
 
@@ -1906,6 +1916,9 @@ impl IRGenerator {
             name: name.to_string(),
             fields: ir_fields,
         };
+
+        // Register in context for future type lookups
+        self.context.type_definitions.insert(name.to_string(), struct_type.clone());
 
         // Create type definition and add to module
         let type_def = crate::module::TypeDefinition::new(name, struct_type);
@@ -1943,6 +1956,9 @@ impl IRGenerator {
             name: name.to_string(),
             variants: ir_variants,
         };
+
+        // Register in context for future type lookups
+        self.context.type_definitions.insert(name.to_string(), enum_type.clone());
 
         // Create type definition and add to module
         let type_def = crate::module::TypeDefinition::new(name, enum_type);
@@ -1989,6 +2005,9 @@ impl IRGenerator {
             name: name.to_string(),
             fields: class_fields,
         };
+
+        // Register in context for future type lookups
+        self.context.type_definitions.insert(name.to_string(), class_type.clone());
 
         // Create type definition and add to module
         let type_def = crate::module::TypeDefinition::new(name, class_type);
