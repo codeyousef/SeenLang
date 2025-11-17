@@ -326,6 +326,8 @@ pub struct LlvmBackend<'ctx> {
     box_ptr_fn: Option<FunctionValue<'ctx>>,
     // Layout registry for arrays/structs
     layout_registry: HashMap<String, BasicTypeEnum<'ctx>>,
+    // IR type definitions from modules (for struct literal construction)
+    ir_type_definitions: HashMap<String, IRType>,
     use_channel_runtime_stubs: bool,
     cli_mode: bool,
 
@@ -378,6 +380,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             box_bool_fn: None,
             box_ptr_fn: None,
             layout_registry: HashMap::new(),
+            ir_type_definitions: HashMap::new(),
             use_channel_runtime_stubs: true,
             cli_mode: false,
             current_fn: None,
@@ -474,6 +477,13 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
+        // Register IR type definitions from all modules
+        for module in prog.modules.iter() {
+            for type_def in &module.types {
+                self.ir_type_definitions.insert(type_def.name.clone(), type_def.type_def.clone());
+            }
+        }
+        
         // Register all struct layouts first
         for module in prog.modules.iter() {
             self.register_struct_layouts_from_module(module)?;
@@ -2328,6 +2338,115 @@ impl<'ctx> LlvmBackend<'ctx> {
                             }
                             return Ok(());
                         }
+                        "push" => {
+                            // push(array, value) -> appends value to array
+                            if args.len() >= 2 {
+                                let array_val = self.eval_value(&args[0], fn_map)?;
+                                let value_val = self.eval_value(&args[1], fn_map)?;
+                                
+                                let array_ptr = array_val.into_pointer_value();
+                                let array_struct_ty = self.ctx.struct_type(
+                                    &[
+                                        self.i64_t.into(),  // len
+                                        self.i64_t.into(),  // capacity
+                                        self.i8_ptr_t.into(), // data
+                                    ],
+                                    false,
+                                );
+                                
+                                // Load current len
+                                let len_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 0, "len_ptr")?;
+                                let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
+                                
+                                // Load data pointer
+                                let data_field_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 2, "data_field_ptr")?;
+                                let data_ptr_raw = self.builder.build_load(self.i8_ptr_t, data_field_ptr, "data_ptr")?.into_pointer_value();
+                                
+                                // Cast to f64* for indexing
+                                let data_ptr = self.builder.build_pointer_cast(
+                                    data_ptr_raw,
+                                    self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16)),
+                                    "data_f64_ptr",
+                                )?;
+                                
+                                // Store value at index len
+                                let elem_ptr = unsafe {
+                                    self.builder.build_gep(self.ctx.f64_type(), data_ptr, &[len], "elem_ptr")?
+                                };
+                                let value_f64 = if value_val.is_float_value() {
+                                    value_val.into_float_value()
+                                } else {
+                                    // Convert int to float
+                                    let int_val = value_val.into_int_value();
+                                    self.builder.build_signed_int_to_float(int_val, self.ctx.f64_type(), "to_float")?
+                                };
+                                self.builder.build_store(elem_ptr, value_f64)?;
+                                
+                                // Increment len
+                                let new_len = self.builder.build_int_add(len, self.i64_t.const_int(1, false), "new_len")?;
+                                self.builder.build_store(len_ptr, new_len)?;
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        "__ArrayNew" => {
+                            // __ArrayNew(capacity) -> Array* (struct { len, capacity, data* })
+                            if let Some(arg0) = args.get(0) {
+                                let capacity_val = self.eval_value(arg0, fn_map)?;
+                                let capacity = self.as_i64(capacity_val)?;
+                                
+                                // Allocate array struct: { i64 len, i64 capacity, void* data }
+                                let array_struct_ty = self.ctx.struct_type(
+                                    &[
+                                        self.i64_t.into(),  // len
+                                        self.i64_t.into(),  // capacity
+                                        self.i8_ptr_t.into(), // data
+                                    ],
+                                    false,
+                                );
+                                let array_size = array_struct_ty.size_of().unwrap();
+                                let malloc = self.get_malloc();
+                                let array_ptr_raw = self.builder.build_call(
+                                    malloc,
+                                    &[array_size.into()],
+                                    "malloc_array",
+                                )?.try_as_basic_value().left().unwrap().into_pointer_value();
+                                
+                                let array_ptr = self.builder.build_pointer_cast(
+                                    array_ptr_raw,
+                                    array_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                                    "array_ptr",
+                                )?;
+                                
+                                // Initialize len = 0
+                                let len_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 0, "len_ptr")?;
+                                self.builder.build_store(len_ptr, self.i64_t.const_zero())?;
+                                
+                                // Initialize capacity
+                                let cap_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 1, "cap_ptr")?;
+                                self.builder.build_store(cap_ptr, capacity)?;
+                                
+                                // Allocate data buffer (capacity * 8 bytes for f64)
+                                let elem_size = self.i64_t.const_int(8, false);
+                                let data_size = self.builder.build_int_mul(capacity, elem_size, "data_size")?;
+                                let data_ptr = self.builder.build_call(
+                                    malloc,
+                                    &[data_size.into()],
+                                    "malloc_data",
+                                )?.try_as_basic_value().left().unwrap().into_pointer_value();
+                                
+                                let data_field_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 2, "data_field_ptr")?;
+                                self.builder.build_store(data_field_ptr, data_ptr)?;
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, array_ptr.as_basic_value_enum())?;
+                                }
+                                return Ok(());
+                            }
+                        }
                         "__Print" => {
                             if let Some(arg0) = args.get(0) {
                                 let val = self.eval_value(arg0, fn_map)?;
@@ -3526,6 +3645,54 @@ impl<'ctx> LlvmBackend<'ctx> {
                 Ok(f.as_global_value().as_pointer_value().as_basic_value_enum())
             }
             IRValue::Float(fv) => Ok(self.ctx.f64_type().const_float(*fv).as_basic_value_enum()),
+            IRValue::Struct { type_name, fields } => {
+                // Materialize struct by allocating and initializing fields
+                // Look up the struct type from type_definitions
+                let struct_ir_type = self.ir_type_definitions.get(type_name)
+                    .ok_or_else(|| anyhow!("Unknown struct type: {}", type_name))?.clone();
+                
+                if let IRType::Struct { name: _, fields: field_defs } = &struct_ir_type {
+                    // Build LLVM struct type from field definitions
+                    let mut field_types = Vec::new();
+                    for (_field_name, field_type) in field_defs {
+                        field_types.push(self.ir_type_to_llvm(field_type));
+                    }
+                    let struct_ty = self.ctx.struct_type(&field_types, false);
+                    
+                    // Allocate struct on heap
+                    let struct_size = struct_ty.size_of().unwrap();
+                    let malloc = self.get_malloc();
+                    let struct_ptr_raw = self.builder.build_call(
+                        malloc,
+                        &[struct_size.into()],
+                        &format!("malloc_{}", type_name),
+                    )?.try_as_basic_value().left().unwrap().into_pointer_value();
+                    
+                    let struct_ptr = self.builder.build_pointer_cast(
+                        struct_ptr_raw,
+                        struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                        &format!("{}_ptr", type_name),
+                    )?;
+                    
+                    // Initialize each field
+                    for (idx, (field_name, _field_type)) in field_defs.iter().enumerate() {
+                        if let Some(field_value) = fields.get(field_name) {
+                            let field_val_llvm = self.eval_value(field_value, fn_map)?;
+                            let field_ptr = self.builder.build_struct_gep(
+                                struct_ty,
+                                struct_ptr,
+                                idx as u32,
+                                &format!("{}_{}_ptr", type_name, field_name),
+                            )?;
+                            self.builder.build_store(field_ptr, field_val_llvm)?;
+                        }
+                    }
+                    
+                    Ok(struct_ptr.as_basic_value_enum())
+                } else {
+                    Err(anyhow!("Type {} is not a struct", type_name))
+                }
+            }
             _ => Err(anyhow!("Unsupported IRValue in LLVM backend: {v:?}")),
         }
     }

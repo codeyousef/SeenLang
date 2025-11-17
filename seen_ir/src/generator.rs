@@ -586,6 +586,21 @@ impl IRGenerator {
 
         // Method-call desugaring and intrinsics
         if let Expression::MemberAccess { object, member, .. } = function {
+            // Handle array intrinsics (Array<T>.method)
+            if member == "withCapacity" {
+                // Array<T>.withCapacity(n) -> creates array with capacity n
+                if let Some(capacity_arg) = arg_values.first() {
+                    let result_reg = self.context.allocate_register();
+                    let result_value = IRValue::Register(result_reg);
+                    instructions.push(Instruction::Call {
+                        target: IRValue::Variable("__ArrayNew".to_string()),
+                        args: vec![capacity_arg.clone()],
+                        result: Some(result_value.clone()),
+                    });
+                    return Ok((result_value, instructions));
+                }
+            }
+            
             // Check if this is a static method call (Class.method)
             if let Expression::Identifier { name: class_name, .. } = object.as_ref() {
                 // Check if this is a known class/type name (static method call)
