@@ -586,6 +586,23 @@ impl IRGenerator {
 
         // Method-call desugaring and intrinsics
         if let Expression::MemberAccess { object, member, .. } = function {
+            // Check if this is a static method call (Class.method)
+            if let Expression::Identifier { name: class_name, .. } = object.as_ref() {
+                // Check if this is a known class/type name (static method call)
+                if self.context.type_definitions.contains_key(class_name) {
+                    // Static method call: Class.method(args) -> Class_method(args)
+                    let mangled_name = format!("{}_{}", class_name, member);
+                    let result_reg = self.context.allocate_register();
+                    let result_value = IRValue::Register(result_reg);
+                    instructions.push(Instruction::Call {
+                        target: IRValue::Variable(mangled_name),
+                        args: arg_values,
+                        result: Some(result_value.clone()),
+                    });
+                    return Ok((result_value, instructions));
+                }
+            }
+            
             // Evaluate object expression first
             let (obj_val, obj_instructions) = self.generate_expression(object)?;
             instructions.extend(obj_instructions);
@@ -2078,8 +2095,10 @@ impl IRGenerator {
             }
             effective_params.extend(method.parameters.clone());
 
-            let function = self.generate_method_function(
-                &method.name,
+            // Mangle method name: ClassName_methodName
+            let mangled_name = format!("{}_{}", name, method.name);
+            let mut function = self.generate_method_function(
+                &mangled_name,
                 &effective_params,
                 &method.return_type,
                 &method.body,

@@ -2328,6 +2328,23 @@ impl<'ctx> LlvmBackend<'ctx> {
                             }
                             return Ok(());
                         }
+                        "__Print" => {
+                            if let Some(arg0) = args.get(0) {
+                                let val = self.eval_value(arg0, fn_map)?;
+                                let str_ptr = self.as_cstr_ptr(val)?;
+                                let printf = self.get_printf();
+                                let fmt = self.builder.build_global_string_ptr("%s", "fmt_str")?;
+                                self.builder.build_call(
+                                    printf,
+                                    &[fmt.as_pointer_value().into(), str_ptr.into()],
+                                    "printf_str",
+                                )?;
+                                if let Some(r) = result {
+                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                                }
+                                return Ok(());
+                            }
+                        }
                         "__PrintInt" => {
                             if let Some(arg0) = args.get(0) {
                                 let val = self.eval_value(arg0, fn_map)?;
