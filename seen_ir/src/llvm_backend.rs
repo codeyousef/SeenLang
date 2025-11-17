@@ -1204,7 +1204,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     /// Scan a function for struct types and register their layouts
     fn register_struct_layouts_from_function(&mut self, func: &IRFunction) -> Result<()> {
         // Scan all instructions for struct field access/set to infer layouts
-        for block in func.cfg.blocks().values() {
+        for block in func.cfg.blocks_iter() {
             for inst in &block.instructions {
                 match inst {
                     Instruction::FieldAccess { struct_val, field, .. } |
@@ -1212,10 +1212,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                         // Try to infer struct type from the value
                         if let IRValue::Register(_) | IRValue::Variable(_) = struct_val {
                             // Register a generic single-field struct layout for this field
-                            if self.lookup_struct_layout(field).is_none() {
+                            if self.lookup_struct_layout(&field).is_none() {
                                 let field_ty = self.i8_ptr_t.as_basic_type_enum();
                                 let struct_ty = self.ctx.struct_type(&[field_ty], false);
-                                self.register_type_layout(field, struct_ty.as_basic_type_enum());
+                                self.register_type_layout(&field, struct_ty.as_basic_type_enum());
                             }
                         }
                     }
@@ -3194,7 +3194,6 @@ impl<'ctx> LlvmBackend<'ctx> {
                     .build_store(gep, val)
                     .map_err(|e| anyhow!("{e:?}"))?;
             }
-            }
             Instruction::Scoped { .. } | Instruction::Spawn { .. } => {
                 return Err(anyhow!(
                     "LLVM backend does not yet lower scoped/spawn concurrency instructions"
@@ -3835,13 +3834,6 @@ impl<'ctx> LlvmBackend<'ctx> {
                     Ok(av.as_basic_value_enum())
                 } else {
                     Err(anyhow!("Mismatched array store type"))
-                }
-            }
-            (BasicValueEnum::VectorValue(vv), BasicTypeEnum::VectorType(vt)) => {
-                if vv.get_type() == vt {
-                    Ok(vv.as_basic_value_enum())
-                } else {
-                    Err(anyhow!("Mismatched vector store type"))
                 }
             }
             (BasicValueEnum::ScalableVectorValue(svv), BasicTypeEnum::ScalableVectorType(svt)) => {

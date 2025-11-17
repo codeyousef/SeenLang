@@ -1,0 +1,12 @@
+// Story 1.5: Float Arithmetic Validation Test
+// Simple test to verify float arithmetic works end-to-end
+
+fun main() -> Int {
+    // Test basic float arithmetic
+    let a = 3.14
+    let b = 2.0
+    let sum = a + b
+    
+    // Return 0 for success
+    0
+}

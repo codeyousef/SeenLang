@@ -398,6 +398,126 @@ pub extern "C" fn __await(_handle: *mut SeenTaskHandle) -> i32 {
 }
 
 // ============================================================================
+// Array Runtime (for generic array allocation and management)
+// ============================================================================
+
+/// Array struct layout (matches Story 1.1/1.2 implementation):
+/// struct Array<T> { i64 len; i64 capacity; T* data; }
+#[repr(C)]
+pub struct SeenArray {
+    pub len: i64,
+    pub capacity: i64,
+    pub data: *mut u8,
+}
+
+/// Allocate a new array with specified element size and capacity
+/// Returns pointer to Array<T> struct on heap
+#[unsafe(no_mangle)]
+pub extern "C" fn __ArrayNew(element_size: i64, capacity: i64) -> *mut SeenArray {
+    if element_size <= 0 || capacity < 0 {
+        return ptr::null_mut();
+    }
+
+    let byte_capacity = (element_size * capacity) as usize;
+    let data_ptr = if byte_capacity > 0 {
+        unsafe {
+            let layout = std::alloc::Layout::from_size_align_unchecked(byte_capacity, 8);
+            let ptr = std::alloc::alloc_zeroed(layout);
+            if ptr.is_null() {
+                return ptr::null_mut();
+            }
+            ptr
+        }
+    } else {
+        ptr::null_mut()
+    };
+
+    Box::into_raw(Box::new(SeenArray {
+        len: 0,
+        capacity,
+        data: data_ptr,
+    }))
+}
+
+/// Allocate array with initial length set to capacity (filled with zeros)
+#[unsafe(no_mangle)]
+pub extern "C" fn __ArrayWithLength(element_size: i64, length: i64) -> *mut SeenArray {
+    let arr_ptr = __ArrayNew(element_size, length);
+    if !arr_ptr.is_null() {
+        unsafe {
+            (*arr_ptr).len = length;
+        }
+    }
+    arr_ptr
+}
+
+/// Free an array and its data
+#[unsafe(no_mangle)]
+pub extern "C" fn __ArrayFree(arr_ptr: *mut SeenArray, element_size: i64) {
+    if arr_ptr.is_null() {
+        return;
+    }
+
+    unsafe {
+        let arr = Box::from_raw(arr_ptr);
+        if !arr.data.is_null() && arr.capacity > 0 && element_size > 0 {
+            let byte_capacity = (element_size * arr.capacity) as usize;
+            let layout = std::alloc::Layout::from_size_align_unchecked(byte_capacity, 8);
+            std::alloc::dealloc(arr.data, layout);
+        }
+    }
+}
+
+/// Push element to end of array (grows if needed)
+/// Returns 0 on success, -1 on failure
+#[unsafe(no_mangle)]
+pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, element_size: i64) -> i32 {
+    if arr_ptr.is_null() || element_ptr.is_null() || element_size <= 0 {
+        return -1;
+    }
+
+    unsafe {
+        let arr = &mut *arr_ptr;
+        
+        // Grow if needed
+        if arr.len >= arr.capacity {
+            let new_capacity = if arr.capacity == 0 { 8 } else { arr.capacity * 2 };
+            let new_byte_capacity = (element_size * new_capacity) as usize;
+            let new_layout = std::alloc::Layout::from_size_align_unchecked(new_byte_capacity, 8);
+            let new_data = std::alloc::alloc_zeroed(new_layout);
+            
+            if new_data.is_null() {
+                return -1;
+            }
+
+            // Copy old data
+            if !arr.data.is_null() && arr.len > 0 {
+                let old_byte_size = (element_size * arr.len) as usize;
+                std::ptr::copy_nonoverlapping(arr.data, new_data, old_byte_size);
+                
+                // Free old data
+                if arr.capacity > 0 {
+                    let old_byte_capacity = (element_size * arr.capacity) as usize;
+                    let old_layout = std::alloc::Layout::from_size_align_unchecked(old_byte_capacity, 8);
+                    std::alloc::dealloc(arr.data, old_layout);
+                }
+            }
+
+            arr.data = new_data;
+            arr.capacity = new_capacity;
+        }
+
+        // Copy element to end
+        let offset = (arr.len * element_size) as isize;
+        let dest = arr.data.offset(offset);
+        std::ptr::copy_nonoverlapping(element_ptr, dest, element_size as usize);
+        arr.len += 1;
+        
+        0
+    }
+}
+
+// ============================================================================
 // Timing Intrinsics (for benchmarks and performance measurement)
 // ============================================================================
 
