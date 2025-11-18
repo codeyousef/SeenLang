@@ -1,0 +1,257 @@
+// seen_std::collections::string_hash_map
+// High-performance hash map specialized for String keys.
+
+import collections.vec.{Vec}
+import core.option.{Option, Some, None}
+
+fun emptyState() -> Int { return 0 }
+fun occupiedState() -> Int { return 1 }
+fun tombstoneState() -> Int { return 2 }
+fun defaultCapacity() -> Int { return 16 }
+fun maxLoadPercent() -> Int { return 70 }
+
+class HashEntry<V> {
+    var key: String
+    var value: V
+}
+
+class StringHashMap<V> {
+    var entries: Vec<Option<HashEntry<V>>>
+    var states: Vec<Int>
+    var length: Int
+
+    fun new() -> StringHashMap<V> {
+        return StringHashMap.withCapacity(defaultCapacity())
+    }
+
+    fun withCapacity(capacity: Int) -> StringHashMap<V> {
+        let buckets = nextPowerOfTwo(capacity)
+        return StringHashMap{
+            entries: initializeBuckets<V>(buckets),
+            states: initializeStates(buckets),
+            length: 0
+        }
+    }
+
+    fun len() -> Int {
+        return length
+    }
+
+    fun isEmpty() -> Bool {
+        return length == 0
+    }
+
+    fun capacity() -> Int {
+        return entries.len()
+    }
+
+    fun clear() -> Void {
+        let buckets = capacity()
+        entries = initializeBuckets<V>(buckets)
+        states = initializeStates(buckets)
+        length = 0
+    }
+
+    fun insert(key: String, value: V) -> Void {
+        ensureCapacityFor(length + 1)
+        insertInternal(key, value)
+    }
+
+    fun get(key: String) -> Option<V> {
+        let slot = findSlot(key)
+        if slot < 0 {
+            return None()
+        }
+        let entryOpt = entries.get(slot)
+        if entryOpt.isNone() {
+            return None()
+        }
+        let entry = entryOpt.unwrap()
+        return Some(entry.value)
+    }
+
+    fun contains(key: String) -> Bool {
+        return findSlot(key) >= 0
+    }
+
+    fun remove(key: String) -> Bool {
+        let slot = findSlot(key)
+        if slot < 0 {
+            return false
+        }
+        entries.set(slot, None())
+        states.set(slot, tombstoneState())
+        length = length - 1
+        return true
+    }
+
+    fun keys() -> Array<String> {
+        let items = Array<String>()
+        var index = 0
+        while index < entries.len() {
+            if states.get(index) == occupiedState() {
+                let entryOpt = entries.get(index)
+                if entryOpt.isSome() {
+                    let entry = entryOpt.unwrap()
+                    items.push(entry.key)
+                }
+            }
+            index = index + 1
+        }
+        return items
+    }
+
+    fun loadFactorPercent() -> Int {
+        if capacity() == 0 {
+            return 0
+        }
+        return (length * 100) / capacity()
+    }
+
+    fun insertInternal(key: String, value: V) -> Void {
+        var index = probeIndex(key)
+        var firstTombstone = -1
+        while true {
+            let state = states.get(index)
+            if state == emptyState() {
+                let insertIndex = if firstTombstone >= 0 { firstTombstone } else { index }
+                if firstTombstone >= 0 {
+                    index = insertIndex
+                }
+                let entry = HashEntry<V>{ key: key, value: value }
+                entries.set(insertIndex, Some(entry))
+                states.set(insertIndex, occupiedState())
+                length = length + 1
+                return
+            }
+            if state == tombstoneState() and firstTombstone < 0 {
+                firstTombstone = index
+            } else if state == occupiedState() {
+                let entryOpt = entries.get(index)
+                if entryOpt.isSome() {
+                    let entry = entryOpt.unwrap()
+                    if entry.key == key {
+                        let updated = HashEntry<V>{ key: key, value: value }
+                        entries.set(index, Some(updated))
+                        return
+                    }
+                }
+            }
+            index = (index + 1) % capacity()
+        }
+    }
+
+    fun findSlot(key: String) -> Int {
+        if capacity() == 0 {
+            return -1
+        }
+        var index = probeIndex(key)
+        var steps = 0
+        while steps < capacity() {
+            let state = states.get(index)
+            if state == emptyState() {
+                return -1
+            }
+            if state == occupiedState() {
+                let entryOpt = entries.get(index)
+                if entryOpt.isSome() {
+                    let entry = entryOpt.unwrap()
+                    if entry.key == key {
+                        return index
+                    }
+                }
+            }
+            index = (index + 1) % capacity()
+            steps = steps + 1
+        }
+        return -1
+    }
+
+    fun ensureCapacityFor(required: Int) -> Void {
+        if capacity() == 0 {
+            resize(defaultCapacity())
+            return
+        }
+        if ((required * 100) / capacity()) <= maxLoadPercent() {
+            return
+        }
+        resize(capacity() * 2)
+    }
+
+    fun resize(newCapacity: Int) -> Void {
+        let target = nextPowerOfTwo(newCapacity)
+        let oldEntries = entries
+        let oldStates = states
+        entries = initializeBuckets<V>(target)
+        states = initializeStates(target)
+        length = 0
+        var index = 0
+        while index < oldEntries.len() {
+            if oldStates.get(index) == occupiedState() {
+                let entryOpt = oldEntries.get(index)
+                if entryOpt.isSome() {
+                    let entry = entryOpt.unwrap()
+                    insertInternal(entry.key, entry.value)
+                }
+            }
+            index = index + 1
+        }
+    }
+
+    fun probeIndex(key: String) -> Int {
+        let hash = hashString(key)
+        let cap = capacity()
+        if cap == 0 {
+            return 0
+        }
+        var index = hash % cap
+        if index < 0 {
+            index = -index
+        }
+        return index
+    }
+}
+
+fun nextPowerOfTwo(value: Int) -> Int {
+    var size = 1
+    while size < value {
+        size = size * 2
+    }
+    return size
+}
+
+fun initializeBuckets<V>(capacity: Int) -> Vec<Option<HashEntry<V>>> {
+    let vec = Vec<Option<HashEntry<V>>>.withCapacity(capacity)
+    var index = 0
+    while index < capacity {
+        vec.push(None())
+        index = index + 1
+    }
+    return vec
+}
+
+fun initializeStates(capacity: Int) -> Vec<Int> {
+    let vec = Vec<Int>.withCapacity(capacity)
+    var index = 0
+    while index < capacity {
+        vec.push(emptyState())
+        index = index + 1
+    }
+    return vec
+}
+
+fun hashString(text: String) -> Int {
+    var hash = 2166136261
+    var index = 0
+    while index < text.length() {
+        let slice: String = text.substring(index, index + 1)
+        let code = slice.charCodeAt(0)
+        hash = hash + code
+        hash = (hash * 131) % 2147483647
+        index = index + 1
+    }
+    if hash < 0 {
+        hash = -hash
+    }
+    return hash
+}

@@ -1,0 +1,7 @@
+[package]
+name = "seen_mlir"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+seen_ir = { path = "../seen_ir" }

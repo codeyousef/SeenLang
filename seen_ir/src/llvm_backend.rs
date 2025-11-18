@@ -25,7 +25,6 @@ use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue,
     UnnamedAddress, VectorValue,
 };
-// Re-export for public API
 pub use inkwell::OptimizationLevel as LlvmOptLevel;
 
 use crate::function::{IRFunction, InlineHint, RegisterPressureClass};
@@ -268,7 +267,6 @@ mod tests {
     fn simd_splat_and_reduce_lower_to_vector_ir() {
         let mut backend = LlvmBackend::new();
         let mut func = IRFunction::new("simd_reduce", IRType::Float);
-        func.cfg.set_entry_block("entry".to_string());
         func.register_count = 2;
         let mut entry = BasicBlock::new(Label::new("entry"));
         entry.instructions.push(Instruction::SimdSplat {
@@ -324,10 +322,6 @@ pub struct LlvmBackend<'ctx> {
     box_int_fn: Option<FunctionValue<'ctx>>,
     box_bool_fn: Option<FunctionValue<'ctx>>,
     box_ptr_fn: Option<FunctionValue<'ctx>>,
-    // Layout registry for arrays/structs
-    layout_registry: HashMap<String, BasicTypeEnum<'ctx>>,
-    // IR type definitions from modules (for struct literal construction)
-    ir_type_definitions: HashMap<String, IRType>,
     use_channel_runtime_stubs: bool,
     cli_mode: bool,
 
@@ -337,8 +331,6 @@ pub struct LlvmBackend<'ctx> {
     var_values: HashMap<String, BasicValueEnum<'ctx>>, // %var -> last assigned value (SSA‑like)
     var_slots: HashMap<String, PointerValue<'ctx>>, // %var -> alloca i64 slot
     var_slot_types: HashMap<String, BasicTypeEnum<'ctx>>, // %var -> LLVM storage type
-    var_ir_types: HashMap<String, IRType>,          // %var -> IR type (for element type inference)
-    reg_ir_types: HashMap<u32, IRType>,             // %rN -> IR type (for element type inference)
     blocks: HashMap<String, LlvmBasicBlock<'ctx>>,  // label name -> BB
     reg_slots: HashMap<u32, PointerValue<'ctx>>,    // %rN -> alloca i64 slot
 
@@ -380,8 +372,6 @@ impl<'ctx> LlvmBackend<'ctx> {
             box_int_fn: None,
             box_bool_fn: None,
             box_ptr_fn: None,
-            layout_registry: HashMap::new(),
-            ir_type_definitions: HashMap::new(),
             use_channel_runtime_stubs: true,
             cli_mode: false,
             current_fn: None,
@@ -389,8 +379,6 @@ impl<'ctx> LlvmBackend<'ctx> {
             var_values: HashMap::new(),
             var_slots: HashMap::new(),
             var_slot_types: HashMap::new(),
-            var_ir_types: HashMap::new(),
-            reg_ir_types: HashMap::new(),
             blocks: HashMap::new(),
             reg_slots: HashMap::new(),
             g_argc: None,
@@ -438,10 +426,6 @@ impl<'ctx> LlvmBackend<'ctx> {
         let static_libs = options.static_libraries.clone();
         let (target_triple, target_machine) = Self::target_machine_for(&options)?;
         self.configure_module_target(&target_triple, &target_machine);
-
-        // Run LLVM optimization passes on the module
-        self.run_llvm_passes(&target_machine, options.opt_level)?;
-        
         let obj_path = Self::object_file_path(out_path, &target_triple);
         eprintln!("LLVM backend: writing object file {:?}", obj_path);
         target_machine
@@ -460,37 +444,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.link_artifact(kind, &obj_path, out_path, &triple_string, &static_libs)
     }
 
-    fn run_llvm_passes(&self, target_machine: &TargetMachine, opt_level: LlvmOptLevel) -> Result<()> {
-        use inkwell::passes::PassBuilderOptions;
-
-        // Map optimization level to pass pipeline
-        let passes = match opt_level {
-            LlvmOptLevel::None => return Ok(()), // No optimization
-            LlvmOptLevel::Less => "default<O1>",
-            LlvmOptLevel::Default => "default<O2>",
-            LlvmOptLevel::Aggressive => "default<O3>",
-        };
-
-        eprintln!("Running LLVM optimization passes: {}", passes);
-        let options = PassBuilderOptions::create();
-        self.module
-            .run_passes(passes, target_machine, options)
-            .map_err(|e| anyhow!("Failed to run LLVM passes: {}", e))
-    }
-
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
-        // Register IR type definitions from all modules
-        for module in prog.modules.iter() {
-            for type_def in &module.types {
-                self.ir_type_definitions.insert(type_def.name.clone(), type_def.type_def.clone());
-            }
-        }
-        
-        // Register all struct layouts first
-        for module in prog.modules.iter() {
-            self.register_struct_layouts_from_module(module)?;
-        }
-        
         // Predeclare all functions
         let mut fn_map: HashMap<String, FunctionValue<'ctx>> = HashMap::new();
         let mut modules: Vec<&IRModule> = prog.modules.iter().collect();
@@ -541,18 +495,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         };
         let target = Target::from_triple(&triple)
             .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
-        // Use native CPU by default for maximum performance unless explicitly overridden
-        let host_cpu_name = TargetMachine::get_host_cpu_name();
-        let host_cpu_str = host_cpu_name.to_str().unwrap_or("generic");
-        let cpu = options.cpu.unwrap_or(host_cpu_str);
+        let cpu = options.cpu.unwrap_or("generic");
         let mut feature_parts = Vec::new();
-        // Add native CPU features by default for maximum performance
-        if options.features.is_none() && options.cpu.is_none() {
-            let native_features = TargetMachine::get_host_cpu_features().to_string();
-            if !native_features.is_empty() {
-                feature_parts.push(native_features);
-            }
-        }
         if let Some(explicit) = options.features.as_deref() {
             if !explicit.trim().is_empty() {
                 feature_parts.push(explicit.to_string());
@@ -572,14 +516,12 @@ impl<'ctx> LlvmBackend<'ctx> {
         } else {
             feature_string.as_str()
         };
-        eprintln!("Creating target machine: CPU={}, features={}, opt_level={:?}",
-                  cpu, features, options.opt_level);
         let machine = target
             .create_target_machine(
                 &triple,
                 cpu,
                 features,
-                options.opt_level,
+                LlvmOptLevel::Default,
                 RelocMode::Default,
                 CodeModel::Default,
             )
@@ -1196,3638 +1138,5344 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(())
     }
 
-    fn register_type_layout(&mut self, name: &str, ty: BasicTypeEnum<'ctx>) {
-        self.layout_registry.insert(name.to_string(), ty);
-    }
-
-    fn lookup_struct_layout(&self, name: &str) -> Option<BasicTypeEnum<'ctx>> {
-        self.layout_registry.get(name).cloned()
-    }
-    
-    /// Register struct layouts from all global types in a module
-    fn register_struct_layouts_from_module(&mut self, module: &IRModule) -> Result<()> {
-        // Scan through all functions to find struct types used
-        for func in module.functions_iter() {
-            self.register_struct_layouts_from_function(func)?;
-        }
-        Ok(())
-    }
-    
-    /// Scan a function for struct types and register their layouts
-    fn register_struct_layouts_from_function(&mut self, func: &IRFunction) -> Result<()> {
-        // Scan all instructions for struct field access/set to infer layouts
-        for block in func.cfg.blocks_iter() {
-            for inst in &block.instructions {
-                match inst {
-                    Instruction::FieldAccess { struct_val, field, .. } |
-                    Instruction::FieldSet { struct_val, field, .. } => {
-                        // Try to infer struct type from the value
-                        if let IRValue::Register(_) | IRValue::Variable(_) = struct_val {
-                            // Register a generic single-field struct layout for this field
-                            if self.lookup_struct_layout(&field).is_none() {
-                                let field_ty = self.i8_ptr_t.as_basic_type_enum();
-                                let struct_ty = self.ctx.struct_type(&[field_ty], false);
-                                self.register_type_layout(&field, struct_ty.as_basic_type_enum());
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn ir_type_to_llvm(&self, t: &IRType) -> BasicTypeEnum<'ctx> {
-        match t {
-            // Void is not a BasicType in LLVM; callers that need a function
-            // type must handle void explicitly. Provide a placeholder type to
-            // satisfy type requirements in contexts that should never see Void.
-            IRType::Void => self.ctx.i8_type().into(),
-            IRType::Integer => self.i64_t.into(),
-            IRType::Float => self.ctx.f64_type().into(),
-            IRType::Boolean => self.bool_t.into(),
-            IRType::Char => self.ctx.i8_type().into(),
-            IRType::String => self.i8_ptr_t.into(),
-            IRType::Array(element_type) => {
-                // Arrays are runtime-managed heap objects with layout:
-                // struct Array<T> { i64 len; i64 capacity; T* data; }
-                // Return pointer to this struct type
-                let element_llvm_type = self.ir_type_to_llvm(element_type);
-                let data_ptr = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
-                
-                let array_struct = self.ctx.struct_type(
-                    &[
-                        self.i64_t.into(),      // len field
-                        self.i64_t.into(),      // capacity field
-                        data_ptr.into(),        // data pointer (typed!)
-                    ],
-                    false,
-                );
-                
-                // Return pointer to struct (arrays are heap-allocated)
-                array_struct.ptr_type(inkwell::AddressSpace::from(0u16)).into()
-            }
-            IRType::Function {
-                parameters,
-                return_type,
-            } => {
-                let fn_ty = self.fn_type_from_ir(return_type, parameters);
-                fn_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into()
-            }
-            IRType::Vector { lanes, lane_type } => {
-                let lane = self.ir_type_to_llvm(lane_type);
-                match lane {
-                    BasicTypeEnum::IntType(int_ty) => int_ty.vec_type(*lanes).into(),
-                    BasicTypeEnum::FloatType(float_ty) => float_ty.vec_type(*lanes).into(),
-                    BasicTypeEnum::PointerType(ptr_ty) => ptr_ty.vec_type(*lanes).into(),
-                    BasicTypeEnum::VectorType(vec_ty) => vec_ty.into(),
-                    BasicTypeEnum::ScalableVectorType(vec_ty) => vec_ty.into(),
-                    BasicTypeEnum::StructType(_) | BasicTypeEnum::ArrayType(_) => {
-                        self.i64_t.vec_type(*lanes).into()
-                    }
-                }
-            }
-            IRType::Struct { name, fields } => {
-                // Generate proper struct type from fields
-                let field_types: Vec<BasicTypeEnum<'ctx>> = fields.iter()
-                    .map(|(_, field_type)| self.ir_type_to_llvm(field_type))
-                    .collect();
-                
-                let struct_ty = self.ctx.struct_type(&field_types, false);
-                
-                // Return pointer to struct (structs are typically heap-allocated)
-                struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into()
-            }
-            IRType::Enum { .. } => self.i64_t.into(),
-            IRType::Pointer(inner) | IRType::Reference(inner) => self
-                .ir_type_to_llvm(inner)
-                .ptr_type(inkwell::AddressSpace::from(0u16))
-                .into(),
-            IRType::Optional(inner) => {
-                // Use pointer to inner where practical
-                self.ir_type_to_llvm(inner)
-                    .ptr_type(inkwell::AddressSpace::from(0u16))
-                    .into()
-            }
-            IRType::Generic(_) => self.i8_ptr_t.into(),
-        }
-    }
-
-    fn declare_function(&self, func: &IRFunction) -> Result<FunctionValue<'ctx>> {
-        let name = &func.name;
-        if let Some(existing) = self.module.get_function(name) {
-            return Ok(existing);
-        }
-
-        // Build param list
-        let params_ir: Vec<IRType> = func
-            .parameters
-            .iter()
-            .map(|p| p.param_type.clone())
-            .collect();
-        let fn_ty = self.fn_type_from_ir(&func.return_type, &params_ir);
-        let f = self.module.add_function(name, fn_ty, None);
-        self.apply_ir_function_attributes(func, f);
-        self.apply_hardware_attributes(f);
-        Ok(f)
-    }
-
-    fn apply_ir_function_attributes(&self, func: &IRFunction, llvm_fn: FunctionValue<'ctx>) {
-        match func.inline_hint {
-            InlineHint::AlwaysInline => self.add_enum_attribute(llvm_fn, "alwaysinline"),
-            InlineHint::NeverInline => self.add_enum_attribute(llvm_fn, "noinline"),
-            InlineHint::Auto => {}
-        }
-
-        if !matches!(func.register_pressure, RegisterPressureClass::Unknown) {
-            let attr = self
-                .ctx
-                .create_string_attribute("seen-register-pressure", func.register_pressure.as_str());
-            llvm_fn.add_attribute(AttributeLoc::Function, attr);
-        }
-    }
-
-    fn add_enum_attribute(&self, llvm_fn: FunctionValue<'ctx>, name: &str) {
-        let kind_id = Attribute::get_named_enum_kind_id(name);
-        if kind_id == 0 {
-            return;
-        }
-        let attr = self.ctx.create_enum_attribute(kind_id, 0);
-        llvm_fn.add_attribute(AttributeLoc::Function, attr);
-    }
-
-    fn fn_type_from_ir(
-        &self,
-        ret: &IRType,
-        params: &[IRType],
-    ) -> inkwell::types::FunctionType<'ctx> {
-        let params_ll: Vec<BasicMetadataTypeEnum> = params
-            .iter()
-            .map(|p| self.ir_type_to_llvm(p).into())
-            .collect();
-        match ret {
-            IRType::Void => self.ctx.void_type().fn_type(&params_ll, false),
-            _ => {
-                let r: BasicTypeEnum = self.ir_type_to_llvm(ret);
-                r.fn_type(&params_ll, false)
-            }
-        }
-    }
-
-    fn apply_hardware_attributes(&self, f: FunctionValue<'ctx>) {
-        if let Some(bits) = self.hardware_profile.max_vector_bits {
-            let width_str = bits.to_string();
-            let prefer = self
-                .ctx
-                .create_string_attribute("prefer-vector-width", &width_str);
-            f.add_attribute(AttributeLoc::Function, prefer);
-            let min_attr = self
-                .ctx
-                .create_string_attribute("min-legal-vector-width", &width_str);
-            f.add_attribute(AttributeLoc::Function, min_attr);
-        }
-        if !self.hardware_profile.cpu_features.is_empty() {
-            let joined = self.hardware_profile.cpu_features.join(",");
-            let attr = self.ctx.create_string_attribute("target-features", &joined);
-            f.add_attribute(AttributeLoc::Function, attr);
-        }
-        let budget_attr = self.ctx.create_string_attribute(
-            "seen-register-budget",
-            &self.hardware_profile.register_budget_hint().to_string(),
-        );
-        f.add_attribute(AttributeLoc::Function, budget_attr);
-        let scheduler_attr = self.ctx.create_string_attribute(
-            "seen-scheduler-hint",
-            self.hardware_profile.scheduler_hint().as_str(),
-        );
-        f.add_attribute(AttributeLoc::Function, scheduler_attr);
-    }
-
-    fn define_function(
-        &mut self,
-        func: &IRFunction,
-        f: FunctionValue<'ctx>,
-        fn_map: &HashMap<String, FunctionValue<'ctx>>,
-    ) -> Result<()> {
-        self.current_fn = Some(f);
-        self.apply_hardware_attributes(f);
-        self.reg_values.clear();
-        self.var_values.clear();
-        self.var_slots.clear();
-        self.var_slot_types.clear();
-        self.var_ir_types.clear();
-        self.reg_ir_types.clear();
-        self.blocks.clear();
-        self.reg_slots.clear();
-
-        // Create all basic blocks first
-        let block_names: Vec<_> = if !func.cfg.block_order.is_empty() {
-            func.cfg.block_order.clone()
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
         } else {
-            let mut names: Vec<_> = func
-                .cfg
-                .blocks_iter()
-                .map(|block| block.label.0.clone())
-                .collect();
-            names.sort_by(|a, b| block_sort_key(a).cmp(&block_sort_key(b)));
-            names
+            TargetMachine::get_default_triple()
         };
-
-        // LLVM starts execution at the first basic block appended to the function.
-        // Ensure that the semantic entry block is created first so execution
-        // begins where the Seen IR expects.
-        if let Some(entry_name) = &func.cfg.entry_block {
-            let bb = self.ctx.append_basic_block(f, entry_name);
-            self.blocks.insert(entry_name.clone(), bb);
-        }
-        for name in &block_names {
-            if Some(name) == func.cfg.entry_block.as_ref() {
-                continue;
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
             }
-            let bb = self.ctx.append_basic_block(f, name);
-            self.blocks.insert(name.clone(), bb);
         }
-
-        // Position at entry (create a synthetic one if the IR forgot to mark it).
-        if let Some(entry_name) = &func.cfg.entry_block {
-            let bb = self.blocks.get(entry_name).cloned().unwrap();
-            self.builder.position_at_end(bb);
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
         } else {
-            let bb = self.ctx.append_basic_block(f, "entry");
-            self.blocks.insert("entry".to_string(), bb);
-            self.builder.position_at_end(bb);
-        }
-
-        // Preallocate slots for parameters and locals so variable loads work across blocks.
-        for param in &func.parameters {
-            let ty = self.ir_type_to_llvm(&param.param_type);
-            self.var_slot_types.insert(param.name.clone(), ty);
-            self.var_ir_types.insert(param.name.clone(), param.param_type.clone());
-            let slot = self.alloca_for_type(ty, &format!("param_slot_{}", param.name))?;
-            self.var_slots.insert(param.name.clone(), slot);
-        }
-        for local in func.locals_iter() {
-            let ty = self.ir_type_to_llvm(&local.var_type);
-            self.var_slot_types.insert(local.name.clone(), ty);
-            self.var_ir_types.insert(local.name.clone(), local.var_type.clone());
-            let slot = self.alloca_for_type(ty, &format!("local_slot_{}", local.name))?;
-            self.var_slots.insert(local.name.clone(), slot);
-        }
-
-        // Allocate slots for virtual registers as i64 cells
-        for r in 0..func.register_count {
-            let slot = self
-                .builder
-                .build_alloca(self.i64_t, &format!("reg{}_slot", r))
-                .map_err(|e| anyhow!("{e:?}"))?;
-            self.reg_slots.insert(r, slot);
-        }
-
-        // Initialize virtual registers with function parameters in order
-        // (assumes IR uses %r0..%rN for the first N arguments)
-        let param_count = f.count_params() as u32;
-        for i in 0..param_count {
-            if let Some(p) = f.get_nth_param(i as u32) {
-                let param_val = p.clone();
-                // Map %r{i}
-                self.reg_values.insert(i, param_val.clone());
-                // Also store into slot as i64 if available
-                if let Some(slot) = self.reg_slots.get(&i).copied() {
-                    let reg_val = param_val.clone();
-                    let ival = if reg_val.is_int_value() {
-                        let iv = reg_val.into_int_value();
-                        if iv.get_type() == self.i64_t {
-                            iv
-                        } else {
-                            self.builder
-                                .build_int_s_extend(iv, self.i64_t, "sext")
-                                .map_err(|e| anyhow!("{e:?}"))?
-                        }
-                    } else if reg_val.is_pointer_value() {
-                        self.builder
-                            .build_ptr_to_int(reg_val.into_pointer_value(), self.i64_t, "ptr2i")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                    } else if reg_val.is_float_value() {
-                        let fv = reg_val.into_float_value();
-                        self.builder
-                            .build_float_to_signed_int(fv, self.i64_t, "ftoi")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                    } else {
-                        self.i64_t.const_zero()
-                    };
-                    self.builder
-                        .build_store(slot, ival)
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                }
-                // Map by parameter name when available
-                if (i as usize) < func.parameters.len() {
-                    let pname = func.parameters[i as usize].name.clone();
-                    self.var_values.insert(pname.clone(), param_val.clone());
-                    if let Some(slot) = self.var_slots.get(&pname).copied() {
-                        let elem_ty = *self
-                            .var_slot_types
-                            .get(&pname)
-                            .ok_or_else(|| anyhow!("Missing slot type for {}", pname))?;
-                        let stored = self.cast_basic_to_type(param_val.clone(), elem_ty)?;
-                        self.builder
-                            .build_store(slot, stored)
-                            .map_err(|e| anyhow!("{e:?}"))?;
-                    }
-                }
-            }
-        }
-
-        // Emit entry block first, then the rest (stable order)
-        let mut emit_order: Vec<String> = Vec::new();
-        if let Some(entry_name) = &func.cfg.entry_block {
-            emit_order.push(entry_name.clone());
-        }
-        for name in &block_names {
-            if Some(name) != func.cfg.entry_block.as_ref() {
-                emit_order.push(name.clone());
-            }
-        }
-
-        #[cfg(debug_assertions)]
-        if func.name == "main" {
-            eprintln!("LLVM emit order: {:?}", emit_order);
-        }
-
-        for (idx, name) in emit_order.iter().enumerate() {
-            let bb = self.blocks.get(name).cloned().unwrap();
-            if self
-                .builder
-                .get_insert_block()
-                .map(|b| b != bb)
-                .unwrap_or(true)
-            {
-                self.builder.position_at_end(bb);
-            }
-
-            self.fallthrough_bb = emit_order
-                .get(idx + 1)
-                .and_then(|next| self.blocks.get(next).cloned());
-
-            let b = func
-                .cfg
-                .get_block(name)
-                .expect("basic block must exist in CFG");
-            for inst in &b.instructions {
-                self.emit_instruction(inst, fn_map)?;
-            }
-            if let Some(term) = &b.terminator {
-                self.emit_instruction(term, fn_map)?;
-            }
-            self.fallthrough_bb = None;
-            self.reg_values.clear();
-            self.var_values.clear();
-        }
-
-        Ok(())
-    }
-
-    fn emit_instruction(
-        &mut self,
-        inst: &Instruction,
-        fn_map: &HashMap<String, FunctionValue<'ctx>>,
-    ) -> Result<()> {
-        match inst {
-            Instruction::Label(lbl) => {
-                if let Some(bb) = self.blocks.get(&lbl.0) {
-                    if self
-                        .builder
-                        .get_insert_block()
-                        .map(|b| b != *bb)
-                        .unwrap_or(true)
-                    {
-                        self.builder.position_at_end(*bb);
-                    }
-                }
-            }
-            Instruction::Jump(target) => {
-                let dst = *self
-                    .blocks
-                    .get(&target.0)
-                    .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                self.builder.build_unconditional_branch(dst)?;
-                self.builder.clear_insertion_position();
-            }
-            Instruction::JumpIf { condition, target } => {
-                let cond = self.eval_value(condition, fn_map)?;
-                let i1 = self.as_bool(cond)?;
-                let dst = *self
-                    .blocks
-                    .get(&target.0)
-                    .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                let false_bb = match self.fallthrough_bb {
-                    Some(block) => block,
-                    None => {
-                        let fb = self
-                            .ctx
-                            .append_basic_block(self.current_fn.unwrap(), "fallthrough");
-                        self.builder.position_at_end(fb);
-                        self.builder.build_unreachable()?;
-                        self.builder.clear_insertion_position();
-                        fb
-                    }
-                };
-                self.builder.build_conditional_branch(i1, dst, false_bb)?;
-                self.builder.clear_insertion_position();
-            }
-            Instruction::JumpIfNot { condition, target } => {
-                let cond = self.eval_value(condition, fn_map)?;
-                let i1 = self.as_bool(cond)?;
-                let dst = *self
-                    .blocks
-                    .get(&target.0)
-                    .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                let true_bb = match self.fallthrough_bb {
-                    Some(block) => block,
-                    None => {
-                        let fb = self
-                            .ctx
-                            .append_basic_block(self.current_fn.unwrap(), "fallthrough");
-                        self.builder.position_at_end(fb);
-                        self.builder.build_unreachable()?;
-                        self.builder.clear_insertion_position();
-                        fb
-                    }
-                };
-                let not = self.builder.build_not(i1, "not")?;
-                self.builder.build_conditional_branch(not, dst, true_bb)?;
-                self.builder.clear_insertion_position();
-            }
-            Instruction::Return(val_opt) => {
-                let current_fn = self
-                    .current_fn
-                    .ok_or_else(|| anyhow!("return outside of function"))?;
-                let ret_ty_opt = current_fn.get_type().get_return_type();
-                match (val_opt, ret_ty_opt) {
-                    (Some(v), Some(ret_ty)) => {
-                        let mut bv = self.eval_value(v, fn_map)?;
-                        if bv.get_type() != ret_ty {
-                            bv = self.cast_basic_to_type(bv, ret_ty)?;
-                        }
-                        self.builder.build_return(Some(&bv))?;
-                    }
-                    (Some(_), None) | (None, _) => {
-                        self.builder.build_return(None)?;
-                    }
-                }
-                self.builder.clear_insertion_position();
-            }
-            Instruction::Move { source, dest } => {
-                let v = self.eval_value(source, fn_map)?;
-                self.assign_value(dest, v)?;
-            }
-            Instruction::Store { value, dest } => {
-                // Track types: if storing a register value to a variable, propagate the type
-                if let (IRValue::Register(r), IRValue::Variable(var_name)) = (value, dest) {
-                    if let Some(ir_type) = self.reg_ir_types.get(r).cloned() {
-                        self.var_ir_types.insert(var_name.clone(), ir_type);
-                    }
-                }
-                
-                let v = self.eval_value(value, fn_map)?;
-                self.assign_value(dest, v)?;
-            }
-            Instruction::Load { source, dest } => {
-                let v = self.eval_value(source, fn_map)?;
-                self.assign_value(dest, v)?;
-            }
-            Instruction::Unary {
-                op,
-                operand,
-                result,
-            } => {
-                let val = self.eval_value(operand, fn_map)?;
-                let res = match op {
-                    crate::instruction::UnaryOp::Not => {
-                        let bool_val = self.as_bool(val)?;
-                        self.builder
-                            .build_not(bool_val, "not")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::UnaryOp::Negate => {
-                        if let BasicValueEnum::FloatValue(fv) = val {
-                            self.builder
-                                .build_float_neg(fv, "fneg")
-                                .map_err(|e| anyhow!("{e:?}"))?
-                                .as_basic_value_enum()
-                        } else {
-                            let int_val = self.as_i64(val)?;
-                            self.builder
-                                .build_int_neg(int_val, "ineg")
-                                .map_err(|e| anyhow!("{e:?}"))?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::UnaryOp::BitwiseNot => {
-                        let int_val = self.as_i64(val)?;
-                        self.builder
-                            .build_not(int_val, "bnot")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::UnaryOp::Reference
-                    | crate::instruction::UnaryOp::Dereference => {
-                        return Err(anyhow!(
-                            "Reference/dereference unary ops are not yet supported in LLVM backend"
-                        ));
-                    }
-                };
-                self.assign_value(result, res)?;
-            }
-            Instruction::Binary {
-                op,
-                left,
-                right,
-                result,
-            } => {
-                let l = self.eval_value(left, fn_map)?;
-                let r = self.eval_value(right, fn_map)?;
-                let res = match op {
-                    crate::instruction::BinaryOp::Add => {
-                        // Check if either operand is a string (pointer type)
-                        if l.is_pointer_value() || r.is_pointer_value() {
-                            // String concatenation
-                            let l_ptr = if l.is_pointer_value() {
-                                l.into_pointer_value()
-                            } else {
-                                // Convert number to string first
-                                return Err(anyhow!("Cannot concatenate non-string with string yet"));
-                            };
-                            let r_ptr = if r.is_pointer_value() {
-                                r.into_pointer_value()
-                            } else {
-                                return Err(anyhow!("Cannot concatenate string with non-string yet"));
-                            };
-                            
-                            // Get lengths using strlen
-                            let strlen_fn = self.get_or_declare_strlen()?;
-                            let l_len_call = self.builder.build_call(strlen_fn, &[l_ptr.into()], "l_len")?;
-                            let r_len_call = self.builder.build_call(strlen_fn, &[r_ptr.into()], "r_len")?;
-                            let l_len = l_len_call.try_as_basic_value().left().unwrap().into_int_value();
-                            let r_len = r_len_call.try_as_basic_value().left().unwrap().into_int_value();
-                            
-                            // Allocate new buffer: l_len + r_len + 1 (for null terminator)
-                            let total_len = self.builder.build_int_add(l_len, r_len, "total_len")?;
-                            let alloc_size = self.builder.build_int_add(
-                                total_len,
-                                self.i64_t.const_int(1, false),
-                                "alloc_size"
-                            )?;
-                            
-                            let malloc_fn = self.get_or_declare_malloc()?;
-                            let result_ptr_call = self.builder.build_call(malloc_fn, &[alloc_size.into()], "concat_buf")?;
-                            let result_ptr = result_ptr_call.try_as_basic_value().left().unwrap().into_pointer_value();
-                            
-                            // Copy left string using memcpy(result, l_ptr, l_len)
-                            let memcpy_fn = self.get_or_declare_memcpy()?;
-                            self.builder.build_call(
-                                memcpy_fn,
-                                &[result_ptr.into(), l_ptr.into(), l_len.into()],
-                                ""
-                            )?;
-                            
-                            // Copy right string to result + l_len using memcpy(result + l_len, r_ptr, r_len)
-                            let dest_offset = unsafe {
-                                self.builder.build_gep(
-                                    self.ctx.i8_type(),
-                                    result_ptr,
-                                    &[l_len],
-                                    "dest_offset"
-                                )?
-                            };
-                            self.builder.build_call(
-                                memcpy_fn,
-                                &[dest_offset.into(), r_ptr.into(), r_len.into()],
-                                ""
-                            )?;
-                            
-                            // Add null terminator at result + total_len
-                            let null_pos = unsafe {
-                                self.builder.build_gep(
-                                    self.ctx.i8_type(),
-                                    result_ptr,
-                                    &[total_len],
-                                    "null_pos"
-                                )?
-                            };
-                            self.builder.build_store(null_pos, self.ctx.i8_type().const_zero())?;
-                            
-                            result_ptr.as_basic_value_enum()
-                        } else if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder.build_float_add(lf, rf, "fadd")?.as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder.build_int_add(li, ri, "add")?.as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Subtract => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder.build_float_sub(lf, rf, "fsub")?.as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder.build_int_sub(li, ri, "sub")?.as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Multiply => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder.build_float_mul(lf, rf, "fmul")?.as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder.build_int_mul(li, ri, "mul")?.as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Divide => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder.build_float_div(lf, rf, "fdiv")?.as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder.build_int_signed_div(li, ri, "div")?.as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Modulo => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder.build_float_rem(lf, rf, "frem")?.as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder.build_int_signed_rem(li, ri, "mod")?.as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Equal
-                    | crate::instruction::BinaryOp::NotEqual => {
-                        let pred = match op {
-                            crate::instruction::BinaryOp::Equal => inkwell::IntPredicate::EQ,
-                            _ => inkwell::IntPredicate::NE,
-                        };
-                        if self.is_string_value_ir(left) || self.is_string_value_ir(right) {
-                            let lp = self.as_cstr_ptr(l.clone())?;
-                            let rp = self.as_cstr_ptr(r.clone())?;
-                            let cmp = self.call_strcmp(lp, rp)?;
-                            let zero = self.ctx.i32_type().const_zero();
-                            self.builder
-                                .build_int_compare(pred, cmp, zero, "strcmp")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_compare(pred, li, ri, "icmp")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::LessThan => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder
-                                .build_float_compare(inkwell::FloatPredicate::OLT, lf, rf, "flt")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_compare(inkwell::IntPredicate::SLT, li, ri, "lt")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::LessEqual => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder
-                                .build_float_compare(inkwell::FloatPredicate::OLE, lf, rf, "fle")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_compare(inkwell::IntPredicate::SLE, li, ri, "le")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::GreaterThan => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder
-                                .build_float_compare(inkwell::FloatPredicate::OGT, lf, rf, "fgt")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_compare(inkwell::IntPredicate::SGT, li, ri, "gt")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::GreaterEqual => {
-                        if l.is_float_value() || r.is_float_value() {
-                            let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
-                            let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
-                            self.builder
-                                .build_float_compare(inkwell::FloatPredicate::OGE, lf, rf, "fge")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_compare(inkwell::IntPredicate::SGE, li, ri, "ge")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::And => {
-                        let li = self.as_bool(l.clone())?;
-                        let ri = self.as_bool(r.clone())?;
-                        self.builder.build_and(li, ri, "and")?.as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::Or => {
-                        let li = self.as_bool(l.clone())?;
-                        let ri = self.as_bool(r.clone())?;
-                        self.builder.build_or(li, ri, "or")?.as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::BitwiseAnd => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_and(li, ri, "band")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::BitwiseOr => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder.build_or(li, ri, "bor")?.as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::BitwiseXor => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_xor(li, ri, "bxor")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::LeftShift => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_left_shift(li, ri, "shl")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::RightShift => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_right_shift(li, ri, true, "shr")?
-                            .as_basic_value_enum()
-                    }
-                };
-                self.assign_value(result, res)?;
-            }
-            Instruction::StringLength { string, result } => {
-                let s_val = self.eval_value(string, fn_map)?;
-                let s_ptr = self.as_cstr_ptr(s_val)?;
-                let slen = self.call_strlen(s_ptr)?;
-                self.assign_value(result, slen.as_basic_value_enum())?;
-            }
-            Instruction::StringConcat {
-                left,
-                right,
-                result,
-            } => {
-                let lval = self.eval_value(left, fn_map)?;
-                let rval = self.eval_value(right, fn_map)?;
-                let l = self.as_cstr_ptr(lval)?;
-                let r = self.as_cstr_ptr(rval)?;
-                let out = self.runtime_concat(l, r)?;
-                self.assign_value(result, out.as_basic_value_enum())?;
-            }
-            Instruction::SimdSplat {
-                scalar,
-                lane_type,
-                lanes,
-                result,
-            } => {
-                let mut scalar_val = self.eval_value(scalar, fn_map)?;
-                let lane_basic = self.ir_type_to_llvm(lane_type);
-                scalar_val = self.cast_basic_to_type(scalar_val, lane_basic)?;
-                let vec_type =
-                    match self.ir_type_to_llvm(&IRType::vector(*lanes, lane_type.clone())) {
-                        BasicTypeEnum::VectorType(vt) => vt,
-                        other => {
-                            return Err(anyhow!(
-                                "simd.splat requires numeric lane type, found {other:?}"
-                            ))
-                        }
-                    };
-                let mut acc = vec_type.get_undef();
-                let index_ty = self.ctx.i32_type();
-                for idx in 0..*lanes {
-                    let lane_index = index_ty.const_int(idx as u64, false);
-                    acc = self
-                        .builder
-                        .build_insert_element(
-                            acc,
-                            scalar_val,
-                            lane_index,
-                            &format!("splat_lane_{idx}"),
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                }
-                self.assign_value(result, acc.as_basic_value_enum())?;
-            }
-            Instruction::SimdReduceAdd {
-                vector,
-                lane_type,
-                result,
-            } => {
-                let vec_basic = self.eval_value(vector, fn_map)?;
-                let vec_value = match vec_basic {
-                    BasicValueEnum::VectorValue(vec) => vec,
-                    _ => {
-                        return Err(anyhow!("simd.reduce_add expects a vector operand"));
-                    }
-                };
-                let lanes = vec_value.get_type().get_size();
-                let index_ty = self.ctx.i32_type();
-                let mut acc = match lane_type {
-                    IRType::Float => self.ctx.f64_type().const_float(0.0).as_basic_value_enum(),
-                    IRType::Integer => self.i64_t.const_zero().as_basic_value_enum(),
-                    _ => {
-                        return Err(anyhow!(
-                            "simd.reduce_add currently supports integer or float lanes"
-                        ))
-                    }
-                };
-                for idx in 0..lanes {
-                    let lane_index = index_ty.const_int(idx as u64, false);
-                    let lane = self
-                        .builder
-                        .build_extract_element(
-                            vec_value,
-                            lane_index,
-                            &format!("lane_extract_{idx}"),
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                    acc = match lane_type {
-                        IRType::Float => {
-                            let a = acc.into_float_value();
-                            let b = lane.into_float_value();
-                            self.builder
-                                .build_float_add(a, b, "reduce_fadd")
-                                .map_err(|e| anyhow!("{e:?}"))?
-                                .as_basic_value_enum()
-                        }
-                        IRType::Integer => {
-                            let a = acc.into_int_value();
-                            let b = lane.into_int_value();
-                            self.builder
-                                .build_int_add(a, b, "reduce_iadd")
-                                .map_err(|e| anyhow!("{e:?}"))?
-                                .as_basic_value_enum()
-                        }
-                        _ => unreachable!(),
-                    };
-                }
-                self.assign_value(result, acc)?;
-            }
-            Instruction::ArrayLength { array, result } => {
-                // Handle compile-time constant arrays
-                if let IRValue::Array(values) = array {
-                    let res = self.i64_t
-                        .const_int(values.len() as u64, false)
-                        .as_basic_value_enum();
-                    self.assign_value(result, res)?;
-                    return Ok(());
-                }
-
-                // Infer element type from array variable's IR type (for struct layout)
-                let element_ir_type = if let IRValue::Variable(var_name) = array {
-                    self.var_ir_types
-                        .get(var_name)
-                        .and_then(|ir_type| {
-                            if let IRType::Array(elem_type) = ir_type {
-                                Some(elem_type.as_ref())
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(&IRType::Char)
-                } else {
-                    &IRType::Char
-                };
-
-                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
-                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
-                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
-                let array_struct_type = self.ctx.struct_type(
-                    &[
-                        self.i64_t.into(),      // len (field 0)
-                        self.i64_t.into(),      // capacity
-                        data_ptr_type.into(),   // data
-                    ],
-                    false,
-                );
-
-                // Evaluate array pointer
-                let arr_v = self.eval_value(array, fn_map)?;
-                let arr_ptr = if arr_v.is_pointer_value() {
-                    arr_v.into_pointer_value()
-                } else if arr_v.is_int_value() {
-                    self.builder
-                        .build_int_to_ptr(
-                            arr_v.into_int_value(),
-                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "arr_len_ptr",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?
-                } else {
-                    let res = self.i64_t.const_int(0, false).as_basic_value_enum();
-                    self.assign_value(result, res)?;
-                    return Ok(());
-                };
-
-                // GEP to len field (index 0)
-                let len_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 0, "len_ptr")?;
-                
-                // Load length
-                let len = self.builder.build_load(self.i64_t, len_ptr, "len")?;
-                self.assign_value(result, len.as_basic_value_enum())?;
-            }
-            Instruction::ArrayAccess {
-                array,
-                index,
-                result,
-            } => {
-                // Handle compile-time constant arrays
-                if let IRValue::Array(vs) = array {
-                    let idx_bv = self.eval_value(index, fn_map)?;
-                    let idx_val = self.as_usize(idx_bv)? as usize;
-                    if idx_val >= vs.len() {
-                        return Err(anyhow!("Array index OOB"));
-                    }
-                    let elem = self.eval_value(&vs[idx_val], fn_map)?;
-                    self.assign_value(result, elem)?;
-                    return Ok(());
-                }
-
-                // Infer element type from array variable's or register's IR type (clone to avoid borrow issues)
-                let element_ir_type = match array {
-                    IRValue::Variable(var_name) => {
-                        self.var_ir_types
-                            .get(var_name)
-                            .and_then(|ir_type| {
-                                if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref().clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(IRType::Char)  // Fallback to i8 for unknown array variables
-                    }
-                    IRValue::Register(r) => {
-                        self.reg_ir_types
-                            .get(r)
-                            .and_then(|ir_type| {
-                                if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref().clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(IRType::Char)  // Fallback to i8 for unknown array registers
-                    }
-                    _ => {
-                        // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
-                        IRType::Char
-                    }
-                };
-
-                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
-                let element_llvm_type = self.ir_type_to_llvm(&element_ir_type);
-                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
-                let array_struct_type = self.ctx.struct_type(
-                    &[
-                        self.i64_t.into(),      // len
-                        self.i64_t.into(),      // capacity
-                        data_ptr_type.into(),   // data (typed pointer!)
-                    ],
-                    false,
-                );
-
-                // Evaluate array pointer
-                let arr_v = self.eval_value(array, fn_map)?;
-                let arr_ptr = if arr_v.is_pointer_value() {
-                    arr_v.into_pointer_value()
-                } else if arr_v.is_int_value() {
-                    self.builder
-                        .build_int_to_ptr(
-                            arr_v.into_int_value(),
-                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "arr_int_to_ptr",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?
-                } else {
-                    return Err(anyhow!("Unsupported array access value"));
-                };
-
-                // GEP to data field (index 2)
-                let data_ptr_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 2, "data_ptr")?;
-                
-                // Load data pointer (typed as T*)
-                let data_ptr = self.builder.build_load(data_ptr_type, data_ptr_ptr, "data")?
-                    .into_pointer_value();
-
-                // GEP to element at index
-                let idx_bv = self.eval_value(index, fn_map)?;
-                let idx_iv = self.as_i64(idx_bv)?;
-                let elem_ptr = unsafe {
-                    self.builder.build_gep(
-                        element_llvm_type,
-                        data_ptr,
-                        &[idx_iv],
-                        "elem_ptr",
-                    )?
-                };
-
-                // Load element value
-                let elem_val = self.builder.build_load(element_llvm_type, elem_ptr, "elem")?;
-                
-                // Track the result register's type (important for struct field access later)
-                if let IRValue::Register(r) = result {
-                    self.reg_ir_types.insert(*r, element_ir_type.clone());
-                }
-                
-                self.assign_value(result, elem_val.as_basic_value_enum())?;
-            }
-            Instruction::Call {
-                target,
-                args,
-                result,
-            } => {
-                // Handle known intrinsics
-                if let IRValue::Variable(name) = target {
-                    match name.as_str() {
-                        "println" => {
-                            if let Some(arg0) = args.get(0) {
-                                let a0 = self.eval_value(arg0, fn_map)?;
-                                let s = self.as_cstr_ptr(a0)?;
-                                self.call_printf(&[s.into()])?;
-                                if let Some(r) = result {
-                                    self.assign_value(
-                                        r,
-                                        self.i64_t.const_zero().as_basic_value_enum(),
-                                    )?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "endsWith" => {
-                            // endsWith(string, suffix) -> bool
-                            if args.len() == 2 {
-                                let s_val = self.eval_value(&args[0], fn_map)?;
-                                let suf_val = self.eval_value(&args[1], fn_map)?;
-                                let s = self.as_cstr_ptr(s_val)?;
-                                let suf = self.as_cstr_ptr(suf_val)?;
-                                let res = self.runtime_endswith(s, suf)?;
-                                if let Some(r) = result {
-                                    self.assign_value(r, res.as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "substring" => {
-                            // substring(string, start, end) -> string
-                            if args.len() == 3 {
-                                let s_val = self.eval_value(&args[0], fn_map)?;
-                                let s = self.as_cstr_ptr(s_val)?;
-                                let start_v = self.eval_value(&args[1], fn_map)?;
-                                let start = self.as_i64(start_v)?;
-                                let end_v = self.eval_value(&args[2], fn_map)?;
-                                let end = self.as_i64(end_v)?;
-                                let res = self.runtime_substring(s, start, end)?;
-                                if let Some(r) = result {
-                                    self.assign_value(r, res.as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__GetCommandLineArgs" => {
-                            // Build StrArray* from @__argc/@__argv
-                            let (_g_argc, _g_argv) = self.ensure_arg_globals();
-                            let argc = self.builder.build_load(
-                                self.ctx.i32_type(),
-                                self.g_argc.unwrap().as_pointer_value(),
-                                "argc",
-                            )?;
-                            let argv = self.builder.build_load(
-                                self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                self.g_argv.unwrap().as_pointer_value(),
-                                "argv",
-                            )?;
-                            let ty = self.ty_str_array();
-                            let sizeof = ty
-                                .size_of()
-                                .ok_or_else(|| anyhow!("Failed to compute StrArray size"))?;
-                            let size64 = if sizeof.get_type() == self.i64_t {
-                                sizeof
-                            } else {
-                                self.builder
-                                    .build_int_z_extend(sizeof, self.i64_t, "strarray_size")
-                                    .map_err(|e| anyhow!("{e:?}"))?
-                            };
-                            let malloc = self.get_malloc();
-                            let arr_call = self.builder.build_call(
-                                malloc,
-                                &[size64.into()],
-                                "malloc_strarray",
-                            )?;
-                            let raw_ptr = arr_call
-                                .try_as_basic_value()
-                                .left()
-                                .ok_or_else(|| anyhow!("malloc returned void"))?
-                                .into_pointer_value();
-                            let arr_ptr = self
-                                .builder
-                                .build_pointer_cast(
-                                    raw_ptr,
-                                    ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                    "strarray_cast",
-                                )
-                                .map_err(|e| anyhow!("{e:?}"))?;
-                            // store len and data
-                            let len64 = self.builder.build_int_z_extend(
-                                argc.into_int_value(),
-                                self.i64_t,
-                                "argc64",
-                            )?;
-                            let len_ptr = self.builder.build_struct_gep(ty, arr_ptr, 0, "lenp")?;
-                            self.builder.build_store(len_ptr, len64)?;
-                            let data_ptr =
-                                self.builder.build_struct_gep(ty, arr_ptr, 1, "datap")?;
-                            self.builder.build_store(data_ptr, argv)?;
-                            if let Some(r) = result {
-                                let arr_int = self
-                                    .builder
-                                    .build_ptr_to_int(arr_ptr, self.i64_t, "strarray_int")
-                                    .map_err(|e| anyhow!("{e:?}"))?
-                                    .as_basic_value_enum();
-                                self.assign_value(r, arr_int)?;
-                            }
-                            return Ok(());
-                        }
-                        "__GetTimestamp" => {
-                            // time(NULL) -> seconds -> sprintf into buffer and return char*
-                            let time_t = self.i64_t; // treat as i64
-                            let time_fn = self.declare_c_fn(
-                                "time",
-                                time_t.into(),
-                                &[self.i8_ptr_t.into()],
-                                false,
-                            );
-                            let null = self.i8_ptr_t.const_null();
-                            let secs = self.builder.build_call(time_fn, &[null.into()], "time")?;
-                            let secs_val = secs.try_as_basic_value().left().unwrap();
-                            // allocate buffer 32 bytes
-                            let malloc = self.get_malloc();
-                            let sz = self.i64_t.const_int(32, false);
-                            let buf = self.builder.build_call(malloc, &[sz.into()], "malloc_ts")?;
-                            let bufp = buf
-                                .try_as_basic_value()
-                                .left()
-                                .unwrap()
-                                .into_pointer_value();
-                            // sprintf(buf, "%lld", secs)
-                            let sprintf = self.declare_c_fn(
-                                "sprintf",
-                                self.i64_t.into(),
-                                &[
-                                    self.i8_ptr_t.into(),
-                                    self.i8_ptr_t.into(),
-                                    self.i64_t.into(),
-                                ],
-                                true,
-                            );
-                            let fmt = self.builder.build_global_string_ptr("%lld", "fmt_ts")?;
-                            let _ = self.builder.build_call(
-                                sprintf,
-                                &[bufp.into(), fmt.as_pointer_value().into(), secs_val.into()],
-                                "sprintf_ts",
-                            );
-                            if let Some(r) = result {
-                                self.assign_value(r, bufp.as_basic_value_enum())?;
-                            }
-                            return Ok(());
-                        }
-                        "__GetTime" => {
-                            // Returns current time in seconds as Float using clock_gettime
-                            let timespec_ty = self.ctx.opaque_struct_type("timespec");
-                            timespec_ty.set_body(&[self.i64_t.into(), self.i64_t.into()], false);
-                            let clock_gettime = self.declare_c_fn(
-                                "clock_gettime",
-                                self.ctx.i32_type().into(),
-                                &[
-                                    self.ctx.i32_type().into(),
-                                    timespec_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into(),
-                                ],
-                                false,
-                            );
-                            let timespec_ptr = self.builder.build_alloca(timespec_ty, "timespec")?;
-                            let clock_monotonic = self.ctx.i32_type().const_int(1, false);
-                            let _ = self.builder.build_call(
-                                clock_gettime,
-                                &[clock_monotonic.into(), timespec_ptr.into()],
-                                "clock_gettime",
-                            )?;
-                            let tv_sec_ptr = self.builder.build_struct_gep(timespec_ty, timespec_ptr, 0, "tv_sec_ptr")?;
-                            let tv_nsec_ptr = self.builder.build_struct_gep(timespec_ty, timespec_ptr, 1, "tv_nsec_ptr")?;
-                            let tv_sec = self.builder.build_load(self.i64_t, tv_sec_ptr, "tv_sec")?.into_int_value();
-                            let tv_nsec = self.builder.build_load(self.i64_t, tv_nsec_ptr, "tv_nsec")?.into_int_value();
-                            let sec_float = self.builder.build_signed_int_to_float(tv_sec, self.ctx.f64_type(), "sec_float")?;
-                            let nsec_float = self.builder.build_signed_int_to_float(tv_nsec, self.ctx.f64_type(), "nsec_float")?;
-                            let billion = self.ctx.f64_type().const_float(1_000_000_000.0);
-                            let nsec_frac = self.builder.build_float_div(nsec_float, billion, "nsec_frac")?;
-                            let total_time = self.builder.build_float_add(sec_float, nsec_frac, "total_time")?;
-                            if let Some(r) = result {
-                                self.assign_value(r, total_time.as_basic_value_enum())?;
-                            }
-                            return Ok(());
-                        }
-                        "push" => {
-                            // push(array, value) -> appends value to array
-                            if args.len() >= 2 {
-                                // First eval the value to see its type
-                                let value_val = self.eval_value(&args[1], fn_map)?;
-                                
-                                // Infer element type from value if array type unknown
-                                let inferred_type = if value_val.is_float_value() {
-                                    IRType::Float
-                                } else if value_val.is_int_value() {
-                                    IRType::Integer
-                                } else if value_val.is_pointer_value() {
-                                    IRType::String  // Assume string for pointer values
-                                } else {
-                                    IRType::Float  // Fallback
-                                };
-                                
-                                // Infer array element type from the array variable, or fall back to value type
-                                let element_ir_type = if let IRValue::Variable(arr_name) = &args[0] {
-                                    let known_type = self.var_ir_types
-                                        .get(arr_name)
-                                        .and_then(|ir_type| {
-                                            if let IRType::Array(elem_type) = ir_type {
-                                                Some(elem_type.as_ref().clone())
-                                            } else {
-                                                None
-                                            }
-                                        });
-                                    
-                                    // If type not known, infer from value and store it
-                                    if known_type.is_none() {
-                                        self.var_ir_types.insert(
-                                            arr_name.clone(),
-                                            IRType::Array(Box::new(inferred_type.clone()))
-                                        );
-                                    }
-                                    
-                                    known_type.unwrap_or(inferred_type)
-                                } else {
-                                    inferred_type
-                                };
-                                
-                                let array_val = self.eval_value(&args[0], fn_map)?;
-                                // value_val already evaluated above
-                                
-                                let array_ptr = array_val.into_pointer_value();
-                                
-                                // Build array struct type with correct element type
-                                let element_llvm_type = self.ir_type_to_llvm(&element_ir_type);
-                                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
-                                let array_struct_ty = self.ctx.struct_type(
-                                    &[
-                                        self.i64_t.into(),      // len
-                                        self.i64_t.into(),      // capacity
-                                        data_ptr_type.into(),   // data (typed pointer)
-                                    ],
-                                    false,
-                                );
-                                
-                                // Load current len
-                                let len_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 0, "len_ptr")?;
-                                let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
-                                
-                                // Load capacity and check bounds
-                                let cap_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 1, "cap_ptr")?;
-                                let capacity = self.builder.build_load(self.i64_t, cap_ptr, "capacity")?.into_int_value();
-                                
-                                // Check if len < capacity (simple check, no reallocation)
-                                let has_space = self.builder.build_int_compare(
-                                    inkwell::IntPredicate::ULT,
-                                    len,
-                                    capacity,
-                                    "has_space"
-                                )?;
-                                
-                                // For now, silently fail if out of space (should really panic or reallocate)
-                                let push_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "do_push");
-                                let after_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "after_push");
-                                self.builder.build_conditional_branch(has_space, push_bb, after_bb)?;
-                                
-                                // Push block: actually add the element
-                                self.builder.position_at_end(push_bb);
-                                
-                                // Load data pointer (already typed correctly)
-                                let data_field_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 2, "data_field_ptr")?;
-                                let data_ptr = self.builder.build_load(data_ptr_type, data_field_ptr, "data_ptr")?.into_pointer_value();
-                                
-                                // Store value at index len
-                                let elem_ptr = unsafe {
-                                    self.builder.build_gep(element_llvm_type, data_ptr, &[len], "elem_ptr")?
-                                };
-                                
-                                // Store the value (handle type conversions if needed)
-                                match element_ir_type {
-                                    IRType::Float => {
-                                        let value_f64 = if value_val.is_float_value() {
-                                            value_val.into_float_value()
-                                        } else if value_val.is_int_value() {
-                                            let int_val = value_val.into_int_value();
-                                            self.builder.build_signed_int_to_float(int_val, self.ctx.f64_type(), "to_float")?
-                                        } else {
-                                            // Shouldn't happen, but handle gracefully
-                                            return Err(anyhow!("Cannot push non-numeric value to Float array"));
-                                        };
-                                        self.builder.build_store(elem_ptr, value_f64)?;
-                                    }
-                                    IRType::Integer => {
-                                        let value_i64 = if value_val.is_int_value() {
-                                            value_val.into_int_value()
-                                        } else if value_val.is_float_value() {
-                                            let float_val = value_val.into_float_value();
-                                            self.builder.build_float_to_signed_int(float_val, self.i64_t, "to_int")?
-                                        } else {
-                                            return Err(anyhow!("Cannot push non-numeric value to Integer array"));
-                                        };
-                                        self.builder.build_store(elem_ptr, value_i64)?;
-                                    }
-                                    IRType::String | IRType::Pointer(_) => {
-                                        // For strings and pointers, store as-is (should already be pointer)
-                                        self.builder.build_store(elem_ptr, value_val)?;
-                                    }
-                                    _ => {
-                                        // For other types, try to store as-is
-                                        self.builder.build_store(elem_ptr, value_val)?;
-                                    }
-                                }
-                                
-                                // Increment len
-                                let new_len = self.builder.build_int_add(len, self.i64_t.const_int(1, false), "new_len")?;
-                                self.builder.build_store(len_ptr, new_len)?;
-                                
-                                self.builder.build_unconditional_branch(after_bb)?;
-                                
-                                // After block: continue execution
-                                self.builder.position_at_end(after_bb);
-                                
-                                if let Some(r) = result {
-                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__ArrayNew" => {
-                            // __ArrayNew(capacity) -> Array* (struct { len, capacity, data* })
-                            if let Some(arg0) = args.get(0) {
-                                let capacity_val = self.eval_value(arg0, fn_map)?;
-                                let capacity = self.as_i64(capacity_val)?;
-                                
-                                // Allocate array struct: { i64 len, i64 capacity, void* data }
-                                let array_struct_ty = self.ctx.struct_type(
-                                    &[
-                                        self.i64_t.into(),  // len
-                                        self.i64_t.into(),  // capacity
-                                        self.i8_ptr_t.into(), // data
-                                    ],
-                                    false,
-                                );
-                                let array_size = array_struct_ty.size_of().unwrap();
-                                let malloc = self.get_malloc();
-                                let array_ptr_raw = self.builder.build_call(
-                                    malloc,
-                                    &[array_size.into()],
-                                    "malloc_array",
-                                )?.try_as_basic_value().left().unwrap().into_pointer_value();
-                                
-                                let array_ptr = self.builder.build_pointer_cast(
-                                    array_ptr_raw,
-                                    array_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                    "array_ptr",
-                                )?;
-                                
-                                // Initialize len = 0
-                                let len_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 0, "len_ptr")?;
-                                self.builder.build_store(len_ptr, self.i64_t.const_zero())?;
-                                
-                                // Initialize capacity
-                                let cap_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 1, "cap_ptr")?;
-                                self.builder.build_store(cap_ptr, capacity)?;
-                                
-                                // Allocate data buffer (capacity * 8 bytes for f64)
-                                let elem_size = self.i64_t.const_int(8, false);
-                                let data_size = self.builder.build_int_mul(capacity, elem_size, "data_size")?;
-                                let data_ptr = self.builder.build_call(
-                                    malloc,
-                                    &[data_size.into()],
-                                    "malloc_data",
-                                )?.try_as_basic_value().left().unwrap().into_pointer_value();
-                                
-                                let data_field_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 2, "data_field_ptr")?;
-                                self.builder.build_store(data_field_ptr, data_ptr)?;
-                                
-                                if let Some(r) = result {
-                                    self.assign_value(r, array_ptr.as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__Print" => {
-                            if let Some(arg0) = args.get(0) {
-                                let val = self.eval_value(arg0, fn_map)?;
-                                let str_ptr = self.as_cstr_ptr(val)?;
-                                let printf = self.get_printf();
-                                let fmt = self.builder.build_global_string_ptr("%s", "fmt_str")?;
-                                self.builder.build_call(
-                                    printf,
-                                    &[fmt.as_pointer_value().into(), str_ptr.into()],
-                                    "printf_str",
-                                )?;
-                                if let Some(r) = result {
-                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__PrintInt" => {
-                            if let Some(arg0) = args.get(0) {
-                                let val = self.eval_value(arg0, fn_map)?;
-                                let int_val = self.as_i64(val)?;
-                                let printf = self.get_printf();
-                                let fmt = self.builder.build_global_string_ptr("%lld", "fmt_int")?;
-                                self.builder.build_call(
-                                    printf,
-                                    &[fmt.as_pointer_value().into(), int_val.into()],
-                                    "printf_int",
-                                )?;
-                                if let Some(r) = result {
-                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__PrintFloat" => {
-                            if let Some(arg0) = args.get(0) {
-                                let val = self.eval_value(arg0, fn_map)?;
-                                let float_val = val.into_float_value();
-                                let printf = self.get_printf();
-                                let fmt = self.builder.build_global_string_ptr("%f", "fmt_float")?;
-                                self.builder.build_call(
-                                    printf,
-                                    &[fmt.as_pointer_value().into(), float_val.into()],
-                                    "printf_float",
-                                )?;
-                                if let Some(r) = result {
-                                    self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__Sqrt" => {
-                            if let Some(arg0) = args.get(0) {
-                                let val = self.eval_value(arg0, fn_map)?;
-                                let float_val = val.into_float_value();
-                                let sqrt_intrinsic = inkwell::intrinsics::Intrinsic::find("llvm.sqrt").unwrap();
-                                let sqrt_fn = sqrt_intrinsic.get_declaration(&self.module, &[self.ctx.f64_type().into()]).unwrap();
-                                let sqrt_result = self.builder.build_call(sqrt_fn, &[float_val.into()], "sqrt")?;
-                                if let Some(r) = result {
-                                    // Track result type as Float
-                                    if let IRValue::Register(reg_num) = r {
-                                        self.reg_ir_types.insert(*reg_num, IRType::Float);
-                                    }
-                                    self.assign_value(r, sqrt_result.try_as_basic_value().left().unwrap())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__IntToString" => {
-                            if let Some(arg0) = args.get(0) {
-                                let val = self.eval_value(arg0, fn_map)?;
-                                let int_val = val.into_int_value();
-                                
-                                // Allocate buffer for string (20 chars is enough for Int64)
-                                let buffer_size = self.i64_t.const_int(21, false);
-                                let malloc = self.declare_c_fn("malloc", self.i8_ptr_t.into(), &[self.i64_t.into()], false);
-                                let buffer = self.builder.build_call(malloc, &[buffer_size.into()], "str_buffer")?
-                                    .try_as_basic_value().left().unwrap().into_pointer_value();
-                                
-                                // snprintf(buffer, 20, "%ld", int_val)
-                                let fmt_str = self.builder.build_global_string_ptr("%ld", "int_fmt")?;
-                                let snprintf = self.declare_c_fn(
-                                    "snprintf",
-                                    self.ctx.i32_type().into(),
-                                    &[self.i8_ptr_t.into(), self.i64_t.into(), self.i8_ptr_t.into()],
-                                    true  // varargs
-                                );
-                                self.builder.build_call(
-                                    snprintf,
-                                    &[buffer.into(), buffer_size.into(), fmt_str.as_pointer_value().into(), int_val.into()],
-                                    ""
-                                )?;
-                                
-                                if let Some(r) = result {
-                                    if let IRValue::Register(reg_num) = r {
-                                        self.reg_ir_types.insert(*reg_num, IRType::String);
-                                    }
-                                    self.assign_value(r, buffer.as_basic_value_enum())?;
-                                }
-                                return Ok(());
-                            }
-                        }
-                        "__ReadFile" => {
-                            // FILE* f = fopen(path, "rb"); if !f return ""
-                            let fnty = self.i8_ptr_t; // FILE* opaque as i8*
-                            let fopen = self.declare_c_fn(
-                                "fopen",
-                                fnty.into(),
-                                &[self.i8_ptr_t.into(), self.i8_ptr_t.into()],
-                                false,
-                            );
-                            let fseek = self.declare_c_fn(
-                                "fseek",
-                                self.ctx.i32_type().into(),
-                                &[fnty.into(), self.i64_t.into(), self.ctx.i32_type().into()],
-                                false,
-                            );
-                            let ftell = self.declare_c_fn(
-                                "ftell",
-                                self.i64_t.into(),
-                                &[fnty.into()],
-                                false,
-                            );
-                            let rewindf = self.declare_c_void_fn("rewind", &[fnty.into()], false);
-                            let fread = self.declare_c_fn(
-                                "fread",
-                                self.i64_t.into(),
-                                &[
-                                    self.i8_ptr_t.into(),
-                                    self.i64_t.into(),
-                                    self.i64_t.into(),
-                                    fnty.into(),
-                                ],
-                                false,
-                            );
-                            let fclose = self.declare_c_fn(
-                                "fclose",
-                                self.ctx.i32_type().into(),
-                                &[fnty.into()],
-                                false,
-                            );
-                            let path_v = self.eval_value(&args[0], fn_map)?;
-                            let path = self.as_cstr_ptr(path_v)?;
-                            let mode = self.builder.build_global_string_ptr("rb", "rb")?;
-                            let f = self.builder.build_call(
-                                fopen,
-                                &[path.into(), mode.as_pointer_value().into()],
-                                "fopen",
-                            )?;
-                            let fval = f.try_as_basic_value().left().unwrap();
-                            let is_null = self
-                                .builder
-                                .build_is_null(fval.into_pointer_value(), "isnull")?;
-                            let fnv = self.current_fn.unwrap();
-                            let then_bb = self.ctx.append_basic_block(fnv, "rf_null");
-                            let cont_bb = self.ctx.append_basic_block(fnv, "rf_cont");
-                            let done_bb = self.ctx.append_basic_block(fnv, "rf_done");
-                            self.builder
-                                .build_conditional_branch(is_null, then_bb, cont_bb)?;
-                            let mut rf_then_val: Option<(
-                                BasicValueEnum<'ctx>,
-                                LlvmBasicBlock<'ctx>,
-                            )> = None;
-                            let mut rf_cont_val: Option<(
-                                BasicValueEnum<'ctx>,
-                                LlvmBasicBlock<'ctx>,
-                            )> = None;
-                            self.builder.position_at_end(then_bb);
-                            let empty = self.builder.build_global_string_ptr("", "empty")?;
-                            let empty_val = empty.as_pointer_value().as_basic_value_enum();
-                            rf_then_val = Some((empty_val, then_bb));
-                            self.builder.build_unconditional_branch(done_bb)?;
-                            self.builder.position_at_end(cont_bb);
-                            // size
-                            let seek_end = self.ctx.i32_type().const_int(2, false);
-                            self.builder.build_call(
-                                fseek,
-                                &[fval.into(), self.i64_t.const_zero().into(), seek_end.into()],
-                                "fseek_end",
-                            )?;
-                            let sz = self.builder.build_call(ftell, &[fval.into()], "ftell")?;
-                            let szv = sz.try_as_basic_value().left().unwrap().into_int_value();
-                            let _ = self.builder.build_call(rewindf, &[fval.into()], "rewind")?;
-                            let malloc = self.get_malloc();
-                            let one = self.i64_t.const_int(1, false);
-                            let total = self.builder.build_int_add(szv, one, "tot")?;
-                            let buf =
-                                self.builder
-                                    .build_call(malloc, &[total.into()], "malloc_rf")?;
-                            let bufp = buf
-                                .try_as_basic_value()
-                                .left()
-                                .unwrap()
-                                .into_pointer_value();
-                            let _rd = self.builder.build_call(
-                                fread,
-                                &[bufp.into(), one.into(), szv.into(), fval.into()],
-                                "fread",
-                            )?;
-                            let endp = unsafe {
-                                self.builder
-                                    .build_gep(self.ctx.i8_type(), bufp, &[szv], "end")?
-                            };
-                            self.builder
-                                .build_store(endp, self.ctx.i8_type().const_zero())?;
-                            let _ = self.builder.build_call(fclose, &[fval.into()], "fclose")?;
-                            let buf_val = bufp.as_basic_value_enum();
-                            rf_cont_val = Some((buf_val, cont_bb));
-                            self.builder.build_unconditional_branch(done_bb)?;
-                            self.builder.position_at_end(done_bb);
-                            if let Some(r) = result {
-                                let phi = self.builder.build_phi(self.i8_ptr_t, "rf_value")?;
-                                if let Some((val, bb)) = rf_then_val {
-                                    phi.add_incoming(&[(&val, bb)]);
-                                }
-                                if let Some((val, bb)) = rf_cont_val {
-                                    phi.add_incoming(&[(&val, bb)]);
-                                }
-                                self.assign_value(r, phi.as_basic_value())?;
-                            }
-                            return Ok(());
-                        }
-                        "__WriteFile" => {
-                            let fnty = self.i8_ptr_t;
-                            let fopen = self.declare_c_fn(
-                                "fopen",
-                                fnty.into(),
-                                &[self.i8_ptr_t.into(), self.i8_ptr_t.into()],
-                                false,
-                            );
-                            let fwrite = self.declare_c_fn(
-                                "fwrite",
-                                self.i64_t.into(),
-                                &[
-                                    self.i8_ptr_t.into(),
-                                    self.i64_t.into(),
-                                    self.i64_t.into(),
-                                    fnty.into(),
-                                ],
-                                false,
-                            );
-                            let fclose = self.declare_c_fn(
-                                "fclose",
-                                self.ctx.i32_type().into(),
-                                &[fnty.into()],
-                                false,
-                            );
-                            let strlen = self.get_strlen();
-                            let path_v = self.eval_value(&args[0], fn_map)?;
-                            let path = self.as_cstr_ptr(path_v)?;
-                            let content_v = self.eval_value(&args[1], fn_map)?;
-                            let content = self.as_cstr_ptr(content_v)?;
-                            let mode = self.builder.build_global_string_ptr("wb", "wb")?;
-                            let f = self.builder.build_call(
-                                fopen,
-                                &[path.into(), mode.as_pointer_value().into()],
-                                "fopen_w",
-                            )?;
-                            let fval = f.try_as_basic_value().left().unwrap();
-                            let is_null = self
-                                .builder
-                                .build_is_null(fval.into_pointer_value(), "isnullw")?;
-                            let len =
-                                self.builder
-                                    .build_call(strlen, &[content.into()], "strlen")?;
-                            let lenv = len.try_as_basic_value().left().unwrap().into_int_value();
-                            let one = self.i64_t.const_int(1, false);
-                            let _wr = self.builder.build_call(
-                                fwrite,
-                                &[content.into(), one.into(), lenv.into(), fval.into()],
-                                "fwrite",
-                            )?;
-                            let _ = self
-                                .builder
-                                .build_call(fclose, &[fval.into()], "fclose_w")?;
-                            if let Some(r) = result {
-                                self.assign_value(
-                                    r,
-                                    self.bool_t.const_int(1, false).as_basic_value_enum(),
-                                )?;
-                            }
-                            return Ok(());
-                        }
-                        "__CreateDirectory" => {
-                            let mkdir = self.declare_c_fn(
-                                "mkdir",
-                                self.ctx.i32_type().into(),
-                                &[self.i8_ptr_t.into(), self.ctx.i32_type().into()],
-                                false,
-                            );
-                            let path_v = self.eval_value(&args[0], fn_map)?;
-                            let path = self.as_cstr_ptr(path_v)?;
-                            let mode = self.ctx.i32_type().const_int(0o755, false);
-                            let rc = self.builder.build_call(
-                                mkdir,
-                                &[path.into(), mode.into()],
-                                "mkdir",
-                            )?;
-                            let ok = self.builder.build_int_compare(
-                                inkwell::IntPredicate::EQ,
-                                rc.try_as_basic_value().left().unwrap().into_int_value(),
-                                self.ctx.i32_type().const_zero(),
-                                "ok",
-                            )?;
-                            if let Some(r) = result {
-                                self.assign_value(r, ok.as_basic_value_enum())?;
-                            }
-                            return Ok(());
-                        }
-                        "__DeleteFile" => {
-                            let rm = self.declare_c_fn(
-                                "remove",
-                                self.ctx.i32_type().into(),
-                                &[self.i8_ptr_t.into()],
-                                false,
-                            );
-                            let path_v = self.eval_value(&args[0], fn_map)?;
-                            let path = self.as_cstr_ptr(path_v)?;
-                            let rc = self.builder.build_call(rm, &[path.into()], "rm")?;
-                            let ok = self.builder.build_int_compare(
-                                inkwell::IntPredicate::EQ,
-                                rc.try_as_basic_value().left().unwrap().into_int_value(),
-                                self.ctx.i32_type().const_zero(),
-                                "ok",
-                            )?;
-                            if let Some(r) = result {
-                                self.assign_value(r, ok.as_basic_value_enum())?;
-                            }
-                            return Ok(());
-                        }
-                        "__ExecuteProgram" => {
-                            let system = self.declare_c_fn(
-                                "system",
-                                self.ctx.i32_type().into(),
-                                &[self.i8_ptr_t.into()],
-                                false,
-                            );
-                            let path_v = self.eval_value(&args[0], fn_map)?;
-                            let path = self.as_cstr_ptr(path_v)?;
-                            let rc = self.builder.build_call(system, &[path.into()], "system")?;
-                            let rcv = rc.try_as_basic_value().left().unwrap().into_int_value();
-                            let r64 = self.builder.build_int_s_extend(rcv, self.i64_t, "rc64")?;
-                            if let Some(r) = result {
-                                self.assign_value(r, r64.as_basic_value_enum())?;
-                            }
-                            return Ok(());
-                        }
-                        "__ExecuteCommand" => {
-                            // Use system() to execute, cannot capture output: set success = rc==0, output = ""
-                            let system = self.declare_c_fn(
-                                "system",
-                                self.ctx.i32_type().into(),
-                                &[self.i8_ptr_t.into()],
-                                false,
-                            );
-                            let cmd_v = self.eval_value(&args[0], fn_map)?;
-                            let cmd = self.as_cstr_ptr(cmd_v)?;
-                            let rc = self.builder.build_call(system, &[cmd.into()], "system")?;
-                            let rcv = rc.try_as_basic_value().left().unwrap().into_int_value();
-                            let ok = self.builder.build_int_compare(
-                                inkwell::IntPredicate::EQ,
-                                rcv,
-                                self.ctx.i32_type().const_zero(),
-                                "ok",
-                            )?;
-                            let ty = self.ty_cmd_result();
-                            let malloc = self.get_malloc();
-                            let bytes = self.i64_t.const_int(16, false);
-                            let buf = self.builder.build_call(
-                                malloc,
-                                &[bytes.into()],
-                                "malloc_cmdres",
-                            )?;
-                            let p = buf
-                                .try_as_basic_value()
-                                .left()
-                                .unwrap()
-                                .into_pointer_value();
-                            let cast = self.builder.build_pointer_cast(
-                                p,
-                                ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                "cmdres",
-                            )?;
-                            let sp = self.builder.build_struct_gep(ty, cast, 0, "succp")?;
-                            self.builder.build_store(sp, ok)?;
-                            let op = self.builder.build_struct_gep(ty, cast, 1, "outp")?;
-                            let empty = self.builder.build_global_string_ptr("", "empty_out")?;
-                            self.builder.build_store(op, empty.as_pointer_value())?;
-                            if let Some(r) = result {
-                                self.assign_value(r, cast.as_basic_value_enum())?;
-                            }
-                            return Ok(());
-                        }
-                        "__FormatSeenCode" => {
-                            // Identity: return input
-                            if let Some(arg0) = args.get(0) {
-                                let s = self.eval_value(arg0, fn_map)?;
-                                if let Some(r) = result {
-                                    self.assign_value(r, s)?;
-                                }
-                            }
-                            return Ok(());
-                        }
-                        _ => {}
-                    }
-                }
-
-                if let IRValue::Function { name, .. } = target {
-                    match name.as_str() {
-                        "__channel_send_future" => {
-                            if args.len() >= 2 {
-                                let chan_val = self.eval_value(&args[0], fn_map)?;
-                                let chan_ptr = self.to_i8_ptr(chan_val, "send_chan")?;
-                                let msg_val = self.eval_value(&args[1], fn_map)?;
-                                let boxed = self.box_runtime_value(msg_val)?;
-                                let send_fn = self.ensure_channel_send_fn();
-                                self.builder
-                                    .build_call(
-                                        send_fn,
-                                        &[
-                                            chan_ptr.as_basic_value_enum().into(),
-                                            boxed.as_basic_value_enum().into(),
-                                        ],
-                                        "channel_send",
-                                    )
-                                    .map_err(|e| anyhow!("{e:?}"))?;
-                            }
-                            let handle_fn = self.ensure_task_handle_new_fn();
-                            let kind = self.ctx.i32_type().const_int(3, false);
-                            let call = self.builder.build_call(
-                                handle_fn,
-                                &[kind.into()],
-                                "channel_future_handle",
-                            )?;
-                            if let Some(r) = result {
-                                if let Some(val) = call.try_as_basic_value().left() {
-                                    self.assign_value(r, val)?;
-                                }
-                            }
-                            return Ok(());
-                        }
-                        "__spawn_task" | "__spawn_detached" | "__spawn_actor" => {
-                            if let Some(arg0) = args.get(0) {
-                                let _ = self.eval_value(arg0, fn_map)?;
-                            }
-                            let spawn_fn = self.ensure_spawn_fn(name.as_str());
-                            let call =
-                                self.builder
-                                    .build_call(spawn_fn, &[], "spawn_handle_call")?;
-                            if let Some(r) = result {
-                                if let Some(val) = call.try_as_basic_value().left() {
-                                    self.assign_value(r, val)?;
-                                }
-                            }
-                            return Ok(());
-                        }
-                        "__await" => {
-                            if let Some(arg0) = args.get(0) {
-                                let handle_val = self.eval_value(arg0, fn_map)?;
-                                let handle_ptr =
-                                    self.cast_handle_ptr(handle_val, "await_handle_ptr")?;
-                                let await_fn = self.ensure_await_fn();
-                                let call = self.builder.build_call(
-                                    await_fn,
-                                    &[handle_ptr.as_basic_value_enum().into()],
-                                    "await_call",
-                                )?;
-                                if let Some(r) = result {
-                                    if let Some(val) = call.try_as_basic_value().left() {
-                                        let ok = self
-                                            .builder
-                                            .build_int_compare(
-                                                inkwell::IntPredicate::NE,
-                                                val.into_int_value(),
-                                                self.ctx.i32_type().const_zero(),
-                                                "await_ok",
-                                            )
-                                            .map_err(|e| anyhow!("{e:?}"))?;
-                                        self.assign_value(r, ok.as_basic_value_enum())?;
-                                    }
-                                }
-                            }
-                            return Ok(());
-                        }
-                        "__scope_push" | "__scope_pop" => {
-                            let scope_fn = self.ensure_scope_fn(name.as_str());
-                            let kind = args
-                                .get(0)
-                                .and_then(|v| {
-                                    if let IRValue::Integer(k) = v {
-                                        Some(*k as u64)
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .unwrap_or(0);
-                            let kind_const = self.ctx.i32_type().const_int(kind, false);
-                            self.builder.build_call(
-                                scope_fn,
-                                &[kind_const.into()],
-                                "scope_call",
-                            )?;
-                            return Ok(());
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Normal call by name
-                let f_opt = match target {
-                    IRValue::Variable(name) => fn_map.get(name).cloned(),
-                    IRValue::Function { name, .. } => fn_map.get(name).cloned(),
-                    _ => None,
-                };
-                let f = match f_opt {
-                    Some(func) => func,
-                    None => return Err(anyhow!("Unknown call target {:?}", target)),
-                };
-
-                let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
-                for a in args {
-                    let v = self.eval_value(a, fn_map)?;
-                    call_args.push(v.into());
-                }
-                let call = self.builder.build_call(f, &call_args, "call")?;
-                if let Some(r) = result {
-                    if let Some(ret) = call.try_as_basic_value().left() {
-                        self.assign_value(r, ret)?;
-                    }
-                }
-            }
-            Instruction::Print(v) => {
-                let vval = self.eval_value(v, fn_map)?;
-                let s = self.as_cstr_ptr(vval)?;
-                self.call_printf(&[s.into()])?;
-            }
-            Instruction::FieldAccess {
-                struct_val,
-                field,
-                result,
-            } => {
-                // Infer struct type from variable's or register's IR type
-                let (struct_ir_type, field_index, field_ir_type_owned) = match struct_val {
-                    IRValue::Variable(var_name) => {
-                        let ir_type = self.var_ir_types
-                            .get(var_name)
-                            .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
-                        
-                        if let IRType::Struct { name, fields } = ir_type {
-                            // If fields is empty, look up the full definition
-                            let resolved_ir_type = if fields.is_empty() {
-                                self.ir_type_definitions.get(name)
-                                    .ok_or_else(|| anyhow!("Struct type '{}' not found in type definitions", name))?
-                            } else {
-                                ir_type
-                            };
-                            
-                            // Now get the fields from the resolved type
-                            if let IRType::Struct { name: _, fields: resolved_fields } = resolved_ir_type {
-                                // Find field index and type (clone to avoid borrow issues)
-                                let (idx, (_, field_type)) = resolved_fields.iter().enumerate()
-                                    .find(|(_, (fname, _))| fname == field)
-                                    .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
-                                
-                                (resolved_ir_type, idx as u32, field_type.clone())
-                            } else {
-                                return Err(anyhow!("Resolved type for '{}' is not a struct", name));
-                            }
-                        } else {
-                            return Err(anyhow!("Variable '{}' is not a struct type, got: {:?}", var_name, ir_type));
-                        }
-                    }
-                    IRValue::Register(r) => {
-                        let ir_type = self.reg_ir_types
-                            .get(r)
-                            .ok_or_else(|| anyhow!("Cannot infer type for register %{}", r))?;
-                        
-                        if let IRType::Struct { name, fields } = ir_type {
-                            // If fields is empty, look up the full definition
-                            let resolved_ir_type = if fields.is_empty() {
-                                self.ir_type_definitions.get(name)
-                                    .ok_or_else(|| anyhow!("Struct type '{}' not found in type definitions", name))?
-                            } else {
-                                ir_type
-                            };
-                            
-                            // Now get the fields from the resolved type
-                            if let IRType::Struct { name: _, fields: resolved_fields } = resolved_ir_type {
-                                // Find field index and type (clone to avoid borrow issues)
-                                let (idx, (_, field_type)) = resolved_fields.iter().enumerate()
-                                    .find(|(_, (fname, _))| fname == field)
-                                    .ok_or_else(|| anyhow!("Field '{}' not found in struct", field))?;
-                                
-                                (resolved_ir_type, idx as u32, field_type.clone())
-                            } else {
-                                return Err(anyhow!("Resolved type is not a struct"));
-                            }
-                        } else {
-                            return Err(anyhow!("Register %{} is not a struct type, got: {:?}", r, ir_type));
-                        }
-                    }
-                    _ => {
-                        // Fallback for CommandResult (CLI compatibility)
-                        if field == "success" {
-                            (&IRType::Struct {
-                                name: "CommandResult".to_string(),
-                                fields: vec![
-                                    ("success".to_string(), IRType::Boolean),
-                                    ("output".to_string(), IRType::String),
-                                ],
-                            }, 0u32, IRType::Boolean)
-                        } else if field == "output" {
-                            (&IRType::Struct {
-                                name: "CommandResult".to_string(),
-                                fields: vec![
-                                    ("success".to_string(), IRType::Boolean),
-                                    ("output".to_string(), IRType::String),
-                                ],
-                            }, 1u32, IRType::String)
-                        } else {
-                            return Err(anyhow!(
-                                "LLVM backend: cannot infer struct type for field access '{}'",
-                                field
-                            ));
-                        }
-                    }
-                };
-
-                // Generate LLVM struct type directly from IRType::Struct fields
-                // (ir_type_to_llvm returns a pointer, but we need the actual struct type for GEP)
-                let llvm_struct_type = if let IRType::Struct { fields, .. } = struct_ir_type {
-                    let field_types: Vec<BasicTypeEnum<'ctx>> = fields.iter()
-                        .map(|(_, field_type)| self.ir_type_to_llvm(field_type))
-                        .collect();
-                    self.ctx.struct_type(&field_types, false)
-                } else {
-                    return Err(anyhow!("Expected struct type"));
-                };
-                let field_llvm_type = self.ir_type_to_llvm(&field_ir_type_owned);
-
-                // Evaluate struct value
-                let sv = self.eval_value(struct_val, fn_map)?;
-                
-                let struct_ptr = if sv.is_pointer_value() {
-                    sv.into_pointer_value()
-                } else if sv.is_int_value() {
-                    self.builder
-                        .build_int_to_ptr(
-                            sv.into_int_value(),
-                            llvm_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "struct_int_ptr",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?
-                } else if sv.is_struct_value() {
-                    let tmp = self.alloca_for_type(llvm_struct_type.as_basic_type_enum(), "struct_stack")?;
-                    self.builder.build_store(tmp, sv)?;
-                    tmp
-                } else {
-                    return Err(anyhow!("Unsupported field access value type"));
-                };
-
-                // GEP to field
-                let gep = self
-                    .builder
-                    .build_struct_gep(llvm_struct_type, struct_ptr, field_index, "fld")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                
-                // Load field value with correct type
-                let loaded = self
-                    .builder
-                    .build_load(field_llvm_type, gep, "fld_load")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                
-                // Store the IR type for the result register (for array element type inference)
-                if let IRValue::Register(r) = result {
-                    self.reg_ir_types.insert(*r, field_ir_type_owned);
-                }
-                
-                self.assign_value(result, loaded.as_basic_value_enum())?;
-            }
-            Instruction::ChannelSelect {
-                cases,
-                payload_result,
-                index_result,
-                status_result,
-            } => {
-                self.lower_channel_select(
-                    cases,
-                    payload_result,
-                    index_result,
-                    status_result,
-                    fn_map,
-                )?;
-            }
-            Instruction::Cast {
-                value,
-                target_type,
-                result,
-            } => {
-                // Track result type BEFORE casting
-                if let IRValue::Register(reg_num) = result {
-                    self.reg_ir_types.insert(*reg_num, target_type.clone());
-                }
-                
-                let val = self.eval_value(value, fn_map)?;
-                let cast_val = match (val, target_type) {
-                    // Int to Float
-                    (BasicValueEnum::IntValue(iv), IRType::Float) => {
-                        self.builder
-                            .build_signed_int_to_float(iv, self.ctx.f64_type(), "i2f")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    // Float to Int
-                    (BasicValueEnum::FloatValue(fv), IRType::Integer) => {
-                        self.builder
-                            .build_float_to_signed_int(fv, self.i64_t, "f2i")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    // Bool to Int
-                    (BasicValueEnum::IntValue(iv), IRType::Integer) if iv.get_type().get_bit_width() == 1 => {
-                        self.builder
-                            .build_int_z_extend(iv, self.i64_t, "b2i")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    // Int to Bool
-                    (BasicValueEnum::IntValue(iv), IRType::Boolean) => {
-                        let zero = iv.get_type().const_zero();
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::NE, iv, zero, "i2b")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    // Same type or compatible - no-op cast
-                    (v, _) => v,
-                };
-                self.assign_value(result, cast_val)?;
-            }
-            Instruction::ArraySet {
-                array,
-                index,
-                value,
-            } => {
-                // Infer element type from array variable's or register's IR type
-                let element_ir_type = match array {
-                    IRValue::Variable(var_name) => {
-                        self.var_ir_types
-                            .get(var_name)
-                            .and_then(|ir_type| {
-                                if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref())
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(&IRType::Char)  // Fallback to i8 for unknown array variables
-                    }
-                    IRValue::Register(r) => {
-                        self.reg_ir_types
-                            .get(r)
-                            .and_then(|ir_type| {
-                                if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref())
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(&IRType::Char)  // Fallback to i8 for unknown array registers
-                    }
-                    _ => {
-                        // Fallback: default to i8 for unknown arrays
-                        &IRType::Char
-                    }
-                };
-
-                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
-                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
-                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
-                let array_struct_type = self.ctx.struct_type(
-                    &[
-                        self.i64_t.into(),      // len
-                        self.i64_t.into(),      // capacity
-                        data_ptr_type.into(),   // data (typed pointer!)
-                    ],
-                    false,
-                );
-
-                // Evaluate array pointer and value
-                let arr_v = self.eval_value(array, fn_map)?;
-                let val_v = self.eval_value(value, fn_map)?;
-
-                let arr_ptr = if arr_v.is_pointer_value() {
-                    arr_v.into_pointer_value()
-                } else if arr_v.is_int_value() {
-                    self.builder
-                        .build_int_to_ptr(
-                            arr_v.into_int_value(),
-                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "arr_int_to_ptr_set",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?
-                } else {
-                    return Err(anyhow!("Unsupported array set target"));
-                };
-
-                // GEP to data field (index 2)
-                let data_ptr_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 2, "data_ptr_set")?;
-                
-                // Load data pointer (typed as T*)
-                let data_ptr = self.builder.build_load(data_ptr_type, data_ptr_ptr, "data_set")?
-                    .into_pointer_value();
-
-                // GEP to element at index
-                let idx_bv = self.eval_value(index, fn_map)?;
-                let idx_iv = self.as_i64(idx_bv)?;
-                let elem_ptr = unsafe {
-                    self.builder.build_gep(
-                        element_llvm_type,
-                        data_ptr,
-                        &[idx_iv],
-                        "elem_ptr_set",
-                    )?
-                };
-
-                // Store element value
-                self.builder
-                    .build_store(elem_ptr, val_v)
-                    .map_err(|e| anyhow!("{e:?}"))?;
-            }
-            Instruction::FieldSet {
-                struct_val,
-                field,
-                value,
-            } => {
-                // Infer struct type from variable's IR type
-                let (struct_ir_type, field_index) = if let IRValue::Variable(var_name) = struct_val {
-                    let ir_type = self.var_ir_types
-                        .get(var_name)
-                        .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
-                    
-                    if let IRType::Struct { name, fields } = ir_type {
-                        // Find field index
-                        let (idx, _) = fields.iter().enumerate()
-                            .find(|(_, (fname, _))| fname == field)
-                            .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
-                        
-                        (ir_type, idx as u32)
-                    } else {
-                        return Err(anyhow!("Variable '{}' is not a struct type", var_name));
-                    }
-                } else {
-                    // Fallback for CommandResult (CLI compatibility)
-                    if field == "success" {
-                        (&IRType::Struct {
-                            name: "CommandResult".to_string(),
-                            fields: vec![
-                                ("success".to_string(), IRType::Boolean),
-                                ("output".to_string(), IRType::String),
-                            ],
-                        }, 0u32)
-                    } else if field == "output" {
-                        (&IRType::Struct {
-                            name: "CommandResult".to_string(),
-                            fields: vec![
-                                ("success".to_string(), IRType::Boolean),
-                                ("output".to_string(), IRType::String),
-                            ],
-                        }, 1u32)
-                    } else {
-                        return Err(anyhow!(
-                            "LLVM backend: cannot infer struct type for field set '{}'",
-                            field
-                        ));
-                    }
-                };
-
-                // Generate LLVM struct type directly from IRType::Struct fields
-                // (ir_type_to_llvm returns a pointer, but we need the actual struct type for GEP)
-                let llvm_struct_type = if let IRType::Struct { fields, .. } = struct_ir_type {
-                    let field_types: Vec<BasicTypeEnum<'ctx>> = fields.iter()
-                        .map(|(_, field_type)| self.ir_type_to_llvm(field_type))
-                        .collect();
-                    self.ctx.struct_type(&field_types, false)
-                } else {
-                    return Err(anyhow!("Expected struct type"));
-                };
-
-                // Evaluate struct value and value to store
-                let sv = self.eval_value(struct_val, fn_map)?;
-                let val = self.eval_value(value, fn_map)?;
-                
-                let struct_ptr = if sv.is_pointer_value() {
-                    sv.into_pointer_value()
-                } else if sv.is_int_value() {
-                    self.builder
-                        .build_int_to_ptr(
-                            sv.into_int_value(),
-                            llvm_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "struct_int_ptr_store",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?
-                } else if sv.is_struct_value() {
-                    let tmp = self.alloca_for_type(llvm_struct_type.as_basic_type_enum(), "struct_stack_store")?;
-                    self.builder.build_store(tmp, sv)?;
-                    tmp
-                } else {
-                    return Err(anyhow!("Unsupported FieldSet value type"));
-                };
-
-                // GEP to field
-                let gep = self
-                    .builder
-                    .build_struct_gep(llvm_struct_type, struct_ptr, field_index, "fld_set")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                
-                // Store value
-                self.builder
-                    .build_store(gep, val)
-                    .map_err(|e| anyhow!("{e:?}"))?;
-            }
-            Instruction::Scoped { .. } | Instruction::Spawn { .. } => {
-                return Err(anyhow!(
-                    "LLVM backend does not yet lower scoped/spawn concurrency instructions"
-                ));
-            }
-            _ => {
-                // Many IR ops are not required for bootstrap subset; ignore nops etc.
-            }
-        }
-        Ok(())
-    }
-
-    fn lower_channel_select(
-        &mut self,
-        cases: &[IRSelectArm],
-        payload_result: &IRValue,
-        index_result: &IRValue,
-        status_result: &IRValue,
-        fn_map: &HashMap<String, FunctionValue<'ctx>>,
-    ) -> Result<()> {
-        if cases.is_empty() {
-            return Err(anyhow!("ChannelSelect emitted without any cases"));
-        }
-
-        let count = cases.len() as u64;
-        let count_i32 = self.ctx.i32_type().const_int(count, false);
-        let case_buffer = self
-            .builder
-            .build_array_alloca(self.i8_ptr_t, count_i32, "select_cases")
-            .map_err(|e| anyhow!("{e:?}"))?;
-
-        for (idx, case) in cases.iter().enumerate() {
-            let channel_val = self.eval_value(&case.channel, fn_map)?;
-            let channel_ptr = self.to_i8_ptr(channel_val, &format!("select_case_ptr_{idx}"))?;
-            let slot = unsafe {
-                self.builder.build_gep(
-                    self.i8_ptr_t,
-                    case_buffer,
-                    &[self.ctx.i32_type().const_int(idx as u64, false)],
-                    &format!("select_case_slot_{idx}"),
-                )
-            }
-            .map_err(|e| anyhow!("{e:?}"))?;
-            self.builder
-                .build_store(slot, channel_ptr.as_basic_value_enum())
-                .map_err(|e| anyhow!("{e:?}"))?;
-        }
-
-        let result_ty = self.ty_select_result();
-        let result_alloca = self
-            .builder
-            .build_alloca(result_ty, "select_result")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.builder
-            .build_store(result_alloca, result_ty.const_zero().as_basic_value_enum())
-            .map_err(|e| anyhow!("{e:?}"))?;
-
-        let select_fn = self.ensure_channel_select_fn();
-        let case_buffer_raw = self
-            .builder
-            .build_pointer_cast(case_buffer, self.i8_ptr_t, "select_cases_raw")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let result_raw = self
-            .builder
-            .build_pointer_cast(result_alloca, self.i8_ptr_t, "select_result_raw")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let count_i64 = self.i64_t.const_int(count, false);
-        let args = &[
-            case_buffer_raw.as_basic_value_enum().into(),
-            result_raw.as_basic_value_enum().into(),
-            count_i64.into(),
-        ];
-        self.builder.build_call(select_fn, args, "select_call")?;
-
-        let payload_ptr = self
-            .builder
-            .build_struct_gep(result_ty, result_alloca, 0, "select_payload_ptr")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let payload_val = self
-            .builder
-            .build_load(self.i8_ptr_t, payload_ptr, "select_payload")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.assign_value(payload_result, payload_val.as_basic_value_enum())?;
-
-        let index_ptr = self
-            .builder
-            .build_struct_gep(result_ty, result_alloca, 1, "select_index_ptr")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let index_val = self
-            .builder
-            .build_load(self.i64_t, index_ptr, "select_index")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.assign_value(index_result, index_val.as_basic_value_enum())?;
-
-        let status_ptr = self
-            .builder
-            .build_struct_gep(result_ty, result_alloca, 2, "select_status_ptr")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let status_val = self
-            .builder
-            .build_load(self.i64_t, status_ptr, "select_status")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.assign_value(status_result, status_val.as_basic_value_enum())?;
-
-        Ok(())
-    }
-
-    fn box_runtime_value(&mut self, value: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
-        if value.is_int_value() {
-            let int_val = value.into_int_value();
-            let width = int_val.get_type().get_bit_width();
-            if width == 1 {
-                let bool_val = self
-                    .builder
-                    .build_int_z_extend(int_val, self.ctx.i32_type(), "box_bool_zext")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                let func = self.ensure_box_bool_fn();
-                let call = self
-                    .builder
-                    .build_call(func, &[bool_val.into()], "box_bool")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                return call
-                    .try_as_basic_value()
-                    .left()
-                    .map(|v| v.into_pointer_value())
-                    .ok_or_else(|| anyhow!("box_bool returned void"));
-            } else {
-                let i64_val = if width == 64 {
-                    int_val
-                } else {
-                    self.builder
-                        .build_int_s_extend(int_val, self.i64_t, "box_int_sext")
-                        .map_err(|e| anyhow!("{e:?}"))?
-                };
-                let func = self.ensure_box_int_fn();
-                let call = self
-                    .builder
-                    .build_call(func, &[i64_val.into()], "box_int")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                return call
-                    .try_as_basic_value()
-                    .left()
-                    .map(|v| v.into_pointer_value())
-                    .ok_or_else(|| anyhow!("box_int returned void"));
-            }
-        }
-
-        if value.is_pointer_value() {
-            let ptr_val = self
-                .builder
-                .build_pointer_cast(value.into_pointer_value(), self.i8_ptr_t, "box_ptr_cast")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            let func = self.ensure_box_ptr_fn();
-            let call = self
-                .builder
-                .build_call(func, &[ptr_val.as_basic_value_enum().into()], "box_ptr")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            return call
-                .try_as_basic_value()
-                .left()
-                .map(|v| v.into_pointer_value())
-                .ok_or_else(|| anyhow!("box_ptr returned void"));
-        }
-
-        if value.is_float_value() {
-            let float_val = value.into_float_value();
-            let as_int = self
-                .builder
-                .build_bit_cast(float_val, self.ctx.f64_type(), "box_float_cast")
-                .map_err(|e| anyhow!("{e:?}"))?
-                .into_float_value();
-            let bits = self
-                .builder
-                .build_float_to_signed_int(as_int, self.i64_t, "box_float_bits")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            let func = self.ensure_box_int_fn();
-            let call = self
-                .builder
-                .build_call(func, &[bits.into()], "box_float")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            return call
-                .try_as_basic_value()
-                .left()
-                .map(|v| v.into_pointer_value())
-                .ok_or_else(|| anyhow!("box_float returned void"));
-        }
-
-        // Fallback: treat as pointer by copying to heap.
-        let ptr = self.to_i8_ptr(value, "box_fallback")?;
-        let func = self.ensure_box_ptr_fn();
-        let call = self
-            .builder
-            .build_call(
-                func,
-                &[ptr.as_basic_value_enum().into()],
-                "box_fallback_ptr",
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
             )
-            .map_err(|e| anyhow!("{e:?}"))?;
-        call.try_as_basic_value()
-            .left()
-            .map(|v| v.into_pointer_value())
-            .ok_or_else(|| anyhow!("box_ptr fallback returned void"))
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
     }
 
-    fn ensure_box_int_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.box_int_fn {
-            f
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
         } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.i64_t.into()], false);
-            let func = self.module.add_function("seen_box_int", ty, None);
-            self.box_int_fn = Some(func);
-            func
-        }
-    }
-
-    fn ensure_box_bool_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.box_bool_fn {
-            f
-        } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.ctx.i32_type().into()], false);
-            let func = self.module.add_function("seen_box_bool", ty, None);
-            self.box_bool_fn = Some(func);
-            func
-        }
-    }
-
-    fn ensure_box_ptr_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.box_ptr_fn {
-            f
-        } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.i8_ptr_t.into()], false);
-            let func = self.module.add_function("seen_box_ptr", ty, None);
-            self.box_ptr_fn = Some(func);
-            func
-        }
-    }
-
-    fn ensure_channel_send_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function("seen_channel_send") {
-            f
-        } else {
-            let ty = self
-                .i8_ptr_t
-                .fn_type(&[self.i8_ptr_t.into(), self.i8_ptr_t.into()], false);
-            self.module.add_function("seen_channel_send", ty, None)
-        }
-    }
-
-    fn eval_value(
-        &mut self,
-        v: &IRValue,
-        fn_map: &HashMap<String, FunctionValue<'ctx>>,
-    ) -> Result<BasicValueEnum<'ctx>> {
-        match v {
-            IRValue::Integer(i) => Ok(self.i64_t.const_int(*i as u64, true).as_basic_value_enum()),
-            IRValue::Boolean(b) => Ok(self
-                .bool_t
-                .const_int(if *b { 1 } else { 0 }, false)
-                .as_basic_value_enum()),
-            IRValue::String(s) => {
-                let gv = self.builder.build_global_string_ptr(&(s.clone()), "str")?;
-                Ok(gv.as_pointer_value().as_basic_value_enum())
-            }
-            IRValue::Void => Ok(self.i64_t.const_zero().as_basic_value_enum()),
-            IRValue::Register(r) => {
-                if let Some(val) = self.reg_values.get(r).cloned() {
-                    return Ok(val);
-                }
-                if let Some(slot) = self.reg_slots.get(r).copied() {
-                    // Check if we have type info for this register
-                    let load_type = self.reg_ir_types.get(r)
-                        .map(|ir_ty| self.ir_type_to_llvm(ir_ty))
-                        .unwrap_or(self.i64_t.as_basic_type_enum());
-                    
-                    let loaded =
-                        self.builder
-                            .build_load(load_type, slot, &format!("load_r{}", r))?;
-                    return Ok(loaded.as_basic_value_enum());
-                }
-                Err(anyhow!("Unknown register %r{r}"))
-            }
-            IRValue::Variable(name) => {
-                if let Some(slot) = self.var_slots.get(name).copied() {
-                    let loaded = self.load_from_slot(name, slot)?;
-                    return Ok(loaded);
-                }
-                if let Some(v) = self.var_values.get(name).cloned() {
-                    return Ok(v);
-                }
-                Err(anyhow!(format!("Unknown variable {}", name)))
-            }
-            IRValue::Array(_vals) => {
-                // Materialize arrays on demand in consumers; here return opaque null as placeholder
-                Ok(self.i8_ptr_t.const_null().as_basic_value_enum())
-            }
-            IRValue::ByteArray(data) => self.byte_array_ptr(data),
-            IRValue::Null => Ok(self.i8_ptr_t.const_null().as_basic_value_enum()),
-            IRValue::Function { name, .. } => {
-                let f = fn_map
-                    .get(name)
-                    .ok_or_else(|| anyhow!("Unknown function {name}"))?;
-                Ok(f.as_global_value().as_pointer_value().as_basic_value_enum())
-            }
-            IRValue::Float(fv) => Ok(self.ctx.f64_type().const_float(*fv).as_basic_value_enum()),
-            IRValue::Struct { type_name, fields } => {
-                // Materialize struct by allocating and initializing fields
-                // Look up the struct type from type_definitions
-                let struct_ir_type = self.ir_type_definitions.get(type_name)
-                    .ok_or_else(|| anyhow!("Unknown struct type: {}", type_name))?.clone();
-                
-                if let IRType::Struct { name: _, fields: field_defs } = &struct_ir_type {
-                    // Build LLVM struct type from field definitions
-                    let mut field_types = Vec::new();
-                    for (_field_name, field_type) in field_defs {
-                        field_types.push(self.ir_type_to_llvm(field_type));
-                    }
-                    let struct_ty = self.ctx.struct_type(&field_types, false);
-                    
-                    // Allocate struct on heap
-                    let struct_size = struct_ty.size_of().unwrap();
-                    let malloc = self.get_malloc();
-                    let struct_ptr_raw = self.builder.build_call(
-                        malloc,
-                        &[struct_size.into()],
-                        &format!("malloc_{}", type_name),
-                    )?.try_as_basic_value().left().unwrap().into_pointer_value();
-                    
-                    let struct_ptr = self.builder.build_pointer_cast(
-                        struct_ptr_raw,
-                        struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                        &format!("{}_ptr", type_name),
-                    )?;
-                    
-                    // Initialize each field
-                    for (idx, (field_name, _field_type)) in field_defs.iter().enumerate() {
-                        if let Some(field_value) = fields.get(field_name) {
-                            let field_val_llvm = self.eval_value(field_value, fn_map)?;
-                            let field_ptr = self.builder.build_struct_gep(
-                                struct_ty,
-                                struct_ptr,
-                                idx as u32,
-                                &format!("{}_{}_ptr", type_name, field_name),
-                            )?;
-                            self.builder.build_store(field_ptr, field_val_llvm)?;
-                        }
-                    }
-                    
-                    Ok(struct_ptr.as_basic_value_enum())
-                } else {
-                    Err(anyhow!("Type {} is not a struct", type_name))
-                }
-            }
-            _ => Err(anyhow!("Unsupported IRValue in LLVM backend: {v:?}")),
-        }
-    }
-
-    fn to_i8_ptr(&mut self, value: BasicValueEnum<'ctx>, name: &str) -> Result<PointerValue<'ctx>> {
-        match value {
-            BasicValueEnum::PointerValue(ptr) => self
-                .builder
-                .build_pointer_cast(ptr, self.i8_ptr_t, name)
-                .map_err(|e| anyhow!("{e:?}")),
-            BasicValueEnum::IntValue(int_val) => self
-                .builder
-                .build_int_to_ptr(int_val, self.i8_ptr_t, name)
-                .map_err(|e| anyhow!("{e:?}")),
-            BasicValueEnum::StructValue(struct_val) => {
-                let ty = struct_val.get_type().as_basic_type_enum();
-                let tmp = self.alloca_for_type(ty, &format!("{name}_stack"))?;
-                self.builder.build_store(tmp, struct_val)?;
-                self.builder
-                    .build_pointer_cast(tmp, self.i8_ptr_t, &format!("{name}_stack_ptr"))
-                    .map_err(|e| anyhow!("{e:?}"))
-            }
-            other => Err(anyhow!(
-                "select requires pointer compatible value, got {:?}",
-                other
-            )),
-        }
-    }
-
-    fn byte_array_ptr(&mut self, data: &[u8]) -> Result<BasicValueEnum<'ctx>> {
-        let global = self.byte_array_global(data)?;
-        let cast = self
-            .builder
-            .build_pointer_cast(global.as_pointer_value(), self.i8_ptr_t, "embed_ptr")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(cast.as_basic_value_enum())
-    }
-
-    fn byte_array_global(&mut self, data: &[u8]) -> Result<GlobalValue<'ctx>> {
-        if let Some(global) = self.byte_array_globals.get(data) {
-            return Ok(*global);
-        }
-
-        let byte_ty = self.ctx.i8_type();
-        let (array_ty, initializer) = if data.is_empty() {
-            let arr_ty = byte_ty.array_type(1);
-            let init = byte_ty.const_array(&[byte_ty.const_zero()]);
-            (arr_ty, init)
-        } else {
-            let len = u32::try_from(data.len())
-                .map_err(|_| anyhow!("Embedded blob exceeds maximum supported size"))?;
-            let arr_ty = byte_ty.array_type(len);
-            let const_vals: Vec<_> = data
-                .iter()
-                .map(|b| byte_ty.const_int(*b as u64, false))
-                .collect();
-            let init = byte_ty.const_array(&const_vals);
-            (arr_ty, init)
+            "o"
         };
-
-        let symbol = format!("__seen_embed_{}", self.byte_array_globals.len());
-        let global = self.module.add_global(array_ty, None, &symbol);
-        global.set_initializer(&initializer);
-        global.set_constant(true);
-        global.set_linkage(Linkage::Private);
-        global.set_unnamed_address(UnnamedAddress::Global);
-        global.set_alignment(1);
-        self.byte_array_globals.insert(data.to_vec(), global);
-        Ok(global)
+        out_path.with_extension(ext)
     }
 
-    fn assign_value(&mut self, dest: &IRValue, v: BasicValueEnum<'ctx>) -> Result<()> {
-        match dest {
-            IRValue::Register(r) => {
-                self.reg_values.insert(*r, v.clone());
-                // Also persist through the reg slot if available
-                if let Some(slot) = self.reg_slots.get(r).copied() {
-                    let reg_val = v.clone();
-                    let ival = if reg_val.is_int_value() {
-                        let iv = reg_val.into_int_value();
-                        if iv.get_type() == self.i64_t {
-                            iv
-                        } else {
-                            self.builder
-                                .build_int_s_extend(iv, self.i64_t, "sext")
-                                .ok()
-                                .unwrap_or(self.i64_t.const_zero())
-                        }
-                    } else if reg_val.is_pointer_value() {
-                        self.builder
-                            .build_ptr_to_int(reg_val.into_pointer_value(), self.i64_t, "ptr2i")
-                            .ok()
-                            .unwrap_or(self.i64_t.const_zero())
-                    } else if reg_val.is_float_value() {
-                        self.builder
-                            .build_float_to_signed_int(
-                                reg_val.into_float_value(),
-                                self.i64_t,
-                                "ftoi",
-                            )
-                            .ok()
-                            .unwrap_or(self.i64_t.const_zero())
-                    } else if v.is_vector_value() {
-                        self.i64_t.const_zero()
-                    } else {
-                        self.i64_t.const_zero()
-                    };
-                    self.builder
-                        .build_store(slot, ival)
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                }
-                Ok(())
-            }
-            IRValue::Variable(name) => {
-                // Update immediate map
-                self.var_values.insert(name.clone(), v.clone());
-                // Persist to slot (create lazily if needed)
-                let (slot, slot_ty) = if let Some(p) = self.var_slots.get(name).copied() {
-                    let ty = *self
-                        .var_slot_types
-                        .get(name)
-                        .ok_or_else(|| anyhow!("Missing slot type for {}", name))?;
-                    (p, ty)
-                } else {
-                    let value_ty = self
-                        .basic_type_from_value(&v)
-                        .ok_or_else(|| anyhow!("Cannot infer type for variable {}", name))?;
-                    let slot = self.alloca_for_type(value_ty, &format!("var_{}", name))?;
-                    self.var_slots.insert(name.clone(), slot);
-                    self.var_slot_types.insert(name.clone(), value_ty);
-                    (slot, value_ty)
-                };
-                let stored = self.cast_basic_to_type(v, slot_ty)?;
-                self.builder
-                    .build_store(slot, stored)
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                Ok(())
-            }
-            _ => Ok(()),
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
         }
     }
 
-    fn as_bool(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
-        if v.is_int_value() && v.into_int_value().get_type() == self.bool_t {
-            return Ok(v.into_int_value());
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
         }
-        if v.is_int_value() {
-            let zero = v.into_int_value().get_type().const_zero();
-            return self
-                .builder
-                .build_int_compare(
-                    inkwell::IntPredicate::NE,
-                    v.into_int_value(),
-                    zero,
-                    "tobool",
-                )
-                .map_err(|e| anyhow!("{e:?}"));
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
         }
-        Err(anyhow!("Cannot convert value to bool"))
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
     }
 
-    fn as_i64(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
-        if v.is_int_value() {
-            let iv = v.into_int_value();
-            if iv.get_type() == self.i64_t {
-                Ok(iv)
-            } else {
-                self.builder
-                    .build_int_s_extend(iv, self.i64_t, "sext")
-                    .map_err(|e| anyhow!("{e:?}"))
-            }
-        } else if v.is_float_value() {
-            Err(anyhow!("Expected integer value, got float"))
-        } else if v.is_pointer_value() {
-            Err(anyhow!("Expected integer value, got pointer"))
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
         } else {
-            Err(anyhow!("Expected integer value, got unknown type"))
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
         }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
     }
 
-    fn as_usize(&self, v: BasicValueEnum<'ctx>) -> Result<u64> {
-        let iv = self.as_i64(v)?;
-        Ok(iv.get_zero_extended_constant().unwrap_or(0))
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
     }
 
-    fn as_cstr_ptr(&self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
-        if v.is_pointer_value() {
-            return Ok(v.into_pointer_value());
-        }
-        if v.is_int_value() {
-            return self
-                .builder
-                .build_int_to_ptr(v.into_int_value(), self.i8_ptr_t, "i2ptr")
-                .map_err(|e| anyhow!("{e:?}"));
-        }
-        Err(anyhow!("Expected pointer to cstr"))
-    }
-
-    fn alloca_for_type(
-        &mut self,
-        ty: BasicTypeEnum<'ctx>,
-        name: &str,
-    ) -> Result<PointerValue<'ctx>> {
-        let slot = match ty {
-            BasicTypeEnum::ArrayType(at) => self.builder.build_alloca(at, name),
-            BasicTypeEnum::FloatType(ft) => self.builder.build_alloca(ft, name),
-            BasicTypeEnum::IntType(it) => self.builder.build_alloca(it, name),
-            BasicTypeEnum::PointerType(pt) => self.builder.build_alloca(pt, name),
-            BasicTypeEnum::StructType(st) => self.builder.build_alloca(st, name),
-            BasicTypeEnum::VectorType(vt) => self.builder.build_alloca(vt, name),
-            BasicTypeEnum::ScalableVectorType(svt) => self.builder.build_alloca(svt, name),
-        }
-        .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(slot)
-    }
-
-    fn load_from_slot(
-        &mut self,
-        name: &str,
-        slot: PointerValue<'ctx>,
-    ) -> Result<BasicValueEnum<'ctx>> {
-        let elem_ty = *self
-            .var_slot_types
-            .get(name)
-            .ok_or_else(|| anyhow!("Missing slot type for {}", name))?;
-        let load_name = format!("load_{}", name);
-        let loaded = match elem_ty {
-            BasicTypeEnum::ArrayType(at) => self.builder.build_load(at, slot, &load_name),
-            BasicTypeEnum::FloatType(ft) => self.builder.build_load(ft, slot, &load_name),
-            BasicTypeEnum::IntType(it) => self.builder.build_load(it, slot, &load_name),
-            BasicTypeEnum::PointerType(pt) => self.builder.build_load(pt, slot, &load_name),
-            BasicTypeEnum::StructType(st) => self.builder.build_load(st, slot, &load_name),
-            BasicTypeEnum::VectorType(vt) => self.builder.build_load(vt, slot, &load_name),
-            BasicTypeEnum::ScalableVectorType(svt) => {
-                self.builder.build_load(svt, slot, &load_name)
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
             }
         }
-        .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(loaded.as_basic_value_enum())
-    }
 
-    fn basic_type_from_value(&self, value: &BasicValueEnum<'ctx>) -> Option<BasicTypeEnum<'ctx>> {
-        Some(match value {
-            BasicValueEnum::ArrayValue(av) => av.get_type().as_basic_type_enum(),
-            BasicValueEnum::FloatValue(fv) => fv.get_type().as_basic_type_enum(),
-            BasicValueEnum::IntValue(iv) => iv.get_type().as_basic_type_enum(),
-            BasicValueEnum::PointerValue(pv) => pv.get_type().as_basic_type_enum(),
-            BasicValueEnum::StructValue(sv) => sv.get_type().as_basic_type_enum(),
-            BasicValueEnum::VectorValue(vv) => vv.get_type().as_basic_type_enum(),
-            BasicValueEnum::ScalableVectorValue(svv) => svv.get_type().as_basic_type_enum(),
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
         })
     }
 
-    fn cast_basic_to_type(
-        &mut self,
-        value: BasicValueEnum<'ctx>,
-        target: BasicTypeEnum<'ctx>,
-    ) -> Result<BasicValueEnum<'ctx>> {
-        match (value, target) {
-            (BasicValueEnum::IntValue(iv), BasicTypeEnum::IntType(it)) => {
-                if iv.get_type() == it {
-                    Ok(iv.as_basic_value_enum())
-                } else if iv.get_type().get_bit_width() < it.get_bit_width() {
-                    let ext = self
-                        .builder
-                        .build_int_s_extend(iv, it, "sext_store")
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                    Ok(ext.as_basic_value_enum())
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
                 } else {
-                    let trunc = self
-                        .builder
-                        .build_int_truncate(iv, it, "trunc_store")
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                    Ok(trunc.as_basic_value_enum())
+                    vec!["-shared".to_string()]
                 }
             }
-            (BasicValueEnum::IntValue(iv), BasicTypeEnum::PointerType(pt)) => {
-                let cast = self
-                    .builder
-                    .build_int_to_ptr(iv, pt, "int2ptr_store")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                Ok(cast.as_basic_value_enum())
-            }
-            (BasicValueEnum::PointerValue(pv), BasicTypeEnum::PointerType(pt)) => {
-                if pv.get_type() == pt {
-                    Ok(pv.as_basic_value_enum())
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
                 } else {
-                    let cast = self
-                        .builder
-                        .build_bit_cast(
-                            pv.as_basic_value_enum(),
-                            pt.as_basic_type_enum(),
-                            "ptrcast_store",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                    Ok(cast)
+                    vec![]
                 }
             }
-            (BasicValueEnum::PointerValue(pv), BasicTypeEnum::IntType(it)) => {
-                let cast = self
-                    .builder
-                    .build_ptr_to_int(pv, it, "ptr2int_store")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                Ok(cast.as_basic_value_enum())
-            }
-            (BasicValueEnum::FloatValue(fv), BasicTypeEnum::FloatType(ft)) => {
-                if fv.get_type() == ft {
-                    Ok(fv.as_basic_value_enum())
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
                 } else {
-                    Err(anyhow!("Mismatched float store type"))
+                    vec![]
                 }
             }
-            (BasicValueEnum::VectorValue(vv), BasicTypeEnum::VectorType(vt)) => {
-                if vv.get_type() == vt {
-                    Ok(vv.as_basic_value_enum())
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
                 } else {
-                    Err(anyhow!("Vector lane mismatch"))
+                    vec![]
                 }
             }
-            (BasicValueEnum::FloatValue(fv), BasicTypeEnum::IntType(it)) => {
-                let cast = self
-                    .builder
-                    .build_float_to_signed_int(fv, it, "ftosi_store")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                Ok(cast.as_basic_value_enum())
-            }
-            (BasicValueEnum::IntValue(iv), BasicTypeEnum::FloatType(ft)) => {
-                let cast = self
-                    .builder
-                    .build_signed_int_to_float(iv, ft, "sitofp_store")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                Ok(cast.as_basic_value_enum())
-            }
-            (BasicValueEnum::StructValue(sv), BasicTypeEnum::StructType(st)) => {
-                if sv.get_type() == st {
-                    Ok(sv.as_basic_value_enum())
-                } else {
-                    Err(anyhow!("Mismatched struct store type"))
-                }
-            }
-            (BasicValueEnum::ArrayValue(av), BasicTypeEnum::ArrayType(at)) => {
-                if av.get_type() == at {
-                    Ok(av.as_basic_value_enum())
-                } else {
-                    Err(anyhow!("Mismatched array store type"))
-                }
-            }
-            (BasicValueEnum::ScalableVectorValue(svv), BasicTypeEnum::ScalableVectorType(svt)) => {
-                if svv.get_type() == svt {
-                    Ok(svv.as_basic_value_enum())
-                } else {
-                    Err(anyhow!("Mismatched scalable vector store type"))
-                }
-            }
-            (_, target_ty) => Err(anyhow!(
-                "Cannot cast value to requested type {}",
-                target_ty.print_to_string().to_string()
-            )),
+            _ => vec![],
         }
     }
 
-    fn is_string_value_ir(&self, value: &IRValue) -> bool {
-        if is_string_literal_ir(value) {
-            return true;
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
         }
-        if let IRValue::Variable(name) = value {
-            if let Some(BasicTypeEnum::PointerType(pt)) = self.var_slot_types.get(name) {
-                return *pt == self.i8_ptr_t;
-            }
-        }
-        false
+        Ok(())
     }
 
-    fn get_printf(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.printf {
-            return f;
-        }
-        let i8ptr = self.i8_ptr_t;
-        let ty = self.i64_t.fn_type(&[i8ptr.into()], true);
-        let f = self.module.add_function("printf", ty, None);
-        self.printf = Some(f);
-        f
-    }
-
-    fn get_strlen(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.strlen {
-            return f;
-        }
-        let ty = self.i64_t.fn_type(&[self.i8_ptr_t.into()], false);
-        let f = self.module.add_function("strlen", ty, None);
-        self.strlen = Some(f);
-        f
-    }
-
-    fn get_strcmp(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.strcmp {
-            return f;
-        }
-        let i32_t = self.ctx.i32_type();
-        let ty = i32_t.fn_type(&[self.i8_ptr_t.into(), self.i8_ptr_t.into()], false);
-        let f = self.module.add_function("strcmp", ty, None);
-        self.strcmp = Some(f);
-        f
-    }
-
-    fn get_malloc(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.malloc {
-            return f;
-        }
-        let ty = self.i8_ptr_t.fn_type(&[self.i64_t.into()], false);
-        let f = self.module.add_function("malloc", ty, None);
-        self.malloc = Some(f);
-        f
-    }
-
-    fn get_free(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.free {
-            return f;
-        }
-        let ty = self.ctx.void_type().fn_type(&[self.i8_ptr_t.into()], false);
-        let f = self.module.add_function("free", ty, None);
-        self.free = Some(f);
-        f
-    }
-
-    fn get_memcpy(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.memcpy {
-            return f;
-        }
-        // declare void *memcpy(void *dest, const void *src, size_t n);
-        let ty = self.i8_ptr_t.fn_type(
-            &[
-                self.i8_ptr_t.into(),
-                self.i8_ptr_t.into(),
-                self.i64_t.into(),
-            ],
-            false,
-        );
-        let f = self.module.add_function("memcpy", ty, None);
-        self.memcpy = Some(f);
-        f
-    }
-
-    fn call_printf(&mut self, args: &[BasicMetadataValueEnum<'ctx>]) -> Result<()> {
-        let printf = self.get_printf();
-        self.builder
-            .build_call(printf, args, "printf_call")
-            .map(|_| ())
-            .map_err(|e| anyhow!("{e:?}"))
-    }
-
-    fn call_strlen(&mut self, s: PointerValue<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
-        let strlen = self.get_strlen();
-        let call = self
-            .builder
-            .build_call(strlen, &[s.into()], "strlen")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(call.try_as_basic_value().left().unwrap().into_int_value())
-    }
-
-    fn call_strcmp(
-        &mut self,
-        a: PointerValue<'ctx>,
-        b: PointerValue<'ctx>,
-    ) -> Result<inkwell::values::IntValue<'ctx>> {
-        let strcmp = self.get_strcmp();
-        let call = self
-            .builder
-            .build_call(strcmp, &[a.into(), b.into()], "strcmp")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(call.try_as_basic_value().left().unwrap().into_int_value())
-    }
-
-    fn runtime_concat(
-        &mut self,
-        left: PointerValue<'ctx>,
-        right: PointerValue<'ctx>,
-    ) -> Result<PointerValue<'ctx>> {
-        let l_len = self.call_strlen(left)?;
-        let r_len = self.call_strlen(right)?;
-        let one = self.i64_t.const_int(1, false);
-        let total = self.builder.build_int_add(
-            self.builder.build_int_add(l_len, r_len, "sum")?,
-            one,
-            "plus1",
-        )?;
-        let malloc = self.get_malloc();
-        let buf = self
-            .builder
-            .build_call(malloc, &[total.into()], "malloc")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let dest = buf
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_pointer_value();
-
-        // memcpy(dest, left, l_len)
-        let memcpy = self.get_memcpy();
-        self.builder
-            .build_call(memcpy, &[dest.into(), left.into(), l_len.into()], "cpy1")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        // memcpy(dest + l_len, right, r_len)
-        let dest_off = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[l_len], "off")?
-        };
-        self.builder
-            .build_call(
-                memcpy,
-                &[dest_off.into(), right.into(), r_len.into()],
-                "cpy2",
-            )
-            .map_err(|e| anyhow!("{e:?}"))?;
-        // null terminate at dest[l_len + r_len]
-        let total_minus_one = self
-            .builder
-            .build_int_sub(total, one, "last_index")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let end_ptr = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[total_minus_one], "end")?
-        };
-        let zero = self.ctx.i8_type().const_int(0, false);
-        self.builder.build_store(end_ptr, zero)?;
-        Ok(dest)
-    }
-
-    fn runtime_endswith(
-        &mut self,
-        s: PointerValue<'ctx>,
-        suffix: PointerValue<'ctx>,
-    ) -> Result<inkwell::values::IntValue<'ctx>> {
-        let s_len = self.call_strlen(s)?;
-        let suf_len = self.call_strlen(suffix)?;
-        let suf_gt =
-            self.builder
-                .build_int_compare(inkwell::IntPredicate::UGT, suf_len, s_len, "suf_gt")?;
-        let len_ok = self
-            .builder
-            .build_not(suf_gt, "len_ok")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let start = self
-            .builder
-            .build_int_sub(s_len, suf_len, "start")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let off = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), s, &[start], "s_off")
-                .map_err(|e| anyhow!("{e:?}"))?
-        };
-        let cmp = self.call_strcmp(off, suffix)?;
-        let zero32 = self.ctx.i32_type().const_zero();
-        let cmp_eq = self
-            .builder
-            .build_int_compare(inkwell::IntPredicate::EQ, cmp, zero32, "ends_eq")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let suf_zero = self
-            .builder
-            .build_int_compare(
-                inkwell::IntPredicate::EQ,
-                suf_len,
-                self.i64_t.const_zero(),
-                "suf_zero",
-            )
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let eq_or_zero = self
-            .builder
-            .build_or(cmp_eq, suf_zero, "ends_match")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let result = self
-            .builder
-            .build_and(len_ok, eq_or_zero, "ends_res")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(result)
-    }
-
-    fn runtime_substring(
-        &mut self,
-        s: PointerValue<'ctx>,
-        start: inkwell::values::IntValue<'ctx>,
-        end: inkwell::values::IntValue<'ctx>,
-    ) -> Result<PointerValue<'ctx>> {
-        let len = self.builder.build_int_sub(end, start, "sub_len")?;
-        let one = self.i64_t.const_int(1, false);
-        let total = self.builder.build_int_add(len, one, "plus1")?;
-        let malloc = self.get_malloc();
-        let buf = self
-            .builder
-            .build_call(malloc, &[total.into()], "malloc")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let dest = buf
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_pointer_value();
-        let src = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), s, &[start], "src_off")?
-        };
-        let memcpy = self.get_memcpy();
-        self.builder
-            .build_call(memcpy, &[dest.into(), src.into(), len.into()], "cpy")?;
-        let end_ptr = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[len], "end")?
-        };
-        self.builder
-            .build_store(end_ptr, self.ctx.i8_type().const_zero())?;
-        Ok(dest)
-    }
-
-    fn declare_main_wrapper(&mut self) {
-        if self.module.get_function("main").is_some() {
-            return;
-        }
-        let i32_t = self.ctx.i32_type();
-        let i8_ptr_ptr = self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16));
-        let c_main_ty = i32_t.fn_type(&[i32_t.into(), i8_ptr_ptr.into()], false);
-        let c_main = self.module.add_function("main", c_main_ty, None);
-        let bb = self.ctx.append_basic_block(c_main, "entry");
-        self.builder.position_at_end(bb);
-        // Initialize argc/argv globals
-        let (g_argc, g_argv) = self.ensure_arg_globals();
-        let argc = c_main.get_nth_param(0).unwrap().into_int_value();
-        let argv = c_main.get_nth_param(1).unwrap().into_pointer_value();
-        self.builder
-            .build_store(g_argc.as_pointer_value(), argc)
-            .unwrap();
-        self.builder
-            .build_store(g_argv.as_pointer_value(), argv)
-            .unwrap();
-        let mut exit_code = i32_t.const_zero();
-        if let Some(seen) = self.module.get_function("seen_main") {
-            let call = self.builder.build_call(seen, &[], "call_main").unwrap();
-            if let Some(ret) = call.try_as_basic_value().left() {
-                if self.cli_mode {
-                    let printf = self.get_printf();
-                    let fmt = self
-                        .builder
-                        .build_global_string_ptr("%lld\n", "seen_cli_result_fmt")
-                        .expect("create CLI printf format literal");
-                    let int_val = ret.into_int_value();
-                    let widened = if int_val.get_type().get_bit_width() != 64 {
-                        self.builder
-                            .build_int_s_extend_or_bit_cast(int_val, self.i64_t, "seen_cli_cast")
-                            .unwrap()
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
                     } else {
-                        int_val
-                    };
-                    self.builder
-                        .build_call(
-                            printf,
-                            &[fmt.as_pointer_value().into(), widened.into()],
-                            "seen_cli_print_result",
-                        )
-                        .unwrap();
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
                 } else {
-                    let i64v = ret.into_int_value();
-                    exit_code = self.builder.build_int_truncate(i64v, i32_t, "tr").unwrap();
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
                 }
             }
         }
-        self.builder.build_return(Some(&exit_code)).unwrap();
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
     }
 
-    fn ensure_arg_globals(
-        &mut self,
-    ) -> (
-        inkwell::values::GlobalValue<'ctx>,
-        inkwell::values::GlobalValue<'ctx>,
-    ) {
-        if let (Some(a), Some(v)) = (self.g_argc, self.g_argv) {
-            return (a, v);
-        }
-        let g_argc = self.module.add_global(self.ctx.i32_type(), None, "__argc");
-        g_argc.set_initializer(&self.ctx.i32_type().const_int(0, false));
-        let g_argv = self.module.add_global(
-            self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-            None,
-            "__argv",
-        );
-        g_argv.set_initializer(
-            &self
-                .i8_ptr_t
-                .ptr_type(inkwell::AddressSpace::from(0u16))
-                .const_null(),
-        );
-        self.g_argc = Some(g_argc);
-        self.g_argv = Some(g_argv);
-        (g_argc, g_argv)
-    }
-
-    fn ty_str_array(&self) -> inkwell::types::StructType<'ctx> {
-        self.ctx.struct_type(
-            &[
-                self.i64_t.into(),
-                self.i8_ptr_t
-                    .ptr_type(inkwell::AddressSpace::from(0u16))
-                    .into(),
-            ],
-            false,
-        )
-    }
-
-    fn ty_cmd_result(&self) -> inkwell::types::StructType<'ctx> {
-        self.ctx
-            .struct_type(&[self.bool_t.into(), self.i8_ptr_t.into()], false)
-    }
-
-    fn ty_handle(&mut self) -> StructType<'ctx> {
-        if let Some(ty) = self.handle_ty {
-            ty
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
         } else {
-            let ty = self.ctx.struct_type(
-                &[self.ctx.i32_type().into(), self.ctx.i32_type().into()],
-                false,
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
             );
-            self.handle_ty = Some(ty);
-            ty
-        }
-    }
-
-    fn ty_select_result(&mut self) -> StructType<'ctx> {
-        if let Some(ty) = self.select_result_ty {
-            ty
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
         } else {
-            let ty = self.ctx.struct_type(
-                &[self.i8_ptr_t.into(), self.i64_t.into(), self.i64_t.into()],
-                false,
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
             );
-            self.select_result_ty = Some(ty);
-            ty
         }
     }
 
-    fn ensure_channel_select_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("seen_channel_select") {
-            func
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
         } else {
-            let fn_ty = self.i8_ptr_t.fn_type(
-                &[
-                    self.i8_ptr_t.into(),
-                    self.i8_ptr_t.into(),
-                    self.i64_t.into(),
-                ],
-                false,
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
             );
-            self.module.add_function("seen_channel_select", fn_ty, None)
         }
     }
 
-    fn ensure_scope_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function(name) {
-            func
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
         } else {
-            let fn_ty = self
-                .ctx
-                .void_type()
-                .fn_type(&[self.ctx.i32_type().into()], false);
-            self.module.add_function(name, fn_ty, None)
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
         }
     }
 
-    fn ensure_spawn_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function(name) {
-            func
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
         } else {
-            let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
-            let fn_ty = ptr_ty.fn_type(&[], false);
-            self.module.add_function(name, fn_ty, None)
+            "linux-x86_64".to_string()
         }
     }
 
-    fn ensure_task_handle_new_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("__task_handle_new") {
-            func
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
         } else {
-            let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
-            let fn_ty = ptr_ty.fn_type(&[self.ctx.i32_type().into()], false);
-            self.module.add_function("__task_handle_new", fn_ty, None)
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
         }
-    }
-
-    fn ensure_await_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("__await") {
-            func
-        } else {
-            let ret_ty = self.ctx.i32_type();
-            let arg_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
-            let fn_ty = ret_ty.fn_type(&[arg_ty.into()], false);
-            self.module.add_function("__await", fn_ty, None)
-        }
-    }
-
-    fn cast_handle_ptr(
-        &mut self,
-        value: BasicValueEnum<'ctx>,
-        label: &str,
-    ) -> Result<PointerValue<'ctx>> {
-        let handle_ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
-        if value.is_pointer_value() {
-            self.builder
-                .build_pointer_cast(value.into_pointer_value(), handle_ptr_ty, label)
-                .map_err(|e| anyhow!("{e:?}"))
-        } else if value.is_int_value() {
-            self.builder
-                .build_int_to_ptr(value.into_int_value(), handle_ptr_ty, label)
-                .map_err(|e| anyhow!("{e:?}"))
-        } else {
-            Err(anyhow!("expected task handle pointer"))
-        }
-    }
-
-    fn get_or_declare_strlen(&mut self) -> Result<FunctionValue<'ctx>> {
-        if let Some(f) = self.strlen {
-            return Ok(f);
-        }
-        let fn_type = self.i64_t.fn_type(&[self.i8_ptr_t.into()], false);
-        let func = self.module.add_function("strlen", fn_type, None);
-        self.strlen = Some(func);
-        Ok(func)
-    }
-
-    fn get_or_declare_malloc(&mut self) -> Result<FunctionValue<'ctx>> {
-        if let Some(f) = self.malloc {
-            return Ok(f);
-        }
-        let fn_type = self.i8_ptr_t.fn_type(&[self.i64_t.into()], false);
-        let func = self.module.add_function("malloc", fn_type, None);
-        self.malloc = Some(func);
-        Ok(func)
-    }
-
-    fn get_or_declare_memcpy(&mut self) -> Result<FunctionValue<'ctx>> {
-        if let Some(f) = self.memcpy {
-            return Ok(f);
-        }
-        let fn_type = self.ctx.void_type().fn_type(
-            &[self.i8_ptr_t.into(), self.i8_ptr_t.into(), self.i64_t.into()],
-            false
-        );
-        let func = self.module.add_function("memcpy", fn_type, None);
-        self.memcpy = Some(func);
-        Ok(func)
-    }
-
-    fn declare_c_fn(
-        &self,
-        name: &str,
-        ret: inkwell::types::BasicTypeEnum<'ctx>,
-        params: &[BasicMetadataTypeEnum<'ctx>],
-        varargs: bool,
-    ) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function(name) {
-            return f;
-        }
-        let ty = ret.fn_type(params, varargs);
-        self.module.add_function(name, ty, None)
-    }
-
-    fn declare_c_void_fn(
-        &self,
-        name: &str,
-        params: &[BasicMetadataTypeEnum<'ctx>],
-        varargs: bool,
-    ) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function(name) {
-            return f;
-        }
-        let ty = self.ctx.void_type().fn_type(params, varargs);
-        self.module.add_function(name, ty, None)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn handle_struct_is_i32_pair() {
-        let mut backend = LlvmBackend::new();
-        let ty = backend.ty_handle();
-        let fields = ty.get_field_types();
-        assert_eq!(fields.len(), 2);
-        assert!(fields
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
             .iter()
-            .all(|f| f.into_int_type().get_bit_width() == 32));
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
     }
-}
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
+        Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
+        Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
+        Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
+        Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
+        Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
+        Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM backend: invoking archiver {}", tool.display());
+        let mut cmd = std::process::Command::new(&tool);
+        if triple.contains("windows")
+            && tool
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().contains("lib"))
+                .unwrap_or(false)
+        {
+            cmd.arg("/nologo")
+                .arg(format!("/OUT:{}", out_path.display()))
+                .arg(obj_path);
+        } else {
+            cmd.arg("rcs").arg(out_path).arg(obj_path);
+        }
+        Self::exec_command(cmd, "archive static library")?;
+
+        if triple.contains("apple") {
+            let ranlib = Self::select_ranlib(triple)?;
+            let mut cmd = std::process::Command::new(&ranlib);
+            cmd.arg(out_path);
+            Self::exec_command(cmd, "ranlib static library")?;
+        }
+
+        Ok(())
+    }
+
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+        let program = Self::lookup_wasm_linker()?;
+        eprintln!("LLVM backend: invoking wasm linker {:?}", program);
+        let mut cmd = std::process::Command::new(&program);
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        cmd.arg("--no-entry");
+        cmd.arg("--allow-undefined");
+        cmd.arg("--export-all");
+        cmd.arg("--export=seen_main");
+        cmd.arg("--export=memory");
+        cmd.arg("--gc-sections");
+        if matches!(kind, LinkOutput::SharedLibrary) {
+            cmd.arg("--shared");
+        }
+        Self::exec_command(cmd, "link wasm artifact")
+    }
+
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                return Ok(LinkerInvocation {
+                    program: PathBuf::from(explicit),
+                    args: Vec::new(),
+                    flavor: LinkerFlavor::Custom,
+                });
+            }
+        }
+
+        if triple.contains("wasm32") {
+            let program = which::which("wasm-ld")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
+            return Ok(LinkerInvocation {
+                program,
+                args: Vec::new(),
+                flavor: LinkerFlavor::WasmLd,
+            });
+        }
+
+        if triple.contains("android") {
+            let clang = Self::android_clang_path(triple)?;
+            return Ok(LinkerInvocation {
+                program: clang,
+                args: Vec::new(),
+                flavor: LinkerFlavor::AndroidClang,
+            });
+        }
+
+        let program = which::which("clang").ok().unwrap_or_else(|| {
+            which::which("cc")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("clang"))
+        });
+
+        let mut args = Vec::new();
+        let program_is_clang = program
+            .file_name()
+            .map(|n| n.to_string_lossy().contains("clang"))
+            .unwrap_or(false);
+        if program_is_clang {
+            args.push(format!("--target={}", triple));
+        }
+
+        Ok(LinkerInvocation {
+            program,
+            args,
+            flavor: LinkerFlavor::ClangLike,
+        })
+    }
+
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ar");
+        }
+
+        if triple.contains("windows") {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("lib")))
+        } else {
+            Ok(which::which("llvm-ar")
+                .ok()
+                .unwrap_or_else(|| PathBuf::from("ar")))
+        }
+    }
+
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
+            if !explicit.is_empty() {
+                return Ok(PathBuf::from(explicit));
+            }
+        }
+        if triple.contains("android") {
+            return Self::android_tool_path("llvm-ranlib");
+        }
+        Ok(which::which("llvm-ranlib")
+            .ok()
+            .unwrap_or_else(|| PathBuf::from("ranlib")))
+    }
+
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::SharedLibrary => {
+                if triple.contains("apple") {
+                    vec!["-dynamiclib".to_string()]
+                } else {
+                    vec!["-shared".to_string()]
+                }
+            }
+            LinkOutput::Executable => {
+                if triple.contains("windows") {
+                    vec![]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+        match kind {
+            LinkOutput::Executable => {
+                if triple.contains("android") {
+                    vec!["-lm".to_string()]
+                } else if triple.contains("linux") {
+                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                } else if triple.contains("apple") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            LinkOutput::SharedLibrary => {
+                if triple.contains("android") || triple.contains("linux") {
+                    vec!["-lm".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+        let status = cmd
+            .status()
+            .with_context(|| format!("Spawning {}", action))?;
+        if !status.success() {
+            return Err(anyhow!(
+                "Command to {} failed with status {}",
+                action,
+                status
+            ));
+        }
+        Ok(())
+    }
+
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
+            if !explicit.is_empty() {
+                let path = PathBuf::from(&explicit);
+                if path.components().count() > 1 || path.is_absolute() {
+                    if path.exists() {
+                        return Ok(path);
+                    } else {
+                        bail!(
+                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
+                            path.display()
+                        );
+                    }
+                } else if let Ok(found) = which::which(&path) {
+                    return Ok(found);
+                } else {
+                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
+                }
+            }
+        }
+
+        which::which("wasm-ld").map_err(|_| {
+            anyhow!(
+                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
+            )
+        })
+    }
+
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let api = Self::android_api_level();
+        let prefix = if triple.contains("aarch64") {
+            "aarch64-linux-android"
+        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
+            "armv7a-linux-androideabi"
+        } else if triple.contains("x86_64") {
+            "x86_64-linux-android"
+        } else if triple.contains("i686") || triple.contains("x86") {
+            "i686-linux-android"
+        } else {
+            bail!(
+                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
+                triple
+            );
+        };
+        let tool_name = format!("{prefix}{api}-clang");
+        let path = bin_dir.join(tool_name);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK clang at {}, but it was not found",
+                path.display()
+            );
+        }
+    }
+
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+        let bin_dir = Self::android_bin_dir()?;
+        let path = bin_dir.join(tool);
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!(
+                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
+                tool,
+                bin_dir.display()
+            );
+        }
+    }
+
+    fn android_bin_dir() -> Result<PathBuf> {
+        let ndk_home = env::var("ANDROID_NDK_HOME")
+            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
+        let host_tag = env::var("ANDROID_NDK_HOST")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::default_ndk_host_tag());
+        let bin_path = Path::new(&ndk_home)
+            .join("toolchains")
+            .join("llvm")
+            .join("prebuilt")
+            .join(&host_tag)
+            .join("bin");
+        if bin_path.exists() {
+            Ok(bin_path)
+        } else {
+            bail!(
+                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
+                bin_path.display(),
+                host_tag
+            );
+        }
+    }
+
+    fn default_ndk_host_tag() -> String {
+        if cfg!(target_os = "linux") {
+            "linux-x86_64".to_string()
+        } else if cfg!(target_os = "macos") {
+            "darwin-x86_64".to_string()
+        } else if cfg!(target_os = "windows") {
+            "windows-x86_64".to_string()
+        } else {
+            "linux-x86_64".to_string()
+        }
+    }
+
+    fn android_api_level() -> String {
+        env::var("ANDROID_API_LEVEL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "21".to_string())
+    }
+
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_block = self.builder.get_insert_block();
+        let saved_fn = self.current_fn;
+
+        let i64_t = self.i64_t;
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+
+        let mut stub_specs: Vec<(
+            &str,
+            inkwell::types::FunctionType<'ctx>,
+            Box<dyn Fn(&mut Self, FunctionValue<'ctx>) -> Result<()> + '_>,
+        )> = vec![
+            (
+                "seen_channel_new",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let null_ptr = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&null_ptr.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_send",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let ok = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&ok.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_recv",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let none = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&none.as_basic_value_enum()))
+                        .map(|_| ())
+                        .map_err(|e| anyhow!("{e:?}"))
+                }),
+            ),
+            (
+                "seen_channel_select",
+                ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false),
+                Box::new(|backend: &mut Self, func| {
+                    let _cases = func
+                        .get_nth_param(0)
+                        .ok_or_else(|| anyhow!("missing cases param"))?
+                        .into_pointer_value();
+                    let out_ptr = func
+                        .get_nth_param(1)
+                        .ok_or_else(|| anyhow!("missing out param"))?
+                        .into_pointer_value();
+                    let _count = func
+                        .get_nth_param(2)
+                        .ok_or_else(|| anyhow!("missing count param"))?;
+
+                    let result_ty = backend.ty_select_result();
+                    let typed_out = backend
+                        .builder
+                        .build_pointer_cast(
+                            out_ptr,
+                            result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            "select_stub_out",
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let payload_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 0, "select_stub_payload")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(
+                            payload_ptr,
+                            backend.i8_ptr_t.const_zero().as_basic_value_enum(),
+                        )
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let index_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 1, "select_stub_index")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(index_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    let status_ptr = backend
+                        .builder
+                        .build_struct_gep(result_ty, typed_out, 2, "select_stub_status")
+                        .map_err(|e| anyhow!("{e:?}"))?;
+                    backend
+                        .builder
+                        .build_store(status_ptr, backend.i64_t.const_zero().as_basic_value_enum())
+                        .map_err(|e| anyhow!("{e:?}"))?;
+
+                    backend
+                        .builder
+                        .build_return(Some(&out_ptr.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_push",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_scope_pop",
+                self.ctx.void_type().fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend.builder.build_return(None);
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_spawn",
+                ptr_t.fn_type(&[ptr_t.into(), i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    let handle = backend.i8_ptr_t.const_zero();
+                    backend
+                        .builder
+                        .build_return(Some(&handle.as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_int",
+                ptr_t.fn_type(&[i64_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_bool",
+                ptr_t.fn_type(&[i32_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+            (
+                "seen_box_ptr",
+                ptr_t.fn_type(&[ptr_t.into()], false),
+                Box::new(|backend: &mut Self, _func| {
+                    backend
+                        .builder
+                        .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+                    Ok(())
+                }),
+            ),
+        ];
+
+        if !include_channel {
+            stub_specs.retain(|(name, _, _)| {
+                !matches!(
+                    *name,
+                    "seen_channel_new"
+                        | "seen_channel_send"
+                        | "seen_channel_recv"
+                        | "seen_channel_select"
+                )
+            });
+        }
+
+        for (name, ty, body) in stub_specs {
+            let is_channel = matches!(
+                name,
+                "seen_channel_new"
+                    | "seen_channel_send"
+                    | "seen_channel_recv"
+                    | "seen_channel_select"
+            );
+            if !include_channel && is_channel {
+                if self.module.get_function(name).is_none() {
+                    self.module.add_function(name, ty, None);
+                }
+                continue;
+            }
+            if self.module.get_function(name).is_some() {
+                continue;
+            }
+            let func = self.module.add_function(name, ty, None);
+            let entry = self.ctx.append_basic_block(func, "entry");
+            self.builder.position_at_end(entry);
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            body(self, func)?;
+            self.current_fn = prev_fn;
+        }
+
+        match saved_block {
+            Some(block) => self.builder.position_at_end(block),
+            None => self.builder.clear_insertion_position(),
+        }
+        self.current_fn = saved_fn;
+        Ok(())
+    }
+
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+        let triple = if let Some(triple) = options.triple {
+            TargetTriple::create(triple)
+        } else {
+            TargetMachine::get_default_triple()
+        };
+        let target = Target::from_triple(&triple)
+            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
+        let cpu = options.cpu.unwrap_or("generic");
+        let mut feature_parts = Vec::new();
+        if let Some(explicit) = options.features.as_deref() {
+            if !explicit.trim().is_empty() {
+                feature_parts.push(explicit.to_string());
+            }
+        }
+        let hardware_flags: Vec<&'static str> = options
+            .hardware_features
+            .iter()
+            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
+            .collect();
+        if !hardware_flags.is_empty() {
+            feature_parts.push(hardware_flags.join(","));
+        }
+        let feature_string = feature_parts.join(",");
+        let features = if feature_string.is_empty() {
+            ""
+        } else {
+            feature_string.as_str()
+        };
+        let machine = target
+            .create_target_machine(
+                &triple,
+                cpu,
+                features,
+                LlvmOptLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| anyhow!("Create target machine failed"))?;
+        Ok((triple, machine))
+    }
+
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+        self.module.set_triple(triple);
+        let layout = machine.get_target_data().get_data_layout();
+        self.module.set_data_layout(&layout);
+    }
+
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+        let triple_str = triple.to_string();
+        let ext = if triple_str.contains("windows") {
+            "obj"
+        } else {
+            "o"
+        };
+        out_path.with_extension(ext)
+    }
+
+    fn link_artifact(
+        &self,
+        kind: LinkOutput,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        match kind {
+            LinkOutput::Executable => self.link_executable(obj_path, out_path, triple, extra_libs),
+            LinkOutput::SharedLibrary => self.link_shared(obj_path, out_path, triple, extra_libs),
+            LinkOutput::StaticLibrary => self.link_static(obj_path, out_path, triple),
+            LinkOutput::ObjectOnly => unreachable!("handled earlier"),
+        }
+    }
+
+    fn link_executable(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
+        Self::exec_command(cmd, "link executable")
+    }
+
+    fn link_shared(
+        &self,
+        obj_path: &Path,
+        out_path: &Path,
+        triple: &str,
+        extra_libs: &[PathBuf],
+    ) -> Result<()> {
+        if triple.contains("wasm32") {
+            return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
+        }
+        let invocation = self.select_linker(triple)?;
+        eprintln!(
+            "LLVM backend: invoking linker {:?} (flavor {:?})",
+            invocation.program, invocation.flavor
+        );
+        let mut cmd = std::process::Command::new(&invocation.program);
+        cmd.args(&invocation.args);
+        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.arg(obj_path);
+        cmd.arg("-o");
+        cmd.arg(out_path);
+        for lib in extra_libs {
+            cmd.arg(lib);
+        }
+        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
+        Self::exec_command(cmd, "link shared library")
+    }
+
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+        let tool = Self::select_archiver(triple)?;
+        eprintln!("LLVM

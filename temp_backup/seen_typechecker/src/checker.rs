@@ -214,47 +214,6 @@ impl TypeChecker {
             },
         );
         env.define_function(
-            "__GetTime".to_string(),
-            FunctionSignature {
-                name: "__GetTime".to_string(),
-                parameters: vec![],
-                return_type: Some(Type::Float),
-            },
-        );
-        env.define_function(
-            "__Abs".to_string(),
-            FunctionSignature {
-                name: "__Abs".to_string(),
-                parameters: vec![Parameter {
-                    name: "x".to_string(),
-                    param_type: Type::Float,
-                }],
-                return_type: Some(Type::Float),
-            },
-        );
-        env.define_function(
-            "__IntToString".to_string(),
-            FunctionSignature {
-                name: "__IntToString".to_string(),
-                parameters: vec![Parameter {
-                    name: "value".to_string(),
-                    param_type: Type::Int,
-                }],
-                return_type: Some(Type::String),
-            },
-        );
-        env.define_function(
-            "__FloatToString".to_string(),
-            FunctionSignature {
-                name: "__FloatToString".to_string(),
-                parameters: vec![Parameter {
-                    name: "value".to_string(),
-                    param_type: Type::Float,
-                }],
-                return_type: Some(Type::String),
-            },
-        );
-        env.define_function(
             "__ReadFile".to_string(),
             FunctionSignature {
                 name: "__ReadFile".to_string(),
@@ -2835,7 +2794,7 @@ impl TypeChecker {
 
         let signature = FunctionSignature {
             name: method_name.clone(),
-            parameters: signature_params.clone(),
+            parameters: signature_params,
             return_type: info.return_type.clone(),
         };
 

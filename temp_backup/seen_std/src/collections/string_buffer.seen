@@ -1,0 +1,84 @@
+// seen_std::collections::string_buffer
+// High-performance growable UTF-8 string builder backed by Vec<Char>.
+
+import collections.vec.{Vec}
+import str.string.{StringBuilder}
+
+class StringBuffer {
+    var chars: Vec<Char>
+
+    fun new() -> StringBuffer {
+        return StringBuffer{ chars: Vec<Char>.new() }
+    }
+
+    fun withCapacity(capacity: Int) -> StringBuffer {
+        let buf = StringBuffer.new()
+        buf.reserve(capacity)
+        return buf
+    }
+
+    fun len() -> Int {
+        return chars.len()
+    }
+
+    fun capacity() -> Int {
+        return chars.capacity()
+    }
+
+    fun isEmpty() -> Bool {
+        return chars.isEmpty()
+    }
+
+    fun reserve(capacity: Int) -> Void {
+        chars.ensureCapacity(capacity)
+    }
+
+    fun clear() -> Void {
+        chars.clear()
+    }
+
+    fun push(text: String) -> Void {
+        for ch in text {
+            chars.push(ch)
+        }
+    }
+
+    fun pushChar(ch: Char) -> Void {
+        chars.push(ch)
+    }
+
+    fun appendLine(text: String = "") -> Void {
+        push(text)
+        pushChar('\n')
+    }
+
+    fun popChar() -> Char {
+        return chars.pop()
+    }
+
+    fun lastChar() -> Char {
+        if chars.isEmpty() {
+            abort("StringBuffer.lastChar called on empty buffer")
+        }
+        return chars.get(chars.len() - 1)
+    }
+
+    fun toString() -> String {
+        if chars.isEmpty() {
+            return ""
+        }
+        let builder = StringBuilder.new()
+        var index = 0
+        while index < chars.len() {
+            builder.appendChar(chars.get(index))
+            index = index + 1
+        }
+        return builder.toString()
+    }
+
+    fun intoString() -> String {
+        let output = toString()
+        clear()
+        return output
+    }
+}

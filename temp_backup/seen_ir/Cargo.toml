@@ -1,0 +1,26 @@
+[package]
+name = "seen_ir"
+version = "0.1.0"
+edition = "2021"
+description = "Intermediate representation for the Seen programming language"
+
+[features]
+default = []
+# Enable LLVM backend; select the installed LLVM version feature on inkwell
+llvm = ["dep:inkwell", "inkwell/llvm15-0-prefer-dynamic"]
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+seen_parser = { path = "../seen_parser" }
+seen_support = { workspace = true }
+inkwell = { version = "0.6", optional = true, default-features = false }
+which = "4"
+egg = "0.9"
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

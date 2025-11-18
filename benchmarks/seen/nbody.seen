@@ -5,6 +5,11 @@ let PI = 3.141592653589793;
 let SOLAR_MASS = 4.0 * PI * PI;
 let DAYS_PER_YEAR = 365.24;
 
+fun abs(x: Float) -> Float {
+    if x < 0.0 { return 0.0 - x; }
+    return x;
+}
+
 struct Body {
     x: Float,
     y: Float,
@@ -16,7 +21,7 @@ struct Body {
 }
 
 fun create_bodies() -> Array<Body> {
-    let mut bodies = Array::with_capacity<Body>(5);
+    var bodies: Array<Body> = [];
     
     bodies.push(Body {
         x: 0.0, y: 0.0, z: 0.0,
@@ -68,15 +73,17 @@ fun create_bodies() -> Array<Body> {
 }
 
 fun offset_momentum(bodies: Array<Body>) {
-    let mut px = 0.0;
-    let mut py = 0.0;
-    let mut pz = 0.0;
+    var px = 0.0;
+    var py = 0.0;
+    var pz = 0.0;
     
-    for i in 0..bodies.len() {
+    var i = 0;
+    while i < bodies.len() {
         let m = bodies[i].mass;
         px = px + bodies[i].vx * m;
         py = py + bodies[i].vy * m;
         pz = pz + bodies[i].vz * m;
+        i = i + 1;
     }
     
     bodies[0].vx = 0.0 - px / SOLAR_MASS;
@@ -87,8 +94,10 @@ fun offset_momentum(bodies: Array<Body>) {
 fun advance(bodies: Array<Body>, dt: Float) {
     let n = bodies.len();
     
-    for i in 0..n {
-        for j in (i + 1)..n {
+    var i = 0;
+    while i < n {
+        var j = i + 1;
+        while j < n {
             let dx = bodies[i].x - bodies[j].x;
             let dy = bodies[i].y - bodies[j].y;
             let dz = bodies[i].z - bodies[j].z;
@@ -107,63 +116,76 @@ fun advance(bodies: Array<Body>, dt: Float) {
             bodies[j].vx = bodies[j].vx + dx * mi * mag;
             bodies[j].vy = bodies[j].vy + dy * mi * mag;
             bodies[j].vz = bodies[j].vz + dz * mi * mag;
+            j = j + 1;
         }
+        i = i + 1;
     }
     
-    for i in 0..n {
+    i = 0;
+    while i < n {
         bodies[i].x = bodies[i].x + dt * bodies[i].vx;
         bodies[i].y = bodies[i].y + dt * bodies[i].vy;
         bodies[i].z = bodies[i].z + dt * bodies[i].vz;
+        i = i + 1;
     }
 }
 
 fun energy(bodies: Array<Body>) -> Float {
-    let mut e = 0.0;
+    var e = 0.0;
     let n = bodies.len();
     
-    for i in 0..n {
+    var i = 0;
+    while i < n {
         let b = bodies[i];
         e = e + 0.5 * b.mass * (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
         
-        for j in (i + 1)..n {
+        var j = i + 1;
+        while j < n {
             let b2 = bodies[j];
             let dx = b.x - b2.x;
             let dy = b.y - b2.y;
             let dz = b.z - b2.z;
             let dist = __Sqrt(dx * dx + dy * dy + dz * dz);
             e = e - (b.mass * b2.mass) / dist;
+            j = j + 1;
         }
+        i = i + 1;
     }
     
     e
 }
 
 fun main() {
-    let steps = 50000000;
+    let steps = 1000;
     let dt = 0.01;
     
     println("N-Body Simulation Benchmark");
-    println("Simulating {} steps", steps);
+    println("Simulating {steps} steps");
     
     let bodies = create_bodies();
     offset_momentum(bodies);
     
     let initial_energy = energy(bodies);
-    println("Initial energy: {}", initial_energy);
+    println("Initial energy: {initial_energy}");
     
     println("Running simulation...");
     let start = __GetTime();
     
-    for _ in 0..steps {
+    var step = 0;
+    while step < steps {
         advance(bodies, dt);
+        step = step + 1;
     }
     
     let end = __GetTime();
     let time_s = end - start;
     
     let final_energy = energy(bodies);
-    println("Final energy: {}", final_energy);
-    println("Energy drift: {}", __Abs(final_energy - initial_energy));
-    println("Time: {} s", time_s);
-    println("Steps per second: {}", (steps as Float) / time_s);
+    let drift = abs(final_energy - initial_energy);
+    let steps_per_sec = (steps as Float) / time_s;
+    
+    println("Final energy: {final_energy}");
+    println("Energy drift: {drift}");
+    println("Time: {time_s} s");
+    println("Steps per second: {steps_per_sec}");
 }

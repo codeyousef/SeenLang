@@ -1,0 +1,111 @@
+// seen_std::async::task
+// Deterministic task + channel helpers backed by seen_runtime primitives.
+
+// External runtime intrinsics
+extern fun __await(handle: Any?): Int
+extern fun __scope_push(kind: Int): Void
+extern fun __scope_pop(kind: Int): Void
+extern fun __spawn_task(): Any?
+extern fun __spawn_detached(): Any?
+extern fun __spawn_actor(): Any?
+extern fun seen_channel_new(capacity: Int): Any?
+extern fun seen_channel_send(channel: Any?, payload: Any?): Void
+extern fun seen_channel_recv(channel: Any?): Any?
+extern fun seen_channel_close(channel: Any?): Void
+
+enum TaskKind {
+    Task,
+    Detached,
+    Actor
+}
+
+class TaskHandle {
+    var rawHandle: Any?
+    var kind: TaskKind
+
+    fun new(rawHandle: Any?, kind: TaskKind) -> TaskHandle {
+        return TaskHandle{
+            rawHandle: rawHandle,
+            kind: kind
+        }
+    }
+
+    fun isValid() -> Bool {
+        return rawHandle != null
+    }
+
+    fun join() -> Bool {
+        if rawHandle == null {
+            return true
+        }
+        let status = __await(rawHandle)
+        rawHandle = null
+        return status != 0
+    }
+}
+
+class ScopeGuard {
+    var kind: Int
+    var active: Bool
+
+    fun new(kind: Int) -> ScopeGuard {
+        __scope_push(kind)
+        return ScopeGuard{ kind: kind, active: true }
+    }
+
+    fun close() -> Void {
+        if not active {
+            return
+        }
+        __scope_pop(kind)
+        active = false
+    }
+}
+
+fun pushTaskScope() -> ScopeGuard {
+    return ScopeGuard.new(0)
+}
+
+fun pushJobScope() -> ScopeGuard {
+    return ScopeGuard.new(1)
+}
+
+fun spawnTask(kind: TaskKind = TaskKind.Task) -> TaskHandle {
+    if kind == TaskKind.Task {
+        return TaskHandle.new(__spawn_task(), kind)
+    }
+    if kind == TaskKind.Detached {
+        return TaskHandle.new(__spawn_detached(), kind)
+    }
+    return TaskHandle.new(__spawn_actor(), kind)
+}
+
+class Channel {
+    var raw: Any?
+
+    fun new(capacity: Int = 0) -> Channel {
+        return Channel{ raw: seen_channel_new(capacity) }
+    }
+
+    fun send(payload: Any?) -> Void {
+        if raw == null {
+            abort("channel not initialized")
+        }
+        seen_channel_send(raw, payload)
+    }
+
+    fun recv() -> Any? {
+        if raw == null {
+            return null
+        }
+        return seen_channel_recv(raw)
+    }
+
+    fun close() -> Void {
+        if raw == null {
+            return
+        }
+        seen_channel_close(raw)
+        raw = null
+    }
+}

@@ -1,0 +1,8 @@
+[package]
+name = "seen_shaders"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0.69"
+naga = { version = "0.14.2", features = ["spv-in", "wgsl-out", "msl-out"] }

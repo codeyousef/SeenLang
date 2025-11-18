@@ -1,0 +1,29 @@
+// seen_std::core::prelude
+// Common helpers that most bootstrap modules pull into scope.
+
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+
+fun assert(condition: Bool, message: String = "assertion failed") -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun unreachable(message: String = "entered unreachable code") -> Never {
+    abort(message)
+}
+
+fun Option<T>.expect(message: String) -> T {
+    if this.isSome() {
+        return this.unwrap()
+    }
+    abort(message)
+}
+
+fun Result<T, E>.expect(message: String) -> T {
+    if this.isOk() {
+        return this.unwrap()
+    }
+    abort(message)
+}

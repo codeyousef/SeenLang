@@ -1,0 +1,458 @@
+// seen_std::str::string
+// UTF-8 friendly helpers and CString bridges used by bootstrap tooling.
+
+import ffi.cinterop.{CString, toCString, fromCString}
+
+class StringBuilder {
+    var parts: Array<String>
+    var totalLength: Int
+
+    fun new() -> StringBuilder {
+        return StringBuilder{
+            parts: Array<String>(),
+            totalLength: 0
+        }
+    }
+
+    fun append(text: String) -> Void {
+        if text.length() == 0 {
+            return
+        }
+        totalLength = totalLength + text.length()
+        parts.push(text)
+    }
+
+    fun appendChar(ch: Char) -> Void {
+        totalLength = totalLength + 1
+        parts.push("{ch}")
+    }
+
+    fun appendLine(text: String = "") -> Void {
+        if text.length() == 0 {
+            append("\n")
+        } else {
+            append(text + "\n")
+        }
+    }
+
+    fun appendAll(values: Array<String>) -> Void {
+        for value in values {
+            append(value)
+        }
+    }
+
+    fun clear() -> Void {
+        parts = Array<String>()
+        totalLength = 0
+    }
+
+    fun isEmpty() -> Bool {
+        return totalLength == 0
+    }
+
+    fun length() -> Int {
+        return totalLength
+    }
+
+    fun buildAndClear() -> String {
+        let built = toString()
+        clear()
+        return built
+    }
+
+    fun toString() -> String {
+        if parts.length() == 0 {
+            return ""
+        }
+        if parts.length() == 1 {
+            return parts[0]
+        }
+        var flattened = copyParts(parts)
+        while flattened.length() > 1 {
+            flattened = mergeAdjacent(flattened)
+        }
+        return flattened[0]
+    }
+
+    fun copyParts(source: Array<String>) -> Array<String> {
+        let copy = Array<String>()
+        for part in source {
+            copy.push(part)
+        }
+        return copy
+    }
+
+    fun mergeAdjacent(values: Array<String>) -> Array<String> {
+        let merged = Array<String>()
+        var index = 0
+        while index < values.length() {
+            if index + 1 < values.length() {
+                merged.push(values[index] + values[index + 1])
+                index = index + 2
+            } else {
+                merged.push(values[index])
+                index = index + 1
+            }
+        }
+        return merged
+    }
+}
+
+fun split(text: String, delimiter: String) -> Array<String> {
+    let pieces = Array<String>()
+    let delimLength = delimiter.length()
+    if delimLength == 0 {
+        for ch in text {
+            pieces.push("" + ch)
+        }
+        return pieces
+    }
+
+    var current = ""
+    var index = 0
+    let limit = text.length()
+    while index < limit {
+        let nextIndex = index + delimLength
+        if nextIndex <= limit and text.substring(index, nextIndex) == delimiter {
+            pieces.push(current)
+            current = ""
+            index = nextIndex
+        } else {
+            current = current + text.charAt(index)
+            index = index + 1
+        }
+    }
+    pieces.push(current)
+    return pieces
+}
+
+fun trim(text: String) -> String {
+    return trimEnd(trimStart(text))
+}
+
+fun trimStart(text: String) -> String {
+    let length = text.length()
+    if length == 0 {
+        return text
+    }
+    var start = 0
+    while start < length and isWhitespace(text.charAt(start)) {
+        start = start + 1
+    }
+    if start == 0 {
+        return text
+    }
+    if start >= length {
+        return ""
+    }
+    return text.substring(start, length)
+}
+
+fun trimEnd(text: String) -> String {
+    let length = text.length()
+    if length == 0 {
+        return text
+    }
+    var end = length - 1
+    while end >= 0 and isWhitespace(text.charAt(end)) {
+        end = end - 1
+    }
+    if end < 0 {
+        return ""
+    }
+    if end == length - 1 {
+        return text
+    }
+    return text.substring(0, end + 1)
+}
+
+fun isBlank(text: String) -> Bool {
+    for ch in text {
+        if not isWhitespace(ch) {
+            return false
+        }
+    }
+    return true
+}
+
+fun contains(text: String, needle: String) -> Bool {
+    return indexOf(text, needle, 0) >= 0
+}
+
+fun startsWith(text: String, prefix: String) -> Bool {
+    if prefix.length() > text.length() {
+        return false
+    }
+    return text.substring(0, prefix.length()) == prefix
+}
+
+fun endsWith(text: String, suffix: String) -> Bool {
+    if suffix.length() > text.length() {
+        return false
+    }
+    let start = text.length() - suffix.length()
+    return text.substring(start, text.length()) == suffix
+}
+
+fun indexOf(text: String, needle: String, startIndex: Int = 0) -> Int {
+    let needleLength = needle.length()
+    if needleLength == 0 {
+        if startIndex < 0 {
+            return 0
+        }
+        if startIndex > text.length() {
+            return text.length()
+        }
+        return startIndex
+    }
+    var start = startIndex
+    if start < 0 {
+        start = 0
+    }
+    let limit = text.length() - needleLength
+    if limit < 0 {
+        return -1
+    }
+    while start <= limit {
+        if text.substring(start, start + needleLength) == needle {
+            return start
+        }
+        start = start + 1
+    }
+    return -1
+}
+
+fun lastIndexOf(text: String, needle: String) -> Int {
+    let needleLength = needle.length()
+    if needleLength == 0 {
+        return text.length()
+    }
+    if needleLength > text.length() {
+        return -1
+    }
+    var index = text.length() - needleLength
+    while index >= 0 {
+        if text.substring(index, index + needleLength) == needle {
+            return index
+        }
+        index = index - 1
+    }
+    return -1
+}
+
+fun lines(text: String, dropEmpty: Bool = false) -> Array<String> {
+    let result = Array<String>()
+    let length = text.length()
+    if length == 0 {
+        if not dropEmpty {
+            result.push("")
+        }
+        return result
+    }
+    var lineStart = 0
+    var index = 0
+    while index < length {
+        let ch = text.charAt(index)
+        if ch == '\n' or ch == '\r' {
+            let line = text.substring(lineStart, index)
+            if not(dropEmpty and line.length() == 0) {
+                result.push(line)
+            }
+            if ch == '\r' and index + 1 < length and text.charAt(index + 1) == '\n' {
+                index = index + 1
+            }
+            lineStart = index + 1
+        }
+        index = index + 1
+    }
+    if lineStart <= length {
+        let tail: String = text.substring(lineStart, length)
+        if not(dropEmpty and tail.length() == 0) {
+            result.push(tail)
+        }
+    }
+    return result
+}
+
+fun splitWhitespace(text: String, dropEmpty: Bool = true) -> Array<String> {
+    let result = Array<String>()
+    let length = text.length()
+    if length == 0 {
+        if not dropEmpty {
+            result.push("")
+        }
+        return result
+    }
+
+    var start = 0
+    var index = 0
+    while index < length {
+        if isWhitespace(text.charAt(index)) {
+            if index > start or not dropEmpty {
+                result.push(text.substring(start, index))
+            }
+            index = index + 1
+            start = index
+        } else {
+            index = index + 1
+        }
+    }
+
+    if start < length {
+        result.push(text.substring(start, length))
+    } else if not dropEmpty {
+        result.push("")
+    }
+
+    return result
+}
+
+fun words(text: String) -> Array<String> {
+    return splitWhitespace(text, true)
+}
+
+fun replaceFirst(text: String, target: String, replacement: String) -> String {
+    let index = indexOf(text, target, 0)
+    if index < 0 {
+        return text
+    }
+    let before = text.substring(0, index)
+    let after = text.substring(index + target.length(), text.length())
+    return before + replacement + after
+}
+
+fun replaceAll(text: String, target: String, replacement: String) -> String {
+    if target.length() == 0 {
+        return text
+    }
+    let builder = StringBuilder.new()
+    let length = text.length()
+    let targetLength = target.length()
+    var index = 0
+    while index <= length - targetLength {
+        if text.substring(index, index + targetLength) == target {
+            builder.append(replacement)
+            index = index + targetLength
+        } else {
+            builder.appendChar(text.charAt(index))
+            index = index + 1
+        }
+    }
+    while index < length {
+        builder.appendChar(text.charAt(index))
+        index = index + 1
+    }
+    return builder.toString()
+}
+
+fun replace(text: String, target: String, replacement: String) -> String {
+    return replaceAll(text, target, replacement)
+}
+
+fun removePrefix(text: String, prefix: String) -> String {
+    if prefix.length() == 0 or not startsWith(text, prefix) {
+        return text
+    }
+    return text.substring(prefix.length(), text.length())
+}
+
+fun removeSuffix(text: String, suffix: String) -> String {
+    if suffix.length() == 0 or not endsWith(text, suffix) {
+        return text
+    }
+    return text.substring(0, text.length() - suffix.length())
+}
+
+fun ensurePrefix(text: String, prefix: String) -> String {
+    if startsWith(text, prefix) {
+        return text
+    }
+    return prefix + text
+}
+
+fun ensureSuffix(text: String, suffix: String) -> String {
+    if endsWith(text, suffix) {
+        return text
+    }
+    return text + suffix
+}
+
+fun padStart(text: String, width: Int, padChar: Char = ' ') -> String {
+    if width <= text.length() {
+        return text
+    }
+    let builder = StringBuilder.new()
+    var remaining = width - text.length()
+    while remaining > 0 {
+        builder.appendChar(padChar)
+        remaining = remaining - 1
+    }
+    builder.append(text)
+    return builder.toString()
+}
+
+fun padEnd(text: String, width: Int, padChar: Char = ' ') -> String {
+    if width <= text.length() {
+        return text
+    }
+    let builder = StringBuilder.new()
+    builder.append(text)
+    var remaining = width - text.length()
+    while remaining > 0 {
+        builder.appendChar(padChar)
+        remaining = remaining - 1
+    }
+    return builder.toString()
+}
+
+fun repeat(text: String, times: Int) -> String {
+    if times <= 0 {
+        return ""
+    }
+    var result = ""
+    for _ in range(0, times) {
+        result = result + text
+    }
+    return result
+}
+
+fun join(parts: Array<String>, separator: String) -> String {
+    if parts.length() == 0 {
+        return ""
+    }
+    var result = ""
+    for index in range(0, parts.length()) {
+        result = result + parts[index]
+        if index != parts.length() - 1 {
+            result = result + separator
+        }
+    }
+    return result
+}
+
+// Extension method for Array<String>
+fun Array<String>.join(separator: String) -> String {
+    return join(this, separator)
+}
+
+fun String.toCString() -> CString {
+    return toCString(this)
+}
+
+fun CString.toSeenString() -> String {
+    return fromCString(this)
+}
+
+fun isWhitespace(ch: Char) -> Bool {
+    if ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' {
+        return true
+    }
+    let code = ch.toInt()
+    if code == 11 or code == 12 {
+        return true
+    }
+    if code == 160 {
+        return true
+    }
+    return false
+}

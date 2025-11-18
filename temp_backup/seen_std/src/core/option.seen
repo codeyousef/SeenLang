@@ -1,0 +1,78 @@
+// seen_std::core::option
+// Deterministic Option<T> container with storage that the bootstrap type checker understands.
+
+class Option<T> {
+    var hasValue: Bool
+    var storage: Array<T>
+
+    fun new() -> Option<T> {
+        return Option{
+            hasValue: false,
+            storage: Array<T>()
+        }
+    }
+}
+
+fun Some<T>(value: T) -> Option<T> {
+    let option = Option.new()
+    option.store(value)
+    return option
+}
+
+fun None<T>() -> Option<T> {
+    return Option.new()
+}
+
+fun Option<T>.isSome() -> Bool {
+    return this.hasValue
+}
+
+fun Option<T>.isNone() -> Bool {
+    return not this.hasValue
+}
+
+fun Option<T>.unwrap() -> T {
+    if not this.hasValue or this.storage.length() == 0 {
+        abort("called unwrap() on None option")
+    }
+    return this.storage[0]
+}
+
+fun Option<T>.expect(message: String) -> T {
+    if this.hasValue and this.storage.length() > 0 {
+        return this.storage[0]
+    }
+    abort(message)
+    return this.unwrap()
+}
+
+fun Option<T>.unwrapOr(defaultValue: T) -> T {
+    if this.hasValue and this.storage.length() > 0 {
+        return this.storage[0]
+    }
+    return defaultValue
+}
+
+fun Option<T>.replace(value: T) -> Option<T> {
+    let previous = if this.hasValue and this.storage.length() > 0 {
+        Some(this.storage[0])
+    } else {
+        None()
+    }
+    this.store(value)
+    return previous
+}
+
+fun Option<T>.clear() -> Void {
+    this.storage = Array<T>()
+    this.hasValue = false
+}
+
+fun Option<T>.store(value: T) -> Void {
+    if this.storage.length() == 0 {
+        this.storage.push(value)
+    } else {
+        this.storage[0] = value
+    }
+    this.hasValue = true
+}

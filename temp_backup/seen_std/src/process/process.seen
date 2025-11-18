@@ -1,0 +1,68 @@
+// seen_std::process::process
+// Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
+
+import str.string.{StringBuilder}
+
+// External runtime intrinsics
+extern fun __ExecuteProgram(path: String): Int
+extern fun __ExecuteCommand(command: String): CommandResult
+
+struct CommandResult {
+    success: Bool
+    output: String
+}
+
+fun runProgram(path: String) -> Int {
+    return __ExecuteProgram(path)
+}
+
+fun execCommand(command: String) -> CommandResult {
+    let result: CommandResult = __ExecuteCommand(command)
+    return result
+}
+
+fun runCommand(command: String) -> CommandResult {
+    return execCommand(command)
+}
+
+fun commandWasSuccessful(result: CommandResult) -> Bool {
+    return result.success
+}
+
+fun commandOutput(result: CommandResult) -> String {
+    return result.output
+}
+
+fun runCommandOrAbort(command: String) -> CommandResult {
+    let result: CommandResult = execCommand(command)
+    if not result.success {
+        abort("Command failed: {command}\n{result.output}")
+    }
+    return result
+}
+
+fun runCommandOutput(command: String) -> String {
+    return execCommand(command).output
+}
+
+fun isSuccess(status: Int) -> Bool {
+    return status == 0
+}
+
+fun shellQuote(text: String) -> String {
+    let builder = StringBuilder.new()
+    builder.append("\"")
+
+    var index = 0
+    while index < text.length() {
+        let ch = text.charAt(index)
+        if ch == "\"" or ch == "\\" {
+            builder.append("\\")
+        }
+        builder.appendChar(ch)
+        index = index + 1
+    }
+
+    builder.append("\"")
+    return builder.toString()
+}

@@ -1,0 +1,85 @@
+// seen_std::collections::std_string
+// Allocator-backed string type built atop the high-performance Vec implementation.
+
+import collections.vec.{Vec}
+import str.string.{StringBuilder}
+
+class StdString {
+    var buffer: Vec<Char>
+
+    fun new() -> StdString {
+        return StdString{ buffer: Vec<Char>.new() }
+    }
+
+    fun fromString(text: String) -> StdString {
+        let s = StdString.new()
+        s.push(text)
+        return s
+    }
+
+    fun withCapacity(capacity: Int) -> StdString {
+        let s = StdString.new()
+        s.reserve(capacity)
+        return s
+    }
+
+    fun len() -> Int {
+        return buffer.len()
+    }
+
+    fun capacity() -> Int {
+        return buffer.capacity()
+    }
+
+    fun isEmpty() -> Bool {
+        return buffer.len() == 0
+    }
+
+    fun clear() -> Void {
+        buffer.clear()
+    }
+
+    fun reserve(capacity: Int) -> Void {
+        buffer.ensureCapacity(capacity)
+    }
+
+    fun push(text: String) -> Void {
+        for ch in text {
+            buffer.push(ch)
+        }
+    }
+
+    fun pushChar(ch: Char) -> Void {
+        buffer.push(ch)
+    }
+
+    fun popChar() -> Char {
+        return buffer.pop()
+    }
+
+    fun lastChar() -> Char {
+        if buffer.len() == 0 {
+            abort("StdString.lastChar called on empty string")
+        }
+        return buffer.get(buffer.len() - 1)
+    }
+
+    fun toString() -> String {
+        if buffer.len() == 0 {
+            return ""
+        }
+        let builder = StringBuilder.new()
+        var index = 0
+        while index < buffer.len() {
+            builder.appendChar(buffer.get(index))
+            index = index + 1
+        }
+        return builder.toString()
+    }
+
+    fun intoString() -> String {
+        let out = toString()
+        clear()
+        return out
+    }
+}
