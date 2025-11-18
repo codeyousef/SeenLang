@@ -189,3 +189,5 @@ fun main() {
     println("Time: {time_s} s");
     println("Steps per second: {steps_per_sec}");
 }
+
+main();
