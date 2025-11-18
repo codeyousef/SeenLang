@@ -1,0 +1,48 @@
+Browser compatibility detected: 
+Object { browser: "firefox 145", wasm: true, wasmVersion: "advanced", jsModules: true, serviceWorker: true, webgl: true }
+dev.yousef.codes:397:41
+Loading hydration immediately (above-the-fold or lazy loading disabled) dev.yousef.codes:646:41
+Loading WASM hydration client for firefox dev.yousef.codes:532:45
+Summon initialization completed in 43.00ms dev.yousef.codes:655:37
+GET
+https://dev.yousef.codes/favicon.ico
+[HTTP/2 404  0ms]
+
+Successfully loaded: /summon-hydration.wasm.js on attempt 1 dev.yousef.codes:440:49
+Hydration performance: 
+Object { mode: "wasm", loadTime: "262.00ms", bundleSize: 49 }
+dev.yousef.codes:581:45
+Uncaught (in promise) TypeError: can't access property "name", process.release is undefined
+    i https://dev.yousef.codes/summon-hydration.wasm.js:2
+    489 https://dev.yousef.codes/summon-hydration.wasm.js:2
+    a https://dev.yousef.codes/summon-hydration.wasm.js:2
+    489 https://dev.yousef.codes/summon-hydration.wasm.js:2
+    s https://dev.yousef.codes/summon-hydration.wasm.js:2
+    <anonymous> https://dev.yousef.codes/summon-hydration.wasm.js:2
+    <anonymous> https://dev.yousef.codes/summon-hydration.wasm.js:2
+    <anonymous> https://dev.yousef.codes/summon-hydration.wasm.js:2
+    <anonymous> https://dev.yousef.codes/summon-hydration.wasm.js:2
+summon-hydration.wasm.js:2:334784
+Source map error: Error: request failed with status 404
+Stack in the worker:networkRequest@resource://devtools/client/shared/source-map-loader/utils/network-request.js:43:9
+
+Resource URL: https://dev.yousef.codes/summon-hydration.wasm.js
+Source Map URL: summon-hydration.wasm.js.map
+🚀 Summon Performance Metrics dev.yousef.codes:695:41
+Initialization time: 43 dev.yousef.codes:696:41
+Hydration time: 262 dev.yousef.codes:697:41
+Browser detection: firefox 145 dev.yousef.codes:698:41
+WASM support: true advanced dev.yousef.codes:699:41
+Module support: true dev.yousef.codes:700:41
+Navigation timing: 
+Object { domContentLoaded: 942, loadComplete: 1202 }
+dev.yousef.codes:701:41
+⏱️ Time to Interactive: 942ms ✅ (target: <3000ms) dev.yousef.codes:717:45
+fun main() -> Int {
+    let result = "HTTP/1.1 "
+    result = result + "200"
+    result = result + " OK"
+    __Print(result)
+    __Print("\n")
+    return 0
+}

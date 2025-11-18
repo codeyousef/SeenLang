@@ -159,11 +159,11 @@ fun main() -> Int {
     __Print(" runs)...\n")
     var w = 0
     while w < warmup_runs {
-        let initial_energy = energy(bodies)
-        var i = 0
-        while i < n / 100 {
+        let warmup_energy = energy(bodies)
+        var j = 0
+        while j < n / 100 {
             advance(bodies, 0.01)
-            i = i + 1
+            j = j + 1
         }
         w = w + 1
     }

@@ -18,7 +18,7 @@ fun escape_string(s: String) -> String {
 }
 
 fun serialize_object(obj: JsonObject) -> String {
-    let result = "{"
+    var result = "{"
     
     result = result + "\"id\":"
     result = result + __IntToString(obj.id)

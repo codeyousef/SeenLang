@@ -42,7 +42,7 @@ fun create_response(req: HttpRequest) -> HttpResponse {
 }
 
 fun serialize_response(resp: HttpResponse) -> String {
-    let result = "HTTP/1.1 "
+    var result = "HTTP/1.1 "
     result = result + __IntToString(resp.status)
     result = result + " OK\r\n"
     

@@ -1750,7 +1750,76 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let r = self.eval_value(right, fn_map)?;
                 let res = match op {
                     crate::instruction::BinaryOp::Add => {
-                        if l.is_float_value() || r.is_float_value() {
+                        // Check if either operand is a string (pointer type)
+                        if l.is_pointer_value() || r.is_pointer_value() {
+                            // String concatenation
+                            let l_ptr = if l.is_pointer_value() {
+                                l.into_pointer_value()
+                            } else {
+                                // Convert number to string first
+                                return Err(anyhow!("Cannot concatenate non-string with string yet"));
+                            };
+                            let r_ptr = if r.is_pointer_value() {
+                                r.into_pointer_value()
+                            } else {
+                                return Err(anyhow!("Cannot concatenate string with non-string yet"));
+                            };
+                            
+                            // Get lengths using strlen
+                            let strlen_fn = self.get_or_declare_strlen()?;
+                            let l_len_call = self.builder.build_call(strlen_fn, &[l_ptr.into()], "l_len")?;
+                            let r_len_call = self.builder.build_call(strlen_fn, &[r_ptr.into()], "r_len")?;
+                            let l_len = l_len_call.try_as_basic_value().left().unwrap().into_int_value();
+                            let r_len = r_len_call.try_as_basic_value().left().unwrap().into_int_value();
+                            
+                            // Allocate new buffer: l_len + r_len + 1 (for null terminator)
+                            let total_len = self.builder.build_int_add(l_len, r_len, "total_len")?;
+                            let alloc_size = self.builder.build_int_add(
+                                total_len,
+                                self.i64_t.const_int(1, false),
+                                "alloc_size"
+                            )?;
+                            
+                            let malloc_fn = self.get_or_declare_malloc()?;
+                            let result_ptr_call = self.builder.build_call(malloc_fn, &[alloc_size.into()], "concat_buf")?;
+                            let result_ptr = result_ptr_call.try_as_basic_value().left().unwrap().into_pointer_value();
+                            
+                            // Copy left string using memcpy(result, l_ptr, l_len)
+                            let memcpy_fn = self.get_or_declare_memcpy()?;
+                            self.builder.build_call(
+                                memcpy_fn,
+                                &[result_ptr.into(), l_ptr.into(), l_len.into()],
+                                ""
+                            )?;
+                            
+                            // Copy right string to result + l_len using memcpy(result + l_len, r_ptr, r_len)
+                            let dest_offset = unsafe {
+                                self.builder.build_gep(
+                                    self.ctx.i8_type(),
+                                    result_ptr,
+                                    &[l_len],
+                                    "dest_offset"
+                                )?
+                            };
+                            self.builder.build_call(
+                                memcpy_fn,
+                                &[dest_offset.into(), r_ptr.into(), r_len.into()],
+                                ""
+                            )?;
+                            
+                            // Add null terminator at result + total_len
+                            let null_pos = unsafe {
+                                self.builder.build_gep(
+                                    self.ctx.i8_type(),
+                                    result_ptr,
+                                    &[total_len],
+                                    "null_pos"
+                                )?
+                            };
+                            self.builder.build_store(null_pos, self.ctx.i8_type().const_zero())?;
+                            
+                            result_ptr.as_basic_value_enum()
+                        } else if l.is_float_value() || r.is_float_value() {
                             let lf = if l.is_float_value() { l.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(l)?, self.ctx.f64_type(), "i2f")? };
                             let rf = if r.is_float_value() { r.into_float_value() } else { self.builder.build_signed_int_to_float(self.as_i64(r)?, self.ctx.f64_type(), "i2f")? };
                             self.builder.build_float_add(lf, rf, "fadd")?.as_basic_value_enum()
@@ -2119,40 +2188,40 @@ impl<'ctx> LlvmBackend<'ctx> {
                     return Ok(());
                 }
 
-                // Infer element type from array variable's or register's IR type
+                // Infer element type from array variable's or register's IR type (clone to avoid borrow issues)
                 let element_ir_type = match array {
                     IRValue::Variable(var_name) => {
                         self.var_ir_types
                             .get(var_name)
                             .and_then(|ir_type| {
                                 if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref())
+                                    Some(elem_type.as_ref().clone())
                                 } else {
                                     None
                                 }
                             })
-                            .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                            .unwrap_or(IRType::Char)  // Fallback to i8 for unknown array variables
                     }
                     IRValue::Register(r) => {
                         self.reg_ir_types
                             .get(r)
                             .and_then(|ir_type| {
                                 if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref())
+                                    Some(elem_type.as_ref().clone())
                                 } else {
                                     None
                                 }
                             })
-                            .ok_or_else(|| anyhow!("Cannot infer element type for array register %r{}", r))?
+                            .unwrap_or(IRType::Char)  // Fallback to i8 for unknown array registers
                     }
                     _ => {
                         // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
-                        &IRType::Char
+                        IRType::Char
                     }
                 };
 
                 // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
-                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
+                let element_llvm_type = self.ir_type_to_llvm(&element_ir_type);
                 let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
                 let array_struct_type = self.ctx.struct_type(
                     &[
@@ -2200,6 +2269,12 @@ impl<'ctx> LlvmBackend<'ctx> {
 
                 // Load element value
                 let elem_val = self.builder.build_load(element_llvm_type, elem_ptr, "elem")?;
+                
+                // Track the result register's type (important for struct field access later)
+                if let IRValue::Register(r) = result {
+                    self.reg_ir_types.insert(*r, element_ir_type.clone());
+                }
+                
                 self.assign_value(result, elem_val.as_basic_value_enum())?;
             }
             Instruction::Call {
@@ -2398,15 +2473,58 @@ impl<'ctx> LlvmBackend<'ctx> {
                         "push" => {
                             // push(array, value) -> appends value to array
                             if args.len() >= 2 {
-                                let array_val = self.eval_value(&args[0], fn_map)?;
+                                // First eval the value to see its type
                                 let value_val = self.eval_value(&args[1], fn_map)?;
                                 
+                                // Infer element type from value if array type unknown
+                                let inferred_type = if value_val.is_float_value() {
+                                    IRType::Float
+                                } else if value_val.is_int_value() {
+                                    IRType::Integer
+                                } else if value_val.is_pointer_value() {
+                                    IRType::String  // Assume string for pointer values
+                                } else {
+                                    IRType::Float  // Fallback
+                                };
+                                
+                                // Infer array element type from the array variable, or fall back to value type
+                                let element_ir_type = if let IRValue::Variable(arr_name) = &args[0] {
+                                    let known_type = self.var_ir_types
+                                        .get(arr_name)
+                                        .and_then(|ir_type| {
+                                            if let IRType::Array(elem_type) = ir_type {
+                                                Some(elem_type.as_ref().clone())
+                                            } else {
+                                                None
+                                            }
+                                        });
+                                    
+                                    // If type not known, infer from value and store it
+                                    if known_type.is_none() {
+                                        self.var_ir_types.insert(
+                                            arr_name.clone(),
+                                            IRType::Array(Box::new(inferred_type.clone()))
+                                        );
+                                    }
+                                    
+                                    known_type.unwrap_or(inferred_type)
+                                } else {
+                                    inferred_type
+                                };
+                                
+                                let array_val = self.eval_value(&args[0], fn_map)?;
+                                // value_val already evaluated above
+                                
                                 let array_ptr = array_val.into_pointer_value();
+                                
+                                // Build array struct type with correct element type
+                                let element_llvm_type = self.ir_type_to_llvm(&element_ir_type);
+                                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
                                 let array_struct_ty = self.ctx.struct_type(
                                     &[
-                                        self.i64_t.into(),  // len
-                                        self.i64_t.into(),  // capacity
-                                        self.i8_ptr_t.into(), // data
+                                        self.i64_t.into(),      // len
+                                        self.i64_t.into(),      // capacity
+                                        data_ptr_type.into(),   // data (typed pointer)
                                     ],
                                     false,
                                 );
@@ -2415,33 +2533,78 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 let len_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 0, "len_ptr")?;
                                 let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
                                 
-                                // Load data pointer
-                                let data_field_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 2, "data_field_ptr")?;
-                                let data_ptr_raw = self.builder.build_load(self.i8_ptr_t, data_field_ptr, "data_ptr")?.into_pointer_value();
+                                // Load capacity and check bounds
+                                let cap_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 1, "cap_ptr")?;
+                                let capacity = self.builder.build_load(self.i64_t, cap_ptr, "capacity")?.into_int_value();
                                 
-                                // Cast to f64* for indexing
-                                let data_ptr = self.builder.build_pointer_cast(
-                                    data_ptr_raw,
-                                    self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16)),
-                                    "data_f64_ptr",
+                                // Check if len < capacity (simple check, no reallocation)
+                                let has_space = self.builder.build_int_compare(
+                                    inkwell::IntPredicate::ULT,
+                                    len,
+                                    capacity,
+                                    "has_space"
                                 )?;
+                                
+                                // For now, silently fail if out of space (should really panic or reallocate)
+                                let push_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "do_push");
+                                let after_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "after_push");
+                                self.builder.build_conditional_branch(has_space, push_bb, after_bb)?;
+                                
+                                // Push block: actually add the element
+                                self.builder.position_at_end(push_bb);
+                                
+                                // Load data pointer (already typed correctly)
+                                let data_field_ptr = self.builder.build_struct_gep(array_struct_ty, array_ptr, 2, "data_field_ptr")?;
+                                let data_ptr = self.builder.build_load(data_ptr_type, data_field_ptr, "data_ptr")?.into_pointer_value();
                                 
                                 // Store value at index len
                                 let elem_ptr = unsafe {
-                                    self.builder.build_gep(self.ctx.f64_type(), data_ptr, &[len], "elem_ptr")?
+                                    self.builder.build_gep(element_llvm_type, data_ptr, &[len], "elem_ptr")?
                                 };
-                                let value_f64 = if value_val.is_float_value() {
-                                    value_val.into_float_value()
-                                } else {
-                                    // Convert int to float
-                                    let int_val = value_val.into_int_value();
-                                    self.builder.build_signed_int_to_float(int_val, self.ctx.f64_type(), "to_float")?
-                                };
-                                self.builder.build_store(elem_ptr, value_f64)?;
+                                
+                                // Store the value (handle type conversions if needed)
+                                match element_ir_type {
+                                    IRType::Float => {
+                                        let value_f64 = if value_val.is_float_value() {
+                                            value_val.into_float_value()
+                                        } else if value_val.is_int_value() {
+                                            let int_val = value_val.into_int_value();
+                                            self.builder.build_signed_int_to_float(int_val, self.ctx.f64_type(), "to_float")?
+                                        } else {
+                                            // Shouldn't happen, but handle gracefully
+                                            return Err(anyhow!("Cannot push non-numeric value to Float array"));
+                                        };
+                                        self.builder.build_store(elem_ptr, value_f64)?;
+                                    }
+                                    IRType::Integer => {
+                                        let value_i64 = if value_val.is_int_value() {
+                                            value_val.into_int_value()
+                                        } else if value_val.is_float_value() {
+                                            let float_val = value_val.into_float_value();
+                                            self.builder.build_float_to_signed_int(float_val, self.i64_t, "to_int")?
+                                        } else {
+                                            return Err(anyhow!("Cannot push non-numeric value to Integer array"));
+                                        };
+                                        self.builder.build_store(elem_ptr, value_i64)?;
+                                    }
+                                    IRType::String | IRType::Pointer(_) => {
+                                        // For strings and pointers, store as-is (should already be pointer)
+                                        self.builder.build_store(elem_ptr, value_val)?;
+                                    }
+                                    _ => {
+                                        // For other types, try to store as-is
+                                        self.builder.build_store(elem_ptr, value_val)?;
+                                    }
+                                }
                                 
                                 // Increment len
                                 let new_len = self.builder.build_int_add(len, self.i64_t.const_int(1, false), "new_len")?;
                                 self.builder.build_store(len_ptr, new_len)?;
+                                
+                                self.builder.build_unconditional_branch(after_bb)?;
+                                
+                                // After block: continue execution
+                                self.builder.position_at_end(after_bb);
                                 
                                 if let Some(r) = result {
                                     self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
@@ -2563,7 +2726,45 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 let sqrt_fn = sqrt_intrinsic.get_declaration(&self.module, &[self.ctx.f64_type().into()]).unwrap();
                                 let sqrt_result = self.builder.build_call(sqrt_fn, &[float_val.into()], "sqrt")?;
                                 if let Some(r) = result {
+                                    // Track result type as Float
+                                    if let IRValue::Register(reg_num) = r {
+                                        self.reg_ir_types.insert(*reg_num, IRType::Float);
+                                    }
                                     self.assign_value(r, sqrt_result.try_as_basic_value().left().unwrap())?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        "__IntToString" => {
+                            if let Some(arg0) = args.get(0) {
+                                let val = self.eval_value(arg0, fn_map)?;
+                                let int_val = val.into_int_value();
+                                
+                                // Allocate buffer for string (20 chars is enough for Int64)
+                                let buffer_size = self.i64_t.const_int(21, false);
+                                let malloc = self.declare_c_fn("malloc", self.i8_ptr_t.into(), &[self.i64_t.into()], false);
+                                let buffer = self.builder.build_call(malloc, &[buffer_size.into()], "str_buffer")?
+                                    .try_as_basic_value().left().unwrap().into_pointer_value();
+                                
+                                // snprintf(buffer, 20, "%ld", int_val)
+                                let fmt_str = self.builder.build_global_string_ptr("%ld", "int_fmt")?;
+                                let snprintf = self.declare_c_fn(
+                                    "snprintf",
+                                    self.ctx.i32_type().into(),
+                                    &[self.i8_ptr_t.into(), self.i64_t.into(), self.i8_ptr_t.into()],
+                                    true  // varargs
+                                );
+                                self.builder.build_call(
+                                    snprintf,
+                                    &[buffer.into(), buffer_size.into(), fmt_str.as_pointer_value().into(), int_val.into()],
+                                    ""
+                                )?;
+                                
+                                if let Some(r) = result {
+                                    if let IRValue::Register(reg_num) = r {
+                                        self.reg_ir_types.insert(*reg_num, IRType::String);
+                                    }
+                                    self.assign_value(r, buffer.as_basic_value_enum())?;
                                 }
                                 return Ok(());
                             }
@@ -3007,58 +3208,90 @@ impl<'ctx> LlvmBackend<'ctx> {
                 field,
                 result,
             } => {
-                // Infer struct type from variable's IR type
-                let (struct_ir_type, field_index, field_ir_type_owned) = if let IRValue::Variable(var_name) = struct_val {
-                    let ir_type = self.var_ir_types
-                        .get(var_name)
-                        .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
-                    
-                    if let IRType::Struct { name, fields } = ir_type {
-                        // If fields is empty, look up the full definition
-                        let resolved_ir_type = if fields.is_empty() {
-                            self.ir_type_definitions.get(name)
-                                .ok_or_else(|| anyhow!("Struct type '{}' not found in type definitions", name))?
-                        } else {
-                            ir_type
-                        };
+                // Infer struct type from variable's or register's IR type
+                let (struct_ir_type, field_index, field_ir_type_owned) = match struct_val {
+                    IRValue::Variable(var_name) => {
+                        let ir_type = self.var_ir_types
+                            .get(var_name)
+                            .ok_or_else(|| anyhow!("Cannot infer type for struct variable '{}'", var_name))?;
                         
-                        // Now get the fields from the resolved type
-                        if let IRType::Struct { name: _, fields: resolved_fields } = resolved_ir_type {
-                            // Find field index and type (clone to avoid borrow issues)
-                            let (idx, (_, field_type)) = resolved_fields.iter().enumerate()
-                                .find(|(_, (fname, _))| fname == field)
-                                .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
+                        if let IRType::Struct { name, fields } = ir_type {
+                            // If fields is empty, look up the full definition
+                            let resolved_ir_type = if fields.is_empty() {
+                                self.ir_type_definitions.get(name)
+                                    .ok_or_else(|| anyhow!("Struct type '{}' not found in type definitions", name))?
+                            } else {
+                                ir_type
+                            };
                             
-                            (resolved_ir_type, idx as u32, field_type.clone())
+                            // Now get the fields from the resolved type
+                            if let IRType::Struct { name: _, fields: resolved_fields } = resolved_ir_type {
+                                // Find field index and type (clone to avoid borrow issues)
+                                let (idx, (_, field_type)) = resolved_fields.iter().enumerate()
+                                    .find(|(_, (fname, _))| fname == field)
+                                    .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, name))?;
+                                
+                                (resolved_ir_type, idx as u32, field_type.clone())
+                            } else {
+                                return Err(anyhow!("Resolved type for '{}' is not a struct", name));
+                            }
                         } else {
-                            return Err(anyhow!("Resolved type for '{}' is not a struct", name));
+                            return Err(anyhow!("Variable '{}' is not a struct type, got: {:?}", var_name, ir_type));
                         }
-                    } else {
-                        return Err(anyhow!("Variable '{}' is not a struct type, got: {:?}", var_name, ir_type));
                     }
-                } else {
-                    // Fallback for CommandResult (CLI compatibility)
-                    if field == "success" {
-                        (&IRType::Struct {
-                            name: "CommandResult".to_string(),
-                            fields: vec![
-                                ("success".to_string(), IRType::Boolean),
-                                ("output".to_string(), IRType::String),
-                            ],
-                        }, 0u32, IRType::Boolean)
-                    } else if field == "output" {
-                        (&IRType::Struct {
-                            name: "CommandResult".to_string(),
-                            fields: vec![
-                                ("success".to_string(), IRType::Boolean),
-                                ("output".to_string(), IRType::String),
-                            ],
-                        }, 1u32, IRType::String)
-                    } else {
-                        return Err(anyhow!(
-                            "LLVM backend: cannot infer struct type for field access '{}'",
-                            field
-                        ));
+                    IRValue::Register(r) => {
+                        let ir_type = self.reg_ir_types
+                            .get(r)
+                            .ok_or_else(|| anyhow!("Cannot infer type for register %{}", r))?;
+                        
+                        if let IRType::Struct { name, fields } = ir_type {
+                            // If fields is empty, look up the full definition
+                            let resolved_ir_type = if fields.is_empty() {
+                                self.ir_type_definitions.get(name)
+                                    .ok_or_else(|| anyhow!("Struct type '{}' not found in type definitions", name))?
+                            } else {
+                                ir_type
+                            };
+                            
+                            // Now get the fields from the resolved type
+                            if let IRType::Struct { name: _, fields: resolved_fields } = resolved_ir_type {
+                                // Find field index and type (clone to avoid borrow issues)
+                                let (idx, (_, field_type)) = resolved_fields.iter().enumerate()
+                                    .find(|(_, (fname, _))| fname == field)
+                                    .ok_or_else(|| anyhow!("Field '{}' not found in struct", field))?;
+                                
+                                (resolved_ir_type, idx as u32, field_type.clone())
+                            } else {
+                                return Err(anyhow!("Resolved type is not a struct"));
+                            }
+                        } else {
+                            return Err(anyhow!("Register %{} is not a struct type, got: {:?}", r, ir_type));
+                        }
+                    }
+                    _ => {
+                        // Fallback for CommandResult (CLI compatibility)
+                        if field == "success" {
+                            (&IRType::Struct {
+                                name: "CommandResult".to_string(),
+                                fields: vec![
+                                    ("success".to_string(), IRType::Boolean),
+                                    ("output".to_string(), IRType::String),
+                                ],
+                            }, 0u32, IRType::Boolean)
+                        } else if field == "output" {
+                            (&IRType::Struct {
+                                name: "CommandResult".to_string(),
+                                fields: vec![
+                                    ("success".to_string(), IRType::Boolean),
+                                    ("output".to_string(), IRType::String),
+                                ],
+                            }, 1u32, IRType::String)
+                        } else {
+                            return Err(anyhow!(
+                                "LLVM backend: cannot infer struct type for field access '{}'",
+                                field
+                            ));
+                        }
                     }
                 };
 
@@ -3128,111 +3361,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                     fn_map,
                 )?;
             }
-            Instruction::ArrayAccess {
-                array,
-                index,
-                result,
-            } => {
-                // Handle compile-time constant arrays
-                if let IRValue::Array(vs) = array {
-                    let idx_bv = self.eval_value(index, fn_map)?;
-                    let idx_val = self.as_usize(idx_bv)? as usize;
-                    if idx_val >= vs.len() {
-                        return Err(anyhow!("Array index OOB"));
-                    }
-                    let elem = self.eval_value(&vs[idx_val], fn_map)?;
-                    self.assign_value(result, elem)?;
-                    return Ok(());
-                }
-
-                // Infer element type from array variable's or register's IR type
-                let element_ir_type = match array {
-                    IRValue::Variable(var_name) => {
-                        self.var_ir_types
-                            .get(var_name)
-                            .and_then(|ir_type| {
-                                if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref())
-                                } else {
-                                    None
-                                }
-                            })
-                            .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
-                    }
-                    IRValue::Register(r) => {
-                        self.reg_ir_types
-                            .get(r)
-                            .and_then(|ir_type| {
-                                if let IRType::Array(elem_type) = ir_type {
-                                    Some(elem_type.as_ref())
-                                } else {
-                                    None
-                                }
-                            })
-                            .ok_or_else(|| anyhow!("Cannot infer element type for array register %r{}", r))?
-                    }
-                    _ => {
-                        // Fallback: default to i8 for unknown arrays (backward compat with StrArray)
-                        &IRType::Char
-                    }
-                };
-
-                // Generate array struct layout: { i64 len; i64 capacity; T* data; }*
-                let element_llvm_type = self.ir_type_to_llvm(element_ir_type);
-                let data_ptr_type = element_llvm_type.ptr_type(inkwell::AddressSpace::from(0u16));
-                let array_struct_type = self.ctx.struct_type(
-                    &[
-                        self.i64_t.into(),      // len
-                        self.i64_t.into(),      // capacity
-                        data_ptr_type.into(),   // data (typed pointer!)
-                    ],
-                    false,
-                );
-
-                // Evaluate array pointer
-                let arr_v = self.eval_value(array, fn_map)?;
-                let arr_ptr = if arr_v.is_pointer_value() {
-                    arr_v.into_pointer_value()
-                } else if arr_v.is_int_value() {
-                    self.builder
-                        .build_int_to_ptr(
-                            arr_v.into_int_value(),
-                            array_struct_type.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "arr_int_to_ptr",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?
-                } else {
-                    return Err(anyhow!("Unsupported array access value"));
-                };
-
-                // GEP to data field (index 2)
-                let data_ptr_ptr = self.builder.build_struct_gep(array_struct_type, arr_ptr, 2, "data_ptr")?;
-                
-                // Load data pointer (typed as T*)
-                let data_ptr = self.builder.build_load(data_ptr_type, data_ptr_ptr, "data")?
-                    .into_pointer_value();
-
-                // GEP to element at index
-                let idx_bv = self.eval_value(index, fn_map)?;
-                let idx_iv = self.as_i64(idx_bv)?;
-                let elem_ptr = unsafe {
-                    self.builder.build_gep(
-                        element_llvm_type,
-                        data_ptr,
-                        &[idx_iv],
-                        "elem_ptr",
-                    )?
-                };
-
-                // Load element value
-                let elem_val = self.builder.build_load(element_llvm_type, elem_ptr, "elem")?;
-                self.assign_value(result, elem_val.as_basic_value_enum())?;
-            }
             Instruction::Cast {
                 value,
                 target_type,
                 result,
             } => {
+                // Track result type BEFORE casting
+                if let IRValue::Register(reg_num) = result {
+                    self.reg_ir_types.insert(*reg_num, target_type.clone());
+                }
+                
                 let val = self.eval_value(value, fn_map)?;
                 let cast_val = match (val, target_type) {
                     // Int to Float
@@ -3286,7 +3424,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     None
                                 }
                             })
-                            .ok_or_else(|| anyhow!("Cannot infer element type for array variable '{}'", var_name))?
+                            .unwrap_or(&IRType::Char)  // Fallback to i8 for unknown array variables
                     }
                     IRValue::Register(r) => {
                         self.reg_ir_types
@@ -3298,7 +3436,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     None
                                 }
                             })
-                            .ok_or_else(|| anyhow!("Cannot infer element type for array register %r{}", r))?
+                            .unwrap_or(&IRType::Char)  // Fallback to i8 for unknown array registers
                     }
                     _ => {
                         // Fallback: default to i8 for unknown arrays
@@ -3720,9 +3858,14 @@ impl<'ctx> LlvmBackend<'ctx> {
                     return Ok(val);
                 }
                 if let Some(slot) = self.reg_slots.get(r).copied() {
+                    // Check if we have type info for this register
+                    let load_type = self.reg_ir_types.get(r)
+                        .map(|ir_ty| self.ir_type_to_llvm(ir_ty))
+                        .unwrap_or(self.i64_t.as_basic_type_enum());
+                    
                     let loaded =
                         self.builder
-                            .build_load(self.i64_t, slot, &format!("load_r{}", r))?;
+                            .build_load(load_type, slot, &format!("load_r{}", r))?;
                     return Ok(loaded.as_basic_value_enum());
                 }
                 Err(anyhow!("Unknown register %r{r}"))
@@ -4610,6 +4753,39 @@ impl<'ctx> LlvmBackend<'ctx> {
         } else {
             Err(anyhow!("expected task handle pointer"))
         }
+    }
+
+    fn get_or_declare_strlen(&mut self) -> Result<FunctionValue<'ctx>> {
+        if let Some(f) = self.strlen {
+            return Ok(f);
+        }
+        let fn_type = self.i64_t.fn_type(&[self.i8_ptr_t.into()], false);
+        let func = self.module.add_function("strlen", fn_type, None);
+        self.strlen = Some(func);
+        Ok(func)
+    }
+
+    fn get_or_declare_malloc(&mut self) -> Result<FunctionValue<'ctx>> {
+        if let Some(f) = self.malloc {
+            return Ok(f);
+        }
+        let fn_type = self.i8_ptr_t.fn_type(&[self.i64_t.into()], false);
+        let func = self.module.add_function("malloc", fn_type, None);
+        self.malloc = Some(func);
+        Ok(func)
+    }
+
+    fn get_or_declare_memcpy(&mut self) -> Result<FunctionValue<'ctx>> {
+        if let Some(f) = self.memcpy {
+            return Ok(f);
+        }
+        let fn_type = self.ctx.void_type().fn_type(
+            &[self.i8_ptr_t.into(), self.i8_ptr_t.into(), self.i64_t.into()],
+            false
+        );
+        let func = self.module.add_function("memcpy", fn_type, None);
+        self.memcpy = Some(func);
+        Ok(func)
     }
 
     fn declare_c_fn(

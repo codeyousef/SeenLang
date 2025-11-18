@@ -1,53 +1,33 @@
 // Sieve of Eratosthenes Benchmark
-// Optimized prime number generation
-
-fun create_bit_array(size: Int) -> Array<Int> {
-    let words = (size + 31) / 32
-    let bits = Array<Int>.withCapacity(words)
-    var i = 0
-    while i < words {
-        bits.push(-1)
-        i = i + 1
-    }
-    bits
-}
-
-fun is_set(bits: Array<Int>, idx: Int) -> Bool {
-    let word = idx / 32
-    let bit = idx % 32
-    (bits[word] & (1 << bit)) != 0
-}
-
-fun clear_bit(bits: Array<Int>, idx: Int) -> Void {
-    let word = idx / 32
-    let bit = idx % 32
-    bits[word] = bits[word] & (not (1 << bit))
-}
+// Simple boolean array implementation
 
 fun sieve_of_eratosthenes(limit: Int) -> Array<Int> {
-    let is_prime = create_bit_array(limit + 1)
+    let is_prime = Array<Int>.withCapacity(limit + 1)
+    var i = 0
+    while i <= limit {
+        is_prime.push(1)
+        i = i + 1
+    }
     
-    clear_bit(is_prime, 0)
-    clear_bit(is_prime, 1)
+    is_prime[0] = 0
+    is_prime[1] = 0
     
-    let sqrt_limit = __Sqrt(limit as Float) as Int + 1
-    
-    var i = 2
-    while i < sqrt_limit {
-        if is_set(is_prime, i) {
-            var j = i * i
+    var p = 2
+    while p * p <= limit {
+        if is_prime[p] != 0 {
+            var j = p * p
             while j <= limit {
-                clear_bit(is_prime, j)
-                j = j + i
+                is_prime[j] = 0
+                j = j + p
             }
         }
-        i = i + 1
+        p = p + 1
     }
     
     let primes = Array<Int>.withCapacity(limit / 10)
     var idx = 2
     while idx <= limit {
-        if is_set(is_prime, idx) {
+        if is_prime[idx] != 0 {
             primes.push(idx)
         }
         idx = idx + 1
@@ -112,9 +92,6 @@ fun main() -> Int {
     __Print("\nMin time: ")
     __PrintFloat(min_time)
     __Print(" ms\n")
-    __Print("Primes per second: ")
-    __PrintFloat((prime_count as Float) / (min_time / 1000.0))
-    __Print("\n")
     
     return 0
 }

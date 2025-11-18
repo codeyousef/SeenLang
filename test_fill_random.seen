@@ -1,3 +1,5 @@
+// Test fill_random
+
 class Matrix {
     data: Array<Float>
     rows: Int
@@ -27,10 +29,12 @@ class Matrix {
 }
 
 fun main() -> Int {
-    __Print("Creating matrix\n")
-    let m = Matrix.new(2, 2)
-    __Print("Filling with random\n")
+    __Print("Creating 512x512 matrix...\n")
+    let m = Matrix.new(512, 512)
+    
+    __Print("Filling with random values...\n")
     m.fill_random(12345)
-    __Print("Done\n")
+    
+    __Print("Done!\n")
     return 0
 }

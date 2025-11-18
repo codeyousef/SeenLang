@@ -1,0 +1,8 @@
+fun main() -> Int {
+    let headers = Array<String>.withCapacity(5)
+    headers.push("Content-Type: application/json")
+    headers.push("Connection: keep-alive")
+    
+    __Print("Headers added\n")
+    return 0
+}

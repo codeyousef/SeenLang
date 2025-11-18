@@ -7,44 +7,25 @@
 type Matrix = struct Matrix
 
 ; Functions
-fn compute_checksum(m: i64) -> f64 {
+fn Matrix_fill_random(self: struct Matrix, seed: i64) -> i64 {
+  ; Local variables
+  i: i64
+  this: struct Matrix
+
 ; Entry: entry
 entry:
-  store 0 -> %sum
-  store 0 -> %i
-  jmp .loop_start_27
-
-loop_start_27:
-  field_get %m.data -> %r0
-  arr_len %r0 -> %r1
-  lt %i %r1 -> %r2
-  jnot %r2 .loop_end_29
-
-loop_body_28:
-  field_get %m.data -> %r3
-  arr_get %r3[%i] -> %r4
-  add %sum %r4 -> %r5
-  store %r5 -> %sum
-  add %i 1 -> %r6
-  store %r6 -> %i
-  jmp .loop_start_27
-
-loop_end_29:
-  ret %sum
-
-}
-
-fn fill_random(seed: i64) -> i64 {
-; Entry: entry
-entry:
+  mov %self -> %this
   store %seed -> %current_seed
   store 0 -> %i
-.loop_start_3:
+  jmp .loop_start_3
+
+loop_start_3:
   field_get %this.data -> %r14
   arr_len %r14 -> %r15
   lt %i %r15 -> %r16
   jnot %r16 .loop_end_5
-.loop_body_4:
+
+loop_body_4:
   mul %current_seed 1103515245 -> %r17
   add %r17 12345 -> %r18
   band %r18 2147483647 -> %r19
@@ -58,14 +39,19 @@ entry:
   add %i 1 -> %r24
   store %r24 -> %i
   jmp .loop_start_3
-.loop_end_5:
+
+loop_end_5:
   ret void
 
 }
 
-fn get(row: i64, col: i64) -> f64 {
+fn Matrix_get(self: struct Matrix, row: i64, col: i64) -> f64 {
+  ; Local variables
+  this: struct Matrix
+
 ; Entry: entry
 entry:
+  mov %self -> %this
   field_get %this.data -> %r5
   field_get %this.cols -> %r6
   mul %row %r6 -> %r7
@@ -75,272 +61,160 @@ entry:
 
 }
 
-fn main() -> i64 {
-; Entry: entry
-entry:
-  store 512 -> %size
-  call %__Print ("Matrix Multiplication Benchmark (SGEMM)\n") -> %r0
-  call %__Print ("Matrix size: ") -> %r1
-  call %__PrintInt (%size) -> %r2
-  call %__Print ("x") -> %r3
-  call %__PrintInt (%size) -> %r4
-  call %__Print ("\n") -> %r5
-  call %new (%Matrix, %size, %size) -> %r6
-  store %r6 -> %a
-  call %new (%Matrix, %size, %size) -> %r7
-  store %r7 -> %b
-  call %new (%Matrix, %size, %size) -> %r8
-  store %r8 -> %c
-  call %fill_random (%a, 12345) -> %r9
-  call %fill_random (%b, 67890) -> %r10
-  store 3 -> %warmup_runs
-  call %__Print ("Warming up (") -> %r11
-  call %__PrintInt (%warmup_runs) -> %r12
-  call %__Print (" runs)...\n") -> %r13
-  store 0 -> %w
-  jmp .loop_start_30
+fn Matrix_new(rows: i64, cols: i64) -> struct Matrix {
+  ; Local variables
+  i: i64
 
-loop_start_30:
-  lt %w %warmup_runs -> %r14
-  jnot %r14 .loop_end_32
-
-loop_body_31:
-  call %matrix_multiply (%a, %b, %c) -> %r15
-  add %w 1 -> %r16
-  store %r16 -> %w
-  jmp .loop_start_30
-
-loop_end_32:
-  call %__Print ("Running measured iterations...\n") -> %r17
-  store 5 -> %iterations
-  store 1000000 -> %min_time
-  store 0 -> %i
-  jmp .loop_start_33
-
-loop_start_33:
-  lt %i %iterations -> %r18
-  jnot %r18 .loop_end_35
-
-loop_body_34:
-  call %new (%Matrix, %size, %size) -> %r19
-  store %r19 -> %c_fresh
-  call %__GetTime () -> %r20
-  store %r20 -> %start
-  call %matrix_multiply (%a, %b, %c_fresh) -> %r21
-  call %__GetTime () -> %r22
-  store %r22 -> %end
-  sub %end %start -> %r23
-  mul %r23 1000 -> %r24
-  store %r24 -> %elapsed
-  lt %elapsed %min_time -> %r25
-  jif %r25 .then_36
-
-block_0:
-  jmp .else_37
-
-then_36:
-  store %elapsed -> %min_time
-  mov %elapsed -> %r26
-  jmp .if_end_38
-
-else_37:
-  mov void -> %r26
-  jmp .if_end_38
-
-if_end_38:
-  add %i 1 -> %r27
-  store %r27 -> %i
-  jmp .loop_start_33
-
-loop_end_35:
-  call %compute_checksum (%c) -> %r28
-  store %r28 -> %checksum
-  cast %size as f64 -> %r29
-  mul 2 %r29 -> %r30
-  cast %size as f64 -> %r31
-  mul %r30 %r31 -> %r32
-  cast %size as f64 -> %r33
-  mul %r32 %r33 -> %r34
-  div %min_time 1000 -> %r35
-  div %r34 %r35 -> %r36
-  div %r36 1000000000 -> %r37
-  store %r37 -> %gflops
-  call %__Print ("Checksum: ") -> %r38
-  call %__PrintFloat (%checksum) -> %r39
-  call %__Print ("\nMin time: ") -> %r40
-  call %__PrintFloat (%min_time) -> %r41
-  call %__Print (" ms\n") -> %r42
-  call %__Print ("Performance: ") -> %r43
-  call %__PrintFloat (%gflops) -> %r44
-  call %__Print (" GFLOPS\n") -> %r45
-  ret 0
-
-block_1:
-  ret 0
-
-}
-
-fn matrix_multiply(a: i64, b: i64, c: i64) -> i64 {
-; Entry: entry
-entry:
-  store 64 -> %block_size
-  store 0 -> %ii
-  jmp .loop_start_6
-
-loop_start_6:
-  field_get %a.rows -> %r0
-  lt %ii %r0 -> %r1
-  jnot %r1 .loop_end_8
-
-loop_body_7:
-  store 0 -> %jj
-  jmp .loop_start_9
-
-loop_start_9:
-  field_get %b.cols -> %r2
-  lt %jj %r2 -> %r3
-  jnot %r3 .loop_end_11
-
-loop_body_10:
-  store 0 -> %kk
-  jmp .loop_start_12
-
-loop_start_12:
-  field_get %a.cols -> %r4
-  lt %kk %r4 -> %r5
-  jnot %r5 .loop_end_14
-
-loop_body_13:
-  add %ii %block_size -> %r6
-  field_get %a.rows -> %r7
-  call %min (%r6, %r7) -> %r8
-  store %r8 -> %i_end
-  add %jj %block_size -> %r9
-  field_get %b.cols -> %r10
-  call %min (%r9, %r10) -> %r11
-  store %r11 -> %j_end
-  add %kk %block_size -> %r12
-  field_get %a.cols -> %r13
-  call %min (%r12, %r13) -> %r14
-  store %r14 -> %k_end
-  store %ii -> %i
-  jmp .loop_start_15
-
-loop_start_15:
-  lt %i %i_end -> %r15
-  jnot %r15 .loop_end_17
-
-loop_body_16:
-  store %jj -> %j
-  jmp .loop_start_18
-
-loop_start_18:
-  lt %j %j_end -> %r16
-  jnot %r16 .loop_end_20
-
-loop_body_19:
-  call %get (%c, %i, %j) -> %r17
-  store %r17 -> %sum
-  store %kk -> %k
-  jmp .loop_start_21
-
-loop_start_21:
-  lt %k %k_end -> %r18
-  jnot %r18 .loop_end_23
-
-loop_body_22:
-  call %get (%a, %i, %k) -> %r19
-  call %get (%b, %k, %j) -> %r20
-  mul %r19 %r20 -> %r21
-  add %sum %r21 -> %r22
-  store %r22 -> %sum
-  add %k 1 -> %r23
-  store %r23 -> %k
-  jmp .loop_start_21
-
-loop_end_23:
-  call %set (%c, %i, %j, %sum) -> %r24
-  add %j 1 -> %r25
-  store %r25 -> %j
-  jmp .loop_start_18
-
-loop_end_20:
-  add %i 1 -> %r26
-  store %r26 -> %i
-  jmp .loop_start_15
-
-loop_end_17:
-  add %kk %block_size -> %r27
-  store %r27 -> %kk
-  jmp .loop_start_12
-
-loop_end_14:
-  add %jj %block_size -> %r28
-  store %r28 -> %jj
-  jmp .loop_start_9
-
-loop_end_11:
-  add %ii %block_size -> %r29
-  store %r29 -> %ii
-  jmp .loop_start_6
-
-loop_end_8:
-  ret void
-
-}
-
-fn min(a: i64, b: i64) -> i64 {
-; Entry: entry
-entry:
-  lt %a %b -> %r0
-  jif %r0 .then_24
-
-block_0:
-  jmp .else_25
-
-then_24:
-  mov %a -> %r1
-  jmp .if_end_26
-
-else_25:
-  mov %b -> %r1
-  jmp .if_end_26
-
-if_end_26:
-  ret %r1
-
-}
-
-fn new(rows: i64, cols: i64) -> i64 {
 ; Entry: entry
 entry:
   mul %rows %cols -> %r0
   store %r0 -> %size
-  call %withCapacity (%Array, %size) -> %r1
+  call %__ArrayNew (%size) -> %r1
   store %r1 -> %arr
   store 0 -> %i
-.loop_start_0:
+  jmp .loop_start_0
+
+loop_start_0:
   lt %i %size -> %r2
   jnot %r2 .loop_end_2
-.loop_body_1:
+
+loop_body_1:
   call %push (%arr, 0) -> %r3
   add %i 1 -> %r4
   store %r4 -> %i
   jmp .loop_start_0
-.loop_end_2:
+
+loop_end_2:
   ret struct Matrix
 
 }
 
-fn set(row: i64, col: i64, value: f64) -> i64 {
+fn Matrix_set(self: struct Matrix, row: i64, col: i64, value: f64) -> i64 {
+  ; Local variables
+  this: struct Matrix
+
 ; Entry: entry
 entry:
+  mov %self -> %this
   field_get %this.data -> %r10
   field_get %this.cols -> %r11
   mul %row %r11 -> %r12
   add %r12 %col -> %r13
   arr_set %r10[%r13] = %value
   ret %value
+
+}
+
+fn main() -> i64 {
+  ; Local variables
+  a: struct Matrix
+  b: struct Matrix
+  c: struct Matrix
+  size: i64
+
+; Entry: entry
+entry:
+  store 512 -> %size
+  call %__Print ("Creating matrices...\n") -> %r0
+  call %Matrix_new (%size, %size) -> %r1
+  store %r1 -> %a
+  call %Matrix_new (%size, %size) -> %r2
+  store %r2 -> %b
+  call %Matrix_new (%size, %size) -> %r3
+  store %r3 -> %c
+  call %__Print ("Filling...\n") -> %r4
+  call %Matrix_fill_random (%a, 12345) -> %r5
+  call %Matrix_fill_random (%b, 67890) -> %r6
+  call %__Print ("Multiplying...\n") -> %r7
+  call %matrix_multiply_simple (%a, %b, %c) -> %r8
+  call %__Print ("Success!\n") -> %r9
+  ret 0
+
+block_0:
+  ret 0
+
+}
+
+fn matrix_multiply_simple(a: struct Matrix, b: struct Matrix, c: struct Matrix) -> i64 {
+  ; Local variables
+  i: i64
+  j: i64
+  k: i64
+  sum: f64
+
+; Entry: entry
+entry:
+  call %__Print ("Starting multiply...\n") -> %r0
+  store 0 -> %i
+  jmp .loop_start_6
+
+loop_start_6:
+  field_get %a.rows -> %r1
+  lt %i %r1 -> %r2
+  jnot %r2 .loop_end_8
+
+loop_body_7:
+  mod %i 100 -> %r3
+  eq %r3 0 -> %r4
+  jif %r4 .then_9
+
+block_0:
+  jmp .else_10
+
+then_9:
+  call %__Print ("Row ") -> %r5
+  call %__PrintInt (%i) -> %r6
+  call %__Print ("\n") -> %r7
+  mov %r7 -> %r8
+  jmp .if_end_11
+
+else_10:
+  mov void -> %r8
+  jmp .if_end_11
+
+if_end_11:
+  store 0 -> %j
+  jmp .loop_start_12
+
+loop_start_12:
+  field_get %b.cols -> %r9
+  lt %j %r9 -> %r10
+  jnot %r10 .loop_end_14
+
+loop_body_13:
+  store 0 -> %sum
+  store 0 -> %k
+  jmp .loop_start_15
+
+loop_start_15:
+  field_get %a.cols -> %r11
+  lt %k %r11 -> %r12
+  jnot %r12 .loop_end_17
+
+loop_body_16:
+  call %Matrix_get (%a, %i, %k) -> %r13
+  call %Matrix_get (%b, %k, %j) -> %r14
+  mul %r13 %r14 -> %r15
+  add %sum %r15 -> %r16
+  store %r16 -> %sum
+  add %k 1 -> %r17
+  store %r17 -> %k
+  jmp .loop_start_15
+
+loop_end_17:
+  call %Matrix_set (%c, %i, %j, %sum) -> %r18
+  add %j 1 -> %r19
+  store %r19 -> %j
+  jmp .loop_start_12
+
+loop_end_14:
+  add %i 1 -> %r20
+  store %r20 -> %i
+  jmp .loop_start_6
+
+loop_end_8:
+  call %__Print ("Done!\n") -> %r21
+  ret %r21
 
 }
 

@@ -723,6 +723,28 @@ impl TypeChecker {
             },
         );
         env.define_function(
+            "__Sqrt".to_string(),
+            FunctionSignature {
+                name: "__Sqrt".to_string(),
+                parameters: vec![Parameter {
+                    name: "x".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
+            "__IntToString".to_string(),
+            FunctionSignature {
+                name: "__IntToString".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Int,
+                }],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
             "min".to_string(),
             FunctionSignature {
                 name: "min".to_string(),

@@ -1,0 +1,59 @@
+// Test progressively larger matrices to find the segfault threshold
+
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun get(row: Int, col: Int) -> Float {
+        this.data[row * this.cols + col]
+    }
+    
+    fun set(row: Int, col: Int, value: Float) -> Void {
+        this.data[row * this.cols + col] = value
+    }
+}
+
+fun test_size(size: Int) -> Int {
+    __Print("Testing size ")
+    __PrintInt(size)
+    __Print("x")
+    __PrintInt(size)
+    __Print("...\n")
+    
+    let m = Matrix.new(size, size)
+    __Print("  Created matrix\n")
+    
+    m.set(0, 0, 1.0)
+    __Print("  Set element\n")
+    
+    let val = m.get(0, 0)
+    __Print("  Got element: ")
+    __PrintFloat(val)
+    __Print("\n")
+    
+    return 0
+}
+
+fun main() -> Int {
+    test_size(10)
+    test_size(50)
+    test_size(100)
+    test_size(200)
+    test_size(400)
+    test_size(512)
+    
+    __Print("All tests passed!\n")
+    return 0
+}

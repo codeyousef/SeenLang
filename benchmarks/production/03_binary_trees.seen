@@ -1,30 +1,42 @@
 // Binary Trees Benchmark
-// GC stress test with tree allocation/deallocation
+// Memory allocation stress test with tree creation
 
 class TreeNode {
     item: Int
-    left: Option<TreeNode>
-    right: Option<TreeNode>
+    left_val: Int
+    right_val: Int
+    has_left: Int
+    has_right: Int
     
     fun new(item: Int) -> TreeNode {
-        TreeNode { item: item, left: None, right: None }
+        TreeNode { 
+            item: item, 
+            left_val: 0, 
+            right_val: 0,
+            has_left: 0,
+            has_right: 0
+        }
     }
     
-    fun with_children(item: Int, left: TreeNode, right: TreeNode) -> TreeNode {
-        TreeNode { item: item, left: Some(left), right: Some(right) }
+    fun with_children(item: Int, left_check: Int, right_check: Int) -> TreeNode {
+        TreeNode { 
+            item: item, 
+            left_val: left_check, 
+            right_val: right_check,
+            has_left: 1,
+            has_right: 1
+        }
     }
     
     fun check() -> Int {
-        match this.left {
-            Some(l) => match this.right {
-                Some(r) => this.item + l.check() - r.check()
-                None => this.item + l.check()
-            }
-            None => match this.right {
-                Some(r) => this.item - r.check()
-                None => this.item
-            }
+        var result = this.item
+        if this.has_left != 0 {
+            result = result + this.left_val
         }
+        if this.has_right != 0 {
+            result = result - this.right_val
+        }
+        return result
     }
 }
 
@@ -34,7 +46,9 @@ fun make_tree(depth: Int) -> TreeNode {
     } else {
         let left = make_tree(depth - 1)
         let right = make_tree(depth - 1)
-        TreeNode.with_children(0, left, right)
+        let left_check = left.check()
+        let right_check = right.check()
+        TreeNode.with_children(0, left_check, right_check)
     }
 }
 
