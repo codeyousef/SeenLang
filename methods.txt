@@ -1,0 +1,259 @@
+fn block_sort_key(name: &str) -> (i64, String, String) {
+fn is_string_literal_ir(value: &IRValue) -> bool {
+    fn llvm_feature_flags(&self) -> &'static [&'static str] {
+    fn default() -> Self {
+    fn env_lock() -> &'static Mutex<()> {
+    fn with_env_lock<F, R>(f: F) -> R
+    fn object_file_extension_matches_target() {
+    fn shared_library_flags_match_platform() {
+    fn executable_link_flags_include_libm_on_linux() {
+    fn android_clang_path_errors_without_ndk() {
+    fn android_clang_path_resolves_with_mock_ndk() {
+    fn declare_function_applies_inline_and_pressure_attributes() {
+    fn simd_splat_and_reduce_lower_to_vector_ir() {
+    pub fn new() -> Self {
+    pub fn set_cli_mode(&mut self, enabled: bool) {
+    pub fn emit_llvm_ir(
+    pub fn emit_executable(
+    fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
+    fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
+    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
+    fn select_archiver(triple: &str) -> Result<PathBuf> {
+    fn select_ranlib(triple: &str) -> Result<PathBuf> {
+    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
+    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
+    fn lookup_wasm_linker() -> Result<PathBuf> {
+    fn android_clang_path(triple: &str) -> Result<PathBuf> {
+    fn android_tool_path(tool: &str) -> Result<PathBuf> {
+    fn android_bin_dir() -> Result<PathBuf> {
+    fn default_ndk_host_tag() -> String {
+    fn android_api_level() -> String {
+    fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+        let saved_fn = self.current_fn;
+            let prev_fn = self.current_fn;
+            self.current_fn = Some(func);
+            self.current_fn = prev_fn;
+        self.current_fn = saved_fn;
+    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
+    fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
+    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
+    fn link_artifact(
+    fn link_executable(
+    fn link_shared(
+    fn link_static(&self, obj_path: &Path, out

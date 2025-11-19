@@ -102,7 +102,7 @@ pub struct TargetOptions<'a> {
     pub static_libraries: Vec<PathBuf>,
     pub hardware_features: Vec<CpuFeature>,
     pub memory_topology: MemoryTopologyHint,
-    pub opt_level: LlvmOptLevel,
+    pub opt_level: Option<LlvmOptLevel>,
 }
 
 impl<'a> Default for TargetOptions<'a> {
@@ -114,7 +114,7 @@ impl<'a> Default for TargetOptions<'a> {
             static_libraries: Vec::new(),
             hardware_features: Vec::new(),
             memory_topology: MemoryTopologyHint::Default,
-            opt_level: LlvmOptLevel::Default,
+            opt_level: None,
         }
     }
 }
@@ -422,10 +422,21 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
 
+        if let Err(e) = self.module.verify() {
+             eprintln!("LLVM Verify Error: {}", e.to_string());
+             return Err(anyhow!("Module verification failed: {}", e.to_string()));
+        }
+
         // Build object
         let static_libs = options.static_libraries.clone();
         let (target_triple, target_machine) = Self::target_machine_for(&options)?;
         self.configure_module_target(&target_triple, &target_machine);
+
+        if let Err(e) = self.module.verify() {
+             eprintln!("LLVM Verify Error after target config: {}", e.to_string());
+             return Err(anyhow!("Module verification failed after target config: {}", e.to_string()));
+        }
+
         let obj_path = Self::object_file_path(out_path, &target_triple);
         eprintln!("LLVM backend: writing object file {:?}", obj_path);
         target_machine
@@ -521,7 +532,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 &triple,
                 cpu,
                 features,
-                LlvmOptLevel::Default,
+                options.opt_level.unwrap_or(LlvmOptLevel::Default),
                 RelocMode::Default,
                 CodeModel::Default,
             )
@@ -1288,6 +1299,39 @@ impl<'ctx> LlvmBackend<'ctx> {
         f: FunctionValue<'ctx>,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
+        if func.name == "__PrintFloat" {
+             let entry = self.ctx.append_basic_block(f, "entry");
+             self.builder.position_at_end(entry);
+             if let Some(arg) = f.get_nth_param(0) {
+                 let float_val = arg.into_float_value();
+                 let fmt = self.builder.build_global_string_ptr("%f\n", "fmt_float")?;
+                 self.call_printf(&[fmt.as_pointer_value().into(), float_val.into()])?;
+             }
+             
+             if let Some(ret_ty) = f.get_type().get_return_type() {
+                 if ret_ty.is_int_type() {
+                     self.builder.build_return(Some(&self.i64_t.const_zero()))?;
+                 } else {
+                     self.builder.build_return(None)?;
+                 }
+             } else {
+                 self.builder.build_return(None)?;
+             }
+             return Ok(());
+        }
+        if func.name == "__IntToFloat" {
+             let entry = self.ctx.append_basic_block(f, "entry");
+             self.builder.position_at_end(entry);
+             if let Some(arg) = f.get_nth_param(0) {
+                 let int_val = arg.into_int_value();
+                 let float_val = self.builder.build_signed_int_to_float(int_val, self.ctx.f64_type(), "i2f")?;
+                 self.builder.build_return(Some(&float_val))?;
+             } else {
+                 self.builder.build_return(Some(&self.ctx.f64_type().const_zero()))?;
+             }
+             return Ok(());
+        }
+
         self.current_fn = Some(f);
         self.apply_hardware_attributes(f);
         self.reg_values.clear();
@@ -1942,6 +1986,25 @@ impl<'ctx> LlvmBackend<'ctx> {
                 // Handle known intrinsics
                 if let IRValue::Variable(name) = target {
                     match name.as_str() {
+                        "__PrintFloat" => {
+                            if let Some(arg0) = args.get(0) {
+                                let val = self.eval_value(arg0, fn_map)?;
+                                let float_val = if val.is_float_value() {
+                                    val.into_float_value()
+                                } else {
+                                    return Err(anyhow!("__PrintFloat expected float"));
+                                };
+                                let fmt = self.builder.build_global_string_ptr("%f\n", "fmt_float")?;
+                                self.call_printf(&[fmt.as_pointer_value().into(), float_val.into()])?;
+                                if let Some(r) = result {
+                                    self.assign_value(
+                                        r,
+                                        self.i64_t.const_zero().as_basic_value_enum(),
+                                    )?;
+                                }
+                                return Ok(());
+                            }
+                        }
                         "println" => {
                             if let Some(arg0) = args.get(0) {
                                 let a0 = self.eval_value(arg0, fn_map)?;
@@ -2049,122 +2112,6 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 self.assign_value(r, arr_int)?;
                             }
                             return Ok(());
-                        }
-                        "push" => {
-                            // push(array, value)
-                            if args.len() == 2 {
-                                let arr_val = self.eval_value(&args[0], fn_map)?;
-                                let val = self.eval_value(&args[1], fn_map)?;
-
-                                // Cast array to StrArray*
-                                let ty = self.ty_str_array();
-                                let arr_ptr = if arr_val.is_pointer_value() {
-                                    arr_val.into_pointer_value()
-                                } else {
-                                    self.builder
-                                        .build_int_to_ptr(
-                                            arr_val.into_int_value(),
-                                            ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                            "arr_ptr",
-                                        )
-                                        .map_err(|e| anyhow!("{e:?}"))?
-                                };
-
-                                // Load len
-                                let len_ptr =
-                                    self.builder.build_struct_gep(ty, arr_ptr, 0, "len_ptr")?;
-                                let len = self
-                                    .builder
-                                    .build_load(self.i64_t, len_ptr, "len")?
-                                    .into_int_value();
-
-                                // Load data ptr
-                                let data_ptr_ptr =
-                                    self.builder.build_struct_gep(ty, arr_ptr, 1, "data_ptr")?;
-                                let old_data = self
-                                    .builder
-                                    .build_load(
-                                        self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                        data_ptr_ptr,
-                                        "old_data",
-                                    )?
-                                    .into_pointer_value();
-
-                                // Calculate new size: (len + 1) * 8
-                                let one = self.i64_t.const_int(1, false);
-                                let new_len = self.builder.build_int_add(len, one, "new_len")?;
-                                let eight = self.i64_t.const_int(8, false);
-                                let new_size_bytes =
-                                    self.builder.build_int_mul(new_len, eight, "new_size_bytes")?;
-
-                                // Realloc
-                                let realloc = self.get_realloc();
-                                let old_data_void = self
-                                    .builder
-                                    .build_pointer_cast(old_data, self.i8_ptr_t, "old_data_void")
-                                    .map_err(|e| anyhow!("{e:?}"))?;
-
-                                let new_data_void_call = self.builder.build_call(
-                                    realloc,
-                                    &[old_data_void.into(), new_size_bytes.into()],
-                                    "realloc_call",
-                                )?;
-                                let new_data_void = new_data_void_call
-                                    .try_as_basic_value()
-                                    .left()
-                                    .ok_or_else(|| anyhow!("realloc returned void"))?
-                                    .into_pointer_value();
-
-                                // Cast back to i8**
-                                let new_data = self
-                                    .builder
-                                    .build_pointer_cast(
-                                        new_data_void,
-                                        self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                        "new_data",
-                                    )
-                                    .map_err(|e| anyhow!("{e:?}"))?;
-
-                                // Store new data ptr
-                                self.builder.build_store(data_ptr_ptr, new_data)?;
-
-                                // Store new element
-                                // val needs to be cast to i8*
-                                let val_ptr = if val.is_pointer_value() {
-                                    val.into_pointer_value()
-                                } else if val.is_int_value() {
-                                    self.builder
-                                        .build_int_to_ptr(
-                                            val.into_int_value(),
-                                            self.i8_ptr_t,
-                                            "val_ptr",
-                                        )
-                                        .map_err(|e| anyhow!("{e:?}"))?
-                                } else {
-                                    return Err(anyhow!("Unsupported push value type"));
-                                };
-
-                                let elem_ptr = unsafe {
-                                    self.builder.build_gep(
-                                        self.i8_ptr_t,
-                                        new_data,
-                                        &[len], // index is old len
-                                        "elem_ptr",
-                                    )?
-                                };
-                                self.builder.build_store(elem_ptr, val_ptr)?;
-
-                                // Update len
-                                self.builder.build_store(len_ptr, new_len)?;
-
-                                if let Some(r) = result {
-                                    self.assign_value(
-                                        r,
-                                        self.i64_t.const_zero().as_basic_value_enum(),
-                                    )?;
-                                }
-                                return Ok(());
-                            }
                         }
                         "__GetTimestamp" => {
                             // time(NULL) -> seconds -> sprintf into buffer and return char*
@@ -3422,11 +3369,6 @@ impl<'ctx> LlvmBackend<'ctx> {
         let f = self.module.add_function("malloc", ty, None);
         self.malloc = Some(f);
         f
-    }
-
-    fn get_realloc(&mut self) -> FunctionValue<'ctx> {
-        let ty = self.i8_ptr_t.fn_type(&[self.i8_ptr_t.into(), self.i64_t.into()], false);
-        self.module.add_function("realloc", ty, None)
     }
 
     fn get_free(&mut self) -> FunctionValue<'ctx> {

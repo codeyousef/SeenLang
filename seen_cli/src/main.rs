@@ -1930,7 +1930,7 @@ fn compile_file_llvm(
             cpu: target_cpu,
             hardware_features: convert_cpu_features(cpu_features),
             memory_topology: convert_memory_topology_hint(memory_topology),
-            opt_level: llvm_opt,
+            opt_level: Some(llvm_opt),
             ..Default::default()
         };
         if !cpu_features.is_empty() {

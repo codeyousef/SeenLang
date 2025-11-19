@@ -220,12 +220,18 @@ impl IRGenerator {
                     params,
                     return_type,
                     body,
+                    is_external,
                     ..
                 } => {
-                    // Generate the function and add to module
-                    let function =
-                        self.generate_function_definition(name, params, return_type, body)?;
-                    module.add_function(function);
+                    if *is_external {
+                        let function = self.generate_extern_function_definition(name, params, return_type)?;
+                        module.add_function(function);
+                    } else {
+                        // Generate the function and add to module
+                        let function =
+                            self.generate_function_definition(name, params, return_type, body)?;
+                        module.add_function(function);
+                    }
                 }
                 Expression::ContractedFunction {
                     function,
@@ -1666,6 +1672,40 @@ impl IRGenerator {
         self.context.current_function = saved_function;
         self.context.current_block = saved_block;
         self.context.register_counter = saved_register_counter;
+
+        Ok(function)
+    }
+
+    /// Generate IR for extern function definitions (C-style extern functions)
+    fn generate_extern_function_definition(
+        &mut self,
+        name: &str,
+        params: &[seen_parser::Parameter],
+        return_type: &Option<seen_parser::Type>,
+    ) -> IRResult<IRFunction> {
+        // Determine return type
+        let ir_return_type = if let Some(ret_type) = return_type {
+            self.convert_ast_type_to_ir(ret_type)
+        } else {
+            IRType::Void
+        };
+
+        // Create the function
+        let mut function = IRFunction::new(name, ir_return_type);
+        function = function.extern_function(crate::function::CallingConvention::C);
+
+        // Add parameters
+        for param in params {
+            let param_type = if let Some(type_annotation) = &param.type_annotation {
+                self.convert_ast_type_to_ir(type_annotation)
+            } else {
+                IRType::Integer // Default fallback
+            };
+            function.parameters.push(crate::function::Parameter::new(
+                param.name.clone(),
+                param_type,
+            ));
+        }
 
         Ok(function)
     }

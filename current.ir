@@ -1,21 +1,27 @@
+Generating IR for test_float.seen
+
+=== Generated IR ===
 ; Seen IR Program
 ; Entry point: main
 
 ; Module: main
 
 ; Functions
-fn __IntToFloat [extern](i: i64) -> f64 {}
+fn __IntToFloat(i: i64) -> f64 {
+; Entry: entry
+entry:
+  ret null
 
-fn __PrintFloat [extern](f: f64) -> i64 {}
+}
 
 fn main() -> void {
 ; Entry: entry
 entry:
   call %__IntToFloat (1) -> %r0
   store %r0 -> %x
-  call %__PrintFloat (%x) -> %r1
-  ret %r1
+  ret %r0
 
 }
+
 
 
