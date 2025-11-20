@@ -4,17 +4,129 @@
 ; Module: main
 
 ; Functions
-fn __IntToFloat [extern](i: i64) -> f64 {}
+fn main() -> i64 {
+  ; Local variables
+  n: i64
 
-fn __PrintFloat [extern](f: f64) -> i64 {}
-
-fn main() -> void {
 ; Entry: entry
 entry:
-  call %__IntToFloat (1) -> %r0
-  store %r0 -> %x
-  call %__PrintFloat (%x) -> %r1
-  ret %r1
+  store 100 -> %n
+  call %matrixMultiply (%n) -> %r0
+  store %r0 -> %result
+  call %__Print ("Done\n") -> %r1
+  ret %result
+
+block_0:
+  ret %result
+
+}
+
+fn matrixMultiply(n: i64) -> i64 {
+  ; Local variables
+  i: i64
+  j: i64
+  k: i64
+  sum: i64
+
+; Entry: entry
+entry:
+  call %Array () -> %r0
+  store %r0 -> %a
+  call %Array () -> %r1
+  store %r1 -> %b
+  call %Array () -> %r2
+  store %r2 -> %c
+  store 0 -> %i
+  jmp .loop_start_0
+
+loop_start_0:
+  lt %i %n -> %r3
+  jnot %r3 .loop_end_2
+
+loop_body_1:
+  call %Array () -> %r4
+  store %r4 -> %rowA
+  call %Array () -> %r5
+  store %r5 -> %rowB
+  call %Array () -> %r6
+  store %r6 -> %rowC
+  store 0 -> %j
+  jmp .loop_start_3
+
+loop_start_3:
+  lt %j %n -> %r7
+  jnot %r7 .loop_end_5
+
+loop_body_4:
+  add %i %j -> %r8
+  call %push (%rowA, %r8) -> %r9
+  sub %i %j -> %r10
+  call %push (%rowB, %r10) -> %r11
+  call %push (%rowC, 0) -> %r12
+  add %j 1 -> %r13
+  store %r13 -> %j
+  jmp .loop_start_3
+
+loop_end_5:
+  call %push (%a, %rowA) -> %r14
+  call %push (%b, %rowB) -> %r15
+  call %push (%c, %rowC) -> %r16
+  add %i 1 -> %r17
+  store %r17 -> %i
+  jmp .loop_start_0
+
+loop_end_2:
+  store 0 -> %i
+  jmp .loop_start_6
+
+loop_start_6:
+  lt %i %n -> %r18
+  jnot %r18 .loop_end_8
+
+loop_body_7:
+  store 0 -> %j
+  jmp .loop_start_9
+
+loop_start_9:
+  lt %j %n -> %r19
+  jnot %r19 .loop_end_11
+
+loop_body_10:
+  store 0 -> %sum
+  store 0 -> %k
+  jmp .loop_start_12
+
+loop_start_12:
+  lt %k %n -> %r20
+  jnot %r20 .loop_end_14
+
+loop_body_13:
+  arr_get %r21[%k] -> %r22
+  arr_get %r23[%j] -> %r24
+  mul %r22 %r24 -> %r25
+  add %sum %r25 -> %r26
+  store %r26 -> %sum
+  add %k 1 -> %r27
+  store %r27 -> %k
+  jmp .loop_start_12
+
+loop_end_14:
+  arr_set %r28[%j] = %sum
+  add %j 1 -> %r29
+  store %r29 -> %j
+  jmp .loop_start_9
+
+loop_end_11:
+  add %i 1 -> %r30
+  store %r30 -> %i
+  jmp .loop_start_6
+
+loop_end_8:
+  arr_get %r31[0] -> %r32
+  ret %r32
+
+block_0:
+  ret %r32
 
 }
 

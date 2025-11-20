@@ -222,6 +222,50 @@ impl TypeChecker {
             },
         );
         env.define_function(
+            "__Print".to_string(),
+            FunctionSignature {
+                name: "__Print".to_string(),
+                parameters: vec![Parameter {
+                    name: "message".to_string(),
+                    param_type: Type::String,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
+        env.define_function(
+            "__PrintInt".to_string(),
+            FunctionSignature {
+                name: "__PrintInt".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Int,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
+        env.define_function(
+            "__PrintFloat".to_string(),
+            FunctionSignature {
+                name: "__PrintFloat".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Unit),
+            },
+        );
+        env.define_function(
+            "__Sqrt".to_string(),
+            FunctionSignature {
+                name: "__Sqrt".to_string(),
+                parameters: vec![Parameter {
+                    name: "value".to_string(),
+                    param_type: Type::Float,
+                }],
+                return_type: Some(Type::Float),
+            },
+        );
+        env.define_function(
             "__Abs".to_string(),
             FunctionSignature {
                 name: "__Abs".to_string(),

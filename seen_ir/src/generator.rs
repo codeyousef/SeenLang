@@ -561,11 +561,15 @@ impl IRGenerator {
         let result_value = IRValue::Register(result_reg);
 
         let binary_instruction = Instruction::Binary {
-            op,
-            left: left_val,
-            right: right_val,
+            op: op.clone(),
+            left: left_val.clone(),
+            right: right_val.clone(),
             result: result_value.clone(),
         };
+
+        if matches!(op, BinaryOp::Modulo) {
+            println!("Generating Modulo: {:?} % {:?} -> {:?}", binary_instruction, left_val, right_val);
+        }
 
         left_instructions.push(binary_instruction);
 
