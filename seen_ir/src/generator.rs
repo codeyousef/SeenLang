@@ -630,6 +630,19 @@ impl IRGenerator {
                 if let Some(capacity_arg) = arg_values.first() {
                     let result_reg = self.context.allocate_register();
                     let result_value = IRValue::Register(result_reg);
+
+                    // Try to infer array type from the object expression
+                    println!("DEBUG: Checking object for Array.withCapacity: {:?}", object);
+                    if let Expression::Identifier { name, type_args, .. } = object.as_ref() {
+                        println!("DEBUG: Found Array.withCapacity call. Name: {}, TypeArgs: {:?}", name, type_args);
+                        if name == "Array" && !type_args.is_empty() {
+                            let element_type = self.convert_ast_type_to_ir(&type_args[0]);
+                            let array_type = IRType::Array(Box::new(element_type));
+                            println!("DEBUG: Setting register type to {:?}", array_type);
+                            self.context.set_register_type(result_reg, array_type);
+                        }
+                    }
+
                     instructions.push(Instruction::Call {
                         target: IRValue::Variable("__ArrayNew".to_string()),
                         args: vec![capacity_arg.clone()],

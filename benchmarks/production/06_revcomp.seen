@@ -74,6 +74,11 @@ fun generate_sequence(n: Int, seed: Int) -> Array<Int> {
         current_seed = (current_seed * 1103515245 + 12345) & 0x7fffffff
         let idx: Int = (current_seed % 4) as Int
         seq.push(bases[idx])
+        if i % 1000000 == 0 {
+            __Print("Generated: ")
+            __PrintInt(i)
+            __Print("\n")
+        }
         i = i + 1
     }
     
@@ -91,7 +96,7 @@ fun compute_checksum(seq: Array<Int>) -> Int {
 }
 
 fun main() -> Int {
-    let n = 25000000
+    let n = 5000000
     
     __Print("Reverse Complement Benchmark\n")
     __Print("Sequence length: ")

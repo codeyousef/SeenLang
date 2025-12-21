@@ -317,6 +317,7 @@ pub struct LlvmBackend<'ctx> {
     strlen: Option<FunctionValue<'ctx>>,
     strcmp: Option<FunctionValue<'ctx>>,
     malloc: Option<FunctionValue<'ctx>>,
+    realloc: Option<FunctionValue<'ctx>>,
     free: Option<FunctionValue<'ctx>>,
     memcpy: Option<FunctionValue<'ctx>>,
     box_int_fn: Option<FunctionValue<'ctx>>,
@@ -379,6 +380,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             strlen: None,
             strcmp: None,
             malloc: None,
+            realloc: None,
             free: None,
             memcpy: None,
             box_int_fn: None,
@@ -1478,8 +1480,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if let IRType::Struct { name, .. } = element_type.as_ref() {
                     self.var_array_element_struct.insert(param.name.clone(), name.clone());
                 }
-                // Track integer arrays for proper array access
-                if matches!(element_type.as_ref(), IRType::Integer) {
+                // Track integer and char arrays for proper array access
+                if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
                     self.var_is_int_array.insert(param.name.clone());
                 }
             }
@@ -1502,8 +1504,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if let IRType::Struct { name, .. } = element_type.as_ref() {
                     self.var_array_element_struct.insert(local.name.clone(), name.clone());
                 }
-                // Track integer arrays for proper array access
-                if matches!(element_type.as_ref(), IRType::Integer) {
+                // Track integer and char arrays for proper array access
+                if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
                     self.var_is_int_array.insert(local.name.clone());
                 }
             }
@@ -1630,6 +1632,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         inst: &Instruction,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
+        if let Instruction::Call { target, .. } = inst {
+        }
         match inst {
             Instruction::Label(lbl) => {
                 if let Some(bb) = self.blocks.get(&lbl.0) {
@@ -2155,8 +2159,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     
                     self.assign_value(result, char_i64.as_basic_value_enum())?;
                 } else if arr_v.is_pointer_value() || arr_v.is_int_value() {
-                    // Dynamic array with layout { i64 len, i64 cap, data[...] }
-                    // Data starts at offset 16 (2 * sizeof(i64))
+                    // Dynamic array with layout { i64 len, i64 cap, i8* data_ptr }
+                    // Data pointer is at offset 16
                     let arr_ptr = if arr_v.is_pointer_value() {
                         arr_v.into_pointer_value()
                     } else {
@@ -2169,19 +2173,57 @@ impl<'ctx> LlvmBackend<'ctx> {
                             .map_err(|e| anyhow!("{e:?}"))?
                     };
                     
-                    // Get pointer to data section (offset 16)
-                    let data_offset = self.i64_t.const_int(16, false);
-                    let data_ptr = unsafe {
+                    // Load data pointer from offset 16
+                    let data_ptr_ptr = unsafe {
                         self.builder.build_gep(
-                            self.ctx.i8_type(),
-                            arr_ptr,
-                            &[data_offset],
-                            "data_base"
+                            self.i64_t,
+                            self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
+                            &[self.i64_t.const_int(2, false)],
+                            "data_ptr_ptr"
                         )?
                     };
+                    let data_ptr_ptr_casted = self.builder.build_pointer_cast(
+                        data_ptr_ptr,
+                        self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                        "data_ptr_ptr_casted"
+                    )?;
+                    let data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
                     
                     let idx_bv = self.eval_value(index, fn_map)?;
                     let idx_iv = self.as_i64(idx_bv)?;
+
+                    // BOUNDS CHECK
+                    let len_ptr = self.builder.build_pointer_cast(
+                        arr_ptr,
+                        self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                        "len_ptr"
+                    )?;
+                    let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
+
+                    let cmp = self.builder.build_int_compare(
+                        inkwell::IntPredicate::UGE,
+                        idx_iv,
+                        len,
+                        "bounds_check"
+                    )?;
+                    
+                    let fail_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_fail");
+                    let cont_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_ok");
+                    
+                    self.builder.build_conditional_branch(cmp, fail_bb, cont_bb)?;
+                    
+                    self.builder.position_at_end(fail_bb);
+                    // Trap
+                    if let Some(trap) = self.module.get_function("llvm.trap") {
+                        self.builder.build_call(trap, &[], "trap")?;
+                    } else {
+                        let trap_ty = self.ctx.void_type().fn_type(&[], false);
+                        let trap = self.module.add_function("llvm.trap", trap_ty, None);
+                        self.builder.build_call(trap, &[], "trap")?;
+                    }
+                    self.builder.build_unreachable()?;
+                    
+                    self.builder.position_at_end(cont_bb);
                     
                     // Check if we're accessing a struct array
                     if let Some(ref struct_type_name) = element_struct_type {
@@ -2284,18 +2326,56 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
                 
                 // Get pointer to data section (offset 16)
-                let data_offset = self.i64_t.const_int(16, false);
-                let data_ptr = unsafe {
+                let data_ptr_ptr = unsafe {
                     self.builder.build_gep(
-                        self.ctx.i8_type(),
-                        arr_ptr,
-                        &[data_offset],
-                        "data_base"
+                        self.i64_t,
+                        self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
+                        &[self.i64_t.const_int(2, false)],
+                        "data_ptr_ptr"
                     )?
                 };
+                let data_ptr_ptr_casted = self.builder.build_pointer_cast(
+                    data_ptr_ptr,
+                    self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                    "data_ptr_ptr_casted"
+                )?;
+                let data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
                 
                 let idx_bv = self.eval_value(index, fn_map)?;
                 let idx_iv = self.as_i64(idx_bv)?;
+
+                // BOUNDS CHECK
+                let len_ptr = self.builder.build_pointer_cast(
+                    arr_ptr,
+                    self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                    "len_ptr"
+                )?;
+                let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
+
+                let cmp = self.builder.build_int_compare(
+                    inkwell::IntPredicate::UGE,
+                    idx_iv,
+                    len,
+                    "bounds_check"
+                )?;
+                
+                let fail_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_fail");
+                let cont_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_ok");
+                
+                self.builder.build_conditional_branch(cmp, fail_bb, cont_bb)?;
+                
+                self.builder.position_at_end(fail_bb);
+                // Trap
+                if let Some(trap) = self.module.get_function("llvm.trap") {
+                    self.builder.build_call(trap, &[], "trap")?;
+                } else {
+                    let trap_ty = self.ctx.void_type().fn_type(&[], false);
+                    let trap = self.module.add_function("llvm.trap", trap_ty, None);
+                    self.builder.build_call(trap, &[], "trap")?;
+                }
+                self.builder.build_unreachable()?;
+                
+                self.builder.position_at_end(cont_bb);
                 
                 // Check if we're setting a struct array element
                 if let Some(ref struct_type_name) = element_struct_type {
@@ -2414,28 +2494,30 @@ impl<'ctx> LlvmBackend<'ctx> {
                     match name.as_str() {
                         "__ArrayNew" => {
                             // Create a new dynamic array with given capacity
-                            // Array layout: { i64 len, i64 capacity, data[...] }
-                            // Data starts at offset 16 (inline, not a pointer)
+                            // Array layout: { i64 len, i64 capacity, i8* data_ptr }
                             if let Some(cap_arg) = args.get(0) {
                                 let capacity = self.eval_value(cap_arg, fn_map)?;
                                 let cap_i64 = self.as_i64(capacity)?;
                                 
-                                // Allocate: header (16 bytes) + data (8 bytes per element)
-                                let header_size = self.i64_t.const_int(16, false);
-                                let elem_size = self.i64_t.const_int(8, false); // i64/f64/ptr = 8 bytes
-                                let data_size = self.builder.build_int_mul(cap_i64, elem_size, "data_size")?;
-                                let total_size = self.builder.build_int_add(header_size, data_size, "total_size")?;
-                                
+                                // Allocate header (24 bytes)
+                                let header_size = self.i64_t.const_int(24, false);
                                 let malloc = self.get_malloc();
-                                let arr_ptr = self.builder.build_call(malloc, &[total_size.into()], "arr_alloc")?
+                                let header_ptr = self.builder.build_call(malloc, &[header_size.into()], "arr_header_alloc")?
                                     .try_as_basic_value().left()
-                                    .ok_or_else(|| anyhow!("malloc returned void"))?;
+                                    .ok_or_else(|| anyhow!("malloc returned void"))?
+                                    .into_pointer_value();
                                 
-                                let arr_i8_ptr = arr_ptr.into_pointer_value();
-                                
+                                // Allocate data buffer
+                                let elem_size = self.i64_t.const_int(8, false);
+                                let data_size = self.builder.build_int_mul(cap_i64, elem_size, "data_size")?;
+                                let data_ptr = self.builder.build_call(malloc, &[data_size.into()], "arr_data_alloc")?
+                                    .try_as_basic_value().left()
+                                    .ok_or_else(|| anyhow!("malloc returned void"))?
+                                    .into_pointer_value();
+
                                 // Store length = 0
                                 let len_ptr = self.builder.build_pointer_cast(
-                                    arr_i8_ptr,
+                                    header_ptr,
                                     self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
                                     "len_ptr"
                                 )?;
@@ -2451,9 +2533,25 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     )?
                                 };
                                 self.builder.build_store(cap_ptr, cap_i64)?;
+
+                                // Store data pointer
+                                let data_ptr_ptr = unsafe {
+                                    self.builder.build_gep(
+                                        self.i64_t,
+                                        len_ptr,
+                                        &[self.i64_t.const_int(2, false)],
+                                        "data_ptr_ptr"
+                                    )?
+                                };
+                                let data_ptr_ptr_casted = self.builder.build_pointer_cast(
+                                    data_ptr_ptr,
+                                    self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                                    "data_ptr_ptr_casted"
+                                )?;
+                                self.builder.build_store(data_ptr_ptr_casted, data_ptr)?;
                                 
                                 if let Some(r) = result {
-                                    self.assign_value(r, arr_i8_ptr.as_basic_value_enum())?;
+                                    self.assign_value(r, header_ptr.as_basic_value_enum())?;
                                 }
                                 return Ok(());
                             }
@@ -2481,17 +2579,73 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     "len_ptr"
                                 )?;
                                 let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
-                                
-                                // Data starts at offset 16 (after len and capacity)
-                                let data_offset = self.i64_t.const_int(16, false);
-                                let data_ptr = unsafe {
+
+                                // Load capacity
+                                let cap_ptr = unsafe {
                                     self.builder.build_gep(
-                                        self.ctx.i8_type(),
-                                        arr_ptr,
-                                        &[data_offset],
-                                        "data_base"
+                                        self.i64_t,
+                                        len_ptr,
+                                        &[self.i64_t.const_int(1, false)],
+                                        "cap_ptr"
                                     )?
                                 };
+                                let cap = self.builder.build_load(self.i64_t, cap_ptr, "cap")?.into_int_value();
+
+                                // Load data pointer
+                                let data_ptr_ptr = unsafe {
+                                    self.builder.build_gep(
+                                        self.i64_t,
+                                        len_ptr,
+                                        &[self.i64_t.const_int(2, false)],
+                                        "data_ptr_ptr"
+                                    )?
+                                };
+                                let data_ptr_ptr_casted = self.builder.build_pointer_cast(
+                                    data_ptr_ptr,
+                                    self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                                    "data_ptr_ptr_casted"
+                                )?;
+                                let mut data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
+
+                                // Check if resize needed
+                                let needs_resize = self.builder.build_int_compare(inkwell::IntPredicate::EQ, len, cap, "needs_resize")?;
+                                
+                                let current_bb = self.builder.get_insert_block().unwrap();
+                                let resize_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "resize");
+                                let cont_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "push_cont");
+                                
+                                self.builder.build_conditional_branch(needs_resize, resize_bb, cont_bb)?;
+                                
+                                // Resize block
+                                self.builder.position_at_end(resize_bb);
+                                
+                                // Handle cap=0 case
+                                let cap_is_zero = self.builder.build_int_compare(inkwell::IntPredicate::EQ, cap, self.i64_t.const_zero(), "cap_is_zero")?;
+                                let new_cap = self.builder.build_select(
+                                    cap_is_zero,
+                                    self.i64_t.const_int(4, false),
+                                    self.builder.build_int_mul(cap, self.i64_t.const_int(2, false), "mul")?,
+                                    "new_cap"
+                                )?.into_int_value();
+
+                                let elem_size = self.i64_t.const_int(8, false);
+                                let new_size = self.builder.build_int_mul(new_cap, elem_size, "new_size")?;
+                                
+                                let realloc = self.get_realloc();
+                                let new_data_ptr = self.builder.build_call(realloc, &[data_ptr.into(), new_size.into()], "realloc")?
+                                    .try_as_basic_value().left()
+                                    .ok_or_else(|| anyhow!("realloc returned void"))?
+                                    .into_pointer_value();
+                                
+                                self.builder.build_store(cap_ptr, new_cap)?;
+                                self.builder.build_store(data_ptr_ptr_casted, new_data_ptr)?;
+                                self.builder.build_unconditional_branch(cont_bb)?;
+                                
+                                // Continue block
+                                self.builder.position_at_end(cont_bb);
+                                let phi = self.builder.build_phi(self.i8_ptr_t, "data_ptr_phi")?;
+                                phi.add_incoming(&[(&data_ptr, current_bb), (&new_data_ptr, resize_bb)]);
+                                data_ptr = phi.as_basic_value().into_pointer_value();
                                 
                                 // Handle different value types
                                 if value.is_float_value() {
@@ -2520,7 +2674,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                                             "elem_ptr"
                                         )?
                                     };
-                                    self.builder.build_store(elem_ptr, value.into_int_value())?;
+                                    let val_to_store = if value.into_int_value().get_type().get_bit_width() < 64 {
+                                        self.builder.build_int_z_extend(value.into_int_value(), self.i64_t, "zext")?
+                                    } else {
+                                        value.into_int_value()
+                                    };
+                                    self.builder.build_store(elem_ptr, val_to_store)?;
                                 } else if value.is_pointer_value() {
                                     // Pointer value (struct pointer)
                                     let ptr_ptr_ty = self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16));
@@ -4245,6 +4404,20 @@ impl<'ctx> LlvmBackend<'ctx> {
         ty: BasicTypeEnum<'ctx>,
         name: &str,
     ) -> Result<PointerValue<'ctx>> {
+        // Save current position
+        let current_block = self.builder.get_insert_block();
+        
+        // Move to entry block
+        if let Some(func) = self.current_fn {
+            if let Some(entry) = func.get_first_basic_block() {
+                if let Some(first_inst) = entry.get_first_instruction() {
+                    self.builder.position_before(&first_inst);
+                } else {
+                    self.builder.position_at_end(entry);
+                }
+            }
+        }
+
         let slot = match ty {
             BasicTypeEnum::ArrayType(at) => self.builder.build_alloca(at, name),
             BasicTypeEnum::FloatType(ft) => self.builder.build_alloca(ft, name),
@@ -4255,6 +4428,12 @@ impl<'ctx> LlvmBackend<'ctx> {
             BasicTypeEnum::ScalableVectorType(svt) => self.builder.build_alloca(svt, name),
         }
         .map_err(|e| anyhow!("{e:?}"))?;
+
+        // Restore position
+        if let Some(block) = current_block {
+            self.builder.position_at_end(block);
+        }
+
         Ok(slot)
     }
 
@@ -4484,6 +4663,16 @@ impl<'ctx> LlvmBackend<'ctx> {
         f
     }
 
+    fn get_realloc(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.realloc {
+            return f;
+        }
+        let ty = self.i8_ptr_t.fn_type(&[self.i8_ptr_t.into(), self.i64_t.into()], false);
+        let f = self.module.add_function("realloc", ty, None);
+        self.realloc = Some(f);
+        f
+    }
+
     fn get_free(&mut self) -> FunctionValue<'ctx> {
         if let Some(f) = self.free {
             return f;
@@ -4533,6 +4722,25 @@ impl<'ctx> LlvmBackend<'ctx> {
         let printf = self.get_printf();
         self.builder
             .build_call(printf, args, "printf_call")
+            .map(|_| ())
+            .map_err(|e| anyhow!("{e:?}"))
+    }
+
+    fn get_fflush(&self) -> FunctionValue<'ctx> {
+        if let Some(func) = self.module.get_function("fflush") {
+            return func;
+        }
+        let i32_t = self.ctx.i32_type();
+        let ptr_t = self.i8_ptr_t;
+        let fn_type = i32_t.fn_type(&[ptr_t.into()], false);
+        self.module.add_function("fflush", fn_type, None)
+    }
+
+    fn call_fflush(&mut self) -> Result<()> {
+        let fflush = self.get_fflush();
+        let null = self.i8_ptr_t.const_zero();
+        self.builder
+            .build_call(fflush, &[null.into()], "fflush_call")
             .map(|_| ())
             .map_err(|e| anyhow!("{e:?}"))
     }
