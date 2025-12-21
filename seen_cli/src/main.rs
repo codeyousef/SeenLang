@@ -5749,6 +5749,7 @@ fn run_single_test(
                 callee: Box::new(Expression::Identifier {
                     name: get_function_name(test_func),
                     is_public: false,
+                    type_args: vec![],
                     pos: Position {
                         line: 1,
                         column: 1,

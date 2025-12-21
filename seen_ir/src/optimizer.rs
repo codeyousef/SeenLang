@@ -1490,6 +1490,38 @@ impl IROptimizer {
             Instruction::Print(value) => {
                 self.mark_value_used(value, used_values);
             }
+            // Array operations
+            Instruction::ArrayLength { array, .. } => {
+                self.mark_value_used(array, used_values);
+            }
+            Instruction::ArrayAccess { array, index, .. } => {
+                self.mark_value_used(array, used_values);
+                self.mark_value_used(index, used_values);
+            }
+            Instruction::ArraySet { array, index, value } => {
+                self.mark_value_used(array, used_values);
+                self.mark_value_used(index, used_values);
+                self.mark_value_used(value, used_values);
+            }
+            // Field operations
+            Instruction::FieldAccess { struct_val, .. } => {
+                self.mark_value_used(struct_val, used_values);
+            }
+            Instruction::FieldSet { struct_val, value, .. } => {
+                self.mark_value_used(struct_val, used_values);
+                self.mark_value_used(value, used_values);
+            }
+            // Cast operations
+            Instruction::Cast { value, .. } => {
+                self.mark_value_used(value, used_values);
+            }
+            // Allocate and other operations
+            Instruction::Allocate { size, .. } => {
+                self.mark_value_used(size, used_values);
+            }
+            Instruction::Deallocate { pointer } => {
+                self.mark_value_used(pointer, used_values);
+            }
             // Add other instruction types as needed
             _ => {}
         }

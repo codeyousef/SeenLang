@@ -45,7 +45,7 @@ fun select_random(freqs: Array<Freq>, r: Float) -> Int {
 }
 
 fun repeat_fasta(s: Array<Int>, n: Int) -> Array<Int> {
-    let result = Array<Int>.withCapacity(n)
+    let result: Array<Int> = Array<Int>.withCapacity(n)
     let len = s.length()
     var i = 0
     while i < n {
@@ -56,7 +56,7 @@ fun repeat_fasta(s: Array<Int>, n: Int) -> Array<Int> {
 }
 
 fun random_fasta(freqs: Array<Freq>, n: Int, rng: Random) -> Array<Int> {
-    let result = Array<Int>.withCapacity(n)
+    let result: Array<Int> = Array<Int>.withCapacity(n)
     var i = 0
     while i < n {
         let r = rng.next()
@@ -85,7 +85,7 @@ fun main() -> Int {
     __PrintInt(n)
     __Print(" nucleotides\n")
     
-    let alu = Array<Int>.withCapacity(287)
+    let alu: Array<Int> = Array<Int>.withCapacity(287)
     let alu_str = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
     var i = 0
     while i < 287 {

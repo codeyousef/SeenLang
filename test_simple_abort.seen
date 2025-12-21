@@ -1,0 +1,29 @@
+// Test large array push
+
+fun generate_simple(n: Int) -> Array<Int> {
+    let seq: Array<Int> = Array<Int>.withCapacity(n)
+    let bases: Array<Int> = Array<Int>.withCapacity(4)
+    bases.push(65)
+    bases.push(67)
+    bases.push(71)
+    bases.push(84)
+    
+    var i = 0
+    while i < n {
+        let idx: Int = i % 4
+        seq.push(bases[idx])
+        i = i + 1
+    }
+    
+    seq
+}
+
+fun main() -> Int {
+    __Print("Generating sequence...\n")
+    let seq: Array<Int> = generate_simple(5000000)
+    __Print("Sequence length: ")
+    __PrintInt(seq.length())
+    __Print("\n")
+    
+    return 0
+}

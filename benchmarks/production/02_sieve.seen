@@ -2,7 +2,7 @@
 // Simple boolean array implementation
 
 fun sieve_of_eratosthenes(limit: Int) -> Array<Int> {
-    let is_prime = Array<Int>.withCapacity(limit + 1)
+    let is_prime: Array<Int> = Array<Int>.withCapacity(limit + 1)
     var i = 0
     while i <= limit {
         is_prime.push(1)
@@ -24,7 +24,7 @@ fun sieve_of_eratosthenes(limit: Int) -> Array<Int> {
         p = p + 1
     }
     
-    let primes = Array<Int>.withCapacity(limit / 10)
+    let primes: Array<Int> = Array<Int>.withCapacity(limit / 10)
     var idx = 2
     while idx <= limit {
         if is_prime[idx] != 0 {
@@ -60,18 +60,18 @@ fun main() -> Int {
     __Print(" runs)...\n")
     var w = 0
     while w < warmup_runs {
-        let primes_warmup = sieve_of_eratosthenes(limit)
+        let primes_warmup: Array<Int> = sieve_of_eratosthenes(limit)
         w = w + 1
     }
     
     __Print("Running measured iterations...\n")
     let iterations = 5
     var min_time = 1000000.0
-    var result_primes = Array<Int>.withCapacity(0)
+    var result_primes: Array<Int> = Array<Int>.withCapacity(0)
     var i = 0
     while i < iterations {
         let start = __GetTime()
-        let primes = sieve_of_eratosthenes(limit)
+        let primes: Array<Int> = sieve_of_eratosthenes(limit)
         let end = __GetTime()
         
         let elapsed = (end - start) * 1000.0

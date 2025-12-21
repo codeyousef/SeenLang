@@ -35,6 +35,8 @@ pub struct Parser {
     pending_visibility: Option<bool>,
     pending_visibility_pos: Option<Position>,
     allow_trailing_lambda: bool,
+    /// Line number of the previous non-layout token (for detecting newlines between expressions)
+    prev_token_line: usize,
 }
 
 impl Parser {
@@ -64,6 +66,8 @@ impl Parser {
             }
         }
 
+        let initial_line = current.position.line;
+        
         Self {
             lexer,
             current,
@@ -73,6 +77,7 @@ impl Parser {
             pending_visibility: None,
             pending_visibility_pos: None,
             allow_trailing_lambda: true,
+            prev_token_line: initial_line,
         }
     }
 
@@ -733,7 +738,7 @@ impl Parser {
                     else if let Expression::Identifier {
                         name,
                         is_public,
-                        pos: _,
+                        ..
                     } = &expr
                     {
                         // Type names start with uppercase, so check if this is a type
@@ -748,6 +753,11 @@ impl Parser {
                     break;
                 }
                 TokenType::LeftParen => {
+                    // If there was a newline before the `(`, don't treat this as a call.
+                    // This prevents `139968\n(expr)` from being parsed as `139968(expr)`.
+                    if self.had_newline_before_current() {
+                        break;
+                    }
                     let pos = self.current.position.clone();
                     self.advance();
                     let args = self.parse_arguments()?;
@@ -813,7 +823,16 @@ impl Parser {
                     };
 
                     if should_parse_generics {
-                        let _ = self.parse_generic_type_arguments_in_expression()?;
+                        let type_args = self.parse_generic_type_arguments_in_expression()?;
+                        // Store type_args on the identifier if it's an Identifier expression
+                        if let Expression::Identifier { name, is_public, pos, .. } = expr {
+                            expr = Expression::Identifier {
+                                name,
+                                is_public,
+                                type_args,
+                                pos,
+                            };
+                        }
                         continue;
                     } else {
                         break;
@@ -1106,6 +1125,7 @@ impl Parser {
             return Ok(Expression::Identifier {
                 name,
                 is_public,
+                type_args: vec![],
                 pos,
             });
         }
@@ -1117,6 +1137,7 @@ impl Parser {
             return Ok(Expression::Identifier {
                 name,
                 is_public,
+                type_args: vec![],
                 pos,
             });
         }
@@ -1129,6 +1150,7 @@ impl Parser {
             return Ok(Expression::Identifier {
                 name,
                 is_public,
+                type_args: vec![],
                 pos,
             });
         }
@@ -2981,6 +3003,9 @@ impl Parser {
 
     fn advance(&mut self) {
         if !self.is_at_end() {
+            // Save the current token's line before advancing
+            self.prev_token_line = self.current.position.line;
+            
             loop {
                 self.current = if let Some(token) = self.peek_buffer.pop_front() {
                     token
@@ -3108,6 +3133,12 @@ impl Parser {
 
     fn is_layout_token(token_type: &TokenType) -> bool {
         matches!(token_type, TokenType::Newline | TokenType::Semicolon)
+    }
+    
+    /// Check if there was a newline between the previous token and the current token.
+    /// Used to prevent call syntax from spanning multiple lines (e.g., `139968\n(...)`)
+    fn had_newline_before_current(&self) -> bool {
+        self.current.position.line > self.prev_token_line
     }
 
     fn check_layout(&self) -> bool {

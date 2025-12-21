@@ -286,11 +286,13 @@ pub mod syntax {
                 name: "Username".to_string(),
                 pos: Position::new(3, 1, 0),
                 is_public: false,
+                type_args: vec![],
             }),
             right: Box::new(seen_parser::ast::Expression::Identifier {
                 name: "Email".to_string(),
                 pos: Position::new(3, 20, 0),
                 is_public: false,
+                type_args: vec![],
             }),
             op: seen_parser::ast::BinaryOperator::And,
             pos: Position::new(3, 10, 0),

@@ -4,425 +4,92 @@
 ; Module: main
 
 ; Type definitions
-type Freq = struct Freq
-type Random = struct Random
+type Matrix = struct Matrix
 
 ; Functions
-fn Freq_new(c: i64, p: f64) -> struct Freq {
-; Entry: entry
-entry:
-  ret struct Freq
-
-}
-
-fn Random_new(seed: i64) -> struct Random {
-; Entry: entry
-entry:
-  ret struct Random
-
-}
-
-fn Random_next(self: struct Random) -> f64 {
+fn Matrix_fill_random(self: struct Matrix, seed: i64) -> i64 {
   ; Local variables
-  this: struct Random
+  i: i64
+  this: struct Matrix
 
 ; Entry: entry
 entry:
   mov %self -> %this
-  field_get %this.seed -> %r0
-  mul %r0 3877 -> %r1
-  add %r1 29573 -> %r2
-  field_get %this.seed -> %r3
-  cast %r3 as f64 -> %r4
-  call 139968 (%r4) -> %r5
-  mod %r2 %r5 -> %r6
-  div %r6 139968 -> %r7
-  field_set %this.seed = %r7
-  ret %r7
+  store %seed -> %current_seed
+  store 0 -> %i
+  jmp .loop_start_3
+
+loop_start_3:
+  field_get %this.data -> %r5
+  arr_len %r5 -> %r6
+  lt %i %r6 -> %r7
+  jnot %r7 .loop_end_5
+
+loop_body_4:
+  mul %current_seed 1103515245 -> %r8
+  add %r8 12345 -> %r9
+  band %r9 2147483647 -> %r10
+  store %r10 -> %current_seed
+  mod %current_seed 10000 -> %r11
+  cast %r11 as f64 -> %r12
+  div %r12 10000 -> %r13
+  store %r13 -> %value
+  field_get %this.data -> %r14
+  arr_set %r14[%i] = %value
+  add %i 1 -> %r15
+  store %r15 -> %i
+  jmp .loop_start_3
+
+loop_end_5:
+  ret void
 
 }
 
-fn compute_checksum(data: [i64]) -> i64 {
+fn Matrix_new(rows: i64, cols: i64) -> struct Matrix {
   ; Local variables
   i: i64
-  sum: i64
 
 ; Entry: entry
 entry:
-  store 0 -> %sum
+  mul %rows %cols -> %r0
+  store %r0 -> %size
+  call %__ArrayNew (%size) -> %r1
+  store %r1 -> %arr
   store 0 -> %i
-  jmp .loop_start_15
+  jmp .loop_start_0
 
-loop_start_15:
-  arr_len %data -> %r0
-  lt %i %r0 -> %r1
-  jnot %r1 .loop_end_17
+loop_start_0:
+  lt %i %size -> %r2
+  jnot %r2 .loop_end_2
 
-loop_body_16:
-  arr_get %data[%i] -> %r2
-  add %sum %r2 -> %r3
-  store %r3 -> %sum
+loop_body_1:
+  call %push (%arr, 0) -> %r3
   add %i 1 -> %r4
   store %r4 -> %i
-  jmp .loop_start_15
+  jmp .loop_start_0
 
-loop_end_17:
-  ret %sum
+loop_end_2:
+  ret struct Matrix
 
 }
 
 fn main() -> i64 {
   ; Local variables
-  alu_str: string
-  i: i64
-  iter: i64
-  iterations: i64
-  min_time: f64
-  n: i64
-  rng: struct Random
-  rng_warmup: struct Random
-  seq1: [i64]
-  seq1_warmup: [i64]
-  seq2: [i64]
-  seq2_warmup: [i64]
-  seq3: [i64]
-  seq3_warmup: [i64]
-  w: i64
-  warmup_runs: i64
+  m: struct Matrix
 
 ; Entry: entry
 entry:
-  store 5000000 -> %n
-  call %__Print ("FASTA Generation Benchmark\n") -> %r0
-  call %__Print ("Generating ") -> %r1
-  call %__PrintInt (%n) -> %r2
-  call %__Print (" nucleotides\n") -> %r3
-  call %__ArrayNew (287) -> %r4
-  store %r4 -> %alu
-  store "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA" -> %alu_str
-  store 0 -> %i
-  jmp .loop_start_18
-
-loop_start_18:
-  lt %i 287 -> %r5
-  jnot %r5 .loop_end_20
-
-loop_body_19:
-  arr_get %alu_str[%i] -> %r6
-  cast %r6 as i64 -> %r7
-  call %push (%alu, %r7) -> %r8
-  add %i 1 -> %r9
-  store %r9 -> %i
-  jmp .loop_start_18
-
-loop_end_20:
-  call %__ArrayNew (4) -> %r10
-  store %r10 -> %homo_sapiens
-  call %Freq_new (97, 0.302954942668) -> %r11
-  call %push (%homo_sapiens, %r11) -> %r12
-  call %Freq_new (99, 0.1979883004921) -> %r13
-  call %push (%homo_sapiens, %r13) -> %r14
-  call %Freq_new (103, 0.1975473066391) -> %r15
-  call %push (%homo_sapiens, %r15) -> %r16
-  call %Freq_new (116, 0.3015094502008) -> %r17
-  call %push (%homo_sapiens, %r17) -> %r18
-  call %make_cumulative (%homo_sapiens) -> %r19
-  call %__ArrayNew (15) -> %r20
-  store %r20 -> %iub
-  call %Freq_new (97, 0.27) -> %r21
-  call %push (%iub, %r21) -> %r22
-  call %Freq_new (99, 0.12) -> %r23
-  call %push (%iub, %r23) -> %r24
-  call %Freq_new (103, 0.12) -> %r25
-  call %push (%iub, %r25) -> %r26
-  call %Freq_new (116, 0.27) -> %r27
-  call %push (%iub, %r27) -> %r28
-  call %Freq_new (66, 0.02) -> %r29
-  call %push (%iub, %r29) -> %r30
-  call %Freq_new (68, 0.02) -> %r31
-  call %push (%iub, %r31) -> %r32
-  call %Freq_new (72, 0.02) -> %r33
-  call %push (%iub, %r33) -> %r34
-  call %Freq_new (75, 0.02) -> %r35
-  call %push (%iub, %r35) -> %r36
-  call %Freq_new (77, 0.02) -> %r37
-  call %push (%iub, %r37) -> %r38
-  call %Freq_new (78, 0.02) -> %r39
-  call %push (%iub, %r39) -> %r40
-  call %Freq_new (82, 0.02) -> %r41
-  call %push (%iub, %r41) -> %r42
-  call %Freq_new (83, 0.02) -> %r43
-  call %push (%iub, %r43) -> %r44
-  call %Freq_new (86, 0.02) -> %r45
-  call %push (%iub, %r45) -> %r46
-  call %Freq_new (87, 0.02) -> %r47
-  call %push (%iub, %r47) -> %r48
-  call %Freq_new (89, 0.02) -> %r49
-  call %push (%iub, %r49) -> %r50
-  call %make_cumulative (%iub) -> %r51
-  store 3 -> %warmup_runs
-  call %__Print ("Warming up (") -> %r52
-  call %__PrintInt (%warmup_runs) -> %r53
-  call %__Print (" runs)...\n") -> %r54
-  store 0 -> %w
-  jmp .loop_start_21
-
-loop_start_21:
-  lt %w %warmup_runs -> %r55
-  jnot %r55 .loop_end_23
-
-loop_body_22:
-  call %Random_new (42) -> %r56
-  store %r56 -> %rng_warmup
-  mul %n 2 -> %r57
-  call %repeat_fasta (%alu, %r57) -> %r58
-  store %r58 -> %seq1_warmup
-  mul %n 3 -> %r59
-  call %random_fasta (%iub, %r59, %rng_warmup) -> %r60
-  store %r60 -> %seq2_warmup
-  mul %n 5 -> %r61
-  call %random_fasta (%homo_sapiens, %r61, %rng_warmup) -> %r62
-  store %r62 -> %seq3_warmup
-  add %w 1 -> %r63
-  store %r63 -> %w
-  jmp .loop_start_21
-
-loop_end_23:
-  call %__Print ("Running measured iterations...\n") -> %r64
-  store 5 -> %iterations
-  store 1000000 -> %min_time
-  call %__ArrayNew (0) -> %r65
-  store %r65 -> %result_seq1
-  call %__ArrayNew (0) -> %r66
-  store %r66 -> %result_seq2
-  call %__ArrayNew (0) -> %r67
-  store %r67 -> %result_seq3
-  store 0 -> %iter
-  jmp .loop_start_24
-
-loop_start_24:
-  lt %iter %iterations -> %r68
-  jnot %r68 .loop_end_26
-
-loop_body_25:
-  call %Random_new (42) -> %r69
-  store %r69 -> %rng
-  call %__GetTime () -> %r70
-  store %r70 -> %start
-  mul %n 2 -> %r71
-  call %repeat_fasta (%alu, %r71) -> %r72
-  store %r72 -> %seq1
-  mul %n 3 -> %r73
-  call %random_fasta (%iub, %r73, %rng) -> %r74
-  store %r74 -> %seq2
-  mul %n 5 -> %r75
-  call %random_fasta (%homo_sapiens, %r75, %rng) -> %r76
-  store %r76 -> %seq3
-  call %__GetTime () -> %r77
-  store %r77 -> %end
-  sub %end %start -> %r78
-  mul %r78 1000 -> %r79
-  store %r79 -> %elapsed
-  lt %elapsed %min_time -> %r80
-  jif %r80 .then_27
-
-block_0:
-  jmp .else_28
-
-then_27:
-  store %elapsed -> %min_time
-  store %seq1 -> %result_seq1
-  store %seq2 -> %result_seq2
-  store %seq3 -> %result_seq3
-  mov %seq3 -> %r81
-  jmp .if_end_29
-
-else_28:
-  mov void -> %r81
-  jmp .if_end_29
-
-if_end_29:
-  add %iter 1 -> %r82
-  store %r82 -> %iter
-  jmp .loop_start_24
-
-loop_end_26:
-  call %compute_checksum (%result_seq1) -> %r83
-  call %compute_checksum (%result_seq2) -> %r84
-  add %r83 %r84 -> %r85
-  call %compute_checksum (%result_seq3) -> %r86
-  add %r85 %r86 -> %r87
-  store %r87 -> %checksum
-  arr_len %result_seq1 -> %r88
-  arr_len %result_seq2 -> %r89
-  add %r88 %r89 -> %r90
-  arr_len %result_seq3 -> %r91
-  add %r90 %r91 -> %r92
-  store %r92 -> %total_bp
-  call %__Print ("Total base pairs: ") -> %r93
-  call %__PrintInt (%total_bp) -> %r94
-  call %__Print ("\nChecksum: ") -> %r95
-  call %__PrintInt (%checksum) -> %r96
-  call %__Print ("\nMin time: ") -> %r97
-  call %__PrintFloat (%min_time) -> %r98
-  call %__Print (" ms\n") -> %r99
-  call %__Print ("Throughput: ") -> %r100
-  cast %total_bp as f64 -> %r101
-  div %min_time 1000 -> %r102
-  div %r101 %r102 -> %r103
-  div %r103 1000000 -> %r104
-  call %__PrintFloat (%r104) -> %r105
-  call %__Print (" Mbp/s\n") -> %r106
+  call %__Print ("Creating 512x512 matrix...\n") -> %r0
+  call %Matrix_new (512, 512) -> %r1
+  store %r1 -> %m
+  call %__Print ("Created matrix\n") -> %r2
+  call %Matrix_fill_random (%m, 42) -> %r3
+  call %__Print ("Done filling\n") -> %r4
+  field_get %m.data -> %r5
+  arr_get %r5[0] -> %r6
+  call %__PrintFloat (%r6) -> %r7
+  call %__Print ("\n") -> %r8
   ret 0
-
-block_1:
-  ret 0
-
-}
-
-fn make_cumulative(freqs: [struct Freq]) -> i64 {
-  ; Local variables
-  cumulative: f64
-  i: i64
-
-; Entry: entry
-entry:
-  store 0 -> %cumulative
-  store 0 -> %i
-  jmp .loop_start_0
-
-loop_start_0:
-  arr_len %freqs -> %r0
-  lt %i %r0 -> %r1
-  jnot %r1 .loop_end_2
-
-loop_body_1:
-  arr_get %freqs[%i] -> %r2
-  field_get %r2.p -> %r3
-  add %cumulative %r3 -> %r4
-  store %r4 -> %cumulative
-  arr_get %freqs[%i] -> %r5
-  field_get %r5.c -> %r6
-  call %Freq_new (%r6, %cumulative) -> %r7
-  arr_set %freqs[%i] = %r7
-  add %i 1 -> %r8
-  store %r8 -> %i
-  jmp .loop_start_0
-
-loop_end_2:
-  ret void
-
-}
-
-fn random_fasta(freqs: [struct Freq], n: i64, rng: struct Random) -> [i64] {
-  ; Local variables
-  c: i64
-  i: i64
-  r: f64
-
-; Entry: entry
-entry:
-  call %__ArrayNew (%n) -> %r0
-  store %r0 -> %result
-  store 0 -> %i
-  jmp .loop_start_12
-
-loop_start_12:
-  lt %i %n -> %r1
-  jnot %r1 .loop_end_14
-
-loop_body_13:
-  call %Random_next (%rng) -> %r2
-  store %r2 -> %r
-  call %select_random (%freqs, %r) -> %r3
-  store %r3 -> %c
-  call %push (%result, %c) -> %r4
-  add %i 1 -> %r5
-  store %r5 -> %i
-  jmp .loop_start_12
-
-loop_end_14:
-  ret %result
-
-}
-
-fn repeat_fasta(s: [i64], n: i64) -> [i64] {
-  ; Local variables
-  i: i64
-
-; Entry: entry
-entry:
-  call %__ArrayNew (%n) -> %r0
-  store %r0 -> %result
-  arr_len %s -> %r1
-  store %r1 -> %len
-  store 0 -> %i
-  jmp .loop_start_9
-
-loop_start_9:
-  lt %i %n -> %r2
-  jnot %r2 .loop_end_11
-
-loop_body_10:
-  mod %i %len -> %r3
-  arr_get %s[%r3] -> %r4
-  call %push (%result, %r4) -> %r5
-  add %i 1 -> %r6
-  store %r6 -> %i
-  jmp .loop_start_9
-
-loop_end_11:
-  ret %result
-
-}
-
-fn select_random(freqs: [struct Freq], r: f64) -> i64 {
-  ; Local variables
-  i: i64
-
-; Entry: entry
-entry:
-  store 0 -> %i
-  jmp .loop_start_3
-
-loop_start_3:
-  arr_len %freqs -> %r0
-  lt %i %r0 -> %r1
-  jnot %r1 .loop_end_5
-
-loop_body_4:
-  arr_get %freqs[%i] -> %r2
-  field_get %r2.p -> %r3
-  lt %r %r3 -> %r4
-  jif %r4 .then_6
-
-block_0:
-  jmp .else_7
-
-then_6:
-  arr_get %freqs[%i] -> %r5
-  field_get %r5.c -> %r6
-  ret %r6
-
-block_1:
-  mov %r6 -> %r7
-  jmp .if_end_8
-
-else_7:
-  mov void -> %r7
-  jmp .if_end_8
-
-if_end_8:
-  add %i 1 -> %r8
-  store %r8 -> %i
-  jmp .loop_start_3
-
-loop_end_5:
-  arr_len %freqs -> %r9
-  sub %r9 1 -> %r10
-  arr_get %freqs[%r10] -> %r11
-  field_get %r11.c -> %r12
-  ret %r12
 
 }
 

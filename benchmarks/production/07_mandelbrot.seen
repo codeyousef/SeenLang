@@ -7,14 +7,14 @@ fun mandelbrot_pixel(cx: Float, cy: Float, max_iter: Int) -> Int {
     var iteration = 0
     
     while iteration < max_iter {
-        let zx2 = zx * zx
-        let zy2 = zy * zy
+        let zx2: Float = zx * zx
+        let zy2: Float = zy * zy
         
         if zx2 + zy2 > 4.0 {
             return iteration
         }
         
-        let new_zy = 2.0 * zx * zy + cy
+        let new_zy: Float = 2.0 * zx * zy + cy
         zx = zx2 - zy2 + cx
         zy = new_zy
         
@@ -25,24 +25,24 @@ fun mandelbrot_pixel(cx: Float, cy: Float, max_iter: Int) -> Int {
 }
 
 fun compute_mandelbrot(width: Int, height: Int, max_iter: Int) -> Array<Int> {
-    let pixels = Array<Int>.withCapacity(width * height)
+    let pixels: Array<Int> = Array<Int>.withCapacity(width * height)
     
-    let x_min = -2.5
-    let x_max = 1.0
-    let y_min = -1.0
-    let y_max = 1.0
+    let x_min: Float = -2.5
+    let x_max: Float = 1.0
+    let y_min: Float = -1.0
+    let y_max: Float = 1.0
     
-    let x_scale = (x_max - x_min) / (width as Float)
-    let y_scale = (y_max - y_min) / (height as Float)
+    let x_scale: Float = (x_max - x_min) / (width as Float)
+    let y_scale: Float = (y_max - y_min) / (height as Float)
     
     var y = 0
     while y < height {
         var x = 0
         while x < width {
-            let cx = x_min + (x as Float) * x_scale
-            let cy = y_min + (y as Float) * y_scale
+            let cx: Float = x_min + (x as Float) * x_scale
+            let cy: Float = y_min + (y as Float) * y_scale
             
-            let iter = mandelbrot_pixel(cx, cy, max_iter)
+            let iter: Int = mandelbrot_pixel(cx, cy, max_iter)
             pixels.push(iter)
             
             x = x + 1
@@ -64,9 +64,9 @@ fun compute_checksum(pixels: Array<Int>) -> Int {
 }
 
 fun main() -> Int {
-    let width = 4000
-    let height = 4000
-    let max_iter = 1000
+    let width: Int = 4000
+    let height: Int = 4000
+    let max_iter: Int = 1000
     
     __Print("Mandelbrot Set Benchmark\n")
     __Print("Image size: ")
@@ -77,28 +77,28 @@ fun main() -> Int {
     __PrintInt(max_iter)
     __Print("\n")
     
-    let warmup_runs = 3
+    let warmup_runs: Int = 3
     __Print("Warming up (")
     __PrintInt(warmup_runs)
     __Print(" runs)...\n")
     var w = 0
     while w < warmup_runs {
-        let pixels_warmup = compute_mandelbrot(width / 4, height / 4, max_iter)
+        let pixels_warmup: Array<Int> = compute_mandelbrot(width / 4, height / 4, max_iter)
         w = w + 1
     }
     
     __Print("Running measured iterations...\n")
-    let iterations = 5
+    let iterations: Int = 5
     var min_time = 1000000.0
-    var result_pixels = Array<Int>.withCapacity(0)
+    var result_pixels: Array<Int> = Array<Int>.withCapacity(0)
     
     var i = 0
     while i < iterations {
-        let start = __GetTime()
-        let pixels = compute_mandelbrot(width, height, max_iter)
-        let end = __GetTime()
+        let start: Float = __GetTime()
+        let pixels: Array<Int> = compute_mandelbrot(width, height, max_iter)
+        let end: Float = __GetTime()
         
-        let elapsed = (end - start) * 1000.0
+        let elapsed: Float = (end - start) * 1000.0
         if elapsed < min_time {
             min_time = elapsed
             result_pixels = pixels
@@ -106,8 +106,8 @@ fun main() -> Int {
         i = i + 1
     }
     
-    let checksum = compute_checksum(result_pixels)
-    let total_pixels = width * height
+    let checksum: Int = compute_checksum(result_pixels)
+    let total_pixels: Int = width * height
     
     __Print("Total pixels: ")
     __PrintInt(total_pixels)

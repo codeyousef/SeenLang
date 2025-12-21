@@ -148,6 +148,8 @@ pub enum Expression {
     Identifier {
         name: String,
         is_public: bool,
+        /// Generic type arguments for type applications like Array<Int>
+        type_args: Vec<Type>,
         pos: Position,
     },
 

@@ -39,13 +39,13 @@ class LRUCache {
     fun get(key: Int) -> Option<Int> {
         let idx = key % (this.capacity * 2)
         match this.map[idx] {
-            Some(node) =>
+            Some(node) ->
                 if node.key == key {
                     Some(node.value)
                 } else {
                     None
                 }
-            None => None
+            None -> None
         }
     }
     
@@ -73,10 +73,10 @@ fun benchmark_lru(n: Int, capacity: Int) -> Int {
     var j = 0
     while j < n {
         match cache.get(j) {
-            Some(value) => {
+            Some(value) -> {
                 checksum = checksum + value
             }
-            None => {
+            None -> {
                 checksum = checksum + 0
             }
         }
@@ -92,10 +92,10 @@ fun benchmark_lru(n: Int, capacity: Int) -> Int {
     var m = 0
     while m < n {
         match cache.get(m) {
-            Some(value) => {
+            Some(value) -> {
                 checksum = checksum + value
             }
-            None => {
+            None -> {
                 checksum = checksum + 0
             }
         }

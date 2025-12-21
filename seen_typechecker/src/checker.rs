@@ -3219,6 +3219,10 @@ impl TypeChecker {
 
         match array_type {
             Type::Array(element_type) => *element_type,
+            Type::String => {
+                // String indexing returns an Int (character code)
+                Type::Int
+            }
             Type::Unknown => {
                 // Allow indexing on Unknown types (type inference in progress)
                 Type::Unknown

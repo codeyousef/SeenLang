@@ -2,7 +2,7 @@
 // DNA sequence reverse complement with lookup table
 
 fun create_complement_table() -> Array<Int> {
-    let table = Array<Int>.withCapacity(256)
+    let table: Array<Int> = Array<Int>.withCapacity(256)
     var i = 0
     while i < 256 {
         table.push(i)
@@ -47,12 +47,12 @@ fun create_complement_table() -> Array<Int> {
 }
 
 fun reverse_complement(seq: Array<Int>, table: Array<Int>) -> Array<Int> {
-    let len = seq.length()
-    let result = Array<Int>.withCapacity(len)
+    let len: Int = seq.length()
+    let result: Array<Int> = Array<Int>.withCapacity(len)
     
     var i = len - 1
     while i >= 0 {
-        let complement = table[seq[i]]
+        let complement: Int = table[seq[i]]
         result.push(complement)
         i = i - 1
     }
@@ -61,8 +61,8 @@ fun reverse_complement(seq: Array<Int>, table: Array<Int>) -> Array<Int> {
 }
 
 fun generate_sequence(n: Int, seed: Int) -> Array<Int> {
-    let seq = Array<Int>.withCapacity(n)
-    let bases = Array<Int>.withCapacity(4)
+    let seq: Array<Int> = Array<Int>.withCapacity(n)
+    let bases: Array<Int> = Array<Int>.withCapacity(4)
     bases.push(65)
     bases.push(67)
     bases.push(71)
@@ -72,7 +72,7 @@ fun generate_sequence(n: Int, seed: Int) -> Array<Int> {
     var i = 0
     while i < n {
         current_seed = (current_seed * 1103515245 + 12345) & 0x7fffffff
-        let idx = (current_seed % 4) as Int
+        let idx: Int = (current_seed % 4) as Int
         seq.push(bases[idx])
         i = i + 1
     }
@@ -98,8 +98,8 @@ fun main() -> Int {
     __PrintInt(n)
     __Print("\n")
     
-    let table = create_complement_table()
-    let seq = generate_sequence(n, 42)
+    let table: Array<Int> = create_complement_table()
+    let seq: Array<Int> = generate_sequence(n, 42)
     
     let warmup_runs = 3
     __Print("Warming up (")
@@ -107,22 +107,22 @@ fun main() -> Int {
     __Print(" runs)...\n")
     var w = 0
     while w < warmup_runs {
-        let result_warmup = reverse_complement(seq, table)
+        let result_warmup: Array<Int> = reverse_complement(seq, table)
         w = w + 1
     }
     
     __Print("Running measured iterations...\n")
     let iterations = 5
     var min_time = 1000000.0
-    var result_seq = Array<Int>.withCapacity(0)
+    var result_seq: Array<Int> = Array<Int>.withCapacity(0)
     
     var i = 0
     while i < iterations {
-        let start = __GetTime()
-        let result = reverse_complement(seq, table)
-        let end = __GetTime()
+        let start: Float = __GetTime()
+        let result: Array<Int> = reverse_complement(seq, table)
+        let end: Float = __GetTime()
         
-        let elapsed = (end - start) * 1000.0
+        let elapsed: Float = (end - start) * 1000.0
         if elapsed < min_time {
             min_time = elapsed
             result_seq = result
@@ -130,7 +130,7 @@ fun main() -> Int {
         i = i + 1
     }
     
-    let checksum = compute_checksum(result_seq)
+    let checksum: Int = compute_checksum(result_seq)
     
     __Print("Checksum: ")
     __PrintInt(checksum)
