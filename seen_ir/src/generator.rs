@@ -31,6 +31,7 @@ pub struct GenerationContext {
     pub continue_stack: Vec<String>, // Labels for continue statements
     pub string_table: HashMap<String, u32>, // String interning table
     pub type_definitions: HashMap<String, IRType>, // Registered type definitions (structs/classes/enums)
+    pub function_return_types: HashMap<String, IRType>, // Function name -> return type
     pub current_receiver_type: Option<IRType>, // Type of 'this' in current method context
 }
 
@@ -48,6 +49,7 @@ impl GenerationContext {
             continue_stack: Vec::new(),
             string_table: HashMap::new(),
             type_definitions: HashMap::new(),
+            function_return_types: HashMap::new(),
             current_receiver_type: None,
         }
     }
@@ -716,6 +718,12 @@ impl IRGenerator {
 
             let result_reg = self.context.allocate_register();
             let result_value = IRValue::Register(result_reg);
+
+            // Try to infer return type from method name for downstream type tracking
+            if let Some(return_type) = self.context.function_return_types.get(&method_name).cloned() {
+                self.context.set_register_type(result_reg, return_type);
+            }
+
             instructions.push(Instruction::Call {
                 target: IRValue::Variable(method_name),
                 args: final_args,
@@ -731,6 +739,13 @@ impl IRGenerator {
         // Allocate register for result
         let result_reg = self.context.allocate_register();
         let result_value = IRValue::Register(result_reg);
+
+        // Try to infer return type from function name for downstream type tracking
+        if let IRValue::Variable(func_name) = &func_val {
+            if let Some(return_type) = self.context.function_return_types.get(func_name).cloned() {
+                self.context.set_register_type(result_reg, return_type);
+            }
+        }
 
         instructions.push(Instruction::Call {
             target: func_val,
@@ -1613,6 +1628,9 @@ impl IRGenerator {
             IRType::Void
         };
 
+        // Register the function's return type for call-site type inference
+        self.context.function_return_types.insert(name.to_string(), ir_return_type.clone());
+
         // Create the function
         let mut function = IRFunction::new(name, ir_return_type);
 
@@ -1770,6 +1788,9 @@ impl IRGenerator {
         } else {
             IRType::Void
         };
+
+        // Register the method's return type for call-site type inference
+        self.context.function_return_types.insert(name.to_string(), ir_return_type.clone());
 
         // Generate method body with receiver context
         let (body_value, body_instructions) = self.generate_expression(body)?;
@@ -2199,8 +2220,10 @@ impl IRGenerator {
             // For classes: treat as instance method unless it's a constructor (name == "new")
             // The parser may not correctly set is_static, so we use heuristics:
             // - If method name is "new", it's a static constructor
+            // - If the return type is the same as the class name, it's likely a static constructor
             // - Otherwise, it's an instance method that needs implicit self
-            let is_constructor = method.name == "new";
+            let is_constructor = method.name == "new" || 
+                method.return_type.as_ref().map(|t| t.name == name).unwrap_or(false);
             let mut effective_params: Vec<seen_parser::Parameter> = Vec::new();
             if !is_constructor {
                 // Inject implicit receiver as the first parameter: (self: ClassName)
