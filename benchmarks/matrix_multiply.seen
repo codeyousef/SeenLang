@@ -26,6 +26,14 @@ fun matrixMultiply(n: Int) -> Int {
         i = i + 1
     }
     
+    // Debug print
+    __Print("a[0][1]: ")
+    __Print(__IntToString(a[0][1]))
+    __Print("\n")
+    __Print("b[0][1]: ")
+    __Print(__IntToString(b[0][1]))
+    __Print("\n")
+    
     // Multiply matrices
     i = 0
     while i < n {
@@ -34,10 +42,33 @@ fun matrixMultiply(n: Int) -> Int {
             var sum = 0
             var k = 0
             while k < n {
+                if i == 0 {
+                    if j == 0 {
+                         if k < 5 {
+                             __Print("k: ")
+                             __Print(__IntToString(k))
+                             __Print(" a: ")
+                             __Print(__IntToString(a[i][k]))
+                             __Print(" b: ")
+                             __Print(__IntToString(b[k][j]))
+                             __Print("\n")
+                         }
+                    }
+                }
                 sum = sum + a[i][k] * b[k][j]
                 k = k + 1
             }
             c[i][j] = sum
+            if i == 0 {
+                if j == 0 {
+                    __Print("sum: ")
+                    __Print(__IntToString(sum))
+                    __Print("\n")
+                    __Print("c[0][0] immediate: ")
+                    __Print(__IntToString(c[0][0]))
+                    __Print("\n")
+                }
+            }
             j = j + 1
         }
         i = i + 1

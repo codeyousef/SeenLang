@@ -344,6 +344,10 @@ pub struct LlvmBackend<'ctx> {
     struct_types: HashMap<String, (StructType<'ctx>, Vec<String>)>,
     // Variable name -> struct type name (for field access lookup)
     var_struct_types: HashMap<String, String>,
+    // Register id -> struct type name (for field access on expression results)
+    reg_struct_types: HashMap<u32, String>,
+    // Variable name -> array element struct type name (for array access -> field access patterns)
+    var_array_element_struct: HashMap<String, String>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -392,6 +396,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             hardware_profile: HardwareProfile::default(),
             struct_types: HashMap::new(),
             var_struct_types: HashMap::new(),
+            reg_struct_types: HashMap::new(),
+            var_array_element_struct: HashMap::new(),
         }
     }
 
@@ -1406,6 +1412,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.var_slots.clear();
         self.var_slot_types.clear();
         self.var_struct_types.clear();
+        self.reg_struct_types.clear();
+        self.var_array_element_struct.clear();
         self.blocks.clear();
         self.reg_slots.clear();
 
@@ -1457,6 +1465,12 @@ impl<'ctx> LlvmBackend<'ctx> {
             if let IRType::Struct { name, .. } = &param.param_type {
                 self.var_struct_types.insert(param.name.clone(), name.clone());
             }
+            // Track array element struct types for array[i].field patterns
+            if let IRType::Array(element_type) = &param.param_type {
+                if let IRType::Struct { name, .. } = element_type.as_ref() {
+                    self.var_array_element_struct.insert(param.name.clone(), name.clone());
+                }
+            }
         }
         for local in func.locals_iter() {
             let ty = self.ir_type_to_llvm(&local.var_type);
@@ -1466,6 +1480,12 @@ impl<'ctx> LlvmBackend<'ctx> {
             // Track struct type names for field access
             if let IRType::Struct { name, .. } = &local.var_type {
                 self.var_struct_types.insert(local.name.clone(), name.clone());
+            }
+            // Track array element struct types for array[i].field patterns
+            if let IRType::Array(element_type) = &local.var_type {
+                if let IRType::Struct { name, .. } = element_type.as_ref() {
+                    self.var_array_element_struct.insert(local.name.clone(), name.clone());
+                }
             }
         }
 
@@ -2047,6 +2067,14 @@ impl<'ctx> LlvmBackend<'ctx> {
                 result,
             } => {
                 let arr_v = self.eval_value(array, fn_map)?;
+                
+                // Check if this is an array of structs
+                let element_struct_type = if let IRValue::Variable(var_name) = array {
+                    self.var_array_element_struct.get(var_name).cloned()
+                } else {
+                    None
+                };
+                
                 if let IRValue::Array(vs) = array {
                     let idx_bv = self.eval_value(index, fn_map)?;
                     let idx_val = self.as_usize(idx_bv)? as usize;
@@ -2081,12 +2109,45 @@ impl<'ctx> LlvmBackend<'ctx> {
                         )?
                     };
                     
-                    // Cast to f64* and access element
+                    let idx_bv = self.eval_value(index, fn_map)?;
+                    let idx_iv = self.as_i64(idx_bv)?;
+                    
+                    // Check if we're accessing a struct array
+                    if let Some(ref struct_type_name) = element_struct_type {
+                        if self.struct_types.contains_key(struct_type_name) {
+                            // Struct arrays store pointers to heap-allocated structs
+                            // Each element is a pointer (8 bytes)
+                            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                            let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_ptr_ptr")?;
+                            
+                            // GEP to the element (pointer at index i)
+                            let elem_ptr = unsafe {
+                                self.builder.build_gep(
+                                    self.i64_t,
+                                    data_i64_ptr,
+                                    &[idx_iv],
+                                    "struct_elem_ptr_ptr",
+                                )?
+                            };
+                            
+                            // Load the struct pointer (stored as i64)
+                            let struct_ptr_i64 = self.builder.build_load(self.i64_t, elem_ptr, "struct_ptr_load")?.into_int_value();
+                            
+                            // Assign to result
+                            self.assign_value(result, struct_ptr_i64.as_basic_value_enum())?;
+                            
+                            // Track struct type for subsequent field access
+                            if let IRValue::Register(reg_id) = result {
+                                self.reg_struct_types.insert(*reg_id, struct_type_name.clone());
+                            }
+                            return Ok(());
+                        }
+                    }
+                    
+                    // Default: treat as f64 array
                     let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
                     let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;
                     
-                    let idx_bv = self.eval_value(index, fn_map)?;
-                    let idx_iv = self.as_i64(idx_bv)?;
                     let elem_ptr = unsafe {
                         self.builder.build_gep(
                             self.ctx.f64_type(),
@@ -2180,15 +2241,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                     match name.as_str() {
                         "__ArrayNew" => {
                             // Create a new dynamic array with given capacity
-                            // Array struct: { i64 len, i64 capacity, i8* data }
-                            // For Float arrays, data is double*
+                            // Array layout: { i64 len, i64 capacity, data[...] }
+                            // Data starts at offset 16 (inline, not a pointer)
                             if let Some(cap_arg) = args.get(0) {
                                 let capacity = self.eval_value(cap_arg, fn_map)?;
                                 let cap_i64 = self.as_i64(capacity)?;
                                 
-                                // Allocate the array struct (3 * i64 = 24 bytes for header)
-                                let header_size = self.i64_t.const_int(24, false);
-                                let elem_size = self.i64_t.const_int(8, false); // f64 = 8 bytes
+                                // Allocate: header (16 bytes) + data (8 bytes per element)
+                                let header_size = self.i64_t.const_int(16, false);
+                                let elem_size = self.i64_t.const_int(8, false); // i64/f64/ptr = 8 bytes
                                 let data_size = self.builder.build_int_mul(cap_i64, elem_size, "data_size")?;
                                 let total_size = self.builder.build_int_add(header_size, data_size, "total_size")?;
                                 
@@ -2259,31 +2320,50 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     )?
                                 };
                                 
-                                // Cast to f64* and store at index
-                                let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
-                                let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;
-                                let elem_ptr = unsafe {
-                                    self.builder.build_gep(
-                                        self.ctx.f64_type(),
-                                        data_f64_ptr,
-                                        &[len],
-                                        "elem_ptr"
-                                    )?
-                                };
-                                
-                                // Store value (convert to f64 if needed)
-                                let f64_val = if value.is_float_value() {
-                                    value.into_float_value()
+                                // Handle different value types
+                                if value.is_float_value() {
+                                    // Float array
+                                    let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
+                                    let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;
+                                    let elem_ptr = unsafe {
+                                        self.builder.build_gep(
+                                            self.ctx.f64_type(),
+                                            data_f64_ptr,
+                                            &[len],
+                                            "elem_ptr"
+                                        )?
+                                    };
+                                    self.builder.build_store(elem_ptr, value.into_float_value())?;
                                 } else if value.is_int_value() {
-                                    self.builder.build_signed_int_to_float(
-                                        value.into_int_value(),
-                                        self.ctx.f64_type(),
-                                        "i2f"
-                                    )?
+                                    // Could be integer or pointer-as-int (struct pointer)
+                                    // Treat as pointer array (for struct arrays)
+                                    let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                                    let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+                                    let elem_ptr = unsafe {
+                                        self.builder.build_gep(
+                                            self.i64_t,
+                                            data_i64_ptr,
+                                            &[len],
+                                            "elem_ptr"
+                                        )?
+                                    };
+                                    self.builder.build_store(elem_ptr, value.into_int_value())?;
+                                } else if value.is_pointer_value() {
+                                    // Pointer value (struct pointer)
+                                    let ptr_ptr_ty = self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                                    let data_ptr_ptr = self.builder.build_pointer_cast(data_ptr, ptr_ptr_ty, "data_ptr_ptr")?;
+                                    let elem_ptr = unsafe {
+                                        self.builder.build_gep(
+                                            self.i8_ptr_t,
+                                            data_ptr_ptr,
+                                            &[len],
+                                            "elem_ptr"
+                                        )?
+                                    };
+                                    self.builder.build_store(elem_ptr, value.into_pointer_value())?;
                                 } else {
                                     return Err(anyhow!("push: unsupported value type"));
-                                };
-                                self.builder.build_store(elem_ptr, f64_val)?;
+                                }
                                 
                                 // Increment length
                                 let new_len = self.builder.build_int_add(len, self.i64_t.const_int(1, false), "new_len")?;
@@ -2544,6 +2624,42 @@ impl<'ctx> LlvmBackend<'ctx> {
                             );
                             if let Some(r) = result {
                                 self.assign_value(r, bufp.as_basic_value_enum())?;
+                            }
+                            return Ok(());
+                        }
+                        "__Sqrt" => {
+                            // Call llvm.sqrt.f64 intrinsic
+                            if let Some(arg) = args.get(0) {
+                                let val = self.eval_value(arg, fn_map)?;
+                                let f64_val = if val.is_float_value() {
+                                    val.into_float_value()
+                                } else if val.is_int_value() {
+                                    self.builder.build_signed_int_to_float(
+                                        val.into_int_value(),
+                                        self.ctx.f64_type(),
+                                        "i2f_sqrt",
+                                    )?
+                                } else {
+                                    return Err(anyhow!("__Sqrt requires a numeric argument"));
+                                };
+                                
+                                // Use LLVM sqrt intrinsic for optimal codegen
+                                let sqrt_intrinsic = inkwell::intrinsics::Intrinsic::find("llvm.sqrt.f64")
+                                    .ok_or_else(|| anyhow!("Failed to find llvm.sqrt.f64 intrinsic"))?;
+                                let sqrt_fn = sqrt_intrinsic.get_declaration(&self.module, &[self.ctx.f64_type().into()])
+                                    .ok_or_else(|| anyhow!("Failed to get sqrt declaration"))?;
+                                
+                                let sqrt_result = self.builder.build_call(
+                                    sqrt_fn,
+                                    &[f64_val.into()],
+                                    "sqrt_result",
+                                )?;
+                                
+                                if let Some(r) = result {
+                                    if let Some(ret) = sqrt_result.try_as_basic_value().left() {
+                                        self.assign_value(r, ret)?;
+                                    }
+                                }
                             }
                             return Ok(());
                         }
@@ -2988,11 +3104,15 @@ impl<'ctx> LlvmBackend<'ctx> {
             } => {
                 let sv = self.eval_value(struct_val, fn_map)?;
                 
-                // Try to determine the struct type from the variable name
-                let struct_type_name = if let IRValue::Variable(var_name) = struct_val {
-                    self.var_struct_types.get(var_name).cloned()
-                } else {
-                    None
+                // Try to determine the struct type from the variable name or register
+                let struct_type_name = match struct_val {
+                    IRValue::Variable(var_name) => {
+                        self.var_struct_types.get(var_name).cloned()
+                    }
+                    IRValue::Register(reg_id) => {
+                        self.reg_struct_types.get(reg_id).cloned()
+                    }
+                    _ => None
                 };
                 
                 // Check if we have a registered struct type
