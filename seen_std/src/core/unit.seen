@@ -1,0 +1,8 @@
+// seen_std.core.unit
+// Unit type to replace Void in Result<T, E> until () literal is supported.
+
+class Unit {}
+
+fun unit() -> Unit {
+    return Unit{}
+}

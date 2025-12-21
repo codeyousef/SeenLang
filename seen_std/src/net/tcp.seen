@@ -19,12 +19,12 @@ class TcpListener {
         Ok(TcpStream { socket: client_socket })
     }
     
-    fun close() -> Result<Void, String> {
+    fun close() -> Result<Unit, String> {
         let result = __TcpClose(this.socket)
         if result < 0 {
             return Err("Failed to close listener")
         }
-        Ok<Void, String>()
+        Ok(Unit{})
     }
 }
 
@@ -71,19 +71,19 @@ class TcpStream {
         Ok(written)
     }
     
-    fun close() -> Result<Void, String> {
+    fun close() -> Result<Unit, String> {
         let result = __TcpClose(this.socket)
         if result < 0 {
             return Err("Failed to close stream")
         }
-        Ok<Void, String>()
+        Ok(Unit{})
     }
     
-    fun set_nonblocking(nonblocking: Bool) -> Result<Void, String> {
+    fun set_nonblocking(nonblocking: Bool) -> Result<Unit, String> {
         let result = __TcpSetNonblocking(this.socket, nonblocking)
         if result < 0 {
             return Err("Failed to set nonblocking mode")
         }
-        Ok<Void, String>()
+        Ok(Unit{})
     }
 }

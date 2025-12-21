@@ -1,5 +1,6 @@
 // File I/O operations
 import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
 
 class File {
     var handle: Int
@@ -53,12 +54,12 @@ class File {
         Ok(written)
     }
     
-    fun close() -> Result<Void, String> {
+    fun close() -> Result<Unit, String> {
         let result = __CloseFile(this.handle)
         if result < 0 {
             return Err("Failed to close file")
         }
-        Ok<Void, String>()
+        Ok(Unit{})
     }
     
     fun size() -> Result<Int, String> {
@@ -73,7 +74,7 @@ class File {
 fun read_to_string(path: String) -> Result<String, String> {
     match File.open(path) {
         Ok(file) => {
-            let content = file.read_to_string()
+            let content = file.readToString()
             let _ = file.close()
             content
         },
@@ -81,13 +82,13 @@ fun read_to_string(path: String) -> Result<String, String> {
     }
 }
 
-fun write_string(path: String, content: String) -> Result<Void, String> {
+fun write_string(path: String, content: String) -> Result<Unit, String> {
     match File.create(path) {
         Ok(file) => {
             match file.write(content) {
                 Ok(_) => {
                     let _ = file.close()
-                    Ok<Void, String>()
+                    Ok(Unit{})
                 },
                 Err(e) => Err(e)
             }

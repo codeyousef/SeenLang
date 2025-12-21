@@ -1,0 +1,27 @@
+// Thread Pool implementation
+import core.result.{Result, Ok, Err}
+import thread.{Thread}
+
+// Note: This is a basic implementation. Full thread pool functionality 
+// requires generic Channels and Thread spawning support.
+
+class ThreadPool {
+    size: Int
+    
+    fun new(size: Int) -> ThreadPool {
+        // Initialize pool with 'size' threads
+        // __ThreadPoolInit(size)
+        ThreadPool { size: size }
+    }
+    
+    fun execute(task: fn() -> Void) {
+        // In a full implementation, this sends the task to a worker thread.
+        // Currently falling back to direct execution or runtime intrinsic.
+        // __ThreadPoolExecute(task)
+        task() 
+    }
+    
+    fun join() {
+        // Wait for all tasks to complete
+    }
+}

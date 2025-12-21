@@ -1,0 +1,50 @@
+// Atomic operations
+import core.result.{Result, Ok, Err}
+
+class AtomicInt {
+    var value: Int
+    
+    fun new(initial: Int) -> AtomicInt {
+        AtomicInt { value: initial }
+    }
+    
+    fun load() -> Int {
+        __AtomicLoad(this.value)
+    }
+    
+    fun store(val: Int) {
+        __AtomicStore(this.value, val)
+    }
+    
+    fun add(val: Int) -> Int {
+        __AtomicAdd(this.value, val)
+    }
+    
+    fun sub(val: Int) -> Int {
+        __AtomicSub(this.value, val)
+    }
+    
+    fun compare_exchange(expected: Int, new_val: Int) -> Bool {
+        __AtomicCompareExchange(this.value, expected, new_val)
+    }
+}
+
+class AtomicBool {
+    var value: Bool
+    
+    fun new(initial: Bool) -> AtomicBool {
+        AtomicBool { value: initial }
+    }
+    
+    fun load() -> Bool {
+        __AtomicLoadBool(this.value)
+    }
+    
+    fun store(val: Bool) {
+        __AtomicStoreBool(this.value, val)
+    }
+    
+    fun compare_exchange(expected: Bool, new_val: Bool) -> Bool {
+        __AtomicCompareExchangeBool(this.value, expected, new_val)
+    }
+}

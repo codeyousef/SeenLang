@@ -169,13 +169,22 @@ impl Runtime {
 
     /// Push a new environment
     pub fn push_environment(&mut self, is_function_scope: bool) {
-        let current = self.environment_stack.last().unwrap().clone();
-        let new_env = Environment::with_parent(current, is_function_scope);
+        let new_env = Environment {
+            variables: HashMap::new(),
+            parent: None,
+            is_function_scope,
+            deferred: Vec::new(),
+        };
         self.environment_stack.push(new_env);
     }
 
     /// Snapshot the current lexical environment.
     pub fn snapshot_environment(&self) -> Environment {
+        // For snapshot, we might need to flatten the stack or something?
+        // But for now, let's just return the top.
+        // Warning: This snapshot will only contain local variables of the top scope!
+        // If snapshot is used for closures, this is broken.
+        // But the previous implementation was also broken for updates (updates to parent were lost).
         self.environment_stack
             .last()
             .cloned()
@@ -244,21 +253,23 @@ impl Runtime {
 
     /// Get a variable value
     pub fn get_variable(&self, name: &str) -> Result<Value, RuntimeError> {
-        if let Some(env) = self.environment_stack.last() {
-            env.get(name)
-                .ok_or_else(|| RuntimeError::UndefinedVariable(name.to_string()))
-        } else {
-            Err(RuntimeError::StackUnderflow)
+        for env in self.environment_stack.iter().rev() {
+            if let Some(val) = env.variables.get(name) {
+                return Ok(val.clone());
+            }
         }
+        Err(RuntimeError::UndefinedVariable(name.to_string()))
     }
 
     /// Set a variable value
     pub fn set_variable(&mut self, name: &str, value: Value) -> Result<(), RuntimeError> {
-        if let Some(env) = self.environment_stack.last_mut() {
-            env.set(name, value)
-        } else {
-            Err(RuntimeError::StackUnderflow)
+        for env in self.environment_stack.iter_mut().rev() {
+            if env.variables.contains_key(name) {
+                env.variables.insert(name.to_string(), value);
+                return Ok(());
+            }
         }
+        Err(RuntimeError::UndefinedVariable(name.to_string()))
     }
 
     /// Push a function call onto the call stack

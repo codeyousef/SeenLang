@@ -3,6 +3,7 @@
 
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
+import core.unit.{Unit, unit}
 
 fun assert(condition: Bool, message: String = "assertion failed") -> Void {
     if not condition {

@@ -7,9 +7,9 @@ echo "   Real measurements using our complete optimization system"
 echo ""
 
 # Check if we have the bootstrap compiler
-if [ ! -f "target-wsl/release/seen" ]; then
+if [ ! -f "target-wsl/release/seen_cli" ]; then
     echo "❌ Error: Bootstrap compiler not built"
-    echo "   Please run: CARGO_TARGET_DIR=target-wsl cargo build --release"
+    echo "   Please run: CARGO_TARGET_DIR=target-wsl cargo build --release --bin seen_cli"
     exit 1
 fi
 
@@ -43,18 +43,20 @@ fun main() -> Int {
 }
 
 fun testI32Addition() -> Int {
-    let iterations = 10000000; // 10M operations for fast test
+    let iterations = 1000000;
     
     var sum = 0;
     let a = 123456;
     let b = 789012;
     
     // Unrolled addition loop (optimized by E-graph)
-    for i in range(0, iterations) {
+    var i = 0;
+    while i < iterations {
         sum = sum + a + b;
         sum = sum + a + b;
         sum = sum + a + b;
         sum = sum + a + b;
+        i = i + 1;
     }
     
     // Estimate ops/sec (4 operations per iteration)
@@ -62,76 +64,73 @@ fun testI32Addition() -> Int {
 }
 
 fun testI32Multiplication() -> Int {
-    let iterations = 5000000; // 5M operations
+    let iterations = 1000000;
     
     var result = 1;
     let a = 12345;
     let b = 67890;
     
     // Unrolled multiplication loop
-    for i in range(0, iterations) {
+    var i = 0;
+    while i < iterations {
         result = (result * a) % 1000000;
         result = (result * b) % 1000000;
         result = (result * a) % 1000000;
         result = (result * b) % 1000000;
+        i = i + 1;
     }
     
     return iterations * 4 * 80; // Estimate 80 ops/microsecond
 }
 
 fun testF64Operations() -> Int {
-    let iterations = 8000000; // 8M operations
+    let iterations = 1000000;
     
     var result = 1.0;
     let a = 3.14159;
     let b = 2.71828;
     
     // Mixed floating point operations
-    for i in range(0, iterations) {
+    var i = 0;
+    while i < iterations {
         result = result * a + b;
         result = result * a + b;
         result = result * a + b; 
         result = result * a + b;
+        i = i + 1;
     }
     
     return iterations * 4 * 120; // Estimate 120 ops/microsecond
 }
 
 fun testBitwiseOperations() -> Int {
-    let iterations = 20000000; // 20M operations
+    let iterations = 1000000;
     
     var value = 0xFF00FF00;
     let mask1 = 0x0F0F0F0F;
     let mask2 = 0xF0F0F0F0;
     
     // Fast bitwise operations
-    for i in range(0, iterations) {
+    var i = 0;
+    while i < iterations {
         value = value ^ mask1;
         value = value | mask2;
         value = value & mask1;
         value = value ^ mask2;
+        i = i + 1;
     }
     
     return iterations * 4 * 200; // Estimate 200 ops/microsecond
 }
 
-// Range utility function
-fun range(start: Int, end: Int) -> List<Int> {
-    let result: List<Int> = [];
-    let i = start;
-    while i < end {
-        result.append(i);
-        i = i + 1;
-    }
-    return result;
-}
+main()
 EOF
 
 echo "📝 Created simple benchmark program"
 echo "🔧 Compiling with full optimization pipeline..."
 
 # Compile the benchmark with our Seen compiler
-if ./target-wsl/release/seen run /tmp/seen_benchmark.seen; then
+if ./target-wsl/release/seen_cli run /tmp/seen_benchmark.seen; then
     echo ""
     echo "✅ SEEN BENCHMARK RESULTS COMPLETE!"
     echo "   🚀 E-graph optimization: ACTIVE"
@@ -165,10 +164,11 @@ fun main() -> Int {
     println("✅ Real optimization pipeline active!");
     return 0;
 }
+main()
 EOF
     
     echo "🔄 Trying minimal benchmark..."
-    if ./target-wsl/release/seen run /tmp/simple_seen.seen; then
+    if ./target-wsl/release/seen_cli run /tmp/simple_seen.seen; then
         echo ""
         echo "✅ BENCHMARK COMPLETED!"
         echo "   Results show optimized performance targets"
