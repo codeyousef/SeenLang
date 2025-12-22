@@ -81,7 +81,7 @@
 2. **Benchmarks**
     - ✅ Infrastructure: Benchmark runner script
     - ✅ Rust reference implementations prepared
-    - ⏳ Seen implementations: 0/10 complete
+    - ⏳ Seen implementations: 2/10 complete (binary_trees, fasta)
     - ⏳ Performance comparison: pending implementations
 
 3. **Self-Hosting**

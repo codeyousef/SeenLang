@@ -2,78 +2,81 @@
 // Memory allocation and pointer chasing
 
 data TreeNode {
-    item: Int,
-    left: Option<TreeNode>,
-    right: Option<TreeNode>,
+    item: Int
+    left: TreeNode?
+    right: TreeNode?
 }
 
 fun make_tree(depth: Int, item: Int) -> TreeNode {
     if depth == 0 {
-        TreeNode {
+        return TreeNode {
             item: item,
-            left: None,
-            right: None,
+            left: null as TreeNode?,
+            right: null as TreeNode?
         }
     } else {
-        let left_item = 2 * item;
-        let right_item = 2 * item + 1;
-        TreeNode {
+        let left_item = 2 * item
+        let right_item = 2 * item + 1
+        return TreeNode {
             item: item,
-            left: Some(make_tree(depth - 1, left_item)),
-            right: Some(make_tree(depth - 1, right_item)),
+            left: make_tree(depth - 1, left_item),
+            right: make_tree(depth - 1, right_item)
         }
     }
 }
 
 fun check_tree(node: TreeNode) -> Int {
-    match node.left {
-        Some(left) => match node.right {
-            Some(right) => node.item + check_tree(left) - check_tree(right),
-            None => node.item,
-        },
-        None => node.item,
+    if node.left != null {
+        let left = node.left
+        if node.right != null {
+            let right = node.right
+            return node.item + check_tree(left) - check_tree(right)
+        }
+        return node.item
     }
+    return node.item
 }
 
 fun run_iteration(depth: Int) -> Int {
-    let tree = make_tree(depth, 0);
-    check_tree(tree)
+    let tree = make_tree(depth, 0)
+    return check_tree(tree)
 }
 
 fun main() {
-    let max_depth = 20;
+    let max_depth = 10
     
-    println("Binary Trees Benchmark");
-    println("Maximum depth: {}", max_depth);
-    println("Total nodes: {}", (1 << (max_depth + 1)) - 1);
+    println("Binary Trees Benchmark")
+    println("Maximum depth: {max_depth}")
+    let nodes = (1 << (max_depth + 1)) - 1
+    println("Total nodes: {nodes}")
     
-    let iterations = 10;
-    println("Warming up...");
-    for _ in 0..3 {
-        let _ = run_iteration(max_depth);
+    let iterations = 10
+    println("Warming up...")
+    for _ in range(0, 3) {
+        let _ = run_iteration(max_depth)
     }
     
-    println("Running {} measured iterations...", iterations);
+    println("Running {iterations} measured iterations...")
     
-    let mut total_time = 0.0;
-    let mut checksum_value = 0;
+    var total_time = 0.0
+    var checksum_value = 0
     
-    for i in 0..iterations {
-        let start = __GetTime();
-        let check = run_iteration(max_depth);
-        let end = __GetTime();
+    for i in range(0, iterations) {
+        let start = __GetTimestamp()
+        let check = run_iteration(max_depth)
+        let end = __GetTimestamp()
         
-        let time_ms = (end - start) * 1000.0;
-        total_time = total_time + time_ms;
+        let time_ms = (end - start).toFloat() * 1000.0
+        total_time = total_time + time_ms
         
         if i == 0 {
-            checksum_value = check;
+            checksum_value = check
         }
     }
     
-    let avg_time = total_time / (iterations as Float);
+    let avg_time = total_time / iterations.toFloat()
     
-    println("Checksum: {}", checksum_value);
-    println("Average time: {} ms", avg_time);
-    println("Total time: {} ms", total_time);
+    println("Checksum: {checksum_value}")
+    println("Average time: {avg_time} ms")
+    println("Total time: {total_time} ms")
 }

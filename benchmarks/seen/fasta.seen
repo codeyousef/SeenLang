@@ -1,119 +1,108 @@
 // FASTA Generation Benchmark
 // Random sequence generation with weighted selection
 
-let IM = 139968;
-let IA = 3877;
-let IC = 29573;
-
-data Random {
-    seed: Int,
-}
-
-fun Random::new(seed: Int) -> Random {
-    Random { seed: seed }
-}
-
-fun Random::next(rng: Random) -> Float {
-    rng.seed = (rng.seed * IA + IC) % IM;
-    (rng.seed as Float) / (IM as Float)
+class Random {
+    var seed: Int
+    
+    fun new(seed: Int) -> Random {
+        return Random { seed: seed }
+    }
+    
+    fun next() -> Float {
+        let IM = 139968
+        let IA = 3877
+        let IC = 29573
+        this.seed = (this.seed * IA + IC) % IM
+        return this.seed.toFloat() / IM.toFloat()
+    }
 }
 
 data Nucleotide {
-    c: String,
-    prob: Float,
+    c: String
+    prob: Float
 }
 
 fun select_nucleotide(rng: Random, table: Array<Nucleotide>) -> String {
-    let r = Random::next(rng);
-    let mut cumulative = 0.0;
+    let r = rng.next()
+    var cumulative = 0.0
     
-    for i in 0..table.len() {
-        cumulative = cumulative + table[i].prob;
+    for i in range(0, table.length()) {
+        cumulative = cumulative + table.get(i).prob
         if r < cumulative {
-            return table[i].c;
+            return table.get(i).c
         }
     }
     
-    table[table.len() - 1].c
+    return table.get(table.length() - 1).c
 }
 
 fun generate_fasta(count: Int, table: Array<Nucleotide>, seed: Int) -> String {
-    let mut rng = Random::new(seed);
-    let mut result = String::new();
-    let line_len = 60;
+    let rng = Random.new(seed)
+    var result = ""
+    let line_len = 60
     
-    let mut pos = 0;
+    var pos = 0
     while pos < count {
-        let char = select_nucleotide(rng, table);
-        result = result + char;
-        pos = pos + 1;
+        let char = select_nucleotide(rng, table)
+        result = result + char
+        pos = pos + 1
         
-        if pos % line_len == 0 {
-            result = result + "\n";
+        if result.length() % (line_len + 1) == line_len {
+            result = result + "\n"
         }
     }
     
-    if pos % line_len != 0 {
-        result = result + "\n";
+    if !result.endsWith("\n") {
+        result = result + "\n"
     }
     
-    result
-}
-
-fun compute_checksum(seq: String) -> Int {
-    let mut sum = 0;
-    for i in 0..seq.len() {
-        sum = sum + (seq[i] as Int);
-    }
-    sum
+    return result
 }
 
 fun main() {
-    let count = 25000000;
+    let n = 1000
     
-    let mut nucleotides = Array::with_capacity<Nucleotide>(4);
-    nucleotides.push(Nucleotide { c: "A", prob: 0.27 });
-    nucleotides.push(Nucleotide { c: "C", prob: 0.12 });
-    nucleotides.push(Nucleotide { c: "G", prob: 0.12 });
-    nucleotides.push(Nucleotide { c: "T", prob: 0.27 });
+    let alu = [
+        Nucleotide { c: "G", prob: 0.25 },
+        Nucleotide { c: "C", prob: 0.25 },
+        Nucleotide { c: "A", prob: 0.25 },
+        Nucleotide { c: "T", prob: 0.25 }
+    ]
     
-    let mut sum = 0.0;
-    for i in 0..nucleotides.len() {
-        sum = sum + nucleotides[i].prob;
-    }
-    for i in 0..nucleotides.len() {
-        nucleotides[i].prob = nucleotides[i].prob / sum;
-    }
+    let iub = [
+        Nucleotide { c: "a", prob: 0.27 },
+        Nucleotide { c: "c", prob: 0.12 },
+        Nucleotide { c: "g", prob: 0.12 },
+        Nucleotide { c: "t", prob: 0.27 },
+        Nucleotide { c: "B", prob: 0.02 },
+        Nucleotide { c: "D", prob: 0.02 },
+        Nucleotide { c: "H", prob: 0.02 },
+        Nucleotide { c: "K", prob: 0.02 },
+        Nucleotide { c: "M", prob: 0.02 },
+        Nucleotide { c: "N", prob: 0.02 },
+        Nucleotide { c: "R", prob: 0.02 },
+        Nucleotide { c: "S", prob: 0.02 },
+        Nucleotide { c: "V", prob: 0.02 },
+        Nucleotide { c: "W", prob: 0.02 },
+        Nucleotide { c: "Y", prob: 0.02 }
+    ]
     
-    println("FASTA Generation Benchmark");
-    println("Generating {} nucleotides", count);
+    let homosapiens = [
+        Nucleotide { c: "a", prob: 0.3029549426680 },
+        Nucleotide { c: "c", prob: 0.1979883004921 },
+        Nucleotide { c: "g", prob: 0.1975473066391 },
+        Nucleotide { c: "t", prob: 0.3015094502008 }
+    ]
     
-    println("Warming up...");
-    for _ in 0..2 {
-        let _ = generate_fasta(count / 100, nucleotides, 42);
-    }
+    println(">ONE Homo sapiens alu")
+    let s1 = generate_fasta(n * 2, alu, 42)
+    println(s1)
     
-    println("Running 5 measured iterations...");
-    let mut times = Array::with_capacity<Float>(5);
-    let mut checksum = 0;
+    println(">TWO IUB ambiguity codes")
+    let s2 = generate_fasta(n * 3, iub, 42)
+    println(s2)
     
-    for run in 0..5 {
-        let start = __GetTime();
-        let seq = generate_fasta(count, nucleotides, 42);
-        let end = __GetTime();
-        
-        let time_ms = (end - start) * 1000.0;
-        times.push(time_ms);
-        
-        if run == 0 {
-            checksum = compute_checksum(seq);
-        }
-    }
-    
-    times = Array::sort(times);
-    let median_time = times[2];
-    
-    println("Checksum: {}", checksum);
-    println("Median time: {} ms", median_time);
-    println("Throughput: {} MB/s", (count as Float) / (median_time * 1000.0));
+    println(">THREE Homo sapiens frequency")
+    let s3 = generate_fasta(n * 5, homosapiens, 42)
+    println(s3)
 }
