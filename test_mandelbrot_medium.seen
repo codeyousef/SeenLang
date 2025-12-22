@@ -1,0 +1,86 @@
+// Mandelbrot Set Benchmark - Medium Test
+// Complex arithmetic and iteration
+
+import seen_std.collections.vec { Vec }
+
+fun mandelbrot_iter(cx: Float, cy: Float, max_iter: Int) -> Int {
+    var zx = 0.0;
+    var zy = 0.0;
+    var iter = 0;
+    
+    while iter < max_iter {
+        let zx2 = zx * zx;
+        let zy2 = zy * zy;
+        
+        if zx2 + zy2 > 4.0 {
+            return iter;
+        }
+        
+        let new_zy = 2.0 * zx * zy + cy;
+        zx = zx2 - zy2 + cx;
+        zy = new_zy;
+        iter = iter + 1;
+    }
+    
+    iter
+}
+
+fun render_mandelbrot(width: Int, height: Int, max_iter: Int) -> Vec<Int> {
+    var pixels = Vec<Int>.withCapacity(width * height);
+    
+    let x_min = -1.5;
+    let x_max = 0.5;
+    let y_min = -1.0;
+    let y_max = 1.0;
+    
+    let x_scale = (x_max - x_min) / (width as Float);
+    let y_scale = (y_max - y_min) / (height as Float);
+    
+    var py = 0;
+    while py < height {
+        let cy = y_min + (py as Float) * y_scale;
+        
+        var px = 0;
+        while px < width {
+            let cx = x_min + (px as Float) * x_scale;
+            let iter = mandelbrot_iter(cx, cy, max_iter);
+            pixels.push(iter);
+            px = px + 1;
+        }
+        py = py + 1;
+    }
+    
+    pixels
+}
+
+fun compute_checksum(pixels: Vec<Int>) -> Int {
+    var sum = 0;
+    var i = 0;
+    while i < pixels.len() {
+        sum = sum + pixels.get(i);
+        i = i + 1;
+    }
+    sum
+}
+
+fun main() {
+    let width = 1000;
+    let height = 1000;
+    let max_iter = 500;
+    
+    println("Mandelbrot Set Benchmark (Medium)");
+    println("Resolution: {width}x{height}");
+    println("Max iterations: {max_iter}");
+    
+    let start = __GetTime();
+    let pixels = render_mandelbrot(width, height, max_iter);
+    let end = __GetTime();
+    
+    let checksum = compute_checksum(pixels);
+    let time_s = end - start;
+    
+    println("Checksum: {checksum}");
+    println("Time: {time_s} s");
+}
+
+main();

@@ -1,0 +1,20 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    var v = Vec<Int>.withCapacity(100);
+    var i = 0;
+    while i < 100 {
+        v.push(i);
+        i = i + 1;
+    }
+    
+    var sum = 0;
+    i = 0;
+    while i < 100 {
+        sum = sum + v.get(i);
+        i = i + 1;
+    }
+    println("Sum: {sum}");
+}
+
+main();

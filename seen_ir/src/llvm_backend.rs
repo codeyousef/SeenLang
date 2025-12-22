@@ -4476,8 +4476,13 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             IRValue::Float(fv) => Ok(self.ctx.f64_type().const_float(*fv).as_basic_value_enum()),
             IRValue::Struct { type_name, fields } => {
-                // Allocate memory for the struct on the HEAP and populate fields
-                // (heap allocation is required because structs may be returned from functions)
+                // Allocate memory for the struct on the HEAP and populate fields.
+                // NOTE: This causes memory leaks for temporary structs (like VecSlot) that 
+                // are created frequently but never freed. A proper fix would use:
+                // 1. Return structs by value for small structs (<= 16 bytes)
+                // 2. LLVM sret convention for larger structs
+                // 3. Reference counting or garbage collection
+                // For now, heap allocation is used to ensure correctness.
                 let llvm_struct_ty = self.get_or_create_struct_type(type_name, fields);
                 
                 // Get field order from registry
@@ -4509,22 +4514,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                     .ok_or_else(|| anyhow!("malloc returned void"))?
                     .into_pointer_value();
                 
-                // Cast to struct pointer type
-                let struct_ptr = self.builder
-                    .build_pointer_cast(
-                        heap_ptr,
-                        llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                        &format!("{}_ptr", type_name)
-                    )
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                
                 // Set each field
                 for (idx, field_name) in field_order.iter().enumerate() {
                     if let Some(field_val) = fields.get(field_name) {
                         let val = self.eval_value(field_val, fn_map)?;
                         let field_ptr = self.builder.build_struct_gep(
                             llvm_struct_ty,
-                            struct_ptr,
+                            heap_ptr,
                             idx as u32,
                             &format!("{}_field_{}", type_name, field_name)
                         )?;
@@ -4532,10 +4528,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 }
                 
-                // Return pointer to struct (cast to i8* for uniform handling)
-                Ok(self.builder
-                    .build_pointer_cast(struct_ptr, self.i8_ptr_t, &format!("{}_heap_ptr", type_name))?
-                    .as_basic_value_enum())
+                // Return pointer to struct
+                Ok(heap_ptr.as_basic_value_enum())
             }
             _ => Err(anyhow!("Unsupported IRValue in LLVM backend: {v:?}")),
         }

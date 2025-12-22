@@ -81,13 +81,41 @@ class Vec<T> {
     }
 
     fun get(index: Int) -> T {
-        let slot = this.locateSlot(index)
-        return this.chunks[slot.chunk].values[slot.offset]
+        // Inline locateSlot logic to avoid struct allocation overhead
+        if index < 0 or index >= this.length {
+            abort("Vec index out of bounds")
+        }
+        var remaining = index
+        var chunkIndex = 0
+        while chunkIndex < this.chunks.length() {
+            let chunkUsage = this.usage[chunkIndex]
+            if remaining < chunkUsage {
+                return this.chunks[chunkIndex].values[remaining]
+            }
+            remaining = remaining - chunkUsage
+            chunkIndex = chunkIndex + 1
+        }
+        // This should never be reached due to the bounds check above
+        abort("Vec internal error")
     }
 
     fun set(index: Int, value: T) -> Void {
-        let slot = this.locateSlot(index)
-        this.chunks[slot.chunk].values[slot.offset] = value
+        // Inline locateSlot logic to avoid struct allocation overhead
+        if index < 0 or index >= this.length {
+            abort("Vec index out of bounds")
+        }
+        var remaining = index
+        var chunkIndex = 0
+        while chunkIndex < this.chunks.length() {
+            let chunkUsage = this.usage[chunkIndex]
+            if remaining < chunkUsage {
+                this.chunks[chunkIndex].values[remaining] = value
+                return
+            }
+            remaining = remaining - chunkUsage
+            chunkIndex = chunkIndex + 1
+        }
+        abort("Vec internal error")
     }
 
     fun clear() -> Void {

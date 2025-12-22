@@ -1,0 +1,49 @@
+// Test bubble sort on Vec<Float>
+
+import seen_std.collections.vec { Vec }
+
+fun sort_times(times: Vec<Float>) {
+    let n = times.len();
+    var i = 0;
+    while i < n {
+        var j = 0;
+        while j < n - i - 1 {
+            if times.get(j) > times.get(j + 1) {
+                let temp = times.get(j);
+                times.set(j, times.get(j + 1));
+                times.set(j + 1, temp);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+fun main() {
+    var times = Vec<Float>.withCapacity(5);
+    times.push(3.5);
+    times.push(1.2);
+    times.push(4.8);
+    times.push(0.9);
+    times.push(2.1);
+    
+    println("Before sort:");
+    var i = 0;
+    while i < times.len() {
+        let t = times.get(i);
+        println("  {t}");
+        i = i + 1;
+    }
+    
+    sort_times(times);
+    
+    println("After sort:");
+    i = 0;
+    while i < times.len() {
+        let t = times.get(i);
+        println("  {t}");
+        i = i + 1;
+    }
+}
+
+main();
