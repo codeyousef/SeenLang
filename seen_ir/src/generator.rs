@@ -174,6 +174,7 @@ impl GenerationContext {
                     IRType::Void
                 }
             }
+            IRValue::Struct { .. } | IRValue::Array(_) => value.get_type(),
             _ => IRType::Void,
         };
         self.set_variable_type(name.to_string(), var_type.clone());
@@ -622,33 +623,62 @@ impl IRGenerator {
             arg_values.push(arg_val);
         }
 
+        // Handle Array constructor calls: Array<T>() or Array<T>(capacity)
+        if let Expression::Identifier { name, type_args, .. } = function {
+            if name == "Array" {
+                let capacity = if let Some(arg) = arg_values.first() {
+                    arg.clone()
+                } else {
+                    IRValue::Integer(0)
+                };
+
+                let element_size = if !type_args.is_empty() {
+                    self.convert_ast_type_to_ir(&type_args[0]).size_bytes() as i64
+                } else {
+                    8 // Default to 8 bytes if type is unknown
+                };
+
+                let result_reg = self.context.allocate_register();
+                let result_value = IRValue::Register(result_reg);
+
+                instructions.push(Instruction::Call {
+                    target: IRValue::Variable("__ArrayNew".to_string()),
+                    args: vec![IRValue::Integer(element_size), capacity],
+                    result: Some(result_value.clone()),
+                });
+                return Ok((result_value, instructions));
+            }
+        }
+
         // Method-call desugaring and intrinsics
         if let Expression::MemberAccess { object, member, .. } = function {
             // Handle array intrinsics (Array<T>.method)
             if member == "withCapacity" {
                 // Array<T>.withCapacity(n) -> creates array with capacity n
                 if let Some(capacity_arg) = arg_values.first() {
-                    let result_reg = self.context.allocate_register();
-                    let result_value = IRValue::Register(result_reg);
-
-                    // Try to infer array type from the object expression
-                    println!("DEBUG: Checking object for Array.withCapacity: {:?}", object);
                     if let Expression::Identifier { name, type_args, .. } = object.as_ref() {
-                        println!("DEBUG: Found Array.withCapacity call. Name: {}, TypeArgs: {:?}", name, type_args);
-                        if name == "Array" && !type_args.is_empty() {
-                            let element_type = self.convert_ast_type_to_ir(&type_args[0]);
-                            let array_type = IRType::Array(Box::new(element_type));
-                            println!("DEBUG: Setting register type to {:?}", array_type);
-                            self.context.set_register_type(result_reg, array_type);
+                        if name == "Array" {
+                            let result_reg = self.context.allocate_register();
+                            let result_value = IRValue::Register(result_reg);
+
+                            let mut element_size = 8;
+
+                            // Try to infer array type from the object expression
+                            if !type_args.is_empty() {
+                                let element_type = self.convert_ast_type_to_ir(&type_args[0]);
+                                element_size = element_type.size_bytes() as i64;
+                                let array_type = IRType::Array(Box::new(element_type));
+                                self.context.set_register_type(result_reg, array_type);
+                            }
+
+                            instructions.push(Instruction::Call {
+                                target: IRValue::Variable("__ArrayNew".to_string()),
+                                args: vec![IRValue::Integer(element_size), capacity_arg.clone()],
+                                result: Some(result_value.clone()),
+                            });
+                            return Ok((result_value, instructions));
                         }
                     }
-
-                    instructions.push(Instruction::Call {
-                        target: IRValue::Variable("__ArrayNew".to_string()),
-                        args: vec![capacity_arg.clone()],
-                        result: Some(result_value.clone()),
-                    });
-                    return Ok((result_value, instructions));
                 }
             }
             
@@ -1668,6 +1698,7 @@ impl IRGenerator {
         // Set up function context
         self.context.current_function = Some(name.to_string());
         self.context.register_counter = 0; // Reset for this function
+        self.context.register_types.clear(); // Clear register types from previous function
 
         // Add parameters to context as variables
         for param in params {
