@@ -41,7 +41,7 @@
 | `KW_WHILE` | `while` | `طالما` |
 | `KW_BREAK` | `break` | `اخرج` |
 | `KW_CONTINUE` | `continue` | `استمر` |
-| `KW_STRUCT` | `struct` | `هيكل` |
+| `KW_STRUCT` | `data` | `هيكل` |
 | `KW_ENUM` | `enum` | `تعداد` |
 | `KW_EXTENSION` | `extension` | `امتداد` |
 | `KW_ASYNC` | `async` | `غير_متزامن` |

@@ -82,9 +82,9 @@ fun test_better_than_malloc() {
 fun test_cache_optimal() {
     let optimizer = MemoryOptimizer::new();
     
-    // Create struct with hot and cold fields
+    // Create data with hot and cold fields
     let source = Source::fromString("""
-        struct User {
+        data User {
             // Hot fields (frequently accessed)
             id: Int;           // 8 bytes
             active: Bool;      // 1 byte
@@ -116,7 +116,7 @@ fun test_cache_optimal() {
     let ir = source.toIR();
     let optimized = optimizer.Optimize(ir);
     
-    // Check struct layout optimization
+    // Check data layout optimization
     let userStruct = optimized.findStruct("User");
     
     // Hot fields should be grouped together
@@ -135,7 +135,7 @@ fun test_cache_optimal() {
     // Check for structure splitting
     if optimized.hasStruct("User_hot") {
         let hotStruct = optimized.findStruct("User_hot");
-        assertTrue(hotStruct.size <= 64, "Hot struct should fit in cache line");
+        assertTrue(hotStruct.size <= 64, "Hot data should fit in cache line");
     }
     
     // Verify cache miss reduction
@@ -268,7 +268,7 @@ fun test_pointer_compression() {
     
     // Create code with many pointers
     let source = Source::fromString("""
-        struct Node {
+        data Node {
             value: Int;
             left: Node?;
             right: Node?;

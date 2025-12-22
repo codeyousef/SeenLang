@@ -64,7 +64,7 @@ class IRType {
     }
     
     fun isStruct() -> Bool {
-        return name.startsWith("struct")
+        return name.startsWith("data")
     }
     
     fun toString() -> String {

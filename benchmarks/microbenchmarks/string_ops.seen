@@ -6,7 +6,7 @@ import std::collections::Vec
 import std::string::String
 
 // String benchmark configuration
-struct StringBenchmarkConfig {
+data StringBenchmarkConfig {
     iterations: i32,
     string_lengths: Vec<usize>, // Different string lengths to test
     test_unicode: bool,

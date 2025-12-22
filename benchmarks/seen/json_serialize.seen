@@ -1,7 +1,7 @@
 // JSON Serialization Benchmark
 // String formatting and escaping
 
-struct User {
+data User {
     id: Int,
     name: String,
     active: Bool,

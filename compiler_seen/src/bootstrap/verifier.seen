@@ -215,7 +215,7 @@ class BootstrapVerifier {
     }
 }
 
-struct CompilerInfo {
+data CompilerInfo {
     Path: String
     Name: String
     StageNumber: Int
@@ -229,7 +229,7 @@ fun CompilerInfo.new(path: String, name: String, stageNumber: Int) -> CompilerIn
     }
 }
 
-struct VerificationResult {
+data VerificationResult {
     Message: String
     BinaryIdentical: Bool
     HashMatch: Bool
@@ -257,7 +257,7 @@ fun VerificationResult.getStageArtifact(stage: Int) -> Option<StageArtifact> {
     return None()
 }
 
-struct StageArtifact {
+data StageArtifact {
     OutputPath: String
     Hash: String
     Size: Int
@@ -273,7 +273,7 @@ fun StageArtifact.new(outputPath: String, hash: String, size: Int, compilationTi
     }
 }
 
-struct BinaryComparison {
+data BinaryComparison {
     Identical: Bool
     HashMatch: Bool
     Stage2Hash: String

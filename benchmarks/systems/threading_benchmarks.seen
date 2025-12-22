@@ -9,7 +9,7 @@ import std::sync::atomic::{AtomicI64, AtomicBool, Ordering}
 import std::sync::mpsc
 
 // Threading benchmark configuration
-struct ThreadingBenchmarkConfig {
+data ThreadingBenchmarkConfig {
     iterations: i32,
     max_thread_count: usize,
     work_size: usize,
@@ -1044,7 +1044,7 @@ class ThreadingBenchmarks {
         let items_per_producer = 50000
         
         // Simple lock-free queue simulation using atomics
-        struct LockFreeQueue {
+        data LockFreeQueue {
             data: Vec<AtomicI64>,
             head: AtomicI64,
             tail: AtomicI64,

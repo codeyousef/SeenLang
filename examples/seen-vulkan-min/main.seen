@@ -1,28 +1,28 @@
 // Minimal Vulkan-style Graphics Example
 // This simulates a graphics pipeline without actual Vulkan calls
 
-struct Vec3 {
+data Vec3 {
     x: Float
     y: Float
     z: Float
 }
 
-struct Vertex {
+data Vertex {
     position: Vec3
     color: Vec3
 }
 
-struct Mesh {
+data Mesh {
     vertices: Array<Vertex>
     indices: Array<Int>
 }
 
-struct Pipeline {
+data Pipeline {
     vertexCount: Int
     indexCount: Int
 }
 
-struct RenderPass {
+data RenderPass {
     clearColor: Vec3
     width: Int
     height: Int

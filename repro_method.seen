@@ -1,0 +1,5 @@
+class File {
+    fun open() {
+        let handle = __OpenFile("path", "r")
+    }
+}

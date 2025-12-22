@@ -2,7 +2,7 @@
 // This is the REAL compiler entry point!
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
-// import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
+import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import io.file.{readText, writeText}

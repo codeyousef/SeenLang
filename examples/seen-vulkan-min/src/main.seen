@@ -1,6 +1,6 @@
 // Minimal cross-platform Vulkan-style sample for MVP POST-2
 
-struct VulkanAppConfig {
+data VulkanAppConfig {
     title: String,
     width: Int,
     height: Int,
@@ -9,39 +9,39 @@ struct VulkanAppConfig {
     swapchain_image_count: Int,
 }
 
-struct SurfaceSize {
+data SurfaceSize {
     width: Int,
     height: Int,
 }
 
-struct VulkanResourceState {
+data VulkanResourceState {
     surface: SurfaceSize,
     pipelines_ready: Bool,
     swapchain_images: Int,
 }
 
-struct Vec2 {
+data Vec2 {
     x: Float,
     y: Float,
 }
 
-struct Vec3 {
+data Vec3 {
     r: Float,
     g: Float,
     b: Float,
 }
 
-struct VulkanVertex {
+data VulkanVertex {
     position: Vec2,
     color: Vec3,
 }
 
-struct FrameResult {
+data FrameResult {
     validation_ok: Bool,
     estimated_ms: Float,
 }
 
-struct VulkanFrameSummary {
+data VulkanFrameSummary {
     frames_rendered: Int,
     validation_errors: Int,
     average_frame_time_ms: Float,

@@ -103,8 +103,8 @@ class IRGenerator {
     }
     
     fun generateClassType(classNode: Class) -> Void {
-        // Create struct type for class
-        let structName = "struct.{classNode.name}"
+        // Create data type for class
+        let structName = "data.{classNode.name}"
         let structType = IRType.new(structName, 0)  // Size will be calculated
         
         // Add to module types
@@ -572,7 +572,7 @@ class IRGenerator {
             constructor.addBlock(entryBlock)
             builder.setInsertPoint(entryBlock)
             
-            // Calculate struct size and allocate memory
+            // Calculate data size and allocate memory
             let structSize = calculateStructSize(classNode)
             let sizeValue = IRValue.new("{structSize}", IRType.I64, true, structSize.toString())
             let mallocResult = builder.createCall("malloc", [sizeValue], IRType.Ptr)

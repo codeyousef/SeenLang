@@ -1,24 +1,24 @@
 // Minimal ECS (Entity Component System) Example
 // This demonstrates basic ECS patterns in Seen without external dependencies
 
-struct Entity {
+data Entity {
     id: Int
     active: Bool
 }
 
-struct Transform {
+data Transform {
     x: Float
     y: Float
     z: Float
 }
 
-struct Velocity {
+data Velocity {
     dx: Float
     dy: Float
     dz: Float
 }
 
-struct World {
+data World {
     entities: Array<Entity>
     transforms: Array<Transform>
     velocities: Array<Velocity>

@@ -1,0 +1,4 @@
+fun main() {
+    let i = 1
+    abort("Let 1 worked")
+}

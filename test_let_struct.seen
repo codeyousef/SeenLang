@@ -1,0 +1,8 @@
+class Point {
+    var x: Int
+}
+fun main() {
+    println("Start let data test")
+    let p = Point { x: 1 }
+    println("Let data declared")
+}

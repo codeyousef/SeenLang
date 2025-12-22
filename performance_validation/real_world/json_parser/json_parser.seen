@@ -42,7 +42,7 @@ impl JsonValue {
 }
 
 // JSON Parser implementation
-struct JsonParser {
+data JsonParser {
     input: String,
     position: usize,
     line: usize,

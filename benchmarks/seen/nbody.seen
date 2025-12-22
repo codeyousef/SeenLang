@@ -10,7 +10,7 @@ fun abs(x: Float) -> Float {
     return x;
 }
 
-struct Body {
+data Body {
     x: Float,
     y: Float,
     z: Float,

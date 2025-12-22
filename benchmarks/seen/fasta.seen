@@ -5,7 +5,7 @@ let IM = 139968;
 let IA = 3877;
 let IC = 29573;
 
-struct Random {
+data Random {
     seed: Int,
 }
 
@@ -18,7 +18,7 @@ fun Random::next(rng: Random) -> Float {
     (rng.seed as Float) / (IM as Float)
 }
 
-struct Nucleotide {
+data Nucleotide {
     c: String,
     prob: Float,
 }

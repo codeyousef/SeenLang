@@ -9,7 +9,7 @@ import std::time::Instant
 import std::collections::{Vec, HashMap}
 
 // HTTP request structure
-struct HttpRequest {
+data HttpRequest {
     method: String,
     path: String,
     headers: HashMap<String, String>,
@@ -17,7 +17,7 @@ struct HttpRequest {
 }
 
 // HTTP response structure
-struct HttpResponse {
+data HttpResponse {
     status_code: i32,
     status_text: String,
     headers: HashMap<String, String>,

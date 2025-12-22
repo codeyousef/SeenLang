@@ -41,7 +41,7 @@ This PRD targets **average >1.0x performance** across 10 production benchmarks.
 
 - **Field:** Brownfield (replacing existing Rust implementation)
 - **Current State:** Rust compiler 100% production-ready, self-hosted compiler 85% complete (160 errors remaining)
-- **Critical Path:** LLVM backend generic array/struct support (P0 blocker for 7/10 benchmarks)
+- **Critical Path:** LLVM backend generic array/data support (P0 blocker for 7/10 benchmarks)
 - **Architecture:** Multi-backend (LLVM, MLIR, Cranelift), deterministic compilation, Vale-inspired memory management
 
 ---
@@ -110,7 +110,7 @@ All benchmarks run on this hardware with matching Rust configuration.
 **Phase 1: Complete LLVM Backend (P0 - Critical)**
 - **Strategy:** Switch from IR-only to full LLVM backend implementation
 - Implement generic array type support (Float[], Int[], String[], etc.)
-- Implement generic struct field access with proper GEP instructions
+- Implement generic data field access with proper GEP instructions
 - Link pre-compiled stdlib (Option B: cleaner architecture, reusable)
 - Enable all language features in LLVM codegen
 - **Deliverable:** LLVM backend feature-complete, all benchmarks unblocked
@@ -284,9 +284,9 @@ All benchmarks run on this hardware with matching Rust configuration.
 
 **RISK 1: LLVM Backend Complexity (High Impact, Medium Probability)**
 
-**Description:** Generic array/struct support may take longer than estimated 12-16 hours
+**Description:** Generic array/data support may take longer than estimated 12-16 hours
 - Complex type metadata tracking through IR → LLVM pipeline
-- GEP instruction generation for arbitrary struct layouts
+- GEP instruction generation for arbitrary data layouts
 - Stdlib linking infrastructure needs careful ABI design
 
 **Mitigation Strategy:**
@@ -431,10 +431,10 @@ All benchmarks run on this hardware with matching Rust configuration.
 - Array methods: `new()`, `push()`, `pop()`, `len()`
 - Dynamic resizing with capacity management
 
-**FR9:** Struct field access and mutation
-- Struct field access: `obj.field`
-- Struct field mutation: `obj.field = value`
-- Nested struct access: `obj.inner.field`
+**FR9:** Data field access and mutation
+- Data field access: `obj.field`
+- Data field mutation: `obj.field = value`
+- Nested data access: `obj.inner.field`
 - Works with both stack and heap-allocated structs
 
 **FR10:** Float literals and arithmetic
@@ -480,7 +480,7 @@ All benchmarks run on this hardware with matching Rust configuration.
 - Proper LLVM type generation for array elements
 - GEP instructions with correct type metadata
 
-**FR17:** Generic struct type support in LLVM codegen
+**FR17:** Generic data type support in LLVM codegen
 - Structs with arbitrary field types
 - Not hardcoded to specific structs (CommandResult)
 - Field access via proper GEP instructions
@@ -497,7 +497,7 @@ All benchmarks run on this hardware with matching Rust configuration.
 **FR19:** Type metadata tracking for GEP generation
 - IR types map to LLVM types correctly
 - Array element types preserved through pipeline
-- Struct field types available during codegen
+- Data field types available during codegen
 - Type information flows from typechecker → IR → LLVM
 
 **FR20:** Float arithmetic operations in LLVM

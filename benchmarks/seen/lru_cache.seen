@@ -1,14 +1,14 @@
 // LRU Cache Benchmark
 // Hash table and linked list performance
 
-struct LRUNode {
+data LRUNode {
     key: Int,
     value: Int,
     prev: Int,
     next: Int,
 }
 
-struct LRUCache {
+data LRUCache {
     capacity: Int,
     size: Int,
     nodes: Array<LRUNode>,

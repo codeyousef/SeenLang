@@ -33,7 +33,7 @@ import std.time.{Instant}          // For time measurements
  * - values: Numeric data points for analysis
  * - metadata: Additional key-value configuration
  */
-struct ApplicationData {
+data ApplicationData {
     // Unique identifier - must be positive
     id: i32,
     

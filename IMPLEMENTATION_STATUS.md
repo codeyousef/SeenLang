@@ -88,13 +88,13 @@
     - ✅ Bootstrap infrastructure complete
     - ✅ Manifest module system with prelude
     - ✅ Frontend (lexer/parser/typechecker) in Seen
-    - ⏳ Remaining: ~361 type errors in compiler_seen
+    - ✅ Compiler passes type check (`seen_cli check` passes)
     - ⏳ Full self-host: deferred to Alpha release
 
 ### ❌ Not Implemented (Future Work)
 
 1. **Language Features**
-    - ❌ Struct field mutation for non-var structs
+    - ❌ Data field mutation for non-var structs
     - ❌ Classes with inheritance
     - ❌ Pattern matching exhaustiveness checking
     - ❌ Macro system
@@ -142,7 +142,7 @@
 - [x] LF-1: Mutable variables - COMPLETE
 - [x] LF-2: While/For loops - COMPLETE
 - [x] LF-3: Array indexing & mutation - COMPLETE
-- [ ] LF-4: Struct field mutation - PARTIAL (works for var structs)
+- [ ] LF-4: Data field mutation - PARTIAL (works for var structs)
 - [x] LF-5: Float literals - COMPLETE (as Float type)
 - [ ] LF-6: String operations - PARTIAL (needs format, reserve)
 

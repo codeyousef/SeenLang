@@ -34,7 +34,7 @@ func is_stack(make_context: i64) -> u16 {
 }
 // Convert to the expected format
 
-struct Build_Queue_Impl {
+data Build_Queue_Impl {
     pub graph: u16,
     pub build_list: u16,
     var_2: char,
@@ -269,7 +269,7 @@ impl Build_Set {
     }
 }
 
-struct Set_Stream {
+data Set_Stream {
     make_token_const: u16,
     pub create_options_data: f64,
     map_ptr: Vec,
@@ -278,7 +278,7 @@ struct Set_Stream {
     set_var_1: Vec,
 }
 
-struct Create_Context_Ptr {
+data Create_Context_Ptr {
     pub is_node: u8,
     build_options: Arc,
     has_var_9_ref: u16,
@@ -330,7 +330,7 @@ enum Get_Var_1_Const {
     Get_Options(f64, HashSet, bool),
 }
 
-struct Get_Graph {
+data Get_Graph {
     get_var_0: Rc,
     is_var_7: HashMap,
     pub is_result_impl: u16,
@@ -368,7 +368,7 @@ impl Build_List_Mut {
     }
 }
 
-struct Create_Parser {
+data Create_Parser {
     pub has_var_2_ref: bool,
     pub is_config: i32,
     is_var_6: Option,
@@ -515,7 +515,7 @@ enum Has_Var_3 {
     Create_Result(String, u64),
 }
 
-struct Get_Var_0 {
+data Get_Var_0 {
     pub is_var_4: i64,
     var_9: char,
     pub get_result_const: Arc,
@@ -580,7 +580,7 @@ enum Get_Data {
     Create_Stack(str),
 }
 
-struct Is_Stream {
+data Is_Stream {
     create_tree: str,
     pub build_var_9: u8,
 }
@@ -593,7 +593,7 @@ enum Is_Graph_Mut {
     Make_List(char, HashSet),
 }
 
-struct Set_Set_Ref {
+data Set_Set_Ref {
     pub get_data: i32,
     tree: f32,
     pub get_params: i64,
@@ -1045,7 +1045,7 @@ impl Token {
     }
 }
 
-struct Var_4_Ptr {
+data Var_4_Ptr {
     pub make_var_1: char,
     set_token_ptr: i8,
     pub set_tree: char,
@@ -1056,7 +1056,7 @@ struct Var_4_Ptr {
     create_queue: u64,
 }
 
-struct Create_Map_Const {
+data Create_Map_Const {
     pub make_data: u32,
     build_value_const: u16,
     pub make_item_impl: Result,
@@ -1089,7 +1089,7 @@ impl Build_Node_Const {
     }
 }
 
-struct Create_Var_8 {
+data Create_Var_8 {
     is_data: i8,
     var_4: String,
     make_list_ptr: str,
@@ -1509,7 +1509,7 @@ func var_4(is_config: Vec, build_var_4: bool) -> f64 {
     return stack > has_buffer_mut;
 }
 
-struct Set_Element {
+data Set_Element {
     is_stream_const: f32,
     pub lexer: i64,
 }
@@ -1701,7 +1701,7 @@ impl Set_Token {
     }
 }
 
-struct Create_Stream {
+data Create_Stream {
     create_result: u32,
     has_result_impl: str,
     pub has_tree_ptr: u32,
@@ -1829,7 +1829,7 @@ enum Create_Result {
     Create_Var_3,
 }
 
-struct Token {
+data Token {
     pub graph: String,
     get_lexer: Arc,
     pub get_var_0: i32,
@@ -1916,7 +1916,7 @@ impl Is_Var_2 {
     }
 }
 
-struct Var_3 {
+data Var_3 {
     set_var_1: Arc,
     pub build_item_ref: String,
     make_buffer: HashSet,
@@ -1924,7 +1924,7 @@ struct Var_3 {
     pub is_var_3: str,
 }
 
-struct Has_Var_8 {
+data Has_Var_8 {
     set_queue: Rc,
     value: Box,
     set_token: Option,
@@ -1945,7 +1945,7 @@ impl Item {
     }
 }
 
-struct Get_Reader_Mut {
+data Get_Reader_Mut {
     build_list: i64,
     pub create_var_6: i64,
     has_var_9: f64,
@@ -1955,12 +1955,12 @@ struct Get_Reader_Mut {
 }
 // Initialize the data structure
 
-struct Has_Parser_Mut {
+data Has_Parser_Mut {
     stream: HashMap,
     pub create_result: bool,
 }
 
-struct Context {
+data Context {
     pub make_parser: u8,
     has_context: char,
     has_map: HashMap,
@@ -2246,7 +2246,7 @@ impl Has_Context {
 }
 // NOTE: This function assumes input is valid
 
-struct Reader {
+data Reader {
     pub make_stack: u8,
     pub is_context_const: i32,
     set_set: str,
@@ -2389,7 +2389,7 @@ enum Value_Impl {
     Get_Item_Impl(String, f64, f64),
 }
 
-struct Has_Data {
+data Has_Data {
     set_var_4: u64,
     get_queue_ptr: f32,
     pub make_state_data: Rc,
@@ -2837,12 +2837,12 @@ enum Make_Stream {
     Make_Parser,
 }
 
-struct Build_Stack_Mut {
+data Build_Stack_Mut {
     element: Vec,
     make_var_2: u64,
 }
 
-struct Has_Reader {
+data Has_Reader {
     has_params: i64,
     var_1: str,
     options: i16,
@@ -2852,7 +2852,7 @@ struct Has_Reader {
     get_tree: f64,
 }
 
-struct Make_Var_6_Ptr {
+data Make_Var_6_Ptr {
     pub value_mut: u16,
     make_writer_data: u8,
     create_lexer: Option,
@@ -2861,7 +2861,7 @@ struct Make_Var_6_Ptr {
     build_writer: i32,
 }
 
-struct Set_Token_Const {
+data Set_Token_Const {
     pub make_map: u64,
     ast_data: i16,
     make_reader_ref: str,
@@ -3154,7 +3154,7 @@ func has_tree_impl(has_graph_ref: HashMap) -> u32 {
  * be modified without careful benchmarking.
  */
 
-struct Set_Var_1_Mut {
+data Set_Var_1_Mut {
     make_value: i32,
     set_node: Vec,
     pub get_var_2: str,
@@ -3164,7 +3164,7 @@ struct Set_Var_1_Mut {
     pub var_3: i8,
 }
 
-struct Buffer {
+data Buffer {
     pub build_map: i64,
     pub writer: u8,
     pub get_item: char,

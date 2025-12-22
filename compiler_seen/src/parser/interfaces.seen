@@ -38,7 +38,7 @@
 // }
 
 // Base AST node
-// struct ASTNode {
+// data ASTNode {
 //     line: Int
 //     column: Int
 // }
@@ -51,7 +51,7 @@
 // }
 
 // Program AST (root node)
-// struct AST {
+// data AST {
 //     functions: Array<Function>
 //     classes: Array<Class>
 //     interfaces: Array<Interface>
@@ -70,7 +70,7 @@
 // }
 
 // Type representation
-// struct Type {
+// data Type {
 //     name: String
 //     isNullable: Bool
 //     generics: Array<Type>
@@ -85,7 +85,7 @@
 // }
 
 // Function declaration
-// struct Function {
+// data Function {
 //     name: String
 //     parameters: Array<Parameter>
 //     returnType: Type
@@ -104,7 +104,7 @@
 // }
 
 // Function parameter
-// struct Parameter {
+// data Parameter {
 //     name: String
 //     type: Type
 //     defaultValue: Expression?
@@ -119,7 +119,7 @@
 // }
 
 // Base expression
-// struct Expression {
+// data Expression {
 //     line: Int
 //     column: Int
 // }
@@ -132,7 +132,7 @@
 // }
 
 // Literal expression
-// struct Literal {
+// data Literal {
 //     expr: Expression
 //     value: String
 //     type: TokenType
@@ -147,7 +147,7 @@
 // }
 
 // Binary expression (a + b, a && b, etc.)
-// struct BinaryExpression {
+// data BinaryExpression {
 //     expr: Expression
 //     left: Expression
 //     operator: TokenType
@@ -164,7 +164,7 @@
 // }
 
 // Statement base
-// struct Statement {
+// data Statement {
 //     line: Int
 //     column: Int
 // }
@@ -177,7 +177,7 @@
 // }
 
 // Block statement (contains multiple statements)
-// struct Block {
+// data Block {
 //     stmt: Statement
 //     statements: Array<Statement>
 // }
@@ -190,7 +190,7 @@
 // }
 
 // Return statement
-// struct ReturnStatement {
+// data ReturnStatement {
 //     stmt: Statement
 //     value: Expression?
 // }
@@ -203,7 +203,7 @@
 // }
 
 // Variable declaration
-// struct VariableDeclaration {
+// data VariableDeclaration {
 //     stmt: Statement
 //     name: String
 //     type: Type?
@@ -222,7 +222,7 @@
 // }
 
 // If statement
-// struct IfStatement {
+// data IfStatement {
 //     stmt: Statement
 //     condition: Expression
 //     thenBranch: Statement
@@ -239,7 +239,7 @@
 // }
 
 // Match statement
-// struct MatchStatement {
+// data MatchStatement {
 //     stmt: Statement
 //     expression: Expression
 //     arms: Array<MatchArm>
@@ -254,7 +254,7 @@
 // }
 
 // Match arm
-// struct MatchArm {
+// data MatchArm {
 //     pattern: Pattern
 //     body: Statement
 // }
@@ -267,7 +267,7 @@
 // }
 
 // Pattern for pattern matching
-// struct Pattern {
+// data Pattern {
 //     line: Int
 //     column: Int
 // }
@@ -280,7 +280,7 @@
 // }
 
 // Class declaration
-// struct Class {
+// data Class {
 //     name: String
 //     methods: Array<Function>
 //     fields: Array<VariableDeclaration>
@@ -295,7 +295,7 @@
 // }
 
 // Interface declaration
-// struct Interface {
+// data Interface {
 //     name: String
 //     methods: Array<Function>
 // }
@@ -308,7 +308,7 @@
 // }
 
 // Enum declaration
-// struct Enum {
+// data Enum {
 //     name: String
 //     variants: Array<String>
 // }
@@ -321,7 +321,7 @@
 // }
 
 // Import declaration
-// struct Import {
+// data Import {
 //     path: String
 //     items: Array<String>
 // }

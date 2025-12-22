@@ -1,0 +1,14 @@
+import core.result.{Result, Ok, Err}
+
+class File {}
+
+fun test() {
+    match Ok(File {}) {
+        Ok(f) -> {
+            let x = 1
+        },
+        Err(e) -> {
+            let y = 2
+        }
+    }
+}

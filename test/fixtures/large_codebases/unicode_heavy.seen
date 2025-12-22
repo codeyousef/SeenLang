@@ -13,7 +13,7 @@ import std.time.{Instant} // זמן מדידות
  * Структура данных с поддержкой Unicode
  * מבנה נתונים עם תמיכה ביוניקוד
  */
-struct UnicodeDataМодель {
+data UnicodeDataМодель {
     // Идентификатор записи
     識別子: i32,
     

@@ -1686,62 +1686,23 @@ impl Parser {
         }
 
         // Identifier or struct pattern (including keywords used as identifiers)
-        match &self.current.token_type {
-            TokenType::PublicIdentifier(name) | TokenType::PrivateIdentifier(name) => {
-                let name = name.clone();
+        let name_opt = match &self.current.token_type {
+            TokenType::PublicIdentifier(name) | TokenType::PrivateIdentifier(name) => Some(name.clone()),
+            TokenType::Keyword(_) => Some(self.current.lexeme.clone()),
+            _ => None,
+        };
+
+        if let Some(name) = name_opt {
+            self.advance();
+
+            if self.check(&TokenType::Dot) {
                 self.advance();
-
-                if self.check(&TokenType::Dot) {
-                    self.advance();
-                    let variant = self.expect_identifier()?;
-                    let mut field_patterns = Vec::new();
-
-                    if self.check(&TokenType::LeftParen) {
-                        self.advance();
-                        while !self.check(&TokenType::RightParen) && !self.is_at_end() {
-                            let field_pattern = self.parse_pattern()?;
-                            field_patterns.push(Box::new(field_pattern));
-
-                            if !self.check(&TokenType::RightParen) {
-                                self.expect(&TokenType::Comma)?;
-                            }
-                        }
-                        self.expect(&TokenType::RightParen)?;
-                    }
-
-                    return Ok(Pattern::Enum {
-                        enum_name: name,
-                        variant,
-                        fields: field_patterns,
-                    });
-                }
-
-                if self.check(&TokenType::LeftBrace) {
-                    // Struct pattern: Name { field: pattern, ... }
-                    self.advance();
-                    let mut fields = Vec::new();
-
-                    while !self.check(&TokenType::RightBrace) {
-                        let field_name = self.parse_field_name()?;
-                        self.expect(&TokenType::Colon)?;
-                        let field_pattern = self.parse_pattern()?;
-                        fields.push((field_name, Box::new(field_pattern)));
-
-                        if !self.check(&TokenType::RightBrace) {
-                            self.expect(&TokenType::Comma)?;
-                        }
-                    }
-
-                    self.expect(&TokenType::RightBrace)?;
-                    return Ok(Pattern::Struct { name, fields });
-                }
+                let variant = self.expect_identifier()?;
+                let mut field_patterns = Vec::new();
 
                 if self.check(&TokenType::LeftParen) {
-                    // Enum pattern: Success(x, y) or Failure(msg)
                     self.advance();
-                    let mut field_patterns = Vec::new();
-
-                    while !self.check(&TokenType::RightParen) {
+                    while !self.check(&TokenType::RightParen) && !self.is_at_end() {
                         let field_pattern = self.parse_pattern()?;
                         field_patterns.push(Box::new(field_pattern));
 
@@ -1749,40 +1710,69 @@ impl Parser {
                             self.expect(&TokenType::Comma)?;
                         }
                     }
-
                     self.expect(&TokenType::RightParen)?;
+                }
 
-                    // Try to determine if this is an enum pattern based on naming conventions
-                    // If the name starts with uppercase, it's likely an enum variant
-                    let is_enum_variant = name.chars().next().map_or(false, |c| c.is_uppercase());
+                return Ok(Pattern::Enum {
+                    enum_name: name,
+                    variant,
+                    fields: field_patterns,
+                });
+            }
 
-                    if is_enum_variant {
-                        return Ok(Pattern::Enum {
-                            enum_name: "".to_string(), // Will be resolved during type checking
-                            variant: name,
-                            fields: field_patterns,
-                        });
-                    } else {
-                        // Lowercase name with parentheses - likely a tuple pattern or function pattern
-                        return Ok(Pattern::Array(field_patterns));
+            if self.check(&TokenType::LeftBrace) {
+                // Struct pattern: Name { field: pattern, ... }
+                self.advance();
+                let mut fields = Vec::new();
+
+                while !self.check(&TokenType::RightBrace) {
+                    let field_name = self.parse_field_name()?;
+                    self.expect(&TokenType::Colon)?;
+                    let field_pattern = self.parse_pattern()?;
+                    fields.push((field_name, Box::new(field_pattern)));
+
+                    if !self.check(&TokenType::RightBrace) {
+                        self.expect(&TokenType::Comma)?;
                     }
                 }
 
-                return Ok(Pattern::Identifier(name));
+                self.expect(&TokenType::RightBrace)?;
+                return Ok(Pattern::Struct { name, fields });
             }
-            // Keywords can also be used as pattern identifiers
-            TokenType::Keyword(keyword) => {
-                let name = match keyword {
-                    KeywordType::KeywordData => "data".to_string(),
-                    KeywordType::KeywordType => "type".to_string(),
-                    KeywordType::KeywordEmit => "emit".to_string(),
-                    // Add other keywords as needed for pattern matching
-                    _ => format!("{:?}", keyword), // Fallback to debug representation
-                };
+
+            if self.check(&TokenType::LeftParen) {
+                // Enum pattern: Success(x, y) or Failure(msg)
                 self.advance();
-                return Ok(Pattern::Identifier(name));
+                let mut field_patterns = Vec::new();
+
+                while !self.check(&TokenType::RightParen) {
+                    let field_pattern = self.parse_pattern()?;
+                    field_patterns.push(Box::new(field_pattern));
+
+                    if !self.check(&TokenType::RightParen) {
+                        self.expect(&TokenType::Comma)?;
+                    }
+                }
+
+                self.expect(&TokenType::RightParen)?;
+
+                // Try to determine if this is an enum pattern based on naming conventions
+                // If the name starts with uppercase, it's likely an enum variant
+                let is_enum_variant = name.chars().next().map_or(false, |c| c.is_uppercase());
+
+                if is_enum_variant {
+                    return Ok(Pattern::Enum {
+                        enum_name: "".to_string(), // Will be resolved during type checking
+                        variant: name,
+                        fields: field_patterns,
+                    });
+                } else {
+                    // Lowercase name with parentheses - likely a tuple pattern or function pattern
+                    return Ok(Pattern::Array(field_patterns));
+                }
             }
-            _ => {}
+
+            return Ok(Pattern::Identifier(name));
         }
 
         // Array pattern
@@ -3107,7 +3097,7 @@ impl Parser {
                     KeywordType::KeywordType => "type".to_string(),
                     KeywordType::KeywordEmit => "emit".to_string(),
                     KeywordType::KeywordClass => "class".to_string(),
-                    KeywordType::KeywordStruct => "struct".to_string(),
+                    KeywordType::KeywordStruct => "data".to_string(),
                     KeywordType::KeywordEnum => "enum".to_string(),
                     KeywordType::KeywordTrait => "trait".to_string(),
                     // Add more as needed
@@ -3211,46 +3201,72 @@ impl Parser {
         // Lambda: x -> ... or (x: Type) -> ... or (x, y) -> ...
         // Or implicit 'it' lambda: { it * 2 } (no arrow, but uses 'it')
 
-        // Save current position for potential restoration
-        let saved_current = self.current.clone();
-        let mut temp_tokens = Vec::new();
+        let mut lookahead_tokens = Vec::new();
+        let mut nesting = 0;
         let mut found_arrow = false;
         let mut found_it_reference = false;
 
-        // Temporarily advance to look ahead
-        for _ in 0..15 {
-            // Use advance() which properly handles peek_buffer
-            self.advance();
-            temp_tokens.push(self.current.clone());
+        // Check current token first
+        match &self.current.token_type {
+             TokenType::LeftBrace => nesting += 1,
+             TokenType::RightBrace => return false, // Empty block {}
+             TokenType::Arrow => return true, // { -> ... }
+             TokenType::PrivateIdentifier(name) | TokenType::PublicIdentifier(name) => {
+                 if name == "it" { found_it_reference = true; }
+             }
+             _ => {}
+        }
 
-            match &self.current.token_type {
-                TokenType::Arrow => {
-                    found_arrow = true;
+        // Look ahead
+        for _ in 0..50 {
+            let token = if let Some(t) = self.peek_buffer.pop_front() {
+                t
+            } else {
+                if let Ok(t) = self.lexer.next_token() {
+                    t
+                } else {
                     break;
                 }
-                TokenType::RightBrace | TokenType::EOF => {
-                    break;
-                }
-                TokenType::PrivateIdentifier(name) | TokenType::PublicIdentifier(name) => {
-                    if name == "it" {
-                        found_it_reference = true;
+            };
+
+            let token_type = token.token_type.clone();
+            lookahead_tokens.push(token);
+
+            match token_type {
+                    TokenType::LeftBrace => {
+                        nesting += 1;
                     }
+                    TokenType::RightBrace => {
+                        if nesting > 0 {
+                            nesting -= 1;
+                        } else {
+                            // End of block
+                            break;
+                        }
+                    }
+                    TokenType::Arrow => {
+                        if nesting == 0 {
+                            found_arrow = true;
+                            break;
+                        }
+                    }
+                    TokenType::PrivateIdentifier(name) | TokenType::PublicIdentifier(name) => {
+                        if nesting == 0 && name == "it" {
+                            found_it_reference = true;
+                        }
+                    }
+                    TokenType::EOF => {
+                        break;
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
         }
 
-        // Restore tokens properly
-        // Put all tokens back into peek_buffer in correct order
-        self.current = saved_current;
-
-        // Put tokens back into peek_buffer in reverse order
-        // (since peek_buffer is a deque and we'll pop from front)
-        for token in temp_tokens.into_iter().rev() {
-            self.peek_buffer.push_front(token);
+        // Restore tokens
+        for t in lookahead_tokens.into_iter().rev() {
+            self.peek_buffer.push_front(t);
         }
 
-        // It's a lambda if we found an arrow OR if we found 'it' reference (implicit lambda)
         found_arrow || found_it_reference
     }
 
@@ -3266,42 +3282,61 @@ impl Parser {
         // Simple approach: save current state and look ahead without corrupting state
         // We'll use the existing peek_buffer mechanism
         let mut lookahead_tokens = Vec::new();
+        let mut nesting = 0;
 
         // Look ahead to find arrow token within reasonable distance
-        for _ in 0..15 {
+        // Increased limit to handle slightly more complex parameter lists
+        for _ in 0..50 {
             // Get next token but save it for restoration
-            if let Ok(token) = self.lexer.next_token() {
-                match &token.token_type {
-                    TokenType::Arrow => {
-                        // Found arrow - put all tokens back and return true
-                        lookahead_tokens.push(token);
-                        for t in lookahead_tokens.into_iter().rev() {
-                            self.peek_buffer.push_front(t);
-                        }
-                        return true;
-                    }
-                    TokenType::RightBrace | TokenType::EOF => {
-                        // No arrow before closing - put tokens back and return false
-                        lookahead_tokens.push(token);
-                        for t in lookahead_tokens.into_iter().rev() {
-                            self.peek_buffer.push_front(t);
-                        }
-                        return false;
-                    }
-                    _ => {
-                        lookahead_tokens.push(token);
-                    }
-                }
+            let token = if let Some(t) = self.peek_buffer.pop_front() {
+                t
             } else {
-                break;
-            }
+                if let Ok(t) = self.lexer.next_token() {
+                    t
+                } else {
+                    break;
+                }
+            };
+
+            let token_type = token.token_type.clone();
+            lookahead_tokens.push(token);
+
+            match token_type {
+                    TokenType::LeftBrace => {
+                        nesting += 1;
+                    }
+                    TokenType::RightBrace => {
+                        if nesting > 0 {
+                            nesting -= 1;
+                        } else {
+                            // End of the block we are checking - no arrow found at top level
+                            // Restore and return false
+                            for t in lookahead_tokens.into_iter().rev() {
+                                self.peek_buffer.push_front(t);
+                            }
+                            return false;
+                        }
+                    }
+                    TokenType::Arrow => {
+                        if nesting == 0 {
+                            // Found arrow at top level - it IS a lambda
+                            for t in lookahead_tokens.into_iter().rev() {
+                                self.peek_buffer.push_front(t);
+                            }
+                            return true;
+                        }
+                    }
+                    TokenType::EOF => {
+                        break;
+                    }
+                    _ => {}
+                }
         }
 
-        // Put all tokens back - no arrow found
-        for token in lookahead_tokens.into_iter().rev() {
-            self.peek_buffer.push_front(token);
+        // Put tokens back and return false
+        for t in lookahead_tokens.into_iter().rev() {
+            self.peek_buffer.push_front(t);
         }
-
         false
     }
 
@@ -3890,6 +3925,7 @@ impl Parser {
         let mut fields = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
+            eprintln!("DEBUG: Struct loop token: {:?}", self.current);
             // Skip any leading layout separators
             while self.check_layout() {
                 self.advance();

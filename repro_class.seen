@@ -1,0 +1,7 @@
+class File {
+    var handle: Int
+    
+    fun open() {
+        let x = 1
+    }
+}

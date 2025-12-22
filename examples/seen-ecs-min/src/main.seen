@@ -1,16 +1,16 @@
 // Deterministic ECS micro-simulation for MVP POST-2
 
-struct Transform {
+data Transform {
     x: Float,
     y: Float,
 }
 
-struct Velocity {
+data Velocity {
     x: Float,
     y: Float,
 }
 
-struct Entity {
+data Entity {
     id: Int,
     name: String,
     tag: String,
@@ -19,18 +19,18 @@ struct Entity {
     health: Int,
 }
 
-struct SimulationConfig {
+data SimulationConfig {
     frames: Int,
     delta_time: Float,
 }
 
-struct EntityStep {
+data EntityStep {
     entity: Entity,
     distance: Float,
     destroyed: Bool,
 }
 
-struct SimulationReport {
+data SimulationReport {
     frames: Int,
     survivors: Int,
     casualties: Int,
@@ -78,7 +78,7 @@ fun run_simulation(entities: List<Entity>, config: SimulationConfig) -> Simulati
     }
 }
 
-struct FrameResult {
+data FrameResult {
     survivors: List<Entity>,
     casualties: Int,
     distance: Float,

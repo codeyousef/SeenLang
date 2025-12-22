@@ -1,0 +1,12 @@
+import core.result.{Result, Ok, Err}
+
+class File {
+    var handle: Int
+    var path: String
+    
+    fun open(path: String) -> Result<File, String> {
+        let handle = __OpenFile(path, "r")
+        let f = File { handle: handle, path: path }
+        Ok(f)
+    }
+}

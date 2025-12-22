@@ -2,6 +2,7 @@
 name = "seen_compiler"
 version = "1.0.0"
 language = "en"
+visibility = "explicit"
 description = "Self-hosted Seen compiler - written in Seen"
 authors = ["Seen Language Team"]
 edition = "2025"

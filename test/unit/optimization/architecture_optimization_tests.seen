@@ -435,7 +435,7 @@ fun createConditionalSource() -> Source {
 
 fun createStructArraySource() -> Source {
     return Source::fromString("""
-        struct Vec3 {
+        data Vec3 {
             x: Float;
             y: Float;
             z: Float;

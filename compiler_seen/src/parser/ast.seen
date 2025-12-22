@@ -5,7 +5,7 @@
 // NOTE: Deprecated shim. Imports must use ast_types; this file remains only for backward compatibility during the transition.
 
 // Base node for all AST nodes
-struct ASTNode {
+data ASTNode {
     line: Int
     column: Int
 }
@@ -18,7 +18,7 @@ fun ASTNode.new() -> ASTNode {
 }
 
 // Program root node
-struct ProgramNode {
+data ProgramNode {
     items: Array<ItemNode>
 }
 
@@ -28,8 +28,8 @@ fun ProgramNode.new() -> ProgramNode {
     }
 }
 
-// Top-level item (function, class, struct, etc.)
-struct ItemNode {
+// Top-level item (function, class, data, etc.)
+data ItemNode {
     itemType: String // "Function", "Class", "Struct", "Enum", "Import"
     name: String
     visibility: String // "public" or "private"
@@ -53,7 +53,7 @@ fun ItemNode.new() -> ItemNode {
     }
 }
 
-struct ImportSymbolNode {
+data ImportSymbolNode {
     name: String
     alias: String
 }
@@ -66,7 +66,7 @@ fun ImportSymbolNode.new() -> ImportSymbolNode {
 }
 
 // Function definition
-struct FunctionNode {
+data FunctionNode {
     name: String
     params: Array<ParamNode>
     returnType: TypeNode?
@@ -87,7 +87,7 @@ fun FunctionNode.new() -> FunctionNode {
 }
 
 // Function parameter
-struct ParamNode {
+data ParamNode {
     name: String
     paramType: TypeNode
     isMutable: Bool
@@ -104,7 +104,7 @@ fun ParamNode.new() -> ParamNode {
 }
 
 // Type reference
-struct TypeNode {
+data TypeNode {
     typeName: String
     isNullable: Bool
     typeParams: Array<TypeNode>
@@ -123,7 +123,7 @@ fun TypeNode.new() -> TypeNode {
 }
 
 // Statement block
-struct BlockNode {
+data BlockNode {
     statements: Array<StatementNode>
 }
 
@@ -134,7 +134,7 @@ fun BlockNode.new() -> BlockNode {
 }
 
 // Statement types
-struct StatementNode {
+data StatementNode {
     stmtType: String // "Let", "Var", ...
     letStmt: LetStatement?
     varStmt: VarStatement?
@@ -179,7 +179,7 @@ fun StatementNode.new() -> StatementNode {
 }
 
 // Let statement (immutable binding)
-struct LetStatement {
+data LetStatement {
     name: String
     varType: TypeNode?
     value: ExpressionNode
@@ -194,7 +194,7 @@ fun LetStatement.new() -> LetStatement {
 }
 
 // Var statement (mutable binding)
-struct VarStatement {
+data VarStatement {
     name: String
     varType: TypeNode?
     value: ExpressionNode?
@@ -209,7 +209,7 @@ fun VarStatement.new() -> VarStatement {
 }
 
 // Return statement
-struct ReturnStatement {
+data ReturnStatement {
     value: ExpressionNode?
 }
 
@@ -220,7 +220,7 @@ fun ReturnStatement.new() -> ReturnStatement {
 }
 
 // If statement
-struct IfStatement {
+data IfStatement {
     condition: ExpressionNode
     thenBranch: BlockNode
     elseBranch: BlockNode?
@@ -235,7 +235,7 @@ fun IfStatement.new() -> IfStatement {
 }
 
 // While loop
-struct WhileStatement {
+data WhileStatement {
     condition: ExpressionNode
     body: BlockNode
 }
@@ -248,7 +248,7 @@ fun WhileStatement.new() -> WhileStatement {
 }
 
 // For loop
-struct ForStatement {
+data ForStatement {
     variable: String
     iterable: ExpressionNode
     body: BlockNode
@@ -263,7 +263,7 @@ fun ForStatement.new() -> ForStatement {
 }
 
 // Expression statement
-struct ExpressionStatement {
+data ExpressionStatement {
     expr: ExpressionNode
 }
 
@@ -274,7 +274,7 @@ fun ExpressionStatement.new() -> ExpressionStatement {
 }
 
 // Expression types
-struct ExpressionNode {
+data ExpressionNode {
     exprType: String // "Literal", "Identifier", "Binary", "Unary", "Call", "Member", "Index", "Cast", "If", "Match", "Range", "Lambda", "Await", "Spawn", "Select", "StringInterpolation"
     literal: LiteralNode?
     identifier: IdentifierNode?
@@ -323,7 +323,7 @@ fun ExpressionNode.new() -> ExpressionNode {
 }
 
 // Literal values
-struct LiteralNode {
+data LiteralNode {
     literalType: String // "Int", "Float", "String", "Bool", "Null"
     intValue: Int?
     floatValue: Float?
@@ -342,7 +342,7 @@ fun LiteralNode.new() -> LiteralNode {
 }
 
 // Identifier reference
-struct IdentifierNode {
+data IdentifierNode {
     name: String
 }
 
@@ -353,7 +353,7 @@ fun IdentifierNode.new() -> IdentifierNode {
 }
 
 // Binary operation
-struct BinaryNode {
+data BinaryNode {
     left: ExpressionNode
     operator: String // "+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">=", "and", "or", "^", "&", "|", "<<", ">>", "is", "as", "in"
     right: ExpressionNode
@@ -368,7 +368,7 @@ fun BinaryNode.new() -> BinaryNode {
 }
 
 // Unary operation
-struct UnaryNode {
+data UnaryNode {
     operator: String // "-", "not", "~", "move", "borrow", "mut"
     operand: ExpressionNode
 }
@@ -381,7 +381,7 @@ fun UnaryNode.new() -> UnaryNode {
 }
 
 // Function call
-struct CallNode {
+data CallNode {
     function: ExpressionNode
     arguments: Array<ExpressionNode>
 }
@@ -394,7 +394,7 @@ fun CallNode.new() -> CallNode {
 }
 
 // Member access
-struct MemberNode {
+data MemberNode {
     object: ExpressionNode
     member: String
     isSafe: Bool // ?. operator
@@ -409,7 +409,7 @@ fun MemberNode.new() -> MemberNode {
 }
 
 // Array/index access
-struct IndexNode {
+data IndexNode {
     object: ExpressionNode
     index: ExpressionNode
 }
@@ -422,7 +422,7 @@ fun IndexNode.new() -> IndexNode {
 }
 
 // Type cast
-struct CastNode {
+data CastNode {
     expr: ExpressionNode
     targetType: TypeNode
     isForced: Bool // as! vs as?
@@ -437,7 +437,7 @@ fun CastNode.new() -> CastNode {
 }
 
 // If expression (ternary)
-struct IfExpressionNode {
+data IfExpressionNode {
     condition: ExpressionNode
     thenExpr: ExpressionNode
     elseExpr: ExpressionNode
@@ -452,7 +452,7 @@ fun IfExpressionNode.new() -> IfExpressionNode {
 }
 
 // Class definition
-struct ClassNode {
+data ClassNode {
     name: String
     superClass: String?
     interfaces: Array<String>
@@ -475,7 +475,7 @@ fun ClassNode.new() -> ClassNode {
 }
 
 // Struct definition
-struct StructNode {
+data StructNode {
     name: String
     fields: Array<FieldNode>
 }
@@ -488,7 +488,7 @@ fun StructNode.new() -> StructNode {
 }
 
 // Field definition
-struct FieldNode {
+data FieldNode {
     name: String
     fieldType: TypeNode
     isMutable: Bool
@@ -509,7 +509,7 @@ fun FieldNode.new() -> FieldNode {
 // NEW AST NODES FOR SYNTAX DESIGN FEATURES
 
 // Match expression (pattern matching)
-struct MatchExpressionNode {
+data MatchExpressionNode {
     expr: ExpressionNode
     Arms: Array<MatchArm>
 }
@@ -522,7 +522,7 @@ fun MatchExpressionNode.new() -> MatchExpressionNode {
 }
 
 // Match statement
-struct MatchStatement {
+data MatchStatement {
     expr: ExpressionNode
     Arms: Array<MatchArm>
 }
@@ -535,7 +535,7 @@ fun MatchStatement.new() -> MatchStatement {
 }
 
 // Match arm with optional guard
-struct MatchArm {
+data MatchArm {
     Pattern: PatternNode
     Guard: ExpressionNode? // Optional 'if' guard
     body: ExpressionNode
@@ -550,7 +550,7 @@ fun MatchArm.new() -> MatchArm {
 }
 
 // Pattern for pattern matching
-struct PatternNode {
+data PatternNode {
     PatternType: String // "Literal", "Identifier", "Wildcard", "Range", "Struct", "Enum", "Array"
     literal: LiteralNode?
     identifier: String?
@@ -573,7 +573,7 @@ fun PatternNode.new() -> PatternNode {
 }
 
 // Range pattern (1..10)
-struct RangePatternNode {
+data RangePatternNode {
     Start: ExpressionNode?
     End: ExpressionNode?
     IsInclusive: Bool
@@ -588,7 +588,7 @@ fun RangePatternNode.new() -> RangePatternNode {
 }
 
 // Struct pattern for destructuring
-struct StructPatternNode {
+data StructPatternNode {
     typeName: String
     fields: Array<FieldPattern>
 }
@@ -601,7 +601,7 @@ fun StructPatternNode.new() -> StructPatternNode {
 }
 
 // Field pattern
-struct FieldPattern {
+data FieldPattern {
     name: String
     Pattern: PatternNode?
 }
@@ -614,7 +614,7 @@ fun FieldPattern.new() -> FieldPattern {
 }
 
 // Enum pattern
-struct EnumPatternNode {
+data EnumPatternNode {
     typeName: String
     Variant: String
     fields: Array<PatternNode>
@@ -629,7 +629,7 @@ fun EnumPatternNode.new() -> EnumPatternNode {
 }
 
 // Array pattern
-struct ArrayPatternNode {
+data ArrayPatternNode {
     Patterns: Array<PatternNode>
 }
 
@@ -640,7 +640,7 @@ fun ArrayPatternNode.new() -> ArrayPatternNode {
 }
 
 // Range expression (1..10 or 1..<10)
-struct RangeNode {
+data RangeNode {
     Start: ExpressionNode?
     End: ExpressionNode?
     IsInclusive: Bool
@@ -657,7 +657,7 @@ fun RangeNode.new() -> RangeNode {
 }
 
 // Lambda expression
-struct LambdaNode {
+data LambdaNode {
     params: Array<String>
     body: ExpressionNode
     isAsync: Bool
@@ -672,7 +672,7 @@ fun LambdaNode.new() -> LambdaNode {
 }
 
 // Await expression
-struct AwaitNode {
+data AwaitNode {
     expr: ExpressionNode
 }
 
@@ -683,7 +683,7 @@ fun AwaitNode.new() -> AwaitNode {
 }
 
 // Spawn expression
-struct SpawnNode {
+data SpawnNode {
     expr: ExpressionNode
     IsActor: Bool
 }
@@ -696,7 +696,7 @@ fun SpawnNode.new() -> SpawnNode {
 }
 
 // Select expression (for channels)
-struct SelectNode {
+data SelectNode {
     Branches: Array<SelectBranch>
     TimeoutBranch: SelectTimeoutBranch?
 }
@@ -709,7 +709,7 @@ fun SelectNode.new() -> SelectNode {
 }
 
 // Select branch
-struct SelectBranch {
+data SelectBranch {
     Channel: ExpressionNode
     variable: String
     body: BlockNode
@@ -724,7 +724,7 @@ fun SelectBranch.new() -> SelectBranch {
 }
 
 // Select timeout branch
-struct SelectTimeoutBranch {
+data SelectTimeoutBranch {
     Duration: ExpressionNode
     body: BlockNode
 }
@@ -737,7 +737,7 @@ fun SelectTimeoutBranch.new() -> SelectTimeoutBranch {
 }
 
 // String interpolation
-struct StringInterpolationNode {
+data StringInterpolationNode {
     Parts: Array<StringPart>
 }
 
@@ -748,7 +748,7 @@ fun StringInterpolationNode.new() -> StringInterpolationNode {
 }
 
 // String part (literal or interpolated expression)
-struct StringPart {
+data StringPart {
     IsLiteral: Bool
     literal: String?
     expr: ExpressionNode?
@@ -763,7 +763,7 @@ fun StringPart.new() -> StringPart {
 }
 
 // Type checking expression (value is Type)
-struct IsExpressionNode {
+data IsExpressionNode {
     expr: ExpressionNode
     TypeNode: TypeNode
 }
@@ -776,7 +776,7 @@ fun IsExpressionNode.new() -> IsExpressionNode {
 }
 
 // Elvis operator (?:)
-struct ElvisNode {
+data ElvisNode {
     Nullable: ExpressionNode
     defaultValue: ExpressionNode
 }
@@ -789,7 +789,7 @@ fun ElvisNode.new() -> ElvisNode {
 }
 
 // Force unwrap (!!)
-struct ForceUnwrapNode {
+data ForceUnwrapNode {
     expr: ExpressionNode
 }
 
@@ -800,7 +800,7 @@ fun ForceUnwrapNode.new() -> ForceUnwrapNode {
 }
 
 // Loop statement (with optional return value)
-struct LoopStatement {
+data LoopStatement {
     body: BlockNode
     Label: String?
 }
@@ -813,7 +813,7 @@ fun LoopStatement.new() -> LoopStatement {
 }
 
 // Break statement (can return value)
-struct BreakStatement {
+data BreakStatement {
     value: ExpressionNode?
     Label: String?
 }
@@ -826,7 +826,7 @@ fun BreakStatement.new() -> BreakStatement {
 }
 
 // Continue statement
-struct ContinueStatement {
+data ContinueStatement {
     Label: String?
 }
 
@@ -837,7 +837,7 @@ fun ContinueStatement.new() -> ContinueStatement {
 }
 
 // Defer statement
-struct DeferStatement {
+data DeferStatement {
     body: BlockNode
 }
 
@@ -848,7 +848,7 @@ fun DeferStatement.new() -> DeferStatement {
 }
 
 // Assert statement
-struct AssertStatement {
+data AssertStatement {
     condition: ExpressionNode
     Message: ExpressionNode?
 }
@@ -861,7 +861,7 @@ fun AssertStatement.new() -> AssertStatement {
 }
 
 // Region statement (memory management)
-struct RegionStatement {
+data RegionStatement {
     name: String?
     body: BlockNode
 }
@@ -874,7 +874,7 @@ fun RegionStatement.new() -> RegionStatement {
 }
 
 // Arena statement (bulk allocation)
-struct ArenaStatement {
+data ArenaStatement {
     body: BlockNode
 }
 
@@ -885,7 +885,7 @@ fun ArenaStatement.new() -> ArenaStatement {
 }
 
 // Handle statement (effect handling)
-struct HandleStatement {
+data HandleStatement {
     body: BlockNode
     EffectName: String
     Handlers: Array<EffectHandler>
@@ -900,7 +900,7 @@ fun HandleStatement.new() -> HandleStatement {
 }
 
 // Effect handler
-struct EffectHandler {
+data EffectHandler {
     name: String
     params: Array<ParamNode>
     body: BlockNode
@@ -915,7 +915,7 @@ fun EffectHandler.new() -> EffectHandler {
 }
 
 // Annotation (decorators)
-struct AnnotationNode {
+data AnnotationNode {
     name: String
     arguments: Array<ExpressionNode>
 }
@@ -928,7 +928,7 @@ fun AnnotationNode.new() -> AnnotationNode {
 }
 
 // Extension methods
-struct ExtensionNode {
+data ExtensionNode {
     targetType: TypeNode
     methods: Array<FunctionNode>
 }
@@ -941,7 +941,7 @@ fun ExtensionNode.new() -> ExtensionNode {
 }
 
 // Companion object
-struct CompanionNode {
+data CompanionNode {
     fields: Array<FieldNode>
     methods: Array<FunctionNode>
 }
@@ -954,7 +954,7 @@ fun CompanionNode.new() -> CompanionNode {
 }
 
 // Interface definition
-struct InterfaceNode {
+data InterfaceNode {
     name: String
     typeParams: Array<TypeParam>
     methods: Array<InterfaceMethod>
@@ -971,7 +971,7 @@ fun InterfaceNode.new() -> InterfaceNode {
 }
 
 // Interface method signature
-struct InterfaceMethod {
+data InterfaceMethod {
     name: String
     params: Array<ParamNode>
     returnType: TypeNode?
@@ -990,7 +990,7 @@ fun InterfaceMethod.new() -> InterfaceMethod {
 }
 
 // Type parameter for generics
-struct TypeParam {
+data TypeParam {
     name: String
     Constraints: Array<String>
     Variance: String // "in", "out", or ""
@@ -1005,7 +1005,7 @@ fun TypeParam.new() -> TypeParam {
 }
 
 // Actor definition
-struct ActorNode {
+data ActorNode {
     name: String
     State: Array<FieldNode>
     Receivers: Array<ReceiverNode>
@@ -1022,7 +1022,7 @@ fun ActorNode.new() -> ActorNode {
 }
 
 // Actor receiver
-struct ReceiverNode {
+data ReceiverNode {
     MessageType: TypeNode
     params: Array<ParamNode>
     body: BlockNode
@@ -1039,7 +1039,7 @@ fun ReceiverNode.new() -> ReceiverNode {
 }
 
 // Effect definition
-struct EffectNode {
+data EffectNode {
     name: String
     Operations: Array<EffectOperation>
 }
@@ -1052,7 +1052,7 @@ fun EffectNode.new() -> EffectNode {
 }
 
 // Effect operation
-struct EffectOperation {
+data EffectOperation {
     name: String
     params: Array<ParamNode>
     returnType: TypeNode?
@@ -1067,7 +1067,7 @@ fun EffectOperation.new() -> EffectOperation {
 }
 
 // Contract (requires/ensures)
-struct ContractNode {
+data ContractNode {
     Requires: Array<ExpressionNode>
     Ensures: Array<ExpressionNode>
     Invariants: Array<ExpressionNode>
@@ -1082,7 +1082,7 @@ fun ContractNode.new() -> ContractNode {
 }
 
 // Data class (automatic equals, hashcode, etc.)
-struct DataClassNode {
+data DataClassNode {
     name: String
     fields: Array<FieldNode>
     visibility: String
@@ -1097,7 +1097,7 @@ fun DataClassNode.new() -> DataClassNode {
 }
 
 // Sealed class (exhaustive matching)
-struct SealedClassNode {
+data SealedClassNode {
     name: String
     Subclasses: Array<ClassNode>
     visibility: String

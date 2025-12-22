@@ -254,6 +254,92 @@ impl TypeChecker {
                 return_type: Some(Type::Unit),
             },
         );
+
+        // File I/O intrinsics
+        env.define_function(
+            "__OpenFile".to_string(),
+            FunctionSignature {
+                name: "__OpenFile".to_string(),
+                parameters: vec![
+                    Parameter { name: "path".to_string(), param_type: Type::String },
+                    Parameter { name: "mode".to_string(), param_type: Type::String },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "__CloseFile".to_string(),
+            FunctionSignature {
+                name: "__CloseFile".to_string(),
+                parameters: vec![
+                    Parameter { name: "fd".to_string(), param_type: Type::Int },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "__FileSize".to_string(),
+            FunctionSignature {
+                name: "__FileSize".to_string(),
+                parameters: vec![
+                    Parameter { name: "fd".to_string(), param_type: Type::Int },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "__FileError".to_string(),
+            FunctionSignature {
+                name: "__FileError".to_string(),
+                parameters: vec![
+                    Parameter { name: "fd".to_string(), param_type: Type::Int },
+                ],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__ReadFile".to_string(),
+            FunctionSignature {
+                name: "__ReadFile".to_string(),
+                parameters: vec![
+                    Parameter { name: "fd".to_string(), param_type: Type::Int },
+                ],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__WriteFile".to_string(),
+            FunctionSignature {
+                name: "__WriteFile".to_string(),
+                parameters: vec![
+                    Parameter { name: "fd".to_string(), param_type: Type::Int },
+                    Parameter { name: "content".to_string(), param_type: Type::String },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
+            "__ReadFileBytes".to_string(),
+            FunctionSignature {
+                name: "__ReadFileBytes".to_string(),
+                parameters: vec![
+                    Parameter { name: "fd".to_string(), param_type: Type::Int },
+                    Parameter { name: "size".to_string(), param_type: Type::Int },
+                ],
+                return_type: Some(Type::Array(Box::new(Type::Int))),
+            },
+        );
+        env.define_function(
+            "__WriteFileBytes".to_string(),
+            FunctionSignature {
+                name: "__WriteFileBytes".to_string(),
+                parameters: vec![
+                    Parameter { name: "fd".to_string(), param_type: Type::Int },
+                    Parameter { name: "data".to_string(), param_type: Type::Array(Box::new(Type::Int)) },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
         env.define_function(
             "__Sqrt".to_string(),
             FunctionSignature {
@@ -303,8 +389,8 @@ impl TypeChecker {
             FunctionSignature {
                 name: "__ReadFile".to_string(),
                 parameters: vec![Parameter {
-                    name: "path".to_string(),
-                    param_type: Type::String,
+                    name: "path_or_fd".to_string(),
+                    param_type: Type::Unknown,
                 }],
                 return_type: Some(Type::String),
             },
@@ -315,15 +401,15 @@ impl TypeChecker {
                 name: "__WriteFile".to_string(),
                 parameters: vec![
                     Parameter {
-                        name: "path".to_string(),
-                        param_type: Type::String,
+                        name: "path_or_fd".to_string(),
+                        param_type: Type::Unknown,
                     },
                     Parameter {
                         name: "content".to_string(),
                         param_type: Type::String,
                     },
                 ],
-                return_type: Some(Type::Bool),
+                return_type: Some(Type::Int),
             },
         );
         env.define_function(
@@ -759,8 +845,214 @@ impl TypeChecker {
         // Special handling for commonly imported modules - add stubs for known functions
         // This allows the self-hosted compiler to reference standard functions
         let module_name = module_path.join(".");
+        println!("DEBUG: Handling import: {}", module_name);
 
         match module_name.as_str() {
+            "core.result" => {
+                println!("DEBUG: Stubbing core.result");
+                // Define Result<T, E>
+                let mut fields = HashMap::new();
+                fields.insert("isOk".to_string(), Type::Bool);
+                fields.insert(
+                    "okStorage".to_string(),
+                    Type::Array(Box::new(Type::Generic("T".to_string()))),
+                );
+                fields.insert(
+                    "errStorage".to_string(),
+                    Type::Array(Box::new(Type::Generic("E".to_string()))),
+                );
+
+                let result_type = Type::Struct {
+                    name: "Result".to_string(),
+                    fields,
+                    generics: vec![
+                        Type::Generic("T".to_string()),
+                        Type::Generic("E".to_string()),
+                    ],
+                };
+
+                self.env
+                    .define_type("Result".to_string(), result_type.clone());
+
+                // Define Ok<T, E>(value: T) -> Result<T, E>
+                self.env.define_function(
+                    "Ok".to_string(),
+                    FunctionSignature {
+                        name: "Ok".to_string(),
+                        parameters: vec![Parameter {
+                            name: "value".to_string(),
+                            param_type: Type::Generic("T".to_string()),
+                        }],
+                        return_type: Some(result_type.clone()),
+                    },
+                );
+
+                // Define Err<T, E>(error: E) -> Result<T, E>
+                self.env.define_function(
+                    "Err".to_string(),
+                    FunctionSignature {
+                        name: "Err".to_string(),
+                        parameters: vec![Parameter {
+                            name: "error".to_string(),
+                            param_type: Type::Generic("E".to_string()),
+                        }],
+                        return_type: Some(result_type.clone()),
+                    },
+                );
+            }
+            "core.unit" => {
+                self.env.define_type(
+                    "Unit".to_string(),
+                    Type::Struct {
+                        name: "Unit".to_string(),
+                        fields: HashMap::new(),
+                        generics: vec![],
+                    },
+                );
+            }
+            "core.option" => {
+                // Define Option<T>
+                let mut fields = HashMap::new();
+                fields.insert("hasValue".to_string(), Type::Bool);
+                fields.insert(
+                    "storage".to_string(),
+                    Type::Array(Box::new(Type::Generic("T".to_string()))),
+                );
+
+                let option_type = Type::Struct {
+                    name: "Option".to_string(),
+                    fields,
+                    generics: vec![Type::Generic("T".to_string())],
+                };
+
+                self.env
+                    .define_type("Option".to_string(), option_type.clone());
+
+                // Define Some<T>(value: T) -> Option<T>
+                self.env.define_function(
+                    "Some".to_string(),
+                    FunctionSignature {
+                        name: "Some".to_string(),
+                        parameters: vec![Parameter {
+                            name: "value".to_string(),
+                            param_type: Type::Generic("T".to_string()),
+                        }],
+                        return_type: Some(option_type.clone()),
+                    },
+                );
+
+                // Define None<T>() -> Option<T>
+                self.env.define_function(
+                    "None".to_string(),
+                    FunctionSignature {
+                        name: "None".to_string(),
+                        parameters: vec![],
+                        return_type: Some(option_type.clone()),
+                    },
+                );
+            }
+            "io.file" => {
+                // readText(path: String) -> String
+                self.env.define_function(
+                    "readText".to_string(),
+                    FunctionSignature {
+                        name: "readText".to_string(),
+                        parameters: vec![Parameter {
+                            name: "path".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::String),
+                    },
+                );
+                // writeText(path: String, content: String) -> Bool
+                self.env.define_function(
+                    "writeText".to_string(),
+                    FunctionSignature {
+                        name: "writeText".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "path".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "content".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+            }
+            "process.process" => {
+                // CommandResult struct
+                let mut fields = HashMap::new();
+                fields.insert("success".to_string(), Type::Bool);
+                fields.insert("output".to_string(), Type::String);
+                let cmd_res_type = Type::Struct {
+                    name: "CommandResult".to_string(),
+                    fields,
+                    generics: vec![],
+                };
+                self.env
+                    .define_type("CommandResult".to_string(), cmd_res_type.clone());
+
+                // runCommand(cmd: String) -> CommandResult
+                self.env.define_function(
+                    "runCommand".to_string(),
+                    FunctionSignature {
+                        name: "runCommand".to_string(),
+                        parameters: vec![Parameter {
+                            name: "command".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(cmd_res_type.clone()),
+                    },
+                );
+
+                // commandWasSuccessful(res: CommandResult) -> Bool
+                self.env.define_function(
+                    "commandWasSuccessful".to_string(),
+                    FunctionSignature {
+                        name: "commandWasSuccessful".to_string(),
+                        parameters: vec![Parameter {
+                            name: "result".to_string(),
+                            param_type: cmd_res_type.clone(),
+                        }],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+            }
+            "env.env" => {
+                // args() -> Array<String>
+                self.env.define_function(
+                    "args".to_string(),
+                    FunctionSignature {
+                        name: "args".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Array(Box::new(Type::String))),
+                    },
+                );
+            }
+            "collections.list_utils" => {
+                // push<T>(list: Array<T>, item: T) -> Void
+                self.env.define_function(
+                    "push".to_string(),
+                    FunctionSignature {
+                        name: "push".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "list".to_string(),
+                                param_type: Type::Array(Box::new(Type::Generic("T".to_string()))),
+                            },
+                            Parameter {
+                                name: "item".to_string(),
+                                param_type: Type::Generic("T".to_string()),
+                            },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+            }
             "bootstrap.frontend" => {
                 // Add known exports from bootstrap.frontend
                 for symbol in symbols {
@@ -1203,6 +1495,13 @@ impl TypeChecker {
         // This makes functions from all bundled modules visible to each other
         self.populate_prelude(program);
 
+        // Process imports early so types and functions are available for class/struct definitions
+        for expression in &program.expressions {
+            if let Expression::Import { .. } = expression {
+                self.check_expression(expression);
+            }
+        }
+
         // Predeclare type names first (placeholders with empty fields)
         self.predeclare_types(program);
 
@@ -1234,6 +1533,9 @@ impl TypeChecker {
                 | Expression::EnumDefinition { .. }
                 | Expression::Interface { .. } => {
                     // Already processed above
+                }
+                Expression::Import { .. } => {
+                    // Already processed early
                 }
                 _ => {
                     self.check_expression(expression);
@@ -1860,6 +2162,35 @@ impl TypeChecker {
                 pos,
             } => self.check_extension(target_type, methods, *pos),
 
+            Expression::Return { value, pos } => {
+                if let Some(val) = value {
+                    let val_type = self.check_expression(val);
+                    // Check against current function return type
+                    if let Some(expected) = &self.current_function_return_type {
+                        if !val_type.is_assignable_to(expected) {
+                            self.result.add_error(TypeError::TypeMismatch {
+                                expected: expected.clone(),
+                                actual: val_type.clone(),
+                                position: *pos,
+                            });
+                        }
+                    }
+                    Type::Never // Return diverges
+                } else {
+                    // Return Unit
+                    if let Some(expected) = &self.current_function_return_type {
+                        if !Type::Unit.is_assignable_to(expected) {
+                            self.result.add_error(TypeError::TypeMismatch {
+                                expected: expected.clone(),
+                                actual: Type::Unit,
+                                position: *pos,
+                            });
+                        }
+                    }
+                    Type::Never
+                }
+            }
+
             // For now, treat other expression types as unknown
             _ => Type::Unknown,
         }
@@ -2179,7 +2510,7 @@ impl TypeChecker {
         pos: Position,
     ) -> Type {
         // Complete call checking with full type resolution
-        if let Expression::Identifier { name, .. } = callee {
+        if let Expression::Identifier { name, type_args, .. } = callee {
             if name == "Channel" {
                 if args.len() > 1 {
                     self.result.add_error(TypeError::ArgumentCountMismatch {
@@ -2247,11 +2578,55 @@ impl TypeChecker {
             }
 
             // Try to find function in environment first, then prelude
-            let signature = self
+            let mut signature = self
                 .env
                 .get_function(name)
                 .cloned()
                 .or_else(|| self.prelude.get(name).cloned());
+
+            // Hack for Result types until we have proper generic function support
+            if !type_args.is_empty() && (name == "Ok" || name == "Err") {
+                if let Some(sig) = &mut signature {
+                    // Substitute T and E in parameters and return type
+                    // Resolve type args first
+                    let resolved_args: Vec<Type> = type_args
+                        .iter()
+                        .map(|t| self.resolve_ast_type(t, pos))
+                        .collect();
+                        
+                    let t_type = resolved_args.get(0).unwrap_or(&Type::Unknown).clone();
+                    let e_type = resolved_args.get(1).unwrap_or(&Type::Unknown).clone();
+                    
+                    // Helper to substitute (simple version for Result types)
+                    let sub = |ty: &Type| -> Type {
+                        match ty {
+                            Type::Generic(n) if n == "T" => t_type.clone(),
+                            Type::Generic(n) if n == "E" => e_type.clone(),
+                            Type::Struct { name, fields, generics } => {
+                                Type::Struct {
+                                    name: name.clone(),
+                                    fields: fields.clone(),
+                                    generics: generics.iter().map(|g| {
+                                        match g {
+                                            Type::Generic(n) if n == "T" => t_type.clone(),
+                                            Type::Generic(n) if n == "E" => e_type.clone(),
+                                            _ => g.clone()
+                                        }
+                                    }).collect()
+                                }
+                            }
+                            _ => ty.clone()
+                        }
+                    };
+
+                    for param in &mut sig.parameters {
+                        param.param_type = sub(&param.param_type);
+                    }
+                    if let Some(ret) = &sig.return_type {
+                        sig.return_type = Some(sub(ret));
+                    }
+                }
+            }
 
             if let Some(signature) = signature {
                 // Special handling for super - it's variadic and validated by inheritance

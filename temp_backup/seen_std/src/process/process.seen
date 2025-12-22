@@ -7,7 +7,7 @@ import str.string.{StringBuilder}
 extern fun __ExecuteProgram(path: String): Int
 extern fun __ExecuteCommand(command: String): CommandResult
 
-struct CommandResult {
+data CommandResult {
     success: Bool
     output: String
 }

@@ -101,7 +101,7 @@ func test_structs() {
     assert_eq(older_person.name, "Alice"); // Other fields unchanged
 }
 
-struct Person {
+data Person {
     name: str,
     age: i32,
     email: str

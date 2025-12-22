@@ -5,7 +5,7 @@ import std::time::Instant
 import std::collections::Vec
 
 // Benchmark configuration for arithmetic operations
-struct ArithmeticBenchmarkConfig {
+data ArithmeticBenchmarkConfig {
     iterations: i32,
     data_size: i32,
     include_division: bool,

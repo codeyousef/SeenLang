@@ -1,7 +1,7 @@
 // Binary Trees Benchmark
 // Memory allocation and pointer chasing
 
-struct TreeNode {
+data TreeNode {
     item: Int,
     left: Option<TreeNode>,
     right: Option<TreeNode>,

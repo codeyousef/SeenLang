@@ -48,7 +48,7 @@ if [ -f "src/main_compiler.seen" ]; then
     echo "      - LLVM backend with -O3 + LTO"
     
     # Use the bootstrap compiler to build the self-hosted version
-    if ../target-wsl/release/seen build; then
+    if ../target-wsl/release/seen build src/main.seen; then
         echo "   ✅ Self-hosted compiler built successfully!"
         echo "   📍 Location: compiler_seen/target/native/release/seen_compiler"
         

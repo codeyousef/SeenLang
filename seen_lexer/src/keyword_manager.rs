@@ -224,7 +224,7 @@ impl KeywordManager {
         keywords.insert("let".to_string(), "KeywordLet".to_string());
         keywords.insert("mut".to_string(), "KeywordMut".to_string());
         keywords.insert("const".to_string(), "KeywordConst".to_string());
-        keywords.insert("struct".to_string(), "KeywordStruct".to_string());
+        keywords.insert("data".to_string(), "KeywordStruct".to_string());
         keywords.insert("enum".to_string(), "KeywordEnum".to_string());
         keywords.insert("trait".to_string(), "KeywordTrait".to_string());
         keywords.insert("impl".to_string(), "KeywordImpl".to_string());

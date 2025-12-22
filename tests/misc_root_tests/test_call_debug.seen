@@ -1,4 +1,4 @@
-struct Matrix {
+data Matrix {
     rows: int,
     cols: int,
 }

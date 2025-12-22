@@ -1,12 +1,12 @@
 // seen_std.core.result
 // Deterministic Result<T, E> container compatible with the bootstrap type checker.
 
-class Result<T, E> {
+pub class Result<T, E> {
     var isOk: Bool
     var okStorage: Array<T>
     var errStorage: Array<E>
 
-    fun new() -> Result<T, E> {
+    pub fun new() -> Result<T, E> {
         return Result{
             isOk: true,
             okStorage: Array<T>(),
@@ -15,13 +15,13 @@ class Result<T, E> {
     }
 }
 
-fun Ok<T, E>(value: T) -> Result<T, E> {
+pub fun Ok<T, E>(value: T) -> Result<T, E> {
     let result = Result<T, E>.new()
     result.storeOk(value)
     return result
 }
 
-fun Err<T, E>(error: E) -> Result<T, E> {
+pub fun Err<T, E>(error: E) -> Result<T, E> {
     let result = Result<T, E>.new()
     result.storeErr(error)
     return result

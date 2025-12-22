@@ -87,7 +87,7 @@ class SeenLspServer {
                 semanticTokensProvider: SemanticTokensOptions{
                     legend: SemanticTokensLegend{
                         tokenTypes: [
-                            "namespace", "class", "enum", "interface", "struct",
+                            "namespace", "class", "enum", "interface", "data",
                             "typeParameter", "parameter", "variable", "property",
                             "enumMember", "function", "method", "keyword",
                             "comment", "string", "number", "operator"

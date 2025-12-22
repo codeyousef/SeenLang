@@ -8,7 +8,7 @@ import std::json
 import std::time::SystemTime
 
 // Report configuration
-struct ReportConfig {
+data ReportConfig {
     output_directory: String,
     include_raw_data: bool,
     include_statistical_details: bool,
@@ -753,21 +753,21 @@ class BenchmarkReporter {
 }
 
 // Supporting data structures
-struct ReportGenerationResult {
+data ReportGenerationResult {
     report_id: String,
     timestamp: SystemTime,
     results: Vec<FormatResult>,
     summary: ExecutiveSummary,
 }
 
-struct FormatResult {
+data FormatResult {
     format: String,
     success: bool,
     file_path: Option<String>,
     error: Option<String>,
 }
 
-struct JsonReport {
+data JsonReport {
     metadata: ReportMetadata,
     results: ComprehensiveResults,
     statistical_comparisons: Vec<StatisticalComparison>,
@@ -775,7 +775,7 @@ struct JsonReport {
     executive_summary: ExecutiveSummary,
 }
 
-struct ReportMetadata {
+data ReportMetadata {
     report_id: String,
     timestamp: SystemTime,
     seen_version: String,
@@ -783,7 +783,7 @@ struct ReportMetadata {
     benchmark_config: BenchmarkConfig,
 }
 
-struct ExecutiveSummary {
+data ExecutiveSummary {
     total_benchmarks: i32,
     seen_jit_faster_count: i32,
     seen_aot_faster_count: i32,

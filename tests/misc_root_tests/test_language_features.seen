@@ -32,7 +32,7 @@ fun testFloatLiterals() {
 }
 
 fun testStructMutation() {
-    // Simplified - struct definitions need work
+    // Simplified - data definitions need work
     println("Struct test: skipped (needs parser fix)")
 }
 

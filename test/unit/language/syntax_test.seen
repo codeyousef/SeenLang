@@ -109,7 +109,7 @@ fun TestExpressions() -> String {
 }
 
 // 8. Struct with visibility rules
-struct User {                      // Public struct (capital U)
+data User {                      // Public data (capital U)
     Name: String                   // Public field (capital N)
     Age: Int                       // Public field (capital A)
     password: String               // Private field (lowercase p)

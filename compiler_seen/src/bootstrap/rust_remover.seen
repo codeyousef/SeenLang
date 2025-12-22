@@ -2,7 +2,7 @@ import str.string.{lines, trim, StringBuilder}
 import io.file.{readText, writeText, createDirectory, deleteFile}
 import process.process.{execCommand as runCommand, shellQuote, CommandResult, commandWasSuccessful, commandOutput}
 
-struct RemovalResult {
+data RemovalResult {
     success: Bool
     message: String
     files_removed: Array<String>

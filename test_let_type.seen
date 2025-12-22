@@ -1,0 +1,4 @@
+fun main() {
+    let i: Int = 0
+    abort("Let explicit type worked")
+}

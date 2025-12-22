@@ -7,7 +7,7 @@ import std::ptr
 import std::mem
 
 // Memory benchmark configuration
-struct MemoryBenchmarkConfig {
+data MemoryBenchmarkConfig {
     iterations: i32,
     allocation_sizes: Vec<usize>,
     test_patterns: Vec<String>, // "sequential", "random", "strided"

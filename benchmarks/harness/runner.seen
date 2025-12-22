@@ -10,7 +10,7 @@ import std::fs
 import std::string
 
 // Configuration for benchmark execution
-struct BenchmarkConfig {
+data BenchmarkConfig {
     iterations: i32,
     warmup_runs: i32,
     timeout_seconds: i32,
@@ -46,7 +46,7 @@ impl BenchmarkConfig {
 }
 
 // Results for a single benchmark run
-struct BenchmarkResult {
+data BenchmarkResult {
     name: String,
     language: String,
     execution_mode: String, // "jit", "aot", "native"
@@ -60,7 +60,7 @@ struct BenchmarkResult {
 }
 
 // Statistical summary of multiple benchmark runs
-struct StatisticalSummary {
+data StatisticalSummary {
     name: String,
     language: String,
     sample_size: i32,
@@ -77,7 +77,7 @@ struct StatisticalSummary {
 }
 
 // Performance comparison between languages
-struct PerformanceComparison {
+data PerformanceComparison {
     benchmark_name: String,
     seen_jit: StatisticalSummary,
     seen_aot: StatisticalSummary,
@@ -374,19 +374,19 @@ class BenchmarkRunner {
 }
 
 // Supporting data structures
-struct ComprehensiveResults {
+data ComprehensiveResults {
     timestamp: time::SystemTime,
     config: BenchmarkConfig,
     system_info: SystemInfo,
     category_results: HashMap<String, CategoryResults>,
 }
 
-struct CategoryResults {
+data CategoryResults {
     category: String,
     benchmarks: HashMap<String, BenchmarkResults>,
 }
 
-struct BenchmarkResults {
+data BenchmarkResults {
     benchmark_name: String,
     seen_jit: Option<StatisticalSummary>,
     seen_aot: Option<StatisticalSummary>,
@@ -408,7 +408,7 @@ impl BenchmarkResults {
     }
 }
 
-struct ClaimValidationReport {
+data ClaimValidationReport {
     claims_tested: Vec<String>,
     claims_validated: Vec<String>,
     claims_failed: Vec<String>,

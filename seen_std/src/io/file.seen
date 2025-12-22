@@ -3,51 +3,51 @@ import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
 
 class File {
-    var handle: Int
+    var fd: Int
     var path: String
     
     fun open(path: String) -> Result<File, String> {
-        let handle = __OpenFile(path, "r")
-        if handle < 0 {
+        let file_desc = __OpenFile(path, "r")
+        if file_desc < 0 {
             return Err<File, String>("Failed to open file: " + path)
         }
-        return Ok<File, String>(File { handle: handle, path: path })
+        return Ok<File, String>(File { fd: file_desc, path: path })
     }
     
     fun create(path: String) -> Result<File, String> {
-        let handle = __OpenFile(path, "w")
-        if handle < 0 {
+        let file_desc = __OpenFile(path, "w")
+        if file_desc < 0 {
             return Err<File, String>("Failed to create file: " + path)
         }
-        return Ok<File, String>(File { handle: handle, path: path })
+        return Ok<File, String>(File { fd: file_desc, path: path })
     }
     
     fun readToString() -> Result<String, String> {
-        let content = __ReadFile(this.handle)
-        if content == "" and __FileError(this.handle) {
+        let content = __ReadFile(this.fd)
+        if content == "" and __FileError(this.fd) != "" {
             return Err<String, String>("Failed to read file")
         }
         return Ok<String, String>(content)
     }
     
-    fun read_bytes() -> Result<Array<Byte>, String> {
-        let bytes = __ReadFileBytes(this.handle)
-        if bytes.len() == 0 and __FileError(this.handle) {
+    fun read_bytes(size: Int) -> Result<Array<Int>, String> {
+        let bytes = __ReadFileBytes(this.fd, size)
+        if bytes.len() == 0 and __FileError(this.fd) != "" {
             return Err("Failed to read file")
         }
         Ok(bytes)
     }
     
     fun write(content: String) -> Result<Int, String> {
-        let written = __WriteFile(this.handle, content)
+        let written = __WriteFile(this.fd, content)
         if written < 0 {
             return Err("Failed to write to file")
         }
         Ok(written)
     }
     
-    fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
-        let written = __WriteFileBytes(this.handle, bytes)
+    fun write_bytes(bytes: Array<Int>) -> Result<Int, String> {
+        let written = __WriteFileBytes(this.fd, bytes)
         if written < 0 {
             return Err("Failed to write bytes to file")
         }
@@ -55,7 +55,7 @@ class File {
     }
     
     fun close() -> Result<Unit, String> {
-        let result = __CloseFile(this.handle)
+        let result = __CloseFile(this.fd)
         if result < 0 {
             return Err("Failed to close file")
         }
@@ -63,7 +63,7 @@ class File {
     }
     
     fun size() -> Result<Int, String> {
-        let size = __FileSize(this.handle)
+        let size = __FileSize(this.fd)
         if size < 0 {
             return Err("Failed to get file size")
         }
@@ -72,27 +72,40 @@ class File {
 }
 
 fun read_to_string(path: String) -> Result<String, String> {
-    match File.open(path) {
-        Ok(file) => {
-            let content = file.readToString()
-            let _ = file.close()
-            content
-        },
-        Err(e) => Err(e)
+    let res = File.open(path)
+    if res.isOk() {
+        let f = res.unwrap()
+        let content = f.readToString()
+        let _ = f.close()
+        return content
     }
+    return Err(res.unwrapErr())
 }
 
 fun write_string(path: String, content: String) -> Result<Unit, String> {
-    match File.create(path) {
-        Ok(file) => {
-            match file.write(content) {
-                Ok(_) => {
-                    let _ = file.close()
-                    Ok(Unit{})
-                },
-                Err(e) => Err(e)
-            }
-        },
-        Err(e) => Err(e)
+    let res = File.create(path)
+    if res.isOk() {
+        let f = res.unwrap()
+        let writeRes = f.write(content)
+        if writeRes.isOk() {
+            let _ = f.close()
+            return Ok(Unit{})
+        }
+        let _ = f.close()
+        return Err(writeRes.unwrapErr())
     }
+    return Err(res.unwrapErr())
+}
+
+fun readText(path: String) -> String {
+    let res = read_to_string(path)
+    if res.isOk() {
+        return res.unwrap()
+    }
+    return ""
+}
+
+fun writeText(path: String, content: String) -> Bool {
+    let res = write_string(path, content)
+    return res.isOk()
 }

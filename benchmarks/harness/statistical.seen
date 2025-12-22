@@ -6,7 +6,7 @@ import std::collections::HashMap
 import std::math
 
 // Statistical summary with comprehensive metrics
-struct StatisticalSummary {
+data StatisticalSummary {
     name: String,
     language: String,
     execution_mode: String,
@@ -38,7 +38,7 @@ struct StatisticalSummary {
 }
 
 // Statistical comparison between two languages/implementations
-struct StatisticalComparison {
+data StatisticalComparison {
     benchmark_name: String,
     baseline_language: String,
     comparison_language: String,
@@ -61,7 +61,7 @@ struct StatisticalComparison {
 }
 
 // Claim validation result
-struct ClaimValidationResult {
+data ClaimValidationResult {
     claim_name: String,
     claim_description: String,
     measured_value: f64,
@@ -578,7 +578,7 @@ class StatisticalAnalyzer {
 }
 
 // Supporting data structures
-struct DescriptiveStats {
+data DescriptiveStats {
     mean: f64,
     median: f64,
     std_dev: f64,
@@ -602,20 +602,20 @@ impl DescriptiveStats {
     }
 }
 
-struct Percentiles {
+data Percentiles {
     p50: f64,
     p90: f64,
     p95: f64,
     p99: f64,
 }
 
-struct ConfidenceInterval {
+data ConfidenceInterval {
     lower: f64,
     upper: f64,
     confidence_level: f64,
 }
 
-struct TTestResult {
+data TTestResult {
     t_statistic: f64,
     p_value: f64,
     degrees_of_freedom: i32,

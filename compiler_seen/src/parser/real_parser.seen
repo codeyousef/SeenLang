@@ -415,7 +415,7 @@ class RealParser {
     }
 }
 
-struct ImportPathInfo {
+data ImportPathInfo {
     Text: String
     Segments: Array<String>
 }

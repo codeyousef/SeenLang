@@ -170,15 +170,15 @@ File: benchmarks/production/04_fasta.seen
 ### 9. N-Body Simulation
 ```
 Status: ❌ FAILING
-Error: Struct field access
-Issue: "Cannot infer struct type for field access 'x'"
+Error: Data field access
+Issue: "Cannot infer data type for field access 'x'"
 File: benchmarks/production/05_nbody.seen
 ```
 
 **Fix Required:**
-- Improve struct field access type inference
+- Improve data field access type inference
 - Variable shadowing fixed (renamed loop variables)
-- Core struct operations need better IR support
+- Core data operations need better IR support
 
 ### 10. LRU Cache
 ```
@@ -291,7 +291,7 @@ Based on the working benchmarks, Seen demonstrates:
 
 ### 4. Variable Shadowing Fixed ✅
 - Renamed conflicting variables in N-Body
-- **Result:** Variable errors resolved (but struct issues remain)
+- **Result:** Variable errors resolved (but data issues remain)
 
 ### 5. String Concatenation ✅
 - Implemented `+` operator for strings in LLVM backend
@@ -302,8 +302,8 @@ Based on the working benchmarks, Seen demonstrates:
 ## Next Steps
 
 ### High Priority (Blocks 50% of benchmarks)
-1. **Fix Struct Field Access** ⭐
-   - Improve struct type inference in IR
+1. **Fix Data Field Access** ⭐
+   - Improve data type inference in IR
    - Handle field access without explicit type annotations
    - **Impact:** Fixes N-Body benchmark
 
@@ -344,7 +344,7 @@ Key strengths:
 - Numerical and algorithmic workloads perform well
 
 Key weaknesses:
-- Struct field access type inference incomplete
+- Data field access type inference incomplete
 - Method resolution incomplete
 - String concatenation runtime issues  
 - Match expressions not implemented
@@ -354,7 +354,7 @@ Key weaknesses:
 - **Session 2:** 50% success rate (5/10 benchmarks)
 - **Improvement:** +67% more benchmarks working
 
-**With fixes to struct field access and method resolution, success rate could reach 70-80%.**
+**With fixes to data field access and method resolution, success rate could reach 70-80%.**
 
 ---
 

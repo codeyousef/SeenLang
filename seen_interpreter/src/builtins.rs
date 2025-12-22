@@ -6,8 +6,25 @@ use seen_concurrency::types::{Channel, ChannelId};
 use seen_parser::Position;
 use std::collections::HashMap;
 use std::fs;
+use std::io::{Read, Write};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static FILE_REGISTRY: OnceLock<Mutex<HashMap<i64, fs::File>>> = OnceLock::new();
+static NEXT_HANDLE: OnceLock<Mutex<i64>> = OnceLock::new();
+
+fn get_file_registry() -> &'static Mutex<HashMap<i64, fs::File>> {
+    FILE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn get_next_handle() -> i64 {
+    let mutex = NEXT_HANDLE.get_or_init(|| Mutex::new(1));
+    let mut lock = mutex.lock().unwrap();
+    let handle = *lock;
+    *lock += 1;
+    handle
+}
 
 /// Type signature for built-in functions
 pub type BuiltinFunction = fn(&[Value], Position) -> InterpreterResult<Value>;
@@ -58,6 +75,12 @@ impl BuiltinRegistry {
         registry.register_exact("__GetTimestamp", builtin_get_timestamp, 0);
         registry.register_exact("__ReadFile", builtin_read_file, 1);
         registry.register_exact("__WriteFile", builtin_write_file, 2);
+        registry.register_exact("__OpenFile", builtin_open_file, 2);
+        registry.register_exact("__CloseFile", builtin_close_file, 1);
+        registry.register_exact("__FileSize", builtin_file_size, 1);
+        registry.register_exact("__FileError", builtin_file_error, 1);
+        registry.register_exact("__ReadFileBytes", builtin_read_file_bytes, 1);
+        registry.register_exact("__WriteFileBytes", builtin_write_file_bytes, 2);
         registry.register_exact("__CreateDirectory", builtin_create_directory, 1);
         registry.register_exact("__DeleteFile", builtin_delete_file, 1);
         registry.register_exact("__ExecuteProgram", builtin_execute_program, 1);
@@ -481,20 +504,143 @@ fn builtin_get_timestamp(_args: &[Value], _position: Position) -> InterpreterRes
     Ok(Value::String(now.as_secs().to_string()))
 }
 
-fn builtin_read_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+fn builtin_open_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
     let path = args[0].to_string();
-    match fs::read_to_string(&path) {
-        Ok(s) => Ok(Value::String(s)),
-        Err(_) => Ok(Value::String(String::new())), // Align with Seen stubs' empty-string-on-fail pattern
+    let mode = args[1].to_string();
+    
+    let file = match mode.as_str() {
+        "r" => fs::File::open(&path),
+        "w" => fs::File::create(&path),
+        "a" => fs::OpenOptions::new().append(true).create(true).open(&path),
+        _ => return Ok(Value::Integer(-1)),
+    };
+
+    match file {
+        Ok(f) => {
+            let handle = get_next_handle();
+            get_file_registry().lock().unwrap().insert(handle, f);
+            Ok(Value::Integer(handle))
+        }
+        Err(_) => Ok(Value::Integer(-1)),
+    }
+}
+
+fn builtin_close_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    if let Value::Integer(handle) = args[0] {
+        let mut registry = get_file_registry().lock().unwrap();
+        if registry.remove(&handle).is_some() {
+            Ok(Value::Integer(0))
+        } else {
+            Ok(Value::Integer(-1))
+        }
+    } else {
+        Ok(Value::Integer(-1))
+    }
+}
+
+fn builtin_read_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    match &args[0] {
+        Value::Integer(handle) => {
+            let mut registry = get_file_registry().lock().unwrap();
+            if let Some(file) = registry.get_mut(&handle) {
+                let mut content = String::new();
+                match file.read_to_string(&mut content) {
+                    Ok(_) => Ok(Value::String(content)),
+                    Err(_) => Ok(Value::String(String::new())),
+                }
+            } else {
+                Ok(Value::String(String::new()))
+            }
+        }
+        _ => {
+            let path = args[0].to_string();
+            match fs::read_to_string(&path) {
+                Ok(s) => Ok(Value::String(s)),
+                Err(_) => Ok(Value::String(String::new())),
+            }
+        }
     }
 }
 
 fn builtin_write_file(args: &[Value], _position: Position) -> InterpreterResult<Value> {
-    let path = args[0].to_string();
     let content = args[1].to_string();
-    match fs::write(&path, content) {
-        Ok(_) => Ok(Value::Boolean(true)),
-        Err(_) => Ok(Value::Boolean(false)),
+    match &args[0] {
+        Value::Integer(handle) => {
+            let mut registry = get_file_registry().lock().unwrap();
+            if let Some(file) = registry.get_mut(&handle) {
+                match file.write_all(content.as_bytes()) {
+                    Ok(_) => Ok(Value::Integer(content.len() as i64)),
+                    Err(_) => Ok(Value::Integer(-1)),
+                }
+            } else {
+                Ok(Value::Integer(-1))
+            }
+        }
+        _ => {
+            let path = args[0].to_string();
+            match fs::write(&path, content) {
+                Ok(_) => Ok(Value::Boolean(true)),
+                Err(_) => Ok(Value::Boolean(false)),
+            }
+        }
+    }
+}
+
+fn builtin_file_size(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    if let Value::Integer(handle) = args[0] {
+        let registry = get_file_registry().lock().unwrap();
+        if let Some(file) = registry.get(&handle) {
+            match file.metadata() {
+                Ok(m) => Ok(Value::Integer(m.len() as i64)),
+                Err(_) => Ok(Value::Integer(-1)),
+            }
+        } else {
+            Ok(Value::Integer(-1))
+        }
+    } else {
+        Ok(Value::Integer(-1))
+    }
+}
+
+fn builtin_file_error(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    if let Value::Integer(handle) = args[0] {
+        let registry = get_file_registry().lock().unwrap();
+        Ok(Value::Boolean(!registry.contains_key(&handle)))
+    } else {
+        Ok(Value::Boolean(true))
+    }
+}
+
+fn builtin_read_file_bytes(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    if let Value::Integer(handle) = args[0] {
+        let mut registry = get_file_registry().lock().unwrap();
+        if let Some(file) = registry.get_mut(&handle) {
+            let mut buffer = Vec::new();
+            match file.read_to_end(&mut buffer) {
+                Ok(_) => Ok(Value::Bytes(buffer)),
+                Err(_) => Ok(Value::Bytes(Vec::new())),
+            }
+        } else {
+            Ok(Value::Bytes(Vec::new()))
+        }
+    } else {
+        Ok(Value::Bytes(Vec::new()))
+    }
+}
+
+fn builtin_write_file_bytes(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    if let (Value::Integer(handle), Value::Bytes(bytes)) = (&args[0], &args[1]) {
+        let mut registry = get_file_registry().lock().unwrap();
+        if let Some(file) = registry.get_mut(&handle) {
+            match file.write_all(bytes) {
+                Ok(_) => Ok(Value::Integer(bytes.len() as i64)),
+                Err(_) => Ok(Value::Integer(-1)),
+            }
+        } else {
+            Ok(Value::Integer(-1))
+        }
+    } else {
+        Ok(Value::Integer(-1))
     }
 }
 

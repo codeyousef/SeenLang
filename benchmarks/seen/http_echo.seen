@@ -1,7 +1,7 @@
 // HTTP Echo Server Benchmark
 // Network I/O and connection handling simulation
 
-struct Connection {
+data Connection {
     id: Int,
     requests: Int,
     total_bytes: Int,

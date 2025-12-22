@@ -1,0 +1,52 @@
+warning: /mnt/Storage/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/Storage/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+   Compiling seen_cli v0.1.0 (/mnt/Storage/Projects/Rust/seenlang/seen_cli)
+   Compiling seen_typechecker v0.1.0 (/mnt/Storage/Projects/Rust/seenlang/seen_typechecker)
+warning: variable does not need to be mutable
+    --> seen_ir/src/generator.rs:2264:17
+     |
+2264 |             let mut function = self.generate_method_function(
+     |                 ----^^^^^^^^
+     |                 |
+     |                 help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_ir` (lib) generated 1 warning (run `cargo fix --lib -p seen_ir` to apply 1 suggestion)
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:795:8
+    |
+135 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+795 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling seen_memory_manager v0.1.0 (/mnt/Storage/Projects/Rust/seenlang/seen_memory_manager)
+   Compiling seen_lsp v0.1.0 (/mnt/Storage/Projects/Rust/seenlang/seen_lsp)
+warning: `seen_typechecker` (lib) generated 1 warning
+   Compiling seen_core v0.1.0 (/mnt/Storage/Projects/Rust/seenlang/seen_core)
+warning: unused import: `std::env::args`
+  --> seen_cli/src/main.rs:27:5
+   |
+27 | use std::env::args;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_cli` (bin "seen_cli") generated 1 warning (run `cargo fix --bin "seen_cli"` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.42s
+     Running `target/debug/seen_cli check compiler_seen/src/main.seen`
+Checking compiler_seen/src/main.seen
+DEBUG: Handling import: bootstrap.frontend
+DEBUG: Handling import: main_compiler
+DEBUG: Handling import: core.option
+DEBUG: Handling import: core.result
+DEBUG: Stubbing core.result
+DEBUG: Handling import: io.file
+DEBUG: Handling import: process.process
+DEBUG: Handling import: env.env
+DEBUG: Handling import: collections.list_utils
+✓ No errors found

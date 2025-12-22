@@ -116,7 +116,7 @@ Benchmarks heavily use arrays. Need to ensure:
 
 Matrix and other classes need reliable field access:
 
-1. Struct GEP generation for class fields
+1. Data GEP generation for class fields
 2. Method calls with `this` pointer
 3. Constructor initialization
 

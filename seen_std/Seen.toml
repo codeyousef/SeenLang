@@ -2,6 +2,7 @@
 name = "seen_std"
 version = "0.1.0"
 language = "en"
+visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
 edition = "2025"
 modules = [
