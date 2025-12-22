@@ -347,6 +347,8 @@ pub struct LlvmBackend<'ctx> {
     var_struct_types: HashMap<String, String>,
     // Register id -> struct type name (for field access on expression results)
     reg_struct_types: HashMap<u32, String>,
+    // Function name -> return struct type name (for call result tagging)
+    fn_return_struct_types: HashMap<String, String>,
     // Variable name -> array element struct type name (for array access -> field access patterns)
     var_array_element_struct: HashMap<String, String>,
     // Variable name -> true if it's a string (for string indexing)
@@ -409,6 +411,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             struct_types: HashMap::new(),
             var_struct_types: HashMap::new(),
             reg_struct_types: HashMap::new(),
+            fn_return_struct_types: HashMap::new(),
             var_array_element_struct: HashMap::new(),
             var_is_string: HashSet::new(),
             var_is_int_array: HashSet::new(),
@@ -504,6 +507,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             for func in funcs {
                 let f = self.declare_function(func)?;
                 fn_map.insert(func.name.clone(), f);
+                
+                // Track return struct type
+                if let IRType::Struct { name, .. } = &func.return_type {
+                    self.fn_return_struct_types.insert(func.name.clone(), name.clone());
+                }
             }
         }
 
@@ -3614,6 +3622,21 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if let Some(r) = result {
                     if let Some(ret) = call.try_as_basic_value().left() {
                         self.assign_value(r, ret)?;
+
+                        // Propagate return struct type info
+                        let func_name = match target {
+                            IRValue::Variable(name) => Some(name),
+                            IRValue::Function { name, .. } => Some(name),
+                            _ => None,
+                        };
+                        
+                        if let Some(name) = func_name {
+                            if let Some(struct_name) = self.fn_return_struct_types.get(name) {
+                                if let IRValue::Register(reg_id) = r {
+                                    self.reg_struct_types.insert(*reg_id, struct_name.clone());
+                                }
+                            }
+                        }
                     }
                 }
             }
