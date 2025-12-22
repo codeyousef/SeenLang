@@ -2565,6 +2565,27 @@ impl<'ctx> LlvmBackend<'ctx> {
                 // Handle known intrinsics
                 if let IRValue::Variable(name) = target {
                     match name.as_str() {
+                        "toFloat" => {
+                            // Convert integer to float
+                            if let Some(arg) = args.get(0) {
+                                let val = self.eval_value(arg, fn_map)?;
+                                let float_val = if val.is_float_value() {
+                                    val.into_float_value()
+                                } else if val.is_int_value() {
+                                    self.builder.build_signed_int_to_float(
+                                        val.into_int_value(),
+                                        self.ctx.f64_type(),
+                                        "toFloat"
+                                    )?
+                                } else {
+                                    self.ctx.f64_type().const_zero()
+                                };
+                                if let Some(r) = result {
+                                    self.assign_value(r, float_val.as_basic_value_enum())?;
+                                }
+                            }
+                            return Ok(());
+                        }
                         "__default" => {
                             // Return 0 (i64) as default value
                             if let Some(r) = result {
@@ -3222,6 +3243,39 @@ impl<'ctx> LlvmBackend<'ctx> {
                             }
                             return Ok(());
                         }
+                        "toFloat" | "__toFloat" => {
+                            // Convert Int to Float
+                            if let Some(arg) = args.get(0) {
+                                let val = self.eval_value(arg, fn_map)?;
+                                let f64_val = if val.is_float_value() {
+                                    val.into_float_value()
+                                } else if val.is_int_value() {
+                                    self.builder.build_signed_int_to_float(
+                                        val.into_int_value(),
+                                        self.ctx.f64_type(),
+                                        "i2f_toFloat",
+                                    )?
+                                } else if val.is_pointer_value() {
+                                    let int_val = self.builder.build_ptr_to_int(
+                                        val.into_pointer_value(),
+                                        self.i64_t,
+                                        "ptr2i_toFloat",
+                                    )?;
+                                    self.builder.build_signed_int_to_float(
+                                        int_val,
+                                        self.ctx.f64_type(),
+                                        "i2f_toFloat",
+                                    )?
+                                } else {
+                                    return Err(anyhow!("toFloat requires a numeric argument"));
+                                };
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, f64_val.as_basic_value_enum())?;
+                                }
+                            }
+                            return Ok(());
+                        }
                         "__ReadFile" => {
                             // FILE* f = fopen(path, "rb"); if !f return ""
                             let fnty = self.i8_ptr_t; // FILE* opaque as i8*
@@ -3679,12 +3733,22 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
                 for (i, a) in args.iter().enumerate() {
                     let v = self.eval_value(a, fn_map)?;
-                    // For Vec_push and Vec_set, bitcast float arg to i64
-                    if (is_vec_push && i == 1 && v.is_float_value()) || 
-                       (is_vec_set && i == 2 && v.is_float_value()) {
-                        let f64_val = v.into_float_value();
-                        let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_bitcast")?.into_int_value();
-                        call_args.push(as_i64.into());
+                    // For Vec_push and Vec_set, convert non-i64 values to i64
+                    let should_convert = (is_vec_push && i == 1) || (is_vec_set && i == 2);
+                    if should_convert {
+                        if v.is_float_value() {
+                            // Float: bitcast to i64 to preserve bits
+                            let f64_val = v.into_float_value();
+                            let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_bitcast")?.into_int_value();
+                            call_args.push(as_i64.into());
+                        } else if v.is_pointer_value() {
+                            // Pointer: convert to i64
+                            let ptr_val = v.into_pointer_value();
+                            let as_i64 = self.builder.build_ptr_to_int(ptr_val, self.i64_t, "ptr2i_vec")?;
+                            call_args.push(as_i64.into());
+                        } else {
+                            call_args.push(v.into());
+                        }
                     } else {
                         call_args.push(v.into());
                     }
