@@ -1,0 +1,17 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    var v = Vec<Float>.withCapacity(5);
+    v.push(1.5);
+    v.push(2.5);
+    v.push(3.5);
+    
+    println("Test Vec<Float>:");
+    var i = 0;
+    while i < 3 {
+        let x = v.get(i);
+        __PrintFloat(x);
+        i = i + 1;
+    }
+    println("Done!");
+}

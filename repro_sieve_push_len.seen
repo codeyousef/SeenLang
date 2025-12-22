@@ -1,0 +1,10 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Start");
+    let v = Vec<Int>.withCapacity(10);
+    println("Cap done");
+    v.push(123);
+    println("Push done");
+    println("Len: {v.len()}");
+}

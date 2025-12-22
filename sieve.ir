@@ -1,0 +1,736 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Vec = struct Vec
+type VecChunk = struct VecChunk
+type VecSlot = struct VecSlot
+
+; Functions
+fn Vec_capacity(self: struct Vec) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.totalCapacity -> %r8
+  ret %r8
+
+block_0:
+  ret %r8
+
+}
+
+fn Vec_clear(self: struct Vec) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  call %__ArrayNew (0) -> %r71
+  field_set %this.chunks = %r71
+  call %__ArrayNew (0) -> %r72
+  field_set %this.capacities = %r72
+  call %__ArrayNew (0) -> %r73
+  field_set %this.usage = %r73
+  field_set %this.length = 0
+  field_set %this.totalCapacity = 0
+  field_set %this.nextChunkSize = 8
+  ret 8
+
+}
+
+fn Vec_get(self: struct Vec, index: i64) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  call %Vec_locateSlot (%this, %index) -> %r58
+  store %r58 -> %slot
+  field_get %this.chunks -> %r59
+  field_get %slot.chunk -> %r60
+  arr_get %r59[%r60] -> %r61
+  field_get %r61.values -> %r62
+  field_get %slot.offset -> %r63
+  arr_get %r62[%r63] -> %r64
+  ret %r64
+
+block_0:
+  ret %r64
+
+}
+
+fn Vec_growChunk(self: struct Vec) -> i64 {
+  ; Local variables
+  i: i64
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  call %__ArrayNew (0) -> %r80
+  store struct VecChunk -> %chunk
+  store 0 -> %i
+  jmp .loop_start_21
+
+loop_start_21:
+  field_get %this.nextChunkSize -> %r81
+  lt %i %r81 -> %r82
+  jnot %r82 .loop_end_23
+
+loop_body_22:
+  call %__default () -> %r83
+  field_get %chunk.values -> %r84
+  call %push (%r84, %r83) -> %r85
+  add %i 1 -> %r86
+  store %r86 -> %i
+  jmp .loop_start_21
+
+loop_end_23:
+  field_get %this.chunks -> %r87
+  call %push (%r87, %chunk) -> %r88
+  field_get %this.nextChunkSize -> %r89
+  field_get %this.capacities -> %r90
+  call %push (%r90, %r89) -> %r91
+  field_get %this.usage -> %r92
+  call %push (%r92, 0) -> %r93
+  field_get %this.totalCapacity -> %r94
+  field_get %this.nextChunkSize -> %r95
+  add %r94 %r95 -> %r96
+  field_set %this.totalCapacity = %r96
+  field_get %this.nextChunkSize -> %r97
+  shl %r97 1 -> %r98
+  field_set %this.nextChunkSize = %r98
+  ret %r98
+
+}
+
+fn Vec_isEmpty(self: struct Vec) -> bool {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.length -> %r6
+  eq %r6 0 -> %r7
+  ret %r7
+
+block_0:
+  ret %r7
+
+}
+
+fn Vec_len(self: struct Vec) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.length -> %r5
+  ret %r5
+
+block_0:
+  ret %r5
+
+}
+
+fn Vec_locateSlot(self: struct Vec, index: i64) -> struct VecSlot {
+  ; Local variables
+  chunkIndex: i64
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  lt %index 0 -> %r99
+  field_get %this.length -> %r100
+  ge %index %r100 -> %r101
+  or %r99 %r101 -> %r102
+  jif %r102 .then_24
+
+block_0:
+  jmp .else_25
+
+then_24:
+  call %abort ("Vec index out of bounds") -> %r103
+  mov %r103 -> %r104
+  jmp .if_end_26
+
+else_25:
+  mov void -> %r104
+  jmp .if_end_26
+
+if_end_26:
+  store %index -> %remaining
+  store 0 -> %chunkIndex
+  jmp .loop_start_27
+
+loop_start_27:
+  field_get %this.chunks -> %r105
+  arr_len %r105 -> %r106
+  lt %chunkIndex %r106 -> %r107
+  jnot %r107 .loop_end_29
+
+loop_body_28:
+  field_get %this.usage -> %r108
+  arr_get %r108[%chunkIndex] -> %r109
+  store %r109 -> %chunkUsage
+  lt %remaining %chunkUsage -> %r110
+  jif %r110 .then_30
+
+block_1:
+  jmp .else_31
+
+then_30:
+  ret struct VecSlot
+
+block_2:
+  mov struct VecSlot -> %r111
+  jmp .if_end_32
+
+else_31:
+  mov void -> %r111
+  jmp .if_end_32
+
+if_end_32:
+  sub %remaining %chunkUsage -> %r112
+  store %r112 -> %remaining
+  add %chunkIndex 1 -> %r113
+  store %r113 -> %chunkIndex
+  jmp .loop_start_27
+
+loop_end_29:
+  call %abort ("Vec index out of bounds") -> %r114
+  ret struct VecSlot
+
+block_3:
+  ret struct VecSlot
+
+}
+
+fn Vec_new() -> struct Vec {
+; Entry: entry
+entry:
+  call %__ArrayNew (0) -> %r0
+  call %__ArrayNew (0) -> %r1
+  call %__ArrayNew (0) -> %r2
+  ret struct Vec
+
+block_0:
+  ret struct Vec
+
+}
+
+fn Vec_pop(self: struct Vec) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.length -> %r32
+  eq %r32 0 -> %r33
+  jif %r33 .then_6
+
+block_0:
+  jmp .else_7
+
+then_6:
+  call %abort ("Vec.pop() called on empty Vec") -> %r34
+  mov %r34 -> %r35
+  jmp .if_end_8
+
+else_7:
+  mov void -> %r35
+  jmp .if_end_8
+
+if_end_8:
+  field_get %this.chunks -> %r36
+  arr_len %r36 -> %r37
+  sub %r37 1 -> %r38
+  store %r38 -> %chunkIndex
+  jmp .loop_start_9
+
+loop_start_9:
+  ge %chunkIndex 0 -> %r39
+  field_get %this.usage -> %r40
+  arr_get %r40[%chunkIndex] -> %r41
+  eq %r41 0 -> %r42
+  and %r39 %r42 -> %r43
+  jnot %r43 .loop_end_11
+
+loop_body_10:
+  sub %chunkIndex 1 -> %r44
+  store %r44 -> %chunkIndex
+  jmp .loop_start_9
+
+loop_end_11:
+  lt %chunkIndex 0 -> %r45
+  jif %r45 .then_12
+
+block_1:
+  jmp .else_13
+
+then_12:
+  call %abort ("Vec internal state corrupted") -> %r46
+  mov %r46 -> %r47
+  jmp .if_end_14
+
+else_13:
+  mov void -> %r47
+  jmp .if_end_14
+
+if_end_14:
+  field_get %this.usage -> %r48
+  arr_get %r48[%chunkIndex] -> %r49
+  sub %r49 1 -> %r50
+  store %r50 -> %used
+  field_get %this.usage -> %r51
+  arr_set %r51[%chunkIndex] = %used
+  field_get %this.length -> %r52
+  sub %r52 1 -> %r53
+  field_set %this.length = %r53
+  field_get %this.chunks -> %r54
+  arr_get %r54[%chunkIndex] -> %r55
+  field_get %r55.values -> %r56
+  arr_get %r56[%used] -> %r57
+  ret %r57
+
+block_2:
+  ret %r57
+
+}
+
+fn Vec_push(self: struct Vec, value: i64) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.length -> %r9
+  field_get %this.totalCapacity -> %r10
+  ge %r9 %r10 -> %r11
+  jif %r11 .then_0
+
+block_0:
+  jmp .else_1
+
+then_0:
+  call %Vec_growChunk (%this) -> %r12
+  mov %r12 -> %r13
+  jmp .if_end_2
+
+else_1:
+  mov void -> %r13
+  jmp .if_end_2
+
+if_end_2:
+  field_get %this.chunks -> %r14
+  arr_len %r14 -> %r15
+  sub %r15 1 -> %r16
+  store %r16 -> %lastIndex
+  field_get %this.chunks -> %r17
+  arr_get %r17[%lastIndex] -> %r18
+  store %r18 -> %chunk
+  field_get %this.usage -> %r19
+  arr_get %r19[%lastIndex] -> %r20
+  store %r20 -> %used
+  field_get %chunk.values -> %r21
+  arr_len %r21 -> %r22
+  lt %used %r22 -> %r23
+  jif %r23 .then_3
+
+block_1:
+  jmp .else_4
+
+then_3:
+  field_get %chunk.values -> %r24
+  arr_set %r24[%used] = %value
+  mov %value -> %r25
+  jmp .if_end_5
+
+else_4:
+  field_get %chunk.values -> %r26
+  call %push (%r26, %value) -> %r27
+  mov %r27 -> %r25
+  jmp .if_end_5
+
+if_end_5:
+  add %used 1 -> %r28
+  field_get %this.usage -> %r29
+  arr_set %r29[%lastIndex] = %r28
+  field_get %this.length -> %r30
+  add %r30 1 -> %r31
+  field_set %this.length = %r31
+  ret %r31
+
+}
+
+fn Vec_reserve(self: struct Vec, capacity: i64) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  field_get %this.totalCapacity -> %r74
+  le %capacity %r74 -> %r75
+  jif %r75 .then_15
+
+block_0:
+  jmp .else_16
+
+then_15:
+  ret
+
+block_1:
+  mov void -> %r76
+  jmp .if_end_17
+
+else_16:
+  mov void -> %r76
+  jmp .if_end_17
+
+if_end_17:
+  jmp .loop_start_18
+
+loop_start_18:
+  field_get %this.totalCapacity -> %r77
+  lt %r77 %capacity -> %r78
+  jnot %r78 .loop_end_20
+
+loop_body_19:
+  call %Vec_growChunk (%this) -> %r79
+  jmp .loop_start_18
+
+loop_end_20:
+  ret void
+
+}
+
+fn Vec_set(self: struct Vec, index: i64, value: i64) -> i64 {
+  ; Local variables
+  this: struct Vec
+
+; Entry: entry
+entry:
+  mov %self -> %this
+  call %Vec_locateSlot (%this, %index) -> %r65
+  store %r65 -> %slot
+  field_get %this.chunks -> %r66
+  field_get %slot.chunk -> %r67
+  arr_get %r66[%r67] -> %r68
+  field_get %r68.values -> %r69
+  field_get %slot.offset -> %r70
+  arr_set %r69[%r70] = %value
+  ret %value
+
+}
+
+fn Vec_withCapacity(capacity: i64) -> struct Vec {
+  ; Local variables
+  vec: struct Vec
+
+; Entry: entry
+entry:
+  call %Vec_new () -> %r3
+  store %r3 -> %vec
+  call %Vec_reserve (%vec, %capacity) -> %r4
+  ret %vec
+
+block_0:
+  ret %vec
+
+}
+
+fn clear_bit(bits: struct Vec, idx: i64) -> void {
+  ; Local variables
+  val: i64
+
+; Entry: entry
+entry:
+  shr %idx 5 -> %r0
+  store %r0 -> %word
+  mod %idx 32 -> %r1
+  store %r1 -> %bit
+  call %Vec_get (%bits, %word) -> %r2
+  store %r2 -> %val
+  shl 1 %bit -> %r3
+  bnot %r3 -> %r4
+  band %val %r4 -> %r5
+  call %Vec_set (%bits, %word, %r5) -> %r6
+  ret %r6
+
+}
+
+fn compute_checksum(primes: struct Vec) -> i64 {
+  ; Local variables
+  i: i64
+  len: i64
+  sum: i64
+
+; Entry: entry
+entry:
+  store 0 -> %sum
+  store 0 -> %i
+  call %Vec_len (%primes) -> %r0
+  store %r0 -> %len
+  jmp .loop_start_51
+
+loop_start_51:
+  lt %i %len -> %r1
+  jnot %r1 .loop_end_53
+
+loop_body_52:
+  call %Vec_get (%primes, %i) -> %r2
+  add %sum %r2 -> %r3
+  store %r3 -> %sum
+  add %i 1 -> %r4
+  store %r4 -> %i
+  jmp .loop_start_51
+
+loop_end_53:
+  ret %sum
+
+block_0:
+  ret %sum
+
+}
+
+fn create_bit_array(size: i64) -> struct Vec {
+  ; Local variables
+  i: i64
+
+; Entry: entry
+entry:
+  add %size 31 -> %r0
+  shr %r0 5 -> %r1
+  store %r1 -> %words
+  call %__ArrayNew (%words) -> %r2
+  store %r2 -> %bits
+  store 0 -> %i
+  jmp .loop_start_33
+
+loop_start_33:
+  lt %i %words -> %r3
+  jnot %r3 .loop_end_35
+
+loop_body_34:
+  call %push (%bits, 4294967295) -> %r4
+  add %i 1 -> %r5
+  store %r5 -> %i
+  jmp .loop_start_33
+
+loop_end_35:
+  ret %bits
+
+block_0:
+  ret %bits
+
+}
+
+fn is_set(bits: struct Vec, idx: i64) -> bool {
+; Entry: entry
+entry:
+  shr %idx 5 -> %r0
+  store %r0 -> %word
+  mod %idx 32 -> %r1
+  store %r1 -> %bit
+  call %Vec_get (%bits, %word) -> %r2
+  shl 1 %bit -> %r3
+  band %r2 %r3 -> %r4
+  ne %r4 0 -> %r5
+  ret %r5
+
+}
+
+fn main() -> void {
+  ; Local variables
+  _: struct Vec
+  checksum: i64
+  limit: i64
+  prime_count: i64
+  primes: struct Vec
+  w: i64
+  warmup_runs: i64
+
+; Entry: entry
+entry:
+  store 10000000 -> %limit
+  call %println ("Sieve of Eratosthenes Benchmark") -> %r0
+  mov "" -> %r1
+  str_concat %r1 "Finding primes up to: " -> %r2
+  str_concat %r2 %limit -> %r3
+  call %println (%r3) -> %r4
+  store 3 -> %warmup_runs
+  mov "" -> %r5
+  str_concat %r5 "Warming up (" -> %r6
+  str_concat %r6 %warmup_runs -> %r7
+  str_concat %r7 " runs)..." -> %r8
+  call %println (%r8) -> %r9
+  store 0 -> %w
+  jmp .loop_start_54
+
+loop_start_54:
+  lt %w %warmup_runs -> %r10
+  jnot %r10 .loop_end_56
+
+loop_body_55:
+  call %sieve_of_eratosthenes (%limit) -> %r11
+  store %r11 -> %_
+  add %w 1 -> %r12
+  store %r12 -> %w
+  jmp .loop_start_54
+
+loop_end_56:
+  call %println ("Running measured iteration...") -> %r13
+  call %__GetTime () -> %r14
+  store %r14 -> %start
+  call %sieve_of_eratosthenes (%limit) -> %r15
+  store %r15 -> %primes
+  call %__GetTime () -> %r16
+  store %r16 -> %end
+  sub %end %start -> %r17
+  mul %r17 1000 -> %r18
+  store %r18 -> %time_ms
+  call %Vec_len (%primes) -> %r19
+  store %r19 -> %prime_count
+  call %compute_checksum (%primes) -> %r20
+  store %r20 -> %checksum
+  mov "" -> %r21
+  str_concat %r21 "Prime count: " -> %r22
+  str_concat %r22 %prime_count -> %r23
+  call %println (%r23) -> %r24
+  mov "" -> %r25
+  str_concat %r25 "Checksum: " -> %r26
+  str_concat %r26 %checksum -> %r27
+  call %println (%r27) -> %r28
+  mov "" -> %r29
+  str_concat %r29 "Time: " -> %r30
+  str_concat %r30 %time_ms -> %r31
+  str_concat %r31 " ms" -> %r32
+  call %println (%r32) -> %r33
+  cast %prime_count as f64 -> %r34
+  div %time_ms 1000 -> %r35
+  div %r34 %r35 -> %r36
+  store %r36 -> %pps
+  mov "" -> %r37
+  str_concat %r37 "Primes per second: " -> %r38
+  str_concat %r38 %pps -> %r39
+  call %println (%r39) -> %r40
+  ret %r40
+
+}
+
+fn sieve_of_eratosthenes(limit: i64) -> struct Vec {
+  ; Local variables
+  i: i64
+  is_prime: struct Vec
+
+; Entry: entry
+entry:
+  add %limit 1 -> %r0
+  call %create_bit_array (%r0) -> %r1
+  store %r1 -> %is_prime
+  call %clear_bit (%is_prime, 0) -> %r2
+  call %clear_bit (%is_prime, 1) -> %r3
+  cast %limit as f64 -> %r4
+  call %__Sqrt (%r4) -> %r5
+  cast %r5 as i64 -> %r6
+  add %r6 1 -> %r7
+  store %r7 -> %sqrt_limit
+  store 3 -> %i
+  jmp .loop_start_36
+
+loop_start_36:
+  lt %i %sqrt_limit -> %r8
+  jnot %r8 .loop_end_38
+
+loop_body_37:
+  call %is_set (%is_prime, %i) -> %r9
+  jif %r9 .then_39
+
+block_0:
+  jmp .else_40
+
+then_39:
+  mul %i %i -> %r10
+  store %r10 -> %j
+  shl %i 1 -> %r11
+  store %r11 -> %step
+  jmp .loop_start_42
+
+loop_start_42:
+  le %j %limit -> %r12
+  jnot %r12 .loop_end_44
+
+loop_body_43:
+  call %clear_bit (%is_prime, %j) -> %r13
+  add %j %step -> %r14
+  store %r14 -> %j
+  jmp .loop_start_42
+
+loop_end_44:
+  mov void -> %r15
+  jmp .if_end_41
+
+else_40:
+  mov void -> %r15
+  jmp .if_end_41
+
+if_end_41:
+  add %i 2 -> %r16
+  store %r16 -> %i
+  jmp .loop_start_36
+
+loop_end_38:
+  div %limit 10 -> %r17
+  call %__ArrayNew (%r17) -> %r18
+  store %r18 -> %primes
+  call %push (%primes, 2) -> %r19
+  store 3 -> %i
+  jmp .loop_start_45
+
+loop_start_45:
+  le %i %limit -> %r20
+  jnot %r20 .loop_end_47
+
+loop_body_46:
+  call %is_set (%is_prime, %i) -> %r21
+  jif %r21 .then_48
+
+block_1:
+  jmp .else_49
+
+then_48:
+  call %push (%primes, %i) -> %r22
+  mov %r22 -> %r23
+  jmp .if_end_50
+
+else_49:
+  mov void -> %r23
+  jmp .if_end_50
+
+if_end_50:
+  add %i 2 -> %r24
+  store %r24 -> %i
+  jmp .loop_start_45
+
+loop_end_47:
+  ret %primes
+
+block_2:
+  ret %primes
+
+}
+
+

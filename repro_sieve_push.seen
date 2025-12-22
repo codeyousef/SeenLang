@@ -1,0 +1,8 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Before push");
+    let v = Vec<Int>.withCapacity(10);
+    v.push(123);
+    println("After push");
+}

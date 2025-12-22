@@ -1,0 +1,5 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Hello world with import");
+}

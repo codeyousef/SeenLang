@@ -1,0 +1,12 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Before get/set");
+    let v = Vec<Int>.withCapacity(10);
+    v.push(123);
+    let val = v.get(0);
+    println("Got: {val}");
+    v.set(0, 456);
+    let val2 = v.get(0);
+    println("Got2: {val2}");
+}

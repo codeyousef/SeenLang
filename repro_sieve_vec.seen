@@ -1,0 +1,7 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Before Vec");
+    let v = Vec<Int>.new();
+    println("After Vec");
+}

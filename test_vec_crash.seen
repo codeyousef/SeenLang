@@ -1,0 +1,9 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Starting test");
+    let v = Vec<Int>.new();
+    println("Vec created");
+    let v2 = Vec<Int>.withCapacity(10);
+    println("Vec with capacity created");
+}

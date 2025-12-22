@@ -1,0 +1,7 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Before Vec.withCapacity");
+    let v = Vec<Int>.withCapacity(10);
+    println("After Vec.withCapacity");
+}

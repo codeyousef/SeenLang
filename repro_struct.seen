@@ -1,0 +1,16 @@
+class MySlot {
+    var chunk: Int
+    var offset: Int
+}
+
+fun make_slot() -> MySlot {
+    return MySlot{ chunk: 1, offset: 2 };
+}
+
+fun main() {
+    println("Start");
+    let s = make_slot();
+    println("Made slot");
+    let c = s.chunk;
+    println("Chunk: {c}");
+}

@@ -361,6 +361,12 @@ pub struct LlvmBackend<'ctx> {
     reg_array_element_struct: HashMap<u32, String>,
     // Register id -> true if it's an integer array (for array indexing)
     reg_is_int_array: HashSet<u32>,
+    // Variable name -> true if it's a Vec that stores floats
+    var_is_float_vec: HashSet<String>,
+    // Register id -> true if it holds a float value (for proper storage)
+    reg_is_float: HashSet<u32>,
+    // Variable name -> true if it holds a float value (stored as i64 bits)
+    var_is_float: HashSet<String>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -418,6 +424,9 @@ impl<'ctx> LlvmBackend<'ctx> {
             struct_definitions: HashMap::new(),
             reg_array_element_struct: HashMap::new(),
             reg_is_int_array: HashSet::new(),
+            var_is_float_vec: HashSet::new(),
+            reg_is_float: HashSet::new(),
+            var_is_float: HashSet::new(),
         }
     }
 
@@ -1754,6 +1763,23 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.assign_value(dest, v)?;
             }
             Instruction::Store { value, dest } => {
+                // Propagate float type info BEFORE assign_value so it can use bitcast
+                if let IRValue::Variable(var_name) = dest {
+                    match value {
+                        IRValue::Register(reg_id) => {
+                            if self.reg_is_float.contains(reg_id) {
+                                self.var_is_float.insert(var_name.clone());
+                            }
+                        }
+                        IRValue::Variable(src_name) => {
+                            if self.var_is_float.contains(src_name) {
+                                self.var_is_float.insert(var_name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                
                 let v = self.eval_value(value, fn_map)?;
                 self.assign_value(dest, v)?;
 
@@ -3602,6 +3628,43 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 }
 
+                // Handle Vec methods specially to convert float<->i64
+                let func_name = match target {
+                    IRValue::Variable(name) => Some(name.clone()),
+                    IRValue::Function { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+                
+                let is_vec_push = func_name.as_deref() == Some("Vec_push");
+                let is_vec_get = func_name.as_deref() == Some("Vec_get");
+                let is_vec_set = func_name.as_deref() == Some("Vec_set");
+                
+                // Track which Vec variables store floats (from push calls)
+                let mut is_float_vec_call = false;
+                if is_vec_push || is_vec_set {
+                    // Check if the value being pushed/set is a float
+                    let value_arg = if is_vec_push { args.get(1) } else { args.get(2) };
+                    if let Some(v) = value_arg {
+                        let val = self.eval_value(v, fn_map)?;
+                        if val.is_float_value() {
+                            is_float_vec_call = true;
+                            // Track the Vec variable as storing floats
+                            if let Some(IRValue::Variable(vec_var)) = args.get(0) {
+                                self.var_is_float_vec.insert(vec_var.clone());
+                            }
+                        }
+                    }
+                }
+                
+                // Check if this is a get from a float Vec
+                if is_vec_get {
+                    if let Some(IRValue::Variable(vec_var)) = args.get(0) {
+                        if self.var_is_float_vec.contains(vec_var) {
+                            is_float_vec_call = true;
+                        }
+                    }
+                }
+
                 // Normal call by name
                 let f_opt = match target {
                     IRValue::Variable(name) => fn_map.get(name).cloned(),
@@ -3614,13 +3677,28 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
 
                 let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
-                for a in args {
+                for (i, a) in args.iter().enumerate() {
                     let v = self.eval_value(a, fn_map)?;
-                    call_args.push(v.into());
+                    // For Vec_push and Vec_set, bitcast float arg to i64
+                    if (is_vec_push && i == 1 && v.is_float_value()) || 
+                       (is_vec_set && i == 2 && v.is_float_value()) {
+                        let f64_val = v.into_float_value();
+                        let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_bitcast")?.into_int_value();
+                        call_args.push(as_i64.into());
+                    } else {
+                        call_args.push(v.into());
+                    }
                 }
                 let call = self.builder.build_call(f, &call_args, "call")?;
                 if let Some(r) = result {
                     if let Some(ret) = call.try_as_basic_value().left() {
+                        // For Vec_get from float Vec, DON'T bitcast here - keep as i64
+                        // but mark the register as containing float bits
+                        if is_vec_get && is_float_vec_call {
+                            if let IRValue::Register(reg_id) = r {
+                                self.reg_is_float.insert(*reg_id);
+                            }
+                        }
                         self.assign_value(r, ret)?;
 
                         // Propagate return struct type info
@@ -4264,12 +4342,30 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRValue::Void => Ok(self.i64_t.const_zero().as_basic_value_enum()),
             IRValue::Register(r) => {
                 if let Some(val) = self.reg_values.get(r).cloned() {
+                    // If this register contains a float (from Vec<Float>.get), bitcast to f64
+                    if self.reg_is_float.contains(r) && val.is_int_value() {
+                        let as_f64 = self.builder.build_bit_cast(
+                            val.into_int_value(),
+                            self.ctx.f64_type(),
+                            "i2f_bitcast"
+                        )?;
+                        return Ok(as_f64);
+                    }
                     return Ok(val);
                 }
                 if let Some(slot) = self.reg_slots.get(r).copied() {
                     let loaded =
                         self.builder
                             .build_load(self.i64_t, slot, &format!("load_r{}", r))?;
+                    // If this register contains a float, bitcast to f64
+                    if self.reg_is_float.contains(r) {
+                        let as_f64 = self.builder.build_bit_cast(
+                            loaded.into_int_value(),
+                            self.ctx.f64_type(),
+                            "i2f_bitcast"
+                        )?;
+                        return Ok(as_f64);
+                    }
                     return Ok(loaded.as_basic_value_enum());
                 }
                 Err(anyhow!("Unknown register %r{r}"))
@@ -4277,9 +4373,27 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRValue::Variable(name) => {
                 if let Some(slot) = self.var_slots.get(name).copied() {
                     let loaded = self.load_from_slot(name, slot)?;
+                    // If this variable contains a float (from Vec<Float>.get), bitcast to f64
+                    if self.var_is_float.contains(name) && loaded.is_int_value() {
+                        let as_f64 = self.builder.build_bit_cast(
+                            loaded.into_int_value(),
+                            self.ctx.f64_type(),
+                            "i2f_bitcast"
+                        )?;
+                        return Ok(as_f64);
+                    }
                     return Ok(loaded);
                 }
                 if let Some(v) = self.var_values.get(name).cloned() {
+                    // Check if this is a float variable
+                    if self.var_is_float.contains(name) && v.is_int_value() {
+                        let as_f64 = self.builder.build_bit_cast(
+                            v.into_int_value(),
+                            self.ctx.f64_type(),
+                            "i2f_bitcast"
+                        )?;
+                        return Ok(as_f64);
+                    }
                     return Ok(v);
                 }
                 Err(anyhow!(format!("Unknown variable {}", name)))
@@ -4491,7 +4605,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                     self.var_slot_types.insert(name.clone(), value_ty);
                     (slot, value_ty)
                 };
-                let stored = self.cast_basic_to_type(v, slot_ty)?;
+                // For float variables (e.g., from Vec<Float>.get), use bitcast to preserve bits
+                let stored = if self.var_is_float.contains(name) && v.is_float_value() && slot_ty.is_int_type() {
+                    self.builder.build_bit_cast(
+                        v.into_float_value(),
+                        slot_ty,
+                        "f2i_bitcast"
+                    )?
+                } else {
+                    self.cast_basic_to_type(v, slot_ty)?
+                };
                 self.builder
                     .build_store(slot, stored)
                     .map_err(|e| anyhow!("{e:?}"))?;

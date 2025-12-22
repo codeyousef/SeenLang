@@ -1,0 +1,8 @@
+import seen_std.collections.vec { Vec }
+
+fun main() {
+    println("Start");
+    let v = Vec<Int>.new();
+    println("New done");
+    println("Len: {v.len()}");
+}
