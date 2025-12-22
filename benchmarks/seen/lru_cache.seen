@@ -1,137 +1,151 @@
 // LRU Cache Benchmark
 // Hash table and linked list performance
 
-data LRUNode {
-    key: Int,
-    value: Int,
-    prev: Int,
-    next: Int,
+import seen_std.collections.vec { Vec }
+
+class LRUNode {
+    var key: Int
+    var value: Int
+    var prev: Int
+    var next: Int
 }
 
-data LRUCache {
-    capacity: Int,
-    size: Int,
-    nodes: Array<LRUNode>,
-    hash_table: Array<Int>,
-    head: Int,
-    tail: Int,
-    free_list: Array<Int>,
+class LRUCache {
+    var capacity: Int
+    var size: Int
+    var nodes: Vec<LRUNode>
+    var hash_table: Vec<Int>
+    var head: Int
+    var tail: Int
+    var free_list: Vec<Int>
 }
 
-fun LRUCache::new(capacity: Int) -> LRUCache {
-    let table_size = (capacity as Float * 1.5) as Int;
-    let mut nodes = Array::with_capacity<LRUNode>(capacity + 2);
-    let mut hash_table = Array::with_capacity<Int>(table_size);
-    let mut free_list = Array::with_capacity<Int>(capacity);
+fun LRUCache_new(capacity: Int) -> LRUCache {
+    let table_size = ((capacity as Float) * 1.5) as Int;
+    let nodes = Vec<LRUNode>.withCapacity(capacity + 2);
+    let hash_table = Vec<Int>.withCapacity(table_size);
+    let free_list = Vec<Int>.withCapacity(capacity);
     
-    for _ in 0..table_size {
+    var i = 0;
+    while i < table_size {
         hash_table.push(-1);
+        i = i + 1;
     }
     
-    for i in 0..capacity {
+    i = 0;
+    while i < capacity {
         free_list.push(i);
+        i = i + 1;
     }
     
     nodes.push(LRUNode { key: -1, value: 0, prev: -1, next: 1 });
     nodes.push(LRUNode { key: -1, value: 0, prev: 0, next: -1 });
     
-    for _ in 0..capacity {
+    i = 0;
+    while i < capacity {
         nodes.push(LRUNode { key: -1, value: 0, prev: -1, next: -1 });
+        i = i + 1;
     }
     
-    LRUCache {
+    return LRUCache {
         capacity: capacity,
         size: 0,
         nodes: nodes,
         hash_table: hash_table,
         head: 0,
         tail: 1,
-        free_list: free_list,
-    }
+        free_list: free_list
+    };
 }
 
-fun LRUCache::hash(cache: LRUCache, key: Int) -> Int {
+fun LRUCache_hash(cache: LRUCache, key: Int) -> Int {
     ((key * 2654435761) % cache.hash_table.len() + cache.hash_table.len()) % cache.hash_table.len()
 }
 
-fun LRUCache::find(cache: LRUCache, key: Int) -> Int {
-    let idx = LRUCache::hash(cache, key);
-    let node_idx = cache.hash_table[idx];
+fun LRUCache_find(cache: LRUCache, key: Int) -> Int {
+    let idx = LRUCache_hash(cache, key);
+    let node_idx = cache.hash_table.get(idx);
     
-    if node_idx >= 0 && cache.nodes[node_idx].key == key {
-        node_idx
-    } else {
-        -1
+    if node_idx >= 0 {
+        let node = cache.nodes.get(node_idx);
+        if node.key == key {
+            return node_idx;
+        }
     }
+    return -1;
 }
 
-fun LRUCache::move_to_front(cache: LRUCache, node_idx: Int) {
-    if node_idx == cache.nodes[cache.head].next {
+fun LRUCache_move_to_front(cache: LRUCache, node_idx: Int) {
+    let head_node = cache.nodes.get(cache.head);
+    if node_idx == head_node.next {
         return;
     }
     
-    let prev = cache.nodes[node_idx].prev;
-    let next = cache.nodes[node_idx].next;
+    let node = cache.nodes.get(node_idx);
+    let prev = node.prev;
+    let next = node.next;
     
     if prev >= 0 {
-        cache.nodes[prev].next = next;
+        cache.nodes.get(prev).next = next;
     }
     if next >= 0 {
-        cache.nodes[next].prev = prev;
+        cache.nodes.get(next).prev = prev;
     }
     
-    let old_first = cache.nodes[cache.head].next;
-    cache.nodes[cache.head].next = node_idx;
-    cache.nodes[node_idx].prev = cache.head;
-    cache.nodes[node_idx].next = old_first;
-    cache.nodes[old_first].prev = node_idx;
+    let old_first = cache.nodes.get(cache.head).next;
+    cache.nodes.get(cache.head).next = node_idx;
+    cache.nodes.get(node_idx).prev = cache.head;
+    cache.nodes.get(node_idx).next = old_first;
+    cache.nodes.get(old_first).prev = node_idx;
 }
 
-fun LRUCache::get(cache: LRUCache, key: Int) -> Int {
-    let node_idx = LRUCache::find(cache, key);
+fun LRUCache_get(cache: LRUCache, key: Int) -> Int {
+    let node_idx = LRUCache_find(cache, key);
     
     if node_idx < 0 {
         return -1;
     }
     
-    LRUCache::move_to_front(cache, node_idx);
-    cache.nodes[node_idx].value
+    LRUCache_move_to_front(cache, node_idx);
+    return cache.nodes.get(node_idx).value;
 }
 
-fun LRUCache::put(cache: LRUCache, key: Int, value: Int) {
-    let existing = LRUCache::find(cache, key);
+fun LRUCache_put(cache: LRUCache, key: Int, value: Int) {
+    let existing = LRUCache_find(cache, key);
     
     if existing >= 0 {
-        cache.nodes[existing].value = value;
-        LRUCache::move_to_front(cache, existing);
+        cache.nodes.get(existing).value = value;
+        LRUCache_move_to_front(cache, existing);
         return;
     }
     
-    let mut node_idx = -1;
+    var node_idx = -1;
     if cache.size < cache.capacity {
-        node_idx = cache.free_list[cache.size] + 2;
+        node_idx = cache.free_list.get(cache.size) + 2;
         cache.size = cache.size + 1;
     } else {
-        node_idx = cache.nodes[cache.tail].prev;
-        let old_key = cache.nodes[node_idx].key;
-        let old_hash = LRUCache::hash(cache, old_key);
-        cache.hash_table[old_hash] = -1;
+        node_idx = cache.nodes.get(cache.tail).prev;
+        let old_key = cache.nodes.get(node_idx).key;
+        let old_hash = LRUCache_hash(cache, old_key);
+        cache.hash_table.set(old_hash, -1);
     }
     
-    cache.nodes[node_idx].key = key;
-    cache.nodes[node_idx].value = value;
+    let node = cache.nodes.get(node_idx);
+    node.key = key;
+    node.value = value;
     
-    let hash_idx = LRUCache::hash(cache, key);
-    cache.hash_table[hash_idx] = node_idx;
+    let hash_idx = LRUCache_hash(cache, key);
+    cache.hash_table.set(hash_idx, node_idx);
     
-    LRUCache::move_to_front(cache, node_idx);
+    LRUCache_move_to_front(cache, node_idx);
 }
 
-fun generate_trace(count: Int, key_range: Int, seed: Int) -> Array<Int> {
-    let mut trace = Array::with_capacity<Int>(count * 2);
-    let mut rng = seed;
+fun generate_trace(count: Int, key_range: Int, seed: Int) -> Vec<Int> {
+    let trace = Vec<Int>.withCapacity(count * 2);
+    var rng = seed;
     
-    for _ in 0..count {
+    var i = 0;
+    while i < count {
         rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF;
         let op = rng % 100;
         
@@ -144,9 +158,10 @@ fun generate_trace(count: Int, key_range: Int, seed: Int) -> Array<Int> {
             trace.push(1);
         }
         trace.push(key);
+        i = i + 1;
     }
     
-    trace
+    return trace;
 }
 
 fun main() {
@@ -155,33 +170,36 @@ fun main() {
     let key_range = 1000000;
     
     println("LRU Cache Benchmark");
-    println("Capacity: {}", capacity);
-    println("Operations: {}", operations);
+    println("Capacity: {capacity}");
+    println("Operations: {operations}");
     
     let trace = generate_trace(operations, key_range, 42);
     
-    println("Preloading {} entries...", capacity / 2);
-    let cache = LRUCache::new(capacity);
-    for i in 0..(capacity / 2) {
-        LRUCache::put(cache, i, i * 2);
+    println("Preloading {capacity / 2} entries...");
+    let cache = LRUCache_new(capacity);
+    var i = 0;
+    while i < (capacity / 2) {
+        LRUCache_put(cache, i, i * 2);
+        i = i + 1;
     }
     
     println("Running benchmark...");
     let start = __GetTime();
     
-    let mut sum = 0;
-    let mut idx = 0;
-    while idx < trace.len() {
-        let op = trace[idx];
-        let key = trace[idx + 1];
+    var sum = 0;
+    var idx = 0;
+    let len = trace.len();
+    while idx < len {
+        let op = trace.get(idx);
+        let key = trace.get(idx + 1);
         
         if op == 0 {
-            let val = LRUCache::get(cache, key);
+            let val = LRUCache_get(cache, key);
             if val >= 0 {
                 sum = sum + val;
             }
         } else {
-            LRUCache::put(cache, key, key * 2);
+            LRUCache_put(cache, key, key * 2);
         }
         
         idx = idx + 2;
@@ -190,7 +208,8 @@ fun main() {
     let end = __GetTime();
     let time_ms = (end - start) * 1000.0;
     
-    println("Sum of retrieved values: {}", sum);
-    println("Time: {} ms", time_ms);
-    println("Operations per second: {}", (operations as Float) / (time_ms / 1000.0));
+    println("Sum of retrieved values: {sum}");
+    println("Time: {time_ms} ms");
+    let ops = (operations as Float) / (time_ms / 1000.0);
+    println("Operations per second: {ops}");
 }

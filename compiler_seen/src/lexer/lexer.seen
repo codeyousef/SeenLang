@@ -1,7 +1,8 @@
 // Real Lexer Implementation - Following TDD
 // Implements ONLY what the tests require - no more, no less
 
-import lexer.interfaces.{Token, TokenType, Position, LexerError, KeywordManager as KM}
+import lexer.interfaces.{Token, TokenType, Position, LexerError}
+import lexer.keyword_manager.{KeywordManager}
 
 class SeenLexer {
     let source: String
@@ -19,7 +20,7 @@ class SeenLexer {
         this.fileId = fileId
         this.language = language
         this.errorRecoveryMode = false
-        this.keywordManager = KM.new(language)
+        this.keywordManager = KeywordManager.new(language)
         this.position = 0
         this.line = 1
         this.column = 1

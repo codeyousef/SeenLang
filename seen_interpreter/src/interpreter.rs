@@ -473,6 +473,9 @@ impl Interpreter {
 
             // Identifier
             Expression::Identifier { name, pos, .. } => {
+                if name == "Array" {
+                    return Ok(Value::Class { name: "Array".to_string() });
+                }
                 // Check if it's a built-in function
                 if self.builtins.is_builtin(name) {
                     // Return a placeholder for built-in functions
@@ -644,6 +647,66 @@ impl Interpreter {
                             .map_err(|e| InterpreterError::runtime(e.to_string(), *pos))?;
                         self.sync_reactive_binding(name, &assigned_value, *pos)?;
                         Ok(assigned_value)
+                    }
+                }
+                Expression::MemberAccess { object, member, .. } => {
+                    let obj_val = self.interpret_expression(object)?;
+                    let rhs_val = self.interpret_expression(value)?;
+                    
+                    let assigned_value = if matches!(op, AssignmentOperator::Assign) {
+                        rhs_val
+                    } else {
+                        let current_val = match &obj_val {
+                            Value::Struct { fields, .. } => {
+                                let guard = fields.lock().map_err(|_| InterpreterError::runtime("Struct access failed", *pos))?;
+                                guard.get(member).cloned().ok_or_else(|| InterpreterError::runtime(format!("Field '{}' not found", member), *pos))?
+                            }
+                            _ => return Err(InterpreterError::runtime("Cannot assign to field of non-struct", *pos)),
+                        };
+                        self.evaluate_compound_assignment(&current_val, &rhs_val, *op, *pos)?
+                    };
+
+                    match obj_val {
+                        Value::Struct { fields, .. } => {
+                            let mut guard = fields.lock().map_err(|_| InterpreterError::runtime("Struct access failed", *pos))?;
+                            if guard.contains_key(member) {
+                                guard.insert(member.clone(), assigned_value.clone());
+                                Ok(assigned_value)
+                            } else {
+                                Err(InterpreterError::runtime(format!("Field '{}' not found", member), *pos))
+                            }
+                        }
+                        _ => Err(InterpreterError::runtime("Cannot assign to field of non-struct", *pos)),
+                    }
+                }
+                Expression::IndexAccess { object, index, pos: index_pos } => {
+                    let obj_val = self.interpret_expression(object)?;
+                    let idx_val = self.interpret_expression(index)?;
+                    let rhs_val = self.interpret_expression(value)?;
+                    
+                    let assigned_value = if matches!(op, AssignmentOperator::Assign) {
+                        rhs_val
+                    } else {
+                        return Err(InterpreterError::runtime("Compound assignment not supported for index access", *pos));
+                    };
+
+                    match obj_val {
+                        Value::Array(arr) => {
+                            let idx = idx_val.as_integer().ok_or_else(|| {
+                                InterpreterError::type_error("Array index must be an integer", *index_pos)
+                            })? as usize;
+                            let mut guard = arr.lock().map_err(|_| InterpreterError::runtime("Array access failed", *pos))?;
+                            if idx < guard.len() {
+                                guard[idx] = assigned_value.clone();
+                                Ok(assigned_value)
+                            } else {
+                                Err(InterpreterError::runtime("Array index out of bounds", *pos))
+                            }
+                        }
+                        _ => Err(InterpreterError::type_error(
+                            format!("Cannot assign to index of {}", obj_val.type_name()),
+                            *pos,
+                        )),
                     }
                 }
                 _ => Err(InterpreterError::runtime("Invalid assignment target", *pos)),
@@ -1082,10 +1145,20 @@ impl Interpreter {
         pos: Position,
     ) -> InterpreterResult<Value> {
         let value = self.interpret_expression(expr)?;
+        
+        // Check if already matches
         if Self::value_matches_ast_type(&value, target_type) {
-            Ok(value)
-        } else {
-            Err(InterpreterError::runtime(
+            return Ok(value);
+        }
+        
+        // Perform conversion
+        match (&value, target_type.name.as_str()) {
+            (Value::Integer(i), "Float") => Ok(Value::Float(*i as f64)),
+            (Value::Float(f), "Int") => Ok(Value::Integer(*f as i64)),
+            (Value::Integer(i), "String") => Ok(Value::String(i.to_string())),
+            (Value::Float(f), "String") => Ok(Value::String(f.to_string())),
+            (Value::Boolean(b), "String") => Ok(Value::String(b.to_string())),
+            _ => Err(InterpreterError::runtime(
                 format!(
                     "Cannot cast value of type {} to {}",
                     Self::runtime_value_name(&value),
@@ -1555,6 +1628,8 @@ impl Interpreter {
                     }
                     return Ok(Value::Unit);
                 }
+            } else if name == "__default" {
+                return Ok(Value::Null);
             }
 
             if self.builtins.is_builtin(name) {
@@ -1579,99 +1654,120 @@ impl Interpreter {
         pre_evaluated_args: Option<Vec<Value>>,
         pos: Position,
     ) -> InterpreterResult<Value> {
-        if let Value::Function {
-            name,
-            parameters,
-            body,
-            ..
-        } = func_val
-        {
-            if args.len() != parameters.len() {
-                return Err(InterpreterError::argument_count_mismatch(
-                    name.clone(),
-                    parameters.len(),
-                    args.len(),
-                    pos,
-                ));
-            }
+        match func_val {
+            Value::Function {
+                name,
+                parameters,
+                body,
+                ..
+            } => {
+                if args.len() != parameters.len() {
+                    return Err(InterpreterError::argument_count_mismatch(
+                        name.clone(),
+                        parameters.len(),
+                        args.len(),
+                        pos,
+                    ));
+                }
 
-            let mut arg_values = if let Some(values) = pre_evaluated_args {
-                values
-            } else {
-                self.evaluate_arguments(args)?
-            };
-            let arg_summaries: Vec<RuntimeTraceValue> = arg_values
-                .iter()
-                .map(RuntimeTraceValue::from_value)
-                .collect();
-            self.trace_event(RuntimeTraceEvent::FunctionEnter {
-                name: name.clone(),
-                arguments: arg_summaries,
-            });
+                let mut arg_values = if let Some(values) = pre_evaluated_args {
+                    values
+                } else {
+                    self.evaluate_arguments(args)?
+                };
+                let arg_summaries: Vec<RuntimeTraceValue> = arg_values
+                    .iter()
+                    .map(RuntimeTraceValue::from_value)
+                    .collect();
+                self.trace_event(RuntimeTraceEvent::FunctionEnter {
+                    name: name.clone(),
+                    arguments: arg_summaries,
+                });
 
-            self.runtime.push_environment(true);
+                self.runtime.push_environment(true);
 
-            for (param, value) in parameters.iter().zip(arg_values.drain(..)) {
-                self.runtime.define_variable(param.clone(), value);
-            }
+                for (param, value) in parameters.iter().zip(arg_values.drain(..)) {
+                    self.runtime.define_variable(param.clone(), value);
+                }
 
-            let prev_break = self.break_flag;
-            let prev_continue = self.continue_flag;
-            self.break_flag = false;
-            self.continue_flag = false;
+                let prev_break = self.break_flag;
+                let prev_continue = self.continue_flag;
+                self.break_flag = false;
+                self.continue_flag = false;
 
-            let result = self.interpret_expression(&body);
+                let result = self.interpret_expression(&body);
 
-            let deferred = self
-                .runtime
-                .take_current_deferred()
-                .map_err(|e| InterpreterError::runtime(e.to_string(), pos.clone()))?;
-            let defer_result = self.run_deferred(deferred);
+                let deferred = self
+                    .runtime
+                    .take_current_deferred()
+                    .map_err(|e| InterpreterError::runtime(e.to_string(), pos.clone()))?;
+                let defer_result = self.run_deferred(deferred);
 
-            let return_value = if self.return_flag {
-                self.return_flag = false;
-                self.return_value.take()
-            } else {
-                None
-            };
+                let return_value = if self.return_flag {
+                    self.return_flag = false;
+                    self.return_value.take()
+                } else {
+                    None
+                };
 
-            self.break_flag = prev_break;
-            self.continue_flag = prev_continue;
+                self.break_flag = prev_break;
+                self.continue_flag = prev_continue;
 
-            self.runtime
-                .pop_environment()
-                .map_err(|e| InterpreterError::runtime(e.to_string(), pos))?;
+                self.runtime
+                    .pop_environment()
+                    .map_err(|e| InterpreterError::runtime(e.to_string(), pos))?;
 
-            let final_result = match result {
-                Ok(val) => {
-                    if let Err(err) = defer_result {
+                let final_result = match result {
+                    Ok(val) => {
+                        if let Err(err) = defer_result {
+                            Err(err)
+                        } else {
+                            Ok(return_value.unwrap_or(val))
+                        }
+                    }
+                    Err(e) => Err(e),
+                };
+
+                match final_result {
+                    Ok(value) => {
+                        self.trace_event(RuntimeTraceEvent::FunctionExit {
+                            name: name.clone(),
+                            result: RuntimeTraceValue::from_value(&value),
+                        });
+                        Ok(value)
+                    }
+                    Err(err) => {
+                        let message = format!("{}", err);
+                        self.trace_event(RuntimeTraceEvent::FunctionError {
+                            name: name.clone(),
+                            message,
+                        });
                         Err(err)
-                    } else {
-                        Ok(return_value.unwrap_or(val))
                     }
                 }
-                Err(e) => Err(e),
-            };
-
-            match final_result {
-                Ok(value) => {
-                    self.trace_event(RuntimeTraceEvent::FunctionExit {
-                        name: name.clone(),
-                        result: RuntimeTraceValue::from_value(&value),
-                    });
-                    Ok(value)
-                }
-                Err(err) => {
-                    let message = format!("{}", err);
-                    self.trace_event(RuntimeTraceEvent::FunctionError {
-                        name: name.clone(),
-                        message,
-                    });
-                    Err(err)
+            }
+            Value::Class { name } => {
+                if name == "Array" {
+                    let size = if args.is_empty() {
+                        0
+                    } else if args.len() == 1 {
+                        let size_val = self.interpret_expression(&args[0])?;
+                        if let Value::Integer(s) = size_val {
+                            s as usize
+                        } else {
+                            return Err(InterpreterError::type_error("Array size must be an integer", pos));
+                        }
+                    } else {
+                        return Err(InterpreterError::argument_count_mismatch("Array".to_string(), 1, args.len(), pos));
+                    };
+                    
+                    let vec = vec![Value::Null; size];
+                    Ok(Value::Array(Arc::new(Mutex::new(vec))))
+                } else {
+                    Err(InterpreterError::runtime(format!("Cannot instantiate class {} directly", name), pos))
                 }
             }
-        } else {
-            Err(InterpreterError::type_error(
+            _ => Err(InterpreterError::type_error(
                 format!("Cannot call {}", func_val.type_name()),
                 pos,
             ))

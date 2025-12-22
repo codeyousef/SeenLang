@@ -18,7 +18,7 @@ class Vec<T> {
     var totalCapacity: Int
     var nextChunkSize: Int
 
-    fun new() -> Vec<T> {
+    static fun new() -> Vec<T> {
         return Vec{
             chunks: Array<VecChunk<T>>(),
             capacities: Array<Int>(),
@@ -29,7 +29,7 @@ class Vec<T> {
         }
     }
 
-    fun withCapacity(capacity: Int) -> Vec<T> {
+    static fun withCapacity(capacity: Int) -> Vec<T> {
         var vec = Vec<T>.new()
         vec.reserve(capacity)
         return vec

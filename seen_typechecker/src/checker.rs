@@ -1053,6 +1053,279 @@ impl TypeChecker {
                     },
                 );
             }
+            "seen_std.collections.vec" => {
+                // Define Vec<T>
+                let mut fields = HashMap::new();
+                fields.insert("length".to_string(), Type::Int);
+                
+                let vec_type = Type::Struct {
+                    name: "Vec".to_string(),
+                    fields,
+                    generics: vec![Type::Generic("T".to_string())],
+                };
+
+                self.env.define_type("Vec".to_string(), vec_type.clone());
+                
+                // Define Vec variable to allow static access like Vec<Int>.new()
+                self.env.define_variable("Vec".to_string(), vec_type.clone());
+
+                // Vec::new() -> Vec<Unknown>
+                self.env.define_function(
+                    "Vec::new".to_string(),
+                    FunctionSignature {
+                        name: "Vec::new".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Struct {
+                            name: "Vec".to_string(),
+                            fields: HashMap::new(),
+                            generics: vec![Type::Unknown],
+                        }),
+                    },
+                );
+
+                // Vec::withCapacity(capacity: Int) -> Vec<Unknown>
+                self.env.define_function(
+                    "Vec::withCapacity".to_string(),
+                    FunctionSignature {
+                        name: "Vec::withCapacity".to_string(),
+                        parameters: vec![Parameter {
+                            name: "capacity".to_string(),
+                            param_type: Type::Int,
+                        }],
+                        return_type: Some(Type::Struct {
+                            name: "Vec".to_string(),
+                            fields: HashMap::new(),
+                            generics: vec![Type::Unknown],
+                        }),
+                    },
+                );
+
+                // Vec::push(value: Unknown) -> Void
+                self.env.define_function(
+                    "Vec::push".to_string(),
+                    FunctionSignature {
+                        name: "Vec::push".to_string(),
+                        parameters: vec![Parameter {
+                            name: "value".to_string(),
+                            param_type: Type::Unknown,
+                        }],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+
+                // Vec::pop() -> Unknown
+                self.env.define_function(
+                    "Vec::pop".to_string(),
+                    FunctionSignature {
+                        name: "Vec::pop".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Unknown),
+                    },
+                );
+
+                // Vec::get(index: Int) -> Unknown
+                self.env.define_function(
+                    "Vec::get".to_string(),
+                    FunctionSignature {
+                        name: "Vec::get".to_string(),
+                        parameters: vec![Parameter {
+                            name: "index".to_string(),
+                            param_type: Type::Int,
+                        }],
+                        return_type: Some(Type::Unknown),
+                    },
+                );
+
+                // Vec::set(index: Int, value: Unknown) -> Void
+                self.env.define_function(
+                    "Vec::set".to_string(),
+                    FunctionSignature {
+                        name: "Vec::set".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "index".to_string(),
+                                param_type: Type::Int,
+                            },
+                            Parameter {
+                                name: "value".to_string(),
+                                param_type: Type::Unknown,
+                            },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+
+                // Vec::len() -> Int
+                self.env.define_function(
+                    "Vec::len".to_string(),
+                    FunctionSignature {
+                        name: "Vec::len".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Int),
+                    },
+                );
+                
+                // Vec::isEmpty() -> Bool
+                self.env.define_function(
+                    "Vec::isEmpty".to_string(),
+                    FunctionSignature {
+                        name: "Vec::isEmpty".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+
+                // Vec::capacity() -> Int
+                self.env.define_function(
+                    "Vec::capacity".to_string(),
+                    FunctionSignature {
+                        name: "Vec::capacity".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Int),
+                    },
+                );
+            }
+            "seen_std.collections.vec" => {
+                // Define Vec<T>
+                let vec_type = Type::Struct {
+                    name: "Vec".to_string(),
+                    fields: HashMap::new(),
+                    generics: vec![Type::Generic("T".to_string())],
+                };
+
+                self.env.define_type("Vec".to_string(), vec_type.clone());
+
+                // Vec::new() -> Vec<T>
+                self.env.define_function(
+                    "Vec::new".to_string(),
+                    FunctionSignature {
+                        name: "new".to_string(),
+                        parameters: vec![],
+                        return_type: Some(vec_type.clone()),
+                    },
+                );
+
+                // Vec::push(self, value: T) -> Void
+                self.env.define_function(
+                    "Vec::push".to_string(),
+                    FunctionSignature {
+                        name: "push".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "self".to_string(),
+                                param_type: vec_type.clone(),
+                            },
+                            Parameter {
+                                name: "value".to_string(),
+                                param_type: Type::Generic("T".to_string()),
+                            },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+
+                // Vec::pop(self) -> T
+                self.env.define_function(
+                    "Vec::pop".to_string(),
+                    FunctionSignature {
+                        name: "pop".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "self".to_string(),
+                                param_type: vec_type.clone(),
+                            },
+                        ],
+                        return_type: Some(Type::Generic("T".to_string())),
+                    },
+                );
+
+                // Vec::get(self, index: Int) -> T
+                self.env.define_function(
+                    "Vec::get".to_string(),
+                    FunctionSignature {
+                        name: "get".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "self".to_string(),
+                                param_type: vec_type.clone(),
+                            },
+                            Parameter {
+                                name: "index".to_string(),
+                                param_type: Type::Int,
+                            },
+                        ],
+                        return_type: Some(Type::Generic("T".to_string())),
+                    },
+                );
+
+                // Vec::set(self, index: Int, value: T) -> Void
+                self.env.define_function(
+                    "Vec::set".to_string(),
+                    FunctionSignature {
+                        name: "set".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "self".to_string(),
+                                param_type: vec_type.clone(),
+                            },
+                            Parameter {
+                                name: "index".to_string(),
+                                param_type: Type::Int,
+                            },
+                            Parameter {
+                                name: "value".to_string(),
+                                param_type: Type::Generic("T".to_string()),
+                            },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+
+                // Vec::len(self) -> Int
+                self.env.define_function(
+                    "Vec::len".to_string(),
+                    FunctionSignature {
+                        name: "len".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "self".to_string(),
+                                param_type: vec_type.clone(),
+                            },
+                        ],
+                        return_type: Some(Type::Int),
+                    },
+                );
+                
+                // Vec::capacity(self) -> Int
+                self.env.define_function(
+                    "Vec::capacity".to_string(),
+                    FunctionSignature {
+                        name: "capacity".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "self".to_string(),
+                                param_type: vec_type.clone(),
+                            },
+                        ],
+                        return_type: Some(Type::Int),
+                    },
+                );
+                
+                // Vec::withCapacity(capacity: Int) -> Vec<T>
+                self.env.define_function(
+                    "Vec::withCapacity".to_string(),
+                    FunctionSignature {
+                        name: "withCapacity".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "capacity".to_string(),
+                                param_type: Type::Int,
+                            },
+                        ],
+                        return_type: Some(vec_type.clone()),
+                    },
+                );
+            }
             "bootstrap.frontend" => {
                 // Add known exports from bootstrap.frontend
                 for symbol in symbols {
@@ -1180,7 +1453,7 @@ impl TypeChecker {
             "String" => Type::String,
             "Char" => Type::Char,
             "Void" | "()" | "Unit" => Type::Unit,
-            "Array" | "List" | "Vec" => {
+            "Array" | "List" => {
                 if resolved_args.len() == 1 {
                     Type::Array(Box::new(resolved_args[0].clone()))
                 } else {
@@ -2697,16 +2970,42 @@ impl TypeChecker {
 
             // Resolve methods declared as "Type::method" in the environment/prelude
             if let Type::Struct {
-                name: struct_name, ..
+                name: struct_name,
+                generics: base_generics,
+                ..
             } = &base
             {
                 let method_name = format!("{}::{}", struct_name, member);
-                if let Some(signature) = self
+                if let Some(mut signature) = self
                     .env
                     .get_function(&method_name)
                     .cloned()
                     .or_else(|| self.prelude.get(&method_name).cloned())
                 {
+                    // Perform generic substitution if the base type has generics
+                    if !base_generics.is_empty() {
+                        if let Some(type_def) = self.env.get_type(struct_name) {
+                            if let Type::Struct { generics: def_generics, .. } = type_def {
+                                let mut mapping = HashMap::new();
+                                for (def_gen, base_gen) in def_generics.iter().zip(base_generics.iter()) {
+                                    if let Type::Generic(name) = def_gen {
+                                        mapping.insert(name.clone(), base_gen.clone());
+                                    }
+                                }
+                                
+                                // Substitute in parameters
+                                for param in &mut signature.parameters {
+                                    param.param_type = self.substitute_generics(&param.param_type, &mapping);
+                                }
+                                // Substitute in return type
+                                if let Some(ret) = &signature.return_type {
+                                    signature.return_type = Some(self.substitute_generics(ret, &mapping));
+                                }
+                            }
+                        }
+                    }
+
+                    // Determine expected parameters: drop implicit receiver if present
                     // Determine expected parameters: drop implicit receiver if present
                     let expected_params = if let Some(first) = signature.parameters.first() {
                         if let Type::Struct { name, .. } = &first.param_type {

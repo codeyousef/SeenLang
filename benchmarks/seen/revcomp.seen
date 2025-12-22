@@ -1,88 +1,117 @@
 // Reverse Complement Benchmark
 // String processing with lookup tables
 
-fun create_complement_table() -> Array<Int> {
-    let mut table = Array::with_capacity<Int>(256);
-    for _ in 0..256 {
+import seen_std.collections.vec { Vec }
+
+fun code_to_string(c: Int) -> String {
+    if c == 65 { return "A" }
+    if c == 67 { return "C" }
+    if c == 71 { return "G" }
+    if c == 84 { return "T" }
+    if c == 97 { return "a" }
+    if c == 99 { return "c" }
+    if c == 103 { return "g" }
+    if c == 116 { return "t" }
+    if c == 85 { return "U" }
+    if c == 117 { return "u" }
+    if c == 78 { return "N" }
+    if c == 110 { return "n" }
+    if c == 10 { return "\n" }
+    return "?"
+}
+
+fun create_complement_table() -> Vec<Int> {
+    let table = Vec<Int>.withCapacity(256);
+    var i = 0;
+    while i < 256 {
         table.push(0);
+        i = i + 1;
     }
     
-    table[65] = 84;
-    table[67] = 71;
-    table[71] = 67;
-    table[84] = 65;
-    table[97] = 116;
-    table[99] = 103;
-    table[103] = 99;
-    table[116] = 97;
+    table.set(65, 84);
+    table.set(67, 71);
+    table.set(71, 67);
+    table.set(84, 65);
+    table.set(85, 65);
+    table.set(97, 116);
+    table.set(99, 103);
+    table.set(103, 99);
+    table.set(116, 97);
+    table.set(117, 97);
     
-    table
+    return table;
 }
 
 fun generate_sequence(size: Int, seed: Int) -> String {
-    let mut result = String::new();
-    let nucleotides = "ACGT";
-    let mut rng = seed;
-    
+    var result = "";
+    var rng = seed;
     let line_len = 60;
-    let mut pos = 0;
+    var pos = 0;
     
     while pos < size {
         rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF;
-        let idx = (rng % 4) as Int;
-        result = result + nucleotides[idx..idx+1];
+        let idx = (rng % 4);
+        
+        if idx == 0 { result = result + "A"; }
+        else if idx == 1 { result = result + "C"; }
+        else if idx == 2 { result = result + "G"; }
+        else { result = result + "T"; }
+        
         pos = pos + 1;
         
-        if pos % line_len == 0 {
+        if (pos % line_len) == 0 {
             result = result + "\n";
         }
     }
     
-    if pos % line_len != 0 {
+    if (pos % line_len) != 0 {
         result = result + "\n";
     }
     
-    result
+    return result;
 }
 
-fun reverse_complement(seq: String, table: Array<Int>) -> String {
-    let mut result = String::new();
-    let len = seq.len();
+fun reverse_complement(seq: String, table: Vec<Int>) -> String {
+    var result = "";
+    let len = seq.length();
     
-    let mut i = len - 1;
+    var i = len - 1;
     while i >= 0 {
-        let ch = seq[i] as Int;
+        let ch = seq[i];
         if ch == 10 {
             i = i - 1;
             continue;
         }
         
-        let comp = table[ch];
+        let comp = table.get(ch);
         if comp != 0 {
-            result = result + (comp as String);
+            result = result + code_to_string(comp);
         } else {
-            result = result + (ch as String);
+            result = result + code_to_string(ch);
         }
         
         i = i - 1;
     }
     
-    result
+    return result;
 }
 
 fun checksum(s: String) -> Int {
-    let mut sum = 0;
-    for i in 0..s.len() {
-        sum = sum + (s[i] as Int);
+    var sum = 0;
+    var i = 0;
+    let len = s.length();
+    while i < len {
+        sum = sum + s[i];
+        i = i + 1;
     }
-    sum
+    return sum;
 }
 
 fun main() {
-    let size = 25000000;
+    let size = 25000;
     
     println("Reverse Complement Benchmark");
-    println("Sequence size: {} bytes", size);
+    println("Sequence size: {size} bytes");
     
     let table = create_complement_table();
     
@@ -90,15 +119,18 @@ fun main() {
     let seq = generate_sequence(size, 42);
     
     println("Warming up...");
-    for _ in 0..3 {
+    var w = 0;
+    while w < 3 {
         let _ = reverse_complement(seq, table);
+        w = w + 1;
     }
     
     println("Running 10 measured iterations...");
-    let mut min_time = 999999.0;
-    let mut result_checksum = 0;
+    var min_time = 999999.0;
+    var result_checksum = 0;
     
-    for run in 0..10 {
+    var run = 0;
+    while run < 10 {
         let start = __GetTime();
         let rev = reverse_complement(seq, table);
         let end = __GetTime();
@@ -111,9 +143,9 @@ fun main() {
         if run == 0 {
             result_checksum = checksum(rev);
         }
+        run = run + 1;
     }
     
-    println("Checksum: {}", result_checksum);
-    println("Min time: {} ms", min_time);
-    println("Throughput: {} MB/s", (size as Float) / (min_time * 1000.0));
+    println("Checksum: {result_checksum}");
+    println("Min time: {min_time} ms");
 }

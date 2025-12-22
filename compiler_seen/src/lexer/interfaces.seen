@@ -1,5 +1,4 @@
 // Lexer Module Interfaces - Production contracts
-import lexer.keyword_manager.{KeywordManager as RealKeywordManager}
 import str.string.{StringBuilder}
 import time.time.{nowMillis}
 
@@ -262,7 +261,11 @@ class KeywordManager {
     
     fun new(language: String) -> KeywordManager {
         // Factory method that creates real implementation
-        return RealKeywordManager.new(language)
+        return KeywordManager{
+            language: language,
+            keywords: Map<String, TokenType>(),
+            sources: Array<String>()
+        }
     }
     
     fun loadFromToml(path: String) -> Void {

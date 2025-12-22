@@ -2218,9 +2218,8 @@ fn bundle_imports(
     let mut processed_files: HashSet<PathBuf> = HashSet::new();
     let input_canonical = canonicalize_lossy(input_path);
     processed_files.insert(input_canonical.clone());
-    let mut merged = Program {
-        expressions: Vec::new(),
-    };
+    // Push main program first so it's processed first, but will be last after reversal
+    queue.push_back((program, base_dir.clone()));
 
     let manifest_files = collect_manifest_module_files(manifest_modules)?;
     for file in manifest_files {
@@ -2250,12 +2249,21 @@ fn bundle_imports(
         processed_files.insert(canonical);
         queue.push_back((parsed, module_dir));
     }
-    queue.push_back((program, base_dir.clone()));
+
+    let mut modules_expressions: Vec<Vec<Expression>> = Vec::new();
 
     while let Some((prog, module_dir)) = queue.pop_front() {
+        let mut current_exprs = Vec::new();
         for expr in prog.expressions {
-            match &expr {
-                Expression::Import { module_path, .. } => {
+            match expr {
+                Expression::Import { module_path, pos, symbols } => {
+                    // Keep import expression
+                    current_exprs.push(Expression::Import { 
+                        module_path: module_path.clone(), 
+                        pos, 
+                        symbols 
+                    });
+
                     let key = module_path.join(".");
                     if visited_modules.contains(&key) {
                         continue;
@@ -2276,6 +2284,16 @@ fn bundle_imports(
                         PathBuf::from("compiler_seen/src").join(&module_file),
                         PathBuf::from("compiler_seen/src").join(format!("{}.seen", fallback_name)),
                     ];
+
+                    // Hack for seen_std structure
+                    if let Some(first) = module_path.first() {
+                        if first == "seen_std" {
+                             let sub_path: PathBuf = module_path.iter().skip(1).collect();
+                             let sub_file = sub_path.with_extension("seen");
+                             candidates.push(project_root.join("seen_std/src").join(&sub_file));
+                        }
+                    }
+
                     for rel in [&mod_rel, &main_rel] {
                         candidates.push(module_dir.join(rel));
                         candidates.push(base_dir.join(rel));
@@ -2336,11 +2354,17 @@ fn bundle_imports(
                         );
                     }
                 }
-                _ => merged
-                    .expressions
-                    .push(rewrite_embed_attributes(expr, &module_dir)),
+                other => current_exprs.push(rewrite_embed_attributes(other, &module_dir)),
             }
         }
+        modules_expressions.push(current_exprs);
+    }
+
+    let mut merged = Program {
+        expressions: Vec::new(),
+    };
+    for module_exprs in modules_expressions.into_iter().rev() {
+        merged.expressions.extend(module_exprs);
     }
 
     Ok(merged)

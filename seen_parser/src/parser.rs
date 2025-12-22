@@ -4208,7 +4208,7 @@ impl Parser {
         };
 
         let is_public = self.resolve_visibility(&method_name);
-        let is_static = forced_static || receiver.is_none();
+        let is_static = forced_static;
 
         self.expect(&TokenType::LeftParen)?;
         let parameters = self.parse_parameters()?;

@@ -37,7 +37,7 @@ data ItemNode {
     importSymbols: Array<ImportSymbolNode>
     function: FunctionNode?
     classNode: ClassNode?
-    structNode: StructNode?
+    dataNode: DataNode?
 }
 
 fun ItemNode.new() -> ItemNode {
@@ -49,7 +49,7 @@ fun ItemNode.new() -> ItemNode {
         importSymbols: Array<ImportSymbolNode>(),
         function: null,
         classNode: null,
-        structNode: null
+        dataNode: null
     }
 }
 
@@ -474,14 +474,14 @@ fun ClassNode.new() -> ClassNode {
     }
 }
 
-// Struct definition
-data StructNode {
+// Data definition (formerly Struct)
+data DataNode {
     name: String
     fields: Array<FieldNode>
 }
 
-fun StructNode.new() -> StructNode {
-    return StructNode{
+fun DataNode.new() -> DataNode {
+    return DataNode{
         name: "",
         fields: Array<FieldNode>()
     }

@@ -252,8 +252,8 @@ impl Type {
             (_, "==" | "!=" | "<" | ">" | "<=" | ">=", Type::Unknown) => Some(Type::Bool),
 
             // Allow arithmetic/logical operations with Unknown types
-            (Type::Unknown, "+" | "-" | "*" | "/" | "%", _) => Some(Type::Unknown),
-            (_, "+" | "-" | "*" | "/" | "%", Type::Unknown) => Some(Type::Unknown),
+            (Type::Unknown, "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>", _) => Some(Type::Unknown),
+            (_, "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>", Type::Unknown) => Some(Type::Unknown),
             (Type::Unknown, "and" | "or", _) => Some(Type::Bool),
             (_, "and" | "or", Type::Unknown) => Some(Type::Bool),
 
