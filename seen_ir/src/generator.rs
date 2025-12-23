@@ -635,14 +635,17 @@ impl IRGenerator {
                     IRValue::Integer(0)
                 };
 
-                let element_size = if !type_args.is_empty() {
-                    self.convert_ast_type_to_ir(&type_args[0]).size_bytes() as i64
+                let element_type = if !type_args.is_empty() {
+                    self.convert_ast_type_to_ir(&type_args[0])
                 } else {
-                    8 // Default to 8 bytes if type is unknown
+                    IRType::Integer // Default to Integer (i64) if unknown
                 };
+                let element_size = element_type.size_bytes() as i64;
 
                 let result_reg = self.context.allocate_register();
                 let result_value = IRValue::Register(result_reg);
+                
+                self.context.set_register_type(result_reg, IRType::Array(Box::new(element_type)));
 
                 instructions.push(Instruction::Call {
                     target: IRValue::Variable("__ArrayNew".to_string()),

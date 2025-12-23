@@ -2628,6 +2628,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                             let capacity = self.eval_value(cap_arg, fn_map)?;
                             let cap_i64 = self.as_i64(capacity)?;
 
+                            // Ensure minimum capacity of 4 to avoid malloc(0) and reduce reallocs
+                            let min_cap = self.i64_t.const_int(4, false);
+                            let is_zero = self.builder.build_int_compare(inkwell::IntPredicate::EQ, cap_i64, self.i64_t.const_zero(), "is_zero")?;
+                            let alloc_cap = self.builder.build_select(is_zero, min_cap.as_basic_value_enum(), cap_i64.as_basic_value_enum(), "alloc_cap")?.into_int_value();
+
                                 // Allocate header (24 bytes)
                                 let header_size = self.i64_t.const_int(24, false);
                                 let malloc = self.get_malloc();
@@ -2638,7 +2643,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 
                                 // Allocate data buffer
                                 let elem_size = self.i64_t.const_int(8, false);
-                                let data_size = self.builder.build_int_mul(cap_i64, elem_size, "data_size")?;
+                                let data_size = self.builder.build_int_mul(alloc_cap, elem_size, "data_size")?;
                                 let data_ptr = self.builder.build_call(malloc, &[data_size.into()], "arr_data_alloc")?
                                     .try_as_basic_value().left()
                                     .ok_or_else(|| anyhow!("malloc returned void"))?
@@ -2661,7 +2666,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                         "cap_ptr"
                                     )?
                                 };
-                                self.builder.build_store(cap_ptr, cap_i64)?;
+                                self.builder.build_store(cap_ptr, alloc_cap)?;
 
                                 // Store data pointer
                                 let data_ptr_ptr = unsafe {
