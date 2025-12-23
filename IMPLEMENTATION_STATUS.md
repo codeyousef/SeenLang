@@ -70,7 +70,6 @@
 ### ⏳ In Progress
 
 1. **Standard Library**
-    - ⚠️ Parser issue in `seen_std/src/io/file.seen` (line 75: FatArrow vs Arrow)
     - ✅ Core types: String, Int, Float, Bool, Array
     - ✅ Collections: Vec, HashMap, LinkedList
     - ✅ I/O: File, Path, stdin/stdout
