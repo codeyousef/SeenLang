@@ -30,7 +30,7 @@ class Vec<T> {
     }
 
     static fun withCapacity(capacity: Int) -> Vec<T> {
-        var vec = Vec<T>.new()
+        var vec = Vec.new()
         vec.reserve(capacity)
         return vec
     }

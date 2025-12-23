@@ -2,5 +2,5 @@ name = "English"
 description = "English Collections Standard Library"
 
 [std_lib]
-"Vec" = "seen_std.collections.vec.Vec"
-"StringHashMap" = "seen_std.collections.string_hash_map.StringHashMap"
+"Vec" = "Vec"
+"StringHashMap" = "StringHashMap"
