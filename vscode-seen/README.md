@@ -109,9 +109,8 @@ The extension provides rich syntax highlighting for:
 Built-in code snippets for common patterns:
 - `main` - Main function template
 - `fun` - Function declaration
-- `data` - Data class
+- `data` - Data struct declaration
 - `sealed` - Sealed class
-- `struct` - Struct declaration
 - `enum` - Enum declaration
 - `test` - Test function
 - `bench` - Benchmark function

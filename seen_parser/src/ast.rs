@@ -238,6 +238,7 @@ pub enum Expression {
         is_pure: bool,              // Pure function (no side effects)
         is_external: bool,          // External function (FFI)
         is_public: bool,
+        attributes: Vec<Attribute>,
         doc_comment: Option<String>, // Documentation comment
         pos: Position,
     },
@@ -296,6 +297,7 @@ pub enum Expression {
         name: String,
         generics: Vec<String>,
         fields: Vec<StructField>,
+        attributes: Vec<Attribute>,
         doc_comment: Option<String>,
         pos: Position,
     },
@@ -305,6 +307,7 @@ pub enum Expression {
         name: String,
         generics: Vec<String>,
         variants: Vec<EnumVariant>,
+        attributes: Vec<Attribute>,
         doc_comment: Option<String>,
         pos: Position,
     },
@@ -317,6 +320,7 @@ pub enum Expression {
         fields: Vec<ClassField>,
         methods: Vec<Method>,
         is_sealed: bool,
+        attributes: Vec<Attribute>,
         doc_comment: Option<String>,
         pos: Position,
     },
@@ -590,6 +594,7 @@ pub enum Expression {
         generics: Vec<String>,
         methods: Vec<InterfaceMethod>,
         is_sealed: bool,
+        attributes: Vec<Attribute>,
         pos: Position,
     },
 

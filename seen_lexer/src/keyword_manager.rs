@@ -65,7 +65,7 @@ pub enum KeywordType {
     // Type definitions
     KeywordStruct,
     KeywordEnum,
-    KeywordTrait,
+    KeywordSpec,
     KeywordImpl,
     KeywordType,
     KeywordClass,
@@ -229,7 +229,7 @@ impl KeywordManager {
         keywords.insert("const".to_string(), "KeywordConst".to_string());
         keywords.insert("data".to_string(), "KeywordStruct".to_string());
         keywords.insert("enum".to_string(), "KeywordEnum".to_string());
-        keywords.insert("trait".to_string(), "KeywordTrait".to_string());
+        keywords.insert("spec".to_string(), "KeywordSpec".to_string());
         keywords.insert("impl".to_string(), "KeywordImpl".to_string());
         keywords.insert("type".to_string(), "KeywordType".to_string());
         keywords.insert("true".to_string(), "KeywordTrue".to_string());
@@ -358,7 +358,7 @@ impl KeywordManager {
             "KeywordVar" => Ok(KeywordType::KeywordVar),
             "KeywordStruct" => Ok(KeywordType::KeywordStruct),
             "KeywordEnum" => Ok(KeywordType::KeywordEnum),
-            "KeywordTrait" => Ok(KeywordType::KeywordTrait),
+            "KeywordSpec" => Ok(KeywordType::KeywordSpec),
             "KeywordImpl" => Ok(KeywordType::KeywordImpl),
             "KeywordType" => Ok(KeywordType::KeywordType),
             "KeywordClass" => Ok(KeywordType::KeywordClass),

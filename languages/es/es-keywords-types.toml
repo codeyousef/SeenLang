@@ -4,7 +4,7 @@ description = "Spanish Type Definition Keywords"
 [keywords]
 "estructura" = "KeywordStruct"
 "enumeración" = "KeywordEnum"
-"rasgo" = "KeywordTrait"
+"rasgo" = "KeywordSpec"
 "implementar" = "KeywordImpl"
 "tipo" = "KeywordType"
 "clase" = "KeywordClass"

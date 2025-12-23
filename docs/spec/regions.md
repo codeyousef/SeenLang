@@ -39,7 +39,7 @@ region cxl_near streaming_cache {
 
 ## 4. Generational References
 ```rust
-struct Handle {
+data Handle {
     index: u32,
     generation: u32,
 }
@@ -50,7 +50,7 @@ struct Handle {
 
 ## 5. Async & Structured Concurrency Constraints
 
-- Tasks spawned within `scope { ... }` inherit the parent region stack by value. Regions marked `@[region(shared)]`
+- Tasks spawned within `scope { ... }` inherit the parent region stack by value. Regions marked `@region(shared)`
   permit concurrent borrows; otherwise, mutable access is exclusive.
 - Suspension points (`await`) require all borrowed regions to be in a quiescent state; the compiler enforces `await`-free sections when holding `mut &` references.
 - Cancelling a task runs deferred actions in reverse order before unwinding the region stack; cancellation cannot observe partially-dropped values.

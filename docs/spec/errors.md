@@ -15,7 +15,7 @@
 - Formatter is deterministic: re-running formatting does not change diagnostic ordering or content.
 
 ## 3. Result Propagation Rules
-- `?` only applies to `Result` and `Option`; custom types implement `Try`-style traits for extension.
+- `?` only applies to `Result` and `Option`; custom types implement `Try`-style specs for extension.
 - For `Result<T, E>`, `?` expands to:
   ```seen
   match value {
@@ -27,7 +27,7 @@
 
 ## 4. Abort Semantics
 
-- `abort` bypasses destructors for performance-critical paths; use with care. `defer` blocks marked `@[critical]` are
+- `abort` bypasses destructors for performance-critical paths; use with care. `defer` blocks marked `@critical` are
   still executed.
 - CLI exposes `--abort-backtrace=off|on` to control metadata emission; deterministic profile defaults to `off` to keep hashes stable.
 

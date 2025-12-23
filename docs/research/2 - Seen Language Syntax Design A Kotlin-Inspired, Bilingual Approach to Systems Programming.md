@@ -111,7 +111,7 @@ Inspired by Kotlin's data classes 7, Seen introduces `struct` for value types an
 - **Proposal:**
     - `struct`: A user-defined value type. Instances are typically stack-allocated or embedded directly within other objects. Assignment copies the value.
     - `data struct`: A specialized `struct` that automatically provides implementations for `equals()`, `hashCode()`, `toString()`, and a `copy()` method. Primarily for types that are simple data containers.
-    - Memory layout control (e.g., `#[repr(C)]`) will be available for `struct` and `data struct` to ensure C FFI compatibility.
+    - Memory layout control (e.g., `@repr(C)`) will be available for `struct` and `data struct` to ensure C FFI compatibility.
 - **Justification:**
     - Value types are fundamental for systems programming, offering predictable performance and memory layout control, essential for GC-free operation and C FFI.
     - `data struct` reduces boilerplate for common data-holding types, similar to Kotlin's data classes 8, but adapted for value semantics.
@@ -129,7 +129,7 @@ Inspired by Kotlin's data classes 7, Seen introduces `struct` for value types an
     data struct User(val id: Int, val name: String);
     
     // For C FFI compatibility
-    #[repr(C)]
+    @repr(C)
     data struct CCompatiblePoint(val x: Float, val y: Float);
     
     // Arabic
@@ -140,12 +140,12 @@ Inspired by Kotlin's data classes 7, Seen introduces `struct` for value types an
     
     هيكل_بيانات مستخدم(الثابت المعرف: عدد_صحيح، الثابت الاسم: نص);
     
-    #[repr(C)] // تمثيل C
+    @repr(C) // تمثيل C
     هيكل_بيانات نقطة_متوافقة_مع_سي(الثابت س: عشري، الثابت ص: عشري);
     ```
     
 
-The adaptation of Kotlin's `data class` concept into Seen's `data struct` underscores a necessary divergence due to domain requirements. While Kotlin data classes provide conciseness for data representation on the JVM 7, they are reference types. Systems programming, particularly with C FFI, demands types with value semantics and precise memory layout control.9 Thus, Seen's `struct` and `data struct` are designed as value types by default. This ensures that when a `data struct` is passed to a C function, or when its memory layout needs to match a C struct, it behaves predictably without the overhead or semantic mismatch of a reference type. Annotations like `#[repr(C)]` further empower developers to explicitly define memory layouts for interoperability.
+The adaptation of Kotlin's `data class` concept into Seen's `data struct` underscores a necessary divergence due to domain requirements. While Kotlin data classes provide conciseness for data representation on the JVM 7, they are reference types. Systems programming, particularly with C FFI, demands types with value semantics and precise memory layout control.9 Thus, Seen's `struct` and `data struct` are designed as value types by default. This ensures that when a `data struct` is passed to a C function, or when its memory layout needs to match a C struct, it behaves predictably without the overhead or semantic mismatch of a reference type. Annotations like `@repr(C)` further empower developers to explicitly define memory layouts for interoperability.
 
 ### 2.5. Extension Functions
 
@@ -232,7 +232,7 @@ The following table summarizes the Kotlin features adopted in Seen, highlighting
 |`val`/`var`|`val`/`var` (ثابت/متغير)|Clear distinction between mutable and immutable data, enhances safety and readability.3|`val x = 10; var y = 20;`|
 |Type Inference|Local type inference for `val`/`var`|Reduces boilerplate, improves conciseness while maintaining static type safety.4|`val name = "Seen";`|
 |Null Safety|Non-nullable by default, `Type?` for nullable, `?.` and `?:` operators|Prevents null pointer exceptions at compile time, makes nullability explicit, improving safety and readability.5|`val len = nullable_str?.length?: 0;`|
-|Data Classes|`data struct` (هيكل_بيانات) with value semantics and `#[repr(C)]` support|Concise syntax for value-type data holders with auto-generated utilities, essential for systems programming and C FFI.7|`data struct Point(val x: Int);`|
+|Data Classes|`data struct` (هيكل_بيانات) with value semantics and `@repr(C)` support|Concise syntax for value-type data holders with auto-generated utilities, essential for systems programming and C FFI.7|`data struct Point(val x: Int);`|
 |Extension Functions|`func Type.name() {... }` (دالة النوع.اسم() {... })|Improves code organization, allows adding functionality to existing types (including C FFI types) without modifying source, enhances API usability.11|`func Int.isEven(): Bool = this % 2 == 0;`|
 |Lambda Expressions|`{ params -> body }`, `it` for single param|Concise syntax for anonymous functions, enables functional patterns, improves readability for callbacks and collection operations.1|`numbers.map { it * 2 };`|
 
@@ -442,7 +442,7 @@ Seen provides a mechanism for interoperating with existing C libraries.
 - **Proposal:** Use `extern "C"` blocks to declare C functions, variables, and struct layouts that Seen code can interact with. This syntax is inspired by Rust's FFI mechanism.9
 - **Justification:** C FFI is crucial for a systems language to leverage the vast ecosystem of existing C libraries and to interact with operating system APIs.
 - **Type Mapping:** Seen will define a standard mapping between its primitive types and common C types (e.g., Seen's `Int` to C's `int` or `int32_t`, `Float` to `double`, `*const Char` for C strings). The `c_void`, `c_int`, etc., types from a standard module might be provided.
-- **Structs:** Seen structs marked with `#[repr(C)]` will have a memory layout compatible with corresponding C structs.
+- **Structs:** Seen structs marked with `@repr(C)` will have a memory layout compatible with corresponding C structs.
 - **Calling C functions:** Calls to `extern "C"` functions are generally considered `unsafe` because the Seen compiler cannot verify the correctness or memory safety of the external C code.
 - **Example:**
     
@@ -455,7 +455,7 @@ Seen provides a mechanism for interoperating with existing C libraries.
         func c_add(a: Int, b: Int): Int;
         func c_puts(s: *const Char): Int; // Assuming Char is u8 or similar for C char
     
-        #[repr(C)]
+        @repr(C)
         struct CPoint {
             x: Int,
             y: Int
@@ -481,7 +481,7 @@ Seen provides a mechanism for interoperating with existing C libraries.
         دالة سي_إضافة(أ: عدد_صحيح، ب: عدد_صحيح): عدد_صحيح;
         دالة سي_يضع(س: *ثابت حرف): عدد_صحيح; // بافتراض أن حرف هو u8 أو مشابه لـ char في C
     
-        #[repr(C)] // تمثيل C
+        @repr(C) // تمثيل C
         هيكل نقطة_سي {
             س: عدد_صحيح,
             ص: عدد_صحيح
@@ -673,7 +673,7 @@ The following tables provide example keyword mappings and summarize tooling cons
 |`KW_STRUCT`|`struct`|`هيكل`|haykal|
 |`KW_DATA_STRUCT`|`data struct`|`هيكل_بيانات`|haykal bayānāt|
 |`KW_ENUM`|`enum`|`تعداد`|tiʿdād|
-|`KW_TRAIT`|`trait`|`سمة`|simah|
+|`KW_SPEC`|`spec`|`سمة`|simah|
 |`KW_IMPL`|`impl`|`تنفيذ`|tanfīdh|
 |`KW_UNSAFE`|`unsafe`|`غير_آمن`|ghayr āmin|
 |`KW_MODULE`|`module`|`وحدة`|waḥdah|
@@ -711,10 +711,10 @@ This section defines the fundamental syntactic elements of Seen, building upon t
 A Seen source file (`.seen`) generally follows a structure similar to that recommended for Kotlin 54:
 
 1. **License/Copyright Header (Optional):** A multi-line comment (`/*... */`) at the beginning of the file.
-2. **File-Level Annotations (Optional):** Annotations that apply to the entire file, e.g., `#[file:suppress_warning("some_warning")]`.
+2. **File-Level Annotations (Optional):** Annotations that apply to the entire file, e.g., `@file:suppress_warning("some_warning")`.
 3. **Module Declaration:** A `module` statement defining the namespace for the file's contents.
 4. **Import Statements:** `import` statements to bring types and functions from other modules into scope.
-5. **Top-Level Declarations:** Function, struct, enum, trait, or constant declarations.
+5. **Top-Level Declarations:** Function, data, enum, spec, or constant declarations.
 
 Exactly one blank line should separate these major sections.
 
@@ -790,7 +790,7 @@ val inferred_string = "Seen"; // Type String is inferred
 ثابت نص_مستنتج = "سين"; // النوع نص مستنتج
 ```
 
-#### 5.3.3. Custom Types (Structs, Enums, Traits)
+#### 5.3.3. Custom Types (Structs, Enums, Specs)
 
 Seen supports several kinds of custom type declarations, primarily designed as value types for systems programming efficiency.
 
@@ -853,19 +853,19 @@ Seen supports several kinds of custom type declarations, primarily designed as v
     ثابت الحدث: حدث_ويب = حدث_ويب.ضغط_مفتاح(المفتاح: 'س');
     ```
     
-- **Traits (`trait` / `سمة`):** Define contracts for shared behavior, similar to interfaces in other languages. Types can implement traits.
+- **Specs (`spec` / `سمة`):** Define contracts for shared behavior, similar to interfaces in other languages. Types can implement specs.
     
     Code snippet
     
     ```
     // English
-    trait Serializable {
+    spec Serializable {
         func serialize(buffer: mut ref Buffer);
     }
     
     struct MyData: Serializable {
         id: Int,
-        // override keyword used for implementing trait methods
+        // override keyword used for implementing spec methods
         override func serialize(buffer: mut ref Buffer) {
             // implementation
         }
@@ -1145,7 +1145,7 @@ The following table summarizes Seen's core syntax elements:
 |Struct|`struct`|`هيكل`|Defines a value type for data aggregation.|
 |Data Struct|`data struct`|`هيكل_بيانات`|Value type with auto-generated utility methods.|
 |Enum|`enum`|`تعداد`|Defines an algebraic data type with variants.|
-|Trait/Interface|`trait`, `impl`, `override`|`سمة`, `تنفيذ`, `تجاوز`|Defines behavior contracts and their implementations.|
+|Spec/Interface|`spec`, `impl`, `override`|`سمة`, `تنفيذ`, `تجاوز`|Defines behavior contracts and their implementations.|
 |If/Else Expression|`if`, `else`|`إذا`, `إلا`|Conditional execution, evaluates to a value.|
 |When Expression|`when`, `is`, `else`|`عندما`, `هو`, `غير_ذلك`|Pattern matching expression.|
 |For Loop|`for`, `in`, `..`, `..=`|`لكل`, `في`, `..`, `..=`|Iterates over collections or ranges.|
@@ -1202,7 +1202,7 @@ Seen aims to offer a gentler learning curve than Rust 15 by:
 
 - **Reducing Lifetime Syntactic Noise:** As mentioned, inferred lifetimes are the primary strategy.
 - **Kotlin-Inspired Abstractions:** Features like expressive `when` statements, data structs, and extension functions provide higher-level ways to solve common problems without sacrificing underlying control where needed.
-- **Focused Feature Set (Initially):** Rust's advanced trait system (including associated types, GATs) and its powerful macro system (`macro_rules!`, procedural macros) contribute significantly to its expressiveness but also its complexity. Seen's initial versions of traits and any potential future macro system will aim for simplicity and gradual evolution based on clear needs.
+- **Focused Feature Set (Initially):** Rust's advanced trait system (including associated types, GATs) and its powerful macro system (`macro_rules!`, procedural macros) contribute significantly to its expressiveness but also its complexity. Seen's initial versions of specs and any potential future macro system will aim for simplicity and gradual evolution based on clear needs.
 
 The overall goal is to create a language that feels intuitive for those familiar with modern languages like Kotlin, while providing the necessary tools for safe and efficient systems development, without the initial "complexity wall" often associated with Rust.
 
@@ -1234,7 +1234,7 @@ FileAnnotation = HASH LBRACKET KW_FILE COLON Identifier { LPAREN [ AnnotationArg
 ModuleDeclaration = KW_MODULE QualifiedIdentifier SEMICOLON ;
 ImportDeclaration = KW_IMPORT QualifiedIdentifier SEMICOLON ;
 
-TopLevelDeclaration = FunctionDeclaration | StructDeclaration | DataStructDeclaration | EnumDeclaration | TraitDeclaration | ConstantDeclaration ;
+TopLevelDeclaration = FunctionDeclaration | StructDeclaration | DataStructDeclaration | EnumDeclaration | SpecDeclaration | ConstantDeclaration ;
 
 (* Variable and Constant Declarations *)
 ConstantDeclaration = KW_VAL Identifier EQ Expression SEMICOLON_OR_EOF ;
@@ -1257,8 +1257,8 @@ DataStructParameter = Identifier COLON Type ;
 EnumDeclaration = { Annotation } KW_ENUM Identifier [ GenericParams ] LBRACE { EnumVariant { COMMA EnumVariant } [ COMMA ] } RBRACE ;
 EnumVariant = Identifier RPAREN ] ;
 
-TraitDeclaration = { Annotation } KW_TRAIT Identifier [ GenericParams ] LBRACE { TraitMember } RBRACE ;
-TraitMember = FunctionSignature SEMICOLON_OR_EOF ; (* Simplified *)
+SpecDeclaration = { Annotation } KW_SPEC Identifier [ GenericParams ] LBRACE { SpecMember } RBRACE ;
+SpecMember = FunctionSignature SEMICOLON_OR_EOF ; (* Simplified *)
 
 (* Control Flow *)
 IfExpression = KW_IF LPAREN Expression RPAREN Block ;

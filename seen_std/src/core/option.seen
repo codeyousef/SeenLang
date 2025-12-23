@@ -5,14 +5,14 @@ class Option<T> {
     var hasValue: Bool
     var storage: Array<T>
 
-    static fun new() -> Option<T> {
+    static fun New() -> Option<T> {
         return Option{
             hasValue: false,
             storage: Array<T>()
         }
     }
 
-    fun store(value: T) -> Void {
+    fun Store(value: T) -> Void {
         if this.storage.length() == 0 {
             this.storage.push(value)
         } else {
@@ -21,58 +21,58 @@ class Option<T> {
         this.hasValue = true
     }
 
-    fun isSome() -> Bool {
+    fun IsSome() -> Bool {
         return this.hasValue
     }
 
-    fun isNone() -> Bool {
+    fun IsNone() -> Bool {
         return not this.hasValue
     }
 
-    fun unwrap() -> T {
+    fun Unwrap() -> T {
         if not this.hasValue or this.storage.length() == 0 {
             abort("called unwrap() on None option")
         }
         return this.storage[0]
     }
 
-    fun expect(message: String) -> T {
+    fun Expect(message: String) -> T {
         if this.hasValue and this.storage.length() > 0 {
             return this.storage[0]
         }
         abort(message)
-        return this.unwrap()
+        return this.Unwrap()
     }
 
-    fun unwrapOr(defaultValue: T) -> T {
+    fun UnwrapOr(defaultValue: T) -> T {
         if this.hasValue and this.storage.length() > 0 {
             return this.storage[0]
         }
         return defaultValue
     }
 
-    fun replace(value: T) -> Option<T> {
+    fun Replace(value: T) -> Option<T> {
         let previous = if this.hasValue and this.storage.length() > 0 {
             Some(this.storage[0])
         } else {
             None()
         }
-        this.store(value)
+        this.Store(value)
         return previous
     }
 
-    fun clear() -> Void {
+    fun Clear() -> Void {
         this.storage = Array<T>()
         this.hasValue = false
     }
 }
 
 fun Some<T>(value: T) -> Option<T> {
-    let option = Option.new()
-    option.store(value)
+    let option = Option.New()
+    option.Store(value)
     return option
 }
 
 fun None<T>() -> Option<T> {
-    return Option.new()
+    return Option.New()
 }

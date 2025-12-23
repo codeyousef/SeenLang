@@ -44,6 +44,7 @@ Kylie Brewer
 | `KW_STRUCT` | `data` | `هيكل` |
 | `KW_ENUM` | `enum` | `تعداد` |
 | `KW_EXTENSION` | `extension` | `امتداد` |
+| `KW_SPEC` | `spec` | `سمة` |
 | `KW_ASYNC` | `async` | `غير_متزامن` |
 | `KW_AWAIT` | `await` | `انتظر` |
 | `KW_UNSAFE` | `unsafe` | `غير_آمن` |
@@ -52,7 +53,7 @@ Kylie Brewer
 | `KW_FALSE` | `false` | `خطأ` |
 | `KW_NULL` | `null` | `لا_شيء` |
 
-Reserved (future): `trait`, `actor`, `yield`, `type`, `where`.
+Reserved (future): `actor`, `yield`, `type`, `where`.
 
 ---
 

@@ -1,20 +1,24 @@
 // Keyword Manager - Real Implementation for Dynamic Keyword Loading
 // Loads keywords from TOML files based on language
 
-// import lexer.interfaces.{TokenType}
+import lexer.interfaces.{TokenType}
 
 class KeywordManager {
     let language: String
     var keywords: Map<String, TokenType>
     var sources: Array<String>
     
-    fun new(language: String) -> KeywordManager {
-        this.language = language
-        this.keywords = Map<String, TokenType>()
-        this.sources = Array<String>()
+    static fun new(language: String) -> KeywordManager {
+        let km = KeywordManager {
+            language: language,
+            keywords: Map<String, TokenType>(),
+            sources: Array<String>()
+        }
         
         // Load keywords from TOML file
-        loadFromToml("languages/{language}.toml")
+        km.loadFromToml("languages/{language}.toml")
+        
+        return km
     }
     
     fun loadFromToml(path: String) -> Void {
@@ -23,25 +27,25 @@ class KeywordManager {
         // Parse TOML-driven keyword sets (current implementation loads language mappings directly).
         
         if language == "en" {
-            loadEnglishKeywords()
+            this.loadEnglishKeywords()
         } else if language == "ar" {
-            loadArabicKeywords()
+            this.loadArabicKeywords()
         } else if language == "es" {
-            loadSpanishKeywords()
+            this.loadSpanishKeywords()
         } else if language == "fr" {
-            loadFrenchKeywords()
+            this.loadFrenchKeywords()
         } else if language == "de" {
-            loadGermanKeywords()
+            this.loadGermanKeywords()
         } else if language == "zh" {
-            loadChineseKeywords()
+            this.loadChineseKeywords()
         } else if language == "ja" {
-            loadJapaneseKeywords()
+            this.loadJapaneseKeywords()
         } else if language == "pt" {
-            loadPortugueseKeywords()
+            this.loadPortugueseKeywords()
         } else if language == "ru" {
-            loadRussianKeywords()
+            this.loadRussianKeywords()
         } else if language == "hi" {
-            loadHindiKeywords()
+            this.loadHindiKeywords()
         } else {
             // Default to English
             loadEnglishKeywords()

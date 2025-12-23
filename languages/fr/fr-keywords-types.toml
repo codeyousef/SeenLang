@@ -4,7 +4,7 @@ description = "English Type Definition Keywords"
 [keywords]
 "data" = "KeywordStruct"
 "enum" = "KeywordEnum"
-"trait" = "KeywordTrait"
+"spec" = "KeywordSpec"
 "impl" = "KeywordImpl"
 "type" = "KeywordType"
 "class" = "KeywordClass"

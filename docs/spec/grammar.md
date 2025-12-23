@@ -24,42 +24,42 @@ TopLevelDecl     = FunDecl
                  | StructDecl
                  | EnumDecl
                  | ExtensionDecl
-                 | TraitDecl
+                 | SpecDecl
                  | ConstDecl ;
 ```
 
 ## 3. Declarations
 ```
-ConstDecl    = (KW_LET | KW_VAR | 'pub' KW_LET | 'pub' KW_VAR)
+ConstDecl    = (KW_LET | KW_VAR)
                Identifier [ ':' Type ] '=' Expression ';' ;
 
-FunDecl      = Attributes? [ KW_ASYNC ] ( 'pub'? KW_FUN )
+FunDecl      = Attributes? [ KW_ASYNC ] KW_FUN
                Name [ GenericParams ]
                '(' ParamList? ')' [ ':' Type ]
                ( Block | '=>' Expression ) ;
-Attributes   = '@[' Attribute (',' Attribute)* ']' ;
+Attributes   = '@' Attribute (',' Attribute)* '' ;
 ParamList    = Param (',' Param)* ;
 Param        = Pattern ':' Type [ '=' Expression ] ;
 Name         = Identifier ;
 
 StructDecl   = Attributes?
-               ( 'pub'? KW_STRUCT ) Identifier [ GenericParams ]
+               KW_STRUCT Identifier [ GenericParams ]
                '{' FieldDecl* '}' ;
 FieldDecl    = Attributes? Identifier ':' Type ';' ;
 
 EnumDecl     = Attributes?
-               ( 'pub'? KW_ENUM ) Identifier [ GenericParams ]
+               KW_ENUM Identifier [ GenericParams ]
                '{' EnumVariant (',' EnumVariant)* ','? '}' ;
 EnumVariant  = Identifier [ '(' Type (',' Type)* ')' ] [ '=' Expression ] ;
 
-TraitDecl    = Attributes?
-               ( 'pub'? KW_TRAIT ) Identifier [ GenericParams ]
-               '{' TraitItem* '}' ;
-TraitItem    = FunSignature ';' | AssociatedTypeDecl ';' ;
+SpecDecl     = Attributes?
+               KW_SPEC Identifier [ GenericParams ]
+               '{' SpecItem* '}' ;
+SpecItem     = FunSignature ';' | AssociatedTypeDecl ';' ;
 AssociatedTypeDecl = KW_TYPE Identifier [ ':' TypeBounds ] ;
 
 ExtensionDecl = Attributes?
-                KW_EXTENSION TypeName [ KW_FOR TraitBounds ] '{' ExtensionItem* '}' ;
+                KW_EXTENSION TypeName [ KW_FOR TypeBounds ] '{' ExtensionItem* '}' ;
 ExtensionItem = FunDecl | ConstDecl ;
 GenericParams = '<' GenericParam (',' GenericParam)* '>' ;
 GenericParam  = Identifier [ ':' TypeBounds ] ;

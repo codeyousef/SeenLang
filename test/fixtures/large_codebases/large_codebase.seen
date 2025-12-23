@@ -35,14 +35,14 @@ func is_stack(make_context: i64) -> u16 {
 // Convert to the expected format
 
 data Build_Queue_Impl {
-    pub graph: u16,
-    pub build_list: u16,
+    Graph: u16,
+    Build_list: u16,
     var_2: char,
-    pub get_params_impl: i32,
+    Get_params_impl: i32,
     build_var_9_impl: Box,
-    pub has_map: String,
+    Has_map: String,
     get_ast: Vec,
-    pub make_state: f32,
+    Make_state: f32,
 }
 
 enum Create_Tree {
@@ -271,7 +271,7 @@ impl Build_Set {
 
 data Set_Stream {
     make_token_const: u16,
-    pub create_options_data: f64,
+    Create_options_data: f64,
     map_ptr: Vec,
     make_reader: String,
     set_data_ptr: String,
@@ -279,7 +279,7 @@ data Set_Stream {
 }
 
 data Create_Context_Ptr {
-    pub is_node: u8,
+    Is_node: u8,
     build_options: Arc,
     has_var_9_ref: u16,
     set_data_const: Option,
@@ -333,7 +333,7 @@ enum Get_Var_1_Const {
 data Get_Graph {
     get_var_0: Rc,
     is_var_7: HashMap,
-    pub is_result_impl: u16,
+    Is_result_impl: u16,
     queue: u16,
     data: f64,
     set_list_impl: i8,
@@ -369,8 +369,8 @@ impl Build_List_Mut {
 }
 
 data Create_Parser {
-    pub has_var_2_ref: bool,
-    pub is_config: i32,
+    Has_var_2_ref: bool,
+    Is_config: i32,
     is_var_6: Option,
     set_node: str,
     has_config_data: Result,
@@ -516,9 +516,9 @@ enum Has_Var_3 {
 }
 
 data Get_Var_0 {
-    pub is_var_4: i64,
+    Is_var_4: i64,
     var_9: char,
-    pub get_result_const: Arc,
+    Get_result_const: Arc,
     is_state: str,
     has_queue_impl: Option,
     get_item: u8,
@@ -582,7 +582,7 @@ enum Get_Data {
 
 data Is_Stream {
     create_tree: str,
-    pub build_var_9: u8,
+    Build_var_9: u8,
 }
 
 enum Is_Graph_Mut {
@@ -594,9 +594,9 @@ enum Is_Graph_Mut {
 }
 
 data Set_Set_Ref {
-    pub get_data: i32,
+    Get_data: i32,
     tree: f32,
-    pub get_params: i64,
+    Get_params: i64,
 }
 
 enum Is_Graph {
@@ -1046,20 +1046,20 @@ impl Token {
 }
 
 data Var_4_Ptr {
-    pub make_var_1: char,
+    Make_var_1: char,
     set_token_ptr: i8,
-    pub set_tree: char,
-    pub get_options_ptr: i64,
-    pub make_token: String,
+    Set_tree: char,
+    Get_options_ptr: i64,
+    Make_token: String,
     make_config_impl: i64,
     value_data: u32,
     create_queue: u64,
 }
 
 data Create_Map_Const {
-    pub make_data: u32,
+    Make_data: u32,
     build_value_const: u16,
-    pub make_item_impl: Result,
+    Make_item_impl: Result,
 }
 // Validate input parameters
 
@@ -1094,8 +1094,8 @@ data Create_Var_8 {
     var_4: String,
     make_list_ptr: str,
     make_options: HashMap,
-    pub get_set: HashMap,
-    pub is_stack_impl: u8,
+    Get_set: HashMap,
+    Is_stack_impl: u8,
     create_var_4: String,
 }
 
@@ -1511,7 +1511,7 @@ func var_4(is_config: Vec, build_var_4: bool) -> f64 {
 
 data Set_Element {
     is_stream_const: f32,
-    pub lexer: i64,
+    Lexer: i64,
 }
 
 impl Element_Ptr {
@@ -1704,12 +1704,12 @@ impl Set_Token {
 data Create_Stream {
     create_result: u32,
     has_result_impl: str,
-    pub has_tree_ptr: u32,
-    pub make_state: bool,
-    pub graph: bool,
+    Has_tree_ptr: u32,
+    Make_state: bool,
+    Graph: bool,
     build_var_4: char,
     graph_ptr: i8,
-    pub make_ast_ref: i32,
+    Make_ast_ref: i32,
 }
 
 enum Set_Var_7 {
@@ -1830,10 +1830,10 @@ enum Create_Result {
 }
 
 data Token {
-    pub graph: String,
+    Graph: String,
     get_lexer: Arc,
-    pub get_var_0: i32,
-    pub build_state: u32,
+    Get_var_0: i32,
+    Build_state: u32,
 }
 
 impl Create_Element {
@@ -1918,10 +1918,10 @@ impl Is_Var_2 {
 
 data Var_3 {
     set_var_1: Arc,
-    pub build_item_ref: String,
+    Build_item_ref: String,
     make_buffer: HashSet,
     lexer: Option,
-    pub is_var_3: str,
+    Is_var_3: str,
 }
 
 data Has_Var_8 {
@@ -1929,7 +1929,7 @@ data Has_Var_8 {
     value: Box,
     set_token: Option,
     create_value_impl: f32,
-    pub make_queue_mut: u8,
+    Make_queue_mut: u8,
 }
 
 impl Item {
@@ -1947,21 +1947,21 @@ impl Item {
 
 data Get_Reader_Mut {
     build_list: i64,
-    pub create_var_6: i64,
+    Create_var_6: i64,
     has_var_9: f64,
-    pub make_writer: i8,
-    pub has_var_8_ptr: str,
+    Make_writer: i8,
+    Has_var_8_ptr: str,
     make_graph: u16,
 }
 // Initialize the data structure
 
 data Has_Parser_Mut {
     stream: HashMap,
-    pub create_result: bool,
+    Create_result: bool,
 }
 
 data Context {
-    pub make_parser: u8,
+    Make_parser: u8,
     has_context: char,
     has_map: HashMap,
     set_item: Vec,
@@ -2247,8 +2247,8 @@ impl Has_Context {
 // NOTE: This function assumes input is valid
 
 data Reader {
-    pub make_stack: u8,
-    pub is_context_const: i32,
+    Make_stack: u8,
+    Is_context_const: i32,
     set_set: str,
 }
 
@@ -2392,7 +2392,7 @@ enum Value_Impl {
 data Has_Data {
     set_var_4: u64,
     get_queue_ptr: f32,
-    pub make_state_data: Rc,
+    Make_state_data: Rc,
     build_var_2: String,
     build_var_3_mut: i64,
     create_var_3: f32,
@@ -2848,12 +2848,12 @@ data Has_Reader {
     options: i16,
     has_item: HashMap,
     build_context: u16,
-    pub is_value_data: f64,
+    Is_value_data: f64,
     get_tree: f64,
 }
 
 data Make_Var_6_Ptr {
-    pub value_mut: u16,
+    Value_mut: u16,
     make_writer_data: u8,
     create_lexer: Option,
     get_var_4: u64,
@@ -2862,12 +2862,12 @@ data Make_Var_6_Ptr {
 }
 
 data Set_Token_Const {
-    pub make_map: u64,
+    Make_map: u64,
     ast_data: i16,
     make_reader_ref: str,
     build_element: u8,
-    pub is_writer: u32,
-    pub build_element_ptr: u16,
+    Is_writer: u32,
+    Build_element_ptr: u16,
 }
 
 enum Get_Item_Ref {
@@ -3157,21 +3157,21 @@ func has_tree_impl(has_graph_ref: HashMap) -> u32 {
 data Set_Var_1_Mut {
     make_value: i32,
     set_node: Vec,
-    pub get_var_2: str,
+    Get_var_2: str,
     is_ast: bool,
     create_ast_data: i16,
     get_queue_const: String,
-    pub var_3: i8,
+    Var_3: i8,
 }
 
 data Buffer {
-    pub build_map: i64,
-    pub writer: u8,
-    pub get_item: char,
-    pub is_writer: u16,
-    pub create_node: u64,
-    pub get_config: Option,
-    pub set_config_ptr: bool,
+    Build_map: i64,
+    Writer: u8,
+    Get_item: char,
+    Is_writer: u16,
+    Create_node: u64,
+    Get_config: Option,
+    Set_config_ptr: bool,
     make_config: str,
 }
 

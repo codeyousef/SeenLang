@@ -20,6 +20,8 @@ pub enum Value {
     Character(char),
     /// Array value (shared, mutable)
     Array(Arc<Mutex<Vec<Value>>>),
+    /// Map value (shared, mutable)
+    Map(Arc<Mutex<HashMap<String, Value>>>),
     /// Raw byte buffer
     Bytes(Vec<u8>),
     /// Null value
@@ -90,6 +92,7 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::Array(arr) => arr.lock().map(|values| !values.is_empty()).unwrap_or(false),
+            Value::Map(map) => map.lock().map(|values| !values.is_empty()).unwrap_or(false),
             Value::Bytes(bytes) => !bytes.is_empty(),
             Value::Struct { .. } => true,
             Value::Class { .. } => true,
@@ -116,6 +119,7 @@ impl Value {
             Value::String(_) => "String",
             Value::Character(_) => "Char",
             Value::Array(_) => "Array",
+            Value::Map(_) => "Map",
             Value::Bytes(_) => "Bytes",
             Value::Struct { .. } => "Struct",
             Value::Class { .. } => "Class",
@@ -148,6 +152,13 @@ impl Value {
                     format!("[{}]", elements.join(", "))
                 }
                 Err(_) => "[<locked>]".to_string(),
+            },
+            Value::Map(map) => match map.lock() {
+                Ok(values) => {
+                    let elements: Vec<String> = values.iter().map(|(k, v)| format!("{}: {}", k, v.to_string())).collect();
+                    format!("Map({{{}}})", elements.join(", "))
+                }
+                Err(_) => "Map(<locked>)".to_string(),
             },
             Value::Bytes(bytes) => format!("<bytes {}>", bytes.len()),
             Value::Struct { name, fields } => match fields.lock() {
@@ -448,6 +459,7 @@ impl Value {
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Boolean((*a as f64) < *b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Boolean(*a < (*b as f64))),
             (Value::String(a), Value::String(b)) => Ok(Value::Boolean(a < b)),
+            (Value::Character(a), Value::Character(b)) => Ok(Value::Boolean(a < b)),
             _ => Err(format!(
                 "Cannot compare {} and {}",
                 self.type_name(),

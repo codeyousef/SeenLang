@@ -1,12 +1,12 @@
 // seen_std.core.result
 // Deterministic Result<T, E> container compatible with the bootstrap type checker.
 
-pub class Result<T, E> {
+class Result<T, E> {
     var isOk: Bool
     var okStorage: Array<T>
     var errStorage: Array<E>
 
-    pub static fun new() -> Result<T, E> {
+    static fun New() -> Result<T, E> {
         return Result{
             isOk: true,
             okStorage: Array<T>(),
@@ -14,7 +14,7 @@ pub class Result<T, E> {
         }
     }
 
-    pub fun storeOk(value: T) -> Void {
+    fun StoreOk(value: T) -> Void {
         if this.okStorage.length() == 0 {
             this.okStorage.push(value)
         } else {
@@ -24,7 +24,7 @@ pub class Result<T, E> {
         this.isOk = true
     }
 
-    pub fun storeErr(error: E) -> Void {
+    fun StoreErr(error: E) -> Void {
         if this.errStorage.length() == 0 {
             this.errStorage.push(error)
         } else {
@@ -34,44 +34,44 @@ pub class Result<T, E> {
         this.isOk = false
     }
 
-    pub fun isOk() -> Bool {
+    fun IsOk() -> Bool {
         return this.isOk
     }
 
-    pub fun isErr() -> Bool {
+    fun IsErr() -> Bool {
         return not this.isOk
     }
 
-    pub fun unwrap() -> T {
+    fun Unwrap() -> T {
         if not this.isOk or this.okStorage.length() == 0 {
             abort("called unwrap() on Err result")
         }
         return this.okStorage[0]
     }
 
-    pub fun expect(message: String) -> T {
+    fun Expect(message: String) -> T {
         if this.isOk and this.okStorage.length() > 0 {
             return this.okStorage[0]
         }
         abort(message)
-        return this.unwrap()
+        return this.Unwrap()
     }
 
-    pub fun unwrapOr(defaultValue: T) -> T {
+    fun UnwrapOr(defaultValue: T) -> T {
         if this.isOk and this.okStorage.length() > 0 {
             return this.okStorage[0]
         }
         return defaultValue
     }
 
-    pub fun unwrapErr() -> E {
+    fun UnwrapErr() -> E {
         if this.isOk or this.errStorage.length() == 0 {
             abort("called unwrapErr() on Ok result")
         }
         return this.errStorage[0]
     }
 
-    pub fun swap() -> Result<E, T> {
+    fun Swap() -> Result<E, T> {
         if this.isOk {
             if this.okStorage.length() == 0 {
                 abort("Result.swap called without Ok payload")
@@ -85,14 +85,14 @@ pub class Result<T, E> {
     }
 }
 
-pub fun Ok<T, E>(value: T) -> Result<T, E> {
-    let result = Result<T, E>.new()
-    result.storeOk(value)
+fun Ok<T, E>(value: T) -> Result<T, E> {
+    let result = Result<T, E>.New()
+    result.StoreOk(value)
     return result
 }
 
-pub fun Err<T, E>(error: E) -> Result<T, E> {
-    let result = Result<T, E>.new()
-    result.storeErr(error)
+fun Err<T, E>(error: E) -> Result<T, E> {
+    let result = Result<T, E>.New()
+    result.StoreErr(error)
     return result
 }

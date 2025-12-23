@@ -39,7 +39,7 @@ Seen's syntax aims for clarity, conciseness, and developer familiarity, drawing 
 - **Systems Programming Deviations:**
     - **Explicit `unsafe`:** Introduce `unsafe` blocks and functions for operations bypassing compiler safety checks (e.g., raw pointer dereferencing, FFI calls).4 See Section 1.3.6.
     - **Pointer Syntax:** Define distinct syntax for safe references (managed by the compiler) and raw pointers (used in `unsafe` contexts). See Section 1.3.6.
-    - **Memory Layout Control:** Attributes for controlling data structure layout (e.g., `#[layout(C)]`).17 See Section 1.3.6.
+    - **Memory Layout Control:** Attributes for controlling data structure layout (e.g., `@layout(C)`).17 See Section 1.3.6.
 - **Bilingual Mechanism:**
     - **Keyword Mapping:** The core mechanism will involve mapping keywords between English and Arabic. This mapping will be defined externally (e.g., in configuration files) rather than being hardcoded in the parser logic itself.
     - **Project Configuration:** A project configuration file (e.g., `seen.toml`) will specify the active language(s) for keywords (English-only, Arabic-only, or potentially both simultaneously, though the latter increases parsing complexity).
@@ -109,9 +109,9 @@ Seen's type system must be expressive enough to support modern programming parad
     - **Pointers and References:**
         - **Safe References:** Compiler-managed references (e.g., `&T`, `&mut T`) whose validity is guaranteed by the memory management static analysis (Section 1.3.2). These references implicitly carry region/capability information.
         - **Raw Pointers:** Unsafe pointers (`*const T`, `*mut T`) for low-level manipulation within `unsafe` blocks, FFI, etc..66 These bypass compiler safety checks.
-    - **Interfaces/Traits:** Support for defining shared behavior across different types, enabling polymorphism and code reuse (similar to Rust traits or Java/Kotlin interfaces).
+    - **Interfaces/Specs:** Support for defining shared behavior across different types, enabling polymorphism and code reuse (similar to Rust traits or Java/Kotlin interfaces).
 - **Memory Layout Control:** Provide mechanisms for explicit control over data structure memory layout, crucial for systems programming, FFI, and performance optimization.17
-    - **Attributes:** Use attributes like `#[layout(C)]` to specify C-compatible layout, `#[align(N)]` for alignment control, potentially `#[repr(packed)]`, etc.
+    - **Attributes:** Use attributes like `@layout(C)` to specify C-compatible layout, `@align(N)` for alignment control, potentially `@repr(packed)`, etc.
 - **Type Inference:** Support local variable type inference using `val`/`var`.11 Inference for generic type parameters and potentially return types where unambiguous.
 
 The type system is inextricably linked to the memory model. The definition and checking of safe references are central to Seen's safety proposition. These references are not just addresses but entities whose validity (lifetime, access permissions) is tracked by the compiler's static analysis (region/capability system). This differs significantly from C/C++ pointers, which carry no such static safety information 1, and is intended to be more automated than Rust's system, where lifetime parameters are sometimes needed explicitly.3
@@ -148,10 +148,10 @@ As a systems language, Seen must provide controlled access to low-level operatio
     - **Safe References:** Managed references (syntax TBD, e.g., `&T`, `&mut T`) whose safety (validity, aliasing, concurrency access) is enforced by the compiler's static analysis (memory and concurrency models). These are the default for safe code.
     - **Raw Pointers:** C-style pointers (`*const T`, `*mut T`) that bypass compiler safety checks.66 Operations like dereferencing, arithmetic (potentially restricted or requiring explicit size information), and casting raw pointers are only permitted within `unsafe` contexts.
 - **Memory Layout Control:** Provide attributes to explicitly control the in-memory representation of data structures.17
-    - `#[layout(C)]`: Ensure struct layout compatible with C ABI for FFI.
-    - `#[align(N)]`: Specify minimum alignment for a type.
-    - `#[size(N)]`: Potentially specify exact size.
-    - `#[packed]`: Remove padding (use with caution).
+    - `@layout(C)`: Ensure struct layout compatible with C ABI for FFI.
+    - `@align(N)`: Specify minimum alignment for a type.
+    - `@size(N)`: Potentially specify exact size.
+    - `@packed`: Remove padding (use with caution).
 - **Unsafe Code Demarcation:**
     - **`unsafe` Blocks:** `unsafe {... }` blocks are required to perform operations that the compiler cannot guarantee are safe, such as dereferencing raw pointers, calling `unsafe` functions (including FFI), or performing certain potentially unsound type casts.4
     - **`unsafe` Functions:** Functions whose bodies contain `unsafe` operations or that impose safety requirements on their callers that the compiler cannot check must be marked `unsafe fn...`. Calling an `unsafe fn` requires an `unsafe` block.
@@ -165,11 +165,11 @@ Seamless interaction with existing C libraries is essential for any new systems 
 
 - **Mechanism:** Provide a standard C ABI FFI.
     - **Declarations:** Use syntax like `extern "C" {... }` to declare external C functions and types. Example: `extern "C" fun puts(s: *const u8) -> i32;`
-    - **Type Mapping:** Define clear, bidirectional mappings between Seen's primitive types, raw pointers (`*const T`, `*mut T`), structs (`#[layout(C)]`), and their C equivalents. C strings (`char*`) would typically map to Seen's `*const u8` or `*mut u8`.
+    - **Type Mapping:** Define clear, bidirectional mappings between Seen's primitive types, raw pointers (`*const T`, `*mut T`), structs (`@layout(C)`), and their C equivalents. C strings (`char*`) would typically map to Seen's `*const u8` or `*mut u8`.
 - **Safety:**
     - **`unsafe` Requirement:** Calling any `extern "C"` function is inherently `unsafe` because the Seen compiler cannot analyze the C code to guarantee memory safety, thread safety, or adherence to any preconditions.80 All FFI calls must be wrapped in an `unsafe` block or function.
     - **Data Transfer:** Passing data across the FFI boundary requires care.
-        - Primitives and `#[layout(C)]` structs can often be passed by value or pointer.
+        - Primitives and `@layout(C)` structs can often be passed by value or pointer.
         - Seen's safe references (`&T`, `&mut T`) generally cannot be passed directly to C, as C code cannot respect Seen's aliasing or lifetime rules.
         - Data transfer typically involves raw pointers (`*const T`, `*mut T`) pointing to memory whose lifetime and validity must be manually managed across the boundary. Copying data is often the safest approach.
     - **Fearless FFI Considerations:** While Vale's Fearless FFI offers strong safety guarantees by isolating memory and using copying/message passing 47, this imposes significant overhead and complexity. For Seen, a standard `unsafe` C FFI is the pragmatic starting point. Fearless patterns could potentially be implemented as library abstractions on top of the basic FFI for scenarios demanding higher assurance, but the performance trade-off must be acknowledged.
@@ -183,7 +183,7 @@ Easy C interop allows Seen projects to leverage the vast ecosystem of existing C
 Seen's standard library (`libseen`) provides the essential tools and abstractions for effective programming. Its design philosophy mirrors the language's goals.
 
 - **Design Philosophy:**
-    - **Minimal but Useful Core:** Provide fundamental data structures, I/O primitives, concurrency tools, and core traits, but avoid including highly specialized or domain-specific libraries in `libseen` itself. Encourage ecosystem development for areas like web frameworks, advanced numerics, or GUI toolkits.
+    - **Minimal but Useful Core:** Provide fundamental data structures, I/O primitives, concurrency tools, and core specs, but avoid including highly specialized or domain-specific libraries in `libseen` itself. Encourage ecosystem development for areas like web frameworks, advanced numerics, or GUI toolkits.
     - **Ergonomics:** Design APIs to be intuitive and consistent, leveraging Seen's Kotlin-inspired syntax and features (e.g., extension functions if adopted, default arguments).
     - **Safety as Default:** Standard library APIs must uphold Seen's memory and concurrency safety guarantees. Functions performing potentially unsafe operations (e.g., certain low-level memory manipulations, if exposed) must be clearly marked `unsafe` and documented.
     - **Zero-Cost Abstractions:** Strive to implement abstractions (like iterators, collections, optional types) such that they incur no runtime performance penalty compared to equivalent manual code, leveraging compile-time optimizations.8
@@ -191,7 +191,7 @@ Seen's standard library (`libseen`) provides the essential tools and abstraction
     - **Bilingual Considerations:** Provide documentation in both English and Arabic. Consider if common types or functions might benefit from having aliases in both languages, although this could increase complexity.
 - **Core Components:**
     - **Primitives:** Basic types (`int`, `f64`, `bool`, `char`, raw pointers, etc.) and their operations.
-    - **Core Traits/Interfaces:** Fundamental interfaces like `Copy`, `Debug`, `Display`, `Default`, `Iterator`, potentially `Send`/`Sync` equivalents if needed despite advanced inference.
+    - **Core Specs/Interfaces:** Fundamental interfaces like `Copy`, `Debug`, `Display`, `Default`, `Iterator`, potentially `Send`/`Sync` equivalents if needed despite advanced inference.
     - **Error Handling:** The `Result<T, E>` type and associated methods.71 Panic-related functions.
     - **Optionals:** An `Option<T>` type (similar to Rust/Kotlin) for representing optional values, integrated with null-safety features.
     - **Collections:** Essential collections like `Vec<T>` (dynamic array), `HashMap<K, V>` (hash map), `String` (UTF-8 string). These must be implemented carefully to work correctly and efficiently with Seen's GC-free memory model (region/capability system).
@@ -347,7 +347,7 @@ Beyond the compiler itself, a robust toolchain is essential for a good developer
 - **Implementation:** Create a standalone Rust tool (`seen-cinterop`).
     - **Input:** Takes C header file(s) as input.
     - **Parsing:** Uses `libclang` (via `clang-sys` or potentially `libclang-rs`) to parse the C headers, similar to how `bindgen` works.81
-    - **Output:** Generates a Seen source file (`.seen`) containing the corresponding `extern "C"` function declarations, struct definitions (`#[layout(C)]`), and type aliases, mapping C types to Seen FFI-compatible types.
+    - **Output:** Generates a Seen source file (`.seen`) containing the corresponding `extern "C"` function declarations, struct definitions (`@layout(C)`), and type aliases, mapping C types to Seen FFI-compatible types.
     - **Integration:** Can be invoked manually or potentially integrated into the build process via `seen build` based on configuration in `seen.toml`.
 
 ### 2.4 Optional: LLM Assistance Integration Strategy
@@ -413,7 +413,7 @@ Bootstrapping is a long-term goal, dependent on the successful stabilization of 
 
 Rigorous testing and validation are paramount for a systems programming language aiming for safety and reliability.
 
-- **Unit Testing:** Use Rust's built-in testing framework (`#[test]`) extensively for testing individual functions and modules within the compiler and toolchain components (parser functions, analysis logic, utility functions, etc.).
+- **Unit Testing:** Use Rust's built-in testing framework (`@test`) extensively for testing individual functions and modules within the compiler and toolchain components (parser functions, analysis logic, utility functions, etc.).
 - **Integration Testing:** Test the interaction between different compiler stages (e.g., ensure the parser output is correctly consumed by the semantic analyzer) and the integration of toolchain components (e.g., `seen build` correctly invokes the compiler and linker).
 - **Compiler Test Suite:** Develop a comprehensive suite of Seen test programs covering all language features, standard library APIs, and known edge cases. These tests will be run through the full compiler pipeline, checking for correct compilation (or appropriate error reporting) and correct runtime behavior.
 - **Property-Based Testing:** Employ property-based testing libraries like `proptest` 99 or `quickcheck` 100 in Rust to test compiler components and language semantics. This is particularly crucial for:
@@ -842,7 +842,7 @@ Seen's syntax prioritizes developer productivity and readability, borrowing heav
 - **Systems Programming Adaptations:**
     - **`unsafe` Contexts:** Clearly demarcated `unsafe` blocks (`unsafe {... }`) and functions (`unsafe fun...`) are required for operations that bypass compiler safety guarantees.4 (See Section 1.3.6).
     - **Pointer Types:** Introduce distinct syntax for compiler-managed safe references versus raw pointers usable only in `unsafe` code.66 (See Section 1.3.6).
-    - **Memory Layout:** Utilize attributes (e.g., `#[layout(C)]`, `#[align(N)]`) for explicit control over data structure memory representation.17 (See Section 1.3.6).
+    - **Memory Layout:** Utilize attributes (e.g., `@layout(C)`, `@align(N)`) for explicit control over data structure memory representation.17 (See Section 1.3.6).
 - **Bilingual Support Mechanism:**
     - **Keyword Mapping:** Implement bilingualism via a configurable mapping between English keywords (e.g., `if`, `fun`, `struct`) and their Arabic equivalents (e.g., `إذا`, `وظيفة`, `هيكل`). This mapping will reside in external configuration files, not directly in the parser logic.
     - **Project Configuration (`seen.toml`):** Projects will specify the active keyword language(s) (e.g., `language = "en"`, `language = "ar"`, or potentially `language = ["en", "ar"]`). The default could be English. Allowing simultaneous use increases parsing complexity and potential ambiguity.24
@@ -914,7 +914,7 @@ Seen requires a robust and expressive static type system to support its safety g
     - **Safe References (`&T`, `&mut T`):** These are compiler-managed pointers whose validity (non-nullness, lifetime, aliasing rules, concurrent access permissions) is guaranteed by the static analysis engine (memory and concurrency models, Section 1.3.2 & 1.3.3). They implicitly carry the inferred region/capability information. These are the default reference types in safe code.
     - **Raw Pointers (`*const T`, `*mut T`):** Unchecked pointers similar to C pointers, providing direct memory access.66 Their use (dereferencing, arithmetic) is restricted to `unsafe` blocks, acknowledging that the compiler cannot guarantee their safety.
 - **Memory Layout Control:** Explicit control over data layout is necessary for systems programming.17
-    - **Attributes:** Provide attributes like `#[layout(C)]` for C compatibility, `#[align(N)]` for alignment, and potentially others for precise layout specification.
+    - **Attributes:** Provide attributes like `@layout(C)` for C compatibility, `@align(N)` for alignment, and potentially others for precise layout specification.
 - **Type Inference:** Employ local type inference for `val` and `var` declarations to reduce verbosity.11 Inference may also apply to generic parameters and function return types where unambiguous.
 
 The type system's design is fundamentally intertwined with the memory management model. Safe references (`&T`, `&mut T`) are not merely addresses but typed handles whose usage is governed by the compiler's static region and capability analysis. This static verification associated with safe references distinguishes Seen from C/C++ 1 and aims for greater automation than Rust's lifetime system.3
@@ -950,9 +950,9 @@ To function as a systems language, Seen must provide mechanisms for direct memor
     - **Safe References (`&T`, `&mut T`):** The default reference types in safe Seen code. Their validity, aliasing, and concurrent access are guaranteed by the compiler's static analysis engine (Sections 1.3.2, 1.3.3).
     - **Raw Pointers (`*const T`, `*mut T`):** Provide direct, unchecked memory access, similar to C pointers.66 These pointers bypass the compiler's safety analyses. Operations involving raw pointers (dereferencing, arithmetic, casting) are only permitted within `unsafe` blocks or functions. Pointer arithmetic should likely require explicit length information or be restricted to prevent arbitrary memory access even within `unsafe`.
 - **Memory Layout Control:** Offer attributes for precise control over the memory layout of `struct` types.17 This is essential for FFI, hardware interaction, and performance tuning.
-    - `#[layout(C)]`: Guarantee C-compatible field ordering and padding.
-    - `#[align(N)]`: Specify a minimum alignment requirement (where N is a power of 2).
-    - `#[packed]`: Request removal of padding between fields (use with extreme caution, as it can cause performance issues or unaligned access faults on some architectures).
+    - `@layout(C)`: Guarantee C-compatible field ordering and padding.
+    - `@align(N)`: Specify a minimum alignment requirement (where N is a power of 2).
+    - `@packed`: Request removal of padding between fields (use with extreme caution, as it can cause performance issues or unaligned access faults on some architectures).
 - **`unsafe` Code Demarcation:** Adopt Rust's model for isolating potentially unsafe operations 4:
     - **`unsafe` Blocks:** Code sections enclosed in `unsafe {... }` are required to perform operations the compiler cannot prove safe. This includes:
         - Dereferencing a raw pointer (`*ptr`).
@@ -969,7 +969,7 @@ Effective interoperability with C is crucial for leveraging existing codebases a
 
 - **Mechanism:** Provide a standard FFI compatible with the C Application Binary Interface (ABI).
     - **Declarations:** Use `extern "C"` blocks or function attributes to declare C functions, variables, and types within Seen code. Example: `extern "C" fun read(fd: i32, buf: *mut u8, count: usize) -> isize;`
-    - **Type Mapping:** Establish clear mappings between Seen types and C types. Primitives map directly. Seen raw pointers (`*const T`, `*mut T`) map to C pointers. Seen structs marked `#[layout(C)]` map to C structs. C strings (`char*`) typically map to `*const u8` or `*mut u8`.
+    - **Type Mapping:** Establish clear mappings between Seen types and C types. Primitives map directly. Seen raw pointers (`*const T`, `*mut T`) map to C pointers. Seen structs marked `@layout(C)` map to C structs. C strings (`char*`) typically map to `*const u8` or `*mut u8`.
 - **Safety Considerations:**
     - **Inherent Unsafety:** Calling external C functions is always an `unsafe` operation in Seen.80 The Seen compiler cannot verify the correctness or safety of the C code being called. Therefore, all FFI calls must occur within an `unsafe` block or function.
     - **Memory Management Across Boundary:** Managing memory ownership and lifetimes across the FFI boundary is the programmer's responsibility within `unsafe` blocks.

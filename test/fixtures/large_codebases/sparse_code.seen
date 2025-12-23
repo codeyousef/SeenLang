@@ -87,10 +87,10 @@ enum ApplicationStatus {
 
 /*
  * ====================================================================
- * Core Processing Trait
+ * Core Processing Spec
  * ====================================================================
  * 
- * This trait defines the interface that all data processors must
+ * This spec defines the interface that all data processors must
  * implement. It provides a standardized way to process data and
  * validate inputs across different implementations.
  * 
@@ -100,7 +100,7 @@ enum ApplicationStatus {
  * 
  * ====================================================================
  */
-trait DataProcessor {
+spec DataProcessor {
     
     /*
      * Process the given data and return a result
@@ -380,7 +380,7 @@ fn fibonacci(n: u32) -> u64 {
  * defined above. This includes:
  * 
  * - Creating and initializing data structures
- * - Using the processor trait implementation
+ * - Using the processor spec implementation
  * - Running sorting algorithms
  * - Calculating mathematical sequences
  * 

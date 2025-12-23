@@ -76,10 +76,10 @@ enum СтатусПриложения {
 
 /*
  * Трейт обработчика данных с Unicode именами методов
- * Unicode method names trait
+ * Unicode method names spec
  * ייצוג מעבד נתונים עם שמות יוניקוד
  */
-trait ОбработчикДанных {
+spec ОбработчикДанных {
     // Метод обработки данных 🔄
     fn обработать_данные(&self, данные: &UnicodeDataМодель) -> Result<String, String>;
     

@@ -6,7 +6,7 @@ This replaces previous MVP notes. It merges **Pre‑Bootstrap (PB)**, **Pre‑Se
 
 ## 1) Current Progress Snapshot
 - Lexer/Parser ✅
-- Type system (HM inference, traits, monomorphization, sealed classes) ✅
+- Type system (HM inference, specs, monomorphization, sealed classes) ✅
 - Memory model (regions, RAII, generational refs, deterministic drop) ✅
 - FFI/ABI (`extern "C"`, `repr(C)`, unions, align/pack, stable symbols) ✅
 - Codegen (LLVM + deterministic IR emission) ✅
@@ -60,11 +60,11 @@ Goal: Complete all components needed to compile the compiler with itself and pro
 
 ### PSH-1. Typestates & Phantom Types
 
-*Status:* ✅ Completed — Phantom generics flow through the parser/typechecker, and sealed traits reject external
+*Status:* ✅ Completed — Phantom generics flow through the parser/typechecker, and sealed specs reject external
 extensions.
 
-* **Inputs:** type system and trait engine.
-* **Outputs:** phantom parameters for state modeling and sealed traits to prevent invalid transitions (used later in Vulkan wrappers).
+* **Inputs:** type system and spec engine.
+* **Outputs:** phantom parameters for state modeling and sealed specs to prevent invalid transitions (used later in Vulkan wrappers).
 * **Acceptance:** Creating illegal transitions between states is rejected at compile time.
 
 ### PSH‑2. Async & Structured Concurrency
@@ -122,7 +122,7 @@ outcomes, and interpreter coverage exercises scoped jobs plus multi-stage pipeli
      reimplementing `seen_concurrency` pieces, ensure the compiled artifact links the runtime on every platform, and
      propagate handles/results back into Seen values.
       * ⬜ Subtasks to stage this work:
-          - [x] Extract a minimal `seen_runtime` crate that exposes the channel/task ABI over `@[no_mangle] extern "C"`
+          - [x] Extract a minimal `seen_runtime` crate that exposes the channel/task ABI over `@no_mangle extern "C"`
             shims.
           - [x] Link Linux LLVM builds against the new runtime so channel send/recv/select no longer rely on stubs (
             `seen_cli/src/main.rs`, `seen_ir/src/llvm_backend.rs`).
@@ -964,7 +964,7 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 #### STDLIB-1: Core Data Structures (Required for all benchmarks)
 
 - [x] **STDLIB-1a: Generic HashMap<K, V>** - ✅ Implemented 2025-11-16
-    - **Requirements**: Hash trait, generic keys, robin-hood hashing
+    - **Requirements**: Hash spec, generic keys, robin-hood hashing
     - **Needed by**: BM6 (LRU Cache), BM9 (Mandelbrot caching)
     - **Files**: `seen_std/src/collections/hash_map.seen`, `seen_std/src/hash/mod.seen`
     - **Status**: Production-ready robin-hood hashing implementation
@@ -1009,11 +1009,11 @@ All incomplete items below are the only remaining MVP work. Each must be checked
     - **Files**: `seen_std/src/crypto/md5.seen`
     - **Status**: RFC 1321 compliant MD5 in pure Seen
 
-- [x] **STDLIB-3b: Hash trait & utilities** - ✅ Implemented 2025-11-16
-    - **Requirements**: Trait definition, FNV/SipHash implementations
+- [x] **STDLIB-3b: Hash spec & utilities** - ✅ Implemented 2025-11-16
+    - **Requirements**: Spec definition, FNV/SipHash implementations
     - **Needed by**: STDLIB-1a (HashMap)
     - **Files**: `seen_std/src/hash/mod.seen`
-    - **Status**: Hash trait + utility functions (hashInt, hashString, etc.)
+    - **Status**: Hash spec + utility functions (hashInt, hashString, etc.)
 
 #### STDLIB-4: I/O & Networking
 
@@ -1263,7 +1263,7 @@ All incomplete items below are the only remaining MVP work. Each must be checked
 - HashMap<K,V> (robin-hood hashing)
 - MD5 (RFC 1321 compliant)
 - Random RNGs (LCG, PCG, Xorshift)
-- Hash utilities (traits + functions)
+- Hash utilities (specs + functions)
 - Math (verified complete, added round())
 
 **⏳ REMAINING FOR 70% BENCHMARK COVERAGE**:
@@ -1542,7 +1542,7 @@ and installers across every supported platform.
          `StringHashMap` (resizing, tombstones, load-factor-based growth) plus regression coverage in
          `seen_std/tests/string_hash_map_basic.seen`, giving the stdlib a deterministic hash map before we wire in the
          upcoming typechecker-driven collections.
-    4. Stand up `std.io`, `std.fs`, and `std.net` (sync + async traits) so Stage-1/tooling stop shelling out to
+    4. Stand up `std.io`, `std.fs`, and `std.net` (sync + async specs) so Stage-1/tooling stop shelling out to
        handwritten wrappers.
         * Update: `seen_std/src/io/file.seen` now wraps the runtime's deterministic file/command builtins with
           high-level helpers (`readText`, `writeText`, `writeLines`, `appendText`, directory management, and command

@@ -793,7 +793,7 @@ data ExecutiveSummary {
 }
 
 // String extension for title case
-trait StringExt {
+spec StringExt {
     fun to_title_case(&self) -> String;
 }
 

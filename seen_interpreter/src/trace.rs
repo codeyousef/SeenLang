@@ -191,6 +191,7 @@ pub enum RuntimeTraceValue {
     String(String),
     Character(char),
     Array { length: usize },
+    Map { size: usize },
     Bytes { length: usize },
     Struct { name: String },
     Class { name: String },
@@ -221,6 +222,10 @@ impl RuntimeTraceValue {
             Value::Array(items) => {
                 let length = items.lock().map(|vals| vals.len()).unwrap_or(0);
                 RuntimeTraceValue::Array { length }
+            }
+            Value::Map(map) => {
+                let size = map.lock().map(|vals| vals.len()).unwrap_or(0);
+                RuntimeTraceValue::Map { size }
             }
             Value::Bytes(bytes) => RuntimeTraceValue::Bytes {
                 length: bytes.len(),

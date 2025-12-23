@@ -40,10 +40,10 @@ Canonical keywords are fixed; surface translations are configured in `Seen.toml`
 | `KW_RETURN` | `return` | `ارجع` |
 | `KW_BREAK` | `break` | `اخرج` |
 | `KW_CONTINUE` | `continue` | `استمر` |
-| `KW_STRUCT` | `struct` | `هيكل` |
+| `KW_STRUCT` | `data` | `هيكل` |
 | `KW_ENUM` | `enum` | `تعداد` |
 | `KW_EXTENSION` | `extension` | `امتداد` |
-| `KW_TRAIT` | `trait` | `سمة` |
+| `KW_SPEC` | `spec` | `سمة` |
 | `KW_ASYNC` | `async` | `غير_متزامن` |
 | `KW_AWAIT` | `await` | `انتظر` |
 | `KW_REGION` | `region` | `منطقة` |
@@ -61,12 +61,9 @@ Project-level visibility is controlled via `Seen.toml`:
 ```toml
 [lang]
 visibility = "caps"      # capitalised identifiers exported
-# or
-visibility = "explicit"  # use `pub` keyword for exports
 export_alias = "ascii"   # ASCII export symbol alias
 ```
 - **Caps mode:** any top-level identifier beginning with an uppercase code point exports automatically; lowercase stays module-local.
-- **Explicit mode:** `pub` becomes a keyword token; missing `pub` on exported symbols is a compile error.
 
 The lexer enforces policy by tagging identifier tokens with their surface casing so subsequent phases can emit diagnostics early.
 

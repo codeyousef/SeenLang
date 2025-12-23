@@ -22,12 +22,12 @@
 ```seen
 module graphics.vulkan
 
-pub struct Image {
+data Image {
   handle: Ptr<VkImage>,
   extent: Extent3D,
 }
 
-pub fun create_image(dev: Device, info: ImageInfo) -> Result<Image, CreateError> { /* ... */ }
+fun CreateImage(dev: Device, info: ImageInfo) -> Result<Image, CreateError> { /* ... */ }
 ```
 
 - `module` names map to directories; public items per visibility mode.
@@ -35,20 +35,20 @@ pub fun create_image(dev: Device, info: ImageInfo) -> Result<Image, CreateError>
 
 ---
 
-## 3. Types, Traits, Generics
+## 3. Types, Specs, Generics
 ```seen
-trait Resource { fun destroy(self) }
+spec Resource { fun Destroy(self) }
 
-sealed trait CmdState {}
-struct Recording: CmdState {}
-struct Executable: CmdState {}
+sealed spec CmdState {}
+data Recording: CmdState {}
+data Executable: CmdState {}
 
-struct CommandBuffer<S: CmdState> { raw: Ptr<VkCommandBuffer>, phantom: Phantom<S> }
+data CommandBuffer<S: CmdState> { raw: Ptr<VkCommandBuffer>, phantom: Phantom<S> }
 
-fun end(cb: CommandBuffer<Recording>) -> CommandBuffer<Executable> { /* ... */ }
+fun End(cb: CommandBuffer<Recording>) -> CommandBuffer<Executable> { /* ... */ }
 ```
-- **Traits** with associated types (not shown) and orphan rule.
-- **Sealed traits** to restrict unsafe external impls.
+- **Specs** with associated types (not shown) and orphan rule.
+- **Sealed specs** to restrict unsafe external impls.
 - **Phantom** parameters enable typestates.
 
 ---
@@ -61,7 +61,7 @@ enum VkResult {
   DeviceLost,
 }
 
-fun present(r: VkResult) -> Result<Unit, VkResult> {
+fun Present(r: VkResult) -> Result<Unit, VkResult> {
   match r {
     VkResult::Success => Ok(()),
     VkResult::OutOfDate => Err(r),
@@ -75,10 +75,10 @@ fun present(r: VkResult) -> Result<Unit, VkResult> {
 
 ## 5. Memory, RAII, Regions
 ```seen
-struct GpuBuffer { dev: Ptr<VkDevice>, buf: Ptr<VkBuffer> }
+data GpuBuffer { dev: Ptr<VkDevice>, buf: Ptr<VkBuffer> }
 
 impl Drop for GpuBuffer {
-  fun drop(self) { frame_deletes.defer_after(2, || vkDestroyBuffer(self.dev, self.buf)); }
+  fun Drop(self) { frame_deletes.defer_after(2, || vkDestroyBuffer(self.dev, self.buf)); }
 }
 
 region upload {
@@ -92,13 +92,13 @@ region upload {
 
 ## 6. Errors & Control Flow
 ```seen
-fun load(path: &str) -> Result<[u8], IoError> {
-  let f = open(path)?;      // `?` desugars to match on Result
-  let bytes = read_all(f)?;
+fun Load(path: &str) -> Result<[u8], IoError> {
+  let f = Open(path)?;      // `?` desugars to match on Result
+  let bytes = ReadAll(f)?;
   Ok(bytes)
 }
 
-@[cold]
+@cold
 fun unlikely_case() { /* ... */ }
 ```
 - Recoverable errors use `Result`; `panic` aborts.
@@ -123,7 +123,7 @@ cancel(token);
 
 ## 8. Numerics & SIMD
 ```seen
-@[float_env(ftz, daz, round="nearest")]
+@float_env(ftz, daz, round="nearest")
 fun dot(a: vec4, b: vec4) -> f32 { /* ... */ }
 
 let q: quat = quat_from_axis_angle(axis, angle);
@@ -134,13 +134,13 @@ let q: quat = quat_from_axis_angle(axis, angle);
 
 ## 9. FFI/ABI & Layout
 ```seen
-@[repr(C)]
-struct Extent3D { width: u32, height: u32, depth: u32 }
+@repr(C)
+data Extent3D { Width: u32, Height: u32, Depth: u32 }
 
-@[no_mangle]
-pub extern "C" fun seen_init() -> i32 { 0 }
+@no_mangle
+extern "C" fun SeenInit() -> i32 { 0 }
 
-@[repr(C, packed(1))]
+@repr(C, packed(1))
 union Bytes4 { u: u32, b: [u8; 4] }
 ```
 - Exact layout/align/pack; function pointers and callbacks supported.
@@ -149,14 +149,14 @@ union Bytes4 { u: u32, b: [u8; 4] }
 
 ## 10. Shaders & Render‑Graph DSL
 ```seen
-@[embed(path="shaders/triangle.spv")] const TRIANGLE_SPV: [u8];
+@embed(path="shaders/triangle.spv") const TRIANGLE_SPV: [u8];
 
 graph pass "gbuffer" { write color, depth; run |vk| draw_world(vk); }
 
 graph pass "lighting" { read color, depth; write lit; run |vk| shade(vk); }
 ```
 
-- `@[embed]` injects byte blobs.
+- `@embed` injects byte blobs.
 - Render‑graph DSL declares passes/resources; compiler emits barriers/lifetime checks.
 
 ---
@@ -171,7 +171,7 @@ version = "0.1.0"
 [dependencies]
 seen-ecs = "^0.1"
 
-@[plugin_abi(version="1.0")]
+@plugin_abi(version="1.0")
 module physics_plugin { /* exports */ }
 ```
 - `seen pkg` manages lockfiles, versions, and publishing.
@@ -194,6 +194,6 @@ module physics_plugin { /* exports */ }
 ## 14. Examples Index
 - **Systems:** Result/`?`, RAII `Drop`, `defer`, channels, jobs.
 - **Graphics:** typestate command buffers, render‑graph, shader embed.
-- **Interop:** FFI init function, repr(C) structs, unions.
+- **Interop:** FFI init function, repr(C) data structs, unions.
 
 *No benchmark data appears in this document; examples are minimal and illustrative.*

@@ -54,7 +54,7 @@ class RealParser {
                 continue
             }
 
-            // Skip tokens we do not understand yet (enums, traits, etc.).
+            // Skip tokens we do not understand yet (enums, specs, etc.).
             advance()
         }
 

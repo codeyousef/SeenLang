@@ -4,7 +4,7 @@
 
 - [Lexical Structure](./lexical.md) — source encoding, tokens, NFC policy, visibility modes.
 - [Grammar](./grammar.md) — canonical Seen EBNF plus precedence tables.
-- [Types](./types.md) — type system, generics, traits, typestates, inference rules.
+- [Types](./types.md) — type system, generics, specs, typestates, inference rules.
 - [Regions & Memory](./regions.md) — region model, RAII, generational handles, async constraints.
 - [Errors & Diagnostics](./errors.md) — recoverable vs aborting flow, diagnostic guarantees.
 - [FFI & ABI](./ffi_abi.md) — layout attributes, symbol policy, interop guarantees.

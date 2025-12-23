@@ -3,7 +3,7 @@ import std.collections.{HashMap}
 import std.sync.{Arc}
 data Data{id:i32,name:String,values:Vec<f64>,metadata:HashMap<String,String>}
 enum Status{Active,Inactive,Pending(String),Error{code:i32,msg:String}}
-trait Processor{fn process(&self,data:&Data)->Result<String,String>;fn validate(&self,input:&str)->bool;}
+spec Processor{fn process(&self,data:&Data)->Result<String,String>;fn validate(&self,input:&str)->bool;}
 impl Processor for Data{fn process(&self,data:&Data)->Result<String,String>{let mut result=String::new();for(i,val)in data.values.iter().enumerate(){result.push_str(&format!("{}:{:.2}",i,val));}Ok(result)}fn validate(&self,input:&str)->bool{!input.is_empty()&&input.len()<1000}}
 fn quick_sort<T:Ord+Clone>(arr:&mut[T]){if arr.len()<=1{return;}let pivot=partition(arr);quick_sort(&mut arr[0..pivot]);quick_sort(&mut arr[pivot+1..]);}
 fn partition<T:Ord+Clone>(arr:&mut[T])->usize{let pivot=arr.len()-1;let mut i=0;for j in 0..pivot{if arr[j]<=arr[pivot]{arr.swap(i,j);i+=1;}}arr.swap(i,pivot);i}

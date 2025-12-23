@@ -82,11 +82,8 @@ impl Parser {
     }
 
     fn is_pub_token(&self) -> bool {
-        matches!(
-            &self.current.token_type,
-            TokenType::PrivateIdentifier(name) | TokenType::PublicIdentifier(name)
-                if name == "pub"
-        )
+        // "pub" keyword is removed in favor of capitalization-based visibility
+        false
     }
 
     fn consume_visibility_modifier(&mut self) -> bool {
@@ -191,18 +188,6 @@ impl Parser {
         let pub_pos = self.pending_visibility_pos.clone();
         self.skip_whitespace();
 
-        if !attributes.is_empty() && !self.check_keyword(KeywordType::KeywordConst) {
-            let attr_pos = attributes
-                .first()
-                .map(|attr| attr.pos)
-                .unwrap_or_else(|| self.current.position.clone());
-            return Err(ParseError::UnexpectedToken {
-                expected: "const declaration after attribute".to_string(),
-                found: self.current.token_type.clone(),
-                pos: attr_pos,
-            });
-        }
-
         // Check for import statements
         if self.check_keyword(KeywordType::KeywordImport) {
             if had_pub {
@@ -227,21 +212,21 @@ impl Parser {
                     pos: pub_pos.unwrap_or_else(|| self.current.position.clone()),
                 });
             }
-            return self.parse_contracted_function();
+            return self.parse_contracted_function(attributes.clone());
         }
 
         // Check for pure functions
         if self.check_keyword(KeywordType::KeywordPure) {
-            return self.parse_pure_function();
+            return self.parse_pure_function(attributes.clone());
         }
 
         // Check for external functions
         if self.check_keyword(KeywordType::KeywordExternal) {
-            return self.parse_external_function();
+            return self.parse_external_function(attributes.clone());
         }
 
         if self.check_identifier_value("extern") {
-            return self.parse_cstyle_extern_function();
+            return self.parse_cstyle_extern_function(attributes.clone());
         }
 
         // Check for constant declarations
@@ -258,12 +243,12 @@ impl Parser {
 
         // Check for function definitions
         if self.check_keyword(KeywordType::KeywordFun) {
-            return self.parse_function();
+            return self.parse_function(attributes);
         }
 
         // Check for async functions and blocks
         if self.check_keyword(KeywordType::KeywordAsync) {
-            return self.parse_async_construct();
+            return self.parse_async_construct(attributes);
         }
 
         // Check for compile-time execution
@@ -285,27 +270,27 @@ impl Parser {
 
         // Handle sealed declarations (class/interface)
         if self.check_keyword(KeywordType::KeywordSealed) {
-            return self.parse_sealed_declaration();
+            return self.parse_sealed_declaration(attributes);
         }
 
         // Check for struct definitions
         if self.check_keyword(KeywordType::KeywordStruct) {
-            return self.parse_struct_definition();
+            return self.parse_struct_definition(attributes);
         }
 
         // Check for enum definitions
         if self.check_keyword(KeywordType::KeywordEnum) {
-            return self.parse_enum_definition();
+            return self.parse_enum_definition(attributes);
         }
 
         // Check for interface definitions
         if self.check_keyword(KeywordType::KeywordInterface) {
-            return self.parse_interface(false);
+            return self.parse_interface(false, attributes);
         }
 
         // Check for class definitions
         if self.check_keyword(KeywordType::KeywordClass) {
-            return self.parse_class_definition();
+            return self.parse_class_definition(attributes);
         }
 
         // Check for companion object
@@ -1069,12 +1054,12 @@ impl Parser {
 
         // Function/lambda definitions
         if self.check_keyword(KeywordType::KeywordFun) {
-            return self.parse_function();
+            return self.parse_function(Vec::new());
         }
 
         // Async functions and blocks
         if self.check_keyword(KeywordType::KeywordAsync) {
-            return self.parse_async_construct();
+            return self.parse_async_construct(Vec::new());
         }
 
         // Blocks and parentheses
@@ -2036,7 +2021,7 @@ impl Parser {
     }
 
     /// Parse function definition
-    fn parse_function(&mut self) -> ParseResult<Expression> {
+    fn parse_function(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'fun'
         let header = self.parse_function_header()?;
@@ -2075,6 +2060,7 @@ impl Parser {
                 is_pure: false,
                 is_external: false,
                 is_public: header.is_public,
+                attributes: attributes.clone(),
                 doc_comment: None,
                 pos: pos.clone(),
             };
@@ -2099,6 +2085,7 @@ impl Parser {
                 is_pure: false,
                 is_external: false,
                 is_public: header.is_public,
+                attributes,
                 doc_comment: None,
                 pos,
             })
@@ -2106,14 +2093,14 @@ impl Parser {
     }
 
     /// Parse async construct (function or block)
-    fn parse_async_construct(&mut self) -> ParseResult<Expression> {
+    fn parse_async_construct(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'async'
 
         // Check what follows 'async'
         if self.check_keyword(KeywordType::KeywordFun) {
             // async fun - parse async function
-            self.parse_async_function_body(pos)
+            self.parse_async_function_body(pos, attributes)
         } else if self.check(&TokenType::LeftBrace) {
             // async { - parse async block
             let body = Box::new(self.parse_block()?);
@@ -2128,7 +2115,7 @@ impl Parser {
     }
 
     /// Parse async function body (helper)
-    fn parse_async_function_body(&mut self, pos: Position) -> ParseResult<Expression> {
+    fn parse_async_function_body(&mut self, pos: Position, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         self.expect_keyword(KeywordType::KeywordFun)?;
         let header = self.parse_function_header()?;
 
@@ -2166,6 +2153,7 @@ impl Parser {
                 is_pure: false,
                 is_external: false,
                 is_public: header.is_public,
+                attributes: attributes.clone(),
                 doc_comment: None,
                 pos: pos.clone(),
             };
@@ -2190,6 +2178,7 @@ impl Parser {
                 is_pure: false,
                 is_external: false,
                 is_public: header.is_public,
+                attributes,
                 doc_comment: None,
                 pos,
             })
@@ -3101,7 +3090,7 @@ impl Parser {
                     KeywordType::KeywordClass => "class".to_string(),
                     KeywordType::KeywordStruct => "data".to_string(),
                     KeywordType::KeywordEnum => "enum".to_string(),
-                    KeywordType::KeywordTrait => "trait".to_string(),
+                    KeywordType::KeywordSpec => "spec".to_string(),
                     // Add more as needed
                     _ => format!("{:?}", keyword)
                         .to_lowercase()
@@ -3912,7 +3901,7 @@ impl Parser {
         Ok(Expression::Defer { body, pos })
     }
 
-    fn parse_struct_definition(&mut self) -> ParseResult<Expression> {
+    fn parse_struct_definition(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'struct'
 
@@ -3927,7 +3916,6 @@ impl Parser {
         let mut fields = Vec::new();
 
         while !self.check(&TokenType::RightBrace) {
-            eprintln!("DEBUG: Struct loop token: {:?}", self.current);
             // Skip any leading layout separators
             while self.check_layout() {
                 self.advance();
@@ -3972,12 +3960,13 @@ impl Parser {
             name,
             generics,
             fields,
+            attributes,
             doc_comment: None,
             pos,
         })
     }
 
-    fn parse_enum_definition(&mut self) -> ParseResult<Expression> {
+    fn parse_enum_definition(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'enum'
 
@@ -4051,12 +4040,13 @@ impl Parser {
             name,
             generics,
             variants,
+            attributes,
             doc_comment: None,
             pos,
         })
     }
 
-    fn parse_class_definition(&mut self) -> ParseResult<Expression> {
+    fn parse_class_definition(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'class'
 
@@ -4120,6 +4110,7 @@ impl Parser {
             fields,
             methods,
             is_sealed: false,
+            attributes,
             doc_comment: None,
             pos,
         })
@@ -4349,7 +4340,7 @@ impl Parser {
         })
     }
 
-    fn parse_interface(&mut self, is_sealed: bool) -> ParseResult<Expression> {
+    fn parse_interface(&mut self, is_sealed: bool, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.expect_keyword(KeywordType::KeywordInterface)?;
         let name = self.expect_identifier()?;
@@ -4415,12 +4406,13 @@ impl Parser {
             generics,
             methods,
             is_sealed,
+            attributes,
             pos,
         })
     }
 
     /// Parse a function with contracts (requires/ensures/invariant)
-    fn parse_contracted_function(&mut self) -> ParseResult<Expression> {
+    fn parse_contracted_function(&mut self, attrs: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         let mut requires = None;
         let mut ensures = None;
@@ -4464,7 +4456,7 @@ impl Parser {
             });
         }
 
-        let function = Box::new(self.parse_function()?);
+        let function = Box::new(self.parse_function(attrs)?);
 
         Ok(Expression::ContractedFunction {
             function,
@@ -4476,7 +4468,7 @@ impl Parser {
     }
 
     /// Parse a pure function (no side effects)
-    fn parse_pure_function(&mut self) -> ParseResult<Expression> {
+    fn parse_pure_function(&mut self, attrs: Vec<Attribute>) -> ParseResult<Expression> {
         self.advance(); // consume 'pure'
 
         if !self.check_keyword(KeywordType::KeywordFun) {
@@ -4494,7 +4486,7 @@ impl Parser {
         }
 
         // Parse the function and set is_pure flag
-        let mut func = self.parse_function()?;
+        let mut func = self.parse_function(attrs)?;
 
         // Update the is_pure flag
         if let Expression::Function {
@@ -4508,7 +4500,7 @@ impl Parser {
     }
 
     /// Parse an external function (FFI)
-    fn parse_external_function(&mut self) -> ParseResult<Expression> {
+    fn parse_external_function(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         self.advance(); // consume 'external'
 
         if !self.check_keyword(KeywordType::KeywordFun) {
@@ -4526,7 +4518,7 @@ impl Parser {
         }
 
         // Parse the function and set is_external flag
-        let mut func = self.parse_function()?;
+        let mut func = self.parse_function(attributes)?;
 
         // Update the is_external flag
         if let Expression::Function {
@@ -4540,7 +4532,7 @@ impl Parser {
         Ok(func)
     }
 
-    fn parse_cstyle_extern_function(&mut self) -> ParseResult<Expression> {
+    fn parse_cstyle_extern_function(&mut self, attributes: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'extern' identifier
 
@@ -4564,6 +4556,7 @@ impl Parser {
             is_pure: false,
             is_external: true,
             is_public: header.is_public,
+            attributes,
             doc_comment: None,
             pos,
         };
@@ -4677,12 +4670,12 @@ impl Parser {
     }
 
     /// Parse sealed declaration (class or interface)
-    fn parse_sealed_declaration(&mut self) -> ParseResult<Expression> {
+    fn parse_sealed_declaration(&mut self, attrs: Vec<Attribute>) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
         self.advance(); // consume 'sealed'
 
         if self.check_keyword(KeywordType::KeywordClass) {
-            let mut class_expr = self.parse_class_definition()?;
+            let mut class_expr = self.parse_class_definition(attrs)?;
             if let Expression::ClassDefinition {
                 ref mut is_sealed, ..
             } = class_expr
@@ -4691,7 +4684,7 @@ impl Parser {
             }
             Ok(class_expr)
         } else if self.check_keyword(KeywordType::KeywordInterface) {
-            self.parse_interface(true)
+            self.parse_interface(true, attrs)
         } else {
             Err(ParseError::UnexpectedToken {
                 expected: "class or interface".to_string(),
@@ -4870,7 +4863,7 @@ impl Parser {
         Ok(attributes)
     }
 
-    /// Check if the current location starts an attribute (`@[`).
+    /// Check if the current location starts an attribute (`@Identifier`).
     fn is_attribute_start(&mut self) -> bool {
         if !self.check(&TokenType::At) {
             return false;
@@ -4878,57 +4871,35 @@ impl Parser {
 
         matches!(
             self.peek_ahead(1),
-            Some(token) if matches!(token.token_type, TokenType::LeftBracket)
+            Some(token) if matches!(token.token_type, TokenType::PublicIdentifier(_) | TokenType::PrivateIdentifier(_))
         )
     }
 
-    /// Parse a single attribute block `@[...]`, which may contain multiple attributes.
+    /// Parse a single attribute `@Identifier(...)`.
     fn parse_attribute_block(&mut self) -> ParseResult<Vec<Attribute>> {
-        let mut attributes = Vec::new();
-
+        let pos = self.current.position.clone();
         self.advance(); // consume '@'
-        self.expect(&TokenType::LeftBracket)?;
+        
+        let name = self.expect_identifier()?;
+        let mut args = Vec::new();
 
-        loop {
-            let pos = self.current.position.clone();
-            let name = self.expect_identifier()?;
-            let mut args = Vec::new();
-
-            if self.check(&TokenType::LeftParen) {
-                self.advance(); // consume '('
-
-                if !self.check(&TokenType::RightParen) {
-                    loop {
-                        args.push(self.parse_attribute_argument()?);
-
-                        if self.check(&TokenType::Comma) {
-                            self.advance();
-                            if self.check(&TokenType::RightParen) {
-                                break;
-                            }
-                            continue;
-                        }
+        if self.check(&TokenType::LeftParen) {
+            self.advance(); // consume '('
+            
+            if !self.check(&TokenType::RightParen) {
+                loop {
+                    args.push(self.parse_attribute_argument()?);
+                    if self.check(&TokenType::Comma) {
+                        self.advance();
+                    } else {
                         break;
                     }
                 }
-
-                self.expect(&TokenType::RightParen)?;
             }
-
-            attributes.push(Attribute { name, args, pos });
-
-            if self.check(&TokenType::Comma) {
-                self.advance();
-                if self.check(&TokenType::RightBracket) {
-                    break;
-                }
-                continue;
-            }
-            break;
+            self.expect(&TokenType::RightParen)?;
         }
-
-        self.expect(&TokenType::RightBracket)?;
-        Ok(attributes)
+        
+        Ok(vec![Attribute { name, args, pos }])
     }
 
     /// Parse a single attribute argument.

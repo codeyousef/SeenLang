@@ -1,0 +1,8 @@
+import lexer.interfaces.{TokenType}
+
+fun main() {
+    println("Start")
+    println("Hello from test_import_interfaces")
+    let t = TokenType.IntegerLiteral
+    println("Token type: {t}")
+}

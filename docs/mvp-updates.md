@@ -429,7 +429,7 @@
 ## 10. Scope Exclusions
 
 **Platforms**: iOS, Android, Web (WASM for browsers) explicitly excluded until Year 3  
-**Language Features**: Garbage collection, runtime exception unwinding, JIT compilation, dynamic reflection, trait objects  
+**Language Features**: Garbage collection, runtime exception unwinding, JIT compilation, dynamic reflection, spec objects  
 **Engine Features**: Physics solver, animation library, networking protocol (all part of HeartOn, not language)  
 
 ---

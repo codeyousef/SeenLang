@@ -3750,6 +3750,7 @@ fn format_trace_value(value: &RuntimeTraceValue) -> String {
         RuntimeTraceValue::String(s) => format!("\"{}\"", s),
         RuntimeTraceValue::Character(c) => format!("'{}'", c),
         RuntimeTraceValue::Array { length } => format!("[len={}]", length),
+        RuntimeTraceValue::Map { size } => format!("Map(size={})", size),
         RuntimeTraceValue::Bytes { length } => format!("<bytes {}>", length),
         RuntimeTraceValue::Struct { name } => format!("{}{{...}}", name),
         RuntimeTraceValue::Class { name } => format!("<class {}>", name),

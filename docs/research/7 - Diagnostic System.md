@@ -127,7 +127,7 @@ The compiler will employ various heuristics, leveraging semantic information gat
 - **Common Idiomatic Fixes:** For recurring error patterns, especially those related to Seen's specific memory or concurrency idioms, the compiler can suggest standard, idiomatic solutions. This requires encoding knowledge about common mistakes and their canonical fixes.
 - **Type Mismatch Suggestions:** In case of type mismatches, suggestions can include:
     - Applying standard type conversions (e.g., suggesting `.to_string()` if a string is needed but an integer is found).
-    - Pointing to relevant traits that might provide the required conversion or functionality.
+    - Pointing to relevant specs that might provide the required conversion or functionality.
     - Suggesting adjustments to type annotations if inference led to an incompatible type.
 - **Advanced Approaches (Future Consideration):** While potentially complex, exploring techniques like learning repair templates from code corpora, as seen in research tools like Rite 29 or DeepDelta 30, could offer more sophisticated suggestions in the future.
 

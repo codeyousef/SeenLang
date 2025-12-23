@@ -54,7 +54,7 @@ The following table summarizes key challenges associated with the Rust implement
 |**External Dependencies**|Long-term maintenance and stability of LLVM bindings (e.g., `llvm-sys`, `inkwell`) due to LLVM C API changes.|Carefully select and vet LLVM binding crates, contribute to their maintenance if necessary, establish clear procedures for LLVM version upgrades, use environment variables or tools like `llvmenv` for managing LLVM versions 17, consider abstracting LLVM interactions.|17|
 |**Compiler Development Experience (DX)**|Ensuring Rust itself provides a productive environment for the _compiler development team_.|Focus on ergonomic internal APIs, good error reporting within compiler modules, efficient test suites, investment in developer tooling, fostering a supportive team culture, regular DX assessments.|19|
 |**Large Project Build Times & Dependency Management**|Overall build times for a large, multi-crate Rust project like a compiler.|Workspace organization, breaking down into smaller, independently buildable libraries, minimizing inter-crate dependencies, precompiled headers (less common in Rust but analogous techniques for dependency caching), shared build caches (e.g., `sccache`).|74|
-|**Maintaining Code Quality & Idiomatic Rust**|Ensuring a large, evolving Rust codebase adheres to best practices and remains maintainable.|Strict linting (`clippy --pedantic`), automated formatting (`rustfmt`), comprehensive code reviews, type-first design, SOLID principles, avoiding premature optimization, good documentation practices (including `#[deny(missing_docs)]`).|21|
+|**Maintaining Code Quality & Idiomatic Rust**|Ensuring a large, evolving Rust codebase adheres to best practices and remains maintainable.|Strict linting (`clippy --pedantic`), automated formatting (`rustfmt`), comprehensive code reviews, type-first design, SOLID principles, avoiding premature optimization, good documentation practices (including `@deny(missing_docs)`).|21|
 
 **Table 1: Seen Compiler - Rust Implementation Challenges & Mitigation**
 
@@ -79,7 +79,7 @@ A realistic, multi-phase roadmap is essential for managing the complexity of dev
 - **Dependencies & Toolchain (Rust):**
     - Core Rust language features, `cargo` for project management.
     - Parser generator library (e.g., `nom`, `lalrpop`) or hand-written parser.
-    - Basic testing setup (`#[test]`).
+    - Basic testing setup (`@test`).
 
 This phase aligns with the concept of an MVP as a tool to validate core ideas and gather feedback with minimal initial investment, even if the "P" in MVP is closer to "Prototype" at this stage.22 The primary goal is to have _something_ runnable to test the fundamental language design choices and the Rust implementation pipeline.
 
@@ -211,7 +211,7 @@ A comprehensive testing and validation strategy is paramount to ensure the quali
 
 The Rust codebase, forming the bedrock of the Seen compiler and its associated tools, will be subjected to rigorous testing using Rust's native testing ecosystem.
 
-- Unit Tests (#[test]):
+- Unit Tests (@test):
     
     Individual functions, methods, and modules within the Rust source code of the Seen compiler (e.g., lexer components, parser rules, specific semantic analysis checks, code generation utilities, standard library functions implemented in Rust) will be thoroughly tested using unit tests.25 These tests, typically co-located with the code they test or in a tests submodule, will focus on isolating logic, verifying boundary conditions, checking error handling paths, and ensuring that each small piece of code behaves as expected.38 Best practices for writing unit tests will be followed, such as keeping tests small and focused on a single concern, using descriptive names that clarify the test's purpose (avoiding reliance on issue numbers alone), and ensuring tests are self-contained and repeatable.39
     
@@ -224,7 +224,7 @@ The Rust codebase, forming the bedrock of the Seen compiler and its associated t
     Rust's documentation testing feature will be extensively used to ensure that all code examples embedded within the documentation of the Seen compiler's Rust modules and any auxiliary libraries are correct, compile, and run as expected.25 This is vital for maintaining accurate documentation, which aids in onboarding new compiler developers and serves as a form of living specification for internal APIs. The Rust 2024 Edition's improvement to doctest performance, which involves combining doctests into a single binary, will be beneficial if the Seen compiler codebase adopts this or a later edition, potentially speeding up the test suite.44 Care will be taken to ensure doctests are robust against changes introduced by such optimizations, for instance, by avoiding assertions on exact panic locations or type names that might change due to test compilation strategies.44
     
 
-Beyond these standard Rust testing mechanisms, a critical component for testing the Seen compiler will be a dedicated test harness, analogous to rustc's compiletest tool.25 While #[test], integration tests, and doctests are excellent for validating the Rust code implementing the compiler, compiletest-like functionality is needed to test the compiler's behavior when processing Seen language source files. This harness will execute the Seen compiler against a suite of .seen files, checking for:
+Beyond these standard Rust testing mechanisms, a critical component for testing the Seen compiler will be a dedicated test harness, analogous to rustc's compiletest tool.25 While @test, integration tests, and doctests are excellent for validating the Rust code implementing the compiler, compiletest-like functionality is needed to test the compiler's behavior when processing Seen language source files. This harness will execute the Seen compiler against a suite of .seen files, checking for:
 
 * Correct compilation of valid Seen programs.
 
@@ -307,7 +307,7 @@ The following table outlines the comprehensive testing and validation framework 
 |   |   |   |   |
 |---|---|---|---|
 |**Validation Target**|**Primary Testing Method(s)**|**Key Tools/Techniques (Rust Ecosystem)**|**Success Criteria/Metrics Examples**|
-|**Compiler Internals (Rust Code)**|Unit Tests (`#[test]`), Integration Tests, Documentation Tests (`/// ````)|`cargo test`, `#[test]`, `tests/` dir, `rustdoc --test`|High code coverage, all tests passing, documentation examples compile and run correctly.|
+|**Compiler Internals (Rust Code)**|Unit Tests (`@test`), Integration Tests, Documentation Tests (`/// ````)|`cargo test`, `@test`, `tests/` dir, `rustdoc --test`|High code coverage, all tests passing, documentation examples compile and run correctly.|
 |**Seen Lexer & Parser**|Unit Tests, Snapshot Testing (AST), Round-trip Testing, Fuzz Testing|`cargo test`, AST serialization (e.g., `serde_json`), `cargo-fuzz`, `afl.rs`|Correct tokenization for edge cases, stable AST snapshots, successful round-trips, X hours fuzzed without ICEs or panics.|
 |**Seen Semantic Analyzer (Types)**|Unit Tests, Integration Tests (with Parser), Property-Based Tests|`cargo test`, `proptest`|Correct type inference/checking for complex scenarios, property "valid typed programs don't cause type errors" holds for N generated inputs.|
 |**Seen Memory Model Logic**|Property-Based Tests, Integration Tests (compile-time checks), (Exploratory) Formal Verification|`proptest`, custom test harness, (Coq, Isabelle/HOL)|Property "compiler rejects programs violating memory safety rule X" holds, formal proof of soundness for core safety primitives.|

@@ -48,7 +48,7 @@ cargo bench
 - **Performance**: Targets 25M tokens/sec lexing, 80μs/function typechecking
 
 ### Testing Framework
-- **Unit Tests**: Built-in Rust `#[test]` with enhanced libraries
+- **Unit Tests**: Built-in Rust `@test` with enhanced libraries
 - **Property Testing**: Proptest for randomized testing
 - **Snapshot Testing**: Insta for regression testing
 - **Benchmarking**: Criterion with statistical analysis

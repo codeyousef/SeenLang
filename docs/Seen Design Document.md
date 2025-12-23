@@ -21,7 +21,7 @@
 2. **Memory safety without borrow pain** — regions + RAII + generational handles.
 3. **Zero‑cost by construction** — monomorphization + inlining; opt‑in features only.
 4. **FFI parity** — exact C ABI, clear layout/align/pack controls.
-5. **Ergonomics via types** — typestates/phantoms, sealed traits, pattern matching.
+5. **Ergonomics via types** — typestates/phantoms, sealed specs, pattern matching.
 6. **Multi‑platform from day one** — Linux/Windows/macOS/Android/iOS/Web with first‑class tools.
 
 ---
@@ -29,7 +29,7 @@
 ## 3. Language Architecture
 ### 3.1 Type System
 - Hindley–Milner style inference, **monomorphized generics**.
-- **Traits** with associated types, orphan rule; **sealed traits** to restrict unsafe impls.
+- **Specs** with associated types, orphan rule; **sealed specs** to restrict unsafe impls.
 - **Sum types / enums** (closed), pattern matching with exhaustiveness checks.
 - **Typestates** via phantom parameters to model object lifecycles (e.g., Vulkan command buffers).
 
@@ -42,7 +42,7 @@
 ### 3.3 Errors & Control Flow
 - Recoverable: `Result<T,E>` + `match` (or `?` sugar).
 - Unrecoverable: `panic` → **abort** (no unwinding).
-- Attributes: `@[cold]`, `@[hot]`, `@[inline(always|never)]`.
+- Attributes: `@cold`, `@hot`, `@inline(always|never)`.
 
 ### 3.4 Concurrency
 - Atomics (all orders), fences, TLS.
@@ -58,15 +58,15 @@
 
 ## 4. Interop & Layout
 - **FFI:** `extern "C"`, function pointers, varargs (where available), callbacks.
-- **Layout:** `@[repr(C|transparent)]`, `@[align(N)]`, `@[packed(N)]`, unions, bitfields (carefully constrained).
-- **Symbols:** `@[no_mangle]`, `@[export(name=...)]`, deterministic mangling.
+- **Layout:** `@repr(C|transparent)`, `@align(N)`, `@packed(N)`, unions, bitfields (carefully constrained).
+- **Symbols:** `@no_mangle`, `@export(name=...)`, deterministic mangling.
 - **Visibility policy:** `Seen.toml` → `visibility = "caps" | "explicit"`, `export_alias = "ascii"` for non‑cased scripts.
 
 ---
 
 ## 5. Modules, Build & Tooling
 - `seen build` with `--target <triple>`, `--shared`, `--static`, `--deterministic`, LTO/PGO hooks.
-- `@[embed(path=...)]` for shader/data injection.
+- `@embed(path=...)` for shader/data injection.
 - `seen fmt` formatting rules (word‑operator spacing, visibility policy), `seen test`, `seen trace`, `seen pkg` (registry/lockfiles).
 - LSP: hover, goto‑def, diagnostics, rename, semantic tokens, code actions.
 

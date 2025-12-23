@@ -2300,6 +2300,7 @@ impl TypeChecker {
                 methods,
                 is_sealed,
                 pos,
+                ..
             } => self.check_interface_definition(name, generics, methods, *is_sealed, *pos),
 
             Expression::Extension {
@@ -2726,10 +2727,28 @@ impl TypeChecker {
                 }
 
                 // Return a generic Map type (will be parameterized by usage)
-                return Type::Struct {
-                    name: "Map".to_string(),
-                    fields: HashMap::new(),
-                    generics: vec![Type::Unknown, Type::Unknown], // K, V
+                let generics = if !type_args.is_empty() {
+                    if type_args.len() != 2 {
+                        self.result.add_error(TypeError::GenericArityMismatch {
+                            type_name: "Map".to_string(),
+                            expected: 2,
+                            actual: type_args.len(),
+                            position: pos,
+                        });
+                        vec![Type::Unknown, Type::Unknown]
+                    } else {
+                        type_args
+                            .iter()
+                            .map(|t| self.resolve_ast_type(t, pos))
+                            .collect()
+                    }
+                } else {
+                    vec![Type::Unknown, Type::Unknown] // K, V
+                };
+
+                return Type::Map {
+                    key_type: Box::new(generics[0].clone()),
+                    value_type: Box::new(generics[1].clone()),
                 };
             }
 

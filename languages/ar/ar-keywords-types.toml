@@ -4,7 +4,7 @@ description = "Arabic Type Definition Keywords"
 [keywords]
 "هيكل" = "KeywordStruct"
 "تعداد" = "KeywordEnum"
-"صفة" = "KeywordTrait"
+"صفة" = "KeywordSpec"
 "تطبيق" = "KeywordImpl"
 "نوع" = "KeywordType"
 "فئة" = "KeywordClass"

@@ -87,15 +87,15 @@ export "C" fn seen_function_for_c(arg1: i32, arg2: *const u8) -> i32 {
 // }
 ```
 
-#[no_mangle] Equivalent:
+@no_mangle Equivalent:
 
-To ensure that the C linker can find the Seen function by its declared name, name mangling must be suppressed. In Rust, this is achieved with the #[no_mangle] attribute.2 Seen will either make #[no_mangle] (or an equivalent attribute like #[seen_ffi_export(no_mangle)]) mandatory for export "C" functions or apply it implicitly. This ensures that the symbol name in the compiled library matches the function name as C code would expect it.
+To ensure that the C linker can find the Seen function by its declared name, name mangling must be suppressed. In Rust, this is achieved with the @no_mangle attribute.2 Seen will either make @no_mangle (or an equivalent attribute like @seen_ffi_export(no_mangle)) mandatory for export "C" functions or apply it implicitly. This ensures that the symbol name in the compiled library matches the function name as C code would expect it.
 
 Code snippet
 
 ```
 // English keywords
-#[no_mangle] // This might be implied by `export "C"` in Seen's final design
+@no_mangle // This might be implied by `export "C"` in Seen's final design
 export "C" fn create_seen_resource() -> *mut SeenOpaqueResource { // SeenOpaqueResource defined later
     //... implementation to create and return a pointer to a Seen-managed resource...
     let resource = SeenBox::new(SeenOpaqueResource::new()); // Assume SeenBox helper
@@ -175,20 +175,20 @@ This precise mapping of primitive types is foundational. Without it, any exchang
 
 ### 3.2. Structs
 
-For Seen structs to be interoperable with C structs, their memory layout must be predictable and compatible with C's layout rules.
+For Seen data structs to be interoperable with C structs, their memory layout must be predictable and compatible with C's layout rules.
 
-- **`#[repr(C)]` Equivalent:** Seen will require an attribute, analogous to Rust's `#[repr(C)]` 3, for any struct intended for FFI use. This attribute guarantees:
+- **`@repr(C)` Equivalent:** Seen will require an attribute, analogous to Rust's `@repr(C)` 3, for any data struct intended for FFI use. This attribute guarantees:
     
-    - Fields are laid out in memory in the order they are declared in the Seen struct definition.
+    - Fields are laid out in memory in the order they are declared in the Seen data definition.
     - Padding bytes are inserted between fields as per the C ABI rules of the target platform to ensure correct alignment for each field.
-    - The Seen compiler will not reorder fields for optimization purposes, which it might do for default Seen struct layouts.
+    - The Seen compiler will not reorder fields for optimization purposes, which it might do for default Seen data layouts.
     
     Code snippet
     
     ```
     // English keywords
-    #[repr(C)] // Or a Seen-specific equivalent like #[seen_layout(C)]
-    struct SeenPoint {
+    @repr(C) // Or a Seen-specific equivalent like @seen_layout(C)
+    data SeenPoint {
         x: i32,
         y: i32,
     }
@@ -200,9 +200,9 @@ For Seen structs to be interoperable with C structs, their memory layout must be
     // };
     ```
     
-- **`#[repr(packed)]` Equivalent:** For interoperability with C structs that use `__attribute__((packed))` or similar compiler directives to minimize padding, Seen will also need an equivalent of `#[repr(packed)]`.3 This is less common but necessary for certain low-level or hardware-interfacing C APIs.
+- **`@repr(packed)` Equivalent:** For interoperability with C structs that use `__attribute__((packed))` or similar compiler directives to minimize padding, Seen will also need an equivalent of `@repr(packed)`.3 This is less common but necessary for certain low-level or hardware-interfacing C APIs.
     
-- **Passing Structs by Value:** When `#[repr(C)]` structs are passed by value to or from C functions, they must adhere to the target ABI's rules for struct passing. Small structs may be passed in registers, while larger structs are often passed via a pointer to a copy on the stack or via a hidden pointer argument.8 The Seen compiler is responsible for handling these ABI-specific details.
+- **Passing Structs by Value:** When `@repr(C)` structs are passed by value to or from C functions, they must adhere to the target ABI's rules for struct passing. Small structs may be passed in registers, while larger structs are often passed via a pointer to a copy on the stack or via a hidden pointer argument.8 The Seen compiler is responsible for handling these ABI-specific details.
     
 
 ### 3.3. Enums
@@ -213,14 +213,14 @@ Mapping enums between Seen and C requires distinguishing between simple C-like e
     
     Seen enums that are simple enumerations without associated data per variant can be directly mapped to C enums.
     
-    - An attribute like `#[repr(Int)]` (e.g., `#[repr(u32)]`, `#[repr(i8)]`) or `#[repr(C)]` will be used to specify the underlying integer representation of the enum's discriminants.22
-    - If `#[repr(C)]` is used on a fieldless enum, the Seen compiler will choose an integer size for the discriminant that matches what a C compiler would typically use for an equivalent enum on the target platform.23 It's important to note that C enum representation can be implementation-defined, though platform ABIs often standardize this.24
+    - An attribute like `@repr(Int)` (e.g., `@repr(u32)`, `@repr(i8)`) or `@repr(C)` will be used to specify the underlying integer representation of the enum's discriminants.22
+    - If `@repr(C)` is used on a fieldless enum, the Seen compiler will choose an integer size for the discriminant that matches what a C compiler would typically use for an equivalent enum on the target platform.23 It's important to note that C enum representation can be implementation-defined, though platform ABIs often standardize this.24
     
     Code snippet
     
     ```
     // English keywords
-    #[repr(C)] // Could also be, e.g., #[repr(i32)] to force a specific size
+    @repr(C) // Could also be, e.g., @repr(i32) to force a specific size
     enum SeenStatus {
         Success = 0,
         ErrorGeneric = 1,
@@ -234,7 +234,7 @@ Mapping enums between Seen and C requires distinguishing between simple C-like e
     //     ErrorGeneric = 1,
     //     ErrorSpecific = 2
     // };
-    // If #[repr(i32)] was used, C code might treat it as:
+    // If @repr(i32) was used, C code might treat it as:
     // typedef int32_t SeenStatus;
     ```
     
@@ -244,9 +244,9 @@ Mapping enums between Seen and C requires distinguishing between simple C-like e
     
     C has no direct equivalent for algebraic data types, where enum variants can carry different types or amounts of associated data.25 To expose such Seen enums to C, they must be "flattened" into a C-compatible representation.
     
-    - This typically involves a `#[repr(C)]` struct containing:
+    - This typically involves a `@repr(C)` struct containing:
         1. A **tag** (discriminant): An integer field indicating which variant is active.
-        2. A **union:** A C `union` whose members correspond to the data payloads of each Seen enum variant. Each member of the union would itself be a `#[repr(C)]` struct if the variant has multiple fields.23
+        2. A **union:** A C `union` whose members correspond to the data payloads of each Seen enum variant. Each member of the union would itself be a `@repr(C)` struct if the variant has multiple fields.23
     
     Code snippet
     
@@ -456,18 +456,18 @@ for &item in seen_slice {
     Seen's Option<T> type, representing an optional value, has specific FFI mapping implications:
     
     - For types that are already pointers in C (e.g., `*mut T`, `*const T`, `extern "C" fn(...)`), `Option<PointerType>` maps directly to a nullable C pointer. A `None` value in Seen becomes a `NULL` pointer in C, and a `Some(ptr)` becomes the `ptr` itself.22 This is a "niche" optimization where the null pointer pattern serves as the discriminant for `Option`.
-    - For other `#[repr(C)]` types `T`, if `T` has a "niche" (a bit pattern that valid instances of `T` cannot have), `Option<T>` can be optimized to have the same memory representation and ABI as `T` itself, with the niche value representing `None`. Rust performs such optimizations for types like `Option<Box<T>>` and `Option<&T>`. Seen should strive for similar optimizations to ensure efficient FFI for optional values.
+    - For other `@repr(C)` types `T`, if `T` has a "niche" (a bit pattern that valid instances of `T` cannot have), `Option<T>` can be optimized to have the same memory representation and ABI as `T` itself, with the niche value representing `None`. Rust performs such optimizations for types like `Option<Box<T>>` and `Option<&T>`. Seen should strive for similar optimizations to ensure efficient FFI for optional values.
     - If no niche is available for `T`, then `Option<T>` passed across FFI would generally need to be represented as a C struct containing the value `T` and a boolean flag indicating if it's `Some` or `None`. This is less efficient and more verbose for FFI and should be avoided if possible through careful type design or by using pointers for optional complex data.
 - **Tuples:**
     
     - Plain Seen tuples (e.g., `(i32, f32)`) are generally **not** FFI-safe because their memory layout is not guaranteed by default in a way that C would understand. The Seen compiler might reorder tuple elements for its own internal layout optimizations.
-    - However, "tuple structs" in Seen (structs with unnamed fields, e.g., `struct MyTuple(i32, f32);`), when annotated with the `#[repr(C)]` equivalent, **are** FFI-safe. They are laid out in memory identically to a C struct with fields of the same types in the same order.3
+    - However, "tuple structs" in Seen (structs with unnamed fields, e.g., `struct MyTuple(i32, f32);`), when annotated with the `@repr(C)` equivalent, **are** FFI-safe. They are laid out in memory identically to a C struct with fields of the same types in the same order.3
         
         Code snippet
         
         ```
         // English keywords
-        #[repr(C)]
+        @repr(C)
         struct PointTuple(f64, f64); // FFI-safe
         
         // extern "C" {
@@ -497,19 +497,19 @@ For a GC-free language like Seen, explicit and correct memory management across 
     
     ```
     // Seen code (English keywords)
-    #[repr(C)]
+    @repr(C)
     struct SeenDataObject { value: i32 }
     
     impl SeenDataObject { fn new(v: i32) -> Self { SeenDataObject { value: v } } }
     
-    #[no_mangle]
+    @no_mangle
     export "C" fn create_seen_data_object(val: i32) -> *mut SeenDataObject {
         let data_box = SeenBox::new(SeenDataObject::new(val));
         // Seen relinquishes ownership; C code is now responsible for this pointer.
         SeenBox::into_raw(data_box)
     }
     
-    #[no_mangle]
+    @no_mangle
     export "C" fn destroy_seen_data_object(obj_ptr: *mut SeenDataObject) {
         if!obj_ptr.is_null() {
             unsafe {
@@ -550,7 +550,7 @@ When C code allocates memory (e.g., using `malloc`, or a library-specific alloca
     // Seen FFI declarations (English keywords)
     extern "C" {
         // Assuming CData is an opaque type from Seen's perspective if its fields aren't accessed directly
-        type CData; // Or #[repr(C)] struct CData { id: i32, name: *const u8 } if layout is known
+        type CData; // Or @repr(C) struct CData { id: i32, name: *const u8 } if layout is known
         fn allocate_c_data(id: i32, name: *const u8) -> *mut CData;
         fn free_c_data(data_ptr: *mut CData);
     }
@@ -724,14 +724,14 @@ Seen's FFI design draws considerable inspiration from Rust's well-established FF
 ### 6.1. Similarities to Rust's FFI
 
 - **`extern "C"` Blocks:** The use of `extern "C" {... }` blocks for declaring the signatures of foreign C functions and static variables is a direct parallel.1
-- **`#[repr(C)]` Requirement:** The necessity for an attribute like `#[repr(C)]` on structs and enums to ensure a C-compatible memory layout is identical in principle.3
+- **`@repr(C)` Requirement:** The necessity for an attribute like `@repr(C)` on structs and enums to ensure a C-compatible memory layout is identical in principle.3
 - **Primitive Type Mapping:** The mapping of fundamental Seen types to their C equivalents (e.g., `i32` to `int32_t`) follows the same logic.2
 - **Raw Pointers:** The use of `*const T` and `*mut T` for representing C pointers is consistent.
 - **`unsafe` Keyword:** The explicit use of `unsafe` blocks for all FFI calls and raw pointer dereferences underscores the shared understanding that these operations fall outside the compiler's normal safety guarantees.2
 - **String Marshalling Types:** The concept of helper types like `SeenCString` and `SeenCStr` mirrors Rust's `CString` and `CStr` for safe and correct string handling across the FFI boundary.28
 - **Heap Ownership Transfer:** Mechanisms analogous to `Box::into_raw` and `Box::from_raw` for transferring ownership of heap-allocated data are proposed for Seen (`SeenBox::into_raw`, `SeenBox::from_raw`).33
 - **Panic Unwinding Prohibition:** The strict rule against panics unwinding across the FFI boundary into C code is a shared critical safety measure.2
-- **`#[no_mangle]` Attribute:** The need for an attribute like `#[no_mangle]` (or an implicit equivalent) to export functions with predictable C-linkable names is common.2
+- **`@no_mangle` Attribute:** The need for an attribute like `@no_mangle` (or an implicit equivalent) to export functions with predictable C-linkable names is common.2
 - **`extern type`:** The adoption of an `extern type` feature for correctly modeling opaque C types aligns Seen with modern Rust FFI practices.30
 
 ### 6.2. Potential Differences and Seen's Simplification Goals
@@ -739,7 +739,7 @@ Seen's FFI design draws considerable inspiration from Rust's well-established FF
 While the core principles are similar, Seen aims to simplify aspects of safe systems programming, which could manifest in its FFI ergonomics:
 
 - **Syntax and Keywords:** Seen's syntax for exporting functions (`export "C" fn...`) might be slightly more direct than Rust's `pub extern "C" fn...`. The bilingual keyword system is unique to Seen, though FFI declarations interfacing with C will likely favor English keywords for interoperability and clarity.
-- **Ergonomics for Rich Enums:** While Rust's `#[repr(C)]` on data-carrying enums produces a C-compatible tag-and-union struct 23, Seen's `seen-cinterop` tool might offer more automated generation of C helper functions to work with these flattened enums, improving the C-side developer experience.
+- **Ergonomics for Rich Enums:** While Rust's `@repr(C)` on data-carrying enums produces a C-compatible tag-and-union struct 23, Seen's `seen-cinterop` tool might offer more automated generation of C helper functions to work with these flattened enums, improving the C-side developer experience.
 - **Panic Handling Integration:** Seen could provide a more integrated or opinionated default mechanism for handling panics at the FFI boundary (e.g., compiler-inserted abort-on-panic for `export "C"` functions), potentially reducing boilerplate compared to manually using `catch_unwind` in every exported Rust function.
 - **Tooling Cohesion:** The `seen-cinterop` tool is envisioned as a single, cohesive solution for both C-to-Seen binding generation and Seen-to-C header generation. This contrasts with Rust's ecosystem, which typically uses separate tools like `rust-bindgen` and `cbindgen`. A unified tool designed specifically for Seen could offer a more streamlined workflow.
 - **Default Safety Posture:** While FFI is inherently `unsafe`, Seen might explore if specific common FFI patterns can be guided by stronger conventions or library abstractions that reduce the surface area for errors. The primary simplification, however, is expected from improved tooling and clearer, more opinionated conventions rather than altering the fundamental nature of C interop.
@@ -750,7 +750,7 @@ Rust's extensive experience with FFI provides valuable lessons for Seen:
 
 - The explicitness of `unsafe` is non-negotiable for highlighting code regions requiring programmer vigilance.
 - Clear and rigorously enforced rules for memory ownership transfer are essential to prevent common FFI bugs.
-- The `#[repr(C)]` attribute is fundamental for achieving predictable data layout.
+- The `@repr(C)` attribute is fundamental for achieving predictable data layout.
 - Automated tooling (`rust-bindgen`, `cbindgen`) is indispensable for managing FFI with non-trivial C libraries.
 - The introduction of `extern type` was a significant improvement for correctly and safely modeling opaque C types, addressing shortcomings of earlier workarounds.
 
@@ -768,10 +768,10 @@ The "simplification" is thus focused on the developer experience, reducing cogni
 |---|---|---|---|
 |**Feature**|**Rust FFI**|**Seen FFI (Proposed)**|**Simplification/Difference for Seen?**|
 |C Function Declaration|`extern "C" { fn foo(...); }`|`extern "C" { fn foo(...); }` (Primarily English keywords for C interop)|Similar core mechanism. Seen's bilingualism is a language feature, pragmatically handled for FFI.|
-|Seen/Rust Function Export|`pub extern "C" fn foo(...) {... }` `#[no_mangle]`|`export "C" fn foo(...) {... }` (may imply `no_mangle` or use `#[no_mangle]`)|Potentially slightly less verbose syntax for export.|
-|Struct/Union Layout|`#[repr(C)]`, `#[repr(packed)]`|`#[repr(C)]`, `#[repr(packed)]` (or Seen equivalents like `#[seen_layout(C)]`)|Similar core concept of explicit layout control.|
-|Fieldless Enum Representation|`#[repr(C)]` or `#[repr(Int)]`|`#[repr(C)]` or `#[repr(Int)]`|Similar. Seen will emphasize safe handling of unknown enum values from C.|
-|Data-Carrying Enum to C|`#[repr(C)]` results in a tag+union struct.23 Manual C-side usage.|`#[repr(C)]` results in tag+union. `seen-cinterop` may auto-generate C helper functions.|Potential for improved C-side ergonomics via tooling.|
+|Seen/Rust Function Export|`pub extern "C" fn foo(...) {... }` `@no_mangle`|`export "C" fn foo(...) {... }` (may imply `no_mangle` or use `@no_mangle`)|Potentially slightly less verbose syntax for export.|
+|Struct/Union Layout|`@repr(C)`, `@repr(packed)`|`@repr(C)`, `@repr(packed)` (or Seen equivalents like `@seen_layout(C)`)|Similar core concept of explicit layout control.|
+|Fieldless Enum Representation|`@repr(C)` or `@repr(Int)`|`@repr(C)` or `@repr(Int)`|Similar. Seen will emphasize safe handling of unknown enum values from C.|
+|Data-Carrying Enum to C|`@repr(C)` results in a tag+union struct.23 Manual C-side usage.|`@repr(C)` results in tag+union. `seen-cinterop` may auto-generate C helper functions.|Potential for improved C-side ergonomics via tooling.|
 |String Marshalling|`CString`, `CStr`|`SeenCString`, `SeenCStr` (analogous concepts)|Similar helper types, tailored to Seen's specific string type and standard library.|
 |Heap Ownership Transfer|`Box::into_raw`, `Box::from_raw`|`SeenBox::into_raw`, `SeenBox::from_raw` (analogous concepts)|Similar mechanisms for explicit ownership transfer.|
 |Opaque Types|`extern type Foo;`|`extern type Foo;` (analogous, adopting modern Rust approach)|Aligns with best practices for opaque type modeling.|
@@ -788,10 +788,10 @@ A robust FFI binding generation tool, `seen-cinterop`, is indispensable for achi
 ### 7.1. High-Level Requirements
 
 - **Bidirectional Generation:**
-    - Parse C header files to automatically generate Seen FFI declarations (`extern "C"` blocks, `#[repr(C)]` types).
-    - Analyze Seen source code (specifically `export "C"` functions and associated `#[repr(C)]` types) to generate corresponding C header files (`.h`).
+    - Parse C header files to automatically generate Seen FFI declarations (`extern "C"` blocks, `@repr(C)` types).
+    - Analyze Seen source code (specifically `export "C"` functions and associated `@repr(C)` types) to generate corresponding C header files (`.h`).
 - **Build System Integration:** Seamlessly integrate with Seen's build system, allowing bindings to be generated as part of the compilation process.
-- **Customization:** Provide flexible options for users to control and refine the generated bindings (e.g., allow/block lists, type mapping overrides, derive traits).
+- **Customization:** Provide flexible options for users to control and refine the generated bindings (e.g., allow/block lists, type mapping overrides, derive specs).
 - **Accuracy and Safety:** Prioritize the generation of correct and safe-by-default (where possible within FFI constraints) bindings.
 
 ### 7.2. C Header Parsing Strategy (Generating Seen Bindings from C)
@@ -814,12 +814,12 @@ To parse C header files and generate Seen FFI declarations, `seen-cinterop` will
 - **Generate Seen `extern "C"` Blocks:**
     - Translate C function signatures into equivalent Seen FFI function declarations within an `extern "C" {... }` block. Type mapping will follow the rules defined in Section 3.
     - Translate C global variable declarations (e.g., `extern int c_global;`) into Seen `extern static C_GLOBAL: i32;` declarations.
-- **Generate Seen `#[repr(C)]`-style Structs and Unions:**
-    - Convert C `struct` and `union` definitions into equivalent Seen `struct` and `union` definitions, annotated with `#[repr(C)]` (or its Seen equivalent).
+- **Generate Seen `@repr(C)`-style Structs and Unions:**
+    - Convert C `struct` and `union` definitions into equivalent Seen `struct` and `union` definitions, annotated with `@repr(C)` (or its Seen equivalent).
     - Handle nested struct/union definitions.
     - Attempt to handle C bitfields, translating them into appropriately sized integer fields in Seen if possible (this is a complex area where `rust-bindgen` has some support, but perfect 1:1 mapping can be challenging).
-- **Generate Seen `#[repr(Int)]` or `#[repr(C)]` Enums:**
-    - Translate C `enum` definitions (which are fieldless) into Seen fieldless enums, annotated with an appropriate `#[repr(Int)]` or `#[repr(C)]` to match the C enum's underlying integer type and discriminant values.
+- **Generate Seen `@repr(Int)` or `@repr(C)` Enums:**
+    - Translate C `enum` definitions (which are fieldless) into Seen fieldless enums, annotated with an appropriate `@repr(Int)` or `@repr(C)` to match the C enum's underlying integer type and discriminant values.
 - **Handle Typedefs:**
     - Resolve C `typedef`s to their underlying types when generating Seen type signatures. For example, if C has `typedef int32_t CErrorCode;`, Seen functions using `CErrorCode` will show `i32` (or a Seen alias for `int32_t`). The tool might also generate Seen type aliases for common C typedefs for clarity.
 - **Opaque Type Generation:**
@@ -827,7 +827,7 @@ To parse C header files and generate Seen FFI declarations, `seen-cinterop` will
 - **Generate C Headers from Seen Code (Seen-to-C Bindings):**
     - This mode involves parsing Seen source files (or potentially an intermediate representation from the Seen compiler if available).
     - Identify all `export "C" fn...` function definitions.
-    - Identify all Seen `struct`, `union`, and `enum` types that are marked with `#[repr(C)]` (or equivalent) and are used in the signatures of exported functions (or explicitly marked for export).
+    - Identify all Seen `struct`, `union`, and `enum` types that are marked with `@repr(C)` (or equivalent) and are used in the signatures of exported functions (or explicitly marked for export).
     - Generate a C header file (`.h`) containing:
         - C function prototypes for all exported Seen functions.
         - C `struct`, `union`, and `enum` definitions corresponding to the exported Seen types.
@@ -841,7 +841,7 @@ To handle the variety and occasional idiosyncrasies of C APIs, `seen-cinterop` w
 - **Allowlisting/Blocklisting:** Users can specify which C declarations (functions, types, variables) should be included in or excluded from the generated Seen bindings, often using names or regular expression patterns. This is useful for large C headers where only a subset of the API is needed.
 - **Type Overrides/Replacements:** Allow users to instruct `seen-cinterop` to use a specific Seen type as the mapping for a given C type, overriding the default mapping. This can be useful for custom handle types or when a more idiomatic Seen representation is desired.
 - **Opaque Type Designation:** Provide ways to explicitly mark certain C types as opaque in the generated Seen code, even if their definition is available in the C headers, if the user prefers to treat them as such.
-- **Derive Traits:** Option to automatically `#[derive(...)]` common Seen traits (e.g., `Debug`, `Default`, `Copy`, `Clone`) on the generated Seen `#[repr(C)]` structs and enums, where appropriate and safe (e.g., `Copy` only if the C type is truly copyable by value without special semantics).
+- **Derive Specs:** Option to automatically `@derive(...)` common Seen specs (e.g., `Debug`, `Default`, `Copy`, `Clone`) on the generated Seen `@repr(C)` structs and enums, where appropriate and safe (e.g., `Copy` only if the C type is truly copyable by value without special semantics).
 - **Naming Conventions:** Options to add prefixes or suffixes to generated Seen type or function names to avoid naming collisions or to adhere to project-specific naming schemes.
 - **Callback Handling:** Special handling or annotations for C function pointers that are callbacks, to aid in generating safer or more ergonomic Seen wrappers.
 
@@ -864,7 +864,7 @@ A significant challenge in parsing C headers is the C preprocessor. C headers ex
 
 ### 8.1. Summary of the Proposed FFI Design
 
-The Foreign Function Interface design proposed for the Seen programming language aims to provide robust, safe (within FFI's inherent constraints), and ergonomic interoperability with C code. It draws heavily on the battle-tested principles and mechanisms of Rust's FFI, including the use of `extern "C"` blocks, `#[repr(C)]`-style layout controls, explicit `unsafe` contexts for FFI calls, and helper types for common tasks like string marshalling and memory ownership transfer. Key aspects include strict adherence to C ABIs, well-defined type mappings (including for opaque types and Seen's rich enums), clear protocols for memory management across the boundary, and a critical rule preventing panics from unwinding into C code. The `seen-cinterop` tool, leveraging `libclang`, is central to this design, automating the generation of bindings and C headers to reduce manual effort and errors.
+The Foreign Function Interface design proposed for the Seen programming language aims to provide robust, safe (within FFI's inherent constraints), and ergonomic interoperability with C code. It draws heavily on the battle-tested principles and mechanisms of Rust's FFI, including the use of `extern "C"` blocks, `@repr(C)`-style layout controls, explicit `unsafe` contexts for FFI calls, and helper types for common tasks like string marshalling and memory ownership transfer. Key aspects include strict adherence to C ABIs, well-defined type mappings (including for opaque types and Seen's rich enums), clear protocols for memory management across the boundary, and a critical rule preventing panics from unwinding into C code. The `seen-cinterop` tool, leveraging `libclang`, is central to this design, automating the generation of bindings and C headers to reduce manual effort and errors.
 
 ### 8.2. Potential Areas for Future FFI Enhancements
 

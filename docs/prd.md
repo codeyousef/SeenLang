@@ -385,7 +385,7 @@ All benchmarks run on this hardware with matching Rust configuration.
 **Self-Hosting Compiler:**
 
 **FR1:** Compiler can parse all Seen syntax including its own source code
-- Handles classes, structs, enums, traits, generics
+- Handles classes, structs, enums, specs, generics
 - Supports manifest module system with imports
 - Processes Seen.toml configuration files
 

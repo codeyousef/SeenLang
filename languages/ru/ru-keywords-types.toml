@@ -4,7 +4,7 @@ description = "Russian Type Definition Keywords"
 [keywords]
 "структура" = "KeywordStruct"
 "перечисление" = "KeywordEnum"
-"черта" = "KeywordTrait"
+"черта" = "KeywordSpec"
 "реализовать" = "KeywordImpl"
 "тип" = "KeywordType"
 "класс" = "KeywordClass"

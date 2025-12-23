@@ -52,7 +52,7 @@ Beta emphasizes performance, parity, and robustness across platforms and fully *
 
 * **Portable lowering** to **x86 (AVX2/AVX‑512/AVX10)**, **ARM (NEON/SVE/SVE2)**, **RISC‑V (RVV 1.0)**, and **WASM SIMD**.
 * **Auto‑vectorizer cost model** tuned for lane utilization & bandwidth.
-* **Expert hints**: `@[vectorize]`, `@[no_vectorize]`, `@[lane_width(N)]` — hints only.
+* **Expert hints**: `@vectorize`, `@no_vectorize`, `@lane_width(N)` — hints only.
 * **Inline intrinsics/asm** as an escape hatch with strict typing.
 
 ### B2. Stdlib & Data Paths

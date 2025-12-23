@@ -1,7 +1,7 @@
-pub class Point {
+class Point {
     x: Int
     
-    pub fun test() {
+    fun Test() {
         42
     }
 }

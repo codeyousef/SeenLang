@@ -1,0 +1,6 @@
+fun main() {
+    // println(Map) // This might fail if Map is not an expression
+    let m: Map<String, Int> = Map<String, Int>();
+    println("Map created")
+}
+main();

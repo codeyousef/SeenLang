@@ -743,7 +743,7 @@ interface BenchmarkResult {
         },
         {
           "name": "keyword.declaration.seen",
-          "match": "\\b(fun|val|var|class|interface|object|trait|sealed|data|enum|type|alias)\\b"
+          "match": "\\b(fun|val|var|class|interface|object|spec|sealed|data|enum|type|alias)\\b"
         },
         {
           "name": "keyword.modifier.seen",

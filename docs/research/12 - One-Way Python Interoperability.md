@@ -192,7 +192,7 @@ These conversions would be handled by the Seen compiler/runtime using PyO3's `To
 
 - **Seen Structs:**
     - **Default:** Convert to Python dictionaries where struct field names are keys and field values are recursively converted Python objects. PyO3's `IntoPyDict` trait can facilitate this for Rust `HashMap`s, which can be an intermediate representation.3
-    - **Alternative (for richer interaction):** If a Seen struct needs to be passed as a distinct object type that Python code can introspect or call methods on (less common for one-way interop but possible), Seen could support a mechanism similar to PyO3's `#[pyclass]`.25 This would involve Seen generating a Python class wrapper for the Seen struct. The Seen struct instance would then be wrapped, likely using `PyCell<T>` internally by PyO3 to manage Rust's borrowing rules if mutable access is needed from Python or Rust while Python holds a reference.25 This is a more advanced scenario.
+    - **Alternative (for richer interaction):** If a Seen struct needs to be passed as a distinct object type that Python code can introspect or call methods on (less common for one-way interop but possible), Seen could support a mechanism similar to PyO3's `@pyclass`.25 This would involve Seen generating a Python class wrapper for the Seen struct. The Seen struct instance would then be wrapped, likely using `PyCell<T>` internally by PyO3 to manage Rust's borrowing rules if mutable access is needed from Python or Rust while Python holds a reference.25 This is a more advanced scenario.
 - **Seen Enums:**
     - **Simple Enums (no associated data):** Convert to Python strings (the variant name) or integers (the discriminant). String representation is generally more readable.
     - **Enums with Associated Data (Tagged Unions):**
@@ -293,7 +293,7 @@ The ability to perform zero-copy data exchange for large datasets is not merely 
 
 ### 5.6. Interior Mutability for Rust Structs Exposed to Python
 
-If Seen were to allow its own structs to be passed to Python and treated as custom Python objects (a feature of `#[pyclass]` in PyO3 25), and these structs needed to be mutable by Python or by Rust code while Python holds references, PyO3's `PyCell<T>` mechanism would be essential.25 `PyCell<T>` is analogous to Rust's `std::cell::RefCell`, providing interior mutability by enforcing Rust's borrowing rules (one mutable reference or multiple immutable references) at runtime, protected by the GIL. Seen's interop layer would need to abstract this complexity if such functionality were exposed.
+If Seen were to allow its own structs to be passed to Python and treated as custom Python objects (a feature of `@pyclass` in PyO3 25), and these structs needed to be mutable by Python or by Rust code while Python holds references, PyO3's `PyCell<T>` mechanism would be essential.25 `PyCell<T>` is analogous to Rust's `std::cell::RefCell`, providing interior mutability by enforcing Rust's borrowing rules (one mutable reference or multiple immutable references) at runtime, protected by the GIL. Seen's interop layer would need to abstract this complexity if such functionality were exposed.
 
 ## 6. Error Handling
 

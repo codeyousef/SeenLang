@@ -237,10 +237,10 @@ To further enhance ergonomic and safe state management in concurrent environment
     }
     ```
     
-- **Interaction with `Transferable`/`Shareable`**: Data passed as arguments to actor methods or returned from them must adhere to Seen's `Transferable` trait if passed by value. If data is shared by reference with an actor (though actors typically encourage message passing or encapsulation of state), the usual `Shareable` rules would apply.
+- **Interaction with `Transferable`/`Shareable`**: Data passed as arguments to actor methods or returned from them must adhere to Seen's `Transferable` spec if passed by value. If data is shared by reference with an actor (though actors typically encourage message passing or encapsulation of state), the usual `Shareable` rules would apply.
     
 
-The introduction of actors could significantly simplify the reasoning about `Transferable` and `Shareable` traits for complex shared state. If a piece of mutable state is encapsulated within an actor, the actor instance itself can be designed to be `Transferable` (so it can be sent to other tasks, allowing them to send messages to it) and `Shareable` (so multiple tasks can hold references to it for messaging). The compiler's primary concern then shifts from analyzing the internal complexities of the shared state to verifying that the messages passed into the actor and the results returned from it are `Transferable`. This localizes the analysis of sharing and mutability. For state that is naturally confined within an actor, this model could substantially reduce the annotation burden that might otherwise be required if using fine-grained locks like `MutexSeen` for every piece of shared data. The actor effectively becomes the synchronization boundary, simplifying the global view of concurrent state management.
+The introduction of actors could significantly simplify the reasoning about `Transferable` and `Shareable` specs for complex shared state. If a piece of mutable state is encapsulated within an actor, the actor instance itself can be designed to be `Transferable` (so it can be sent to other tasks, allowing them to send messages to it) and `Shareable` (so multiple tasks can hold references to it for messaging). The compiler's primary concern then shifts from analyzing the internal complexities of the shared state to verifying that the messages passed into the actor and the results returned from it are `Transferable`. This localizes the analysis of sharing and mutability. For state that is naturally confined within an actor, this model could substantially reduce the annotation burden that might otherwise be required if using fine-grained locks like `MutexSeen` for every piece of shared data. The actor effectively becomes the synchronization boundary, simplifying the global view of concurrent state management.
 
 ## 3. GC-Free Runtime Implementation Strategy
 
@@ -289,7 +289,7 @@ An important consideration for the scheduler design is its interaction with Fore
 
 ## 4. Static Data Race Freedom in Seen
 
-A paramount goal for Seen is to guarantee data race freedom at compile time. This will be achieved through a combination of Seen's advanced memory model, specific concurrency-related traits, and rigorous static analysis performed by the Seen compiler (which is implemented in Rust).
+A paramount goal for Seen is to guarantee data race freedom at compile time. This will be achieved through a combination of Seen's advanced memory model, specific concurrency-related specs, and rigorous static analysis performed by the Seen compiler (which is implemented in Rust).
 
 ### 4.1. Compiler-Enforced Safety
 
@@ -305,27 +305,27 @@ The compiler's static analysis must be particularly sophisticated in handling `a
 
 ### 4.3. Seen's `Transferable` and `Shareable` Traits
 
-Seen will introduce marker traits analogous to Rust's `Send` and `Sync` to codify thread-safety properties of types.
+Seen will introduce marker specs analogous to Rust's `Send` and `Sync` to codify thread-safety properties of types.
 
 - **`Transferable`**:
     
-    - This trait, similar to Rust's `Send` 2 and Swift's `Sendable` 9, marks a type `T` as safe to have its ownership transferred from one thread to another.
+    - This spec, similar to Rust's `Send` 2 and Swift's `Sendable` 9, marks a type `T` as safe to have its ownership transferred from one thread to another.
     - This is a critical property for values sent across `ChannelSeen` instances, for data captured by closures that form new tasks, or for the state of actors that might be constructed on one thread and then operate on another.
     - Types that are not `Transferable` (e.g., raw pointers that are not thread-safe, or types encapsulating thread-local resources) cannot be moved between threads.
 - **`Shareable`**:
     
-    - This trait, similar to Rust's `Sync` 2, marks a type `T` as safe to be shared via immutable references (`&T`) across multiple threads concurrently.
+    - This spec, similar to Rust's `Sync` 2, marks a type `T` as safe to be shared via immutable references (`&T`) across multiple threads concurrently.
     - The fundamental definition is that `T` is `Shareable` if and only if an immutable reference `&T` is `Transferable`.
     - This is required for data that might be accessed by multiple tasks simultaneously through shared references (e.g., data in an `AtomicSeen<T>`, or data protected by a `MutexSeen<T>` where the mutex itself is shared).
 - Reducing Annotation Burden via Compiler Inference:
     
-    A key objective for Seen is to minimize the explicit annotation burden associated with these traits, especially compared to Rust. While Rust's Send and Sync are auto-traits (derived automatically if all constituents are Send/Sync), complex types, FFI interactions, or types with interior mutability often require manual unsafe impl Send/Sync or carefully constructed wrappers.
+    A key objective for Seen is to minimize the explicit annotation burden associated with these specs, especially compared to Rust. While Rust's Send and Sync are auto-traits (derived automatically if all constituents are Send/Sync), complex types, FFI interactions, or types with interior mutability often require manual unsafe impl Send/Sync or carefully constructed wrappers.
     
     Seen aims to leverage its "advanced memory analysis" (a core concept from the user query) to achieve more powerful inference:
     
     - **Sophisticated Pointer Analysis**: The compiler could perform more in-depth alias analysis and track pointer uniqueness to determine if a type, despite containing pointers or mutable fields, can be proven safe for transfer or sharing under specific conditions.
     - **Region-Based Memory Analysis/Effect Systems**: If Seen's memory model incorporates concepts like regions or effects, the compiler could use this information to distinguish between thread-local data and genuinely shared data, potentially allowing types to be `Transferable` or `Shareable` if their mutable components are confined to a single thread or properly managed within a task's lifecycle.
-    - **Structural Inference**: The compiler will automatically derive these traits based on the structure of types and the `Transferable`/`Shareable` status of their fields. The goal is to extend this beyond Rust's current capabilities by integrating deeper semantic understanding from Seen's memory model. For example, if Seen's memory model can prove that a particular data structure, while mutable, is exclusively accessed through a `MutexSeen` or an actor, it might automatically infer `Shareable` (for the mutex/actor protected version) or `Transferable` (for the actor itself or messages it handles) with fewer explicit declarations from the user. Swift's `Sendable` conformance, particularly its inference for value types and actor-isolated types, provides a valuable reference point.28
+    - **Structural Inference**: The compiler will automatically derive these specs based on the structure of types and the `Transferable`/`Shareable` status of their fields. The goal is to extend this beyond Rust's current capabilities by integrating deeper semantic understanding from Seen's memory model. For example, if Seen's memory model can prove that a particular data structure, while mutable, is exclusively accessed through a `MutexSeen` or an actor, it might automatically infer `Shareable` (for the mutex/actor protected version) or `Transferable` (for the actor itself or messages it handles) with fewer explicit declarations from the user. Swift's `Sendable` conformance, particularly its inference for value types and actor-isolated types, provides a valuable reference point.28
 
 ### 4.4. How Structured Concurrency Enhances Static Safety Analysis
 
@@ -399,7 +399,7 @@ The following table provides a concise comparison of Seen's proposed concurrency
 |**Async Syntax**|`async fn`, `await`, `suspend fn`|`suspend fun`, `launch {}`, `async {}`, `await()`|`async fn`, `.await`|`async func`, `await`, `Task {}`, `async let`|`go func() {}`|
 |**Structured Concurrency**|Yes (via `task_scope`)|Yes (via `coroutineScope`, `Job` hierarchy)|Partial (libraries like `async-scoped` exist, but not core language like Kotlin/Swift)|Yes (Task Groups, child tasks, `async let`)|No (lifecycles managed manually or via patterns like `errgroup`)|
 |**Memory Management**|Seen's automated GC-free model (ownership, lifetimes)|JVM GC (or platform GC for Native/JS)|Ownership, lifetimes, `Drop` (manual heap via `Box`)|ARC (for task state, actors)|GC (for goroutine stacks, shared data)|
-|**Data Race Safety**|Compile-time (via `Transferable`/`Shareable` traits, static analysis)|Runtime (via synchronization primitives, careful coding)|Compile-time (via `Send`/`Sync` traits)|Compile-time (via `Sendable`, Actors, strict checking)|Runtime (via race detector)|
+|**Data Race Safety**|Compile-time (via `Transferable`/`Shareable` specs, static analysis)|Runtime (via synchronization primitives, careful coding)|Compile-time (via `Send`/`Sync` traits)|Compile-time (via `Sendable`, Actors, strict checking)|Runtime (via race detector)|
 |**Key Safety Primitives**|`Transferable`, `Shareable`, `MutexSeen`, `ChannelSeen` (ownership transfer), Actors (proposed)|`Mutex`, `Channel`, thread-safe collections|`Send`, `Sync`, `Mutex`, `RwLock`, `mpsc::channel`|`Sendable`, Actors, `Mutex` (new in Swift 6), (no direct channels in stdlib)|Channels (value semantics), `sync.Mutex`|
 |**Annotation Burden (Safety)**|Low (aims for high inference)|Medium (for explicit synchronization)|Medium to High (lifetimes, `Send`/`Sync` bounds)|Low to Medium (`Sendable` often inferred, actor isolation)|Low (safety is largely a runtime concern or pattern-based)|
 |**State Allocation**|Heap (managed by Seen's model), potential stack optimization|Heap (managed by GC)|Stack (if `Future` fits), Heap (`Box<dyn Future>`)|Heap (async frames managed by ARC)|Dynamically sized stacks (managed by Go runtime)|
@@ -432,7 +432,7 @@ Implementing Seen's ambitious concurrency model within its Rust-based toolchain 
 
 - **Challenge**: This is arguably the most research-intensive aspect of implementing Seen's concurrency model. The Seen compiler, though written in Rust, needs to incorporate novel static analysis capabilities:
     - **Guaranteeing Data Race Freedom**: The analysis must be powerful enough to statically prove the absence of data races across all `await` points and concurrent task interactions. This involves tracking ownership, borrowing, lifetimes, and mutability of data accessed by concurrent tasks.
-    - **Advanced `Transferable`/`Shareable` Inference**: A core goal is to reduce the annotation burden for `Transferable` and `Shareable` traits compared to Rust. This requires the compiler to perform "advanced memory analysis." Such analysis might involve:
+    - **Advanced `Transferable`/`Shareable` Inference**: A core goal is to reduce the annotation burden for `Transferable` and `Shareable` specs compared to Rust. This requires the compiler to perform "advanced memory analysis." Such analysis might involve:
         - Highly precise alias analysis to understand how different parts of the code can access the same memory locations.
         - Data flow analysis to track how data (and its properties like mutability or thread-locality) moves through the program, especially across task boundaries.
         - Potentially incorporating region-based memory analysis or effect systems to formally reason about memory access patterns and thread confinement.
@@ -449,7 +449,7 @@ The proposed concurrency model for the Seen programming language aims to provide
 
 - **User-Facing API**: An intuitive `async fn`/`await` syntax, complemented by `suspend fn` for composable asynchronous operations. Structured concurrency is enforced via `task_scope`, ensuring proper task lifecycle management, cancellation propagation, and error handling. Synchronization primitives like `MutexSeen`, `ChannelSeen` (with ownership transfer), and `AtomicSeen` are provided, alongside a recommended actor model for robust state isolation.
 - **GC-Free Runtime**: `async fn`s compile to state machines whose memory is managed by Seen's automated GC-free system, typically via heap allocation. An M:N work-stealing scheduler, implemented in Rust, will execute Seen tasks efficiently.
-- **Static Data Race Freedom**: Compile-time guarantees against data races are achieved through `Transferable` and `Shareable` traits (analogous to Rust's `Send`/`Sync`), with a strong emphasis on compiler inference to reduce annotation burden, powered by Seen's advanced memory analysis and aided by structured concurrency.
+- **Static Data Race Freedom**: Compile-time guarantees against data races are achieved through `Transferable` and `Shareable` specs (analogous to Rust's `Send`/`Sync`), with a strong emphasis on compiler inference to reduce annotation burden, powered by Seen's advanced memory analysis and aided by structured concurrency.
 
 This model endeavors to achieve Rust-like performance and GC-freedom while offering ergonomic advantages inspired by languages like Kotlin and Swift.
 
@@ -458,7 +458,7 @@ This model endeavors to achieve Rust-like performance and GC-freedom while offer
 Seen's concurrency model seeks to innovate in several areas:
 
 1. **Deep Memory Model Integration**: The primary innovation is the seamless integration of concurrency primitives with Seen's automated GC-free memory model. This is expected to simplify memory management for asynchronous tasks and enable more powerful static analysis compared to systems with manual memory management or GC/ARC.
-2. **Reduced Annotation Burden for Safety Traits**: By leveraging advanced static analysis, Seen aims to significantly reduce the need for developers to manually annotate types with `Transferable` and `Shareable` traits, making safe concurrent programming more accessible.
+2. **Reduced Annotation Burden for Safety Specs**: By leveraging advanced static analysis, Seen aims to significantly reduce the need for developers to manually annotate types with `Transferable` and `Shareable` specs, making safe concurrent programming more accessible.
 3. **Ergonomic Structured Concurrency without GC**: Offering the benefits of structured concurrency (as seen in Kotlin and Swift) within a fully GC-free environment, with compile-time safety guarantees.
 
 ### 7.3. Path Forward
@@ -467,7 +467,7 @@ The next steps in developing Seen's concurrency system should focus on:
 
 1. **Prototyping the Core Memory Model Integration**: Implement the basic mechanisms for allocating and managing coroutine state frames using Seen's memory model.
 2. **Developing a Basic Scheduler/Executor**: Create an initial version of the M:N scheduler to run simple `async` tasks.
-3. **Implementing Core Static Analysis**: Begin work on the compiler analysis for `Transferable`/`Shareable` traits and cross-`await` safety checks, initially focusing on a core set of rules and gradually expanding inference capabilities.
+3. **Implementing Core Static Analysis**: Begin work on the compiler analysis for `Transferable`/`Shareable` specs and cross-`await` safety checks, initially focusing on a core set of rules and gradually expanding inference capabilities.
 4. **API Refinement**: Iterate on the user-facing API based on early usage experience and feedback from prototype implementations.
 
 ### 7.4. Future Research and Considerations

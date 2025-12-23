@@ -477,6 +477,9 @@ impl Interpreter {
                 if name == "Array" {
                     return Ok(Value::Class { name: "Array".to_string() });
                 }
+                if name == "Map" {
+                    return Ok(Value::Class { name: "Map".to_string() });
+                }
                 // Check if it's a built-in function
                 if self.builtins.is_builtin(name) {
                     // Return a placeholder for built-in functions
@@ -484,9 +487,16 @@ impl Interpreter {
                 } else if let Some(field_value) = self.lookup_instance_field(name) {
                     Ok(field_value)
                 } else {
-                    self.runtime
-                        .get_variable(name)
-                        .map_err(|e| InterpreterError::runtime(e.to_string(), *pos))
+                    match self.runtime.get_variable(name) {
+                        Ok(val) => Ok(val),
+                        Err(err) => {
+                            if self.class_registry.contains_key(name) {
+                                Ok(Value::Class { name: name.clone() })
+                            } else {
+                                Err(InterpreterError::runtime(err.to_string(), *pos))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -815,9 +825,19 @@ impl Interpreter {
                 Ok(Value::Class { name: name.clone() })
             }
 
-            // Struct/enum/type/interface definitions are compile-time only
+            Expression::EnumDefinition { name, variants, .. } => {
+                let mut fields = HashMap::new();
+                for (i, variant) in variants.iter().enumerate() {
+                    let val = Value::Integer(i as i64);
+                    fields.insert(variant.name.clone(), val);
+                }
+                let enum_val = Value::struct_from_fields(name.clone(), fields);
+                self.runtime.define_variable(name.clone(), enum_val);
+                Ok(Value::Unit)
+            }
+
+            // Struct/type/interface definitions are compile-time only
             Expression::StructDefinition { .. }
-            | Expression::EnumDefinition { .. }
             | Expression::TypeAlias { .. }
             | Expression::Interface { .. }
             | Expression::Extension { .. }
@@ -1036,12 +1056,77 @@ impl Interpreter {
                 Ok(Value::Unit)
             }
 
+            Expression::Try {
+                body,
+                catch_clauses,
+                finally,
+                pos,
+            } => self.interpret_try(body, catch_clauses, finally, *pos),
+
             // Unhandled expressions - provide meaningful error messages
             _ => Err(InterpreterError::runtime(
                 &format!("Expression type not yet implemented: {:?}", expr),
                 Position::new(0, 0, 0),
             )),
         }
+    }
+
+    fn interpret_try(
+        &mut self,
+        body: &Expression,
+        catch_clauses: &[seen_parser::ast::CatchClause],
+        finally: &Option<Box<Expression>>,
+        pos: Position,
+    ) -> InterpreterResult<Value> {
+        let result = self.interpret_expression(body);
+
+        let result = match result {
+            Ok(val) => Ok(val),
+            Err(err) => {
+                // Find matching catch clause
+                let mut caught = false;
+                let mut catch_result = Err(err.clone());
+
+                for clause in catch_clauses {
+                    // For now, we don't check exception type strictly as we don't have full type info at runtime for errors
+                    // We just match the first clause if any
+                    
+                    self.runtime.push_environment(false);
+                    if let Some(var_name) = &clause.variable {
+                        // Create a mock error object or wrap the error
+                        let mut fields = HashMap::new();
+                        fields.insert("message".to_string(), Value::String(err.to_string()));
+                        let error_val = Value::struct_from_fields("Error".to_string(), fields);
+                        self.runtime.define_variable(var_name.clone(), error_val);
+                    }
+
+                    catch_result = self.interpret_expression(&clause.body);
+                    if let Err(e) = self.runtime.pop_environment().map_err(|e| InterpreterError::runtime(e.to_string(), pos.clone())) {
+                         if catch_result.is_ok() {
+                             catch_result = Err(e);
+                         }
+                    }
+                    caught = true;
+                    break;
+                }
+
+                if caught {
+                    catch_result
+                } else {
+                    Err(err)
+                }
+            }
+        };
+
+        if let Some(finally_block) = finally {
+            // Execute finally block, but don't let it override the result unless it errors
+            let finally_result = self.interpret_expression(finally_block);
+            if let Err(err) = finally_result {
+                return Err(err);
+            }
+        }
+
+        result
     }
 
     /// Interpret a binary operation
@@ -1230,6 +1315,7 @@ impl Interpreter {
             Value::String(_) => "String".to_string(),
             Value::Character(_) => "Char".to_string(),
             Value::Array(_) => "Array".to_string(),
+            Value::Map(_) => "Map".to_string(),
             Value::Bytes(_) => "Bytes".to_string(),
             Value::Struct { name, .. } => name.clone(),
             Value::Class { name } => name.clone(),
@@ -1748,7 +1834,12 @@ impl Interpreter {
                 }
             }
             Value::Class { name } => {
-                if name == "Array" {
+                if name == "Map" {
+                    if !args.is_empty() {
+                        return Err(InterpreterError::argument_count_mismatch("Map".to_string(), 0, args.len(), pos));
+                    }
+                    Ok(Value::Map(Arc::new(Mutex::new(HashMap::new()))))
+                } else if name == "Array" {
                     let size = if args.is_empty() {
                         0
                     } else if args.len() == 1 {
@@ -2047,6 +2138,31 @@ impl Interpreter {
         pos: Position,
     ) -> InterpreterResult<Option<Value>> {
         match (member, receiver) {
+            ("new", Value::Class { name }) if name == "Map" => {
+                return Ok(Some(Value::Map(Arc::new(Mutex::new(HashMap::new())))));
+            }
+            ("put", Value::Map(map)) if args.len() == 2 => {
+                let key = self.interpret_expression(&args[0])?.to_string();
+                let value = self.interpret_expression(&args[1])?;
+                let mut guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
+                guard.insert(key, value);
+                Ok(Some(Value::Unit))
+            }
+            ("get", Value::Map(map)) if args.len() == 1 => {
+                let key = self.interpret_expression(&args[0])?.to_string();
+                let guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
+                Ok(Some(guard.get(&key).cloned().unwrap_or(Value::Null)))
+            }
+            ("containsValue", Value::Map(map)) if args.len() == 1 => {
+                let value = self.interpret_expression(&args[0])?;
+                let guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
+                let contains = guard.values().any(|v| v.equals(&value));
+                Ok(Some(Value::Boolean(contains)))
+            }
+            ("size", Value::Map(map)) | ("length", Value::Map(map)) if args.is_empty() => {
+                let guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
+                Ok(Some(Value::Integer(guard.len() as i64)))
+            }
             ("length", Value::String(s)) | ("size", Value::String(s)) if args.is_empty() => {
                 Ok(Some(Value::Integer(s.chars().count() as i64)))
             }
@@ -3077,6 +3193,7 @@ impl Interpreter {
 
         let mut runtime_methods = HashMap::new();
         for method in methods {
+            println!("DEBUG: Registering method {}::{} (static: {})", name, method.name, method.is_static);
             let receiver_name = method
                 .receiver
                 .as_ref()
