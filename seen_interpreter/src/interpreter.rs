@@ -463,7 +463,61 @@ impl Interpreter {
 
         match expr {
             // Imports are compile-time only; no runtime semantics
-            Expression::Import { .. } => Ok(Value::Unit),
+            Expression::Import { module_path, symbols, .. } => {
+                // For the interpreter, we need to register imported symbols as builtins or load them
+                // This is a simplified handling for stdlib imports in tests
+                let module_str = module_path.join(".");
+                match module_str.as_str() {
+                    "seen_std.io.file" => {
+                        for symbol in symbols {
+                            match symbol.name.as_str() {
+                                "exists" => {
+                                    // Map 'exists' to '__FileExists' builtin
+                                    self.runtime.define_variable("exists".to_string(), Value::String("<builtin:__FileExists>".to_string()));
+                                }
+                                "readText" => {
+                                    // Map 'readText' to '__ReadFile' builtin wrapper (simplified)
+                                    self.runtime.define_variable("readText".to_string(), Value::String("<builtin:__ReadFile>".to_string()));
+                                }
+                                "writeText" => {
+                                    // Map 'writeText' to '__WriteFile' builtin wrapper (simplified)
+                                    self.runtime.define_variable("writeText".to_string(), Value::String("<builtin:__WriteFile>".to_string()));
+                                }
+                                "deleteFile" => {
+                                    // Map 'deleteFile' to '__DeleteFile' builtin wrapper (simplified)
+                                    self.runtime.define_variable("deleteFile".to_string(), Value::String("<builtin:__DeleteFile>".to_string()));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    "seen_std.env.env" => {
+                        for symbol in symbols {
+                            if symbol.name == "args" {
+                                self.runtime.define_variable("args".to_string(), Value::String("<builtin:__GetCommandLineArgs>".to_string()));
+                            }
+                        }
+                    }
+                    "seen_std.collections.string_hash_map" => {
+                        for symbol in symbols {
+                            if symbol.name == "StringHashMap" {
+                                self.runtime.define_variable("StringHashMap".to_string(), Value::String("<builtin:__StringHashMap>".to_string()));
+                            }
+                        }
+                    }
+                    "seen_std.str.string" => {
+                        for symbol in symbols {
+                            match symbol.name.as_str() {
+                                "trim" => self.runtime.define_variable("trim".to_string(), Value::String("<builtin:__Trim>".to_string())),
+                                "split" => self.runtime.define_variable("split".to_string(), Value::String("<builtin:__Split>".to_string())),
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                Ok(Value::Unit)
+            },
             // Literals
             Expression::IntegerLiteral { value, .. } => Ok(Value::Integer(*value)),
             Expression::FloatLiteral { value, .. } => Ok(Value::Float(*value)),
@@ -1859,6 +1913,15 @@ impl Interpreter {
                     Err(InterpreterError::runtime(format!("Cannot instantiate class {} directly", name), pos))
                 }
             }
+            Value::String(s) if s.starts_with("<builtin:") && s.ends_with(">") => {
+                let builtin_name = &s[9..s.len()-1];
+                let arg_values = if let Some(values) = pre_evaluated_args {
+                    values
+                } else {
+                    self.evaluate_arguments(args)?
+                };
+                self.builtins.call(builtin_name, &arg_values, pos)
+            }
             _ => Err(InterpreterError::type_error(
                 format!("Cannot call {}", func_val.type_name()),
                 pos,
@@ -2141,17 +2204,34 @@ impl Interpreter {
             ("new", Value::Class { name }) if name == "Map" => {
                 return Ok(Some(Value::Map(Arc::new(Mutex::new(HashMap::new())))));
             }
-            ("put", Value::Map(map)) if args.len() == 2 => {
+            ("new", Value::String(s)) if s.starts_with("<builtin:") && s.ends_with(">") => {
+                let builtin_name = &s[9..s.len()-1];
+                let result = self.builtins.call(builtin_name, &[], pos)?;
+                return Ok(Some(result));
+            }
+            ("put", Value::Map(map)) | ("insert", Value::Map(map)) if args.len() == 2 => {
                 let key = self.interpret_expression(&args[0])?.to_string();
                 let value = self.interpret_expression(&args[1])?;
                 let mut guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
                 guard.insert(key, value);
                 Ok(Some(Value::Unit))
             }
+            ("remove", Value::Map(map)) if args.len() == 1 => {
+                let key = self.interpret_expression(&args[0])?.to_string();
+                let mut guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
+                guard.remove(&key);
+                Ok(Some(Value::Unit))
+            }
             ("get", Value::Map(map)) if args.len() == 1 => {
                 let key = self.interpret_expression(&args[0])?.to_string();
                 let guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
                 Ok(Some(guard.get(&key).cloned().unwrap_or(Value::Null)))
+            }
+            ("getOrDefault", Value::Map(map)) if args.len() == 2 => {
+                let key = self.interpret_expression(&args[0])?.to_string();
+                let default = self.interpret_expression(&args[1])?;
+                let guard = map.lock().map_err(|_| InterpreterError::runtime("Map access failed", pos))?;
+                Ok(Some(guard.get(&key).cloned().unwrap_or(default)))
             }
             ("containsValue", Value::Map(map)) if args.len() == 1 => {
                 let value = self.interpret_expression(&args[0])?;
@@ -3193,7 +3273,6 @@ impl Interpreter {
 
         let mut runtime_methods = HashMap::new();
         for method in methods {
-            println!("DEBUG: Registering method {}::{} (static: {})", name, method.name, method.is_static);
             let receiver_name = method
                 .receiver
                 .as_ref()

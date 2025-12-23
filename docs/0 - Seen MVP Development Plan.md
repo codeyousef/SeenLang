@@ -13,10 +13,10 @@
 | Rust Compiler | ✅ Production Ready |
 | Self-Host Type-Check | ✅ 0 errors |
 | Self-Host IR Gen | ✅ Working |
-| Self-Host Native Codegen | ⏳ Blocked on stdlib imports |
-| Stage1→Stage2→Stage3 | ⏳ Blocked |
+| Self-Host Native Codegen | 🔄 In Progress |
+| Stage1→Stage2→Stage3 | ⏳ Pending |
 
-**Blocking Issue:** LLVM backend cannot resolve `seen_std.env.env.args` during codegen.
+**Blocking Issue:** None.
 
 ---
 
@@ -380,7 +380,7 @@ All tasks below are ⏳ pending and listed in sequential execution order.
 ## Phase 1: Complete Self-Hosting (MVP Critical)
 
 ### Task 1.1: Fix LLVM Backend Stdlib Import Resolution
-**Status:** ⏳ BLOCKER  
+**Status:** ✅ Complete
 **Estimated:** 4-6 hours
 
 **Problem:** `seen_cli build --backend llvm` fails with:
@@ -389,17 +389,17 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 ```
 
 **Tasks:**
-- [ ] Trace how stdlib modules are loaded during LLVM codegen
-- [ ] Fix module path resolution for `seen_std.*` imports
-- [ ] Ensure all stdlib symbols are available during IR lowering
-- [ ] Test with `seen_cli build compiler_seen/src/main_compiler.seen --backend llvm`
+- [x] Trace how stdlib modules are loaded during LLVM codegen
+- [x] Fix module path resolution for `seen_std.*` imports
+- [x] Ensure all stdlib symbols are available during IR lowering
+- [x] Test with `seen_cli build compiler_seen/src/main_compiler.seen --backend llvm`
 
 **Acceptance:** Native binary generated from self-hosted compiler source.
 
 ---
 
 ### Task 1.2: Stage1 Native Binary Generation
-**Status:** ⏳ Blocked on Task 1.1  
+**Status:** 🔄 In Progress
 **Estimated:** 2-3 hours
 
 **Tasks:**

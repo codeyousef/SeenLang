@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static FILE_REGISTRY: OnceLock<Mutex<HashMap<i64, fs::File>>> = OnceLock::new();
@@ -92,6 +92,10 @@ impl BuiltinRegistry {
         registry.register_exact("__RemoveEnv", builtin_remove_env, 1);
         registry.register_exact("__FormatSeenCode", builtin_format_seen_code, 1);
         registry.register_exact("__Abort", builtin_abort, 1);
+        registry.register_exact("__FileExists", builtin_file_exists, 1);
+        registry.register_exact("__Trim", builtin_trim, 1);
+        registry.register_exact("__Split", builtin_split, 2);
+        registry.register_exact("__StringHashMap", builtin_string_hash_map, 0);
         registry.register_range("Channel", builtin_channel, 0, Some(1));
 
         // Additional I/O and conversion functions for benchmarks
@@ -296,6 +300,22 @@ fn builtin_max(args: &[Value], position: Position) -> InterpreterResult<Value> {
             position,
         )),
     }
+}
+
+fn builtin_file_exists(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let path = args[0].to_string();
+    Ok(Value::Boolean(std::path::Path::new(&path).exists()))
+}
+
+fn builtin_trim(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    Ok(Value::String(args[0].to_string().trim().to_string()))
+}
+
+fn builtin_split(args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    let s = args[0].to_string();
+    let delimiter = args[1].to_string();
+    let parts: Vec<Value> = s.split(&delimiter).map(|p| Value::String(p.to_string())).collect();
+    Ok(Value::Array(Arc::new(Mutex::new(parts))))
 }
 
 fn builtin_channel(args: &[Value], position: Position) -> InterpreterResult<Value> {
@@ -1152,3 +1172,8 @@ fn builtin_array_len(args: &[Value], position: Position) -> InterpreterResult<Va
         )),
     }
 }
+
+fn builtin_string_hash_map(_args: &[Value], _position: Position) -> InterpreterResult<Value> {
+    Ok(Value::Map(Arc::new(Mutex::new(HashMap::new()))))
+}
+

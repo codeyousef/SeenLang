@@ -33,6 +33,7 @@ pub struct GenerationContext {
     pub type_definitions: HashMap<String, IRType>, // Registered type definitions (structs/classes/enums)
     pub function_return_types: HashMap<String, IRType>, // Function name -> return type
     pub current_receiver_type: Option<IRType>, // Type of 'this' in current method context
+    pub current_receiver_name: Option<String>, // Name of the receiver parameter (e.g., "self", "this")
     pub current_type_definition: Option<String>, // Name of type currently being defined
 }
 
@@ -52,6 +53,7 @@ impl GenerationContext {
             type_definitions: HashMap::new(),
             function_return_types: HashMap::new(),
             current_receiver_type: None,
+            current_receiver_name: None,
             current_type_definition: None,
         }
     }
@@ -322,6 +324,11 @@ impl IRGenerator {
                     // Register the interface in the module
                     self.register_interface_type(&mut module, name, methods)?;
                 }
+                Expression::Import { module_path, symbols, .. } => {
+                    // Register types from known stdlib modules
+                    let module_str = module_path.join(".");
+                    self.register_import_types(&mut module, &module_str, symbols)?;
+                }
                 other => {
                     // Regular expression, add to main function body
                     main_expressions.push(other);
@@ -488,6 +495,37 @@ impl IRGenerator {
 
     /// Generate IR for variable access
     fn generate_variable(&mut self, name: &str) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Check if this is an implicit 'this' field access
+        // If we're inside a method and the name matches a field of the current class,
+        // transform it to self.fieldName (using the actual receiver parameter name)
+        if let Some(receiver_type) = self.context.current_receiver_type.clone() {
+            if let IRType::Struct { name: _class_name, fields } = &receiver_type {
+                // Check if 'name' is a field of the current class
+                if fields.iter().any(|(field_name, _)| field_name == name) {
+                    // Get the actual receiver parameter name
+                    let receiver_name = self.context.current_receiver_name.clone()
+                        .unwrap_or_else(|| "self".to_string());
+                    eprintln!("DEBUG: implicit this field access: {} -> {}.{}", name, receiver_name, name);
+                    // Generate field access using the actual receiver name
+                    let receiver_val = IRValue::Variable(receiver_name);
+                    let result_reg = self.context.allocate_register();
+                    let result_value = IRValue::Register(result_reg);
+                    
+                    // Find field type and set register type
+                    if let Some((_, field_type)) = fields.iter().find(|(f, _)| f == name) {
+                        self.context.set_register_type(result_reg, field_type.clone());
+                    }
+                    
+                    let instructions = vec![Instruction::FieldAccess {
+                        struct_val: receiver_val,
+                        field: name.to_string(),
+                        result: result_value.clone(),
+                    }];
+                    return Ok((result_value, instructions));
+                }
+            }
+        }
+        
         let value = IRValue::Variable(name.to_string());
         Ok((value, vec![]))
     }
@@ -713,8 +751,8 @@ impl IRGenerator {
             let (obj_val, obj_instructions) = self.generate_expression(object)?;
             instructions.extend(obj_instructions);
 
-            // Handle zero-arg length/size on arrays and strings
-            if (member == "length" || member == "size") && arguments.is_empty() {
+            // Handle zero-arg length/size/len on arrays and strings
+            if (member == "length" || member == "size" || member == "len") && arguments.is_empty() {
                 let result_reg = self.context.allocate_register();
                 let result_value = IRValue::Register(result_reg);
                 // Best-effort type check: identifier tracked in context
@@ -737,6 +775,33 @@ impl IRGenerator {
                 return Ok((result_value, instructions));
             }
 
+            // Handle toString() method on primitive types
+            if member == "toString" && arguments.is_empty() {
+                let result_reg = self.context.allocate_register();
+                let result_value = IRValue::Register(result_reg);
+                self.context.set_register_type(result_reg, IRType::String);
+                
+                // Determine type of object and call appropriate intrinsic
+                let obj_type = if let Expression::Identifier { name, .. } = object.as_ref() {
+                    self.context.get_variable_type(name)
+                } else {
+                    None
+                };
+                
+                let intrinsic_name = match obj_type {
+                    Some(IRType::Float) => "__FloatToString",
+                    Some(IRType::Boolean) => "__BoolToString",
+                    _ => "__IntToString", // Default to int for Int, Integer, etc.
+                };
+                
+                instructions.push(Instruction::Call {
+                    target: IRValue::Variable(intrinsic_name.to_string()),
+                    args: vec![obj_val.clone()],
+                    result: Some(result_value.clone()),
+                });
+                return Ok((result_value, instructions));
+            }
+
             // Fallback: call a free function named after the member; first arg is receiver
             let mut final_args = Vec::with_capacity(1 + arg_values.len());
             final_args.push(obj_val.clone());
@@ -745,23 +810,33 @@ impl IRGenerator {
             // Try to determine if this is a class method call
             // If the object has a struct type that's registered as a class, mangle the name
             let method_name = if let Expression::Identifier { name: var_name, .. } = object.as_ref() {
+                eprintln!("DEBUG: method call on identifier '{}', member '{}'", var_name, member);
                 if let Some(obj_type) = self.context.get_variable_type(var_name) {
+                    eprintln!("DEBUG:   var type: {:?}", obj_type);
                     if let IRType::Struct { name: struct_name, .. } = obj_type {
+                        eprintln!("DEBUG:   struct_name: {}", struct_name);
+                        eprintln!("DEBUG:   type_definitions keys: {:?}", self.context.type_definitions.keys().collect::<Vec<_>>());
                         if self.context.type_definitions.contains_key(struct_name) {
                             // This is a class instance method call
-                            format!("{}_{}", struct_name, member)
+                            let mangled = format!("{}_{}", struct_name, member);
+                            eprintln!("DEBUG:   mangled to: {}", mangled);
+                            mangled
                         } else {
+                            eprintln!("DEBUG:   struct not in type_definitions, using raw member");
                             member.clone()
                         }
                     } else {
+                        eprintln!("DEBUG:   not a struct type, using raw member");
                         member.clone()
                     }
                 } else {
+                    eprintln!("DEBUG:   no var type found, using raw member");
                     member.clone()
                 }
             } else {
                 // For non-identifier objects, try to infer from the value type
                 // For now, just use the member name
+                eprintln!("DEBUG: method call on non-identifier, member '{}'", member);
                 member.clone()
             };
 
@@ -779,6 +854,44 @@ impl IRGenerator {
                 result: Some(result_value.clone()),
             });
             return Ok((result_value, instructions));
+        }
+
+        // Handle implicit 'this' method calls in class methods
+        // If we're inside a method and the call is to a bare function name that matches a method,
+        // transform it to this.method(args) -> ClassName_method(this, args)
+        if let Expression::Identifier { name: func_name, .. } = function {
+            if let Some(receiver_type) = &self.context.current_receiver_type {
+                if let IRType::Struct { name: class_name, .. } = receiver_type {
+                    // Check if this might be a method of the current class
+                    let mangled_name = format!("{}_{}", class_name, func_name);
+                    // If the mangled function name exists in our function_return_types, it's a method
+                    if self.context.function_return_types.contains_key(&mangled_name) {
+                        // Get the actual receiver parameter name
+                        let receiver_name = self.context.current_receiver_name.clone()
+                            .unwrap_or_else(|| "self".to_string());
+                        eprintln!("DEBUG: implicit this call: {} -> {} (receiver: {})", func_name, mangled_name, receiver_name);
+                        // Use the actual receiver variable
+                        let receiver_val = IRValue::Variable(receiver_name);
+                        // Prepend receiver to arguments
+                        let mut method_args = vec![receiver_val];
+                        method_args.extend(arg_values);
+                        
+                        let result_reg = self.context.allocate_register();
+                        let result_value = IRValue::Register(result_reg);
+                        
+                        if let Some(return_type) = self.context.function_return_types.get(&mangled_name).cloned() {
+                            self.context.set_register_type(result_reg, return_type);
+                        }
+                        
+                        instructions.push(Instruction::Call {
+                            target: IRValue::Variable(mangled_name),
+                            args: method_args,
+                            result: Some(result_value.clone()),
+                        });
+                        return Ok((result_value, instructions));
+                    }
+                }
+            }
         }
 
         // Normal function target
@@ -1829,10 +1942,15 @@ impl IRGenerator {
 
         // Set receiver type context and register 'this' if this is a method
         let old_receiver_type = self.context.current_receiver_type.clone();
+        let old_receiver_name = self.context.current_receiver_name.clone();
         if let Some(receiver_type) = receiver_type_opt.clone() {
             self.context.current_receiver_type = Some(receiver_type.clone());
+            // Track the actual receiver parameter name (first param)
+            let receiver_name = params.first().map(|p| p.name.clone()).unwrap_or_else(|| "self".to_string());
+            self.context.current_receiver_name = Some(receiver_name.clone());
             // Register 'this' as an alias to the receiver parameter
-            self.context.variable_types.insert("this".to_string(), receiver_type);
+            self.context.variable_types.insert("this".to_string(), receiver_type.clone());
+            self.context.variable_types.insert(receiver_name, receiver_type);
         }
 
         // Determine return type
@@ -1850,6 +1968,7 @@ impl IRGenerator {
         
         // Restore previous receiver context
         self.context.current_receiver_type = old_receiver_type;
+        self.context.current_receiver_name = old_receiver_name;
 
         // Create IR function with method semantics
         let mut ir_function = crate::function::IRFunction::new(name, ir_return_type);
@@ -2169,6 +2288,62 @@ impl IRGenerator {
         }
     }
 
+    /// Register types from imported stdlib modules
+    fn register_import_types(
+        &mut self,
+        module: &mut IRModule,
+        module_path: &str,
+        _symbols: &Vec<seen_parser::ImportSymbol>,
+    ) -> IRResult<()> {
+        match module_path {
+            "str.string" | "seen_std.str.string" => {
+                // Register StringBuilder class type
+                let sb_type = IRType::Struct {
+                    name: "StringBuilder".to_string(),
+                    fields: vec![
+                        ("parts".to_string(), IRType::Array(Box::new(IRType::String))),
+                        ("totalLength".to_string(), IRType::Integer),
+                    ],
+                };
+                self.context.type_definitions.insert("StringBuilder".to_string(), sb_type.clone());
+                
+                // Add to module types so LLVM backend sees it
+                let type_def = crate::module::TypeDefinition::new("StringBuilder", sb_type);
+                module.add_type(type_def);
+            }
+            "seen_std.collections.string_hash_map" => {
+                // Register StringHashMap class type
+                let shm_type = IRType::Struct {
+                    name: "StringHashMap".to_string(),
+                    fields: vec![
+                        ("length".to_string(), IRType::Integer),
+                    ],
+                };
+                self.context.type_definitions.insert("StringHashMap".to_string(), shm_type.clone());
+                
+                // Add to module types so LLVM backend sees it
+                let type_def = crate::module::TypeDefinition::new("StringHashMap", shm_type);
+                module.add_type(type_def);
+            }
+            "collections.vec" | "seen_std.collections.vec" => {
+                // Vec is a builtin, no explicit registration needed
+            }
+            "core.option" | "seen_std.core.option" => {
+                // Option is builtin
+            }
+            "core.result" | "seen_std.core.result" => {
+                // Result is builtin
+            }
+            "ffi.cinterop" | "seen_std.ffi.cinterop" => {
+                // FFI types
+            }
+            _ => {
+                // Unknown import, skip
+            }
+        }
+        Ok(())
+    }
+
     /// Register a struct type for use in the IR
     fn register_struct_type(
         &mut self,
@@ -2284,6 +2459,18 @@ impl IRGenerator {
         let type_def = crate::module::TypeDefinition::new(name, class_type);
         module.add_type(type_def);
 
+        // Pre-register all method return types so implicit 'this' calls work correctly
+        // This is necessary because method bodies may reference other methods of the same class
+        for method in methods {
+            let mangled_name = format!("{}_{}", name, method.name);
+            let ir_return_type = if let Some(ret_type) = &method.return_type {
+                self.convert_ast_type_to_ir(ret_type)
+            } else {
+                IRType::Void
+            };
+            self.context.function_return_types.insert(mangled_name, ir_return_type);
+        }
+
         // Generate methods as separate functions
         for method in methods {
             // Ensure receiver parameter exists for instance methods
@@ -2317,7 +2504,7 @@ impl IRGenerator {
 
             // Mangle method name: ClassName_methodName
             let mangled_name = format!("{}_{}", name, method.name);
-            let mut function = self.generate_method_function(
+            let function = self.generate_method_function(
                 &mangled_name,
                 &effective_params,
                 &method.return_type,

@@ -5781,31 +5781,33 @@ fn extract_test_functions(program: &Program) -> Vec<&Expression> {
 fn run_single_test(
     interpreter: &mut Interpreter,
     test_func: &Expression,
-    _program: &Program,
+    program: &Program,
 ) -> SeenResult<()> {
-    // Create a test program that just calls this test function
-    let test_program = Program {
-        expressions: vec![
-            test_func.clone(),
-            Expression::Call {
-                callee: Box::new(Expression::Identifier {
-                    name: get_function_name(test_func),
-                    is_public: false,
-                    type_args: vec![],
-                    pos: Position {
-                        line: 1,
-                        column: 1,
-                        offset: 0,
-                    },
-                }),
-                args: vec![],
-                pos: Position {
-                    line: 1,
-                    column: 1,
-                    offset: 0,
-                },
+    // Create a test program that includes the whole program context (imports, helpers, etc.)
+    // and then calls the specific test function.
+    let mut expressions = program.expressions.clone();
+    
+    expressions.push(Expression::Call {
+        callee: Box::new(Expression::Identifier {
+            name: get_function_name(test_func),
+            is_public: false,
+            type_args: vec![],
+            pos: Position {
+                line: 1,
+                column: 1,
+                offset: 0,
             },
-        ],
+        }),
+        args: vec![],
+        pos: Position {
+            line: 1,
+            column: 1,
+            offset: 0,
+        },
+    });
+
+    let test_program = Program {
+        expressions,
     };
 
     // Run the test

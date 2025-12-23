@@ -3732,7 +3732,19 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
                 let f = match f_opt {
                     Some(func) => func,
-                    None => return Err(anyhow!("Unknown call target {:?}", target)),
+                    None => {
+                        // Try to auto-declare external runtime functions starting with __
+                        if let IRValue::Variable(name) = target {
+                            if name.starts_with("__") {
+                                let func = self.auto_declare_runtime_function(name, args.len())?;
+                                func
+                            } else {
+                                return Err(anyhow!("Unknown call target {:?}", target));
+                            }
+                        } else {
+                            return Err(anyhow!("Unknown call target {:?}", target));
+                        }
+                    }
                 };
 
                 let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
@@ -4373,6 +4385,27 @@ impl<'ctx> LlvmBackend<'ctx> {
             let ty = self.i8_ptr_t.fn_type(&[self.ctx.f64_type().into()], false);
             self.module.add_function("__FloatToString", ty, None)
         }
+    }
+
+    /// Auto-declare an external runtime function with a generic signature.
+    /// All parameters and return type default to i64 for simplicity.
+    /// This allows calling runtime functions that aren't specifically handled.
+    fn auto_declare_runtime_function(&mut self, name: &str, arg_count: usize) -> Result<FunctionValue<'ctx>> {
+        // Check if already declared
+        if let Some(f) = self.module.get_function(name) {
+            return Ok(f);
+        }
+        
+        // Build parameter types based on argument count - all i64
+        let param_types: Vec<BasicMetadataTypeEnum> = (0..arg_count)
+            .map(|_| self.i64_t.into())
+            .collect();
+        
+        // Return type is i64 by default (works for most int/pointer results)
+        let fn_type = self.i64_t.fn_type(&param_types, false);
+        let func = self.module.add_function(name, fn_type, None);
+        
+        Ok(func)
     }
 
     fn to_string_ptr(&mut self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {

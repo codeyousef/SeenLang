@@ -1032,7 +1032,7 @@ impl TypeChecker {
                     },
                 );
             }
-            "env.env" => {
+            "env.env" | "seen_std.env.env" => {
                 // args() -> Array<String>
                 self.env.define_function(
                     "args".to_string(),
@@ -1040,6 +1040,90 @@ impl TypeChecker {
                         name: "args".to_string(),
                         parameters: vec![],
                         return_type: Some(Type::Array(Box::new(Type::String))),
+                    },
+                );
+                // tryGet(name: String) -> Option<String>
+                self.env.define_function(
+                    "tryGet".to_string(),
+                    FunctionSignature {
+                        name: "tryGet".to_string(),
+                        parameters: vec![Parameter {
+                            name: "name".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::Nullable(Box::new(Type::String))),
+                    },
+                );
+                // getOrDefault(name: String, defaultValue: String) -> String
+                self.env.define_function(
+                    "getOrDefault".to_string(),
+                    FunctionSignature {
+                        name: "getOrDefault".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "name".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "defaultValue".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::String),
+                    },
+                );
+                // get(name: String) -> String
+                self.env.define_function(
+                    "get".to_string(),
+                    FunctionSignature {
+                        name: "get".to_string(),
+                        parameters: vec![Parameter {
+                            name: "name".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::String),
+                    },
+                );
+                // has(name: String) -> Bool
+                self.env.define_function(
+                    "has".to_string(),
+                    FunctionSignature {
+                        name: "has".to_string(),
+                        parameters: vec![Parameter {
+                            name: "name".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                // set(name: String, value: String) -> Bool
+                self.env.define_function(
+                    "set".to_string(),
+                    FunctionSignature {
+                        name: "set".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "name".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "value".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                // remove(name: String) -> Bool
+                self.env.define_function(
+                    "remove".to_string(),
+                    FunctionSignature {
+                        name: "remove".to_string(),
+                        parameters: vec![Parameter {
+                            name: "name".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::Bool),
                     },
                 );
             }
@@ -1269,6 +1353,366 @@ impl TypeChecker {
                         _ => {}
                     }
                 }
+            }
+            "io.file" | "seen_std.io.file" => {
+                // readText(path: String) -> String
+                self.env.define_function(
+                    "readText".to_string(),
+                    FunctionSignature {
+                        name: "readText".to_string(),
+                        parameters: vec![Parameter {
+                            name: "path".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::String),
+                    },
+                );
+                // writeText(path: String, content: String) -> Bool
+                self.env.define_function(
+                    "writeText".to_string(),
+                    FunctionSignature {
+                        name: "writeText".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "path".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "content".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                // exists(path: String) -> Bool
+                self.env.define_function(
+                    "exists".to_string(),
+                    FunctionSignature {
+                        name: "exists".to_string(),
+                        parameters: vec![Parameter {
+                            name: "path".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                // deleteFile(path: String) -> Bool
+                self.env.define_function(
+                    "deleteFile".to_string(),
+                    FunctionSignature {
+                        name: "deleteFile".to_string(),
+                        parameters: vec![Parameter {
+                            name: "path".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+            }
+            "str.string" | "seen_std.str.string" => {
+                // split(s: String, sep: String) -> Array<String>
+                self.env.define_function(
+                    "split".to_string(),
+                    FunctionSignature {
+                        name: "split".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "s".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "sep".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Array(Box::new(Type::String))),
+                    },
+                );
+                // trim(s: String) -> String
+                self.env.define_function(
+                    "trim".to_string(),
+                    FunctionSignature {
+                        name: "trim".to_string(),
+                        parameters: vec![Parameter {
+                            name: "s".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::String),
+                    },
+                );
+                // contains(s: String, sub: String) -> Bool
+                self.env.define_function(
+                    "contains".to_string(),
+                    FunctionSignature {
+                        name: "contains".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "s".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "sub".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                // startsWith(s: String, prefix: String) -> Bool
+                self.env.define_function(
+                    "startsWith".to_string(),
+                    FunctionSignature {
+                        name: "startsWith".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "s".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "prefix".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                // endsWith(s: String, suffix: String) -> Bool
+                self.env.define_function(
+                    "endsWith".to_string(),
+                    FunctionSignature {
+                        name: "endsWith".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "s".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "suffix".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                // length(s: String) -> Int
+                self.env.define_function(
+                    "length".to_string(),
+                    FunctionSignature {
+                        name: "length".to_string(),
+                        parameters: vec![Parameter {
+                            name: "s".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(Type::Int),
+                    },
+                );
+                
+                // StringBuilder class stub
+                let mut sb_fields = HashMap::new();
+                sb_fields.insert("parts".to_string(), Type::Array(Box::new(Type::String)));
+                sb_fields.insert("totalLength".to_string(), Type::Int);
+                let sb_type = Type::Struct {
+                    name: "StringBuilder".to_string(),
+                    fields: sb_fields.clone(),
+                    generics: vec![],
+                };
+                self.env.define_type("StringBuilder".to_string(), sb_type.clone());
+                
+                // StringBuilder::new() -> StringBuilder
+                self.env.define_function(
+                    "StringBuilder::new".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder::new".to_string(),
+                        parameters: vec![],
+                        return_type: Some(sb_type.clone()),
+                    },
+                );
+                
+                // StringBuilder_append(self: StringBuilder, text: String) -> Unit
+                self.env.define_function(
+                    "StringBuilder_append".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_append".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                            Parameter { name: "text".to_string(), param_type: Type::String },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+                
+                // StringBuilder_appendChar(self: StringBuilder, ch: Char) -> Unit
+                self.env.define_function(
+                    "StringBuilder_appendChar".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_appendChar".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                            Parameter { name: "ch".to_string(), param_type: Type::Char },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+                
+                // StringBuilder_appendLine(self: StringBuilder, text: String) -> Unit
+                self.env.define_function(
+                    "StringBuilder_appendLine".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_appendLine".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                            Parameter { name: "text".to_string(), param_type: Type::String },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+                
+                // StringBuilder_clear(self: StringBuilder) -> Unit
+                self.env.define_function(
+                    "StringBuilder_clear".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_clear".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                        ],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+                
+                // StringBuilder_isEmpty(self: StringBuilder) -> Bool
+                self.env.define_function(
+                    "StringBuilder_isEmpty".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_isEmpty".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                        ],
+                        return_type: Some(Type::Bool),
+                    },
+                );
+                
+                // StringBuilder_length(self: StringBuilder) -> Int
+                self.env.define_function(
+                    "StringBuilder_length".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_length".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                        ],
+                        return_type: Some(Type::Int),
+                    },
+                );
+                
+                // StringBuilder_buildAndClear(self: StringBuilder) -> String
+                self.env.define_function(
+                    "StringBuilder_buildAndClear".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_buildAndClear".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                        ],
+                        return_type: Some(Type::String),
+                    },
+                );
+                
+                // StringBuilder_toString(self: StringBuilder) -> String
+                self.env.define_function(
+                    "StringBuilder_toString".to_string(),
+                    FunctionSignature {
+                        name: "StringBuilder_toString".to_string(),
+                        parameters: vec![
+                            Parameter { name: "self".to_string(), param_type: sb_type.clone() },
+                        ],
+                        return_type: Some(Type::String),
+                    },
+                );
+            }
+            "seen_std.collections.string_hash_map" => {
+                // StringHashMap type
+                let mut fields = HashMap::new();
+                fields.insert("length".to_string(), Type::Int);
+                let shm_type = Type::Struct {
+                    name: "StringHashMap".to_string(),
+                    fields: fields.clone(),
+                    generics: vec![Type::Generic("V".to_string())],
+                };
+                self.env.define_type("StringHashMap".to_string(), shm_type.clone());
+                
+                // StringHashMap::new() -> StringHashMap<Unknown>
+                self.env.define_function(
+                    "StringHashMap::new".to_string(),
+                    FunctionSignature {
+                        name: "StringHashMap::new".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Struct {
+                            name: "StringHashMap".to_string(),
+                            fields: HashMap::new(),
+                            generics: vec![Type::Unknown],
+                        }),
+                    },
+                );
+            }
+            "time.time" | "seen_std.time.time" => {
+                // now() -> Int (milliseconds since epoch)
+                self.env.define_function(
+                    "now".to_string(),
+                    FunctionSignature {
+                        name: "now".to_string(),
+                        parameters: vec![],
+                        return_type: Some(Type::Int),
+                    },
+                );
+                // sleep(millis: Int)
+                self.env.define_function(
+                    "sleep".to_string(),
+                    FunctionSignature {
+                        name: "sleep".to_string(),
+                        parameters: vec![Parameter {
+                            name: "millis".to_string(),
+                            param_type: Type::Int,
+                        }],
+                        return_type: Some(Type::Unit),
+                    },
+                );
+            }
+            "process.process" | "seen_std.process.process" => {
+                // CommandResult struct
+                let mut fields = HashMap::new();
+                fields.insert("success".to_string(), Type::Bool);
+                fields.insert("output".to_string(), Type::String);
+                let cmd_res_type = Type::Struct {
+                    name: "CommandResult".to_string(),
+                    fields: fields.clone(),
+                    generics: vec![],
+                };
+                self.env.define_type("CommandResult".to_string(), cmd_res_type.clone());
+
+                // runCommand(cmd: String) -> CommandResult
+                self.env.define_function(
+                    "runCommand".to_string(),
+                    FunctionSignature {
+                        name: "runCommand".to_string(),
+                        parameters: vec![Parameter {
+                            name: "command".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(cmd_res_type.clone()),
+                    },
+                );
+
+                // commandWasSuccessful(res: CommandResult) -> Bool
+                self.env.define_function(
+                    "commandWasSuccessful".to_string(),
+                    FunctionSignature {
+                        name: "commandWasSuccessful".to_string(),
+                        parameters: vec![Parameter {
+                            name: "result".to_string(),
+                            param_type: cmd_res_type.clone(),
+                        }],
+                        return_type: Some(Type::Bool),
+                    },
+                );
             }
             _ => {
                 // For other modules, just mark them as imported without error
@@ -2095,10 +2539,18 @@ impl TypeChecker {
 
             // Identifiers
             Expression::Identifier { name, pos, .. } => {
-                // Check for translation
-                if let Some(km) = &self.keyword_manager {
-                    if let Some(canonical) = km.get_std_lib_mapping(name) {
-                         *name = canonical.clone();
+                // First check if the identifier is already defined (from imports, local vars, etc.)
+                // Only apply std_lib_mapping if the identifier is NOT already known
+                if self.env.get_variable(name).is_none() 
+                    && self.env.get_function(name).is_none()
+                    && self.lookup_this_field_type(name).is_none()
+                    && self.type_from_identifier(name, *pos).is_none() 
+                {
+                    // Check for translation if identifier is not locally defined
+                    if let Some(km) = &self.keyword_manager {
+                        if let Some(canonical) = km.get_std_lib_mapping(name) {
+                             *name = canonical.clone();
+                        }
                     }
                 }
 
