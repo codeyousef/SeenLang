@@ -1,0 +1,8 @@
+name = "Spanish"
+description = "Spanish IO Standard Library"
+
+[std_lib]
+"leerTexto" = "seen_std.io.file.readText"
+"escribirTexto" = "seen_std.io.file.writeText"
+"eliminarArchivo" = "seen_std.io.file.deleteFile"
+"existe" = "seen_std.io.file.exists"

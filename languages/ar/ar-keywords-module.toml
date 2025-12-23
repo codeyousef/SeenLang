@@ -1,0 +1,8 @@
+name = "Arabic"
+description = "Arabic Module System Keywords"
+
+[keywords]
+"وحدة" = "KeywordModule"
+"استورد" = "KeywordImport"
+"استخدم" = "KeywordUse"
+"خارجي" = "KeywordExternal"

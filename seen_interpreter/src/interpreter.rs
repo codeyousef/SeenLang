@@ -3345,7 +3345,7 @@ mod tests {
             }),
             target: Box::new(Expression::Identifier {
                 name: "tx".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos,
             }),
             pos: Position::start(),
@@ -3371,7 +3371,7 @@ mod tests {
                 params: vec![],
                 body: Box::new(Expression::Identifier {
                     name: "__message_payload".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: pos.clone(),
                 }),
             }],
@@ -3403,7 +3403,7 @@ mod tests {
             message: Box::new(message_expr),
             source: Box::new(Expression::Identifier {
                 name: "target".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: pos.clone(),
             }),
             pos: pos.clone(),
@@ -3434,7 +3434,7 @@ mod tests {
         let cast_expr = Expression::Cast {
             expr: Box::new(Expression::Identifier {
                 name: "node".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: pos.clone(),
             }),
             target_type: Type::new("ExpressionStatement"),
@@ -3464,7 +3464,7 @@ mod tests {
         let type_check_expr = Expression::TypeCheck {
             expr: Box::new(Expression::Identifier {
                 name: "node".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: pos.clone(),
             }),
             target_type: Type::new("ExpressionStatement"),
@@ -3491,19 +3491,19 @@ mod tests {
                 Expression::Assignment {
                     target: Box::new(Expression::Identifier {
                         name: "count".to_string(),
-                        is_public: false,
+                        is_public: false, type_args: vec![],
                         pos,
                     }),
                     value: Box::new(Expression::BinaryOp {
                         left: Box::new(Expression::Identifier {
                             name: "count".to_string(),
-                            is_public: false,
+                            is_public: false, type_args: vec![],
                             pos,
                         }),
                         op: BinaryOperator::Add,
                         right: Box::new(Expression::Identifier {
                             name: "__message_payload".to_string(),
-                            is_public: false,
+                            is_public: false, type_args: vec![],
                             pos,
                         }),
                         pos,
@@ -3513,7 +3513,7 @@ mod tests {
                 },
                 Expression::Identifier {
                     name: "count".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos,
                 },
             ],
@@ -3522,7 +3522,7 @@ mod tests {
 
         let get_body = Expression::Identifier {
             name: "count".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos,
         };
 
@@ -3580,7 +3580,7 @@ mod tests {
 
         let counter_ident = Expression::Identifier {
             name: "counter".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos,
         };
 
@@ -3664,7 +3664,7 @@ mod tests {
         let assign_expr = Expression::Assignment {
             target: Box::new(Expression::Identifier {
                 name: "Username".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos,
             }),
             value: Box::new(Expression::StringLiteral {
@@ -3709,7 +3709,7 @@ mod tests {
                     condition: Box::new(Expression::BinaryOp {
                         left: Box::new(Expression::Identifier {
                             name: "i".to_string(),
-                            is_public: false,
+                            is_public: false, type_args: vec![],
                             pos,
                         }),
                         op: BinaryOperator::Less,
@@ -3721,12 +3721,12 @@ mod tests {
                             Expression::Call {
                                 callee: Box::new(Expression::Identifier {
                                     name: "emit".to_string(),
-                                    is_public: false,
+                                    is_public: false, type_args: vec![],
                                     pos,
                                 }),
                                 args: vec![Expression::Identifier {
                                     name: "i".to_string(),
-                                    is_public: false,
+                                    is_public: false, type_args: vec![],
                                     pos,
                                 }],
                                 pos,
@@ -3734,13 +3734,13 @@ mod tests {
                             Expression::Assignment {
                                 target: Box::new(Expression::Identifier {
                                     name: "i".to_string(),
-                                    is_public: false,
+                                    is_public: false, type_args: vec![],
                                     pos,
                                 }),
                                 value: Box::new(Expression::BinaryOp {
                                     left: Box::new(Expression::Identifier {
                                         name: "i".to_string(),
-                                        is_public: false,
+                                        is_public: false, type_args: vec![],
                                         pos,
                                     }),
                                     op: BinaryOperator::Add,
@@ -3810,7 +3810,7 @@ mod tests {
 
         let value_ident = || Expression::Identifier {
             name: "value".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos,
         };
 
@@ -3878,7 +3878,7 @@ mod tests {
             callee: Box::new(Expression::MemberAccess {
                 object: Box::new(Expression::Identifier {
                     name: "counter".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos,
                 }),
                 member: "inc".to_string(),
@@ -3971,13 +3971,13 @@ mod tests {
             cases: vec![seen_parser::ast::SelectCase {
                 channel: Box::new(Expression::Identifier {
                     name: "rx".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::start(),
                 }),
                 pattern: Pattern::Identifier("val".to_string()),
                 handler: Box::new(Expression::Identifier {
                     name: "val".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::start(),
                 }),
             }],
@@ -4102,7 +4102,7 @@ mod tests {
             callee: Box::new(Expression::MemberAccess {
                 object: Box::new(Expression::Identifier {
                     name: "IO".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos,
                 }),
                 member: "Read".to_string(),
@@ -4165,7 +4165,7 @@ mod tests {
             callee: Box::new(Expression::MemberAccess {
                 object: Box::new(Expression::Identifier {
                     name: "IO".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos,
                 }),
                 member: "Read".to_string(),
@@ -4212,7 +4212,7 @@ mod tests {
             }],
             body: Box::new(Expression::Identifier {
                 name: "value".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos,
             }),
         };
@@ -4221,7 +4221,7 @@ mod tests {
             callee: Box::new(Expression::MemberAccess {
                 object: Box::new(Expression::Identifier {
                     name: "IO".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos,
                 }),
                 member: "Write".to_string(),

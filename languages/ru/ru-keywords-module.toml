@@ -1,0 +1,8 @@
+name = "Russian"
+description = "Russian Module System Keywords"
+
+[keywords]
+"модуль" = "KeywordModule"
+"импортировать" = "KeywordImport"
+"использовать" = "KeywordUse"
+"внешний" = "KeywordExternal"

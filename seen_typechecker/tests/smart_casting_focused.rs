@@ -34,7 +34,7 @@ fn test_smart_casting_condition_analysis() {
     );
 
     // Create condition: user != null
-    let condition = Expression::BinaryOp {
+    let mut condition = Expression::BinaryOp {
         left: Box::new(Expression::Identifier {
             name: "user".to_string(),
             is_public: false,
@@ -47,7 +47,7 @@ fn test_smart_casting_condition_analysis() {
     };
 
     // Create then branch that accesses user.Name without safe navigation (should work with smart cast)
-    let then_branch = Expression::MemberAccess {
+    let mut then_branch = Expression::MemberAccess {
         object: Box::new(Expression::Identifier {
             name: "user".to_string(),
             is_public: false,
@@ -60,7 +60,7 @@ fn test_smart_casting_condition_analysis() {
     };
 
     // Type check the if expression
-    let result_type = checker.check_if_expression(&condition, &then_branch, None, pos());
+    let result_type = checker.check_if_expression(&mut condition, &mut then_branch, None, pos());
 
     // The result should be String (from user.Name), and ideally no errors
     println!("Result type: {:?}", result_type);
@@ -83,17 +83,17 @@ fn test_smart_casting_function_accessibility() {
     let mut checker = TypeChecker::new();
 
     // Test that the smart casting methods are accessible
-    let condition = Expression::BooleanLiteral {
+    let mut condition = Expression::BooleanLiteral {
         value: true,
         pos: pos(),
     };
-    let then_branch = Expression::IntegerLiteral {
+    let mut then_branch = Expression::IntegerLiteral {
         value: 1,
         pos: pos(),
     };
 
     // This should not crash
-    let _result = checker.check_if_expression(&condition, &then_branch, None, pos());
+    let _result = checker.check_if_expression(&mut condition, &mut then_branch, None, pos());
 
     println!("Smart casting functions are accessible and working");
 }

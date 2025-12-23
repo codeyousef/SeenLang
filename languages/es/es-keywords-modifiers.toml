@@ -1,0 +1,18 @@
+name = "Spanish"
+description = "Spanish Modifier Keywords"
+
+[keywords]
+"en_línea" = "KeywordInline"
+"reificado" = "KeywordReified"
+"línea_cruzada" = "KeywordCrossinline"
+"sin_línea" = "KeywordNoinline"
+"operador" = "KeywordOperator"
+"infijo" = "KeywordInfix"
+"cola_recursiva" = "KeywordTailrec"
+"puro" = "KeywordPure"
+"utiliza" = "KeywordUses"
+"manejar" = "KeywordHandle"
+"con" = "KeywordWith"
+"requiere" = "KeywordRequires"
+"garantiza" = "KeywordEnsures"
+"invariante" = "KeywordInvariant"

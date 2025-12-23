@@ -1,0 +1,21 @@
+name = "Arabic"
+description = "Arabic Type Definition Keywords"
+
+[keywords]
+"هيكل" = "KeywordStruct"
+"تعداد" = "KeywordEnum"
+"صفة" = "KeywordTrait"
+"تطبيق" = "KeywordImpl"
+"نوع" = "KeywordType"
+"فئة" = "KeywordClass"
+
+"مختوم" = "KeywordSealed"
+"كائن" = "KeywordObject"
+"واجهة" = "KeywordInterface"
+"مفتوح" = "KeywordOpen"
+"نهائي" = "KeywordFinal"
+"مجرد" = "KeywordAbstract"
+"تجاوز" = "KeywordOverride"
+"متأخر_البدء" = "KeywordLateinit"
+"رفيق" = "KeywordCompanion"
+"امتداد" = "KeywordExtension"

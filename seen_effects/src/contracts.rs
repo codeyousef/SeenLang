@@ -1057,7 +1057,7 @@ mod tests {
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "b".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 10, 0),
             }),
             right: Box::new(Expression::IntegerLiteral {
@@ -1091,12 +1091,12 @@ mod tests {
             left: Box::new(Expression::BinaryOp {
                 left: Box::new(Expression::Identifier {
                     name: "result".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(1, 10, 0),
                 }),
                 right: Box::new(Expression::Identifier {
                     name: "b".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(1, 19, 0),
                 }),
                 op: BinaryOperator::Multiply,
@@ -1104,7 +1104,7 @@ mod tests {
             }),
             right: Box::new(Expression::Identifier {
                 name: "a".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 24, 0),
             }),
             op: BinaryOperator::Equal,
@@ -1144,7 +1144,7 @@ mod tests {
         let condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "b".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 10, 0),
             }),
             right: Box::new(Expression::IntegerLiteral {
@@ -1194,12 +1194,12 @@ mod tests {
             left: Box::new(Expression::BinaryOp {
                 left: Box::new(Expression::Identifier {
                     name: "result".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(1, 10, 0),
                 }),
                 right: Box::new(Expression::Identifier {
                     name: "b".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(1, 19, 0),
                 }),
                 op: BinaryOperator::Multiply,
@@ -1207,7 +1207,7 @@ mod tests {
             }),
             right: Box::new(Expression::Identifier {
                 name: "a".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 24, 0),
             }),
             op: BinaryOperator::Equal,
@@ -1256,7 +1256,7 @@ mod tests {
         let pre_condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "b".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 10, 0),
             }),
             right: Box::new(Expression::IntegerLiteral {
@@ -1278,12 +1278,12 @@ mod tests {
             left: Box::new(Expression::BinaryOp {
                 left: Box::new(Expression::Identifier {
                     name: "result".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(1, 10, 0),
                 }),
                 right: Box::new(Expression::Identifier {
                     name: "b".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(1, 19, 0),
                 }),
                 op: BinaryOperator::Multiply,
@@ -1291,7 +1291,7 @@ mod tests {
             }),
             right: Box::new(Expression::Identifier {
                 name: "a".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 24, 0),
             }),
             op: BinaryOperator::Equal,
@@ -1336,7 +1336,7 @@ mod tests {
         let expr = Expression::BinaryOp {
             left: Box::new(Expression::Identifier {
                 name: "x".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 1, 0),
             }),
             right: Box::new(Expression::IntegerLiteral {

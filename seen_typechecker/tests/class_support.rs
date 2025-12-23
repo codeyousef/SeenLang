@@ -67,12 +67,12 @@ fn class_definition_registers_type_and_methods() {
         pos: class_pos,
     };
 
-    let program = Program {
+    let mut program = Program {
         expressions: vec![class_expr],
     };
 
     let mut checker = TypeChecker::new();
-    let result = checker.check_program(&program);
+    let result = checker.check_program(&mut program);
 
     assert!(
         !result.has_errors(),
@@ -95,7 +95,7 @@ fn class_definition_registers_type_and_methods() {
 
 #[test]
 fn constructor_and_abort_calls_typecheck() {
-    let program = Program {
+    let mut program = Program {
         expressions: vec![
             Expression::Call {
                 callee: Box::new(Expression::Identifier {
@@ -124,7 +124,7 @@ fn constructor_and_abort_calls_typecheck() {
     };
 
     let mut checker = TypeChecker::new();
-    let result = checker.check_program(&program);
+    let result = checker.check_program(&mut program);
     assert!(
         !result.has_errors(),
         "constructor/builtin calls should not error: {:?}",
@@ -178,12 +178,12 @@ fn class_methods_can_reference_fields() {
         pos: class_pos,
     };
 
-    let program = Program {
+    let mut program = Program {
         expressions: vec![class_expr],
     };
 
     let mut checker = TypeChecker::new();
-    let result = checker.check_program(&program);
+    let result = checker.check_program(&mut program);
     assert!(
         !result.has_errors(),
         "expected method to see fields, got {:?}",

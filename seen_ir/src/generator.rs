@@ -3072,7 +3072,7 @@ mod tests {
         let mut generator = IRGenerator::new();
         let awaited = Expression::Identifier {
             name: "promise".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos: seen_parser::Position::new(1, 1, 0),
         };
         let expr = Expression::Await {
@@ -3105,7 +3105,7 @@ mod tests {
         };
         let target = Expression::Identifier {
             name: "tx".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos: seen_parser::Position::new(1, 1, 0),
         };
         let expr = Expression::Send {
@@ -3135,12 +3135,12 @@ mod tests {
         let mut generator = IRGenerator::new();
         let channel_ident1 = Expression::Identifier {
             name: "ch".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos: seen_parser::Position::new(1, 1, 0),
         };
         let channel_ident2 = Expression::Identifier {
             name: "ch2".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos: seen_parser::Position::new(1, 1, 0),
         };
         let handler_expr = Expression::IntegerLiteral {
@@ -3187,7 +3187,7 @@ mod tests {
         let mut generator = IRGenerator::new();
         let channel_ident = Expression::Identifier {
             name: "rx".to_string(),
-            is_public: false,
+            is_public: false, type_args: vec![],
             pos: seen_parser::Position::new(1, 1, 0),
         };
         let handler_expr = Expression::IntegerLiteral {
@@ -3238,7 +3238,7 @@ mod tests {
             cases: vec![seen_parser::ast::SelectCase {
                 channel: Box::new(Expression::Identifier {
                     name: "rx".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: seen_parser::Position::new(1, 1, 0),
                 }),
                 pattern: Pattern::Literal(Box::new(Expression::IntegerLiteral {
@@ -3307,7 +3307,7 @@ mod tests {
             cases: vec![seen_parser::ast::SelectCase {
                 channel: Box::new(Expression::Identifier {
                     name: "rx".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: seen_parser::Position::new(1, 1, 0),
                 }),
                 pattern: Pattern::Wildcard,

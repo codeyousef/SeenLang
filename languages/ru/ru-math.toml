@@ -1,0 +1,7 @@
+name = "Russian"
+description = "Russian Math Standard Library"
+
+[std_lib]
+"синус" = "seen_std.math.sin"
+"косинус" = "seen_std.math.cos"
+"корень" = "seen_std.math.sqrt"

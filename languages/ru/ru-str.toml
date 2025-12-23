@@ -1,0 +1,6 @@
+name = "Russian"
+description = "Russian String Standard Library"
+
+[std_lib]
+"разделить" = "seen_std.str.string.split"
+"обрезать" = "seen_std.str.string.trim"

@@ -1,0 +1,9 @@
+name = "Russian"
+description = "Russian Memory Management Keywords"
+
+[keywords]
+"переместить" = "KeywordMove"
+"заимствовать" = "KeywordBorrow"
+"на_месте" = "KeywordInout"
+"регион" = "KeywordRegion"
+"арена" = "KeywordArena"

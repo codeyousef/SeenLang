@@ -1,0 +1,9 @@
+name = "fr"
+description = "English Memory Management Keywords"
+
+[keywords]
+"move" = "KeywordMove"
+"borrow" = "KeywordBorrow"
+"inout" = "KeywordInout"
+"region" = "KeywordRegion"
+"arena" = "KeywordArena"

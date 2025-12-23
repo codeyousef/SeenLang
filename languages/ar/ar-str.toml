@@ -1,0 +1,6 @@
+name = "Arabic"
+description = "Arabic String Standard Library"
+
+[std_lib]
+"قسم" = "seen_std.str.string.split"
+"شذب" = "seen_std.str.string.trim"

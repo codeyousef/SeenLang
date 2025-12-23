@@ -1,0 +1,10 @@
+name = "hi"
+description = "English Variable Declaration Keywords"
+
+[keywords]
+"let" = "KeywordLet"
+"mut" = "KeywordMut"
+"const" = "KeywordConst"
+"static" = "KeywordStatic"
+"val" = "KeywordVal"
+"var" = "KeywordVar"

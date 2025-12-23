@@ -1,0 +1,13 @@
+name = "fr"
+description = "English Miscellaneous Keywords"
+
+[keywords]
+"is" = "KeywordIs"
+"as" = "KeywordAs"
+"by" = "KeywordBy"
+"and" = "KeywordAnd"
+"or" = "KeywordOr"
+"not" = "KeywordNot"
+"to" = "KeywordTo"
+"from" = "KeywordFrom"
+"effect" = "KeywordEffect"

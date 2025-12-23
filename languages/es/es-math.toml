@@ -1,0 +1,7 @@
+name = "Spanish"
+description = "Spanish Math Standard Library"
+
+[std_lib]
+"seno" = "seen_std.math.sin"
+"coseno" = "seen_std.math.cos"
+"raiz" = "seen_std.math.sqrt"

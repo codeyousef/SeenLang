@@ -836,7 +836,7 @@ mod tests {
             }],
             body: Expression::Identifier {
                 name: "x".to_string(),
-                is_public: false,
+                is_public: false, type_args: vec![],
                 pos: Position::new(1, 1, 0),
             },
             hygiene: MacroHygiene {

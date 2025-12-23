@@ -1,0 +1,8 @@
+name = "ja"
+description = "English Module System Keywords"
+
+[keywords]
+"module" = "KeywordModule"
+"import" = "KeywordImport"
+"use" = "KeywordUse"
+"external" = "KeywordExternal"

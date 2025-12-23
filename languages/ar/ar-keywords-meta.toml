@@ -1,0 +1,6 @@
+name = "Arabic"
+description = "Arabic Metaprogramming Keywords"
+
+[keywords]
+"وقت_التجميع" = "KeywordComptime"
+"ماكرو" = "KeywordMacro"

@@ -72,12 +72,12 @@ fn method_resolution_handles_instance_calls() {
         pos: p,
     };
 
-    let program = Program {
+    let mut program = Program {
         expressions: vec![struct_expr, method_expr, call_expr],
     };
 
     let mut checker = TypeChecker::new();
-    let result = checker.check_program(&program);
+    let result = checker.check_program(&mut program);
     assert!(
         !result.has_errors(),
         "method call should type-check without errors: {:?}",
@@ -117,12 +117,12 @@ fn enum_variant_access_round_trips_through_typechecker() {
         pos: p,
     };
 
-    let program = Program {
+    let mut program = Program {
         expressions: vec![enum_expr, variant_expr],
     };
 
     let mut checker = TypeChecker::new();
-    let result = checker.check_program(&program);
+    let result = checker.check_program(&mut program);
     assert!(
         !result.has_errors(),
         "enum variant lookups should be resolved: {:?}",
@@ -150,12 +150,12 @@ fn operator_typing_covers_numeric_and_string_cases() {
         pos: p,
     };
 
-    let program = Program {
+    let mut program = Program {
         expressions: vec![ge_expr, concat_expr],
     };
 
     let mut checker = TypeChecker::new();
-    let result = checker.check_program(&program);
+    let result = checker.check_program(&mut program);
     assert!(
         !result.has_errors(),
         ">= and string concatenation typing regressions detected: {:?}",

@@ -1,0 +1,7 @@
+name = "Arabic"
+description = "Arabic Literal Keywords"
+
+[keywords]
+"صحيح" = "KeywordTrue"
+"خطأ" = "KeywordFalse"
+"عدم" = "KeywordNull"

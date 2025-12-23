@@ -78,7 +78,7 @@ impl SeenLanguageServer {
 
         // Parse the tokens
         let mut parser = Parser::new_with_visibility(lexer, visibility_policy);
-        let program = match parser.parse_program() {
+        let mut program = match parser.parse_program() {
             Ok(program) => program,
             Err(e) => {
                 // Extract position from error variant
@@ -118,7 +118,7 @@ impl SeenLanguageServer {
 
         // Type check the program
         let mut type_checker = TypeChecker::new();
-        let type_result = type_checker.check_program(&program);
+        let type_result = type_checker.check_program(&mut program);
 
         // Convert type errors to diagnostics
         for error in type_result.get_errors() {
@@ -142,7 +142,7 @@ impl SeenLanguageServer {
 
         // Memory safety analysis
         let mut memory_manager = MemoryManager::new();
-        let memory_result = memory_manager.analyze_program(&program);
+        let memory_result = memory_manager.analyze_program(&mut program);
 
         // Convert memory errors to diagnostics
         for error in memory_result.get_errors() {

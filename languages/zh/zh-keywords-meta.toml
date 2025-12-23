@@ -1,0 +1,6 @@
+name = "zh"
+description = "English Metaprogramming Keywords"
+
+[keywords]
+"comptime" = "KeywordComptime"
+"macro" = "KeywordMacro"

@@ -16,7 +16,7 @@ fn pos() -> Position {
 #[test]
 fn test_smart_casting_integration() {
     // Create a simple program that should benefit from smart casting
-    let program = Program {
+    let mut program = Program {
         expressions: vec![
             // Simple valid program that should pass without smart casting issues
             Expression::Let {
@@ -44,7 +44,7 @@ fn test_smart_casting_integration() {
 
     let mut checker = TypeChecker::new();
 
-    let result = checker.check_program(&program);
+    let result = checker.check_program(&mut program);
 
     // Should compile without errors
     assert!(
@@ -60,7 +60,7 @@ fn test_smart_casting_integration() {
 #[test]
 fn test_smart_casting_recognizes_null_check() {
     // Create a condition expression: user != null
-    let condition = Expression::BinaryOp {
+    let mut condition = Expression::BinaryOp {
         left: Box::new(Expression::Identifier {
             name: "user".to_string(),
             is_public: false,
@@ -73,7 +73,7 @@ fn test_smart_casting_recognizes_null_check() {
     };
 
     // Create a simple then branch
-    let then_branch = Expression::IntegerLiteral {
+    let mut then_branch = Expression::IntegerLiteral {
         value: 1,
         pos: pos(),
     };
@@ -92,7 +92,7 @@ fn test_smart_casting_recognizes_null_check() {
 
     // We need to access the environment through public methods
     // For now, we'll just test that the methods are accessible
-    let result_type = checker.check_if_expression(&condition, &then_branch, None, pos());
+    let result_type = checker.check_if_expression(&mut condition, &mut then_branch, None, pos());
 
     // The condition should be recognized as having type issues (user not defined)
     // but the method should not crash

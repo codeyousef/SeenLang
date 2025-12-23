@@ -1,0 +1,6 @@
+name = "Spanish"
+description = "Spanish String Standard Library"
+
+[std_lib]
+"dividir" = "seen_std.str.string.split"
+"recortar" = "seen_std.str.string.trim"

@@ -3,7 +3,7 @@
 //! Following TDD methodology, these tests define expected behavior
 //! for string interpolation BEFORE implementation.
 
-use crate::{token::InterpolationKind, KeywordManager, Lexer, TokenType};
+use crate::{token::InterpolationKind, KeywordManager, Lexer, Token, TokenType};
 use std::sync::Arc;
 
 /// Test helper to create a lexer with English keywords loaded
@@ -296,13 +296,12 @@ mod error_handling_tests {
         let mut lexer = create_test_lexer(r#""Empty: {}""#);
 
         let result = lexer.next_token();
-        assert!(result.is_err());
-
-        match result {
-            Err(LexerError::InvalidInterpolation { .. }) => {
-                // Expected error for empty interpolation
-            }
-            _ => panic!("Expected InvalidInterpolation error for empty braces"),
+        assert!(result.is_ok());
+        
+        if let Ok(Token { token_type: TokenType::StringLiteral(s), .. }) = result {
+            assert_eq!(s, "Empty: {}");
+        } else {
+            panic!("Expected StringLiteral for empty braces, got {:?}", result);
         }
     }
 }

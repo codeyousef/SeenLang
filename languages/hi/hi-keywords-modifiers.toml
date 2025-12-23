@@ -1,0 +1,18 @@
+name = "hi"
+description = "English Modifier Keywords"
+
+[keywords]
+"inline" = "KeywordInline"
+"reified" = "KeywordReified"
+"crossinline" = "KeywordCrossinline"
+"noinline" = "KeywordNoinline"
+"operator" = "KeywordOperator"
+"infix" = "KeywordInfix"
+"tailrec" = "KeywordTailrec"
+"pure" = "KeywordPure"
+"uses" = "KeywordUses"
+"handle" = "KeywordHandle"
+"with" = "KeywordWith"
+"requires" = "KeywordRequires"
+"ensures" = "KeywordEnsures"
+"invariant" = "KeywordInvariant"

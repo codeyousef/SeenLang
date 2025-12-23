@@ -3,6 +3,7 @@
 use crate::errors::*;
 use crate::types::Type;
 use crate::{FunctionSignature, Parameter, TypeCheckResult};
+use seen_lexer::keyword_manager::KeywordManager;
 use seen_lexer::Position;
 use seen_parser::ast::*;
 use std::collections::HashMap;
@@ -131,6 +132,8 @@ pub struct TypeChecker {
     /// Global prelude scope for manifest modules
     /// Contains all top-level functions from bundled modules
     prelude: HashMap<String, FunctionSignature>,
+    /// Keyword manager for language translations
+    pub keyword_manager: Option<Arc<KeywordManager>>,
 }
 
 impl TypeChecker {
@@ -163,6 +166,11 @@ impl TypeChecker {
 
     /// Create a new type checker
     pub fn new() -> Self {
+        Self::new_with_keywords(None)
+    }
+
+    /// Create a new type checker with multilingual support
+    pub fn new_with_keywords(keyword_manager: Option<Arc<KeywordManager>>) -> Self {
         let mut env = Environment::new();
 
         // Add built-in functions
@@ -684,6 +692,7 @@ impl TypeChecker {
             generic_stack: Vec::new(),
             scope_depth: 0,
             prelude: HashMap::new(),
+            keyword_manager,
         }
     }
 
@@ -1761,13 +1770,13 @@ impl TypeChecker {
     }
 
     /// Type check a program
-    pub fn check_program(&mut self, program: &Program) -> TypeCheckResult {
+    pub fn check_program(&mut self, program: &mut Program) -> TypeCheckResult {
         // FIRST: Populate prelude with all top-level functions for manifest modules
         // This makes functions from all bundled modules visible to each other
         self.populate_prelude(program);
 
         // Process imports early so types and functions are available for class/struct definitions
-        for expression in &program.expressions {
+        for expression in &mut program.expressions {
             if let Expression::Import { .. } = expression {
                 self.check_expression(expression);
             }
@@ -1780,7 +1789,7 @@ impl TypeChecker {
         self.predeclare_signatures(program);
 
         // Then fully process all struct/class/enum definitions to populate fields
-        for expression in &program.expressions {
+        for expression in &mut program.expressions {
             match expression {
                 Expression::StructDefinition { .. }
                 | Expression::ClassDefinition { .. }
@@ -1797,7 +1806,7 @@ impl TypeChecker {
         self.fixup_struct_field_types();
 
         // Finally check remaining expressions
-        for expression in &program.expressions {
+        for expression in &mut program.expressions {
             match expression {
                 Expression::StructDefinition { .. }
                 | Expression::ClassDefinition { .. }
@@ -2207,7 +2216,7 @@ impl TypeChecker {
     }
 
     /// Type check an expression and return its type
-    pub fn check_expression(&mut self, expression: &Expression) -> Type {
+    pub fn check_expression(&mut self, expression: &mut Expression) -> Type {
         match expression {
             // Import declarations: resolve symbols and add to environment
             Expression::Import {
@@ -2227,6 +2236,13 @@ impl TypeChecker {
 
             // Identifiers
             Expression::Identifier { name, pos, .. } => {
+                // Check for translation
+                if let Some(km) = &self.keyword_manager {
+                    if let Some(canonical) = km.get_std_lib_mapping(name) {
+                         *name = canonical.clone();
+                    }
+                }
+
                 if let Some(var_type) = self.env.get_variable(name) {
                     var_type.clone()
                 } else if let Some(field_type) = self.lookup_this_field_type(name) {
@@ -2347,7 +2363,7 @@ impl TypeChecker {
                 then_branch,
                 else_branch,
                 pos,
-            } => self.check_if_expression(condition, then_branch, else_branch.as_deref(), *pos),
+            } => self.check_if_expression(condition, then_branch, else_branch.as_deref_mut(), *pos),
 
             // Structured concurrency primitives
             Expression::Await { expr, pos } => self.check_await_expression(expr, *pos),
@@ -2470,9 +2486,9 @@ impl TypeChecker {
     /// Type check a binary operation
     fn check_binary_operation(
         &mut self,
-        left: &Expression,
+        left: &mut Expression,
         op: &BinaryOperator,
-        right: &Expression,
+        right: &mut Expression,
         pos: Position,
     ) -> Type {
         let left_type = self.check_expression(left);
@@ -2519,7 +2535,7 @@ impl TypeChecker {
     fn check_unary_operation(
         &mut self,
         op: &UnaryOperator,
-        operand: &Expression,
+        operand: &mut Expression,
         pos: Position,
     ) -> Type {
         let operand_type = self.check_expression(operand);
@@ -2568,7 +2584,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_await_expression(&mut self, expr: &Expression, pos: Position) -> Type {
+    fn check_await_expression(&mut self, expr: &mut Expression, pos: Position) -> Type {
         let awaited_type = self.check_expression(expr);
         match awaited_type.non_nullable() {
             Type::Task(inner) => inner.as_ref().clone(),
@@ -2586,7 +2602,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_spawn_expression(&mut self, expr: &Expression, detached: bool, pos: Position) -> Type {
+    fn check_spawn_expression(&mut self, expr: &mut Expression, detached: bool, pos: Position) -> Type {
         let payload_type = self.check_expression(expr);
         if !detached && self.scope_depth == 0 {
             self.result
@@ -2595,19 +2611,19 @@ impl TypeChecker {
         Type::Task(Box::new(payload_type))
     }
 
-    fn check_scope_expression(&mut self, body: &Expression, _pos: Position) -> Type {
+    fn check_scope_expression(&mut self, body: &mut Expression, _pos: Position) -> Type {
         self.scope_depth += 1;
         let result = self.check_expression(body);
         self.scope_depth -= 1;
         result
     }
 
-    fn check_jobs_scope(&mut self, body: &Expression, pos: Position) -> Type {
+    fn check_jobs_scope(&mut self, body: &mut Expression, pos: Position) -> Type {
         // jobs.scope shares the same structured concurrency semantics as scope.
         self.check_scope_expression(body, pos)
     }
 
-    fn check_cancel_expression(&mut self, task: &Expression, pos: Position) -> Type {
+    fn check_cancel_expression(&mut self, task: &mut Expression, pos: Position) -> Type {
         let task_type = self.check_expression(task);
         if matches!(task_type.non_nullable(), Type::Task(_)) {
             Type::Bool
@@ -2623,8 +2639,8 @@ impl TypeChecker {
     fn check_parallel_for(
         &mut self,
         binding: &str,
-        iterable: &Expression,
-        body: &Expression,
+        iterable: &mut Expression,
+        body: &mut Expression,
         pos: Position,
     ) -> Type {
         let iterable_type = self.check_expression(iterable);
@@ -2670,8 +2686,8 @@ impl TypeChecker {
 
     fn check_send_expression(
         &mut self,
-        target: &Expression,
-        message: &Expression,
+        target: &mut Expression,
+        message: &mut Expression,
         pos: Position,
     ) -> Type {
         let target_type = self.check_expression(target);
@@ -2702,7 +2718,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_select_expression(&mut self, cases: &[SelectCase], pos: Position) -> Type {
+    fn check_select_expression(&mut self, cases: &mut [SelectCase], pos: Position) -> Type {
         if cases.is_empty() {
             self.result.add_error(TypeError::InvalidOperation {
                 operation: "select".to_string(),
@@ -2720,8 +2736,8 @@ impl TypeChecker {
             generics: vec![Type::Unknown],
         };
 
-        for case in cases {
-            let channel_type = self.check_expression(&case.channel);
+        for case in cases.iter_mut() {
+            let channel_type = self.check_expression(&mut case.channel);
             if !matches!(channel_type.non_nullable(), Type::Struct { name, .. } if name == "Channel")
             {
                 self.result.add_error(TypeError::TypeMismatch {
@@ -2734,7 +2750,7 @@ impl TypeChecker {
             let parent_env = Arc::new(std::mem::replace(&mut self.env, Environment::new()));
             self.env = Environment::with_parent(parent_env);
             self.bind_pattern(&case.pattern, Type::Unknown);
-            let handler_type = self.check_expression(&case.handler);
+            let handler_type = self.check_expression(&mut case.handler);
             
             if let Some(parent) = self.env.parent.take() {
                  self.env = Arc::try_unwrap(parent).unwrap_or_else(|arc| (*arc).clone());
@@ -2786,8 +2802,8 @@ impl TypeChecker {
     /// Type check a function call
     fn check_call_expression(
         &mut self,
-        callee: &Expression,
-        args: &[Expression],
+        callee: &mut Expression,
+        args: &mut [Expression],
         pos: Position,
     ) -> Type {
         // Complete call checking with full type resolution
@@ -2802,7 +2818,7 @@ impl TypeChecker {
                     });
                 }
 
-                if let Some(arg) = args.get(0) {
+                if let Some(arg) = args.get_mut(0) {
                     let capacity_type = self.check_expression(arg);
                     if !capacity_type.is_assignable_to(&Type::Int) {
                         self.result.add_error(TypeError::TypeMismatch {
@@ -2932,7 +2948,7 @@ impl TypeChecker {
                 }
 
                 // Check argument types
-                for (arg, param) in args.iter().zip(&signature.parameters) {
+                for (arg, param) in args.iter_mut().zip(&signature.parameters) {
                     let arg_type = self.check_expression(arg);
                     if !arg_type.is_assignable_to(&param.param_type) {
                         self.result.add_error(TypeError::TypeMismatch {
@@ -2945,7 +2961,7 @@ impl TypeChecker {
 
                 signature.return_type.clone().unwrap_or(Type::Unit)
             } else if let Some(constructor_type) = self.type_from_identifier(name, pos) {
-                for arg in args {
+                for arg in args.iter_mut() {
                     self.check_expression(arg);
                 }
                 constructor_type
@@ -2970,7 +2986,7 @@ impl TypeChecker {
                     | (Type::String, "length")
             ) {
                 // Validate no-arg accessors but still type-check the provided args for side diagnostics
-                for arg in args {
+                for arg in args.iter_mut() {
                     let _ = self.check_expression(arg);
                 }
                 return Type::Int;
@@ -3040,7 +3056,7 @@ impl TypeChecker {
                     }
 
                     // Validate argument types against expected parameters (zip stops at shorter)
-                    for (arg_expr, param) in args.iter().zip(expected_params.iter()) {
+                    for (arg_expr, param) in args.iter_mut().zip(expected_params.iter()) {
                         let arg_ty = self.check_expression(arg_expr);
                         if !arg_ty.is_assignable_to(&param.param_type) {
                             self.result.add_error(TypeError::TypeMismatch {
@@ -3063,7 +3079,7 @@ impl TypeChecker {
         } else {
             // For complex callee expressions, just type check them and assume unknown return
             self.check_expression(callee);
-            for arg in args {
+            for arg in args.iter_mut() {
                 self.check_expression(arg);
             }
             Type::Unknown
@@ -3073,7 +3089,7 @@ impl TypeChecker {
     /// Type check member access
     fn check_member_access(
         &mut self,
-        object: &Expression,
+        object: &mut Expression,
         member: &str,
         is_safe: bool,
         pos: Position,
@@ -3255,8 +3271,8 @@ impl TypeChecker {
     /// Type check Elvis operator
     fn check_elvis_operator(
         &mut self,
-        nullable: &Expression,
-        default: &Expression,
+        nullable: &mut Expression,
+        default: &mut Expression,
         pos: Position,
     ) -> Type {
         let nullable_type = self.check_expression(nullable);
@@ -3284,7 +3300,7 @@ impl TypeChecker {
     }
 
     /// Type check force unwrap
-    fn check_force_unwrap(&mut self, nullable: &Expression, _pos: Position) -> Type {
+    fn check_force_unwrap(&mut self, nullable: &mut Expression, _pos: Position) -> Type {
         let nullable_type = self.check_expression(nullable);
 
         match nullable_type {
@@ -3374,7 +3390,7 @@ impl TypeChecker {
     fn check_struct_literal(
         &mut self,
         name: &str,
-        fields: &[(String, Expression)],
+        fields: &mut [(String, Expression)],
         pos: Position,
     ) -> Type {
         // Look up and clone the struct type to avoid borrow issues
@@ -3444,8 +3460,8 @@ impl TypeChecker {
         &mut self,
         name: &str,
         generics: &[String],
-        fields: &[seen_parser::ast::ClassField],
-        methods: &[Method],
+        fields: &mut [seen_parser::ast::ClassField],
+        methods: &mut [Method],
         pos: Position,
     ) -> Type {
         let class_type = self.with_generics(generics, |checker| {
@@ -3465,13 +3481,13 @@ impl TypeChecker {
         &mut self,
         name: &str,
         generics: &[String],
-        fields: &[seen_parser::ast::ClassField],
+        fields: &mut [seen_parser::ast::ClassField],
         pos: Position,
     ) -> Type {
         let mut field_types = HashMap::new();
-        for field in fields {
+        for field in fields.iter_mut() {
             let field_type = self.resolve_ast_type(&field.field_type, pos);
-            if let Some(default_value) = &field.default_value {
+            if let Some(default_value) = &mut field.default_value {
                 let default_type = self.check_expression(default_value);
                 if !default_type.is_assignable_to(&field_type) {
                     self.result.add_error(TypeError::TypeMismatch {
@@ -3491,13 +3507,13 @@ impl TypeChecker {
         }
     }
 
-    fn check_class_methods(&mut self, class_name: &str, class_type: &Type, methods: &[Method]) {
+    fn check_class_methods(&mut self, class_name: &str, class_type: &Type, methods: &mut [Method]) {
         let method_infos: Vec<MethodSignatureInfo> = methods
             .iter()
             .map(|method| self.build_method_signature_info(method, true))
             .collect();
 
-        for (method, info) in methods.iter().zip(method_infos.iter()) {
+        for (method, info) in methods.iter_mut().zip(method_infos.iter()) {
             self.check_class_method(class_name, class_type, method, info, &method_infos);
         }
     }
@@ -3543,7 +3559,7 @@ impl TypeChecker {
         &mut self,
         class_name: &str,
         class_type: &Type,
-        method: &Method,
+        method: &mut Method,
         info: &MethodSignatureInfo,
         all_infos: &[MethodSignatureInfo],
     ) {
@@ -3601,7 +3617,7 @@ impl TypeChecker {
         let saved_return_type = self.current_function_return_type.clone();
         self.current_function_return_type = info.return_type.clone();
 
-        let mut body_type = self.check_expression(&method.body);
+        let mut body_type = self.check_expression(&mut method.body);
         if let Some(expected_return) = &info.return_type {
             if expected_return.is_unit_like() && !body_type.is_never() {
                 body_type = Type::Unit;
@@ -3629,7 +3645,7 @@ impl TypeChecker {
     fn check_extension(
         &mut self,
         target_type: &seen_parser::Type,
-        methods: &[Method],
+        methods: &mut [Method],
         pos: Position,
     ) -> Type {
         let target = self.resolve_ast_type(target_type, pos);
@@ -3647,9 +3663,9 @@ impl TypeChecker {
             }
         }
 
-        for method in methods {
+        for method in methods.iter_mut() {
             // Best-effort: type check method body in current environment
-            self.check_expression(&method.body);
+            self.check_expression(&mut method.body);
         }
 
         Type::Unit
@@ -3658,9 +3674,9 @@ impl TypeChecker {
     /// Type check if expression with smart casting support
     pub fn check_if_expression(
         &mut self,
-        condition: &Expression,
-        then_branch: &Expression,
-        else_branch: Option<&Expression>,
+        condition: &mut Expression,
+        then_branch: &mut Expression,
+        else_branch: Option<&mut Expression>,
         pos: Position,
     ) -> Type {
         let condition_type = self.check_expression(condition);
@@ -3796,16 +3812,16 @@ impl TypeChecker {
     }
 
     /// Type check block expression
-    fn check_block_expression(&mut self, expressions: &[Expression]) -> Type {
+    fn check_block_expression(&mut self, expressions: &mut [Expression]) -> Type {
         if expressions.is_empty() {
             return Type::Unit;
         }
 
         if expressions.len() == 1 {
-            return self.check_expression(&expressions[0]);
+            return self.check_expression(&mut expressions[0]);
         }
 
-        let (last, rest) = expressions.split_last().expect("non-empty vector");
+        let (last, rest) = expressions.split_last_mut().expect("non-empty vector");
         let mut short_circuited = false;
         for expr in rest {
             let ty = self.check_statement_expression(expr);
@@ -3822,7 +3838,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_statement_expression(&mut self, expression: &Expression) -> Type {
+    fn check_statement_expression(&mut self, expression: &mut Expression) -> Type {
         let ty = self.check_expression(expression);
         if ty.is_never() {
             Type::Never
@@ -3836,7 +3852,7 @@ impl TypeChecker {
         &mut self,
         name: &str,
         type_annotation: &Option<seen_parser::ast::Type>,
-        value: &Expression,
+        value: &mut Expression,
         pos: Position,
     ) -> Type {
         let value_type = self.check_expression(value);
@@ -3871,13 +3887,13 @@ impl TypeChecker {
     }
 
     /// Type check array literal
-    fn check_array_literal(&mut self, elements: &[Expression], pos: Position) -> Type {
+    fn check_array_literal(&mut self, elements: &mut [Expression], pos: Position) -> Type {
         if elements.is_empty() {
             return Type::Array(Box::new(Type::Unknown));
         }
 
-        let element_type = self.check_expression(&elements[0]);
-        for element in &elements[1..] {
+        let element_type = self.check_expression(&mut elements[0]);
+        for element in &mut elements[1..] {
             let elem_type = self.check_expression(element);
             if !elem_type.is_assignable_to(&element_type) {
                 self.result.add_error(TypeError::TypeMismatch {
@@ -3894,8 +3910,8 @@ impl TypeChecker {
     /// Type check index access
     fn check_index_access(
         &mut self,
-        object: &Expression,
-        index: &Expression,
+        object: &mut Expression,
+        index: &mut Expression,
         pos: Position,
     ) -> Type {
         let array_type = self.check_expression(object);
@@ -3938,7 +3954,7 @@ impl TypeChecker {
         params: &[seen_parser::ast::Parameter],
         return_type: &Option<seen_parser::ast::Type>,
         receiver: Option<&Receiver>,
-        body: &Expression,
+        body: &mut Expression,
         is_external: bool,
         pos: Position,
     ) -> Type {
@@ -3961,7 +3977,7 @@ impl TypeChecker {
         params: &[seen_parser::ast::Parameter],
         return_type: &Option<seen_parser::ast::Type>,
         receiver: Option<&Receiver>,
-        body: &Expression,
+        body: &mut Expression,
         is_external: bool,
         pos: Position,
     ) -> Type {

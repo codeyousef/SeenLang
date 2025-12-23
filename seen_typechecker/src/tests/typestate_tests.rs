@@ -43,7 +43,7 @@ fn typestate_structs_enforce_generic_arguments() {
         annotations: Vec::new(),
     };
 
-    let command_buffer_def = Expression::StructDefinition {
+    let mut command_buffer_def = Expression::StructDefinition {
         name: "CommandBuffer".to_string(),
         generics: vec!["S".to_string()],
         fields: vec![phantom_field],
@@ -71,7 +71,7 @@ fn typestate_structs_enforce_generic_arguments() {
         );
 
     // let bad: CommandBuffer<Recording> = source_cb;
-    let bad_let = Expression::Let {
+    let mut bad_let = Expression::Let {
         name: "bad".to_string(),
         type_annotation: Some(Type {
             name: "CommandBuffer".to_string(),
@@ -104,7 +104,7 @@ fn typestate_structs_enforce_generic_arguments() {
     checker.result.errors.clear();
 
     // let good: CommandBuffer<Executable> = source_cb;
-    let good_let = Expression::Let {
+    let mut good_let = Expression::Let {
         name: "good".to_string(),
         type_annotation: Some(Type {
             name: "CommandBuffer".to_string(),
@@ -133,7 +133,7 @@ fn typestate_structs_enforce_generic_arguments() {
 fn sealed_interface_rejects_extensions() {
     let mut checker = TypeChecker::new();
 
-    let trait_def = Expression::Interface {
+    let mut trait_def = Expression::Interface {
         name: "CmdState".to_string(),
         generics: Vec::new(),
         methods: Vec::new(),
@@ -144,7 +144,7 @@ fn sealed_interface_rejects_extensions() {
     checker.check_expression(&trait_def);
     assert!(checker.result.errors.is_empty());
 
-    let extension = Expression::Extension {
+    let mut extension = Expression::Extension {
         target_type: Type {
             name: "CmdState".to_string(),
             is_nullable: false,

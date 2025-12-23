@@ -1,0 +1,8 @@
+name = "Spanish"
+description = "Spanish Module System Keywords"
+
+[keywords]
+"módulo" = "KeywordModule"
+"importar" = "KeywordImport"
+"usar" = "KeywordUse"
+"externo" = "KeywordExternal"

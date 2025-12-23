@@ -1,0 +1,8 @@
+name = "Arabic"
+description = "Arabic IO Standard Library"
+
+[std_lib]
+"اقرأ_نص" = "seen_std.io.file.readText"
+"اكتب_نص" = "seen_std.io.file.writeText"
+"احذف_ملف" = "seen_std.io.file.deleteFile"
+"موجود" = "seen_std.io.file.exists"

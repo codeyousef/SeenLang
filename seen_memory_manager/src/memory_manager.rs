@@ -394,7 +394,7 @@ impl MemoryManager {
     }
 
     /// Perform comprehensive memory analysis on a program
-    pub fn analyze_program(&mut self, program: &Program) -> MemoryAnalysisResult {
+    pub fn analyze_program(&mut self, program: &mut Program) -> MemoryAnalysisResult {
         let mut result = MemoryAnalysisResult::new();
 
         // Step 1: Type checking (foundation for memory analysis)
@@ -719,7 +719,7 @@ mod tests {
         let mut manager = MemoryManager::new();
 
         // Create a program that accesses variables multiple times to trigger borrow optimizations
-        let program = Program {
+        let mut program = Program {
             expressions: vec![
                 Expression::Let {
                     name: "data".to_string(),
@@ -735,28 +735,28 @@ mod tests {
                 // Multiple accesses to trigger borrow optimization
                 Expression::Identifier {
                     name: "data".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(2, 1, 30),
                 },
                 Expression::Identifier {
                     name: "data".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(3, 1, 40),
                 },
                 Expression::Identifier {
                     name: "data".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(4, 1, 50),
                 },
                 Expression::Identifier {
                     name: "data".to_string(),
-                    is_public: false,
+                    is_public: false, type_args: vec![],
                     pos: Position::new(5, 1, 60),
                 },
             ],
         };
 
-        let result = manager.analyze_program(&program);
+        let result = manager.analyze_program(&mut program);
 
         // Should have ownership info for variable data
         assert!(result.ownership_info.variables.contains_key("data"));
@@ -809,14 +809,14 @@ mod tests {
                 pos,
             });
         }
-        let program = Program {
+        let mut program = Program {
             expressions: vec![Expression::Block {
                 expressions: block,
                 pos,
             }],
         };
 
-        let result = manager.analyze_program(&program);
+        let result = manager.analyze_program(&mut program);
         assert!(!result.has_errors());
 
         let mut far = 0usize;

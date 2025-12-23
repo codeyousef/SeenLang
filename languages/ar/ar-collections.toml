@@ -1,0 +1,6 @@
+name = "Arabic"
+description = "Arabic Collections Standard Library"
+
+[std_lib]
+"متجه" = "seen_std.collections.vec.Vec"
+"خريطة_نصية" = "seen_std.collections.string_hash_map.StringHashMap"

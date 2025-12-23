@@ -528,9 +528,12 @@ mod error_reporting_tests {
 
     #[test]
     fn test_unexpected_character_error() {
-        let mut lexer = create_test_lexer(";");
+        let mut lexer = create_test_lexer("$");
 
         let result = lexer.next_token();
+        if let Ok(token) = &result {
+            println!("DEBUG: Unexpectedly got token: {:?}", token);
+        }
         assert!(result.is_err());
 
         if let Err(LexerError::UnexpectedCharacter {
@@ -538,7 +541,7 @@ mod error_reporting_tests {
             position,
         }) = result
         {
-            assert_eq!(character, ';');
+            assert_eq!(character, '$');
             assert_eq!(position.line, 1);
             assert_eq!(position.column, 1);
         } else {
@@ -593,7 +596,7 @@ mod error_reporting_tests {
 
     #[test]
     fn test_error_position_accuracy() {
-        let mut lexer = create_test_lexer("fun main() {\n    ;\n}");
+        let mut lexer = create_test_lexer("fun main() {\n    $\n}");
 
         // Skip tokens until we hit the error
         lexer.next_token().unwrap(); // fun
@@ -611,7 +614,7 @@ mod error_reporting_tests {
             position,
         }) = result
         {
-            assert_eq!(character, ';');
+            assert_eq!(character, '$');
             assert_eq!(position.line, 2);
             assert_eq!(position.column, 5); // After 4 spaces
         } else {

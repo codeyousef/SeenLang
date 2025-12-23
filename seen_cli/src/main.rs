@@ -458,6 +458,8 @@ struct ProjectSection {
     #[serde(default)]
     version: Option<String>,
     #[serde(default)]
+    language: Option<String>,
+    #[serde(default)]
     visibility: Option<VisibilityMode>,
     #[serde(default)]
     modules: Vec<String>,
@@ -468,6 +470,7 @@ impl Default for ProjectSection {
         Self {
             name: None,
             version: None,
+            language: None,
             visibility: None,
             modules: Vec::new(),
         }
@@ -702,26 +705,36 @@ fn main() -> SeenResult<()> {
 
     apply_profile(cli.profile)?;
 
+    // Determine language from Seen.toml or CLI args
+    let mut language = cli.language.clone();
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    // Try to load config, but ignore errors at this stage (they will be caught later if needed)
+    if let Ok(config) = load_project_config(&current_dir) {
+        if let Some(lang) = config.project.language {
+            language = lang;
+        }
+    }
+
     // Load keyword manager with specified language
     let mut keyword_manager = KeywordManager::new();
     keyword_manager
-        .load_from_toml(&cli.language)
+        .load_from_toml(&language)
         .map_err(|err| {
             SeenError::new(
                 SeenErrorKind::Tooling,
-                format!("Failed to load language {}: {}", cli.language, err),
+                format!("Failed to load language {}: {}", language, err),
             )
         })?;
     keyword_manager
-        .switch_language(&cli.language)
+        .switch_language(&language)
         .map_err(|err| {
             SeenError::new(
                 SeenErrorKind::Tooling,
-                format!("Failed to switch language {}: {}", cli.language, err),
+                format!("Failed to switch language {}: {}", language, err),
             )
         })?;
     let language_requires_explicit = keyword_manager
-        .language_requires_explicit_visibility(&cli.language)
+        .language_requires_explicit_visibility(&language)
         .unwrap_or(false);
     let language_visibility_mode = if language_requires_explicit {
         VisibilityMode::Explicit
@@ -1236,7 +1249,7 @@ fn generate_optimized_ir(
         .parse_program()
         .map_err(|err| annotate_parser_error(err.into(), input))?;
 
-    let ast = bundle_imports(
+    let mut ast = bundle_imports(
         ast_parsed,
         input,
         keyword_manager.clone(),
@@ -1249,7 +1262,7 @@ fn generate_optimized_ir(
     let bootstrap_mode = false;
 
     let mut type_checker = TypeChecker::new();
-    let type_result = type_checker.check_program(&ast);
+    let type_result = type_checker.check_program(&mut ast);
     if !type_result.errors.is_empty() {
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
@@ -1280,7 +1293,7 @@ fn generate_optimized_ir(
 
     let topology_pref = convert_memory_topology_pref(memory_topology);
     let mut memory_manager = MemoryManager::with_topology_hint(topology_pref);
-    let memory_result = memory_manager.analyze_program(&ast);
+    let memory_result = memory_manager.analyze_program(&mut ast);
     if memory_result.has_errors() {
         for error in memory_result.get_errors() {
             eprintln!("Memory error: {}", error);
@@ -1833,7 +1846,7 @@ fn compile_file_llvm(
     let ast_parsed = parser.parse_program().map_err(SeenError::from)?;
 
     // Bundle imports
-    let ast = bundle_imports(
+    let mut ast = bundle_imports(
         ast_parsed,
         input,
         keyword_manager.clone(),
@@ -1844,8 +1857,8 @@ fn compile_file_llvm(
     )?;
 
     // Type check
-    let mut type_checker = TypeChecker::new();
-    let type_result = type_checker.check_program(&ast);
+    let mut type_checker = TypeChecker::new_with_keywords(Some(keyword_manager.clone()));
+    let type_result = type_checker.check_program(&mut ast);
     if !type_result.errors.is_empty() {
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
@@ -3422,9 +3435,9 @@ fn run_file(
         ),
     )?;
 
-    if let Some(ast_to_check) = &ast_for_typecheck {
-        let mut type_checker = TypeChecker::new();
-        let type_result = type_checker.check_program(ast_to_check);
+    if let Some(mut ast_to_check) = ast_for_typecheck {
+        let mut type_checker = TypeChecker::new_with_keywords(Some(keyword_manager.clone()));
+        let type_result = type_checker.check_program(&mut ast_to_check);
         if !type_result.errors.is_empty() {
             for error in &type_result.errors {
                 eprintln!("Type error: {}", error);
@@ -3841,11 +3854,11 @@ fn check_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> SeenResult<
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast = parser.parse_program().map_err(SeenError::from)?;
+    let mut ast = parser.parse_program().map_err(SeenError::from)?;
 
     // Type check
     let mut type_checker = TypeChecker::new();
-    let type_result = type_checker.check_program(&ast);
+    let type_result = type_checker.check_program(&mut ast);
     if !type_result.errors.is_empty() {
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
@@ -3886,11 +3899,11 @@ fn generate_ir(
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast = parser.parse_program().map_err(SeenError::from)?;
+    let mut ast = parser.parse_program().map_err(SeenError::from)?;
 
     // Type check
     let mut type_checker = TypeChecker::new();
-    let type_result = type_checker.check_program(&ast);
+    let type_result = type_checker.check_program(&mut ast);
     if !type_result.errors.is_empty() {
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
@@ -4715,7 +4728,7 @@ fn evaluate_line(
         LexerConfig::default(),
     );
     let mut parser = SeenParser::new(lexer);
-    let ast = parser.parse_program().map_err(SeenError::from)?;
+    let mut ast = parser.parse_program().map_err(SeenError::from)?;
 
     if show_ast {
         println!("AST: {:#?}", ast);
@@ -4723,7 +4736,7 @@ fn evaluate_line(
 
     // Type check
     let mut type_checker = TypeChecker::new();
-    let type_result = type_checker.check_program(&ast);
+    let type_result = type_checker.check_program(&mut ast);
     if !type_result.errors.is_empty() {
         for error in &type_result.errors {
             eprintln!("Type error: {}", error);
@@ -4915,7 +4928,7 @@ fn parse_file(input: &Path, format: &str, keyword_manager: Arc<KeywordManager>) 
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let ast = parser.parse_program().map_err(SeenError::from)?;
+    let mut ast = parser.parse_program().map_err(SeenError::from)?;
 
     // Output AST
     match format {

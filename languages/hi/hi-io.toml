@@ -1,0 +1,8 @@
+name = "English"
+description = "English IO Standard Library"
+
+[std_lib]
+"readText" = "seen_std.io.file.readText"
+"writeText" = "seen_std.io.file.writeText"
+"deleteFile" = "seen_std.io.file.deleteFile"
+"exists" = "seen_std.io.file.exists"

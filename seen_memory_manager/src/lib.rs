@@ -65,7 +65,7 @@ mod tests {
         let mut manager = MemoryManager::new();
 
         // Create a simple program for testing
-        let program = Program {
+        let mut program = Program {
             expressions: vec![Expression::Let {
                 name: "test_var".to_string(),
                 type_annotation: None,
@@ -79,7 +79,7 @@ mod tests {
             }],
         };
 
-        let result = manager.analyze_program(&program);
+        let result = manager.analyze_program(&mut program);
 
         // Basic integration test - should have analyzed the variable
         assert!(result.ownership_info.variables.contains_key("test_var"));

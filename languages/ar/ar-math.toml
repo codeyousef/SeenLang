@@ -1,0 +1,7 @@
+name = "Arabic"
+description = "Arabic Math Standard Library"
+
+[std_lib]
+"جيب" = "seen_std.math.sin"
+"جيب_تمام" = "seen_std.math.cos"
+"جذر" = "seen_std.math.sqrt"

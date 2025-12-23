@@ -39,7 +39,7 @@ mod tests {
         checker.env.define_variable("user".to_string(), Type::Nullable(Box::new(user_struct)));
         
         // Create condition: user != null
-        let condition = Expression::BinaryOp {
+        let mut condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier { 
                 name: "user".to_string(), 
                 is_public: false,
@@ -51,7 +51,7 @@ mod tests {
         };
         
         // Create then branch: user.Name (should work without ?)
-        let then_branch = Expression::MemberAccess {
+        let mut then_branch = Expression::MemberAccess {
             object: Box::new(Expression::Identifier { 
                 name: "user".to_string(), 
                 is_public: false,
@@ -104,7 +104,7 @@ mod tests {
         checker.env.define_variable("profile".to_string(), Type::Nullable(Box::new(profile_struct)));
         
         // Create condition: user != null and profile != null
-        let condition = Expression::BinaryOp {
+        let mut condition = Expression::BinaryOp {
             left: Box::new(Expression::BinaryOp {
                 left: Box::new(Expression::Identifier { 
                     name: "user".to_string(), 
@@ -130,7 +130,7 @@ mod tests {
         };
         
         // Create then branch that accesses both without safe navigation
-        let then_branch = Expression::StringLiteral {
+        let mut then_branch = Expression::StringLiteral {
             value: format!("User: {} - {}", "user.Name", "profile.Bio"),
             pos: pos(),
         };
@@ -165,7 +165,7 @@ mod tests {
         checker.env.define_variable("user".to_string(), Type::Nullable(Box::new(user_struct)));
         
         // Test that outside the if block, we still need safe navigation
-        let member_access = Expression::MemberAccess {
+        let mut member_access = Expression::MemberAccess {
             object: Box::new(Expression::Identifier { 
                 name: "user".to_string(), 
                 is_public: false,
@@ -202,7 +202,7 @@ mod tests {
         checker.env.define_variable("user".to_string(), Type::Nullable(Box::new(user_struct)));
         
         // Create condition: user != null
-        let condition = Expression::BinaryOp {
+        let mut condition = Expression::BinaryOp {
             left: Box::new(Expression::Identifier { 
                 name: "user".to_string(), 
                 is_public: false,
@@ -214,7 +214,7 @@ mod tests {
         };
         
         // Create then branch with direct method call (should work with smart cast)
-        let then_branch = Expression::Call {
+        let mut then_branch = Expression::Call {
             callee: Box::new(Expression::MemberAccess {
                 object: Box::new(Expression::Identifier { 
                     name: "user".to_string(), 
@@ -249,14 +249,14 @@ mod tests {
         checker.env.define_variable("flag".to_string(), Type::Nullable(Box::new(Type::Bool)));
         
         // Create condition: if flag (implicit truthiness check)
-        let condition = Expression::Identifier { 
+        let mut condition = Expression::Identifier { 
             name: "flag".to_string(), 
             is_public: false,
             pos: pos() 
         };
         
         // Create then branch that uses flag as Bool (not Bool?)
-        let then_branch = Expression::UnaryOp {
+        let mut then_branch = Expression::UnaryOp {
             op: UnaryOperator::Not,
             operand: Box::new(Expression::Identifier { 
                 name: "flag".to_string(), 

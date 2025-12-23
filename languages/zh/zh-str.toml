@@ -1,0 +1,6 @@
+name = "English"
+description = "English String Standard Library"
+
+[std_lib]
+"split" = "seen_std.str.string.split"
+"trim" = "seen_std.str.string.trim"

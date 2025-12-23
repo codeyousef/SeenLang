@@ -1,0 +1,7 @@
+name = "zh"
+description = "English Literal Keywords"
+
+[keywords]
+"true" = "KeywordTrue"
+"false" = "KeywordFalse"
+"null" = "KeywordNull"

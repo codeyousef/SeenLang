@@ -209,6 +209,14 @@ fn validate_keyword_consistency() -> Vec<String> {
         return errors;
     }
 
+    // Group files by directory
+    let mut language_dirs: std::collections::HashMap<PathBuf, Vec<PathBuf>> = std::collections::HashMap::new();
+    for file in language_files {
+        if let Some(parent) = file.parent() {
+            language_dirs.entry(parent.to_path_buf()).or_default().push(file);
+        }
+    }
+
     // Define required keywords that must exist in all languages
     let required_keywords = vec![
         "KeywordFun",
@@ -231,42 +239,41 @@ fn validate_keyword_consistency() -> Vec<String> {
         "KeywordConst",
     ];
 
-    for lang_file in language_files {
-        if let Ok(content) = fs::read_to_string(&lang_file) {
-            // Parse TOML content to check for required keywords
-            match toml::from_str::<toml::Value>(&content) {
-                Ok(toml_value) => {
-                    if let Some(keywords) = toml_value.get("keywords").and_then(|k| k.as_table()) {
-                        let available_keyword_types: HashSet<String> = keywords
-                            .values()
-                            .filter_map(|v| v.as_str())
-                            .map(|s| s.to_string())
-                            .collect();
-
-                        for required_keyword in &required_keywords {
-                            if !available_keyword_types.contains(*required_keyword) {
-                                errors.push(format!(
-                                    "Language file {:?} is missing required keyword: {}",
-                                    lang_file, required_keyword
-                                ));
+    for (dir, files) in language_dirs {
+        let mut available_keyword_types: HashSet<String> = HashSet::new();
+        
+        for lang_file in files {
+            if let Ok(content) = fs::read_to_string(&lang_file) {
+                // Parse TOML content to check for required keywords
+                match toml::from_str::<toml::Value>(&content) {
+                    Ok(toml_value) => {
+                        if let Some(keywords) = toml_value.get("keywords").and_then(|k| k.as_table()) {
+                            for v in keywords.values() {
+                                if let Some(s) = v.as_str() {
+                                    available_keyword_types.insert(s.to_string());
+                                }
                             }
                         }
-                    } else {
+                    }
+                    Err(e) => {
                         errors.push(format!(
-                            "Language file {:?} does not have a [keywords] section",
-                            lang_file
+                            "Failed to parse language file {:?}: {}",
+                            lang_file, e
                         ));
                     }
                 }
-                Err(e) => {
-                    errors.push(format!(
-                        "Failed to parse language file {:?}: {}",
-                        lang_file, e
-                    ));
-                }
+            } else {
+                errors.push(format!("Failed to read language file: {:?}", lang_file));
             }
-        } else {
-            errors.push(format!("Failed to read language file: {:?}", lang_file));
+        }
+
+        for required_keyword in &required_keywords {
+            if !available_keyword_types.contains(*required_keyword) {
+                errors.push(format!(
+                    "Language directory {:?} is missing required keyword: {}",
+                    dir, required_keyword
+                ));
+            }
         }
     }
 
@@ -289,12 +296,25 @@ fn find_language_files() -> Vec<PathBuf> {
             if let Ok(entries) = fs::read_dir(&dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "toml") {
+                    if path.is_dir() {
+                        // Check subdirectories for language files
+                        if let Ok(sub_entries) = fs::read_dir(&path) {
+                            for sub_entry in sub_entries.flatten() {
+                                let sub_path = sub_entry.path();
+                                if sub_path.extension().map_or(false, |ext| ext == "toml") {
+                                    language_files.push(sub_path);
+                                }
+                            }
+                        }
+                    } else if path.extension().map_or(false, |ext| ext == "toml") {
                         language_files.push(path);
                     }
                 }
             }
-            break; // Use the first valid directory found
+            // If we found files, we're done. If not, try next possible dir.
+            if !language_files.is_empty() {
+                break;
+            }
         }
     }
 
