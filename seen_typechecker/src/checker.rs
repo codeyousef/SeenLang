@@ -1667,15 +1667,12 @@ impl TypeChecker {
     }
 
     fn resolve_receiver_type(&mut self, receiver: &Receiver) -> Type {
-        if let Some(existing) = self.env.get_type(&receiver.type_name).cloned() {
-            existing
-        } else {
-            Type::Struct {
-                name: receiver.type_name.clone(),
-                fields: HashMap::new(),
-                generics: Vec::new(),
-            }
-        }
+        let ast_type = seen_parser::ast::Type {
+            name: receiver.type_name.clone(),
+            generics: receiver.generics.clone(),
+            is_nullable: false,
+        };
+        self.resolve_ast_type(&ast_type, Position::start())
     }
 
     fn substitute_generics(&self, ty: &Type, mapping: &HashMap<String, Type>) -> Type {
@@ -1779,6 +1776,9 @@ impl TypeChecker {
         // Predeclare type names first (placeholders with empty fields)
         self.predeclare_types(program);
 
+        // NOW predeclare function signatures (they'll see complete struct types)
+        self.predeclare_signatures(program);
+
         // Then fully process all struct/class/enum definitions to populate fields
         for expression in &program.expressions {
             match expression {
@@ -1795,9 +1795,6 @@ impl TypeChecker {
         // CRITICAL: Fix up struct field types that reference other structs
         // When struct A has field of type B, it may have captured B's empty placeholder
         self.fixup_struct_field_types();
-
-        // NOW predeclare function signatures (they'll see complete struct types)
-        self.predeclare_signatures(program);
 
         // Finally check remaining expressions
         for expression in &program.expressions {

@@ -1,0 +1,77 @@
+
+import seen_std.io.file.{readText, writeText, deleteFile, exists}
+import seen_std.env.env.{args}
+import seen_std.collections.string_hash_map.{StringHashMap}
+import seen_std.str.string.{split, trim}
+
+fun test_file_io() -> Bool {
+    let path = "test_io.txt";
+    let content = "Hello, World!";
+    
+    if exists(path) {
+        deleteFile(path);
+    }
+    
+    writeText(path, content);
+    let read = readText(path);
+    deleteFile(path);
+    
+    if read != content {
+        println("File I/O mismatch: expected '{content}', got '{read}'");
+        return false;
+    }
+    return true;
+}
+
+fun test_args() -> Bool {
+    let a = args();
+    if a.length() < 1 {
+        println("Args empty!");
+        return false;
+    }
+    // First arg is usually the program name
+    println("Program name: {a[0]}");
+    return true;
+}
+
+fun test_map() -> Bool {
+    let map = StringHashMap<Int>.new();
+    map.insert("one", 1);
+    map.insert("two", 2);
+    
+    let v1 = map.getOrDefault("one", 0);
+    let v2 = map.getOrDefault("two", 0);
+    let v3 = map.getOrDefault("three", 0);
+    
+    if v1 != 1 { println("Map get 'one' failed"); return false; }
+    if v2 != 2 { println("Map get 'two' failed"); return false; }
+    if v3 != 0 { println("Map get 'three' failed"); return false; }
+    
+    return true;
+}
+
+fun test_string_ops() -> Bool {
+    let s = "  a,b,c  ";
+    let trimmed = trim(s);
+    if trimmed != "a,b,c" { println("Trim failed: '{trimmed}'"); return false; }
+    
+    let parts = split(trimmed, ",");
+    if parts.length() != 3 { println("Split length mismatch"); return false; }
+    if parts[0] != "a" { println("Split[0] mismatch"); return false; }
+    if parts[1] != "b" { println("Split[1] mismatch"); return false; }
+    if parts[2] != "c" { println("Split[2] mismatch"); return false; }
+    
+    return true;
+}
+
+fun main() {
+    println("Self-Host Readiness Test");
+    println("========================");
+    
+    if test_file_io() { println("File I/O: PASS"); } else { println("File I/O: FAIL"); }
+    if test_args() { println("Args: PASS"); } else { println("Args: FAIL"); }
+    if test_map() { println("Map: PASS"); } else { println("Map: FAIL"); }
+    if test_string_ops() { println("String Ops: PASS"); } else { println("String Ops: FAIL"); }
+}
+
+main();

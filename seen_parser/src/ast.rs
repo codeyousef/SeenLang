@@ -891,6 +891,7 @@ pub struct Method {
 pub struct Receiver {
     pub name: String,
     pub type_name: String,
+    pub generics: Vec<Type>,
     pub is_mutable: bool, // inout keyword
 }
 

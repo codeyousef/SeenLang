@@ -6,12 +6,82 @@ pub class Result<T, E> {
     var okStorage: Array<T>
     var errStorage: Array<E>
 
-    pub fun new() -> Result<T, E> {
+    pub static fun new() -> Result<T, E> {
         return Result{
             isOk: true,
             okStorage: Array<T>(),
             errStorage: Array<E>()
         }
+    }
+
+    pub fun storeOk(value: T) -> Void {
+        if this.okStorage.length() == 0 {
+            this.okStorage.push(value)
+        } else {
+            this.okStorage[0] = value
+        }
+        this.errStorage = Array<E>()
+        this.isOk = true
+    }
+
+    pub fun storeErr(error: E) -> Void {
+        if this.errStorage.length() == 0 {
+            this.errStorage.push(error)
+        } else {
+            this.errStorage[0] = error
+        }
+        this.okStorage = Array<T>()
+        this.isOk = false
+    }
+
+    pub fun isOk() -> Bool {
+        return this.isOk
+    }
+
+    pub fun isErr() -> Bool {
+        return not this.isOk
+    }
+
+    pub fun unwrap() -> T {
+        if not this.isOk or this.okStorage.length() == 0 {
+            abort("called unwrap() on Err result")
+        }
+        return this.okStorage[0]
+    }
+
+    pub fun expect(message: String) -> T {
+        if this.isOk and this.okStorage.length() > 0 {
+            return this.okStorage[0]
+        }
+        abort(message)
+        return this.unwrap()
+    }
+
+    pub fun unwrapOr(defaultValue: T) -> T {
+        if this.isOk and this.okStorage.length() > 0 {
+            return this.okStorage[0]
+        }
+        return defaultValue
+    }
+
+    pub fun unwrapErr() -> E {
+        if this.isOk or this.errStorage.length() == 0 {
+            abort("called unwrapErr() on Ok result")
+        }
+        return this.errStorage[0]
+    }
+
+    pub fun swap() -> Result<E, T> {
+        if this.isOk {
+            if this.okStorage.length() == 0 {
+                abort("Result.swap called without Ok payload")
+            }
+            return Err(this.okStorage[0])
+        }
+        if this.errStorage.length() == 0 {
+            abort("Result.swap called without Err payload")
+        }
+        return Ok(this.errStorage[0])
     }
 }
 
@@ -25,74 +95,4 @@ pub fun Err<T, E>(error: E) -> Result<T, E> {
     let result = Result<T, E>.new()
     result.storeErr(error)
     return result
-}
-
-fun Result<T, E>.isOk() -> Bool {
-    return this.isOk
-}
-
-fun Result<T, E>.isErr() -> Bool {
-    return not this.isOk
-}
-
-fun Result<T, E>.unwrap() -> T {
-    if not this.isOk or this.okStorage.length() == 0 {
-        abort("called unwrap() on Err result")
-    }
-    return this.okStorage[0]
-}
-
-fun Result<T, E>.expect(message: String) -> T {
-    if this.isOk and this.okStorage.length() > 0 {
-        return this.okStorage[0]
-    }
-    abort(message)
-    return this.unwrap()
-}
-
-fun Result<T, E>.unwrapOr(defaultValue: T) -> T {
-    if this.isOk and this.okStorage.length() > 0 {
-        return this.okStorage[0]
-    }
-    return defaultValue
-}
-
-fun Result<T, E>.unwrapErr() -> E {
-    if this.isOk or this.errStorage.length() == 0 {
-        abort("called unwrapErr() on Ok result")
-    }
-    return this.errStorage[0]
-}
-
-fun Result<T, E>.swap() -> Result<E, T> {
-    if this.isOk {
-        if this.okStorage.length() == 0 {
-            abort("Result.swap called without Ok payload")
-        }
-        return Err(this.okStorage[0])
-    }
-    if this.errStorage.length() == 0 {
-        abort("Result.swap called without Err payload")
-    }
-    return Ok(this.errStorage[0])
-}
-
-fun Result<T, E>.storeOk(value: T) -> Void {
-    if this.okStorage.length() == 0 {
-        this.okStorage.push(value)
-    } else {
-        this.okStorage[0] = value
-    }
-    this.errStorage = Array<E>()
-    this.isOk = true
-}
-
-fun Result<T, E>.storeErr(error: E) -> Void {
-    if this.errStorage.length() == 0 {
-        this.errStorage.push(error)
-    } else {
-        this.errStorage[0] = error
-    }
-    this.okStorage = Array<T>()
-    this.isOk = false
 }

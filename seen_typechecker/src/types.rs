@@ -276,7 +276,7 @@ impl Type {
     pub fn is_unit_like(&self) -> bool {
         match self {
             Type::Unit => true,
-            Type::Struct { name, .. } if name == "Void" => true,
+            Type::Struct { name, .. } if name == "Void" || name == "Unit" => true,
             Type::Nullable(inner) => inner.is_unit_like(),
             _ => false,
         }

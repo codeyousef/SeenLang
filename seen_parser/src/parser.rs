@@ -1974,6 +1974,7 @@ impl Parser {
             receiver = Some(Receiver {
                 name: "self".to_string(),
                 type_name: receiver_type.name.clone(),
+                generics: receiver_type.generics.clone(),
                 is_mutable: false,
             });
             method_name
@@ -2901,6 +2902,7 @@ impl Parser {
         Ok(Receiver {
             name,
             type_name,
+            generics: Vec::new(),
             is_mutable,
         })
     }
@@ -4197,6 +4199,7 @@ impl Parser {
             let receiver = Some(crate::ast::Receiver {
                 name: receiver_name,
                 type_name: receiver_type,
+                generics: Vec::new(),
                 is_mutable,
             });
 

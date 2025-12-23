@@ -277,6 +277,8 @@ impl Value {
             (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
             (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a + *b as f64)),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::String(a), Value::Character(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::Character(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             _ => Err(format!(
                 "Cannot add {} and {}",
                 self.type_name(),

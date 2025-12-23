@@ -468,6 +468,7 @@ impl Interpreter {
             Expression::IntegerLiteral { value, .. } => Ok(Value::Integer(*value)),
             Expression::FloatLiteral { value, .. } => Ok(Value::Float(*value)),
             Expression::StringLiteral { value, .. } => Ok(Value::String(value.clone())),
+            Expression::CharLiteral { value, .. } => Ok(Value::Character(*value)),
             Expression::BooleanLiteral { value, .. } => Ok(Value::Boolean(*value)),
             Expression::NullLiteral { .. } => Ok(Value::Null),
 
@@ -2115,6 +2116,33 @@ impl Interpreter {
                 }
                 let sub: String = chars[start..end].iter().collect();
                 Ok(Some(Value::String(sub)))
+            }
+            ("charCodeAt", Value::String(s)) if args.len() == 1 => {
+                let index = self
+                    .interpret_expression(&args[0])?
+                    .as_integer()
+                    .ok_or_else(|| InterpreterError::type_error("charCodeAt index must be int", pos))?
+                    as usize;
+                let chars: Vec<char> = s.chars().collect();
+                if index >= chars.len() {
+                    return Err(InterpreterError::runtime("charCodeAt index out of bounds", pos));
+                }
+                Ok(Some(Value::Integer(chars[index] as i64)))
+            }
+            ("charAt", Value::String(s)) if args.len() == 1 => {
+                let index = self
+                    .interpret_expression(&args[0])?
+                    .as_integer()
+                    .ok_or_else(|| InterpreterError::type_error("charAt index must be int", pos))?
+                    as usize;
+                let chars: Vec<char> = s.chars().collect();
+                if index >= chars.len() {
+                    return Err(InterpreterError::runtime("charAt index out of bounds", pos));
+                }
+                Ok(Some(Value::Character(chars[index])))
+            }
+            ("toInt", Value::Character(c)) if args.is_empty() => {
+                Ok(Some(Value::Integer(*c as i64)))
             }
             _ => Ok(None),
         }

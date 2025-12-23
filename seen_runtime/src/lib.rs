@@ -3,14 +3,17 @@
 //! compiler links against when lowering concurrent Seen programs.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use std::ptr;
 use std::slice;
 use std::sync::{
-    atomic::{AtomicI32, Ordering}, Arc, Condvar,
-    Mutex,
+    atomic::{AtomicI32, AtomicI64, Ordering}, Arc, Condvar,
+    Mutex, Once,
 };
 use std::time::{Duration, Instant};
+use std::fs;
+use std::io::{Read, Write, Seek, SeekFrom};
+use std::path::Path;
 
 const STATUS_RECEIVED: i64 = 0;
 const STATUS_ALL_CLOSED: i64 = 3;
@@ -18,6 +21,144 @@ const STATUS_ALL_CLOSED: i64 = 3;
 const TAG_INT: i32 = 0;
 const TAG_BOOL: i32 = 1;
 const TAG_PTR: i32 = 2;
+
+#[repr(C)]
+pub struct SeenString {
+    pub len: i64,
+    pub data: *const u8,
+}
+
+impl SeenString {
+    fn to_str(&self) -> &str {
+        if self.data.is_null() || self.len == 0 {
+            return "";
+        }
+        unsafe {
+            let slice = slice::from_raw_parts(self.data, self.len as usize);
+            std::str::from_utf8(slice).unwrap_or("")
+        }
+    }
+    
+    fn to_string(&self) -> String {
+        self.to_str().to_string()
+    }
+}
+
+// Global file descriptor map
+static mut FILE_MAP: Option<Mutex<HashMap<i64, fs::File>>> = None;
+static FILE_MAP_ONCE: Once = Once::new();
+static NEXT_FD: AtomicI64 = AtomicI64::new(100);
+
+fn get_file_map() -> &'static Mutex<HashMap<i64, fs::File>> {
+    unsafe {
+        FILE_MAP_ONCE.call_once(|| {
+            FILE_MAP = Some(Mutex::new(HashMap::new()));
+        });
+        let ptr = std::ptr::addr_of!(FILE_MAP);
+        (*ptr).as_ref().unwrap()
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
+    let path_str = path.to_str();
+    let mode_str = mode.to_str();
+    
+    let file_res = match mode_str {
+        "r" => fs::File::open(path_str),
+        "w" => fs::File::create(path_str),
+        "a" => fs::OpenOptions::new().append(true).create(true).open(path_str),
+        _ => return -1,
+    };
+    
+    match file_res {
+        Ok(file) => {
+            let fd = NEXT_FD.fetch_add(1, Ordering::SeqCst);
+            get_file_map().lock().unwrap().insert(fd, file);
+            fd
+        }
+        Err(_) => -1,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __CloseFile(fd: i64) -> i64 {
+    if get_file_map().lock().unwrap().remove(&fd).is_some() {
+        0
+    } else {
+        -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __WriteFile(fd: i64, content: SeenString) -> i64 {
+    let mut map = get_file_map().lock().unwrap();
+    if let Some(file) = map.get_mut(&fd) {
+        let bytes = unsafe { slice::from_raw_parts(content.data, content.len as usize) };
+        match file.write_all(bytes) {
+            Ok(_) => content.len,
+            Err(_) => -1,
+        }
+    } else {
+        -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __ReadFile(fd: i64) -> SeenString {
+    let mut map = get_file_map().lock().unwrap();
+    if let Some(file) = map.get_mut(&fd) {
+        let mut buffer = String::new();
+        match file.read_to_string(&mut buffer) {
+            Ok(_) => {
+                let len = buffer.len() as i64;
+                let ptr = Box::into_raw(buffer.into_boxed_str()) as *const u8;
+                SeenString { len, data: ptr }
+            }
+            Err(_) => SeenString { len: 0, data: ptr::null() },
+        }
+    } else {
+        SeenString { len: 0, data: ptr::null() }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __FileExists(path: SeenString) -> bool {
+    Path::new(path.to_str()).exists()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __DeleteFile(path: SeenString) -> bool {
+    fs::remove_file(path.to_str()).is_ok()
+}
+
+// Stubs for others
+#[unsafe(no_mangle)]
+pub extern "C" fn __FileSize(fd: i64) -> i64 {
+    let mut map = get_file_map().lock().unwrap();
+    if let Some(file) = map.get_mut(&fd) {
+        file.metadata().map(|m| m.len() as i64).unwrap_or(-1)
+    } else {
+        -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __FileError(_fd: i64) -> SeenString {
+    SeenString { len: 0, data: ptr::null() } // TODO
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __WriteFileBytes(_fd: i64, _bytes: *const i64) -> i64 {
+    // TODO: Handle array of ints as bytes?
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __ReadFileBytes(_fd: i64, _size: i64) -> *mut u8 {
+    // TODO
+    ptr::null_mut()
+}
 
 #[repr(C)]
 pub struct SeenBoxedValue {

@@ -2284,6 +2284,9 @@ fn bundle_imports(
                         PathBuf::from("compiler_seen/src").join(&module_file),
                         PathBuf::from("compiler_seen/src").join(format!("{}.seen", fallback_name)),
                     ];
+                    
+                    // Add seen_std/src to search path for direct file matches
+                    candidates.push(project_root.join("seen_std/src").join(&module_file));
 
                     // Hack for seen_std structure
                     if let Some(first) = module_path.first() {
@@ -2299,6 +2302,7 @@ fn bundle_imports(
                         candidates.push(base_dir.join(rel));
                         candidates.push(project_root.join(rel));
                         candidates.push(project_root.join("src").join(rel));
+                        candidates.push(project_root.join("seen_std/src").join(rel));
                         candidates.push(PathBuf::from("compiler_seen/src").join(rel));
                     }
                     for root in dependency_roots {

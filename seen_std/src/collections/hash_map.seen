@@ -11,7 +11,7 @@ class Entry<K, V> {
     var hash: Int
     var distance: Int
 
-    fun new(key: K, value: V, hash: Int) -> Entry<K, V> {
+    static fun new(key: K, value: V, hash: Int) -> Entry<K, V> {
         return Entry<K, V> {
             key: key,
             value: value,
@@ -27,11 +27,11 @@ class HashMap<K, V> {
     var length: Int
     var loadFactor: Float
 
-    fun new() -> HashMap<K, V> {
+    static fun new() -> HashMap<K, V> {
         return HashMap<K, V>.withCapacity(16)
     }
 
-    fun withCapacity(cap: Int) -> HashMap<K, V> {
+    static fun withCapacity(cap: Int) -> HashMap<K, V> {
         var buckets = Vec<Option<Entry<K, V>>>.new()
         var i = 0
         while i < cap {
@@ -221,6 +221,6 @@ class HashMap<K, V> {
     }
 
     fun keysEqual(k1: K, k2: K) -> Bool {
-        return false
+        return k1 == k2
     }
 }
