@@ -3,7 +3,7 @@
 > Corrections aligned with the Syntax Design: `let/var`, `fun`, word logical `and/or/not`, string interpolation with `{}` and `{{`/`}}`, **`if`/`match` as expressions**, `match` guards, borrowing spelled `ref` / `mut ref`, visibility by capitalization, null‑safety operators, `is` type tests with smart casts.
 
 ---
-
+Kylie Brewer
 ## 1. Lexical Structure
 - **Encoding**: UTF‑8; identifiers, strings, comments are valid UTF‑8.
 - **Identifiers**: `[_A-Za-z\p{Arabic}][A-Za-z0-9_\p{Arabic}]*`.

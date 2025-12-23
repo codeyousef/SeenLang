@@ -1,0 +1,279 @@
+// Bootstrap Readiness Test
+// Tests all features critical for self-hosting a compiler
+
+import seen_std.collections.vec { Vec }
+
+// =============================================================================
+// 1. BASIC TYPES
+// =============================================================================
+
+fun test_integers() -> Int {
+    let a = 42;
+    let b = -17;
+    let c = a + b;
+    let d = a * 2;
+    let e = 100 / 5;
+    let f = 17 % 5;  // modulo
+    c + d + e + f
+}
+
+fun test_floats() -> Float {
+    let a = 3.14;
+    let b = 2.0;
+    let c = a * b;
+    let d = c / 2.0;
+    d
+}
+
+fun test_booleans() -> Bool {
+    let a = true;
+    let b = false;
+    let c = a and b;
+    let d = a or b;
+    let e = not b;
+    d and e
+}
+
+// =============================================================================
+// 2. CONTROL FLOW
+// =============================================================================
+
+fun test_if_else(x: Int) -> Int {
+    if x > 10 {
+        return 1;
+    } else if x > 5 {
+        return 2;
+    } else {
+        return 3;
+    }
+}
+
+fun test_while_loop() -> Int {
+    var sum = 0;
+    var i = 0;
+    while i < 10 {
+        sum = sum + i;
+        i = i + 1;
+    }
+    sum
+}
+
+// =============================================================================
+// 3. FUNCTIONS
+// =============================================================================
+
+fun add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fun factorial(n: Int) -> Int {
+    if n <= 1 {
+        return 1;
+    }
+    n * factorial(n - 1)
+}
+
+// =============================================================================
+// 4. CLASSES AND METHODS
+// =============================================================================
+
+class Point {
+    var x: Int
+    var y: Int
+    
+    static fun new(x: Int, y: Int) -> Point {
+        return Point { x: x, y: y }
+    }
+    
+    fun distance_squared() -> Int {
+        return this.x * this.x + this.y * this.y;
+    }
+    
+    fun add(other: Point) -> Point {
+        return Point { x: this.x + other.x, y: this.y + other.y }
+    }
+}
+
+fun test_classes() -> Int {
+    let p1 = Point.new(3, 4);
+    let p2 = Point.new(1, 2);
+    let p3 = p1.add(p2);
+    let dist = p1.distance_squared();
+    dist + p3.x + p3.y
+}
+
+// =============================================================================
+// 5. ARRAYS
+// =============================================================================
+
+fun test_arrays() -> Int {
+    var arr = Array<Int>();
+    arr.push(10);
+    arr.push(20);
+    arr.push(30);
+    
+    var sum = 0;
+    var i = 0;
+    while i < arr.length() {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    
+    arr[1] = 25;  // Array mutation
+    sum + arr[1]
+}
+
+// =============================================================================
+// 6. VECTORS (from std lib)
+// =============================================================================
+
+fun test_vec() -> Int {
+    var v = Vec<Int>.withCapacity(10);
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    
+    var sum = 0;
+    var i = 0;
+    while i < v.len() {
+        sum = sum + v.get(i);
+        i = i + 1;
+    }
+    
+    v.set(1, 10);
+    sum + v.get(1)
+}
+
+// =============================================================================
+// 7. STRINGS
+// =============================================================================
+
+fun test_strings() -> Int {
+    let s1 = "Hello";
+    let s2 = "World";
+    let s3 = s1 + " " + s2;
+    
+    // String interpolation
+    let x = 42;
+    let msg = "The answer is {x}";
+    
+    s3.length()
+}
+
+// =============================================================================
+// 8. COMPARISONS AND LOGICAL OPS
+// =============================================================================
+
+fun test_comparisons() -> Int {
+    var count = 0;
+    
+    if 5 < 10 { count = count + 1; }
+    if 10 > 5 { count = count + 1; }
+    if 5 <= 5 { count = count + 1; }
+    if 5 >= 5 { count = count + 1; }
+    if 5 == 5 { count = count + 1; }
+    if 5 != 6 { count = count + 1; }
+    
+    count
+}
+
+// =============================================================================
+// 9. BITWISE OPERATIONS
+// =============================================================================
+
+fun test_bitwise() -> Int {
+    let a = 10;   // 0b1010
+    let b = 12;   // 0b1100
+    
+    let and_result = a & b;   // 0b1000 = 8
+    let or_result = a | b;    // 0b1110 = 14
+    let xor_result = a ^ b;   // 0b0110 = 6
+    let shl_result = a << 1;  // 0b10100 = 20
+    let shr_result = b >> 1;  // 0b0110 = 6
+    
+    and_result + or_result + xor_result + shl_result + shr_result
+}
+
+// =============================================================================
+// 10. TYPE CASTING
+// =============================================================================
+
+fun test_casting() -> Int {
+    let i = 42;
+    let f = i as Float;
+    let i2 = (f * 2.0) as Int;
+    i2
+}
+
+// =============================================================================
+// MAIN TEST RUNNER
+// =============================================================================
+
+fun main() {
+    println("Bootstrap Readiness Test");
+    println("========================");
+    
+    // Test 1: Integers
+    let r1 = test_integers();
+    println("1. Integers: {r1}");
+    
+    // Test 2: Floats
+    let r2 = test_floats();
+    println("2. Floats: {r2}");
+    
+    // Test 3: Booleans
+    let r3 = test_booleans();
+    if r3 {
+        println("3. Booleans: PASS");
+    } else {
+        println("3. Booleans: FAIL");
+    }
+    
+    // Test 4: Control flow
+    let r4a = test_if_else(15);
+    let r4b = test_if_else(7);
+    let r4c = test_if_else(3);
+    println("4. Control flow: {r4a}, {r4b}, {r4c}");
+    
+    // Test 5: While loop
+    let r5 = test_while_loop();
+    println("5. While loop: {r5}");
+    
+    // Test 6: Functions
+    let r6a = add(3, 4);
+    let r6b = factorial(5);
+    println("6. Functions: add={r6a}, factorial={r6b}");
+    
+    // Test 7: Classes
+    let r7 = test_classes();
+    println("7. Classes: {r7}");
+    
+    // Test 8: Arrays
+    let r8 = test_arrays();
+    println("8. Arrays: {r8}");
+    
+    // Test 9: Vec
+    let r9 = test_vec();
+    println("9. Vec: {r9}");
+    
+    // Test 10: Strings
+    let r10 = test_strings();
+    println("10. Strings length: {r10}");
+    
+    // Test 11: Comparisons
+    let r11 = test_comparisons();
+    println("11. Comparisons: {r11}");
+    
+    // Test 12: Bitwise
+    let r12 = test_bitwise();
+    println("12. Bitwise: {r12}");
+    
+    // Test 13: Casting
+    let r13 = test_casting();
+    println("13. Casting: {r13}");
+    
+    println("");
+    println("All tests complete!");
+}
+
+main();

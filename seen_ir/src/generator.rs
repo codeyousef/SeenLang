@@ -33,6 +33,7 @@ pub struct GenerationContext {
     pub type_definitions: HashMap<String, IRType>, // Registered type definitions (structs/classes/enums)
     pub function_return_types: HashMap<String, IRType>, // Function name -> return type
     pub current_receiver_type: Option<IRType>, // Type of 'this' in current method context
+    pub current_type_definition: Option<String>, // Name of type currently being defined
 }
 
 impl GenerationContext {
@@ -51,6 +52,7 @@ impl GenerationContext {
             type_definitions: HashMap::new(),
             function_return_types: HashMap::new(),
             current_receiver_type: None,
+            current_type_definition: None,
         }
     }
 
@@ -521,6 +523,7 @@ impl IRGenerator {
         {
             let result_reg = self.context.allocate_register();
             let result_value = IRValue::Register(result_reg);
+            self.context.set_register_type(result_reg, IRType::String);
             left_instructions.push(Instruction::StringConcat {
                 left: left_val,
                 right: right_val,
@@ -1321,6 +1324,7 @@ impl IRGenerator {
         let mut instructions = Vec::new();
         let result_reg = self.context.allocate_register();
         let mut result_value = IRValue::Register(result_reg);
+        self.context.set_register_type(result_reg, IRType::String);
 
         // Initialize with empty string
         instructions.push(Instruction::Move {
@@ -1334,6 +1338,7 @@ impl IRGenerator {
                     let text_value = IRValue::String(text.clone());
                     let new_reg = self.context.allocate_register();
                     let new_result = IRValue::Register(new_reg);
+                    self.context.set_register_type(new_reg, IRType::String);
 
                     instructions.push(Instruction::StringConcat {
                         left: result_value.clone(),
@@ -1349,6 +1354,7 @@ impl IRGenerator {
 
                     let new_reg = self.context.allocate_register();
                     let new_result = IRValue::Register(new_reg);
+                    self.context.set_register_type(new_reg, IRType::String);
 
                     instructions.push(Instruction::StringConcat {
                         left: result_value.clone(),
@@ -2119,7 +2125,7 @@ impl IRGenerator {
 
     /// Convert AST type to IR type
     fn convert_ast_type_to_ir(&self, ast_type: &seen_parser::ast::Type) -> IRType {
-        match ast_type.name.as_str() {
+        let base_type = match ast_type.name.as_str() {
             "Int" => IRType::Integer,
             "Float" => IRType::Float,
             "Bool" => IRType::Boolean,
@@ -2139,11 +2145,24 @@ impl IRGenerator {
                 // Look up in registered type definitions (classes, structs, enums)
                 if let Some(ir_type) = self.context.type_definitions.get(&ast_type.name) {
                     ir_type.clone()
+                } else if Some(&ast_type.name) == self.context.current_type_definition.as_ref() {
+                     // Recursive reference to the type being defined
+                     // Return a placeholder struct type
+                     IRType::Struct {
+                        name: ast_type.name.clone(),
+                        fields: Vec::new(), // Placeholder
+                     }
                 } else {
                     // Default fallback for unknown types
                     IRType::Integer
                 }
             }
+        };
+
+        if ast_type.is_nullable {
+            IRType::Optional(Box::new(base_type))
+        } else {
+            base_type
         }
     }
 
@@ -2154,12 +2173,14 @@ impl IRGenerator {
         name: &str,
         fields: &[seen_parser::StructField],
     ) -> IRResult<()> {
+        self.context.current_type_definition = Some(name.to_string());
         // Convert AST struct fields to IR type fields
         let mut ir_fields = Vec::new();
         for field in fields {
             let field_type = self.convert_ast_type_to_ir(&field.field_type);
             ir_fields.push((field.name.clone(), field_type));
         }
+        self.context.current_type_definition = None;
 
         // Create IR struct type
         let struct_type = IRType::Struct {
@@ -2224,12 +2245,14 @@ impl IRGenerator {
         fields: &[seen_parser::ClassField],
         methods: &[seen_parser::Method],
     ) -> IRResult<()> {
+        self.context.current_type_definition = Some(name.to_string());
         // Convert AST class fields to IR type fields
         let mut ir_fields = Vec::new();
         for field in fields {
             let field_type = self.convert_ast_type_to_ir(&field.field_type);
             ir_fields.push((field.name.clone(), field_type));
         }
+        self.context.current_type_definition = None;
 
         // Classes are structs with inheritance and virtual method dispatch
         // Create vtable for virtual methods and handle inheritance chain
@@ -2266,8 +2289,7 @@ impl IRGenerator {
             // - If method name is "new", it's a static constructor
             // - If the return type is the same as the class name, it's likely a static constructor
             // - Otherwise, it's an instance method that needs implicit self
-            let is_constructor = method.name == "new" || 
-                method.return_type.as_ref().map(|t| t.name == name).unwrap_or(false);
+            let is_constructor = method.is_static || method.name == "new";
             let mut effective_params: Vec<seen_parser::Parameter> = Vec::new();
             if !is_constructor {
                 // Inject implicit receiver as the first parameter: (self: ClassName)

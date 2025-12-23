@@ -3731,6 +3731,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
 
                 let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
+                let params = f.get_params();
+
                 for (i, a) in args.iter().enumerate() {
                     let v = self.eval_value(a, fn_map)?;
                     // For Vec_push and Vec_set, convert non-i64 values to i64
@@ -3750,7 +3752,24 @@ impl<'ctx> LlvmBackend<'ctx> {
                             call_args.push(v.into());
                         }
                     } else {
-                        call_args.push(v.into());
+                        // Check if we need to cast i64 back to pointer for the function call
+                        let mut pushed = false;
+                        if let Some(param) = params.get(i) {
+                            let expected_ty = param.get_type();
+                            if expected_ty.is_pointer_type() && v.is_int_value() {
+                                let ptr = self.builder.build_int_to_ptr(
+                                    v.into_int_value(), 
+                                    expected_ty.into_pointer_type(), 
+                                    "arg_cast"
+                                )?;
+                                call_args.push(ptr.into());
+                                pushed = true;
+                            }
+                        }
+                        
+                        if !pushed {
+                            call_args.push(v.into());
+                        }
                     }
                 }
                 let call = self.builder.build_call(f, &call_args, "call")?;
