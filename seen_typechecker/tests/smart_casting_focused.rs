@@ -38,6 +38,7 @@ fn test_smart_casting_condition_analysis() {
         left: Box::new(Expression::Identifier {
             name: "user".to_string(),
             is_public: false,
+            type_args: vec![],
             pos: pos(),
         }),
         op: BinaryOperator::NotEqual,
@@ -50,6 +51,7 @@ fn test_smart_casting_condition_analysis() {
         object: Box::new(Expression::Identifier {
             name: "user".to_string(),
             is_public: false,
+            type_args: vec![],
             pos: pos(),
         }),
         member: "Name".to_string(),

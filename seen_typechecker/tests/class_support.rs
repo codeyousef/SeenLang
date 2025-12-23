@@ -53,6 +53,7 @@ fn class_definition_registers_type_and_methods() {
             body: Expression::Identifier {
                 name: "length".to_string(),
                 is_public: false,
+                type_args: vec![],
                 pos: class_pos,
             },
             is_public: true,
@@ -100,6 +101,7 @@ fn constructor_and_abort_calls_typecheck() {
                 callee: Box::new(Expression::Identifier {
                     name: "Array".to_string(),
                     is_public: false,
+                    type_args: vec![],
                     pos: pos(),
                 }),
                 args: vec![],
@@ -109,6 +111,7 @@ fn constructor_and_abort_calls_typecheck() {
                 callee: Box::new(Expression::Identifier {
                     name: "abort".to_string(),
                     is_public: false,
+                    type_args: vec![],
                     pos: pos(),
                 }),
                 args: vec![Expression::StringLiteral {
@@ -136,6 +139,7 @@ fn class_methods_can_reference_fields() {
         left: Box::new(Expression::Identifier {
             name: "length".to_string(),
             is_public: false,
+            type_args: vec![],
             pos: class_pos,
         }),
         op: BinaryOperator::Add,

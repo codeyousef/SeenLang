@@ -109,6 +109,7 @@ fn enum_variant_access_round_trips_through_typechecker() {
         object: Box::new(Expression::Identifier {
             name: "Target".to_string(),
             is_public: false,
+            type_args: vec![],
             pos: p,
         }),
         member: "Linux".to_string(),

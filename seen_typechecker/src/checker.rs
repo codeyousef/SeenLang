@@ -6,6 +6,7 @@ use crate::{FunctionSignature, Parameter, TypeCheckResult};
 use seen_lexer::Position;
 use seen_parser::ast::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Type checking environment
 #[derive(Debug, Clone)]
@@ -17,7 +18,7 @@ pub struct Environment {
     /// User-defined types in scope
     types: HashMap<String, Type>,
     /// Parent environment for nested scopes
-    parent: Option<Box<Environment>>,
+    parent: Option<Arc<Environment>>,
     /// Smart cast information - variables that are smart-cast to non-nullable
     smart_casts: HashMap<String, Type>,
 }
@@ -35,12 +36,12 @@ impl Environment {
     }
 
     /// Create a new environment with a parent
-    fn with_parent(parent: Environment) -> Self {
+    fn with_parent(parent: Arc<Environment>) -> Self {
         Self {
             variables: HashMap::new(),
             functions: HashMap::new(),
             types: HashMap::new(),
-            parent: Some(Box::new(parent)),
+            parent: Some(parent),
             smart_casts: HashMap::new(),
         }
     }
@@ -108,7 +109,7 @@ impl Environment {
     #[allow(dead_code)]
     fn with_smart_casts(&self) -> Environment {
         let mut child = Environment::new();
-        child.parent = Some(Box::new(self.clone()));
+        child.parent = Some(Arc::new(self.clone()));
         // Inherit smart casts from parent
         child.smart_casts = self.smart_casts.clone();
         child
@@ -2644,14 +2645,19 @@ impl TypeChecker {
             }
         };
 
-        let saved_env = self.env.clone();
-        let mut loop_env = Environment::with_parent(self.env.clone());
+        // Use Arc to avoid deep cloning
+        let parent_env = Arc::new(std::mem::replace(&mut self.env, Environment::new()));
+        let mut loop_env = Environment::with_parent(parent_env);
         loop_env.define_variable(binding.to_string(), element_type);
         self.env = loop_env;
 
         let body_type = self.check_expression(body);
 
-        self.env = saved_env;
+        if let Some(parent) = self.env.parent.take() {
+             self.env = Arc::try_unwrap(parent).unwrap_or_else(|arc| (*arc).clone());
+        } else {
+             self.env = Environment::new(); 
+        }
 
         if !body_type.is_assignable_to(&Type::Unit) {
             self.result.add_error(TypeError::InvalidOperation {
@@ -2728,11 +2734,16 @@ impl TypeChecker {
                 });
             }
 
-            let saved_env = self.env.clone();
-            self.env = Environment::with_parent(saved_env.clone());
+            let parent_env = Arc::new(std::mem::replace(&mut self.env, Environment::new()));
+            self.env = Environment::with_parent(parent_env);
             self.bind_pattern(&case.pattern, Type::Unknown);
             let handler_type = self.check_expression(&case.handler);
-            self.env = saved_env;
+            
+            if let Some(parent) = self.env.parent.take() {
+                 self.env = Arc::try_unwrap(parent).unwrap_or_else(|arc| (*arc).clone());
+            } else {
+                 self.env = Environment::new(); 
+            }
 
             if let Some(expected) = &accumulated {
                 if !handler_type.is_assignable_to(expected) {
@@ -3561,8 +3572,10 @@ impl TypeChecker {
             self.env.define_function(method_name.clone(), signature);
         }
 
-        let saved_env = self.env.clone();
-        let mut method_env = Environment::with_parent(self.env.clone());
+        // Move current env to parent
+        let parent_env = Arc::new(std::mem::replace(&mut self.env, Environment::new()));
+        // Create new env with parent
+        let mut method_env = Environment::with_parent(parent_env);
 
         if !info.is_static {
             method_env.define_variable("this".to_string(), class_type.clone());
@@ -3610,7 +3623,9 @@ impl TypeChecker {
             }
         }
 
-        self.env = saved_env;
+        if let Some(parent) = self.env.parent.take() {
+            self.env = Arc::try_unwrap(parent).unwrap_or_else(|arc| (*arc).clone());
+        }
         self.current_function_return_type = saved_return_type;
     }
 
@@ -3665,14 +3680,19 @@ impl TypeChecker {
 
         // Type check then branch with smart casts applied
         let then_type = {
-            let old_env = self.env.clone();
+            // Create a new scope for the then block to hold smart casts
+            let parent_env = Arc::new(std::mem::replace(&mut self.env, Environment::new()));
+            self.env = Environment::with_parent(parent_env);
+
             // Apply smart casts for then branch
             for (var_name, cast_type) in &smart_casts {
                 self.env.add_smart_cast(var_name.clone(), cast_type.clone());
             }
             let then_type = self.check_expression(then_branch);
             // Restore original environment for else branch
-            self.env = old_env;
+            if let Some(parent) = self.env.parent.take() {
+                self.env = Arc::try_unwrap(parent).unwrap_or_else(|arc| (*arc).clone());
+            }
             then_type
         };
 
@@ -4001,8 +4021,9 @@ impl TypeChecker {
         }
 
         // Create new scope for function body
-        let saved_env = self.env.clone();
-        let mut function_env = Environment::with_parent(self.env.clone());
+        // Use Arc to avoid deep cloning of the environment
+        let parent_env = Arc::new(std::mem::replace(&mut self.env, Environment::new()));
+        let mut function_env = Environment::with_parent(parent_env);
 
         if let Some((receiver_name, receiver_type)) = receiver_binding.clone() {
             function_env.define_variable(receiver_name.clone(), receiver_type.clone());
@@ -4045,7 +4066,11 @@ impl TypeChecker {
         }
 
         // Restore environment and return type
-        self.env = saved_env;
+        if let Some(parent) = self.env.parent.take() {
+             self.env = Arc::try_unwrap(parent).unwrap_or_else(|arc| (*arc).clone());
+        } else {
+             self.env = Environment::new(); 
+        }
         self.current_function_return_type = saved_return_type;
 
         // Function definitions return the function type (Unit)

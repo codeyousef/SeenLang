@@ -64,6 +64,7 @@ fn test_smart_casting_recognizes_null_check() {
         left: Box::new(Expression::Identifier {
             name: "user".to_string(),
             is_public: false,
+            type_args: vec![],
             pos: pos(),
         }),
         op: BinaryOperator::NotEqual,

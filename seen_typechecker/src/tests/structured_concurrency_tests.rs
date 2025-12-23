@@ -124,6 +124,7 @@ fn await_returns_task_payload_type() {
         expr: Box::new(Expression::Identifier {
             name: "task".to_string(),
             is_public: false,
+            type_args: vec![],
             pos: pos(),
         }),
         pos: pos(),
