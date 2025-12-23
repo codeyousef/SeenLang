@@ -1,26 +1,45 @@
 # Seen Language — Unified **MVP** Plan (Multi‑Platform Updated)
 
-This replaces previous MVP notes. It merges **Pre‑Bootstrap (PB)**, **Pre‑Self‑Host (PSH)**, and essential **Post‑Self‑Host (POST‑for‑MVP)** items so that the **engine + game** compile and run on **Linux, Windows, macOS, Android, iOS, and Web (JS/WASM)**.
+This replaces previous MVP notes. It merges **Pre‑Bootstrap (PB)**, **Pre‑Self‑Host (PSH)**, and essential **Post‑Self‑Host (POST‑for‑MVP)** items so that the **engine + game** compile and run on **Linux, Windows, RISC-V, and UWW-Compatible WASM**.
+
+**Core Principle**: Safety by default, nondeterminism explicitly opt-in via annotation.
 
 ---
 
 ## 1) Current Progress Snapshot
-- Lexer/Parser ✅
+
+**Last Updated:** 2025-12-23
+
+### ✅ Complete
+- Lexer/Parser (with `spec` keyword, Caps visibility) ✅
 - Type system (HM inference, specs, monomorphization, sealed classes) ✅
 - Memory model (regions, RAII, generational refs, deterministic drop) ✅
 - FFI/ABI (`extern "C"`, `repr(C)`, unions, align/pack, stable symbols) ✅
-- Codegen (LLVM + deterministic IR emission) ✅
-- LSP (hover, goto‑def, diagnostics, format, refs) ✅
-- Tooling/CLI (`build/test/bench/fmt`, target triples, `--deterministic`) ✅
-- Self‑hosting (Stage0→Stage1→Stage2 deterministic) ✅
-- **🎉 Import resolution & module system** ✅ **[NEW: Nov 14, 2025]**
-- **⏳ Self-hosted compiler: remaining type errors tracked (not yet 0)**
+- Codegen (LLVM AOT + IR emission + Cranelift + MLIR experimental) ✅
+- LSP (hover, goto-def, diagnostics, format, refs) ✅
+- Tooling/CLI (`build/test/bench/fmt/determinism`, target triples) ✅
+- Import resolution & module system ✅
+- Async & structured concurrency (`scope`, `spawn`, `cancel`) ✅
+- Channels & job system (fair scheduler, starvation detection) ✅
+- SIMD baseline with deterministic policy guardrails ✅
+- Optimization pipeline (e-graph, ML-guided inlining, LENS superoptimizer) ✅
 
-> **STATUS (Nov 14, 2025):** Import resolution is functional, but the self-hosted compiler still has type errors under
-> SEEN_ENABLE_MANIFEST_MODULES=1. Not yet ready for Rust removal; see the MVP Status Update and self_host_errors.log for
-> details.
+### 🔄 In Progress (Self-Host - MVP Critical)
+- **Self-hosted compiler type-checks** ✅ (`seen_cli check` passes with 0 errors)
+- **Self-hosted compiler generates IR** ✅ (outputs Seen IR)
+- **Self-hosted compiler generates native binaries** ⏳ (LLVM backend has stdlib import resolution issues)
+- **Stage1 compiles Stage2** ⏳ (blocked on native codegen)
+- **Stage2 == Stage3 deterministic** ⏳ (blocked on Stage1)
 
-> **Delta from earlier plans:** This MVP now **includes multi‑platform bring‑up** for minimal runnable samples on all targets.
+### ⏳ Pending (Post-Self-Host)
+- Multi-platform native targets (Windows, RISC-V, UWW WASM)
+- Deterministic collections enforcement (`@nondeterministic` annotation)
+- Framework-building features (`@component`, `@store`, `@middleware_stack`)
+- UWW syscall model and capability tokens
+
+> **STATUS (Dec 23, 2025):** Self-hosted compiler passes `seen_cli check` with 0 errors. IR generation works.
+> Native LLVM compilation blocked on stdlib import resolution (`seen_std.env.env.args` undefined).
+> Self-hosting is **MVP-critical** and not deferred.
 
 ---
 
@@ -581,22 +600,238 @@ Linux/Web/Android and are exercised via new CLI interpreter tests (`seen_cli/tes
 
 ---
 
-## MVP Status Update (2025-11-14)
+### POST‑5. Determinism Enforcement System
 
-- Current self-host status: Running SEEN_ENABLE_MANIFEST_MODULES=1 seen_cli build compiler_seen/src/main.seen --backend
-  ir yields non-zero diagnostics. See self_host_errors.log for details.
-- Next actions to reach 0 errors (P0.0): T1 method resolution/inference fixes, T2 enum variant/member access parity, T3
-  super/throw/exit semantics in ctors, T4 operator typing (>=, <=, +) across types, T5 default params handling, T6
-  prelude builtin export audit.
-- Validation gates: cargo test --workspace; SEEN_ENABLE_MANIFEST_MODULES=1 scripts/self_host_llvm.sh;
-  ./verify_rust_needed.sh
+*Status:* ⏳ Pending — Requires self-host completion first.
 
-**End of Clarified MVP Plan
+**From PRD Section 4 - Determinism Enforcement:**
+
+* **Compile-Time Enforcement:**
+  - [ ] `--profile deterministic`: Allows BTreeMap, Fixed64, async, deterministic_hash(), uww::*, sorted collections
+  - [ ] Forbids: HashMap, f32, Instant, std::thread, Platform RNG, unsorted collections in deterministic profile
+  - [ ] Error message: "Use of nondeterministic type in deterministic profile. Mark with @nondeterministic or use deterministic alternative."
+
+* **Function-Level Enforcement:**
+  - [ ] `@deterministic` module annotation — cannot contain nondeterministic code unless explicitly annotated
+  - [ ] `@nondeterministic` function annotation — explicitly exempt from deterministic rules
+  - [ ] Compile error at call site when deterministic code calls nondeterministic code
+
+* **Deterministic Collections (Default):**
+  - [ ] BTreeMap<K, V> / BTreeSet<T> — sorted iteration order, O(log n)
+  - [ ] Vec<T> with hardcoded doubling growth algorithm
+  - [ ] Fixed-size arrays [T; N] — stack-allocated, fully deterministic
+
+* **Nondeterministic Collections (Opt-In via @nondeterministic):**
+  - [ ] HashMap<K, V> / HashSet<T> — random iteration order, O(1) average
+  - [ ] Vec<T> with platform allocator heuristics via `@allow_allocator_optimizations`
+
+* **Acceptance:** Deterministic profile rejects nondeterministic types at compile time; `@nondeterministic` annotation enables opt-in.
+
+---
+
+### POST‑6. Fixed-Point Numerics & Financial Integrity
+
+*Status:* ⏳ Pending — Post-self-host feature.
+
+**From PRD Section 2.3-2.4 and UWW Economy Layer:**
+
+* **Fixed-Point Types:**
+  - [ ] `Fixed64` and `Fixed128` types for financial/consensus calculations
+  - [ ] `Qm.n` syntax for developer-defined precision (e.g., `fixed8.24`)
+  - [ ] Deterministic across all platforms
+
+* **Checked Arithmetic:**
+  - [ ] Global compiler switch for `panic-on-overflow` on financial types
+  - [ ] Saturating and wrapping arithmetic variants
+  - [ ] Overflow detection via hardware flags
+
+* **Floating-Point Control:**
+  - [ ] `f32`/`f64` require `@nondeterministic` annotation
+  - [ ] Compile error in deterministic profile: "f32 usage requires @nondeterministic or use Fixed64"
+  - [ ] Soft-float or fixed-point alternatives for deterministic WASM
+
+* **Acceptance:** Fixed64 produces identical results on all platforms; overflow is caught at runtime; f32 rejected in deterministic profile.
+
+---
+
+### POST‑7. Platform Targets (Linux, Windows, RISC-V, UWW WASM)
+
+*Status:* 🔄 Linux operational, others pending.
+
+**From PRD Section 1 - Target Platform Requirements:**
+
+#### POST‑7a. Linux (x86_64-unknown-linux-gnu) ✅ Primary
+- [x] `extern "C"` bindings to system libraries
+- [x] Static/dynamic linking support
+- [x] LLVM native codegen
+- [ ] Vulkan 1.3+ / SDL3 graphics bindings
+- [ ] PipeWire audio with ALSA fallback
+- [ ] evdev/libinput for input
+- [ ] AppImage packaging
+- [ ] Steam for Linux integration
+
+#### POST‑7b. Windows (x86_64-pc-windows-msvc) ⏳
+- [ ] Cross-compilation from Linux host
+- [ ] Deterministic PE32+ binaries (`/TIMESTAMP:0`, `/BREPRO`)
+- [ ] Vulkan 1.3+ / SDL3 backend
+- [ ] WiX v4 MSI installer generation
+- [ ] Steamworks SDK integration
+
+#### POST‑7c. RISC-V (riscv64gc-unknown-linux-gnu) ⏳
+- [ ] Cross-compilation from x86_64 Linux
+- [ ] Target `rv64gc` with `m`, `a`, `f`, `d`, `c` extensions
+- [ ] VisionFive 2 / Milk-V Pioneer hardware support
+- [ ] Deterministic ELF64 across architectures
+- [ ] CI pipeline with RISC-V hardware
+
+#### POST‑7d. UWW-Compatible WASM (wasm32-unknown-unknown) ⏳
+- [ ] Deterministic `.wasm` with identical SHA-256 across hosts
+- [ ] `.uww.metadata` section with hash and attestation
+- [ ] WASM SIMD via `-C target-feature=+simd128`
+- [ ] Forbid WASI imports (`fd_read`, `clock_time_get`, `random_get`)
+- [ ] Provide `uww::timestamp`, `uww::deterministic_rand`, `uww::storage::*`
+- [ ] WASM files under 1MB with aggressive dead code elimination
+
+* **Acceptance:** Each platform produces deterministic artifacts; execution matches across 3+ compile hosts.
+
+---
+
+### POST‑8. Decorator System
+
+*Status:* ⏳ Pending — Post-self-host feature.
+
+**From PRD Section 3 - Decorator System:**
+
+* **Built-In Decorators:**
+  - [ ] `@deterministic` — marks module as deterministic-only
+  - [ ] `@nondeterministic` — exempts from deterministic rules
+  - [ ] `@component` — framework component with lifecycle hooks
+  - [ ] `@store` — state management with deterministic mutations
+  - [ ] `@middleware_stack` — composable middleware chain
+  - [ ] `@executor` — single-threaded async executor
+  - [ ] `@test` — unit test (deterministic by default)
+  - [ ] `@profile` — performance instrumentation
+  - [ ] `@hot_reload` — runtime code reloading
+  - [ ] `@derive(Reflect, Serialize, Deserialize)` — auto-generation
+  - [ ] `@syscall("uww::...")` — UWW runtime import
+  - [ ] `@_c_import("header.h")` — C library import
+  - [ ] `@preallocate(size = N)` — region pre-allocation
+  - [ ] `@allow_allocator_optimizations` — nondeterministic Vec growth
+
+* **User-Defined Decorators:**
+  - [ ] Procedural macro system for custom decorators
+  - [ ] Macro expansion must be deterministic
+  - [ ] Macro-generated code passes determinism checks
+
+* **Acceptance:** All built-in decorators functional; user macros respect determinism context.
+
+---
+
+### POST‑9. UWW Infrastructure Features
+
+*Status:* ⏳ Pending — Post-self-host, requires WASM target.
+
+**From UWW Browser and Protocol Features Doc:**
+
+#### POST‑9a. Safety & Sandboxing (Capability Layer)
+- [ ] Static capability tokens — function-level constraints requiring tokens for syscalls/FFI
+- [ ] Syntax: `fn mix(p: Packet) -> Result using NetToken`
+- [ ] Firefox Sidecar sandboxing — Seen modules barred from filesystem/legacy networking
+
+#### POST‑9b. Identity Protection
+- [ ] Generational handle masking — XOR handles with region-specific secret
+- [ ] Stealth Registry metadata protection
+- [ ] Prevents memory probing attacks
+
+#### POST‑9c. Trusted Execution (Enclave Layer)
+- [ ] `enclave_call`, `seal_data`, `unseal_data` intrinsics
+- [ ] Compile to Intel SGX or AMD SEV instructions
+- [ ] Hardware attestation proofs for UWW Orchestration Core
+
+#### POST‑9d. Deterministic Bit-Fields
+- [ ] First-class `bitfield` types with guaranteed memory layout
+- [ ] Big-endian/little-endian control
+- [ ] No variation by compiler target
+- [ ] Sphinx Mixnet 5-hop packet header matching
+
+#### POST‑9e. Persistent Storage (VSD Layer)
+- [ ] Pointer pinning — `region` attribute preventing OS relocation
+- [ ] VSD Mapper for 64KB shard paging
+- [ ] 0-copy shard access
+
+* **Acceptance:** Capability tokens enforce sandboxing; TEE intrinsics produce hardware attestation; bit-fields match across architectures.
+
+---
+
+### POST‑10. Framework-Building Features
+
+*Status:* ⏳ Pending — Post-self-host feature.
+
+**From PRD Section 8 - Framework-Building:**
+
+* **Component Model:**
+  - [ ] `@component` decorator with lifecycle hooks
+  - [ ] Nested composition within deterministic parents
+  - [ ] Deterministic child enforcement by default
+
+* **Virtual DOM:**
+  - [ ] VNode structs with deterministic field types only
+  - [ ] BTreeMap for attributes (deterministic iteration)
+  - [ ] Vec with fixed growth for children
+
+* **State Management:**
+  - [ ] `@store` decorator with deterministic mutations
+  - [ ] Auto-generated mutation log for replay
+  - [ ] Time-travel debugging via snapshots
+
+* **Middleware System:**
+  - [ ] `@middleware_stack` decorator
+  - [ ] Vec iteration order execution
+  - [ ] Sandbox isolation for nondeterministic user middleware
+
+* **Routing:**
+  - [ ] Deterministic route registration/resolution
+  - [ ] BTreeMap storage for sorted routes
+  - [ ] Compile-time route pattern validation
+
+* **Async Executor:**
+  - [ ] `@executor` decorator for single-threaded executor
+  - [ ] FIFO task order (VecDeque)
+  - [ ] No `Send`/`Sync` requirements (WASM-safe)
+
+* **Acceptance:** Framework primitives enable building deterministic web/UI frameworks; all state management is replay-safe.
+
+---
+
+## MVP Status Update (2025-12-23)
+
+**Self-Host Status:**
+- ✅ `seen_cli check compiler_seen/src/main.seen` — 0 errors
+- ✅ `seen_cli check compiler_seen/src/main_compiler.seen` — 0 errors
+- ✅ `seen_cli build ... --backend ir` — generates Seen IR successfully
+- ⏳ `seen_cli build ... --backend llvm` — blocked on stdlib import resolution
+
+**Blocking Issues for Native Compilation:**
+1. `seen_std.env.env.args` undefined in LLVM backend codegen
+2. Stdlib module paths not fully resolved during LLVM lowering
+
+**Next Actions:**
+1. Fix stdlib import resolution in LLVM backend
+2. Complete Stage1 native binary generation
+3. Verify Stage2 == Stage3 deterministic equality
+4. Run full bootstrap pipeline
+
+**Validation Gates:**
+- `cargo test --workspace` (Rust compiler tests)
+- `./target/release/seen_cli check compiler_seen/src/main.seen` (0 errors)
+- `./target/release/seen_cli build compiler_seen/src/main.seen --backend llvm` (produces native binary)
+- Stage2 == Stage3 hash equality
+
+---
 
 ## Rust Removal Gate (MVP Closure)
 
-Status: Self-host not yet at 0 errors (see below); do not delete Rust until all below pass on CI. Current count: see
-self_host_errors.log and verify_rust_needed.sh.
+Status: Self-host type-checks but does not yet produce native binaries. Do not delete Rust until all below pass.
 
 Validation commands:
 

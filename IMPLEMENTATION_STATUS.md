@@ -1,7 +1,7 @@
 # Seen Language Implementation Status
 
-**Last Updated:** 2025-11-16 23:20 UTC
-**Session:** D1-D4 + R1-R4 + Benchmark Infrastructure Implementation
+**Last Updated:** 2025-12-23
+**Session:** Self-Host Progress + MVP Plan Update
 
 ## Executive Summary
 
@@ -13,6 +13,8 @@
     - ✅ Array indexing and mutation (`arr[i]`, `arr[i] = value`)
     - ✅ Float literals (parse as `Float` type)
     - ✅ Assignment operators (=, +=, -=, *=, /=, %=)
+    - ✅ `spec` keyword (renamed from `trait`)
+    - ✅ Caps visibility (no `pub` keyword)
 
 2. **Type System**
     - ✅ Hindley-Milner type inference
@@ -83,28 +85,51 @@
     - ⏳ Seen implementations: 2/10 complete (binary_trees, fasta)
     - ⏳ Performance comparison: pending implementations
 
-3. **Self-Hosting**
+3. **Self-Hosting (MVP Critical)**
     - ✅ Bootstrap infrastructure complete
     - ✅ Manifest module system with prelude
     - ✅ Frontend (lexer/parser/typechecker) in Seen
-    - ✅ Compiler passes type check (`seen_cli check` passes)
-    - ⏳ Full self-host: deferred to Alpha release
+    - ✅ Compiler passes type check (`seen_cli check` passes with 0 errors)
+    - ✅ IR generation works (`seen_cli build --backend ir` succeeds)
+    - ⏳ Native codegen: LLVM backend blocked on stdlib import resolution
+    - ⏳ Stage1→Stage2→Stage3: pending native codegen fix
 
-### ❌ Not Implemented (Future Work)
+### ❌ Not Implemented (Post-Self-Host)
 
 1. **Language Features**
     - ❌ Data field mutation for non-var structs
     - ❌ Classes with inheritance
     - ❌ Pattern matching exhaustiveness checking
-    - ❌ Macro system
+    - ❌ Macro system / User-defined decorators
     - ❌ Compile-time execution beyond constants
 
-2. **Performance**
+2. **Determinism Enforcement**
+    - ❌ `@deterministic` / `@nondeterministic` annotations
+    - ❌ Compile-time rejection of nondeterministic types in deterministic profile
+    - ❌ Fixed-point numerics (Fixed64, Fixed128)
+
+3. **Platform Targets**
+    - ❌ Windows (x86_64-pc-windows-msvc)
+    - ❌ RISC-V (riscv64gc-unknown-linux-gnu)
+    - ❌ UWW WASM (wasm32-unknown-unknown with UWW syscalls)
+
+4. **Framework Features**
+    - ❌ `@component`, `@store`, `@middleware_stack`, `@executor` decorators
+    - ❌ Virtual DOM primitives
+    - ❌ State management with replay
+
+5. **UWW Infrastructure**
+    - ❌ Capability tokens for sandboxing
+    - ❌ TEE intrinsics (enclave_call, seal_data)
+    - ❌ Deterministic bit-fields
+    - ❌ VSD pointer pinning
+
+6. **Performance**
     - ❌ Actual benchmarks running (blocked on implementations)
     - ❌ Performance parity with Rust (target: 1.0x - 1.5x)
     - ❌ SIMD auto-vectorization validation
 
-3. **Documentation**
+7. **Documentation**
     - ❌ Complete language specification
     - ❌ API documentation for stdlib
     - ❌ Tutorial and examples
