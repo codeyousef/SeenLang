@@ -234,7 +234,7 @@ while index < limit {
 fn test_parse_while_body_allows_trailing_lambda_calls() {
     let source = r#"
 while hasWork() {
-    queue.Process { job -> job.run() }
+    queue.Process { job => job.run() }
 }
 "#;
     let expr = parse_expression(source).unwrap();

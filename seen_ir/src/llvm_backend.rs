@@ -369,6 +369,10 @@ pub struct LlvmBackend<'ctx> {
     reg_is_float: HashSet<u32>,
     // Variable name -> true if it holds a float value (stored as i64 bits)
     var_is_float: HashSet<String>,
+    // Variable name -> LLVM element type (for arrays)
+    array_element_types: HashMap<String, BasicTypeEnum<'ctx>>,
+    // Register id -> LLVM element type (for arrays)
+    reg_array_element_types: HashMap<u32, BasicTypeEnum<'ctx>>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -430,6 +434,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             var_is_float_vec: HashSet::new(),
             reg_is_float: HashSet::new(),
             var_is_float: HashSet::new(),
+            array_element_types: HashMap::new(),
+            reg_array_element_types: HashMap::new(),
         }
     }
 
@@ -564,6 +570,12 @@ impl<'ctx> LlvmBackend<'ctx> {
             let ty = self.i64_t.fn_type(&[], false);
             self.module.add_function("__GetTimestamp", ty, None);
         }
+        
+        // __CommandOutput: (SeenString) -> SeenString
+        if self.module.get_function("__CommandOutput").is_none() {
+            let ty = self.ty_string().fn_type(&[self.ty_string().into()], false);
+            self.module.add_function("__CommandOutput", ty, None);
+        }
     }
 
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
@@ -576,6 +588,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                     self.register_struct_type(name.as_str(), fields);
                 }
             }
+        }
+        
+        // Debug: print registered struct types
+        println!("DEBUG: Registered {} struct types", self.struct_types.len());
+        for (name, (ty, _)) in &self.struct_types {
+            println!("DEBUG:   {} -> {:?}", name, ty);
         }
 
         // Predeclare runtime functions so they are available during register scanning
@@ -1314,7 +1332,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             IRType::Struct { name, .. } => {
                 if let Some((st, _)) = self.struct_types.get(name) {
-                    st.into()
+                    (*st).into()
                 } else {
                     // Use i8* as a placeholder pointer to struct if not found
                     self.i8_ptr_t.into()
@@ -1352,6 +1370,14 @@ impl<'ctx> LlvmBackend<'ctx> {
         let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
 
         let llvm_struct_ty = self.ctx.struct_type(&field_types, false);
+        
+        // Debug for SeenLexer
+        if name == "SeenLexer" {
+            println!("DEBUG: register_struct_type {} with {} fields", name, field_types.len());
+            println!("DEBUG:   field_types: {:?}", field_types);
+            println!("DEBUG:   llvm_struct_ty: {:?}", llvm_struct_ty);
+        }
+        
         self.struct_types.insert(name.to_string(), (llvm_struct_ty, field_names));
     }
 
@@ -1374,7 +1400,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     IRValue::Integer(_) => self.i64_t.into(),
                     IRValue::Float(_) => self.ctx.f64_type().into(),
                     IRValue::Boolean(_) => self.bool_t.into(),
-                    IRValue::String(_) => self.i8_ptr_t.into(),
+                    IRValue::String(_) => self.ty_string().into(), // Use proper String struct type
+                    IRValue::Char(_) => self.ctx.i8_type().into(),
                     _ => self.i8_ptr_t.into(), // Default to pointer for unknowns
                 }
             })
@@ -1397,7 +1424,25 @@ impl<'ctx> LlvmBackend<'ctx> {
             .iter()
             .map(|p| p.param_type.clone())
             .collect();
+        
+        // Debug: print function declaration for constructors
+        if name == "SeenLexer_new" {
+            println!("DEBUG: declaring function {} with return type {:?}", name, func.return_type);
+            if let IRType::Struct { name: struct_name, .. } = &func.return_type {
+                println!("DEBUG:   struct_types contains {}: {}", struct_name, self.struct_types.contains_key(struct_name));
+                if let Some((st, _)) = self.struct_types.get(struct_name) {
+                    println!("DEBUG:   struct type for {}: {:?}", struct_name, st);
+                }
+            }
+        }
+        
         let fn_ty = self.fn_type_from_ir(&func.return_type, &params_ir);
+        
+        // Debug: print the actual LLVM function type
+        if name == "SeenLexer_new" {
+            println!("DEBUG:   LLVM fn_ty for {}: {:?}", name, fn_ty);
+        }
+        
         let f = self.module.add_function(name, fn_ty, None);
         self.apply_ir_function_attributes(func, f);
         self.apply_hardware_attributes(f);
@@ -1815,10 +1860,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                     .current_fn
                     .ok_or_else(|| anyhow!("return outside of function"))?;
                 let ret_ty_opt = current_fn.get_type().get_return_type();
+                let fn_name = current_fn.get_name().to_str().unwrap_or("unknown");
                 match (val_opt, ret_ty_opt) {
                     (Some(v), Some(ret_ty)) => {
+                        if fn_name == "createLexer" {
+                            println!("DEBUG: Return in {} - evaluating {:?}", fn_name, v);
+                        }
                         let mut bv = self.eval_value(v, fn_map)?;
                         if bv.get_type() != ret_ty {
+                            println!("DEBUG: Return cast in {} - value type: {:?}, expected ret_ty: {:?}", fn_name, bv.get_type(), ret_ty);
                             bv = self.cast_basic_to_type(bv, ret_ty)?;
                         }
                         self.builder.build_return(Some(&bv))?;
@@ -1941,7 +1991,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let is_float_op = l.is_float_value() || r.is_float_value();
                 let res = match op {
                     crate::instruction::BinaryOp::Add => {
-                        if is_float_op {
+                        if self.is_string_value_ir(left) || self.is_string_value_ir(right) {
+                            let l_str = self.ensure_string(l.clone(), left)?;
+                            let r_str = self.ensure_string(r.clone(), right)?;
+                            self.runtime_concat(l_str, r_str)?
+                        } else if is_float_op {
                             let lf = self.as_f64(l.clone())?;
                             let rf = self.as_f64(r.clone())?;
                             self.builder
@@ -2382,27 +2436,33 @@ impl<'ctx> LlvmBackend<'ctx> {
                     
                     // Check if we're accessing a struct array
                     if let Some(ref struct_type_name) = element_struct_type {
-                        if self.struct_types.contains_key(struct_type_name) {
+                        if let Some((llvm_struct_ty, _)) = self.struct_types.get(struct_type_name).cloned() {
                             // Struct arrays store pointers to heap-allocated structs
                             // Each element is a pointer (8 bytes)
-                            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
-                            let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_ptr_ptr")?;
+                            let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                            let ptr_ptr_ty = struct_ptr_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                            
+                            // Cast data_ptr to pointer-to-struct-pointer
+                            let data_ptr_ptr = self.builder.build_pointer_cast(data_ptr, ptr_ptr_ty, "data_struct_ptr_ptr")?;
                             
                             // GEP to the element (pointer at index i)
-                            let elem_ptr = unsafe {
+                            let elem_ptr_ptr = unsafe {
                                 self.builder.build_gep(
-                                    self.i64_t,
-                                    data_i64_ptr,
+                                    struct_ptr_ty,
+                                    data_ptr_ptr,
                                     &[idx_iv],
                                     "struct_elem_ptr_ptr",
                                 )?
                             };
                             
-                            // Load the struct pointer (stored as i64)
-                            let struct_ptr_i64 = self.builder.build_load(self.i64_t, elem_ptr, "struct_ptr_load")?.into_int_value();
+                            // Load the struct pointer
+                            let struct_ptr = self.builder.build_load(struct_ptr_ty, elem_ptr_ptr, "struct_ptr_load")?.into_pointer_value();
                             
-                            // Assign to result
-                            self.assign_value(result, struct_ptr_i64.as_basic_value_enum())?;
+                            // Load the actual struct value
+                            let struct_val = self.builder.build_load(llvm_struct_ty, struct_ptr, "struct_load")?;
+                            
+                            // Assign the struct value to result
+                            self.assign_value(result, struct_val)?;
                             
                             // Track struct type for subsequent field access
                             if let IRValue::Register(reg_id) = result {
@@ -3121,6 +3181,42 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 let res = self.runtime_substring(s, start, end)?;
                                 if let Some(r) = result {
                                     self.assign_value(r, res.as_basic_value_enum())?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        "charAt" => {
+                            // charAt(string, index) -> char (returned as single-char String)
+                            if args.len() == 2 {
+                                let s_val = self.eval_value(&args[0], fn_map)?;
+                                let s = self.as_cstr_ptr(s_val)?;
+                                let idx_val = self.eval_value(&args[1], fn_map)?;
+                                let idx = self.as_i64(idx_val)?;
+                                // Get pointer to character at index
+                                let char_ptr = unsafe {
+                                    self.builder.build_gep(self.ctx.i8_type(), s, &[idx], "char_ptr")?
+                                };
+                                // Load the character as i8
+                                let char_val = self.builder.build_load(self.ctx.i8_type(), char_ptr, "char_val")?;
+                                if let Some(r) = result {
+                                    self.assign_value(r, char_val)?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        "toInt" => {
+                            // toInt(char) -> int - convert Char (i8) to Int (i64)
+                            if args.len() == 1 {
+                                let char_val = self.eval_value(&args[0], fn_map)?;
+                                let char_i8 = if char_val.is_int_value() {
+                                    char_val.into_int_value()
+                                } else {
+                                    return Err(anyhow!("toInt expects a Char (int) argument"));
+                                };
+                                // Sign-extend i8 to i64
+                                let as_i64 = self.builder.build_int_s_extend(char_i8, self.i64_t, "char_to_int")?;
+                                if let Some(r) = result {
+                                    self.assign_value(r, as_i64.as_basic_value_enum())?;
                                 }
                                 return Ok(());
                             }
@@ -3873,7 +3969,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let loaded = self.builder.build_load(result_ty, result_ptr, "loaded_result")?;
                     
                     if let Some(r) = result {
-                        self.assign_value(r, loaded.as_basic_value_enum())?;
+                        // Convert ABI struct {i8, String} to IR struct {i1, String}
+                        let loaded_sv = loaded.into_struct_value();
+                        let success_i8 = self.builder.build_extract_value(loaded_sv, 0, "success_i8")?.into_int_value();
+                        let success_i1 = self.builder.build_int_truncate(success_i8, self.bool_t, "success_i1")?;
+                        let output = self.builder.build_extract_value(loaded_sv, 1, "output")?;
+                        
+                        let ir_struct_ty = self.ctx.struct_type(&[self.bool_t.into(), self.ty_string().into()], false);
+                        let mut val = ir_struct_ty.get_undef();
+                        val = self.builder.build_insert_value(val, success_i1, 0, "s_success")?.into_struct_value();
+                        val = self.builder.build_insert_value(val, output, 1, "s_output")?.into_struct_value();
+                        
+                        self.assign_value(r, val.as_basic_value_enum())?;
                         
                         // Propagate return struct type info
                         if let IRValue::Register(reg_id) = r {
@@ -3950,6 +4057,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 }
                 let call = self.builder.build_call(f, &call_args, "call")?;
+                // Debug: check the return type of the call
+                let target_name = match target {
+                    IRValue::Variable(name) | IRValue::Function { name, .. } => name.as_str(),
+                    _ => "unknown",
+                };
+                if target_name == "SeenLexer_new" {
+                    println!("DEBUG: Call to {} returned {:?}", target_name, call.try_as_basic_value().left().map(|v| v.get_type()));
+                    println!("DEBUG:   Function f return type: {:?}", f.get_type().get_return_type());
+                    println!("DEBUG:   result register: {:?}", result);
+                }
                 if let Some(r) = result {
                     if let Some(ret) = call.try_as_basic_value().left() {
                         // For Vec_get from float Vec, DON'T bitcast here - keep as i64
@@ -4134,18 +4251,54 @@ impl<'ctx> LlvmBackend<'ctx> {
                         let field_idx = field_names.iter().position(|n| n == field)
                             .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, type_name))?;
                         
-                        let ptr = if sv.is_pointer_value() {
-                            sv.into_pointer_value()
-                        } else if sv.is_int_value() {
-                            self.builder
-                                .build_int_to_ptr(
-                                    sv.into_int_value(),
-                                    llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                    "struct_field_set_ptr",
-                                )
-                                .map_err(|e| anyhow!("{e:?}"))?
+                        let ptr = if let IRValue::Variable(name) = struct_val {
+                             if let Some(slot) = self.var_slots.get(name).copied() {
+                                 let slot_ty = self.var_slot_types.get(name).unwrap();
+                                 if slot_ty.is_struct_type() {
+                                     slot
+                                 } else if slot_ty.is_pointer_type() {
+                                     self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+                                 } else {
+                                     return Err(anyhow!("Variable {} has unexpected type for FieldSet", name));
+                                 }
+                             } else {
+                                 if sv.is_pointer_value() {
+                                     sv.into_pointer_value()
+                                 } else {
+                                     return Err(anyhow!("Unsupported field set value for {:?}", struct_val));
+                                 }
+                             }
+                        } else if let IRValue::Register(id) = struct_val {
+                             if let Some(slot) = self.reg_slots.get(id).copied() {
+                                 let slot_ty = self.reg_slot_types.get(id).unwrap();
+                                 if slot_ty.is_struct_type() {
+                                     slot
+                                 } else if slot_ty.is_pointer_type() {
+                                     self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+                                 } else {
+                                     return Err(anyhow!("Register {} has unexpected type for FieldSet", id));
+                                 }
+                             } else {
+                                 if sv.is_pointer_value() {
+                                     sv.into_pointer_value()
+                                 } else {
+                                     return Err(anyhow!("Unsupported field set value for {:?}", struct_val));
+                                 }
+                             }
                         } else {
-                            return Err(anyhow!("Unsupported field set value for {:?}", struct_val));
+                            if sv.is_pointer_value() {
+                                sv.into_pointer_value()
+                            } else if sv.is_int_value() {
+                                self.builder
+                                    .build_int_to_ptr(
+                                        sv.into_int_value(),
+                                        llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                                        "struct_field_set_ptr",
+                                    )
+                                    .map_err(|e| anyhow!("{e:?}"))?
+                            } else {
+                                return Err(anyhow!("Unsupported field set value for {:?}", struct_val));
+                            }
                         };
                         
                         let gep = self.builder.build_struct_gep(llvm_struct_ty, ptr, field_idx as u32, &format!("field_set_{}", field))?;
@@ -4285,6 +4438,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
                 
                 self.assign_value(result, casted)?;
+            }
+            Instruction::ConstructObject { class_name, args, result } => {
+                if let Some((struct_ty, _)) = self.struct_types.get(class_name).cloned() {
+                     let mut val = struct_ty.get_undef();
+                     for (i, arg) in args.iter().enumerate() {
+                         let arg_val = self.eval_value(arg, fn_map)?;
+                         val = self.builder.build_insert_value(val, arg_val, i as u32, &format!("construct_{}_{}", class_name, i))?.into_struct_value();
+                     }
+                     self.assign_value(result, val.as_basic_value_enum())?;
+                } else {
+                     return Err(anyhow!("ConstructObject not implemented for class {}", class_name));
+                }
             }
             _ => {
                 // Many IR ops are not required for bootstrap subset; ignore nops etc.
@@ -4637,6 +4802,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                 .bool_t
                 .const_int(if *b { 1 } else { 0 }, false)
                 .as_basic_value_enum()),
+            IRValue::Char(c) => {
+                // Char is an i8 in LLVM
+                Ok(self.ctx.i8_type().const_int(*c as u64, false).as_basic_value_enum())
+            }
             IRValue::String(s) => {
                 let gv = self.builder.build_global_string_ptr(&(s.clone()), "str")?;
                 let ptr = gv.as_pointer_value();
@@ -5007,6 +5176,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                     self.var_slot_types.insert(name.clone(), value_ty);
                     (slot, value_ty)
                 };
+                // Debug: print type mismatch before cast
+                if v.get_type() != slot_ty {
+                    println!("DEBUG: assign_value Variable {} - v type: {:?}, slot_ty: {:?}", name, v.get_type(), slot_ty);
+                }
                 // For float variables (e.g., from Vec<Float>.get), use bitcast to preserve bits
                 let stored = if self.var_is_float.contains(name) && v.is_float_value() && slot_ty.is_int_type() {
                     self.builder.build_bit_cast(
@@ -5297,8 +5470,31 @@ impl<'ctx> LlvmBackend<'ctx> {
             (BasicValueEnum::StructValue(sv), BasicTypeEnum::StructType(st)) => {
                 if sv.get_type() == st {
                     Ok(sv.as_basic_value_enum())
+                } else if st.count_fields() == 0 {
+                    // Target is an empty struct (like Unit or empty class), just return undef
+                    Ok(st.get_undef().as_basic_value_enum())
+                } else if sv.get_type().count_fields() == 0 && st.count_fields() > 0 {
+                    // Source is empty struct, target has fields - create undef target
+                    Ok(st.get_undef().as_basic_value_enum())
                 } else {
-                    Err(anyhow!("Mismatched struct store type"))
+                    // Try to cast field by field
+                    let src_ty = sv.get_type();
+                    if src_ty.count_fields() != st.count_fields() {
+                         println!("DEBUG: struct mismatch - src: {:?}, target: {:?}", src_ty, st);
+                         // Print backtrace info
+                         println!("DEBUG: This is triggered from cast_basic_to_type");
+                         return Err(anyhow!("Struct field count mismatch: {} vs {}", src_ty.count_fields(), st.count_fields()));
+                    }
+                    
+                    let mut res = st.get_undef();
+                    for i in 0..st.count_fields() {
+                        let field_val = self.builder.build_extract_value(sv, i, "extract").unwrap();
+                        let target_field_ty = st.get_field_type_at_index(i).unwrap();
+                        
+                        let cast_val = self.cast_basic_to_type(field_val, target_field_ty)?;
+                        res = self.builder.build_insert_value(res, cast_val, i, "insert").unwrap().into_struct_value();
+                    }
+                    Ok(res.as_basic_value_enum())
                 }
             }
             (BasicValueEnum::ArrayValue(av), BasicTypeEnum::ArrayType(at)) => {
@@ -5330,8 +5526,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                     val = self.builder.build_insert_value(val, len, 0, "slen").unwrap().into_struct_value();
                     val = self.builder.build_insert_value(val, pv, 1, "sptr").unwrap().into_struct_value();
                     Ok(val.as_basic_value_enum())
+                } else if st.count_fields() == 0 {
+                    // Empty struct (e.g. Unit)
+                    Ok(st.get_undef().as_basic_value_enum())
                 } else {
-                    Err(anyhow!("Cannot cast pointer to struct"))
+                    // Assume pointer to struct and load it
+                    let loaded = self.builder.build_load(st, pv, "struct_load").map_err(|e| anyhow!("{e:?}"))?;
+                    Ok(loaded)
                 }
             }
             (BasicValueEnum::StructValue(sv), BasicTypeEnum::PointerType(pt)) => {
@@ -5355,7 +5556,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let zero = self.i64_t.const_zero();
                     let is_not_empty = self.builder.build_int_compare(inkwell::IntPredicate::NE, len, zero, "str_not_empty")?;
                     Ok(is_not_empty.as_basic_value_enum())
+                } else if it == self.bool_t && sv.get_type().count_fields() >= 1 {
+                    // CommandResult or similar struct with bool as first field - extract the bool
+                    if let Some(first_field_ty) = sv.get_type().get_field_type_at_index(0) {
+                        if first_field_ty.is_int_type() && first_field_ty.into_int_type() == self.bool_t {
+                            let bool_val = self.builder.build_extract_value(sv, 0, "struct_bool_field").unwrap();
+                            return Ok(bool_val);
+                        }
+                    }
+                    println!("DEBUG: Cannot cast struct to int. Struct: {:?}, Int: {:?}", sv.get_type(), it);
+                    Err(anyhow!("Cannot cast struct to int"))
                 } else {
+                    println!("DEBUG: Cannot cast struct to int. Struct: {:?}, Int: {:?}", sv.get_type(), it);
                     Err(anyhow!("Cannot cast struct to int"))
                 }
             }
@@ -5682,7 +5894,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         s: PointerValue<'ctx>,
         start: inkwell::values::IntValue<'ctx>,
         end: inkwell::values::IntValue<'ctx>,
-    ) -> Result<PointerValue<'ctx>> {
+    ) -> Result<BasicValueEnum<'ctx>> {
         let len = self.builder.build_int_sub(end, start, "sub_len")?;
         let one = self.i64_t.const_int(1, false);
         let total = self.builder.build_int_add(len, one, "plus1")?;
@@ -5709,7 +5921,13 @@ impl<'ctx> LlvmBackend<'ctx> {
         };
         self.builder
             .build_store(end_ptr, self.ctx.i8_type().const_zero())?;
-        Ok(dest)
+        
+        // Return as String struct { i64, ptr } instead of just ptr
+        let str_ty = self.ty_string();
+        let mut str_val = str_ty.get_undef();
+        str_val = self.builder.build_insert_value(str_val, len, 0, "str_len").unwrap().into_struct_value();
+        str_val = self.builder.build_insert_value(str_val, dest, 1, "str_ptr").unwrap().into_struct_value();
+        Ok(str_val.as_basic_value_enum())
     }
 
     fn declare_main_wrapper(&mut self) {
@@ -5822,8 +6040,9 @@ impl<'ctx> LlvmBackend<'ctx> {
 
 
     fn ty_cmd_result(&self) -> inkwell::types::StructType<'ctx> {
+        // Use i8 for bool to match Rust #[repr(C)] ABI
         self.ctx
-            .struct_type(&[self.bool_t.into(), self.ty_string().into()], false)
+            .struct_type(&[self.ctx.i8_type().into(), self.ty_string().into()], false)
     }
 
     fn ty_handle(&mut self) -> StructType<'ctx> {
@@ -5960,9 +6179,51 @@ impl<'ctx> LlvmBackend<'ctx> {
     pub fn scan_and_allocate_registers(&mut self, func: &IRFunction) -> Result<()> {
         let mut reg_types: HashMap<usize, BasicTypeEnum<'ctx>> = HashMap::new();
         
+        let is_target_fn = func.name == "createLexer" || func.name == "lastSlashIndex";
+        if is_target_fn {
+            println!("DEBUG: scan_and_allocate_registers for {}", func.name);
+            // Print all instructions in the function
+            for block in func.cfg.blocks_iter() {
+                for inst in &block.instructions {
+                    println!("DEBUG:   instruction: {:?}", inst);
+                }
+            }
+        }
+        
         // Initialize with parameters
         for (i, param) in func.parameters.iter().enumerate() {
-            reg_types.insert(i, self.ir_type_to_llvm(&param.param_type));
+            let ty = self.ir_type_to_llvm(&param.param_type);
+            if is_target_fn {
+                println!("DEBUG: {} param {} ({:?}) at reg {} type {:?}", func.name, i, param.name, i, ty);
+            }
+            reg_types.insert(i, ty);
+        }
+
+        // Pre-pass to track array element struct types for FieldAccess results
+        // This must run before type inference so ArrayAccess can look up element types
+        for block in func.cfg.blocks_iter() {
+            for inst in &block.instructions {
+                if let Instruction::FieldAccess { struct_val: _, field, result } = inst {
+                    if let IRValue::Register(reg_id) = result {
+                        // Search all struct definitions for this field to find array element type
+                        for (_, def_fields) in self.struct_definitions.iter() {
+                            for (field_name, field_ty) in def_fields.iter() {
+                                if field_name == field {
+                                    if let IRType::Array(inner) = field_ty {
+                                        if let IRType::Struct { name: inner_struct_name, .. } = &**inner {
+                                            self.reg_array_element_struct.insert(*reg_id, inner_struct_name.clone());
+                                            println!("DEBUG: pre-pass tracked reg {} as array of {}", reg_id, inner_struct_name);
+                                        }
+                                        if matches!(inner.as_ref(), IRType::Integer | IRType::Char) {
+                                            self.reg_is_int_array.insert(*reg_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         let mut changed = true;
@@ -5973,7 +6234,15 @@ impl<'ctx> LlvmBackend<'ctx> {
             for block in func.cfg.blocks_iter() {
                 for inst in &block.instructions {
                     if let Some((reg_id, ty)) = self.infer_instruction_result_type(inst, &reg_types) {
-                        if !reg_types.contains_key(&reg_id) {
+                        // Always update the type for instruction results - they override parameter types
+                        // when a register is reused (IR generator may reuse parameter register numbers)
+                        let existing_ty = reg_types.get(&reg_id).copied();
+                        if existing_ty.map_or(true, |e| e != ty) {
+                            if is_target_fn {
+                                println!("DEBUG: {} allocated/updated reg {} as {:?} (was {:?})", func.name, reg_id, ty, existing_ty);
+                            } else if existing_ty.is_none() {
+                                println!("DEBUG: allocated reg {} as {:?}", reg_id, ty);
+                            }
                             reg_types.insert(reg_id, ty);
                             changed = true;
                         }
@@ -6075,13 +6344,51 @@ impl<'ctx> LlvmBackend<'ctx> {
                     return None;
                 };
                 if let IRValue::Variable(name) = target {
+                    println!("DEBUG: infer call target: {}", name);
+                    // Handle known builtin methods that return String
+                    if name == "substring" {
+                        println!("DEBUG: infer {} reg {} as String", name, reg_id);
+                        return Some((reg_id, self.ty_string().into()));
+                    }
+                    // charAt returns a Char (i8)
+                    if name == "charAt" {
+                        println!("DEBUG: infer {} reg {} as Char (i8)", name, reg_id);
+                        return Some((reg_id, self.ctx.i8_type().into()));
+                    }
+                    // toInt returns an Int (i64)
+                    if name == "toInt" {
+                        println!("DEBUG: infer {} reg {} as Int (i64)", name, reg_id);
+                        return Some((reg_id, self.i64_t.into()));
+                    }
+                    
+                    // Check if this is a constructor (ClassName_new) that returns a struct
+                    if name.ends_with("_new") {
+                        let class_name = &name[..name.len() - 4]; // Remove "_new"
+                        if let Some((struct_ty, _)) = self.struct_types.get(class_name) {
+                            println!("DEBUG: infer constructor {} reg {} as struct {}", name, reg_id, class_name);
+                            return Some((reg_id, (*struct_ty).into()));
+                        }
+                    }
+                    
+                    // Check fn_return_struct_types for known struct-returning functions
+                    if let Some(struct_name) = self.fn_return_struct_types.get(name) {
+                        if let Some((struct_ty, _)) = self.struct_types.get(struct_name) {
+                            println!("DEBUG: infer {} reg {} as struct {} from fn_return_struct_types", name, reg_id, struct_name);
+                            return Some((reg_id, (*struct_ty).into()));
+                        }
+                    }
+                    
                     if let Some(func) = self.module.get_function(name) {
                         if name == "__ExecuteCommand" {
-                             println!("DEBUG: infer_instruction_result_type for __ExecuteCommand");
-                             println!("DEBUG: return type: {:?}", func.get_type().get_return_type());
+                             let ir_struct_ty = self.ctx.struct_type(&[self.bool_t.into(), self.ty_string().into()], false);
+                             println!("DEBUG: infer __ExecuteCommand reg {} as {:?}", reg_id, ir_struct_ty);
+                             return Some((reg_id, ir_struct_ty.into()));
                         }
-                        func.get_type().get_return_type().map(|ty| (reg_id, ty))
+                        let ret_ty = func.get_type().get_return_type();
+                        println!("DEBUG: infer {} reg {} from LLVM function type: {:?}", name, reg_id, ret_ty);
+                        ret_ty.map(|ty| (reg_id, ty))
                     } else {
+                        println!("DEBUG: function {} not found in module", name);
                         None
                     }
                 } else {
@@ -6132,6 +6439,25 @@ impl<'ctx> LlvmBackend<'ctx> {
                         return Some((reg_id, self.ctx.i8_type().into()));
                     }
                 }
+                
+                // Check if we know the element struct type from pre-pass
+                if let IRValue::Register(arr_reg_id) = array {
+                    if let Some(struct_name) = self.reg_array_element_struct.get(arr_reg_id) {
+                        if let Some((llvm_struct_ty, _)) = self.struct_types.get(struct_name) {
+                            println!("DEBUG: ArrayAccess on reg {} has element struct type {}", arr_reg_id, struct_name);
+                            return Some((reg_id, (*llvm_struct_ty).into()));
+                        }
+                    }
+                }
+                if let IRValue::Variable(name) = array {
+                    if let Some(struct_name) = self.var_array_element_struct.get(name) {
+                        if let Some((llvm_struct_ty, _)) = self.struct_types.get(struct_name) {
+                            println!("DEBUG: ArrayAccess on var {} has element struct type {}", name, struct_name);
+                            return Some((reg_id, (*llvm_struct_ty).into()));
+                        }
+                    }
+                }
+                
                 None
             }
             Instruction::FieldAccess {
@@ -6161,6 +6487,20 @@ impl<'ctx> LlvmBackend<'ctx> {
                         }
                     }
                 }
+                
+                // Fallback: search all struct definitions for this field
+                // This helps when the struct type of the variable is not tracked
+                for (_, def_fields) in self.struct_definitions.iter() {
+                    for (field_name, field_ty) in def_fields.iter() {
+                        if field_name == field {
+                            // Found a match - use this type
+                            // For common fields like "output", "success", etc. this is a good heuristic
+                            println!("DEBUG: infer_instruction_result_type fallback for field '{}' found type {:?}", field, field_ty);
+                            return Some((reg_id, self.ir_type_to_llvm(field_ty)));
+                        }
+                    }
+                }
+                
                 None
             }
             Instruction::StringConcat { result, .. } => {
@@ -6179,12 +6519,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
                 Some((reg_id, self.i64_t.into()))
             }
-            Instruction::ConstructObject { result, .. } => {
+            Instruction::ConstructObject { class_name, result, .. } => {
                 let reg_id = if let IRValue::Register(id) = result {
                     *id as usize
                 } else {
                     return None;
                 };
+                if let Some((st, _)) = self.struct_types.get(class_name) {
+                     return Some((reg_id, (*st).into()));
+                }
                 Some((reg_id, self.i8_ptr_t.into()))
             }
             Instruction::GetEnumTag { result, .. } => {
@@ -6222,6 +6565,9 @@ impl<'ctx> LlvmBackend<'ctx> {
     ) {
         let mut add_if_missing = |val: &IRValue| {
             if let IRValue::Register(id) = val {
+                if !reg_types.contains_key(&(*id as usize)) {
+                    println!("DEBUG: collect_defined_registers defaulting reg {} to i64, inst: {:?}", id, inst);
+                }
                 reg_types
                     .entry(*id as usize)
                     .or_insert_with(|| self.i64_t.into());

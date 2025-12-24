@@ -8,11 +8,11 @@
 // import generator.{CodeGenerator}
 
 // Utility functions for tests
-fun createCodeGenerator() -> CodeGenerator {
+fun createCodeGenerator() r: CodeGenerator {
     return CodeGenerator.new()
 }
 
-fun createBackend(target: Target) -> Backend {
+fun createBackend(target: Target) r: Backend {
     if target == Target.LLVM_IR or target == Target.Linux_x86_64 or target == Target.Windows_x86_64 or
         target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 {
         return LLVMBackend.new(target) as Backend
@@ -24,6 +24,6 @@ fun createBackend(target: Target) -> Backend {
     return Backend.new(target, "Generic")
 }
 
-fun createOptimizer(level: OptLevel) -> CodeOptimizer {
+fun createOptimizer(level: OptLevel) r: CodeOptimizer {
     return CodeOptimizer.new(level)
 }

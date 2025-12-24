@@ -13,7 +13,7 @@ class IRGenerator {
     let variables: Map<String, IRValue>
     let environment: Environment
     
-    fun new() -> IRGenerator {
+    fun new() r: IRGenerator {
         this.builder = IRBuilder.new()
         this.module = IRModule.new("seen_program")
         this.currentFunction = null
@@ -24,7 +24,7 @@ class IRGenerator {
         initializeRuntimeFunctions()
     }
     
-    fun initializeRuntimeFunctions() -> Void {
+    fun initializeRuntimeFunctions() r: Void {
         // printf function for output
         let printfFunc = IRFunction.new("printf", IRType.I32)
         printfFunc.addParameter(IRValue.new("%fmt", IRType.Ptr))
@@ -54,7 +54,7 @@ class IRGenerator {
         module.addFunction(strcatFunc)
     }
     
-    fun generate(ast: AST, typeResult: TypeInferenceResult) -> IRModule {
+    fun generate(ast: AST, typeResult: TypeInferenceResult) r: IRModule {
         if !typeResult.success {
             return IRModule.newWithErrors(typeResult.errors)
         }
@@ -89,7 +89,7 @@ class IRGenerator {
         return module
     }
     
-    fun generateFunctionSignature(function: Function) -> Void {
+    fun generateFunctionSignature(function: Function) r: Void {
         let returnType = convertSeenTypeToIR(resolveType(function.returnType))
         let irFunction = IRFunction.new(function.name, returnType)
         
@@ -102,7 +102,7 @@ class IRGenerator {
         module.addFunction(irFunction)
     }
     
-    fun generateClassType(classNode: Class) -> Void {
+    fun generateClassType(classNode: Class) r: Void {
         // Create data type for class
         let structName = "data.{classNode.name}"
         let structType = IRType.new(structName, 0)  // Size will be calculated
@@ -114,7 +114,7 @@ class IRGenerator {
         generateDefaultConstructor(classNode)
     }
     
-    fun generateDefaultConstructor(classNode: Class) -> Void {
+    fun generateDefaultConstructor(classNode: Class) r: Void {
         let constructorName = "{classNode.name}.new"
         let existingFunc = module.getFunction(constructorName)
         
@@ -133,7 +133,7 @@ class IRGenerator {
         }
     }
     
-    fun generateFunction(function: Function) -> IRFunction {
+    fun generateFunction(function: Function) r: IRFunction {
         let irFunction = module.getFunction(function.name)
         if irFunction == null {
             module.addError(IRError.new("Function {function.name} not found in module", function.line, function.column))
@@ -179,7 +179,7 @@ class IRGenerator {
         return irFunction
     }
     
-    fun generateStatement(statement: Statement) -> Void {
+    fun generateStatement(statement: Statement) r: Void {
         if statement is Block {
             generateBlock(statement as Block)
         } else if statement is ReturnStatement {
@@ -195,13 +195,13 @@ class IRGenerator {
         }
     }
     
-    fun generateBlock(block: Block) -> Void {
+    fun generateBlock(block: Block) r: Void {
         for statement in block.statements {
             generateStatement(statement)
         }
     }
     
-    fun generateReturn(returnStmt: ReturnStatement) -> Void {
+    fun generateReturn(returnStmt: ReturnStatement) r: Void {
         if returnStmt.value != null {
             let value = generateExpression(returnStmt.value)
             builder.createRet(value)
@@ -210,7 +210,7 @@ class IRGenerator {
         }
     }
     
-    fun generateVariableDeclaration(varDecl: VariableDeclaration) -> Void {
+    fun generateVariableDeclaration(varDecl: VariableDeclaration) r: Void {
         let declaredType = resolveType(varDecl.type)
         let irType = convertSeenTypeToIR(declaredType)
         
@@ -225,7 +225,7 @@ class IRGenerator {
         }
     }
     
-    fun generateIf(ifStmt: IfStatement) -> Void {
+    fun generateIf(ifStmt: IfStatement) r: Void {
         let condition = generateExpression(ifStmt.condition)
         
         let thenBlock = builder.createBlock("if.then")
@@ -260,7 +260,7 @@ class IRGenerator {
         builder.setInsertPoint(endBlock)
     }
     
-    fun generateExpression(expression: Expression) -> IRValue {
+    fun generateExpression(expression: Expression) r: IRValue {
         if expression is Literal {
             return generateLiteral(expression as Literal)
         } else if expression is IdentifierExpression {
@@ -277,7 +277,7 @@ class IRGenerator {
         }
     }
     
-    fun generateLiteral(literal: Literal) -> IRValue {
+    fun generateLiteral(literal: Literal) r: IRValue {
         return match literal.type {
             TokenType.IntegerLiteral -> {
                 IRValue.new(literal.value, IRType.I32, true, literal.value)
@@ -302,7 +302,7 @@ class IRGenerator {
         }
     }
     
-    fun generateIdentifier(identifier: IdentifierExpression) -> IRValue {
+    fun generateIdentifier(identifier: IdentifierExpression) r: IRValue {
         let variable = variables.get(identifier.name)
         if variable == null {
             module.addError(IRError.new("Undefined variable: {identifier.name}", identifier.line, identifier.column))
@@ -313,7 +313,7 @@ class IRGenerator {
         return builder.createLoad(variable)
     }
     
-    fun generateBinary(binary: BinaryExpression) -> IRValue {
+    fun generateBinary(binary: BinaryExpression) r: IRValue {
         let left = generateExpression(binary.left)
         let right = generateExpression(binary.right)
         
@@ -427,7 +427,7 @@ class IRGenerator {
         }
     }
     
-    fun generateStringConcat(left: IRValue, right: IRValue) -> IRValue {
+    fun generateStringConcat(left: IRValue, right: IRValue) r: IRValue {
         // Call string_concat runtime function
         let args = Array<IRValue>()
         args.push(left)
@@ -440,7 +440,7 @@ class IRGenerator {
         return IRValue.new("error", IRType.Ptr, true)
     }
     
-    fun generateLogicalAnd(left: IRValue, right: IRValue) -> IRValue {
+    fun generateLogicalAnd(left: IRValue, right: IRValue) r: IRValue {
         // Implement short-circuit evaluation
         let result = IRValue.new(builder.getNextRegister(), IRType.new("i1", 1))
         let instruction = IRInstruction.new("and", result)
@@ -450,7 +450,7 @@ class IRGenerator {
         return result
     }
     
-    fun generateLogicalOr(left: IRValue, right: IRValue) -> IRValue {
+    fun generateLogicalOr(left: IRValue, right: IRValue) r: IRValue {
         // Implement short-circuit evaluation
         let result = IRValue.new(builder.getNextRegister(), IRType.new("i1", 1))
         let instruction = IRInstruction.new("or", result)
@@ -460,7 +460,7 @@ class IRGenerator {
         return result
     }
     
-    fun generateUnary(unary: UnaryExpression) -> IRValue {
+    fun generateUnary(unary: UnaryExpression) r: IRValue {
         let operand = generateExpression(unary.operand)
         
         return match unary.operator {
@@ -501,7 +501,7 @@ class IRGenerator {
         }
     }
     
-    fun generateCall(call: CallExpression) -> IRValue {
+    fun generateCall(call: CallExpression) r: IRValue {
         let args = Array<IRValue>()
         for arg in call.arguments {
             args.push(generateExpression(arg))
@@ -526,7 +526,7 @@ class IRGenerator {
         return IRValue.new("void", IRType.Void, true)
     }
     
-    fun generatePrintln(args: Array<IRValue>) -> IRValue {
+    fun generatePrintln(args: Array<IRValue>) r: IRValue {
         if args.length() == 0 {
             return IRValue.new("void", IRType.Void, true)
         }
@@ -551,7 +551,7 @@ class IRGenerator {
         return IRValue.new("void", IRType.Void, true)
     }
     
-    fun generateClass(classNode: Class) -> Void {
+    fun generateClass(classNode: Class) r: Void {
         // Generate constructor implementation
         generateConstructor(classNode)
         
@@ -561,7 +561,7 @@ class IRGenerator {
         }
     }
     
-    fun generateConstructor(classNode: Class) -> Void {
+    fun generateConstructor(classNode: Class) r: Void {
         let constructorName = "{classNode.name}.new"
         let constructor = module.getFunction(constructorName)
         
@@ -596,7 +596,7 @@ class IRGenerator {
         }
     }
     
-    fun generateMethod(classNode: Class, method: Function) -> Void {
+    fun generateMethod(classNode: Class, method: Function) r: Void {
         let methodName = "{classNode.name}.{method.name}"
         
         // Create method function with 'this' parameter
@@ -644,7 +644,7 @@ class IRGenerator {
         variables.clear()
     }
     
-    fun convertSeenTypeToIR(seenType: Type) -> IRType {
+    fun convertSeenTypeToIR(seenType: Type) r: IRType {
         return match seenType.name {
             "Int" -> IRType.I32
             "Float" -> IRType.F64
@@ -658,7 +658,7 @@ class IRGenerator {
         }
     }
     
-    fun resolveType(astType: ASTType?) -> Type {
+    fun resolveType(astType: ASTType?) r: Type {
         if astType == null {
             return Type.Void
         }
@@ -673,7 +673,7 @@ class IRGenerator {
         }
     }
     
-    fun calculateStructSize(classNode: Class) -> Int {
+    fun calculateStructSize(classNode: Class) r: Int {
         let size = 0
         for field in classNode.fields {
             let fieldType = convertSeenTypeToIR(resolveType(field.type))
@@ -682,7 +682,7 @@ class IRGenerator {
         return size
     }
     
-    fun calculateFieldPointer(structPtr: IRValue?, fieldIndex: Int) -> IRValue {
+    fun calculateFieldPointer(structPtr: IRValue?, fieldIndex: Int) r: IRValue {
         // Simplified field pointer calculation
         // In real implementation, would use getelementptr
         let result = IRValue.new(builder.getNextRegister(), IRType.Ptr)
@@ -704,7 +704,7 @@ class IRGenerator {
 class ExpressionStatement extends Statement {
     let expression: Expression
     
-    fun new(expression: Expression) -> ExpressionStatement {
+    fun new(expression: Expression) r: ExpressionStatement {
         super(expression.line, expression.column)
         this.expression = expression
     }
@@ -714,7 +714,7 @@ class UnaryExpression extends Expression {
     let operator: TokenType
     let operand: Expression
     
-    fun new(operator: TokenType, operand: Expression) -> UnaryExpression {
+    fun new(operator: TokenType, operand: Expression) r: UnaryExpression {
         super(operand.line, operand.column)
         this.operator = operator
         this.operand = operand
@@ -725,7 +725,7 @@ class CallExpression extends Expression {
     let name: String
     let arguments: Array<Expression>
     
-    fun new(name: String, arguments: Array<Expression>, line: Int, column: Int) -> CallExpression {
+    fun new(name: String, arguments: Array<Expression>, line: Int, column: Int) r: CallExpression {
         super(line, column)
         this.name = name
         this.arguments = arguments

@@ -8,30 +8,30 @@ class OptimizationPass {
     var name: String
     var enabled: Bool
 
-    fun new(name: String = "OptimizationPass") -> OptimizationPass {
+    fun new(name: String = "OptimizationPass") r: OptimizationPass {
         return OptimizationPass{
             name: name,
             enabled: true
         }
     }
 
-    fun name() -> String {
+    fun name() r: String {
         return name
     }
 
-    fun enable() -> Void {
+    fun enable() r: Void {
         enabled = true
     }
 
-    fun disable() -> Void {
+    fun disable() r: Void {
         enabled = false
     }
 
-    fun isEnabled() -> Bool {
+    fun isEnabled() r: Bool {
         return enabled
     }
 
-    fun run(module: Module) -> Module {
+    fun run(module: Module) r: Module {
         if not enabled {
             return module
         }
@@ -40,11 +40,11 @@ class OptimizationPass {
 
     // Keep both spellings so existing subclasses (Optimize/optimize) continue to
     // work while we finish the Seen-native ports.
-    fun Optimize(module: Module) -> Module {
+    fun Optimize(module: Module) r: Module {
         return optimize(module)
     }
 
-    fun optimize(module: Module) -> Module {
+    fun optimize(module: Module) r: Module {
         return module
     }
 }
@@ -52,21 +52,21 @@ class OptimizationPass {
 class OptimizationPipeline {
     var passes: Array<OptimizationPass>
 
-    fun new() -> OptimizationPipeline {
+    fun new() r: OptimizationPipeline {
         return OptimizationPipeline{
             passes: Array<OptimizationPass>()
         }
     }
 
-    fun addPass(pass: OptimizationPass) -> Void {
+    fun addPass(pass: OptimizationPass) r: Void {
         passes.push(pass)
     }
 
-    fun isEmpty() -> Bool {
+    fun isEmpty() r: Bool {
         return passes.length() == 0
     }
 
-    fun run(module: Module) -> Module {
+    fun run(module: Module) r: Module {
         var current = module
         var index = 0
         while index < passes.length() {

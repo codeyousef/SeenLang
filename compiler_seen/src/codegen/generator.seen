@@ -13,7 +13,7 @@ class CodeGenerator {
     var outputFormat: OutputFormat
     var optimizer: CodeOptimizer?
     
-    fun new() -> CodeGenerator {
+    fun new() r: CodeGenerator {
         this.backends = Map<Target, Backend>()
         this.optimizationLevel = OptLevel.O0
         this.debugInfo = false
@@ -25,7 +25,7 @@ class CodeGenerator {
         initializeBackends()
     }
     
-    fun initializeBackends() -> Void {
+    fun initializeBackends() r: Void {
         // LLVM backends for different targets
         backends.put(Target.LLVM_IR, LLVMBackend.new(Target.LLVM_IR))
         backends.put(Target.Linux_x86_64, LLVMBackend.new(Target.Linux_x86_64))
@@ -41,7 +41,7 @@ class CodeGenerator {
         backends.put(Target.WASM, WASMBackend.new())
     }
     
-    fun generateFromIR(irModule: IRModule, target: Target) -> CodegenResult {
+    fun generateFromIR(irModule: IRModule, target: Target) r: CodegenResult {
         if !irModule.success {
             return CodegenResult.newWithErrors(irModule.errors)
         }
@@ -94,34 +94,34 @@ class CodeGenerator {
         return result
     }
     
-    fun setOptimizationLevel(level: OptLevel) -> Void {
+    fun setOptimizationLevel(level: OptLevel) r: Void {
         optimizationLevel = level
         if level > OptLevel.O0 {
             optimizer = CodeOptimizer.new(level)
         }
     }
     
-    fun setDebugInfo(enabled: Bool) -> Void {
+    fun setDebugInfo(enabled: Bool) r: Void {
         debugInfo = enabled
     }
     
-    fun setTargetTriple(triple: String) -> Void {
+    fun setTargetTriple(triple: String) r: Void {
         targetTriple = triple
     }
     
-    fun setOutputFormat(format: OutputFormat) -> Void {
+    fun setOutputFormat(format: OutputFormat) r: Void {
         outputFormat = format
     }
     
-    fun addBackend(target: Target, backend: Backend) -> Void {
+    fun addBackend(target: Target, backend: Backend) r: Void {
         backends.put(target, backend)
     }
     
-    fun getBackend(target: Target) -> Backend? {
+    fun getBackend(target: Target) r: Backend? {
         return backends.get(target)
     }
     
-    fun optimize(code: String, level: OptLevel) -> String {
+    fun optimize(code: String, level: OptLevel) r: String {
         if level == OptLevel.O0 {
             return code
         }
@@ -150,7 +150,7 @@ class CodeGenerator {
         return optimized
     }
     
-    fun link(objectFiles: Array<String>, outputPath: String) -> Bool {
+    fun link(objectFiles: Array<String>, outputPath: String) r: Bool {
         // Basic linking implementation
         // Uses system linker when available; otherwise simulates link step deterministically
         
@@ -171,7 +171,7 @@ class CodeGenerator {
         return executeCommand(linkerCommand)
     }
     
-    fun crossCompile(irModule: IRModule, hostTarget: Target, targetTarget: Target) -> CodegenResult {
+    fun crossCompile(irModule: IRModule, hostTarget: Target, targetTarget: Target) r: CodegenResult {
         // Save current backend
         let originalBackend = getBackend(hostTarget)
         
@@ -198,7 +198,7 @@ class CodeGenerator {
     
     // Backend-specific code generation
     
-    fun generateBinary(code: String, target: Target) -> Array<Byte> {
+    fun generateBinary(code: String, target: Target) r: Array<Byte> {
         return match target {
             Target.WASM -> generateWASMBinary(code)
             Target.Executable -> generateExecutableBinary(code, target)
@@ -206,7 +206,7 @@ class CodeGenerator {
         }
     }
     
-    fun generateWASMBinary(watCode: String) -> Array<Byte> {
+    fun generateWASMBinary(watCode: String) r: Array<Byte> {
         // Convert WebAssembly Text format to binary
         // This is a simplified implementation
         let binary = Array<Byte>()
@@ -249,7 +249,7 @@ class CodeGenerator {
         return binary
     }
     
-    fun generateExecutableBinary(llvmIR: String, target: Target) -> Array<Byte> {
+    fun generateExecutableBinary(llvmIR: String, target: Target) r: Array<Byte> {
         // In a real implementation, this would:
         // 1. Write LLVM IR to temporary file
         // 2. Invoke LLVM tools (llc, ld) to generate executable
@@ -261,7 +261,7 @@ class CodeGenerator {
     
     // Optimization implementations
     
-    fun removeDeadCode(code: String) -> String {
+    fun removeDeadCode(code: String) r: String {
         // Remove unreachable code and unused functions
         let lines = code.split("\\n")
         let optimized = Array<String>()
@@ -282,7 +282,7 @@ class CodeGenerator {
         return optimized.join("\\n")
     }
     
-    fun constantFold(code: String) -> String {
+    fun constantFold(code: String) r: String {
         // Fold constant expressions
         let optimized = code
         
@@ -296,7 +296,7 @@ class CodeGenerator {
         return optimized
     }
     
-    fun inlineFunctions(code: String) -> String {
+    fun inlineFunctions(code: String) r: String {
         // Real function inlining implementation
         let lines = code.split("\\n")
         let inlined = Array<String>()
@@ -359,7 +359,7 @@ class CodeGenerator {
         return inlined.join("\\n")
     }
     
-    fun optimizeLoops(code: String) -> String {
+    fun optimizeLoops(code: String) r: String {
         // Real loop optimization implementation
         let lines = code.split("\\n")
         let optimized = Array<String>()
@@ -399,7 +399,7 @@ class CodeGenerator {
         return optimized.join("\\n")
     }
     
-    fun aggressiveOptimizations(code: String) -> String {
+    fun aggressiveOptimizations(code: String) r: String {
         // Real aggressive optimization implementation
         let optimized = code
         
@@ -427,7 +427,7 @@ class CodeGenerator {
         return optimized
     }
     
-    fun optimizeForSize(code: String) -> String {
+    fun optimizeForSize(code: String) r: String {
         // Optimize for code size rather than speed
         let optimized = code
         
@@ -446,7 +446,7 @@ class CodeGenerator {
     
     // Helper functions
     
-    fun createCrossCompilationBackend(target: Target) -> Backend? {
+    fun createCrossCompilationBackend(target: Target) r: Backend? {
         return match target {
             Target.Linux_x86_64, Target.Windows_x86_64, Target.macOS_x86_64, 
             Target.macOS_ARM64, Target.Linux_ARM64 -> LLVMBackend.new(target)
@@ -456,11 +456,11 @@ class CodeGenerator {
         }
     }
     
-    fun countLines(text: String) -> Int {
+    fun countLines(text: String) r: Int {
         return text.split("\\n").length()
     }
     
-    fun getCurrentTime() -> Int {
+    fun getCurrentTime() r: Int {
         // Real time implementation using system calls
         // This would interface with the OS time functions
         // For now, using a monotonic counter approach
@@ -476,7 +476,7 @@ class CodeGenerator {
         return timeCounter
     }
     
-    fun executeCommand(command: String) -> Bool {
+    fun executeCommand(command: String) r: Bool {
         // Real command execution implementation
         // This would interface with the OS process system
         
@@ -522,7 +522,7 @@ class LLVMBackend extends Backend {
     let dataLayout: String
     var features: Array<String>
     
-    fun new(target: Target) -> LLVMBackend {
+    fun new(target: Target) r: LLVMBackend {
         super(target, "LLVM")
         this.targetTriple = getTargetTriple(target)
         this.dataLayout = getDataLayout(target)
@@ -530,7 +530,7 @@ class LLVMBackend extends Backend {
         initializeFeatures(target)
     }
     
-    fun initializeFeatures(target: Target) -> Void {
+    fun initializeFeatures(target: Target) r: Void {
         features = match target {
             Target.macOS_ARM64 -> ["+neon", "+crypto", "+fullfp16", "+ras", "+lse", "+rdm", "+rcpc", "+zcm", "+zcz"]
             Target.Linux_ARM64 -> ["+neon", "+crypto"]
@@ -538,7 +538,7 @@ class LLVMBackend extends Backend {
         }
     }
     
-    fun generateModule(irModule: IRModule) -> String {
+    fun generateModule(irModule: IRModule) r: String {
         let output = ""
         
         // Generate header
@@ -574,7 +574,7 @@ class LLVMBackend extends Backend {
         return output
     }
     
-    fun generateFunction(irFunction: IRFunction) -> String {
+    fun generateFunction(irFunction: IRFunction) r: String {
         let output = ""
         
         // Function signature
@@ -601,7 +601,7 @@ class LLVMBackend extends Backend {
         return output
     }
     
-    fun generateBasicBlock(block: IRBasicBlock) -> String {
+    fun generateBasicBlock(block: IRBasicBlock) r: String {
         let output = "{block.name}:\\n"
         
         for instruction in block.instructions {
@@ -611,7 +611,7 @@ class LLVMBackend extends Backend {
         return output
     }
     
-    fun generateHeader() -> String {
+    fun generateHeader() r: String {
         let output = ""
         output += "; ModuleID = 'seen_program'\\n"
         output += "source_filename = \"program.seen\"\\n"
@@ -620,15 +620,15 @@ class LLVMBackend extends Backend {
         return output
     }
     
-    fun generateFooter() -> String {
+    fun generateFooter() r: String {
         return ""  // LLVM IR doesn't need a footer
     }
     
-    fun generateGlobal(name: String, value: IRValue) -> String {
+    fun generateGlobal(name: String, value: IRValue) r: String {
         return "@{name} = global {value.type.toString()} {value.toString()}\\n"
     }
     
-    fun generateRuntimeDeclarations() -> String {
+    fun generateRuntimeDeclarations() r: String {
         let output = ""
         output += "declare i32 @printf(i8*, ...)\\n"
         output += "declare i8* @malloc(i64)\\n"
@@ -638,7 +638,7 @@ class LLVMBackend extends Backend {
         return output
     }
     
-    fun optimizeModule(module: String, level: OptLevel) -> String {
+    fun optimizeModule(module: String, level: OptLevel) r: String {
         // LLVM-specific optimizations
         let optimized = module
         
@@ -657,7 +657,7 @@ class LLVMBackend extends Backend {
         return optimized
     }
     
-    fun supports(feature: String) -> Bool {
+    fun supports(feature: String) r: Bool {
         return match feature {
             "optimization" -> true
             "debug_info" -> true
@@ -667,7 +667,7 @@ class LLVMBackend extends Backend {
         }
     }
     
-    fun escapeString(str: String) -> String {
+    fun escapeString(str: String) r: String {
         return str.replace("\\", "\\\\")
                  .replace("\"", "\\\"")
                  .replace("\\n", "\\0A")
@@ -681,7 +681,7 @@ class CBackend extends Backend {
     let customTypes: Map<String, String>
     var functionDeclarations: Array<String>
     
-    fun new() -> CBackend {
+    fun new() r: CBackend {
         super(Target.C, "C")
         this.includeHeaders = Array<String>()
         this.customTypes = Map<String, String>()
@@ -690,7 +690,7 @@ class CBackend extends Backend {
         initializeTypes()
     }
     
-    fun initializeHeaders() -> Void {
+    fun initializeHeaders() r: Void {
         includeHeaders.push("#include <stdio.h>")
         includeHeaders.push("#include <stdlib.h>")
         includeHeaders.push("#include <stdint.h>")
@@ -698,26 +698,26 @@ class CBackend extends Backend {
         includeHeaders.push("#include <string.h>")
     }
     
-    fun initializeTypes() -> Void {
+    fun initializeTypes() r: Void {
         customTypes.put("String", "char*")
         customTypes.put("Array", "void*")
     }
 
-    fun resultNameOr(instruction: IRInstruction, fallback: String) -> String {
+    fun resultNameOr(instruction: IRInstruction, fallback: String) r: String {
         if instruction.result != null {
             return instruction.result.name
         }
         return fallback
     }
 
-    fun elementTypeOr(irType: IRType, fallback: IRType) -> IRType {
+    fun elementTypeOr(irType: IRType, fallback: IRType) r: IRType {
         if irType.elementType != null {
             return irType.elementType
         }
         return fallback
     }
     
-    fun generateModule(irModule: IRModule) -> String {
+    fun generateModule(irModule: IRModule) r: String {
         let output = ""
         
         // Generate header
@@ -748,7 +748,7 @@ class CBackend extends Backend {
         return output
     }
     
-    fun generateFunction(irFunction: IRFunction) -> String {
+    fun generateFunction(irFunction: IRFunction) r: String {
         let output = ""
         
         // Function signature
@@ -776,7 +776,7 @@ class CBackend extends Backend {
         return output
     }
     
-    fun generateFunctionBody(irFunction: IRFunction) -> String {
+    fun generateFunctionBody(irFunction: IRFunction) r: String {
         let output = ""
         
         // Generate variable declarations for allocas
@@ -805,7 +805,7 @@ class CBackend extends Backend {
         return output
     }
     
-    fun generateCInstruction(instruction: IRInstruction) -> String {
+    fun generateCInstruction(instruction: IRInstruction) r: String {
         return match instruction.opcode {
             "store" -> {
                 let value = instruction.operands[0]
@@ -871,7 +871,7 @@ class CBackend extends Backend {
         }
     }
     
-    fun generateFunctionDeclaration(irFunction: IRFunction) -> String {
+    fun generateFunctionDeclaration(irFunction: IRFunction) r: String {
         let returnType = convertIRTypeToC(irFunction.returnType)
         let output = "{returnType} {irFunction.name}("
         
@@ -890,7 +890,7 @@ class CBackend extends Backend {
         return output
     }
     
-    fun generateHeader() -> String {
+    fun generateHeader() r: String {
         let output = ""
         output += "/* Generated C code from Seen compiler */\\n"
         output += "\\n"
@@ -907,7 +907,7 @@ class CBackend extends Backend {
         return output
     }
     
-    fun convertIRTypeToC(irType: IRType) -> String {
+    fun convertIRTypeToC(irType: IRType) r: String {
         return match irType.name {
             "i8" -> "int8_t"
             "i16" -> "int16_t"
@@ -936,7 +936,7 @@ class WASMBackend extends Backend {
     let memoryPages: Int
     var functionIndex: Int
     
-    fun new() -> WASMBackend {
+    fun new() r: WASMBackend {
         super(Target.WASM, "WebAssembly")
         this.exports = Array<String>()
         this.imports = Array<String>()
@@ -945,12 +945,12 @@ class WASMBackend extends Backend {
         initializeDefaults()
     }
     
-    fun initializeDefaults() -> Void {
+    fun initializeDefaults() r: Void {
         imports.push("env.memory")
         exports.push("main")
     }
     
-    fun generateModule(irModule: IRModule) -> String {
+    fun generateModule(irModule: IRModule) r: String {
         let output = ""
         
         output += "(module\\n"
@@ -981,7 +981,7 @@ class WASMBackend extends Backend {
         return output
     }
     
-    fun generateFunction(irFunction: IRFunction) -> String {
+    fun generateFunction(irFunction: IRFunction) r: String {
         let output = ""
         
         output += "  (func ${functionIndex} "
@@ -1009,7 +1009,7 @@ class WASMBackend extends Backend {
         return output
     }
     
-    fun generateWASMBlock(block: IRBasicBlock) -> String {
+    fun generateWASMBlock(block: IRBasicBlock) r: String {
         let output = ""
         
         for instruction in block.instructions {
@@ -1019,7 +1019,7 @@ class WASMBackend extends Backend {
         return output
     }
     
-    fun generateWASMInstruction(instruction: IRInstruction) -> String {
+    fun generateWASMInstruction(instruction: IRInstruction) r: String {
         return match instruction.opcode {
             "add" -> "    i32.add\\n"
             "sub" -> "    i32.sub\\n"
@@ -1035,7 +1035,7 @@ class WASMBackend extends Backend {
         }
     }
     
-    fun generateFunctionTypes(irModule: IRModule) -> String {
+    fun generateFunctionTypes(irModule: IRModule) r: String {
         let output = ""
         
         for (name, function) in irModule.functions.entries() {
@@ -1055,7 +1055,7 @@ class WASMBackend extends Backend {
         return output
     }
     
-    fun convertIRTypeToWASM(irType: IRType) -> String {
+    fun convertIRTypeToWASM(irType: IRType) r: String {
         return match irType.name {
             "i8", "i16", "i32" -> "i32"
             "i64" -> "i64"
@@ -1065,7 +1065,7 @@ class WASMBackend extends Backend {
         }
     }
     
-    fun getFunctionIndex(name: String) -> Int {
+    fun getFunctionIndex(name: String) r: Int {
         // This would normally track function indices properly
         return 0  // Simplified implementation
     }
@@ -1077,7 +1077,7 @@ class FunctionDef {
     let name: String
     let body: Array<String>
     
-    fun new(name: String, body: Array<String>) -> FunctionDef {
+    fun new(name: String, body: Array<String>) r: FunctionDef {
         this.name = name
         this.body = body
     }
@@ -1092,7 +1092,7 @@ class LoopInfo {
     let inductionVar: String
     let body: Array<String>
     
-    fun new(startIndex: Int, endIndex: Int, isSimple: Bool, vectorizable: Bool, iterations: Int, inductionVar: String, body: Array<String>) -> LoopInfo {
+    fun new(startIndex: Int, endIndex: Int, isSimple: Bool, vectorizable: Bool, iterations: Int, inductionVar: String, body: Array<String>) r: LoopInfo {
         this.startIndex = startIndex
         this.endIndex = endIndex
         this.isSimpleCountingLoop = isSimple
@@ -1105,7 +1105,7 @@ class LoopInfo {
 
 // Helper functions for optimization
 
-fun extractFunctionName(line: String) -> String {
+fun extractFunctionName(line: String) r: String {
     // Extract function name from "define i32 @functionName(...)"
     let parts = line.split("@")
     if parts.length() < 2 {
@@ -1119,7 +1119,7 @@ fun extractFunctionName(line: String) -> String {
     return nameWithArgs.substring(0, parenIndex)
 }
 
-fun countOccurrences(text: String, char: String) -> Int {
+fun countOccurrences(text: String, char: String) r: Int {
     let count = 0
     let index = 0
     while index < text.length() {
@@ -1131,7 +1131,7 @@ fun countOccurrences(text: String, char: String) -> Int {
     return count
 }
 
-fun containsFunction(lines: Array<String>) -> Bool {
+fun containsFunction(lines: Array<String>) r: Bool {
     for line in lines {
         if line.contains("call ") {
             return true
@@ -1140,13 +1140,13 @@ fun containsFunction(lines: Array<String>) -> Bool {
     return false
 }
 
-fun inlineCall(line: String, funcDef: FunctionDef) -> String {
+fun inlineCall(line: String, funcDef: FunctionDef) r: String {
     // Replace function call with inlined instructions
     // This is a simplified implementation - real inlining is complex
     return "  ; inlined " + funcDef.name + " here"
 }
 
-fun isInlinedFunction(line: String, functionDefs: Map<String, FunctionDef>) -> Bool {
+fun isInlinedFunction(line: String, functionDefs: Map<String, FunctionDef>) r: Bool {
     for (funcName, _) in functionDefs.entries() {
         if line.contains("define ") and line.contains("@" + funcName) {
             return true
@@ -1155,7 +1155,7 @@ fun isInlinedFunction(line: String, functionDefs: Map<String, FunctionDef>) -> B
     return false
 }
 
-fun analyzeLoop(lines: Array<String>, startIndex: Int) -> LoopInfo {
+fun analyzeLoop(lines: Array<String>, startIndex: Int) r: LoopInfo {
     // Analyze loop structure for optimization opportunities
     let endIndex = startIndex + 10  // Simplified
     let isSimple = true  // Would analyze induction variables
@@ -1167,7 +1167,7 @@ fun analyzeLoop(lines: Array<String>, startIndex: Int) -> LoopInfo {
     return LoopInfo.new(startIndex, endIndex, isSimple, vectorizable, iterations, inductionVar, body)
 }
 
-fun unrollLoop(loopInfo: LoopInfo) -> Array<String> {
+fun unrollLoop(loopInfo: LoopInfo) r: Array<String> {
     // Generate unrolled loop code
     let unrolled = Array<String>()
     unrolled.push("  ; Loop unrolled " + loopInfo.iterations.toString() + " times")
@@ -1184,7 +1184,7 @@ fun unrollLoop(loopInfo: LoopInfo) -> Array<String> {
     return unrolled
 }
 
-fun vectorizeLoop(loopInfo: LoopInfo) -> Array<String> {
+fun vectorizeLoop(loopInfo: LoopInfo) r: Array<String> {
     // Generate vectorized loop code
     let vectorized = Array<String>()
     vectorized.push("  ; Vectorized loop using SIMD instructions")
@@ -1193,7 +1193,7 @@ fun vectorizeLoop(loopInfo: LoopInfo) -> Array<String> {
     return vectorized
 }
 
-fun specializeForConstants(code: String) -> String {
+fun specializeForConstants(code: String) r: String {
     // Create specialized versions of functions for constant parameters
     let lines = code.split("\\n")
     let specialized = Array<String>()
@@ -1210,14 +1210,14 @@ fun specializeForConstants(code: String) -> String {
     return specialized.join("\\n")
 }
 
-fun aggressiveConstantPropagation(code: String) -> String {
+fun aggressiveConstantPropagation(code: String) r: String {
     // Propagate constants through multiple levels
     return code.replace("add i32 %x, 0", "%x")
                .replace("mul i32 %x, 1", "%x")
                .replace("sub i32 %x, 0", "%x")
 }
 
-fun eliminateDeadCode(code: String) -> String {
+fun eliminateDeadCode(code: String) r: String {
     // Remove unused variables and unreachable code
     let lines = code.split("\\n")
     let live = Array<String>()
@@ -1231,47 +1231,47 @@ fun eliminateDeadCode(code: String) -> String {
     return live.join("\\n")
 }
 
-fun strengthReduction(code: String) -> String {
+fun strengthReduction(code: String) r: String {
     // Replace expensive operations with cheaper equivalents
     return code.replace("mul i32 %x, 2", "shl i32 %x, 1")  // x*2 -> x<<1
                .replace("sdiv i32 %x, 2", "ashr i32 %x, 1")  // x/2 -> x>>1
                .replace("mul i32 %x, 4", "shl i32 %x, 2")   // x*4 -> x<<2
 }
 
-fun moveLoopInvariants(code: String) -> String {
+fun moveLoopInvariants(code: String) r: String {
     // Move loop-invariant computations outside loops
     // Advanced analysis required; omitted here by design
     return code
 }
 
-fun optimizeTailCalls(code: String) -> String {
+fun optimizeTailCalls(code: String) r: String {
     // Convert tail recursive calls to jumps
     return code.replace("tail call", "jmp")  // Simplified
 }
 
-fun addRegisterHints(code: String) -> String {
+fun addRegisterHints(code: String) r: String {
     // Add register allocation hints for better performance
     return code.replace("%temp", "%temp.hint.reg")
 }
 
 // Command simulation functions for bootstrap compatibility
 
-fun simulateLinker(args: Array<String>) -> Bool {
+fun simulateLinker(args: Array<String>) r: Bool {
     // Simulate linker behavior
     return args.length() > 0
 }
 
-fun simulateLLC(args: Array<String>) -> Bool {
+fun simulateLLC(args: Array<String>) r: Bool {
     // Simulate LLVM compiler behavior
     return args.length() > 0
 }
 
-fun simulateOptimizer(args: Array<String>) -> Bool {
+fun simulateOptimizer(args: Array<String>) r: Bool {
     // Simulate LLVM optimizer behavior
     return args.length() > 0
 }
 
-fun simulateClang(args: Array<String>) -> Bool {
+fun simulateClang(args: Array<String>) r: Bool {
     // Simulate Clang compiler behavior
     return args.length() > 0
 }

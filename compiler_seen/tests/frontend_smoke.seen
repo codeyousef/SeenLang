@@ -1,8 +1,8 @@
 import bootstrap.frontend.{run_frontend}
 
-fun main() -> Int {
+fun main() r: Int {
     let snippet = """
-fun demo() -> Int {
+fun demo() r: Int {
     let value = 10
     return value
 }

@@ -7,7 +7,7 @@ data FunctionSummary {
     InstructionCount: Int
 }
 
-fun FunctionSummary.new(name: String) -> FunctionSummary {
+fun FunctionSummary.new(name: String) r: FunctionSummary {
     return FunctionSummary{
         Name: name,
         Attributes: Array<String>(),
@@ -20,7 +20,7 @@ data ModuleMetadata {
     Value: String
 }
 
-fun ModuleMetadata.new(key: String, value: String) -> ModuleMetadata {
+fun ModuleMetadata.new(key: String, value: String) r: ModuleMetadata {
     return ModuleMetadata{
         Key: key,
         Value: value
@@ -33,7 +33,7 @@ class Module {
     var functions: Array<FunctionSummary>
     var metadata: Array<ModuleMetadata>
 
-    fun new(name: String = "anonymous", target: String = "unknown") -> Module {
+    fun new(name: String = "anonymous", target: String = "unknown") r: Module {
         return Module{
             name: name,
             target: target,
@@ -42,11 +42,11 @@ class Module {
         }
     }
 
-    fun addFunction(summary: FunctionSummary) -> Void {
+    fun addFunction(summary: FunctionSummary) r: Void {
         functions.push(summary)
     }
 
-    fun addFunctionWithStats(name: String, instructions: Int) -> Void {
+    fun addFunctionWithStats(name: String, instructions: Int) r: Void {
         let summary = FunctionSummary{
             Name: name,
             Attributes: Array<String>(),
@@ -55,11 +55,11 @@ class Module {
         addFunction(summary)
     }
 
-    fun functionCount() -> Int {
+    fun functionCount() r: Int {
         return functions.length()
     }
 
-    fun hasFunction(name: String) -> Bool {
+    fun hasFunction(name: String) r: Bool {
         var index = 0
         while index < functions.length() {
             let summary = functions[index]
@@ -71,7 +71,7 @@ class Module {
         return false
     }
 
-    fun setMetadata(key: String, value: String) -> Void {
+    fun setMetadata(key: String, value: String) r: Void {
         var index = 0
         while index < metadata.length() {
             if metadata[index].Key == key {
@@ -83,7 +83,7 @@ class Module {
         metadata.push(ModuleMetadata.new(key, value))
     }
 
-    fun getMetadata(key: String) -> String {
+    fun getMetadata(key: String) r: String {
         var index = 0
         while index < metadata.length() {
             let entry = metadata[index]
@@ -95,7 +95,7 @@ class Module {
         return ""
     }
 
-    fun describe() -> String {
+    fun describe() r: String {
         return "{name}<{target}> ({functionCount()} functions)"
     }
 }

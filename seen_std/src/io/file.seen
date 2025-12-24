@@ -2,14 +2,14 @@
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
 
-extern fun __FileExists(path: String) -> Bool
-extern fun __DeleteFile(path: String) -> Bool
+extern fun __FileExists(path: String) r: Bool
+extern fun __DeleteFile(path: String) r: Bool
 
 class File {
     var fd: Int
     var path: String
     
-    static fun open(path: String) -> Result<File, String> {
+    static fun open(path: String) r: Result<File, String> {
         let file_desc = __OpenFile(path, "r")
         if file_desc < 0 {
             return Err<File, String>("Failed to open file: " + path)
@@ -17,7 +17,7 @@ class File {
         return Ok<File, String>(File { fd: file_desc, path: path })
     }
     
-    static fun create(path: String) -> Result<File, String> {
+    static fun create(path: String) r: Result<File, String> {
         let file_desc = __OpenFile(path, "w")
         if file_desc < 0 {
             return Err<File, String>("Failed to create file: " + path)
@@ -25,7 +25,7 @@ class File {
         return Ok<File, String>(File { fd: file_desc, path: path })
     }
     
-    fun readToString() -> Result<String, String> {
+    fun readToString() r: Result<String, String> {
         let content = __ReadFile(this.fd)
         if content == "" and __FileError(this.fd) != "" {
             return Err<String, String>("Failed to read file")
@@ -33,7 +33,7 @@ class File {
         return Ok<String, String>(content)
     }
     
-    fun read_bytes(size: Int) -> Result<Array<Int>, String> {
+    fun read_bytes(size: Int) r: Result<Array<Int>, String> {
         let bytes = __ReadFileBytes(this.fd, size)
         if bytes.len() == 0 and __FileError(this.fd) != "" {
             return Err("Failed to read file")
@@ -41,7 +41,7 @@ class File {
         Ok(bytes)
     }
     
-    fun write(content: String) -> Result<Int, String> {
+    fun write(content: String) r: Result<Int, String> {
         let written = __WriteFile(this.fd, content)
         if written < 0 {
             return Err("Failed to write to file")
@@ -49,7 +49,7 @@ class File {
         Ok(written)
     }
     
-    fun write_bytes(bytes: Array<Int>) -> Result<Int, String> {
+    fun write_bytes(bytes: Array<Int>) r: Result<Int, String> {
         let written = __WriteFileBytes(this.fd, bytes)
         if written < 0 {
             return Err("Failed to write bytes to file")
@@ -57,7 +57,7 @@ class File {
         Ok(written)
     }
     
-    fun close() -> Result<Unit, String> {
+    fun close() r: Result<Unit, String> {
         let result = __CloseFile(this.fd)
         if result < 0 {
             return Err("Failed to close file")
@@ -65,7 +65,7 @@ class File {
         Ok(Unit{})
     }
     
-    fun size() -> Result<Int, String> {
+    fun size() r: Result<Int, String> {
         let size = __FileSize(this.fd)
         if size < 0 {
             return Err("Failed to get file size")
@@ -74,7 +74,7 @@ class File {
     }
 }
 
-fun read_to_string(path: String) -> Result<String, String> {
+fun read_to_string(path: String) r: Result<String, String> {
     let res = File.open(path)
     if res.isOk() {
         let f = res.unwrap()
@@ -85,7 +85,7 @@ fun read_to_string(path: String) -> Result<String, String> {
     return Err(res.unwrapErr())
 }
 
-fun write_string(path: String, content: String) -> Result<Unit, String> {
+fun write_string(path: String, content: String) r: Result<Unit, String> {
     let res = File.create(path)
     if res.isOk() {
         let f = res.unwrap()
@@ -100,7 +100,7 @@ fun write_string(path: String, content: String) -> Result<Unit, String> {
     return Err(res.unwrapErr())
 }
 
-fun readText(path: String) -> String {
+fun readText(path: String) r: String {
     let res = read_to_string(path)
     if res.isOk() {
         return res.unwrap()
@@ -108,15 +108,15 @@ fun readText(path: String) -> String {
     return ""
 }
 
-fun writeText(path: String, content: String) -> Bool {
+fun writeText(path: String, content: String) r: Bool {
     let res = write_string(path, content)
     return res.isOk()
 }
 
-fun exists(path: String) -> Bool {
+fun exists(path: String) r: Bool {
     return __FileExists(path)
 }
 
-fun deleteFile(path: String) -> Bool {
+fun deleteFile(path: String) r: Bool {
     return __DeleteFile(path)
 }

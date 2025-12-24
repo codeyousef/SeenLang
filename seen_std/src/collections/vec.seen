@@ -18,7 +18,7 @@ class Vec<T> {
     var totalCapacity: Int
     var nextChunkSize: Int
 
-    static fun new() -> Vec<T> {
+    static fun new() r: Vec<T> {
         return Vec{
             chunks: Array<VecChunk<T>>(),
             capacities: Array<Int>(),
@@ -29,25 +29,25 @@ class Vec<T> {
         }
     }
 
-    static fun withCapacity(capacity: Int) -> Vec<T> {
+    static fun withCapacity(capacity: Int) r: Vec<T> {
         var vec = Vec.new()
         vec.reserve(capacity)
         return vec
     }
 
-    fun len() -> Int {
+    fun len() r: Int {
         return this.length
     }
 
-    fun isEmpty() -> Bool {
+    fun isEmpty() r: Bool {
         return this.length == 0
     }
 
-    fun capacity() -> Int {
+    fun capacity() r: Int {
         return this.totalCapacity
     }
 
-    fun push(value: T) -> Void {
+    fun push(value: T) r: Void {
         if this.length >= this.totalCapacity {
             this.growChunk()
         }
@@ -63,7 +63,7 @@ class Vec<T> {
         this.length = this.length + 1
     }
 
-    fun pop() -> T {
+    fun pop() r: T {
         if this.length == 0 {
             abort("Vec.pop() called on empty Vec")
         }
@@ -80,7 +80,7 @@ class Vec<T> {
         return this.chunks[chunkIndex].values[used]
     }
 
-    fun get(index: Int) -> T {
+    fun get(index: Int) r: T {
         // Inline locateSlot logic to avoid struct allocation overhead
         if index < 0 or index >= this.length {
             abort("Vec index out of bounds")
@@ -99,7 +99,7 @@ class Vec<T> {
         abort("Vec internal error")
     }
 
-    fun set(index: Int, value: T) -> Void {
+    fun set(index: Int, value: T) r: Void {
         // Inline locateSlot logic to avoid struct allocation overhead
         if index < 0 or index >= this.length {
             abort("Vec index out of bounds")
@@ -118,7 +118,7 @@ class Vec<T> {
         abort("Vec internal error")
     }
 
-    fun clear() -> Void {
+    fun clear() r: Void {
         this.chunks = Array<VecChunk<T>>()
         this.capacities = Array<Int>()
         this.usage = Array<Int>()
@@ -127,7 +127,7 @@ class Vec<T> {
         this.nextChunkSize = 8
     }
 
-    fun reserve(capacity: Int) -> Void {
+    fun reserve(capacity: Int) r: Void {
         if capacity <= this.totalCapacity {
             return
         }
@@ -136,7 +136,7 @@ class Vec<T> {
         }
     }
 
-    fun growChunk() -> Void {
+    fun growChunk() r: Void {
         var chunk = VecChunk<T>{ values: Array<T>() }
         var i = 0
         while i < this.nextChunkSize {
@@ -150,7 +150,7 @@ class Vec<T> {
         this.nextChunkSize = this.nextChunkSize * 2
     }
 
-    fun locateSlot(index: Int) -> VecSlot {
+    fun locateSlot(index: Int) r: VecSlot {
         if index < 0 or index >= this.length {
             abort("Vec index out of bounds")
         }

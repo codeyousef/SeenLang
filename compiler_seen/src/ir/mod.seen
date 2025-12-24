@@ -8,14 +8,14 @@
 // import generator.{IRGenerator}
 
 // Utility functions for tests
-fun createIRGenerator() -> IRGenerator {
+fun createIRGenerator() r: IRGenerator {
     return IRGenerator.new()
 }
 
-fun createIRModule(name: String) -> IRModule {
+fun createIRModule(name: String) r: IRModule {
     return IRModule.new(name)
 }
 
-fun createIRBuilder() -> IRBuilder {
+fun createIRBuilder() r: IRBuilder {
     return IRBuilder.new()
 }

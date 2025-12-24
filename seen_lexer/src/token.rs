@@ -95,6 +95,8 @@ pub enum TokenType {
     Comma,
     Semicolon,
     Colon,
+    /// Return type label keyword (e.g., "r:" / "ن:")
+    ReturnTypeLabel,
     Dot,         // .
     Arrow,       // ->
     FatArrow,    // =>

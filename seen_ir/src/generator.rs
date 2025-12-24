@@ -904,6 +904,14 @@ impl IRGenerator {
 
         // Try to infer return type from function name for downstream type tracking
         if let IRValue::Variable(func_name) = &func_val {
+            if func_name == "__ExecuteCommand" {
+                eprintln!("DEBUG: generate_call_expression for __ExecuteCommand");
+                if let Some(return_type) = self.context.function_return_types.get(func_name) {
+                    eprintln!("DEBUG:   found return type: {:?}", return_type);
+                } else {
+                    eprintln!("DEBUG:   return type NOT FOUND");
+                }
+            }
             if let Some(return_type) = self.context.function_return_types.get(func_name).cloned() {
                 self.context.set_register_type(result_reg, return_type);
             }
@@ -1878,6 +1886,9 @@ impl IRGenerator {
             IRType::Void
         };
 
+        // Register the function's return type for call-site type inference
+        self.context.function_return_types.insert(name.to_string(), ir_return_type.clone());
+
         // Create the function
         let mut function = IRFunction::new(name, ir_return_type);
         function = function.extern_function(crate::function::CallingConvention::C);
@@ -2252,6 +2263,7 @@ impl IRGenerator {
             "Float" => IRType::Float,
             "Bool" => IRType::Boolean,
             "String" => IRType::String,
+            "Char" => IRType::Char,
             "()" => IRType::Void,
             "Array" => {
                 // Handle Array<T> generic type

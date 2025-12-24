@@ -5,14 +5,14 @@ class Option<T> {
     var hasValue: Bool
     var storage: Array<T>
 
-    static fun New() -> Option<T> {
+    static fun New() r: Option<T> {
         return Option{
             hasValue: false,
             storage: Array<T>()
         }
     }
 
-    fun Store(value: T) -> Void {
+    fun Store(value: T) r: Void {
         if this.storage.length() == 0 {
             this.storage.push(value)
         } else {
@@ -21,22 +21,22 @@ class Option<T> {
         this.hasValue = true
     }
 
-    fun IsSome() -> Bool {
+    fun IsSome() r: Bool {
         return this.hasValue
     }
 
-    fun IsNone() -> Bool {
+    fun IsNone() r: Bool {
         return not this.hasValue
     }
 
-    fun Unwrap() -> T {
+    fun Unwrap() r: T {
         if not this.hasValue or this.storage.length() == 0 {
             abort("called unwrap() on None option")
         }
         return this.storage[0]
     }
 
-    fun Expect(message: String) -> T {
+    fun Expect(message: String) r: T {
         if this.hasValue and this.storage.length() > 0 {
             return this.storage[0]
         }
@@ -44,14 +44,14 @@ class Option<T> {
         return this.Unwrap()
     }
 
-    fun UnwrapOr(defaultValue: T) -> T {
+    fun UnwrapOr(defaultValue: T) r: T {
         if this.hasValue and this.storage.length() > 0 {
             return this.storage[0]
         }
         return defaultValue
     }
 
-    fun Replace(value: T) -> Option<T> {
+    fun Replace(value: T) r: Option<T> {
         let previous = if this.hasValue and this.storage.length() > 0 {
             Some(this.storage[0])
         } else {
@@ -61,18 +61,18 @@ class Option<T> {
         return previous
     }
 
-    fun Clear() -> Void {
+    fun Clear() r: Void {
         this.storage = Array<T>()
         this.hasValue = false
     }
 }
 
-fun Some<T>(value: T) -> Option<T> {
+fun Some<T>(value: T) r: Option<T> {
     let option = Option.New()
     option.Store(value)
     return option
 }
 
-fun None<T>() -> Option<T> {
+fun None<T>() r: Option<T> {
     return Option.New()
 }

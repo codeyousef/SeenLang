@@ -3,6 +3,6 @@
 
 class Unit {}
 
-fun unit() -> Unit {
+fun unit() r: Unit {
     return Unit{}
 }

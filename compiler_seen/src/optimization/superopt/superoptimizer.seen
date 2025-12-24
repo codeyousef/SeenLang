@@ -4,11 +4,11 @@ import ir.module.Module
 class Superoptimizer extends OptimizationPass {
     let maxLength: Int
 
-    fun new() -> Superoptimizer {
+    fun new() r: Superoptimizer {
         return Superoptimizer{ maxLength: 32 }
     }
 
-    fun Optimize(ir: Module) -> Module {
+    fun Optimize(ir: Module) r: Module {
         println("[superopt] skipping (maxLength={maxLength})")
         return ir
     }

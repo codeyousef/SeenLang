@@ -4,16 +4,16 @@ import ir.module.Module
 class ProfileGuidedOptimizer extends OptimizationPass {
     let passes: Int
 
-    fun new() -> ProfileGuidedOptimizer {
+    fun new() r: ProfileGuidedOptimizer {
         return ProfileGuidedOptimizer{ passes: 2 }
     }
 
-    fun Optimize(ir: Module) -> Module {
+    fun Optimize(ir: Module) r: Module {
         println("[pgo] running profile-guided placeholder ({passes} passes)")
         return ir
     }
 
-    fun collectProfile(ir: Module) -> Void {
+    fun collectProfile(ir: Module) r: Void {
         println("[pgo] collect profile data")
     }
 }

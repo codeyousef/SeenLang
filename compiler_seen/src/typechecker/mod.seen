@@ -8,15 +8,15 @@
 import typechecker.interfaces.{TypeChecker}
 
 // Utility functions for tests
-fun createTypeChecker() -> TypeChecker {
+fun createTypeChecker() r: TypeChecker {
     return TypeChecker.new()
 }
 
-fun typeCheckAST(ast: AST) -> TypeInferenceResult {
+fun typeCheckAST(ast: AST) r: TypeInferenceResult {
     let checker = TypeChecker.new()
     return checker.check(ast)
 }
 
-fun createType(name: String, nullable: Bool = false) -> Type {
+fun createType(name: String, nullable: Bool = false) r: Type {
     return Type.new(name, nullable)
 }

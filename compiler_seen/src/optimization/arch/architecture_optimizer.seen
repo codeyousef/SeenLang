@@ -9,11 +9,11 @@ import ir.module.Module
 class Architecture {
     let name: String
 
-    fun new(name: String) -> Architecture {
+    fun new(name: String) r: Architecture {
         return Architecture{ name: name }
     }
 
-    static fun fromString(label: String) -> Architecture {
+    static fun fromString(label: String) r: Architecture {
         return Architecture.new(label)
     }
 }
@@ -22,15 +22,15 @@ class CPUInfo {
     let features: Array<String>
     let microarch: String
 
-    fun new(features: Array<String>, microarch: String) -> CPUInfo {
+    fun new(features: Array<String>, microarch: String) r: CPUInfo {
         return CPUInfo{ features: features, microarch: microarch }
     }
 
-    static fun detect() -> CPUInfo {
+    static fun detect() r: CPUInfo {
         return CPUInfo.new(["sse2"], "generic")
     }
 
-    fun hasFeature(name: String) -> Bool {
+    fun hasFeature(name: String) r: Bool {
         for feature in features {
             if feature == name {
                 return true
@@ -43,11 +43,11 @@ class CPUInfo {
 class ISAExtensions {
     let extensions: Array<String>
 
-    fun new(extensions: Array<String>) -> ISAExtensions {
+    fun new(extensions: Array<String>) r: ISAExtensions {
         return ISAExtensions{ extensions: extensions }
     }
 
-    static fun detect() -> ISAExtensions {
+    static fun detect() r: ISAExtensions {
         return ISAExtensions.new([])
     }
 }
@@ -57,7 +57,7 @@ class ArchitectureOptimizer extends OptimizationPass {
     let cpuInfo: CPUInfo
     let isa: ISAExtensions
 
-    fun new(target: String) -> ArchitectureOptimizer {
+    fun new(target: String) r: ArchitectureOptimizer {
         return ArchitectureOptimizer{
             architecture: Architecture.fromString(target),
             cpuInfo: CPUInfo.detect(),
@@ -65,7 +65,7 @@ class ArchitectureOptimizer extends OptimizationPass {
         }
     }
 
-    fun optimize(ir: Module) -> Module {
+    fun optimize(ir: Module) r: Module {
         println("[arch] running optimizer for target={architecture.name}")
         applyArchitecturePass(ir)
         applyCommonPasses(ir)
@@ -73,7 +73,7 @@ class ArchitectureOptimizer extends OptimizationPass {
         return ir
     }
 
-    fun applyArchitecturePass(ir: Module) -> Void {
+    fun applyArchitecturePass(ir: Module) r: Void {
         let target = architecture.name
         if target == "x86_64" or target == "x86" or target == "x64" {
             optimizeX86(ir)
@@ -86,14 +86,14 @@ class ArchitectureOptimizer extends OptimizationPass {
         }
     }
 
-    fun applyCommonPasses(ir: Module) -> Void {
+    fun applyCommonPasses(ir: Module) r: Void {
         // Architecture-aware optimization passes (vector, memory, control-flow).
         runVectorPass(ir)
         runMemoryPass(ir)
         runControlFlowPass(ir)
     }
 
-    fun optimizeX86(ir: Module) -> Void {
+    fun optimizeX86(ir: Module) r: Void {
         if cpuInfo.hasFeature("avx512f") {
             println("  - enabling AVX-512 pass")
         } else if cpuInfo.hasFeature("avx2") {
@@ -103,23 +103,23 @@ class ArchitectureOptimizer extends OptimizationPass {
         }
     }
 
-    fun optimizeArm(ir: Module) -> Void {
+    fun optimizeArm(ir: Module) r: Void {
         println("  - enabling NEON/SVE friendly lowering")
     }
 
-    fun optimizeRiscV(ir: Module) -> Void {
+    fun optimizeRiscV(ir: Module) r: Void {
         println("  - enabling RV64 optimizations")
     }
 
-    fun runVectorPass(ir: Module) -> Void {
+    fun runVectorPass(ir: Module) r: Void {
         println("  - vector cleanup pass")
     }
 
-    fun runMemoryPass(ir: Module) -> Void {
+    fun runMemoryPass(ir: Module) r: Void {
         println("  - memory access pass")
     }
 
-    fun runControlFlowPass(ir: Module) -> Void {
+    fun runControlFlowPass(ir: Module) r: Void {
         println("  - control-flow simplification")
     }
 }

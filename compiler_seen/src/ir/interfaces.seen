@@ -10,26 +10,26 @@ class IRValue {
     let isConstant: Bool
     let value: String?
     
-    fun new(name: String, type: IRType, isConstant: Bool = false, value: String? = null) -> IRValue {
+    fun new(name: String, type: IRType, isConstant: Bool = false, value: String? = null) r: IRValue {
         this.name = name
         this.type = type
         this.isConstant = isConstant
         this.value = value
     }
     
-    fun getName() -> String {
+    fun getName() r: String {
         return name
     }
     
-    fun getType() -> IRType {
+    fun getType() r: IRType {
         return type
     }
     
-    fun isConstant() -> Bool {
+    fun isConstant() r: Bool {
         return isConstant
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         if isConstant and value != null {
             return value
         }
@@ -44,30 +44,30 @@ class IRType {
     let isPointer: Bool
     let elementType: IRType?
     
-    fun new(name: String, size: Int, isPointer: Bool = false, elementType: IRType? = null) -> IRType {
+    fun new(name: String, size: Int, isPointer: Bool = false, elementType: IRType? = null) r: IRType {
         this.name = name
         this.size = size
         this.isPointer = isPointer
         this.elementType = elementType
     }
     
-    fun getName() -> String {
+    fun getName() r: String {
         return name
     }
     
-    fun getSize() -> Int {
+    fun getSize() r: Int {
         return size
     }
     
-    fun isPointer() -> Bool {
+    fun isPointer() r: Bool {
         return isPointer
     }
     
-    fun isStruct() -> Bool {
+    fun isStruct() r: Bool {
         return name.startsWith("data")
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         if isPointer {
             var elementDescription = "i8"
             if elementType != null {
@@ -96,22 +96,22 @@ class IRInstruction {
     let operands: Array<IRValue>
     let metadata: Map<String, String>
     
-    fun new(opcode: String, result: IRValue? = null) -> IRInstruction {
+    fun new(opcode: String, result: IRValue? = null) r: IRInstruction {
         this.opcode = opcode
         this.result = result
         this.operands = Array<IRValue>()
         this.metadata = Map<String, String>()
     }
     
-    fun addOperand(operand: IRValue) -> Void {
+    fun addOperand(operand: IRValue) r: Void {
         operands.push(operand)
     }
     
-    fun setMetadata(key: String, value: String) -> Void {
+    fun setMetadata(key: String, value: String) r: Void {
         metadata.put(key, value)
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         let output = ""
         
         if result != null {
@@ -143,26 +143,26 @@ class IRBasicBlock {
     let predecessors: Array<IRBasicBlock>
     let successors: Array<IRBasicBlock>
     
-    fun new(name: String) -> IRBasicBlock {
+    fun new(name: String) r: IRBasicBlock {
         this.name = name
         this.instructions = Array<IRInstruction>()
         this.predecessors = Array<IRBasicBlock>()
         this.successors = Array<IRBasicBlock>()
     }
     
-    fun addInstruction(instruction: IRInstruction) -> Void {
+    fun addInstruction(instruction: IRInstruction) r: Void {
         instructions.push(instruction)
     }
     
-    fun addPredecessor(block: IRBasicBlock) -> Void {
+    fun addPredecessor(block: IRBasicBlock) r: Void {
         predecessors.push(block)
     }
     
-    fun addSuccessor(block: IRBasicBlock) -> Void {
+    fun addSuccessor(block: IRBasicBlock) r: Void {
         successors.push(block)
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         let output = "{name}:\\n"
         for instruction in instructions {
             output += "  {instruction.toString()}\\n"
@@ -180,7 +180,7 @@ class IRFunction {
     let isVarArgs: Bool
     let attributes: Array<String>
     
-    fun new(name: String, returnType: IRType) -> IRFunction {
+    fun new(name: String, returnType: IRType) r: IRFunction {
         this.name = name
         this.returnType = returnType
         this.parameters = Array<IRValue>()
@@ -189,22 +189,22 @@ class IRFunction {
         this.attributes = Array<String>()
     }
     
-    fun addParameter(param: IRValue) -> Void {
+    fun addParameter(param: IRValue) r: Void {
         parameters.push(param)
     }
     
-    fun addBlock(block: IRBasicBlock) -> Void {
+    fun addBlock(block: IRBasicBlock) r: Void {
         blocks.push(block)
     }
     
-    fun getEntryBlock() -> IRBasicBlock? {
+    fun getEntryBlock() r: IRBasicBlock? {
         if blocks.length() > 0 {
             return blocks[0]
         }
         return null
     }
     
-    fun getAllInstructions() -> Array<IRInstruction> {
+    fun getAllInstructions() r: Array<IRInstruction> {
         let allInstructions = Array<IRInstruction>()
         for block in blocks {
             for instruction in block.instructions {
@@ -214,7 +214,7 @@ class IRFunction {
         return allInstructions
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         let output = "define " + returnType.toString() + " @" + name + "("
         
         var paramIndex = 0
@@ -249,7 +249,7 @@ class IRModule {
     let targetTriple: String
     let dataLayout: String
     
-    fun new(name: String) -> IRModule {
+    fun new(name: String) r: IRModule {
         this.name = name
         this.functions = Map<String, IRFunction>()
         this.globalVariables = Map<String, IRValue>()
@@ -261,38 +261,38 @@ class IRModule {
         this.dataLayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
     }
     
-    fun addFunction(function: IRFunction) -> Void {
+    fun addFunction(function: IRFunction) r: Void {
         functions.put(function.name, function)
     }
     
-    fun getFunction(name: String) -> IRFunction? {
+    fun getFunction(name: String) r: IRFunction? {
         return functions.get(name)
     }
     
-    fun addGlobal(name: String, value: IRValue) -> Void {
+    fun addGlobal(name: String, value: IRValue) r: Void {
         globalVariables.put(name, value)
     }
     
-    fun addType(name: String, type: IRType) -> Void {
+    fun addType(name: String, type: IRType) r: Void {
         types.put(name, type)
     }
     
-    fun getType(name: String) -> IRType? {
+    fun getType(name: String) r: IRType? {
         return types.get(name)
     }
     
-    fun addStringConstant(str: String) -> String {
+    fun addStringConstant(str: String) r: String {
         let constName = "@.str.{stringConstants.length()}"
         stringConstants.push(str)
         return constName
     }
     
-    fun addError(error: IRError) -> Void {
+    fun addError(error: IRError) r: Void {
         errors.push(error)
         success = false
     }
     
-    fun verify() -> Bool {
+    fun verify() r: Bool {
         // Basic verification - all functions should have at least one block
         for (funcName, function) in functions.entries() {
             if function.blocks.length() == 0 {
@@ -318,11 +318,11 @@ class IRModule {
         return true
     }
     
-    fun isTerminator(opcode: String) -> Bool {
+    fun isTerminator(opcode: String) r: Bool {
         return opcode == "ret" or opcode == "br" or opcode == "switch" or opcode == "unreachable"
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         let output = "; ModuleID = '{name}'\\n"
         output += "target datalayout = \"{dataLayout}\"\\n"
         output += "target triple = \"{targetTriple}\"\\n\\n"
@@ -350,7 +350,7 @@ class IRModule {
         return output
     }
     
-    fun escapeString(str: String) -> String {
+    fun escapeString(str: String) r: String {
         // Basic string escaping for LLVM IR
         return str.replace("\\", "\\\\")
                  .replace("\"", "\\\"")
@@ -358,7 +358,7 @@ class IRModule {
                  .replace("\t", "\\09")
     }
     
-    static fun newWithErrors(typeErrors: Array<TypeError>) -> IRModule {
+    static fun newWithErrors(typeErrors: Array<TypeError>) r: IRModule {
         let module = IRModule.new("error_module")
         module.success = false
         for typeError in typeErrors {
@@ -375,22 +375,22 @@ class IRError extends Error {
     let column: Int
     let context: String
     
-    fun new(message: String, line: Int, column: Int, context: String = "") -> IRError {
+    fun new(message: String, line: Int, column: Int, context: String = "") r: IRError {
         super(message)
         this.line = line
         this.column = column
         this.context = context
     }
     
-    fun getLine() -> Int {
+    fun getLine() r: Int {
         return line
     }
     
-    fun getColumn() -> Int {
+    fun getColumn() r: Int {
         return column
     }
     
-    fun getContext() -> String {
+    fun getContext() r: String {
         return context
     }
 }
@@ -401,50 +401,50 @@ class IRBuilder {
     var nextRegister: Int
     var nextBlock: Int
     
-    fun new() -> IRBuilder {
+    fun new() r: IRBuilder {
         this.currentBlock = null
         this.nextRegister = 1
         this.nextBlock = 0
     }
 
-    fun appendInstruction(instruction: IRInstruction) -> Void {
+    fun appendInstruction(instruction: IRInstruction) r: Void {
         if currentBlock != null {
             currentBlock.addInstruction(instruction)
         }
     }
 
-    fun resolveNameOrDefault(name: String?, fallback: String) -> String {
+    fun resolveNameOrDefault(name: String?, fallback: String) r: String {
         if name != null {
             return name
         }
         return fallback
     }
 
-    fun resolveNameOrRegister(name: String?) -> String {
+    fun resolveNameOrRegister(name: String?) r: String {
         if name != null {
             return name
         }
         return getNextRegister()
     }
     
-    fun setInsertPoint(block: IRBasicBlock) -> Void {
+    fun setInsertPoint(block: IRBasicBlock) r: Void {
         currentBlock = block
     }
     
-    fun createBlock(name: String? = null) -> IRBasicBlock {
+    fun createBlock(name: String? = null) r: IRBasicBlock {
         let fallbackName = "bb{nextBlock}"
         let blockName = resolveNameOrDefault(name, fallbackName)
         nextBlock += 1
         return IRBasicBlock.new(blockName)
     }
     
-    fun getNextRegister() -> String {
+    fun getNextRegister() r: String {
         let reg = "%{nextRegister}"
         nextRegister += 1
         return reg
     }
     
-    fun createAlloca(type: IRType, name: String? = null) -> IRValue {
+    fun createAlloca(type: IRType, name: String? = null) r: IRValue {
         let regName = resolveNameOrRegister(name)
         let result = IRValue.new(regName, IRType.new("{type.toString()}*", 64, true, type))
         let instruction = IRInstruction.new("alloca", result)
@@ -453,14 +453,14 @@ class IRBuilder {
         return result
     }
     
-    fun createStore(value: IRValue, ptr: IRValue) -> Void {
+    fun createStore(value: IRValue, ptr: IRValue) r: Void {
         let instruction = IRInstruction.new("store")
         instruction.addOperand(value)
         instruction.addOperand(ptr)
         appendInstruction(instruction)
     }
     
-    fun createLoad(ptr: IRValue, name: String? = null) -> IRValue {
+    fun createLoad(ptr: IRValue, name: String? = null) r: IRValue {
         let regName = resolveNameOrRegister(name)
         let pointerElementType = ptr.type.elementType
         var resolvedElementType = IRType.I32
@@ -474,7 +474,7 @@ class IRBuilder {
         return result
     }
     
-    fun createAdd(lhs: IRValue, rhs: IRValue, name: String? = null) -> IRValue {
+    fun createAdd(lhs: IRValue, rhs: IRValue, name: String? = null) r: IRValue {
         let regName = resolveNameOrRegister(name)
         let result = IRValue.new(regName, lhs.type)
         let instruction = IRInstruction.new("add", result)
@@ -484,7 +484,7 @@ class IRBuilder {
         return result
     }
     
-    fun createICmp(predicate: String, lhs: IRValue, rhs: IRValue, name: String? = null) -> IRValue {
+    fun createICmp(predicate: String, lhs: IRValue, rhs: IRValue, name: String? = null) r: IRValue {
         let regName = resolveNameOrRegister(name)
         let result = IRValue.new(regName, IRType.new("i1", 1))
         let instruction = IRInstruction.new("icmp", result)
@@ -495,13 +495,13 @@ class IRBuilder {
         return result
     }
     
-    fun createBr(block: IRBasicBlock) -> Void {
+    fun createBr(block: IRBasicBlock) r: Void {
         let instruction = IRInstruction.new("br")
         instruction.addOperand(IRValue.new("label %{block.name}", IRType.Void, true))
         appendInstruction(instruction)
     }
     
-    fun createCondBr(condition: IRValue, trueBlock: IRBasicBlock, falseBlock: IRBasicBlock) -> Void {
+    fun createCondBr(condition: IRValue, trueBlock: IRBasicBlock, falseBlock: IRBasicBlock) r: Void {
         let instruction = IRInstruction.new("br")
         instruction.addOperand(condition)
         instruction.addOperand(IRValue.new("label %{trueBlock.name}", IRType.Void, true))
@@ -509,7 +509,7 @@ class IRBuilder {
         appendInstruction(instruction)
     }
     
-    fun createRet(value: IRValue? = null) -> Void {
+    fun createRet(value: IRValue? = null) r: Void {
         let instruction = IRInstruction.new("ret")
         if value != null {
             instruction.addOperand(value)
@@ -519,7 +519,7 @@ class IRBuilder {
         appendInstruction(instruction)
     }
     
-    fun createCall(function: String, args: Array<IRValue>, returnType: IRType, name: String? = null) -> IRValue? {
+    fun createCall(function: String, args: Array<IRValue>, returnType: IRType, name: String? = null) r: IRValue? {
         let instruction = IRInstruction.new("call")
         
         if returnType != IRType.Void {
@@ -545,49 +545,49 @@ class IRGenerator {
     let currentFunction: IRFunction?
     let variables: Map<String, IRValue>
     
-    fun new() -> IRGenerator {
+    fun new() r: IRGenerator {
         // Implemented concretely in generator.seen
         return IRGenerator{}
     }
     
-    fun generate(ast: AST, typeResult: TypeInferenceResult) -> IRModule {
+    fun generate(ast: AST, typeResult: TypeInferenceResult) r: IRModule {
         // Default implementation - should be overridden
         return IRModule.new("default")
     }
     
-    fun generateFunction(function: Function) -> IRFunction {
+    fun generateFunction(function: Function) r: IRFunction {
         // Default implementation - empty function
         return IRFunction.new("default", IRType.Void)
     }
     
-    fun generateExpression(expression: Expression) -> IRValue {
+    fun generateExpression(expression: Expression) r: IRValue {
         // Default implementation - void value
         return IRValue.new("temp", IRType.Void)
     }
     
-    fun generateStatement(statement: Statement) -> Void {
+    fun generateStatement(statement: Statement) r: Void {
         // Default implementation - no-op
     }
     
-    fun generateClass(classNode: Class) -> Void {
+    fun generateClass(classNode: Class) r: Void {
         // Default implementation - no-op
     }
     
-    fun convertSeenTypeToIR(seenType: Type) -> IRType {
+    fun convertSeenTypeToIR(seenType: Type) r: IRType {
         // Default implementation - void type
         return IRType.Void
     }
 }
 
 // Utility functions for tests
-fun createIRGenerator() -> IRGenerator {
+fun createIRGenerator() r: IRGenerator {
     return IRGenerator.new()
 }
 
-fun createIRModule(name: String) -> IRModule {
+fun createIRModule(name: String) r: IRModule {
     return IRModule.new(name)
 }
 
-fun createIRBuilder() -> IRBuilder {
+fun createIRBuilder() r: IRBuilder {
     return IRBuilder.new()
 }

@@ -1,8 +1,8 @@
 // import main_compiler.{CompileSeenProgram}
 
-fun main() -> Int {
+fun main() r: Int {
     let source = """
-fun main() -> Int {
+fun main() r: Int {
     return 7
 }
 """
@@ -28,10 +28,10 @@ fun main() -> Int {
     return 0
 }
 
-fun cleanupArtifacts(path: String) -> Void {
+fun cleanupArtifacts(path: String) r: Void {
     DeleteFile(path)
 }
 
-fun ExecuteProgram(path: String) -> Int { return __ExecuteProgram(path) }
-fun DeleteFile(path: String) -> Bool { return __DeleteFile(path) }
-fun getTimestamp() -> String { return __GetTimestamp() }
+fun ExecuteProgram(path: String) r: Int { return __ExecuteProgram(path) }
+fun DeleteFile(path: String) r: Bool { return __DeleteFile(path) }
+fun getTimestamp() r: String { return __GetTimestamp() }

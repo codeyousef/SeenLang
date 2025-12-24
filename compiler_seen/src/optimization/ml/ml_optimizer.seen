@@ -6,7 +6,7 @@ class MLOptimizer {
     var targetHardware: String
     var lastScore: Float
 
-    fun new() -> MLOptimizer {
+    fun new() r: MLOptimizer {
         return MLOptimizer{
             trainingScores: Array<Float>(),
             targetHardware: "generic",
@@ -14,11 +14,11 @@ class MLOptimizer {
         }
     }
 
-    fun Optimize(ir: IR) -> IR? {
+    fun Optimize(ir: IR) r: IR? {
         return this.optimize(ir)
     }
 
-    fun optimize(ir: IR) -> IR? {
+    fun optimize(ir: IR) r: IR? {
         println("[ml-opt] optimizing for {targetHardware}")
         if trainingScores.length() % 2 == 0 {
             return null
@@ -26,7 +26,7 @@ class MLOptimizer {
         return ir
     }
 
-    fun extractFeatures(ir: IR) -> Features {
+    fun extractFeatures(ir: IR) r: Features {
         return Features{
             values: [
                 trainingScores.length().toFloat(),
@@ -36,33 +36,33 @@ class MLOptimizer {
         }
     }
 
-    fun extractFeatures(call: FunctionCall) -> Features {
+    fun extractFeatures(call: FunctionCall) r: Features {
         return Features{
             values: [1.0, 1.0]
         }
     }
 
-    fun predictOptimization(features: Features) -> Bool {
+    fun predictOptimization(features: Features) r: Bool {
         return features.size() % 2 == 0
     }
 
-    fun predict(ir: IR) -> Prediction {
+    fun predict(ir: IR) r: Prediction {
         return Prediction{
             decision: "inline",
             confidence: clampConfidence(lastScore / 2.0)
         }
     }
 
-    fun predictOptimization(input: IR) -> Prediction {
+    fun predictOptimization(input: IR) r: Prediction {
         return predict(input)
     }
 
-    fun train(ir: IR) -> Void {
+    fun train(ir: IR) r: Void {
         trainingScores.push(lastScore)
         lastScore = lastScore + 0.02
     }
 
-    fun trainOnWorkload(ir: IR, iterations: Int) -> Void {
+    fun trainOnWorkload(ir: IR, iterations: Int) r: Void {
         var remaining = iterations
         while remaining > 0 {
             train(ir)
@@ -70,32 +70,32 @@ class MLOptimizer {
         }
     }
 
-    fun trainOnExample(input: IR, optimalDecision: Decision) -> Void {
+    fun trainOnExample(input: IR, optimalDecision: Decision) r: Void {
         train(input)
     }
 
-    fun getTrainingDataSize() -> Int {
+    fun getTrainingDataSize() r: Int {
         return trainingScores.length()
     }
 
-    fun hasLearnedNewPatterns() -> Bool {
+    fun hasLearnedNewPatterns() r: Bool {
         return trainingScores.length() >= 5
     }
 
-    fun evaluate(ir: IR) -> Float {
+    fun evaluate(ir: IR) r: Float {
         return lastScore
     }
 
-    fun suggestOptimization(ir: IR) -> OptimizationSuggestion {
+    fun suggestOptimization(ir: IR) r: OptimizationSuggestion {
         let kind = if trainingScores.length() % 2 == 0 { "loop_unroll" } else { "inline" }
         return OptimizationSuggestion{ type: kind }
     }
 
-    fun setTargetHardware(name: String) -> Void {
+    fun setTargetHardware(name: String) r: Void {
         targetHardware = name
     }
 
-    fun runABTest(ir: IR, strategies: Array<String>) -> ABTestResult {
+    fun runABTest(ir: IR, strategies: Array<String>) r: ABTestResult {
         let winner = if strategies.length() > 0 { strategies[0] } else { "baseline" }
         return ABTestResult{
             winner: winner,
@@ -103,7 +103,7 @@ class MLOptimizer {
         }
     }
 
-    fun detectRegression() -> Bool {
+    fun detectRegression() r: Bool {
         if trainingScores.length() < 2 {
             return false
         }
@@ -112,7 +112,7 @@ class MLOptimizer {
         return latest < previous * 0.95
     }
 
-    fun rollbackToLastGoodState() -> Void {
+    fun rollbackToLastGoodState() r: Void {
         if trainingScores.length() == 0 {
             return
         }
@@ -120,12 +120,12 @@ class MLOptimizer {
         lastScore = 1.0
     }
 
-    fun applyUpdate(update: Update) -> Void {
+    fun applyUpdate(update: Update) r: Void {
         println("[ml-opt] applying update {update.version}")
         lastScore = lastScore + 0.05
     }
 
-    fun analyzePotential(ast: AST) -> List<Diagnostic> {
+    fun analyzePotential(ast: AST) r: List<Diagnostic> {
         return []
     }
 }
@@ -133,11 +133,11 @@ class MLOptimizer {
 class Features {
     var values: Array<Float>
 
-    fun new(values: Array<Float> = Array<Float>()) -> Features {
+    fun new(values: Array<Float> = Array<Float>()) r: Features {
         return Features{ values: values }
     }
 
-    fun size() -> Int {
+    fun size() r: Int {
         return values.length()
     }
 }
@@ -146,7 +146,7 @@ class Prediction {
     var decision: String
     var confidence: Float
 
-    fun new(decision: String = "inline", confidence: Float = 0.5) -> Prediction {
+    fun new(decision: String = "inline", confidence: Float = 0.5) r: Prediction {
         return Prediction{
             decision: decision,
             confidence: confidence
@@ -157,7 +157,7 @@ class Prediction {
 class Decision {
     var action: String
 
-    fun new(action: String = "inline") -> Decision {
+    fun new(action: String = "inline") r: Decision {
         return Decision{ action: action }
     }
 }
@@ -165,7 +165,7 @@ class Decision {
 class Update {
     var version: String
 
-    fun new(version: String = "v1") -> Update {
+    fun new(version: String = "v1") r: Update {
         return Update{ version: version }
     }
 }
@@ -173,7 +173,7 @@ class Update {
 class OptimizationSuggestion {
     var type: String
 
-    fun new(type: String = "inline") -> OptimizationSuggestion {
+    fun new(type: String = "inline") r: OptimizationSuggestion {
         return OptimizationSuggestion{ type: type }
     }
 }
@@ -182,19 +182,19 @@ class ABTestResult {
     var winner: String
     var improvement: Float
 
-    fun new(winner: String = "baseline", improvement: Float = 0.0) -> ABTestResult {
+    fun new(winner: String = "baseline", improvement: Float = 0.0) r: ABTestResult {
         return ABTestResult{
             winner: winner,
             improvement: improvement
         }
     }
 
-    fun hasWinner() -> Bool {
+    fun hasWinner() r: Bool {
         return winner != ""
     }
 }
 
-fun clampConfidence(value: Float) -> Float {
+fun clampConfidence(value: Float) r: Float {
     if value < 0.0 {
         return 0.0
     }

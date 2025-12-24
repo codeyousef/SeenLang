@@ -11,16 +11,16 @@
 
 // Main public interface
 class EGraphOptimizer {
-    fun new() -> EGraphOptimizer {
+    static fun new() r: EGraphOptimizer {
         return EGraphOptimizer{}
     }
     
-    fun Optimize(program: IR) -> IR? {
+    fun Optimize(program: IR) r: IR? {
         let optimizer = EGraphOptimizer{}
         return optimizer.Optimize(program)
     }
     
-    fun OptimizeForTarget(program: IR, target: String) -> IR? {
+    fun OptimizeForTarget(program: IR, target: String) r: IR? {
         let optimizer = EGraphOptimizer{}
         return optimizer.OptimizeForTarget(program, target)
     }

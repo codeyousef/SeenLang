@@ -257,7 +257,7 @@ fn test_parse_simple_lambda_no_params() {
 
 #[test]
 fn test_parse_lambda_single_param() {
-    let expr = parse_expression("{ x -> x * 2 }").unwrap();
+    let expr = parse_expression("{ x => x * 2 }").unwrap();
     match expr {
         Expression::Lambda {
             params,
@@ -290,7 +290,7 @@ fn test_parse_lambda_single_param() {
 
 #[test]
 fn test_parse_lambda_multiple_params() {
-    let expr = parse_expression("{ x, y -> x + y }").unwrap();
+    let expr = parse_expression("{ x, y => x + y }").unwrap();
     match expr {
         Expression::Lambda { params, body, .. } => {
             assert_eq!(params.len(), 2);
@@ -322,7 +322,7 @@ fn test_parse_lambda_multiple_params() {
 
 #[test]
 fn test_parse_lambda_with_explicit_types() {
-    let expr = parse_expression("{ x: Int, y: Int -> x + y }").unwrap();
+    let expr = parse_expression("{ x: Int, y: Int => x + y }").unwrap();
     match expr {
         Expression::Lambda {
             params, body: _, ..
@@ -348,8 +348,8 @@ fn test_parse_lambda_with_explicit_types() {
 
 #[test]
 fn test_parse_lambda_function_type_assignment() {
-    // Test lambda assigned to function type: let predicate: (String) -> Bool = { s -> s.length > 5 }
-    let expr = parse_expression("{ s -> s.length > 5 }").unwrap();
+    // Test lambda assigned to function type: let predicate: (String) -> Bool = { s => s.length > 5 }
+    let expr = parse_expression("{ s => s.length > 5 }").unwrap();
     match expr {
         Expression::Lambda {
             params,
@@ -366,7 +366,7 @@ fn test_parse_lambda_function_type_assignment() {
 
 #[test]
 fn test_parse_lambda_complex_body() {
-    let expr = parse_expression("{ name -> \"Hello, \" + name + \"!\" }").unwrap();
+    let expr = parse_expression("{ name => \"Hello, \" + name + \"!\" }").unwrap();
     match expr {
         Expression::Lambda { params, body, .. } => {
             assert_eq!(params.len(), 1);
@@ -386,7 +386,7 @@ fn test_parse_lambda_complex_body() {
 
 #[test]
 fn test_parse_lambda_block_body() {
-    let expr = parse_expression("{ x -> \n    let y = x * 2 \n    y + 1 \n}").unwrap();
+    let expr = parse_expression("{ x => \n    let y = x * 2 \n    y + 1 \n}").unwrap();
     match expr {
         Expression::Lambda { params, body, .. } => {
             assert_eq!(params.len(), 1);
@@ -406,7 +406,7 @@ fn test_parse_lambda_block_body() {
 
 #[test]
 fn test_parse_nested_lambdas() {
-    let expr = parse_expression("{ x -> { y -> x + y } }").unwrap();
+    let expr = parse_expression("{ x => { y => x + y } }").unwrap();
     match expr {
         Expression::Lambda { params, body, .. } => {
             assert_eq!(params.len(), 1);
@@ -430,7 +430,7 @@ fn test_parse_nested_lambdas() {
 
 #[test]
 fn test_parse_lambda_as_argument() {
-    let expr = parse_expression("map({ x -> x * 2 }, list)").unwrap();
+    let expr = parse_expression("map({ x => x * 2 }, list)").unwrap();
     match expr {
         Expression::Call { callee, args, .. } => {
             match callee.as_ref() {

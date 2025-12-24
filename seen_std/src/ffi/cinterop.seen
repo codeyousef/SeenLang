@@ -4,15 +4,15 @@
 class CString {
     var text: String
 
-    fun new(text: String = "") -> CString {
+    fun new(text: String = "") r: CString {
         return CString{ text: text }
     }
 }
 
-fun toCString(text: String) -> CString {
+fun toCString(text: String) r: CString {
     return CString{ text: text }
 }
 
-fun fromCString(cString: CString) -> String {
+fun fromCString(cString: CString) r: String {
     return cString.text
 }

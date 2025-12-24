@@ -92,7 +92,7 @@ fn test_parse_generic_variable_declaration() {
 
 #[test]
 fn test_parse_generic_function_parameter() {
-    let expr = parse_expression("fun Process(items: List<String>): Bool { return true }").unwrap();
+    let expr = parse_expression("fun Process(items: List<String>) r: Bool { return true }").unwrap();
     match expr {
         Expression::Function { params, .. } => {
             assert_eq!(params.len(), 1);
@@ -113,7 +113,7 @@ fn test_parse_generic_function_parameter() {
 
 #[test]
 fn test_parse_generic_function_return_type() {
-    let expr = parse_expression("fun GetData(): Array<String> { return [] }").unwrap();
+    let expr = parse_expression("fun GetData() r: Array<String> { return [] }").unwrap();
     match expr {
         Expression::Function {
             return_type: Some(ret_type),
@@ -160,7 +160,7 @@ fn test_parse_multiple_generic_parameters() {
 
 #[test]
 fn test_parse_struct_with_generics() {
-    let expr = parse_expression("struct CommandBuffer<S> { phantom: Phantom<S> }").unwrap();
+    let expr = parse_expression("data CommandBuffer<S> { phantom: Phantom<S> }").unwrap();
     match expr {
         Expression::StructDefinition {
             name,
@@ -196,11 +196,11 @@ class Vec<T> {
     var data: Array<T>
     var length: Int
 
-    fun new() -> Vec<T> {
+    fun new() r: Vec<T> {
         return Vec{ data: Array<T>(), length: 0 }
     }
 
-    fun toArray() -> Array<T> {
+    fun toArray() r: Array<T> {
         let out = Array<T>()
         for index in range(0, length) {
             out.push(data[index])
@@ -233,7 +233,7 @@ class Vec<T> {
 #[test]
 fn test_parse_extension_function_with_generics() {
     let source = r#"
-fun <T> List<T>.isEmpty() -> Bool {
+fun <T> List<T>.isEmpty() r: Bool {
     return this.size() == 0
 }
 "#;

@@ -4,11 +4,11 @@
 import str.string.{StringBuilder, lastIndexOf, endsWith}
 import collections.vec.{Vec}
 
-fun isSeparator(ch: Char) -> Bool {
+fun isSeparator(ch: Char) r: Bool {
     return ch == '/' or ch == '\\'
 }
 
-fun isAbsolute(path: String) -> Bool {
+fun isAbsolute(path: String) r: Bool {
     if path.length() == 0 {
         return false
     }
@@ -22,7 +22,7 @@ fun isAbsolute(path: String) -> Bool {
     return false
 }
 
-fun splitComponents(path: String) -> Array<String> {
+fun splitComponents(path: String) r: Array<String> {
     let parts = Array<String>()
     var current = ""
     for ch in path {
@@ -41,7 +41,7 @@ fun splitComponents(path: String) -> Array<String> {
     return parts
 }
 
-fun normalize(path: String) -> String {
+fun normalize(path: String) r: String {
     if path.length() == 0 {
         return "."
     }
@@ -86,7 +86,7 @@ fun normalize(path: String) -> String {
     return builder.toString()
 }
 
-fun join(parts: Array<String>) -> String {
+fun join(parts: Array<String>) r: String {
     if parts.length() == 0 {
         return "."
     }
@@ -116,7 +116,7 @@ fun join(parts: Array<String>) -> String {
     return normalize(builder.toString())
 }
 
-fun trimLeadingSeparators(path: String) -> String {
+fun trimLeadingSeparators(path: String) r: String {
     if path.length() == 0 {
         return path
     }
@@ -130,7 +130,7 @@ fun trimLeadingSeparators(path: String) -> String {
     return path.substring(start, path.length())
 }
 
-fun endsWithSeparator(builder: StringBuilder) -> Bool {
+fun endsWithSeparator(builder: StringBuilder) r: Bool {
     if builder.length() == 0 {
         return false
     }
@@ -139,7 +139,7 @@ fun endsWithSeparator(builder: StringBuilder) -> Bool {
     return isSeparator(last)
 }
 
-fun basename(path: String) -> String {
+fun basename(path: String) r: String {
     if path.length() == 0 {
         return ""
     }
@@ -154,7 +154,7 @@ fun basename(path: String) -> String {
     return components[components.length() - 1]
 }
 
-fun dirname(path: String) -> String {
+fun dirname(path: String) r: String {
     if path.length() == 0 {
         return "."
     }
@@ -192,7 +192,7 @@ fun dirname(path: String) -> String {
     return parent
 }
 
-fun pathExtension(path: String) -> String {
+fun pathExtension(path: String) r: String {
     let name = basename(path)
     let dotIndex = lastIndexOf(name, ".")
     if dotIndex < 0 or dotIndex == 0 {
@@ -201,7 +201,7 @@ fun pathExtension(path: String) -> String {
     return name.substring(dotIndex + 1, name.length())
 }
 
-fun withoutExtension(path: String) -> String {
+fun withoutExtension(path: String) r: String {
     let name = basename(path)
     let dotIndex = lastIndexOf(name, ".")
     if dotIndex <= 0 {

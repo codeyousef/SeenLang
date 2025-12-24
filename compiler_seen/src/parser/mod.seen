@@ -11,11 +11,11 @@ import lexer.lexer.{SeenLexer}
 import parser.ast.{ProgramNode}
 
 // Utility functions for tests
-fun createParser(tokens: Array<Token>) -> RealParser {
+fun createParser(tokens: Array<Token>) r: RealParser {
     return RealParser.new(tokens)
 }
 
-fun parseString(source: String, language: String = "en") -> ProgramNode {
+fun parseString(source: String, language: String = "en") r: ProgramNode {
     let lexer = SeenLexer.new(source, 1, language)
     let tokens = lexer.tokenize()
     let parser = RealParser.new(tokens)

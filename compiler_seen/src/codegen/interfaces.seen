@@ -43,7 +43,7 @@ class CodegenError extends Error {
     let context: String
     let phase: String
     
-    fun new(message: String, line: Int = 0, column: Int = 0, context: String = "", phase: String = "codegen") -> CodegenError {
+    fun new(message: String, line: Int = 0, column: Int = 0, context: String = "", phase: String = "codegen") r: CodegenError {
         super(message)
         this.line = line
         this.column = column
@@ -51,19 +51,19 @@ class CodegenError extends Error {
         this.phase = phase
     }
     
-    fun getLine() -> Int {
+    fun getLine() r: Int {
         return line
     }
     
-    fun getColumn() -> Int {
+    fun getColumn() r: Int {
         return column
     }
     
-    fun getContext() -> String {
+    fun getContext() r: String {
         return context
     }
     
-    fun getPhase() -> String {
+    fun getPhase() r: String {
         return phase
     }
 }
@@ -77,7 +77,7 @@ class CodegenResult {
     let warnings: Array<String>
     let statistics: CodegenStatistics
     
-    fun new(success: Bool, output: String, errors: Array<CodegenError>) -> CodegenResult {
+    fun new(success: Bool, output: String, errors: Array<CodegenError>) r: CodegenResult {
         this.success = success
         this.output = output
         this.binaryOutput = Array<Byte>()
@@ -86,20 +86,20 @@ class CodegenResult {
         this.statistics = CodegenStatistics.new()
     }
     
-    fun addError(error: CodegenError) -> Void {
+    fun addError(error: CodegenError) r: Void {
         errors.push(error)
         success = false
     }
     
-    fun addWarning(warning: String) -> Void {
+    fun addWarning(warning: String) r: Void {
         warnings.push(warning)
     }
     
-    fun setBinaryOutput(data: Array<Byte>) -> Void {
+    fun setBinaryOutput(data: Array<Byte>) r: Void {
         binaryOutput = data
     }
     
-    static fun newWithErrors(typeErrors: Array<TypeError>) -> CodegenResult {
+    static fun newWithErrors(typeErrors: Array<TypeError>) r: CodegenResult {
         let errs = Array<CodegenError>()
         for typeError in typeErrors {
             let codegenError = CodegenError.new(typeError.message, typeError.location.line, typeError.location.column)
@@ -118,7 +118,7 @@ class CodegenStatistics {
     let codegenTime: Int
     let memoryUsed: Int
     
-    fun new() -> CodegenStatistics {
+    fun new() r: CodegenStatistics {
         this.linesGenerated = 0
         this.instructionsGenerated = 0
         this.functionsGenerated = 0
@@ -133,37 +133,37 @@ class Backend {
     let target: Target
     let name: String
     
-    fun new(target: Target, name: String) -> Backend {
+    fun new(target: Target, name: String) r: Backend {
         this.target = target
         this.name = name
     }
     
-    fun generateModule(irModule: IRModule) -> String {
+    fun generateModule(irModule: IRModule) r: String {
         // Default implementation - should be overridden by specific backends
         return "/* Default backend - no implementation */"
     }
     
-    fun generateFunction(irFunction: IRFunction) -> String {
+    fun generateFunction(irFunction: IRFunction) r: String {
         // Default implementation - should be overridden by specific backends
         return "/* Default function generation */"
     }
     
-    fun generateHeader() -> String {
+    fun generateHeader() r: String {
         // Default implementation - should be overridden by specific backends
         return "/* Default header */"
     }
     
-    fun generateFooter() -> String {
+    fun generateFooter() r: String {
         // Default implementation - should be overridden by specific backends
         return "/* Default footer */"
     }
     
-    fun optimizeModule(module: String, level: OptLevel) -> String {
+    fun optimizeModule(module: String, level: OptLevel) r: String {
         // Default implementation - no optimization
         return module
     }
     
-    fun supports(feature: String) -> Bool {
+    fun supports(feature: String) r: Bool {
         // Default implementation - no features supported
         return false
     }
@@ -174,13 +174,13 @@ class LLVMBackend extends Backend {
     let targetTriple: String
     let dataLayout: String
     
-    fun new(target: Target) -> LLVMBackend {
+    fun new(target: Target) r: LLVMBackend {
         super(target, "LLVM")
         this.targetTriple = getTargetTriple(target)
         this.dataLayout = getDataLayout(target)
     }
     
-    fun getTargetTriple(target: Target) -> String {
+    fun getTargetTriple(target: Target) r: String {
         return match target {
             Target.Linux_x86_64 -> "x86_64-unknown-linux-gnu"
             Target.Windows_x86_64 -> "x86_64-pc-windows-msvc"
@@ -191,7 +191,7 @@ class LLVMBackend extends Backend {
         }
     }
     
-    fun getDataLayout(target: Target) -> String {
+    fun getDataLayout(target: Target) r: String {
         return match target {
             Target.Linux_x86_64, Target.Windows_x86_64, Target.macOS_x86_64 -> 
                 "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
@@ -207,14 +207,14 @@ class CBackend extends Backend {
     let includeHeaders: Array<String>
     let customTypes: Map<String, String>
     
-    fun new() -> CBackend {
+    fun new() r: CBackend {
         super(Target.C, "C")
         this.includeHeaders = Array<String>()
         this.customTypes = Map<String, String>()
         initializeHeaders()
     }
     
-    fun initializeHeaders() -> Void {
+    fun initializeHeaders() r: Void {
         includeHeaders.push("#include <stdio.h>")
         includeHeaders.push("#include <stdlib.h>")
         includeHeaders.push("#include <stdint.h>")
@@ -222,7 +222,7 @@ class CBackend extends Backend {
         includeHeaders.push("#include <string.h>")
     }
     
-    fun convertIRTypeToC(irType: IRType) -> String {
+    fun convertIRTypeToC(irType: IRType) r: String {
         return match irType.name {
             "i8" -> "int8_t"
             "i16" -> "int16_t"
@@ -253,22 +253,22 @@ class WASMBackend extends Backend {
     let imports: Array<String>
     let memoryPages: Int
     
-    fun new() -> WASMBackend {
+    fun new() r: WASMBackend {
         super(Target.WASM, "WebAssembly")
         this.exports = Array<String>()
         this.imports = Array<String>()
         this.memoryPages = 16  // 1MB initial memory
     }
     
-    fun addExport(name: String) -> Void {
+    fun addExport(name: String) r: Void {
         exports.push(name)
     }
     
-    fun addImport(module: String, name: String) -> Void {
+    fun addImport(module: String, name: String) r: Void {
         imports.push("{module}.{name}")
     }
     
-    fun generateWASMBinary(textFormat: String) -> Array<Byte> {
+    fun generateWASMBinary(textFormat: String) r: Array<Byte> {
         // Convert WAT (WebAssembly Text) to WASM binary
         // This would use a WAT to WASM compiler
         return Array<Byte>()  // Stub implementation
@@ -283,52 +283,52 @@ class CodeGenerator {
     var targetTriple: String
     var outputFormat: OutputFormat
     
-    fun new() -> CodeGenerator {
+    fun new() r: CodeGenerator {
         // Implemented concretely in generator.seen
         return CodeGenerator{}
     }
     
-    fun generateFromIR(irModule: IRModule, target: Target) -> CodegenResult {
+    fun generateFromIR(irModule: IRModule, target: Target) r: CodegenResult {
         // Default implementation - should be overridden
         return CodegenResult.new(false, "", [])
     }
     
-    fun setOptimizationLevel(level: OptLevel) -> Void {
+    fun setOptimizationLevel(level: OptLevel) r: Void {
         // Default implementation - no-op
     }
     
-    fun setDebugInfo(enabled: Bool) -> Void {
+    fun setDebugInfo(enabled: Bool) r: Void {
         // Default implementation - no-op
     }
     
-    fun setTargetTriple(triple: String) -> Void {
+    fun setTargetTriple(triple: String) r: Void {
         // Default implementation - no-op
     }
     
-    fun setOutputFormat(format: OutputFormat) -> Void {
+    fun setOutputFormat(format: OutputFormat) r: Void {
         // Default implementation - no-op
     }
     
-    fun addBackend(target: Target, backend: Backend) -> Void {
+    fun addBackend(target: Target, backend: Backend) r: Void {
         // Default implementation - no-op
     }
     
-    fun getBackend(target: Target) -> Backend? {
+    fun getBackend(target: Target) r: Backend? {
         // Default implementation - no backend
         return null
     }
     
-    fun optimize(code: String, level: OptLevel) -> String {
+    fun optimize(code: String, level: OptLevel) r: String {
         // Default implementation - no optimization
         return code
     }
     
-    fun link(objectFiles: Array<String>, outputPath: String) -> Bool {
+    fun link(objectFiles: Array<String>, outputPath: String) r: Bool {
         // Default implementation - always fail
         return false
     }
     
-    fun crossCompile(irModule: IRModule, hostTarget: Target, targetTarget: Target) -> CodegenResult {
+    fun crossCompile(irModule: IRModule, hostTarget: Target, targetTarget: Target) r: CodegenResult {
         // Default implementation - not supported
         let error = CodegenError.new("Cross-compilation not supported in default implementation", 0, 0, "", "default")
         return CodegenResult.new(false, "", [error])
@@ -340,13 +340,13 @@ class CodeOptimizer {
     let passes: Array<OptimizationPass>
     let level: OptLevel
     
-    fun new(level: OptLevel) -> CodeOptimizer {
+    fun new(level: OptLevel) r: CodeOptimizer {
         this.level = level
         this.passes = Array<OptimizationPass>()
         initializePasses()
     }
     
-    fun initializePasses() -> Void {
+    fun initializePasses() r: Void {
         // Add optimization passes based on level
         if level >= OptLevel.O1 {
             passes.push(ConstantFoldingPass.new())
@@ -364,7 +364,7 @@ class CodeOptimizer {
         }
     }
     
-    fun optimize(irModule: IRModule) -> IRModule {
+    fun optimize(irModule: IRModule) r: IRModule {
         let optimizedModule = irModule
         
         for pass in passes {
@@ -379,11 +379,11 @@ class CodeOptimizer {
 class OptimizationPass {
     let name: String
     
-    fun new(name: String) -> OptimizationPass {
+    fun new(name: String) r: OptimizationPass {
         this.name = name
     }
     
-    fun run(module: IRModule) -> IRModule {
+    fun run(module: IRModule) r: IRModule {
         // Default implementation - no optimization
         return module
     }
@@ -391,37 +391,37 @@ class OptimizationPass {
 
 // Specific optimization passes
 class ConstantFoldingPass extends OptimizationPass {
-    fun new() -> ConstantFoldingPass {
+    fun new() r: ConstantFoldingPass {
         super("ConstantFolding")
     }
 }
 
 class DeadCodeEliminationPass extends OptimizationPass {
-    fun new() -> DeadCodeEliminationPass {
+    fun new() r: DeadCodeEliminationPass {
         super("DeadCodeElimination")
     }
 }
 
 class InliningPass extends OptimizationPass {
-    fun new() -> InliningPass {
+    fun new() r: InliningPass {
         super("Inlining")
     }
 }
 
 class LoopOptimizationPass extends OptimizationPass {
-    fun new() -> LoopOptimizationPass {
+    fun new() r: LoopOptimizationPass {
         super("LoopOptimization")
     }
 }
 
 class VectorizationPass extends OptimizationPass {
-    fun new() -> VectorizationPass {
+    fun new() r: VectorizationPass {
         super("Vectorization")
     }
 }
 
 class AggressiveInliningPass extends OptimizationPass {
-    fun new() -> AggressiveInliningPass {
+    fun new() r: AggressiveInliningPass {
         super("AggressiveInlining")
     }
 }
@@ -432,42 +432,42 @@ class Linker {
     let libraryPaths: Array<String>
     let libraries: Array<String>
     
-    fun new(target: Target) -> Linker {
+    fun new(target: Target) r: Linker {
         this.target = target
         this.libraryPaths = Array<String>()
         this.libraries = Array<String>()
     }
     
-    fun addLibraryPath(path: String) -> Void {
+    fun addLibraryPath(path: String) r: Void {
         libraryPaths.push(path)
     }
     
-    fun addLibrary(name: String) -> Void {
+    fun addLibrary(name: String) r: Void {
         libraries.push(name)
     }
     
-    fun link(objectFiles: Array<String>, outputPath: String) -> Bool {
+    fun link(objectFiles: Array<String>, outputPath: String) r: Bool {
         // Default implementation - always fail
         return false
     }
     
-    fun linkStatic(objectFiles: Array<String>, staticLibs: Array<String>, outputPath: String) -> Bool {
+    fun linkStatic(objectFiles: Array<String>, staticLibs: Array<String>, outputPath: String) r: Bool {
         // Default implementation - always fail
         return false
     }
     
-    fun linkDynamic(objectFiles: Array<String>, dynamicLibs: Array<String>, outputPath: String) -> Bool {
+    fun linkDynamic(objectFiles: Array<String>, dynamicLibs: Array<String>, outputPath: String) r: Bool {
         // Default implementation - always fail
         return false
     }
 }
 
 // Utility functions for code generation
-fun createCodeGenerator() -> CodeGenerator {
+fun createCodeGenerator() r: CodeGenerator {
     return CodeGenerator.new()
 }
 
-fun createBackend(target: Target) -> Backend {
+fun createBackend(target: Target) r: Backend {
     if target == Target.LLVM_IR or target == Target.Linux_x86_64 or target == Target.Windows_x86_64 or
         target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 {
         return LLVMBackend.new(target) as Backend
@@ -479,10 +479,10 @@ fun createBackend(target: Target) -> Backend {
     return Backend.new(target, "Generic")
 }
 
-fun createOptimizer(level: OptLevel) -> CodeOptimizer {
+fun createOptimizer(level: OptLevel) r: CodeOptimizer {
     return CodeOptimizer.new(level)
 }
 
-fun createLinker(target: Target) -> Linker {
+fun createLinker(target: Target) r: Linker {
     return Linker.new(target)
 }

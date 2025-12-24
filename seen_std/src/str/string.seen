@@ -7,14 +7,14 @@ class StringBuilder {
     var parts: Array<String>
     var totalLength: Int
 
-    fun new() -> StringBuilder {
+    fun new() r: StringBuilder {
         return StringBuilder{
             parts: Array<String>(),
             totalLength: 0
         }
     }
 
-    fun append(text: String) -> Void {
+    fun append(text: String) r: Void {
         if text.length() == 0 {
             return
         }
@@ -22,12 +22,12 @@ class StringBuilder {
         this.parts.push(text)
     }
 
-    fun appendChar(ch: Char) -> Void {
+    fun appendChar(ch: Char) r: Void {
         this.totalLength = this.totalLength + 1
         this.parts.push("{ch}")
     }
 
-    fun appendLine(text: String = "") -> Void {
+    fun appendLine(text: String = "") r: Void {
         if text.length() == 0 {
             append("\n")
         } else {
@@ -35,32 +35,32 @@ class StringBuilder {
         }
     }
 
-    fun appendAll(values: Array<String>) -> Void {
+    fun appendAll(values: Array<String>) r: Void {
         for value in values {
             append(value)
         }
     }
 
-    fun clear() -> Void {
+    fun clear() r: Void {
         this.parts = Array<String>()
         this.totalLength = 0
     }
 
-    fun isEmpty() -> Bool {
+    fun isEmpty() r: Bool {
         return this.totalLength == 0
     }
 
-    fun length() -> Int {
+    fun length() r: Int {
         return totalLength
     }
 
-    fun buildAndClear() -> String {
+    fun buildAndClear() r: String {
         let built = toString()
         clear()
         return built
     }
 
-    fun toString() -> String {
+    fun toString() r: String {
         if parts.length() == 0 {
             return ""
         }
@@ -74,7 +74,7 @@ class StringBuilder {
         return flattened[0]
     }
 
-    fun copyParts(source: Array<String>) -> Array<String> {
+    fun copyParts(source: Array<String>) r: Array<String> {
         let copy = Array<String>()
         for part in source {
             copy.push(part)
@@ -82,7 +82,7 @@ class StringBuilder {
         return copy
     }
 
-    fun mergeAdjacent(values: Array<String>) -> Array<String> {
+    fun mergeAdjacent(values: Array<String>) r: Array<String> {
         let merged = Array<String>()
         var index = 0
         while index < values.length() {
@@ -98,7 +98,7 @@ class StringBuilder {
     }
 }
 
-fun split(text: String, delimiter: String) -> Array<String> {
+fun split(text: String, delimiter: String) r: Array<String> {
     let pieces = Array<String>()
     let delimLength = delimiter.length()
     if delimLength == 0 {
@@ -126,11 +126,11 @@ fun split(text: String, delimiter: String) -> Array<String> {
     return pieces
 }
 
-fun trim(text: String) -> String {
+fun trim(text: String) r: String {
     return trimEnd(trimStart(text))
 }
 
-fun trimStart(text: String) -> String {
+fun trimStart(text: String) r: String {
     let length = text.length()
     if length == 0 {
         return text
@@ -148,7 +148,7 @@ fun trimStart(text: String) -> String {
     return text.substring(start, length)
 }
 
-fun trimEnd(text: String) -> String {
+fun trimEnd(text: String) r: String {
     let length = text.length()
     if length == 0 {
         return text
@@ -166,7 +166,7 @@ fun trimEnd(text: String) -> String {
     return text.substring(0, end + 1)
 }
 
-fun isBlank(text: String) -> Bool {
+fun isBlank(text: String) r: Bool {
     for ch in text {
         if not isWhitespace(ch) {
             return false
@@ -175,18 +175,18 @@ fun isBlank(text: String) -> Bool {
     return true
 }
 
-fun contains(text: String, needle: String) -> Bool {
+fun contains(text: String, needle: String) r: Bool {
     return indexOf(text, needle, 0) >= 0
 }
 
-fun startsWith(text: String, prefix: String) -> Bool {
+fun startsWith(text: String, prefix: String) r: Bool {
     if prefix.length() > text.length() {
         return false
     }
     return text.substring(0, prefix.length()) == prefix
 }
 
-fun endsWith(text: String, suffix: String) -> Bool {
+fun endsWith(text: String, suffix: String) r: Bool {
     if suffix.length() > text.length() {
         return false
     }
@@ -194,7 +194,7 @@ fun endsWith(text: String, suffix: String) -> Bool {
     return text.substring(start, text.length()) == suffix
 }
 
-fun indexOf(text: String, needle: String, startIndex: Int = 0) -> Int {
+fun indexOf(text: String, needle: String, startIndex: Int = 0) r: Int {
     let needleLength = needle.length()
     if needleLength == 0 {
         if startIndex < 0 {
@@ -222,7 +222,7 @@ fun indexOf(text: String, needle: String, startIndex: Int = 0) -> Int {
     return -1
 }
 
-fun lastIndexOf(text: String, needle: String) -> Int {
+fun lastIndexOf(text: String, needle: String) r: Int {
     let needleLength = needle.length()
     if needleLength == 0 {
         return text.length()
@@ -240,7 +240,7 @@ fun lastIndexOf(text: String, needle: String) -> Int {
     return -1
 }
 
-fun lines(text: String, dropEmpty: Bool = false) -> Array<String> {
+fun lines(text: String, dropEmpty: Bool = false) r: Array<String> {
     let result = Array<String>()
     let length = text.length()
     if length == 0 {
@@ -274,7 +274,7 @@ fun lines(text: String, dropEmpty: Bool = false) -> Array<String> {
     return result
 }
 
-fun splitWhitespace(text: String, dropEmpty: Bool = true) -> Array<String> {
+fun splitWhitespace(text: String, dropEmpty: Bool = true) r: Array<String> {
     let result = Array<String>()
     let length = text.length()
     if length == 0 {
@@ -307,11 +307,11 @@ fun splitWhitespace(text: String, dropEmpty: Bool = true) -> Array<String> {
     return result
 }
 
-fun words(text: String) -> Array<String> {
+fun words(text: String) r: Array<String> {
     return splitWhitespace(text, true)
 }
 
-fun replaceFirst(text: String, target: String, replacement: String) -> String {
+fun replaceFirst(text: String, target: String, replacement: String) r: String {
     let index = indexOf(text, target, 0)
     if index < 0 {
         return text
@@ -321,7 +321,7 @@ fun replaceFirst(text: String, target: String, replacement: String) -> String {
     return before + replacement + after
 }
 
-fun replaceAll(text: String, target: String, replacement: String) -> String {
+fun replaceAll(text: String, target: String, replacement: String) r: String {
     if target.length() == 0 {
         return text
     }
@@ -345,39 +345,39 @@ fun replaceAll(text: String, target: String, replacement: String) -> String {
     return builder.toString()
 }
 
-fun replace(text: String, target: String, replacement: String) -> String {
+fun replace(text: String, target: String, replacement: String) r: String {
     return replaceAll(text, target, replacement)
 }
 
-fun removePrefix(text: String, prefix: String) -> String {
+fun removePrefix(text: String, prefix: String) r: String {
     if prefix.length() == 0 or not startsWith(text, prefix) {
         return text
     }
     return text.substring(prefix.length(), text.length())
 }
 
-fun removeSuffix(text: String, suffix: String) -> String {
+fun removeSuffix(text: String, suffix: String) r: String {
     if suffix.length() == 0 or not endsWith(text, suffix) {
         return text
     }
     return text.substring(0, text.length() - suffix.length())
 }
 
-fun ensurePrefix(text: String, prefix: String) -> String {
+fun ensurePrefix(text: String, prefix: String) r: String {
     if startsWith(text, prefix) {
         return text
     }
     return prefix + text
 }
 
-fun ensureSuffix(text: String, suffix: String) -> String {
+fun ensureSuffix(text: String, suffix: String) r: String {
     if endsWith(text, suffix) {
         return text
     }
     return text + suffix
 }
 
-fun padStart(text: String, width: Int, padChar: Char = ' ') -> String {
+fun padStart(text: String, width: Int, padChar: Char = ' ') r: String {
     if width <= text.length() {
         return text
     }
@@ -391,7 +391,7 @@ fun padStart(text: String, width: Int, padChar: Char = ' ') -> String {
     return builder.toString()
 }
 
-fun padEnd(text: String, width: Int, padChar: Char = ' ') -> String {
+fun padEnd(text: String, width: Int, padChar: Char = ' ') r: String {
     if width <= text.length() {
         return text
     }
@@ -405,7 +405,7 @@ fun padEnd(text: String, width: Int, padChar: Char = ' ') -> String {
     return builder.toString()
 }
 
-fun repeat(text: String, times: Int) -> String {
+fun repeat(text: String, times: Int) r: String {
     if times <= 0 {
         return ""
     }
@@ -416,7 +416,7 @@ fun repeat(text: String, times: Int) -> String {
     return result
 }
 
-fun join(parts: Array<String>, separator: String) -> String {
+fun join(parts: Array<String>, separator: String) r: String {
     if parts.length() == 0 {
         return ""
     }
@@ -431,19 +431,19 @@ fun join(parts: Array<String>, separator: String) -> String {
 }
 
 // Extension method for Array<String>
-fun Array<String>.join(separator: String) -> String {
+fun Array<String>.join(separator: String) r: String {
     return join(this, separator)
 }
 
-fun String.toCString() -> CString {
+fun String.toCString() r: CString {
     return toCString(this)
 }
 
-fun CString.toSeenString() -> String {
+fun CString.toSeenString() r: String {
     return fromCString(this)
 }
 
-fun isWhitespace(ch: Char) -> Bool {
+fun isWhitespace(ch: Char) r: Bool {
     if ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' {
         return true
     }

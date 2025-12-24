@@ -1072,6 +1072,10 @@ impl Parser {
             }
         }
 
+        if self.check(&TokenType::BitwiseOr) {
+            return self.parse_pipe_lambda();
+        }
+
         if self.check(&TokenType::LeftParen) {
             self.advance();
             let expr = self.parse_expression()?;
@@ -1977,16 +1981,34 @@ impl Parser {
         let params = self.parse_parameters()?;
         self.expect(&TokenType::RightParen)?;
 
-        let return_type = if self.check(&TokenType::Arrow) {
+        let return_type = if self.check(&TokenType::ReturnTypeLabel) {
             self.advance();
             Some(self.parse_type()?)
-        } else if self.check(&TokenType::Colon) {
-            // Support both : and -> for backward compatibility
-            self.advance();
-            Some(self.parse_type()?)
+        } else if self.check(&TokenType::Arrow) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "return type label 'r:'".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
         } else {
             None
         };
+
+        if self.check(&TokenType::Colon) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "return type label 'r:'".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
+
+        if self.check(&TokenType::Colon) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "return type label 'r:'".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
+        }
 
         // Parse 'uses' clause for effects
         let uses_effects = if self.check_keyword(KeywordType::KeywordUses) {
@@ -2185,6 +2207,56 @@ impl Parser {
         }
     }
 
+    fn parse_pipe_lambda(&mut self) -> ParseResult<Expression> {
+        let pos = self.current.position.clone();
+        self.expect(&TokenType::BitwiseOr)?;
+
+        let mut params = Vec::new();
+        if !self.check(&TokenType::BitwiseOr) {
+            loop {
+                let param_name = self.expect_identifier()?;
+                let type_annotation = if self.check(&TokenType::Colon) {
+                    self.advance();
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+
+                params.push(Parameter {
+                    name: param_name,
+                    type_annotation,
+                    default_value: None,
+                    memory_modifier: None,
+                });
+
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+        }
+
+        self.expect(&TokenType::BitwiseOr)?;
+
+        let return_type = if self.check(&TokenType::ReturnTypeLabel) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.expect(&TokenType::FatArrow)?;
+        let body = self.parse_expression()?;
+
+        Ok(Expression::Lambda {
+            params,
+            body: Box::new(body),
+            return_type,
+            pos,
+        })
+    }
+
     /// Parse lambda expression
     fn parse_lambda(&mut self) -> ParseResult<Expression> {
         let pos = self.current.position.clone();
@@ -2203,7 +2275,10 @@ impl Parser {
             // Empty lambda: { }
             Vec::new()
         } else if self.is_at_lambda_arrow() {
-            // No parameters, direct arrow: { -> body }
+            // No parameters, direct arrow: { => body }
+            Vec::new()
+        } else if self.check(&TokenType::ReturnTypeLabel) {
+            // No parameters, explicit return type label
             Vec::new()
         } else {
             // Check if this might be a trailing lambda with implicit 'it' parameter
@@ -2263,9 +2338,9 @@ impl Parser {
         let return_type = if self.check(&TokenType::RightBrace) && params.is_empty() {
             // Empty lambda with no return type
             None
-        } else if self.check(&TokenType::Colon) {
-            // Return type specified: { params }: ReturnType -> body
-            self.advance(); // consume ':'
+        } else if self.check(&TokenType::ReturnTypeLabel) {
+            // Return type specified: { params } r: ReturnType => body
+            self.advance(); // consume return-type label
             Some(self.parse_type()?)
         } else {
             None
@@ -2275,8 +2350,8 @@ impl Parser {
         let has_implicit_it = params.len() == 1 && params[0].name == "it";
 
         if !has_implicit_it && (!params.is_empty() || return_type.is_some()) {
-            self.expect(&TokenType::Arrow)?;
-        } else if !has_implicit_it && self.check(&TokenType::Arrow) {
+            self.expect(&TokenType::FatArrow)?;
+        } else if !has_implicit_it && self.check(&TokenType::FatArrow) {
             // Empty parameter list with explicit arrow
             self.advance();
         }
@@ -2301,7 +2376,7 @@ impl Parser {
         let mut params = Vec::new();
 
         // Check if we have parameters before the arrow
-        if !self.check(&TokenType::Arrow) {
+        if !self.check(&TokenType::FatArrow) && !self.check(&TokenType::ReturnTypeLabel) {
             // Parse first parameter
             if let Ok(param_name) = self.expect_identifier() {
                 let type_annotation = if self.check(&TokenType::Colon) {
@@ -2339,8 +2414,16 @@ impl Parser {
             }
         }
 
-        // Expect arrow
-        self.expect(&TokenType::Arrow)?;
+        // Optional explicit return type label
+        let return_type = if self.check(&TokenType::ReturnTypeLabel) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        // Expect fat arrow
+        self.expect(&TokenType::FatArrow)?;
 
         // Parse body
         let body = self.parse_lambda_body()?;
@@ -2351,7 +2434,7 @@ impl Parser {
         Ok(Expression::Lambda {
             params,
             body: Box::new(body),
-            return_type: None,
+            return_type,
             pos,
         })
     }
@@ -3145,7 +3228,7 @@ impl Parser {
 
     /// Check if we're at a lambda arrow (->)
     fn is_at_lambda_arrow(&self) -> bool {
-        self.check(&TokenType::Arrow)
+        self.check(&TokenType::FatArrow)
     }
 
     /// Check if current expression context supports trailing lambda syntax
@@ -3172,8 +3255,13 @@ impl Parser {
         // Increase lookahead distance for typed parameters: { x: Int, y: String -> ... }
         for i in 0..10 {
             match self.peek_ahead(i) {
-                Some(token) if matches!(token.token_type, TokenType::Arrow) => {
-                    return false; // Found arrow, explicit parameters
+                Some(token)
+                    if matches!(
+                        token.token_type,
+                        TokenType::FatArrow | TokenType::ReturnTypeLabel
+                    ) =>
+                {
+                    return false; // Found explicit lambda syntax
                 }
                 Some(token) if matches!(token.token_type, TokenType::RightBrace) => {
                     return true; // Found closing brace before arrow, implicit it
@@ -3201,7 +3289,7 @@ impl Parser {
         match &self.current.token_type {
              TokenType::LeftBrace => nesting += 1,
              TokenType::RightBrace => return false, // Empty block {}
-             TokenType::Arrow => return true, // { -> ... }
+             TokenType::FatArrow => return true, // { => ... }
              TokenType::PrivateIdentifier(name) | TokenType::PublicIdentifier(name) => {
                  if name == "it" { found_it_reference = true; }
              }
@@ -3235,7 +3323,7 @@ impl Parser {
                             break;
                         }
                     }
-                    TokenType::Arrow => {
+                    TokenType::FatArrow => {
                         if nesting == 0 {
                             found_arrow = true;
                             break;
@@ -3308,7 +3396,7 @@ impl Parser {
                             return false;
                         }
                     }
-                    TokenType::Arrow => {
+                    TokenType::FatArrow => {
                         if nesting == 0 {
                             // Found arrow at top level - it IS a lambda
                             for t in lookahead_tokens.into_iter().rev() {
@@ -3617,8 +3705,8 @@ impl Parser {
             // Parse select case: channel <- pattern => handler
             let channel = Box::new(self.parse_expression()?);
 
-            // Expect channel receive operator (using <- which might be Arrow)
-            self.expect(&TokenType::Arrow)?;
+            // Expect channel receive operator (currently aligned with fat-arrow syntax)
+            self.expect(&TokenType::FatArrow)?;
 
             let pattern = self.parse_pattern()?;
 
@@ -4208,9 +4296,15 @@ impl Parser {
         let parameters = self.parse_parameters()?;
         self.expect(&TokenType::RightParen)?;
 
-        let return_type = if self.check(&TokenType::Arrow) || self.check(&TokenType::Colon) {
+        let return_type = if self.check(&TokenType::ReturnTypeLabel) {
             self.advance();
             Some(self.parse_type()?)
+        } else if self.check(&TokenType::Arrow) {
+            return Err(ParseError::UnexpectedToken {
+                expected: "return type label 'r:'".to_string(),
+                found: self.current.token_type.clone(),
+                pos: self.current.position.clone(),
+            });
         } else {
             None
         };

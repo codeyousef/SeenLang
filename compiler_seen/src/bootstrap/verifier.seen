@@ -7,26 +7,26 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import str.string.{replace}
 
-fun FileExists(path: String) -> Bool {
+fun FileExists(path: String) r: Bool {
     let escaped = escapePath(path)
     let command = "test -f '{escaped}'"
     let result = execCommand(command)
     return commandWasSuccessful(result)
 }
 
-fun GetFileSize(path: String) -> Int {
+fun GetFileSize(path: String) r: Int {
     return readText(path).length()
 }
 
-fun GetFileHash(path: String) -> String {
+fun GetFileHash(path: String) r: String {
     return hashToHex(readText(path))
 }
 
-fun escapePath(path: String) -> String {
+fun escapePath(path: String) r: String {
     return replace(path, "'", "'\\''")
 }
 
-fun hashToHex(data: String) -> String {
+fun hashToHex(data: String) r: String {
     var hash = 2166136261
     var index = 0
     while index < data.length() {
@@ -39,7 +39,7 @@ fun hashToHex(data: String) -> String {
     return formatHash(hash)
 }
 
-fun formatHash(value: Int) -> String {
+fun formatHash(value: Int) r: String {
     let hexChars = "0123456789abcdef"
     var remaining = if value < 0 { -value } else { value }
     var result = ""
@@ -59,7 +59,7 @@ class BootstrapVerifier {
     var CurrentStage: Int
     var LogPath: String
     
-    fun new(logPath: String = "bootstrap_verification.log") -> BootstrapVerifier {
+    fun new(logPath: String = "bootstrap_verification.log") r: BootstrapVerifier {
         let verifier = BootstrapVerifier{
             Stages: Array<CompilerInfo>(),
             CurrentStage: 0,
@@ -69,14 +69,14 @@ class BootstrapVerifier {
         return verifier
     }
     
-    fun addStage(compilerPath: String, name: String) -> Void {
+    fun addStage(compilerPath: String, name: String) r: Void {
         let stage = CompilerInfo.new(compilerPath, name, CurrentStage)
         Stages.push(stage)
         CurrentStage = CurrentStage + 1
         log("Added stage {CurrentStage}: {name} at {compilerPath}")
     }
     
-    fun verify() -> Result<VerificationResult, String> {
+    fun verify() r: Result<VerificationResult, String> {
         log("\\n🚀 Starting 3-stage bootstrap verification...")
         
         if Stages.length() < 3 {
@@ -135,7 +135,7 @@ class BootstrapVerifier {
         }
     }
     
-    fun compileWithStage(stageIndex: Int, sourcePath: String, outputPath: String) -> Result<StageArtifact, String> {
+    fun compileWithStage(stageIndex: Int, sourcePath: String, outputPath: String) r: Result<StageArtifact, String> {
         let compiler = Stages[stageIndex]
         log("\\n📦 Compiling with {compiler.name}...")
         
@@ -167,7 +167,7 @@ class BootstrapVerifier {
         }
     }
     
-    fun compareExecutables(path1: String, path2: String) -> Result<BinaryComparison, String> {
+    fun compareExecutables(path1: String, path2: String) r: Result<BinaryComparison, String> {
         log("\\n🔍 Comparing binaries: {path1} vs {path2}")
         
         if !FileExists(path1) or !FileExists(path2) {
@@ -194,7 +194,7 @@ class BootstrapVerifier {
         ))
     }
     
-    fun log(message: String) -> Void {
+    fun log(message: String) r: Void {
         println(message)
         let appended = appendText(LogPath, "{message}\\n")
         if not appended {
@@ -203,11 +203,11 @@ class BootstrapVerifier {
         return
     }
     
-    fun getStageCount() -> Int {
+    fun getStageCount() r: Int {
         return Stages.length()
     }
     
-    fun getStage(index: Int) -> Option<CompilerInfo> {
+    fun getStage(index: Int) r: Option<CompilerInfo> {
         if index >= 0 and index < Stages.length() {
             return Some(Stages[index])
         }
@@ -221,7 +221,7 @@ data CompilerInfo {
     StageNumber: Int
 }
 
-fun CompilerInfo.new(path: String, name: String, stageNumber: Int) -> CompilerInfo {
+fun CompilerInfo.new(path: String, name: String, stageNumber: Int) r: CompilerInfo {
     return CompilerInfo{
         Path: path,
         Name: name,
@@ -236,7 +236,7 @@ data VerificationResult {
     StageArtifacts: Map<Int, StageArtifact>
 }
 
-fun VerificationResult.new() -> VerificationResult {
+fun VerificationResult.new() r: VerificationResult {
     return VerificationResult{
         Message: "",
         BinaryIdentical: false,
@@ -245,11 +245,11 @@ fun VerificationResult.new() -> VerificationResult {
     }
 }
 
-fun VerificationResult.addStageArtifact(stage: Int, artifact: StageArtifact) -> Void {
+fun VerificationResult.addStageArtifact(stage: Int, artifact: StageArtifact) r: Void {
     StageArtifacts.put(stage, artifact)
 }
 
-fun VerificationResult.getStageArtifact(stage: Int) -> Option<StageArtifact> {
+fun VerificationResult.getStageArtifact(stage: Int) r: Option<StageArtifact> {
     let artifact = StageArtifacts.get(stage)
     if artifact != null {
         return Some(artifact)
@@ -264,7 +264,7 @@ data StageArtifact {
     CompilationTime: Int
 }
 
-fun StageArtifact.new(outputPath: String, hash: String, size: Int, compilationTime: Int) -> StageArtifact {
+fun StageArtifact.new(outputPath: String, hash: String, size: Int, compilationTime: Int) r: StageArtifact {
     return StageArtifact{
         OutputPath: outputPath,
         Hash: hash,
@@ -282,7 +282,7 @@ data BinaryComparison {
     Size: Int
 }
 
-fun BinaryComparison.new(identical: Bool, hashMatch: Bool, stage2Hash: String, stage3Hash: String, hash: String, size: Int) -> BinaryComparison {
+fun BinaryComparison.new(identical: Bool, hashMatch: Bool, stage2Hash: String, stage3Hash: String, hash: String, size: Int) r: BinaryComparison {
     return BinaryComparison{
         Identical: identical,
         HashMatch: hashMatch,
@@ -293,32 +293,32 @@ fun BinaryComparison.new(identical: Bool, hashMatch: Bool, stage2Hash: String, s
     }
 }
 
-fun BinaryComparison.isIdentical(self: BinaryComparison) -> Bool {
+fun BinaryComparison.isIdentical(self: BinaryComparison) r: Bool {
     return self.Identical
 }
 
-fun BinaryComparison.hashValue(self: BinaryComparison) -> String {
+fun BinaryComparison.hashValue(self: BinaryComparison) r: String {
     return self.Hash
 }
 
-fun BinaryComparison.sizeBytes(self: BinaryComparison) -> Int {
+fun BinaryComparison.sizeBytes(self: BinaryComparison) r: Int {
     return self.Size
 }
 
-fun BinaryComparison.stage2HashValue(self: BinaryComparison) -> String {
+fun BinaryComparison.stage2HashValue(self: BinaryComparison) r: String {
     return self.Stage2Hash
 }
 
-fun BinaryComparison.stage3HashValue(self: BinaryComparison) -> String {
+fun BinaryComparison.stage3HashValue(self: BinaryComparison) r: String {
     return self.Stage3Hash
 }
 
-fun BinaryComparison.hashesMatch(self: BinaryComparison) -> Bool {
+fun BinaryComparison.hashesMatch(self: BinaryComparison) r: Bool {
     return self.HashMatch
 }
 
 // Utility functions for bootstrap verification
-fun runBootstrapVerification() -> Result<VerificationResult, String> {
+fun runBootstrapVerification() r: Result<VerificationResult, String> {
     let verifier = BootstrapVerifier.new()
     
     // Add the three stages
@@ -347,7 +347,7 @@ fun runBootstrapVerification() -> Result<VerificationResult, String> {
 }
 
 // Helper functions that will be implemented by the runtime
-fun getCurrentTime() -> Int {
+fun getCurrentTime() r: Int {
     // Returns current time in milliseconds since epoch using system clock
     let result = execCommand("date +%s")
     if commandWasSuccessful(result) {

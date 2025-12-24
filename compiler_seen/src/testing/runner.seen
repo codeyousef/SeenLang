@@ -1,9 +1,9 @@
 class TestRunner {
-    fun new() -> TestRunner {
+    fun new() r: TestRunner {
         return TestRunner{}
     }
 
-    fun runAllTests() -> Bool {
+    fun runAllTests() r: Bool {
         println("[test-runner] no tests registered")
         return true
     }

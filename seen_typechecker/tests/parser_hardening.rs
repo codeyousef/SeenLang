@@ -27,6 +27,7 @@ fn method_resolution_handles_instance_calls() {
             is_public: false,
             annotations: Vec::new(),
         }],
+        attributes: Vec::new(),
         doc_comment: None,
         pos: p,
     };
@@ -48,6 +49,7 @@ fn method_resolution_handles_instance_calls() {
         is_pure: true,
         is_external: false,
         is_public: true,
+        attributes: Vec::new(),
         doc_comment: None,
         pos: p,
     };
@@ -101,6 +103,7 @@ fn enum_variant_access_round_trips_through_typechecker() {
                 fields: None,
             },
         ],
+        attributes: Vec::new(),
         doc_comment: None,
         pos: p,
     };

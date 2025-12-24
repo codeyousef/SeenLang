@@ -1,21 +1,21 @@
 // Rewrite Rules System - Bootstrap Compatible
 
 class RewriteRule {
-    fun new(pattern: String, replacement: String, name: String) -> RewriteRule {
+    static fun new(pattern: String, replacement: String, name: String) r: RewriteRule {
         return RewriteRule{}
     }
     
-    fun getName() -> String {
+    fun getName() r: String {
         return "commutativity"
     }
 }
 
 class RewriteRuleEngine {
-    fun new() -> RewriteRuleEngine {
+    static fun new() r: RewriteRuleEngine {
         return RewriteRuleEngine{}
     }
     
-    fun loadStandardRules() -> List<RewriteRule> {
+    fun loadStandardRules() r: List<RewriteRule> {
         return []
     }
 }

@@ -1,9 +1,9 @@
 class Z3Solver {
-    fun new() -> Z3Solver {
+    static fun new() r: Z3Solver {
         return Z3Solver{}
     }
 
-    fun solve(formula: Any) -> Bool {
+    fun solve(formula: Any) r: Bool {
         println("[z3] skipping solve")
         return false
     }

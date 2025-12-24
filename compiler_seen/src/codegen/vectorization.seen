@@ -6,7 +6,7 @@ class VectorizationEngine {
     var vectorWidth: Int
     var availableFeatures: List<String>
     
-    fun new() -> VectorizationEngine {
+    fun new() r: VectorizationEngine {
         return VectorizationEngine{
             targetISA: detectTargetISA(),
             vectorWidth: getOptimalVectorWidth(),
@@ -14,7 +14,7 @@ class VectorizationEngine {
         }
     }
     
-    fun vectorizeLoop(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+    fun vectorizeLoop(loopStmt: LoopStatement, context: CodeGenContext) r: String {
         if canVectorizeLoop(loopStmt) == false {
             return generateScalarLoop(loopStmt, context)
         }
@@ -48,7 +48,7 @@ class VectorizationEngine {
         return vectorIR
     }
     
-    fun generateVectorAddition(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorAddition(loopStmt: LoopStatement, context: CodeGenContext) r: String {
         let ir = ""
         
         // Generate vectorized addition using AVX2
@@ -91,7 +91,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun generateVectorMultiplication(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorMultiplication(loopStmt: LoopStatement, context: CodeGenContext) r: String {
         let ir = ""
         
         ir = ir + "; Vectorized multiplication loop\n"
@@ -116,7 +116,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun generateVectorFMA(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorFMA(loopStmt: LoopStatement, context: CodeGenContext) r: String {
         let ir = ""
         
         ir = ir + "; Vectorized FMA (Fused Multiply-Add) loop\n"
@@ -145,7 +145,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun generateVectorBitwise(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorBitwise(loopStmt: LoopStatement, context: CodeGenContext) r: String {
         let ir = ""
         
         ir = ir + "; Vectorized bitwise operations\n"
@@ -177,7 +177,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun generateVectorReduction(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+    fun generateVectorReduction(loopStmt: LoopStatement, context: CodeGenContext) r: String {
         let ir = ""
         
         ir = ir + "; Vectorized reduction (sum/product)\n"
@@ -215,7 +215,7 @@ class VectorizationEngine {
         return ir
     }
     
-    fun canVectorizeLoop(loopStmt: LoopStatement) -> Bool {
+    fun canVectorizeLoop(loopStmt: LoopStatement) r: Bool {
         // Check if loop can be vectorized
         if hasSimpleInductionVariable(loopStmt) == false {
             return false
@@ -236,7 +236,7 @@ class VectorizationEngine {
         return true
     }
     
-    fun analyzeLoopPattern(loopStmt: LoopStatement) -> String {
+    fun analyzeLoopPattern(loopStmt: LoopStatement) r: String {
         let operations = getLoopOperations(loopStmt)
         
         if containsOnly(operations, ["add", "sub"]) {
@@ -263,7 +263,7 @@ class VectorizationEngine {
         return "complex"
     }
     
-    fun detectTargetISA() -> String {
+    fun detectTargetISA() r: String {
         // Detect available SIMD instruction sets
         if hasCPUID("avx512f") {
             return "avx512"
@@ -280,7 +280,7 @@ class VectorizationEngine {
         }
     }
     
-    fun getOptimalVectorWidth() -> Int {
+    fun getOptimalVectorWidth() r: Int {
         match targetISA {
             "avx512" -> return 16; // 512-bit / 32-bit = 16 elements
             "avx2" -> return 8;    // 256-bit / 32-bit = 8 elements
@@ -291,7 +291,7 @@ class VectorizationEngine {
         }
     }
     
-    fun detectSIMDFeatures() -> List<String> {
+    fun detectSIMDFeatures() r: List<String> {
         let features = List<String>()
         
         if hasCPUID("fma") {
@@ -312,7 +312,7 @@ class VectorizationEngine {
         return features
     }
     
-    fun generateIntrinsicDeclarations() -> String {
+    fun generateIntrinsicDeclarations() r: String {
         let decl = ""
         
         // Vector reduction intrinsics
@@ -329,7 +329,7 @@ class VectorizationEngine {
     }
     
     // Helper functions
-    fun hasSimpleInductionVariable(loopStmt: LoopStatement) -> Bool {
+    fun hasSimpleInductionVariable(loopStmt: LoopStatement) r: Bool {
         // Check for simple i++ or i += constant pattern
         for statement in loopStmt.body.statements {
             if statement is ExpressionStatement {
@@ -346,12 +346,12 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasComplexControlFlow(loopStmt: LoopStatement) -> Bool {
+    fun hasComplexControlFlow(loopStmt: LoopStatement) r: Bool {
         // Check for early exits, nested loops, function calls
         return hasEarlyExits(loopStmt) or hasNestedLoops(loopStmt) or hasFunctionCalls(loopStmt)
     }
     
-    fun hasEarlyExits(loopStmt: LoopStatement) -> Bool {
+    fun hasEarlyExits(loopStmt: LoopStatement) r: Bool {
         // Look for break, continue, return statements
         for statement in loopStmt.body.statements {
             if statement is BreakStatement or statement is ContinueStatement or statement is ReturnStatement {
@@ -361,7 +361,7 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasNestedLoops(loopStmt: LoopStatement) -> Bool {
+    fun hasNestedLoops(loopStmt: LoopStatement) r: Bool {
         // Look for nested for/while loops
         for statement in loopStmt.body.statements {
             if statement is ForStatement or statement is WhileStatement {
@@ -371,7 +371,7 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasFunctionCalls(loopStmt: LoopStatement) -> Bool {
+    fun hasFunctionCalls(loopStmt: LoopStatement) r: Bool {
         // Look for function call expressions
         for statement in loopStmt.body.statements {
             if statement is ExpressionStatement {
@@ -384,7 +384,7 @@ class VectorizationEngine {
         return false
     }
     
-    fun containsFunctionCall(expr: Expression) -> Bool {
+    fun containsFunctionCall(expr: Expression) r: Bool {
         if expr is CallExpression {
             return true
         }
@@ -396,17 +396,17 @@ class VectorizationEngine {
         return false
     }
     
-    fun hasMemoryDependencies(loopStmt: LoopStatement) -> Bool {
+    fun hasMemoryDependencies(loopStmt: LoopStatement) r: Bool {
         // Check for read-after-write dependencies that prevent vectorization
         return false; // Conservative default
     }
     
-    fun hasVectorizableOperations(loopStmt: LoopStatement) -> Bool {
+    fun hasVectorizableOperations(loopStmt: LoopStatement) r: Bool {
         // Check if operations can be vectorized
         return true; // Optimistic default
     }
     
-    fun getLoopOperations(loopStmt: LoopStatement) -> List<String> {
+    fun getLoopOperations(loopStmt: LoopStatement) r: List<String> {
         // Extract list of operations in the loop
         let operations = List<String>()
         for statement in loopStmt.body.statements {
@@ -418,7 +418,7 @@ class VectorizationEngine {
         return operations
     }
     
-    fun extractOperations(expr: Expression, operations: List<String>) -> Void {
+    fun extractOperations(expr: Expression, operations: List<String>) r: Void {
         if expr is BinaryExpression {
             let binary = expr as BinaryExpression
             operations.add(tokenTypeToOperation(binary.operator))
@@ -431,7 +431,7 @@ class VectorizationEngine {
         }
     }
     
-    fun tokenTypeToOperation(tokenType: TokenType) -> String {
+    fun tokenTypeToOperation(tokenType: TokenType) r: String {
         return match tokenType {
             TokenType.Plus -> "add"
             TokenType.Minus -> "sub"
@@ -442,7 +442,7 @@ class VectorizationEngine {
         }
     }
     
-    fun containsOnly(operations: List<String>, allowed: List<String>) -> Bool {
+    fun containsOnly(operations: List<String>, allowed: List<String>) r: Bool {
         for op in operations {
             if allowed.contains(op) == false {
                 return false
@@ -451,7 +451,7 @@ class VectorizationEngine {
         return true
     }
     
-    fun contains(operations: List<String>, target: List<String>) -> Bool {
+    fun contains(operations: List<String>, target: List<String>) r: Bool {
         for t in target {
             if operations.contains(t) {
                 return true
@@ -460,14 +460,14 @@ class VectorizationEngine {
         return false
     }
     
-    fun isReductionPattern(loopStmt: LoopStatement) -> Bool {
+    fun isReductionPattern(loopStmt: LoopStatement) r: Bool {
         // Check if this is a reduction (sum, product, min, max)
         let operations = getLoopOperations(loopStmt)
         // Look for accumulation patterns
         return operations.contains("add") or operations.contains("mul")
     }
     
-    fun hasCPUID(feature: String) -> Bool {
+    fun hasCPUID(feature: String) r: Bool {
         // Check CPU features via CPUID instruction
         // In real implementation, would use inline assembly
         match feature {
@@ -480,7 +480,7 @@ class VectorizationEngine {
         }
     }
     
-    fun generateScalarLoop(loopStmt: LoopStatement, context: CodeGenContext) -> String {
+    fun generateScalarLoop(loopStmt: LoopStatement, context: CodeGenContext) r: String {
         // Fall back to scalar code generation
         return "  ; Scalar loop (vectorization not beneficial)\n"
     }
@@ -492,13 +492,13 @@ class MemoryAccess {
     let accessType: String  // "read" or "write"
     let indexExpression: Expression
     
-    fun new(arrayAccess: Expression, accessType: String) -> MemoryAccess {
+    fun new(arrayAccess: Expression, accessType: String) r: MemoryAccess {
         this.baseArray = extractArrayName(arrayAccess)
         this.accessType = accessType
         this.indexExpression = extractIndexExpression(arrayAccess)
     }
     
-    fun extractArrayName(expr: Expression) -> String {
+    fun extractArrayName(expr: Expression) r: String {
         if expr is ArrayAccessExpression {
             let arrayAccess = expr as ArrayAccessExpression
             if arrayAccess.array is IdentifierExpression {
@@ -508,7 +508,7 @@ class MemoryAccess {
         return "unknown"
     }
     
-    fun extractIndexExpression(expr: Expression) -> Expression {
+    fun extractIndexExpression(expr: Expression) r: Expression {
         if expr is ArrayAccessExpression {
             return (expr as ArrayAccessExpression).index
         }
@@ -522,7 +522,7 @@ class AssignmentExpression extends Expression {
     let operator: String
     let right: Expression
     
-    fun new(left: Expression, operator: String, right: Expression) -> AssignmentExpression {
+    fun new(left: Expression, operator: String, right: Expression) r: AssignmentExpression {
         super(left.line, left.column)
         this.left = left
         this.operator = operator
@@ -534,7 +534,7 @@ class ArrayAccessExpression extends Expression {
     let array: Expression
     let index: Expression
     
-    fun new(array: Expression, index: Expression) -> ArrayAccessExpression {
+    fun new(array: Expression, index: Expression) r: ArrayAccessExpression {
         super(array.line, array.column)
         this.array = array
         this.index = index
@@ -542,13 +542,13 @@ class ArrayAccessExpression extends Expression {
 }
 
 class BreakStatement extends Statement {
-    fun new(line: Int, column: Int) -> BreakStatement {
+    fun new(line: Int, column: Int) r: BreakStatement {
         super(line, column)
     }
 }
 
 class ContinueStatement extends Statement {
-    fun new(line: Int, column: Int) -> ContinueStatement {
+    fun new(line: Int, column: Int) r: ContinueStatement {
         super(line, column)
     }
 }
@@ -559,7 +559,7 @@ class ForStatement extends Statement {
     let increment: Expression?
     let body: Block
     
-    fun new(init: Expression?, condition: Expression?, increment: Expression?, body: Block) -> ForStatement {
+    fun new(init: Expression?, condition: Expression?, increment: Expression?, body: Block) r: ForStatement {
         super(0, 0)
         this.init = init
         this.condition = condition
@@ -572,7 +572,7 @@ class WhileStatement extends Statement {
     let condition: Expression
     let body: Block
     
-    fun new(condition: Expression, body: Block) -> WhileStatement {
+    fun new(condition: Expression, body: Block) r: WhileStatement {
         super(0, 0)
         this.condition = condition
         this.body = body

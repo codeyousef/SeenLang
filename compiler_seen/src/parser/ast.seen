@@ -10,7 +10,7 @@ data ASTNode {
     column: Int
 }
 
-fun ASTNode.new() -> ASTNode {
+fun ASTNode.new() r: ASTNode {
     return ASTNode{
         line: 0,
         column: 0
@@ -22,13 +22,13 @@ data ProgramNode {
     items: Array<ItemNode>
 }
 
-fun ProgramNode.new() -> ProgramNode {
+fun ProgramNode.new() r: ProgramNode {
     return ProgramNode{
         items: Array<ItemNode>()
     }
 }
 
-fun ProgramNode.getItems() -> Array<ItemNode> {
+fun ProgramNode.getItems() r: Array<ItemNode> {
     return this.items
 }
 
@@ -44,7 +44,7 @@ data ItemNode {
     dataNode: DataNode?
 }
 
-fun ItemNode.new() -> ItemNode {
+fun ItemNode.new() r: ItemNode {
     return ItemNode{
         itemType: "",
         name: "",
@@ -62,7 +62,7 @@ data ImportSymbolNode {
     alias: String
 }
 
-fun ImportSymbolNode.new() -> ImportSymbolNode {
+fun ImportSymbolNode.new() r: ImportSymbolNode {
     return ImportSymbolNode{
         name: "",
         alias: ""
@@ -79,7 +79,7 @@ data FunctionNode {
     isInline: Bool
 }
 
-fun FunctionNode.new() -> FunctionNode {
+fun FunctionNode.new() r: FunctionNode {
     return FunctionNode{
         name: "",
         params: Array<ParamNode>(),
@@ -98,7 +98,7 @@ data ParamNode {
     defaultValue: ExpressionNode?
 }
 
-fun ParamNode.new() -> ParamNode {
+fun ParamNode.new() r: ParamNode {
     return ParamNode{
         name: "",
         paramType: TypeNode.new(),
@@ -116,7 +116,7 @@ data TypeNode {
     arraySize: Int?
 }
 
-fun TypeNode.new() -> TypeNode {
+fun TypeNode.new() r: TypeNode {
     return TypeNode{
         typeName: "",
         isNullable: false,
@@ -131,7 +131,7 @@ data BlockNode {
     statements: Array<StatementNode>
 }
 
-fun BlockNode.new() -> BlockNode {
+fun BlockNode.new() r: BlockNode {
     return BlockNode{
         statements: Array<StatementNode>()
     }
@@ -159,7 +159,7 @@ data StatementNode {
     handleStmt: HandleStatement?
 }
 
-fun StatementNode.new() -> StatementNode {
+fun StatementNode.new() r: StatementNode {
     return StatementNode{
         stmtType: "",
         letStmt: null,
@@ -189,7 +189,7 @@ data LetStatement {
     value: ExpressionNode
 }
 
-fun LetStatement.new() -> LetStatement {
+fun LetStatement.new() r: LetStatement {
     return LetStatement{
         name: "",
         varType: null,
@@ -204,7 +204,7 @@ data VarStatement {
     value: ExpressionNode?
 }
 
-fun VarStatement.new() -> VarStatement {
+fun VarStatement.new() r: VarStatement {
     return VarStatement{
         name: "",
         varType: null,
@@ -217,7 +217,7 @@ data ReturnStatement {
     value: ExpressionNode?
 }
 
-fun ReturnStatement.new() -> ReturnStatement {
+fun ReturnStatement.new() r: ReturnStatement {
     return ReturnStatement{
         value: null
     }
@@ -230,7 +230,7 @@ data IfStatement {
     elseBranch: BlockNode?
 }
 
-fun IfStatement.new() -> IfStatement {
+fun IfStatement.new() r: IfStatement {
     return IfStatement{
         condition: ExpressionNode.new(),
         thenBranch: BlockNode.new(),
@@ -244,7 +244,7 @@ data WhileStatement {
     body: BlockNode
 }
 
-fun WhileStatement.new() -> WhileStatement {
+fun WhileStatement.new() r: WhileStatement {
     return WhileStatement{
         condition: ExpressionNode.new(),
         body: BlockNode.new()
@@ -258,7 +258,7 @@ data ForStatement {
     body: BlockNode
 }
 
-fun ForStatement.new() -> ForStatement {
+fun ForStatement.new() r: ForStatement {
     return ForStatement{
         variable: "",
         iterable: ExpressionNode.new(),
@@ -271,7 +271,7 @@ data ExpressionStatement {
     expr: ExpressionNode
 }
 
-fun ExpressionStatement.new() -> ExpressionStatement {
+fun ExpressionStatement.new() r: ExpressionStatement {
     return ExpressionStatement{
         expr: ExpressionNode.new()
     }
@@ -301,7 +301,7 @@ data ExpressionNode {
     forceUnwrap: ForceUnwrapNode?
 }
 
-fun ExpressionNode.new() -> ExpressionNode {
+fun ExpressionNode.new() r: ExpressionNode {
     return ExpressionNode{
         exprType: "",
         literal: null,
@@ -335,7 +335,7 @@ data LiteralNode {
     boolValue: Bool?
 }
 
-fun LiteralNode.new() -> LiteralNode {
+fun LiteralNode.new() r: LiteralNode {
     return LiteralNode{
         literalType: "",
         intValue: null,
@@ -350,7 +350,7 @@ data IdentifierNode {
     name: String
 }
 
-fun IdentifierNode.new() -> IdentifierNode {
+fun IdentifierNode.new() r: IdentifierNode {
     return IdentifierNode{
         name: ""
     }
@@ -363,7 +363,7 @@ data BinaryNode {
     right: ExpressionNode
 }
 
-fun BinaryNode.new() -> BinaryNode {
+fun BinaryNode.new() r: BinaryNode {
     return BinaryNode{
         left: ExpressionNode.new(),
         operator: "",
@@ -377,7 +377,7 @@ data UnaryNode {
     operand: ExpressionNode
 }
 
-fun UnaryNode.new() -> UnaryNode {
+fun UnaryNode.new() r: UnaryNode {
     return UnaryNode{
         operator: "",
         operand: ExpressionNode.new()
@@ -390,7 +390,7 @@ data CallNode {
     arguments: Array<ExpressionNode>
 }
 
-fun CallNode.new() -> CallNode {
+fun CallNode.new() r: CallNode {
     return CallNode{
         function: ExpressionNode.new(),
         arguments: Array<ExpressionNode>()
@@ -404,7 +404,7 @@ data MemberNode {
     isSafe: Bool // ?. operator
 }
 
-fun MemberNode.new() -> MemberNode {
+fun MemberNode.new() r: MemberNode {
     return MemberNode{
         object: ExpressionNode.new(),
         member: "",
@@ -418,7 +418,7 @@ data IndexNode {
     index: ExpressionNode
 }
 
-fun IndexNode.new() -> IndexNode {
+fun IndexNode.new() r: IndexNode {
     return IndexNode{
         object: ExpressionNode.new(),
         index: ExpressionNode.new()
@@ -432,7 +432,7 @@ data CastNode {
     isForced: Bool // as! vs as?
 }
 
-fun CastNode.new() -> CastNode {
+fun CastNode.new() r: CastNode {
     return CastNode{
         expr: ExpressionNode.new(),
         targetType: TypeNode.new(),
@@ -447,7 +447,7 @@ data IfExpressionNode {
     elseExpr: ExpressionNode
 }
 
-fun IfExpressionNode.new() -> IfExpressionNode {
+fun IfExpressionNode.new() r: IfExpressionNode {
     return IfExpressionNode{
         condition: ExpressionNode.new(),
         thenExpr: ExpressionNode.new(),
@@ -466,7 +466,7 @@ data ClassNode {
     isSealed: Bool
 }
 
-fun ClassNode.new() -> ClassNode {
+fun ClassNode.new() r: ClassNode {
     return ClassNode{
         name: "",
         superClass: null,
@@ -484,7 +484,7 @@ data DataNode {
     fields: Array<FieldNode>
 }
 
-fun DataNode.new() -> DataNode {
+fun DataNode.new() r: DataNode {
     return DataNode{
         name: "",
         fields: Array<FieldNode>()
@@ -500,7 +500,7 @@ data FieldNode {
     visibility: String
 }
 
-fun FieldNode.new() -> FieldNode {
+fun FieldNode.new() r: FieldNode {
     return FieldNode{
         name: "",
         fieldType: TypeNode.new(),
@@ -518,7 +518,7 @@ data MatchExpressionNode {
     Arms: Array<MatchArm>
 }
 
-fun MatchExpressionNode.new() -> MatchExpressionNode {
+fun MatchExpressionNode.new() r: MatchExpressionNode {
     return MatchExpressionNode{
         expr: ExpressionNode.new(),
         Arms: Array<MatchArm>()
@@ -531,7 +531,7 @@ data MatchStatement {
     Arms: Array<MatchArm>
 }
 
-fun MatchStatement.new() -> MatchStatement {
+fun MatchStatement.new() r: MatchStatement {
     return MatchStatement{
         expr: ExpressionNode.new(),
         Arms: Array<MatchArm>()
@@ -545,7 +545,7 @@ data MatchArm {
     body: ExpressionNode
 }
 
-fun MatchArm.new() -> MatchArm {
+fun MatchArm.new() r: MatchArm {
     return MatchArm{
         Pattern: PatternNode.new(),
         Guard: null,
@@ -564,7 +564,7 @@ data PatternNode {
     ArrayPattern: ArrayPatternNode?
 }
 
-fun PatternNode.new() -> PatternNode {
+fun PatternNode.new() r: PatternNode {
     return PatternNode{
         PatternType: "",
         literal: null,
@@ -583,7 +583,7 @@ data RangePatternNode {
     IsInclusive: Bool
 }
 
-fun RangePatternNode.new() -> RangePatternNode {
+fun RangePatternNode.new() r: RangePatternNode {
     return RangePatternNode{
         Start: null,
         End: null,
@@ -597,7 +597,7 @@ data StructPatternNode {
     fields: Array<FieldPattern>
 }
 
-fun StructPatternNode.new() -> StructPatternNode {
+fun StructPatternNode.new() r: StructPatternNode {
     return StructPatternNode{
         typeName: "",
         fields: Array<FieldPattern>()
@@ -610,7 +610,7 @@ data FieldPattern {
     Pattern: PatternNode?
 }
 
-fun FieldPattern.new() -> FieldPattern {
+fun FieldPattern.new() r: FieldPattern {
     return FieldPattern{
         name: "",
         Pattern: null
@@ -624,7 +624,7 @@ data EnumPatternNode {
     fields: Array<PatternNode>
 }
 
-fun EnumPatternNode.new() -> EnumPatternNode {
+fun EnumPatternNode.new() r: EnumPatternNode {
     return EnumPatternNode{
         typeName: "",
         Variant: "",
@@ -637,7 +637,7 @@ data ArrayPatternNode {
     Patterns: Array<PatternNode>
 }
 
-fun ArrayPatternNode.new() -> ArrayPatternNode {
+fun ArrayPatternNode.new() r: ArrayPatternNode {
     return ArrayPatternNode{
         Patterns: Array<PatternNode>()
     }
@@ -651,7 +651,7 @@ data RangeNode {
     Step: ExpressionNode?
 }
 
-fun RangeNode.new() -> RangeNode {
+fun RangeNode.new() r: RangeNode {
     return RangeNode{
         Start: null,
         End: null,
@@ -667,7 +667,7 @@ data LambdaNode {
     isAsync: Bool
 }
 
-fun LambdaNode.new() -> LambdaNode {
+fun LambdaNode.new() r: LambdaNode {
     return LambdaNode{
         params: Array<String>(),
         body: ExpressionNode.new(),
@@ -680,7 +680,7 @@ data AwaitNode {
     expr: ExpressionNode
 }
 
-fun AwaitNode.new() -> AwaitNode {
+fun AwaitNode.new() r: AwaitNode {
     return AwaitNode{
         expr: ExpressionNode.new()
     }
@@ -692,7 +692,7 @@ data SpawnNode {
     IsActor: Bool
 }
 
-fun SpawnNode.new() -> SpawnNode {
+fun SpawnNode.new() r: SpawnNode {
     return SpawnNode{
         expr: ExpressionNode.new(),
         IsActor: false
@@ -705,7 +705,7 @@ data SelectNode {
     TimeoutBranch: SelectTimeoutBranch?
 }
 
-fun SelectNode.new() -> SelectNode {
+fun SelectNode.new() r: SelectNode {
     return SelectNode{
         Branches: Array<SelectBranch>(),
         TimeoutBranch: null
@@ -719,7 +719,7 @@ data SelectBranch {
     body: BlockNode
 }
 
-fun SelectBranch.new() -> SelectBranch {
+fun SelectBranch.new() r: SelectBranch {
     return SelectBranch{
         Channel: ExpressionNode.new(),
         variable: "",
@@ -733,7 +733,7 @@ data SelectTimeoutBranch {
     body: BlockNode
 }
 
-fun SelectTimeoutBranch.new() -> SelectTimeoutBranch {
+fun SelectTimeoutBranch.new() r: SelectTimeoutBranch {
     return SelectTimeoutBranch{
         Duration: ExpressionNode.new(),
         body: BlockNode.new()
@@ -745,7 +745,7 @@ data StringInterpolationNode {
     Parts: Array<StringPart>
 }
 
-fun StringInterpolationNode.new() -> StringInterpolationNode {
+fun StringInterpolationNode.new() r: StringInterpolationNode {
     return StringInterpolationNode{
         Parts: Array<StringPart>()
     }
@@ -758,7 +758,7 @@ data StringPart {
     expr: ExpressionNode?
 }
 
-fun StringPart.new() -> StringPart {
+fun StringPart.new() r: StringPart {
     return StringPart{
         IsLiteral: true,
         literal: "",
@@ -772,7 +772,7 @@ data IsExpressionNode {
     TypeNode: TypeNode
 }
 
-fun IsExpressionNode.new() -> IsExpressionNode {
+fun IsExpressionNode.new() r: IsExpressionNode {
     return IsExpressionNode{
         expr: ExpressionNode.new(),
         TypeNode: TypeNode.new()
@@ -785,7 +785,7 @@ data ElvisNode {
     defaultValue: ExpressionNode
 }
 
-fun ElvisNode.new() -> ElvisNode {
+fun ElvisNode.new() r: ElvisNode {
     return ElvisNode{
         Nullable: ExpressionNode.new(),
         defaultValue: ExpressionNode.new()
@@ -797,7 +797,7 @@ data ForceUnwrapNode {
     expr: ExpressionNode
 }
 
-fun ForceUnwrapNode.new() -> ForceUnwrapNode {
+fun ForceUnwrapNode.new() r: ForceUnwrapNode {
     return ForceUnwrapNode{
         expr: ExpressionNode.new()
     }
@@ -809,7 +809,7 @@ data LoopStatement {
     Label: String?
 }
 
-fun LoopStatement.new() -> LoopStatement {
+fun LoopStatement.new() r: LoopStatement {
     return LoopStatement{
         body: BlockNode.new(),
         Label: null
@@ -822,7 +822,7 @@ data BreakStatement {
     Label: String?
 }
 
-fun BreakStatement.new() -> BreakStatement {
+fun BreakStatement.new() r: BreakStatement {
     return BreakStatement{
         value: null,
         Label: null
@@ -834,7 +834,7 @@ data ContinueStatement {
     Label: String?
 }
 
-fun ContinueStatement.new() -> ContinueStatement {
+fun ContinueStatement.new() r: ContinueStatement {
     return ContinueStatement{
         Label: null
     }
@@ -845,7 +845,7 @@ data DeferStatement {
     body: BlockNode
 }
 
-fun DeferStatement.new() -> DeferStatement {
+fun DeferStatement.new() r: DeferStatement {
     return DeferStatement{
         body: BlockNode.new()
     }
@@ -857,7 +857,7 @@ data AssertStatement {
     Message: ExpressionNode?
 }
 
-fun AssertStatement.new() -> AssertStatement {
+fun AssertStatement.new() r: AssertStatement {
     return AssertStatement{
         condition: ExpressionNode.new(),
         Message: null
@@ -870,7 +870,7 @@ data RegionStatement {
     body: BlockNode
 }
 
-fun RegionStatement.new() -> RegionStatement {
+fun RegionStatement.new() r: RegionStatement {
     return RegionStatement{
         name: null,
         body: BlockNode.new()
@@ -882,7 +882,7 @@ data ArenaStatement {
     body: BlockNode
 }
 
-fun ArenaStatement.new() -> ArenaStatement {
+fun ArenaStatement.new() r: ArenaStatement {
     return ArenaStatement{
         body: BlockNode.new()
     }
@@ -895,7 +895,7 @@ data HandleStatement {
     Handlers: Array<EffectHandler>
 }
 
-fun HandleStatement.new() -> HandleStatement {
+fun HandleStatement.new() r: HandleStatement {
     return HandleStatement{
         body: BlockNode.new(),
         EffectName: "",
@@ -910,7 +910,7 @@ data EffectHandler {
     body: BlockNode
 }
 
-fun EffectHandler.new() -> EffectHandler {
+fun EffectHandler.new() r: EffectHandler {
     return EffectHandler{
         name: "",
         params: Array<ParamNode>(),
@@ -924,7 +924,7 @@ data AnnotationNode {
     arguments: Array<ExpressionNode>
 }
 
-fun AnnotationNode.new() -> AnnotationNode {
+fun AnnotationNode.new() r: AnnotationNode {
     return AnnotationNode{
         name: "",
         arguments: Array<ExpressionNode>()
@@ -937,7 +937,7 @@ data ExtensionNode {
     methods: Array<FunctionNode>
 }
 
-fun ExtensionNode.new() -> ExtensionNode {
+fun ExtensionNode.new() r: ExtensionNode {
     return ExtensionNode{
         targetType: TypeNode.new(),
         methods: Array<FunctionNode>()
@@ -950,7 +950,7 @@ data CompanionNode {
     methods: Array<FunctionNode>
 }
 
-fun CompanionNode.new() -> CompanionNode {
+fun CompanionNode.new() r: CompanionNode {
     return CompanionNode{
         fields: Array<FieldNode>(),
         methods: Array<FunctionNode>()
@@ -965,7 +965,7 @@ data InterfaceNode {
     visibility: String
 }
 
-fun InterfaceNode.new() -> InterfaceNode {
+fun InterfaceNode.new() r: InterfaceNode {
     return InterfaceNode{
         name: "",
         typeParams: Array<TypeParam>(),
@@ -983,7 +983,7 @@ data InterfaceMethod {
     DefaultImpl: BlockNode?
 }
 
-fun InterfaceMethod.new() -> InterfaceMethod {
+fun InterfaceMethod.new() r: InterfaceMethod {
     return InterfaceMethod{
         name: "",
         params: Array<ParamNode>(),
@@ -1000,7 +1000,7 @@ data TypeParam {
     Variance: String // "in", "out", or ""
 }
 
-fun TypeParam.new() -> TypeParam {
+fun TypeParam.new() r: TypeParam {
     return TypeParam{
         name: "",
         Constraints: Array<String>(),
@@ -1016,7 +1016,7 @@ data ActorNode {
     visibility: String
 }
 
-fun ActorNode.new() -> ActorNode {
+fun ActorNode.new() r: ActorNode {
     return ActorNode{
         name: "",
         State: Array<FieldNode>(),
@@ -1033,7 +1033,7 @@ data ReceiverNode {
     ReplyType: TypeNode?
 }
 
-fun ReceiverNode.new() -> ReceiverNode {
+fun ReceiverNode.new() r: ReceiverNode {
     return ReceiverNode{
         MessageType: TypeNode.new(),
         params: Array<ParamNode>(),
@@ -1048,7 +1048,7 @@ data EffectNode {
     Operations: Array<EffectOperation>
 }
 
-fun EffectNode.new() -> EffectNode {
+fun EffectNode.new() r: EffectNode {
     return EffectNode{
         name: "",
         Operations: Array<EffectOperation>()
@@ -1062,7 +1062,7 @@ data EffectOperation {
     returnType: TypeNode?
 }
 
-fun EffectOperation.new() -> EffectOperation {
+fun EffectOperation.new() r: EffectOperation {
     return EffectOperation{
         name: "",
         params: Array<ParamNode>(),
@@ -1077,7 +1077,7 @@ data ContractNode {
     Invariants: Array<ExpressionNode>
 }
 
-fun ContractNode.new() -> ContractNode {
+fun ContractNode.new() r: ContractNode {
     return ContractNode{
         Requires: Array<ExpressionNode>(),
         Ensures: Array<ExpressionNode>(),
@@ -1092,7 +1092,7 @@ data DataClassNode {
     visibility: String
 }
 
-fun DataClassNode.new() -> DataClassNode {
+fun DataClassNode.new() r: DataClassNode {
     return DataClassNode{
         name: "",
         fields: Array<FieldNode>(),
@@ -1107,7 +1107,7 @@ data SealedClassNode {
     visibility: String
 }
 
-fun SealedClassNode.new() -> SealedClassNode {
+fun SealedClassNode.new() r: SealedClassNode {
     return SealedClassNode{
         name: "",
         Subclasses: Array<ClassNode>(),

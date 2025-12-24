@@ -11,14 +11,14 @@ class RealParser {
     var tokens: Array<Token>
     var current: Int
 
-    fun new(rawTokens: Array<Token>) -> RealParser {
+    fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
             tokens: rawTokens,
             current: 0
         }
     }
 
-    fun parse() -> ProgramNode {
+    fun parse() r: ProgramNode {
         let program = ProgramNode.new()
 
         while not isAtEnd() {
@@ -61,7 +61,7 @@ class RealParser {
         return program
     }
 
-    fun parseFunctionItem() -> ItemNode? {
+    fun parseFunctionItem() r: ItemNode? {
         if isAtEnd() {
             return null
         }
@@ -85,7 +85,7 @@ class RealParser {
         return item
     }
 
-    fun parseClassItem() -> ItemNode? {
+    fun parseClassItem() r: ItemNode? {
         if isAtEnd() {
             return null
         }
@@ -106,7 +106,7 @@ class RealParser {
         return item
     }
 
-    fun parseParameterList(func: FunctionNode) -> Void {
+    fun parseParameterList(func: FunctionNode) r: Void {
         if not matchToken(TokenType.LeftParen) {
             return
         }
@@ -131,7 +131,7 @@ class RealParser {
         }
     }
 
-    fun parseParam() -> ParamNode? {
+    fun parseParam() r: ParamNode? {
         if !checkToken(TokenType.Identifier) {
             return null
         }
@@ -149,7 +149,7 @@ class RealParser {
         return param
     }
 
-    fun parseOptionalTypeAnnotation() -> TypeNode {
+    fun parseOptionalTypeAnnotation() r: TypeNode {
         if !matchToken(TokenType.Colon) {
             let fallback = TypeNode.new()
             fallback.typeName = "Unknown"
@@ -159,14 +159,14 @@ class RealParser {
         return parseTypeNode()
     }
 
-    fun parseOptionalReturnType() -> TypeNode? {
+    fun parseOptionalReturnType() r: TypeNode? {
         if !matchToken(TokenType.Arrow) {
             return null
         }
         return parseTypeNode()
     }
 
-    fun parseTypeNode() -> TypeNode {
+    fun parseTypeNode() r: TypeNode {
         let typeNode = TypeNode.new()
 
         if checkToken(TokenType.Identifier) {
@@ -196,7 +196,7 @@ class RealParser {
         return typeNode
     }
 
-    fun skipOptionalFunctionBody() -> Void {
+    fun skipOptionalFunctionBody() r: Void {
         if matchToken(TokenType.LeftBrace) {
             skipBlockBody()
             return
@@ -208,7 +208,7 @@ class RealParser {
         }
     }
 
-    fun skipBlockBody() -> Void {
+    fun skipBlockBody() r: Void {
         var depth = 1
         while depth > 0 and not isAtEnd() {
             let token = advance()
@@ -220,7 +220,7 @@ class RealParser {
         }
     }
 
-    fun parseImportItem() -> ItemNode? {
+    fun parseImportItem() r: ItemNode? {
         let pathInfo = parseImportPath()
         let importSymbols = parseImportSymbols(pathInfo)
 
@@ -235,7 +235,7 @@ class RealParser {
         return item
     }
 
-    fun parseImportPath() -> ImportPathInfo {
+    fun parseImportPath() r: ImportPathInfo {
         let segments = Array<String>()
 
         if checkToken(TokenType.Identifier) {
@@ -274,7 +274,7 @@ class RealParser {
         }
     }
 
-    fun parseImportSymbols(pathInfo: ImportPathInfo) -> Array<ImportSymbolNode> {
+    fun parseImportSymbols(pathInfo: ImportPathInfo) r: Array<ImportSymbolNode> {
         let symbols = Array<ImportSymbolNode>()
 
         if matchToken(TokenType.KeywordAs) and pathInfo.Segments.length() > 0 {
@@ -317,7 +317,7 @@ class RealParser {
         return symbols
     }
 
-    fun makeImportSymbol(name: String, alias: String) -> ImportSymbolNode {
+    fun makeImportSymbol(name: String, alias: String) r: ImportSymbolNode {
         let symbol = ImportSymbolNode.new()
         symbol.name = name
         symbol.alias = alias
@@ -326,7 +326,7 @@ class RealParser {
 
     // -- Utility helpers --------------------------------------------------
 
-    fun inferVisibility(name: String) -> String {
+    fun inferVisibility(name: String) r: String {
         if name.length() == 0 {
             return "private"
         }
@@ -334,7 +334,7 @@ class RealParser {
         return if first == first.toUpperCase() { "public" } else { "private" }
     }
 
-    fun skipExpression() -> Void {
+    fun skipExpression() r: Void {
         // Skip tokens until we reach a comma, semicolon, or closing paren.
         while not isAtEnd() {
             let t = peek().getType()
@@ -345,7 +345,7 @@ class RealParser {
         }
     }
 
-    fun joinSegments(values: Array<String>, separator: String) -> String {
+    fun joinSegments(values: Array<String>, separator: String) r: String {
         if values.length() == 0 {
             return ""
         }
@@ -358,7 +358,7 @@ class RealParser {
         return result
     }
 
-    fun matchToken(tokenType: TokenType) -> Bool {
+    fun matchToken(tokenType: TokenType) r: Bool {
         if checkToken(tokenType) {
             advance()
             return true
@@ -366,39 +366,39 @@ class RealParser {
         return false
     }
 
-    fun checkToken(tokenType: TokenType) -> Bool {
+    fun checkToken(tokenType: TokenType) r: Bool {
         if isAtEnd() {
             return false
         }
         return peek().getType() == tokenType
     }
 
-    fun advance() -> Token {
+    fun advance() r: Token {
         if not isAtEnd() {
             current = current + 1
         }
         return previous()
     }
 
-    fun isAtEnd() -> Bool {
+    fun isAtEnd() r: Bool {
         return current >= tokens.length() or peek().getType() == TokenType.EndOfFile
     }
 
-    fun peek() -> Token {
+    fun peek() r: Token {
         if current >= tokens.length() {
             return tokens[tokens.length() - 1]
         }
         return tokens[current]
     }
 
-    fun previous() -> Token {
+    fun previous() r: Token {
         if current == 0 {
             return tokens[0]
         }
         return tokens[current - 1]
     }
 
-    fun consume(tokenType: TokenType, message: String) -> Token {
+    fun consume(tokenType: TokenType, message: String) r: Token {
         if checkToken(tokenType) {
             return advance()
         }
@@ -406,7 +406,7 @@ class RealParser {
         return peek()
     }
 
-    fun toArray(raw: List<Token>) -> Array<Token> {
+    fun toArray(raw: List<Token>) r: Array<Token> {
         let buffer = Array<Token>()
         for token in raw {
             buffer.push(token)

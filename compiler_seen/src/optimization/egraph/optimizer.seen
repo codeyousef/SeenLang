@@ -6,34 +6,34 @@ class EGraphOptimizer {
     let iterationLimit: Int
     let appliedRules: Int
 
-    fun new() -> EGraphOptimizer {
+    fun new() r: EGraphOptimizer {
         return EGraphOptimizer{
             iterationLimit: 50,
             appliedRules: 0
         }
     }
 
-    fun Optimize(program: IR) -> IR {
+    fun Optimize(program: IR) r: IR {
         println("[egraph] optimizing IR module")
         println("[egraph] iteration limit = {iterationLimit}")
         return program
     }
 
-    fun OptimizeForTarget(program: IR, target: String) -> IR {
+    fun OptimizeForTarget(program: IR, target: String) r: IR {
         println("[egraph] optimizing for target {target}")
         return Optimize(program)
     }
 
-    fun optimizeAST(ast: TypedAST) -> TypedAST? {
+    fun optimizeAST(ast: TypedAST) r: TypedAST? {
         println("[egraph] optimizing typed AST")
         return ast
     }
 
-    fun getAppliedRules() -> Int {
+    fun getAppliedRules() r: Int {
         return appliedRules
     }
 
-    fun getImprovementPercent() -> Int {
+    fun getImprovementPercent() r: Int {
         return 0
     }
 }

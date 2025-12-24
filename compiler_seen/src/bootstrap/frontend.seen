@@ -14,7 +14,7 @@ class FrontendDiagnostic {
     var severity: String
     var message: String
 
-    fun new(file: String, line: Int, column: Int, severity: String, message: String) -> FrontendDiagnostic {
+    fun new(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
         return FrontendDiagnostic{
             file: file,
             line: line,
@@ -29,21 +29,21 @@ class FrontendResult {
     var success: Bool
     var diagnostics: Array<FrontendDiagnostic>
 
-    fun getDiagnostics() -> Array<FrontendDiagnostic> { return diagnostics }
-    fun setSuccess(v: Bool) -> Void { success = v }
+    fun getDiagnostics() r: Array<FrontendDiagnostic> { return diagnostics }
+    fun setSuccess(v: Bool) r: Void { success = v }
 
-    fun new() -> FrontendResult {
+    fun new() r: FrontendResult {
         return FrontendResult{
             success: false,
             diagnostics: Array<FrontendDiagnostic>()
         }
     }
 
-    fun addDiagnostic(diag: FrontendDiagnostic) -> Void {
+    fun addDiagnostic(diag: FrontendDiagnostic) r: Void {
         diagnostics.push(diag)
     }
 
-    fun hasErrors() -> Bool {
+    fun hasErrors() r: Bool {
         for diag in diagnostics {
             if diag.severity == "error" {
                 return true
@@ -52,7 +52,7 @@ class FrontendResult {
         return false
     }
 
-    fun hasWarnings() -> Bool {
+    fun hasWarnings() r: Bool {
         for diag in diagnostics {
             if diag.severity == "warning" {
                 return true
@@ -62,7 +62,7 @@ class FrontendResult {
     }
 }
 
-fun run_frontend(source: String, fileLabel: String, language: String = "en") -> FrontendResult {
+fun run_frontend(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
     try {
@@ -131,7 +131,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") -> 
     return result
 }
 
-fun diagnostic_from_type_error(error: TypeError, fileLabel: String) -> FrontendDiagnostic {
+fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendDiagnostic {
     let location = error.getLocation()
     let expected = error.getExpected()
     let actual = error.getActual()

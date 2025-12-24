@@ -42,7 +42,7 @@ fn parse_expression_with_visibility(
 fn test_parse_simple_function() {
     let expr = parse_expression(
         r#"
-        fun greet(name: String): String {
+        fun greet(name: String) r: String {
             return "Hello, {name}!"
         }
     "#,
@@ -73,7 +73,7 @@ fn test_parse_simple_function() {
 fn test_parse_async_function() {
     let expr = parse_expression(
         r#"
-        async fun fetchData(): String {
+        async fun fetchData() r: String {
             return await api.get()
         }
     "#,
@@ -93,7 +93,7 @@ fn test_parse_async_function() {
 fn test_parse_method_receiver_syntax() {
     let expr = parse_expression(
         r#"
-        fun (p: Person) getName(): String {
+        fun (p: Person) getName() r: String {
             return p.name
         }
     "#,
@@ -244,7 +244,7 @@ fn test_parse_external_function_keyword() {
 fn test_parse_cstyle_extern_function() {
     let expr = parse_expression_with_visibility(
         r#"
-        extern "C" fun printf(format: String, value: Int): Int
+        extern "C" fun printf(format: String, value: Int) r: Int
     "#,
         VisibilityPolicy::Caps,
     )
@@ -274,7 +274,7 @@ fn test_parse_cstyle_extern_function() {
 
 #[test]
 fn test_parse_simple_lambda() {
-    let expr = parse_expression("{ x -> x * 2 }").unwrap();
+    let expr = parse_expression("{ x => x * 2 }").unwrap();
 
     match expr {
         Expression::Lambda {
@@ -318,22 +318,22 @@ fn test_function_visibility_caps_policy() {
 #[test]
 fn test_function_visibility_explicit_policy() {
     let exported =
-        parse_expression_with_visibility("pub fun ExportMe() {}", VisibilityPolicy::Explicit)
-            .expect("should parse exported function with explicit visibility");
+        parse_expression_with_visibility("fun ExportMe() {}", VisibilityPolicy::Explicit)
+            .expect("should parse function under explicit visibility policy");
     let internal =
         parse_expression_with_visibility("fun ExportMe() {}", VisibilityPolicy::Explicit)
-            .expect("should parse internal function without pub");
+            .expect("should parse function under explicit visibility policy");
 
     match exported {
         Expression::Function { is_public, .. } => {
-            assert!(is_public, "pub should mark function public")
+            assert!(!is_public, "explicit policy defaults to private without pub support")
         }
         other => panic!("Expected function expression, got {:?}", other),
     }
 
     match internal {
         Expression::Function { is_public, .. } => {
-            assert!(!is_public, "explicit policy requires pub keyword")
+            assert!(!is_public, "explicit policy defaults to private")
         }
         other => panic!("Expected function expression, got {:?}", other),
     }
@@ -341,7 +341,7 @@ fn test_function_visibility_explicit_policy() {
 
 #[test]
 fn test_parse_lambda_with_multiple_params() {
-    let expr = parse_expression("{ x, y -> x + y }").unwrap();
+    let expr = parse_expression("{ x, y => x + y }").unwrap();
 
     match expr {
         Expression::Lambda { params, .. } => {
@@ -356,7 +356,7 @@ fn test_parse_lambda_with_multiple_params() {
 #[test]
 fn test_parse_lambda_with_types() {
     // Test lambda with explicit parameter types (no return type, inferred)
-    let expr = parse_expression("{ x: Int, y: Int -> x + y }").unwrap();
+    let expr = parse_expression("{ x: Int, y: Int => x + y }").unwrap();
 
     match expr {
         Expression::Lambda {
@@ -378,7 +378,7 @@ fn test_parse_lambda_with_types() {
 #[test]
 fn test_parse_lambda_with_block_body() {
     let expr = parse_expression(
-        r#"{ x -> 
+        r#"{ x => 
         let doubled = x * 2
         return doubled + 10
     }"#,
@@ -470,7 +470,7 @@ fn test_parse_await_expression() {
 fn test_parse_function_with_default_params() {
     let expr = parse_expression(
         r#"
-        fun greet(name: String, greeting: String = "Hello"): String {
+        fun greet(name: String, greeting: String = "Hello") r: String {
             return "{greeting}, {name}!"
         }
     "#,
@@ -491,7 +491,7 @@ fn test_parse_function_with_default_params() {
 fn test_function_body_let_initializer_allows_trailing_lambda() {
     let expr = parse_expression(
         r#"
-        fun pipeline(numbers: Sequence<Int>): Sequence<Int> {
+        fun pipeline(numbers: Sequence<Int>) r: Sequence<Int> {
             let doubled = numbers.Map { it * 2 }
             doubled
         }
@@ -534,7 +534,7 @@ fn test_parse_function_with_multiple_default_params_comprehensive() {
         host: String = "localhost",
         port: Int = 8080,
         secure: Bool = false
-    ): Connection {
+    ) r: Connection {
         return Connection(host, port, secure)
     }"#,
     )
@@ -576,7 +576,7 @@ fn test_parse_function_with_multiple_default_params_comprehensive() {
 #[test]
 fn test_parse_function_mixed_params_some_defaults() {
     let expr = parse_expression(
-        "fun Process(input: String, timeout: Int = 5000): Result { return Success(input) }",
+        "fun Process(input: String, timeout: Int = 5000) r: Result { return Success(input) }",
     )
     .unwrap();
     match expr {
@@ -602,7 +602,7 @@ fn test_parse_function_mixed_params_some_defaults() {
 #[test]
 fn test_parse_function_default_param_complex_expression() {
     let expr =
-        parse_expression("fun CreateBuffer(size: Int = 1024 * 8): Buffer { return Buffer(size) }")
+        parse_expression("fun CreateBuffer(size: Int = 1024 * 8) r: Buffer { return Buffer(size) }")
             .unwrap();
     match expr {
         Expression::Function { params, .. } => {

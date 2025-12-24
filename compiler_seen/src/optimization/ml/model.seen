@@ -5,14 +5,14 @@ class MLModel {
     var version: String
     var accuracy: Float
 
-    fun new() -> MLModel {
+    fun new() r: MLModel {
         return MLModel{
             version: "bootstrap",
             accuracy: 0.5
         }
     }
 
-    fun loadTrainedModel(path: String) -> MLModel {
+    fun loadTrainedModel(path: String) r: MLModel {
         println("Loading ML model from {path}")
         return MLModel{
             version: "loaded",
@@ -20,12 +20,12 @@ class MLModel {
         }
     }
 
-    fun addTrainingData(input: IR, output: IR, performance: Float) -> Void {
+    fun addTrainingData(input: IR, output: IR, performance: Float) r: Void {
         // Simple moving average to simulate accuracy changes.
         accuracy = (accuracy * 0.9) + performance * 0.1
     }
 
-    fun updateVersion(tag: String) -> Void {
+    fun updateVersion(tag: String) r: Void {
         version = tag
     }
 }

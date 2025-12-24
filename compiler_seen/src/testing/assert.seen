@@ -7,7 +7,7 @@ class TestResult {
     var message: String
     var errorDetails: String
     
-    fun success(name: String) -> TestResult {
+    fun success(name: String) r: TestResult {
         return TestResult{
             passed: true,
             testName: name,
@@ -16,7 +16,7 @@ class TestResult {
         }
     }
     
-    fun failure(name: String, msg: String, details: String) -> TestResult {
+    fun failure(name: String, msg: String, details: String) r: TestResult {
         return TestResult{
             passed: false,
             testName: name,
@@ -26,7 +26,7 @@ class TestResult {
     }
 }
 
-class TestPanicException extends Error { fun new(message: String) -> TestPanicException { super(message) } }
+class TestPanicException extends Error { fun new(message: String) r: TestPanicException { super(message) } }
 
 class AssertionError {
     var message: String
@@ -34,7 +34,7 @@ class AssertionError {
     var actual: String
     var location: String
     
-    fun new(msg: String) -> AssertionError {
+    fun new(msg: String) r: AssertionError {
         return AssertionError{
             message: msg,
             expected: "",
@@ -190,7 +190,7 @@ fun assertInRange(value: Int, min: Int, max: Int, message: String) {
 
 // Helper functions
 
-fun abs(value: Float) -> Float {
+fun abs(value: Float) r: Float {
     if value < 0.0 {
         return -value
     }

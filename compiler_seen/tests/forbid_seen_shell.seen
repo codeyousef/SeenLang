@@ -1,6 +1,6 @@
 import main_compiler.{ExecuteCommand}
 
-fun main() -> Int {
+fun main() r: Int {
     let result = ExecuteCommand("seen build something")
     if result.success {
         println("Stage compiler should refuse to invoke seen CLI")

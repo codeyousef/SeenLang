@@ -7,64 +7,64 @@ import str.string.{StringBuilder}
 class StdString {
     var buffer: Vec<Char>
 
-    fun new() -> StdString {
+    fun new() r: StdString {
         return StdString{ buffer: Vec<Char>.new() }
     }
 
-    fun fromString(text: String) -> StdString {
+    fun fromString(text: String) r: StdString {
         let s = StdString.new()
         s.push(text)
         return s
     }
 
-    fun withCapacity(capacity: Int) -> StdString {
+    fun withCapacity(capacity: Int) r: StdString {
         let s = StdString.new()
         s.reserve(capacity)
         return s
     }
 
-    fun len() -> Int {
+    fun len() r: Int {
         return buffer.len()
     }
 
-    fun capacity() -> Int {
+    fun capacity() r: Int {
         return buffer.capacity()
     }
 
-    fun isEmpty() -> Bool {
+    fun isEmpty() r: Bool {
         return buffer.len() == 0
     }
 
-    fun clear() -> Void {
+    fun clear() r: Void {
         buffer.clear()
     }
 
-    fun reserve(capacity: Int) -> Void {
+    fun reserve(capacity: Int) r: Void {
         buffer.ensureCapacity(capacity)
     }
 
-    fun push(text: String) -> Void {
+    fun push(text: String) r: Void {
         for ch in text {
             buffer.push(ch)
         }
     }
 
-    fun pushChar(ch: Char) -> Void {
+    fun pushChar(ch: Char) r: Void {
         buffer.push(ch)
     }
 
-    fun popChar() -> Char {
+    fun popChar() r: Char {
         return buffer.pop()
     }
 
-    fun lastChar() -> Char {
+    fun lastChar() r: Char {
         if buffer.len() == 0 {
             abort("StdString.lastChar called on empty string")
         }
         return buffer.get(buffer.len() - 1)
     }
 
-    fun toString() -> String {
+    fun toString() r: String {
         if buffer.len() == 0 {
             return ""
         }
@@ -77,7 +77,7 @@ class StdString {
         return builder.toString()
     }
 
-    fun intoString() -> String {
+    fun intoString() r: String {
         let out = toString()
         clear()
         return out

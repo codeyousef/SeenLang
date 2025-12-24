@@ -4,36 +4,36 @@
 import str.string.{StringBuilder}
 
 // External runtime intrinsics
-extern fun __ExecuteProgram(path: String): Int
-extern fun __ExecuteCommand(command: String): CommandResult
+extern fun __ExecuteProgram(path: String) r: Int
+extern fun __ExecuteCommand(command: String) r: CommandResult
 
 data CommandResult {
     success: Bool
     output: String
 }
 
-fun runProgram(path: String) -> Int {
+fun runProgram(path: String) r: Int {
     return __ExecuteProgram(path)
 }
 
-fun execCommand(command: String) -> CommandResult {
+fun execCommand(command: String) r: CommandResult {
     let result: CommandResult = __ExecuteCommand(command)
     return result
 }
 
-fun runCommand(command: String) -> CommandResult {
+fun runCommand(command: String) r: CommandResult {
     return execCommand(command)
 }
 
-fun commandWasSuccessful(result: CommandResult) -> Bool {
+fun commandWasSuccessful(result: CommandResult) r: Bool {
     return result.success
 }
 
-fun commandOutput(result: CommandResult) -> String {
+fun commandOutput(result: CommandResult) r: String {
     return result.output
 }
 
-fun runCommandOrAbort(command: String) -> CommandResult {
+fun runCommandOrAbort(command: String) r: CommandResult {
     let result: CommandResult = execCommand(command)
     if not result.success {
         abort("Command failed: {command}\n{result.output}")
@@ -41,15 +41,15 @@ fun runCommandOrAbort(command: String) -> CommandResult {
     return result
 }
 
-fun runCommandOutput(command: String) -> String {
+fun runCommandOutput(command: String) r: String {
     return execCommand(command).output
 }
 
-fun isSuccess(status: Int) -> Bool {
+fun isSuccess(status: Int) r: Bool {
     return status == 0
 }
 
-fun shellQuote(text: String) -> String {
+fun shellQuote(text: String) r: String {
     let builder = StringBuilder.new()
     builder.append("\"")
 

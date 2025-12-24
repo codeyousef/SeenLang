@@ -99,6 +99,10 @@ impl Lexer {
 
             Some('\'') => self.read_char_literal(),
 
+            Some(ch) if self.is_return_type_label_start(ch) && self.peek() == Some(':') => {
+                self.read_return_type_label()
+            }
+
             Some(ch) if self.is_identifier_start(ch) => self.read_identifier(),
 
             // Mathematical and assignment operators
@@ -619,6 +623,49 @@ impl Lexer {
                 && !ch.is_whitespace()
                 && !self.is_operator_char(ch)
                 && !self.is_punctuation_char(ch))
+    }
+
+    fn return_type_label(&self) -> String {
+        // English defaults to "r:", Arabic locale switches to the locale-specific label ("\u0646:").
+        let lang = self.keyword_manager.get_current_language();
+        if lang == "ar" {
+            "\u{646}:".to_string()
+        } else {
+            "r:".to_string()
+        }
+    }
+
+    fn is_return_type_label_start(&self, ch: char) -> bool {
+        self.return_type_label().chars().next().map_or(false, |expected| ch == expected)
+    }
+
+    fn read_return_type_label(&mut self) -> LexerResult<Token> {
+        let start_pos = self.pos_tracker;
+        let label = self.return_type_label();
+
+        // Consume the leading marker character (e.g., 'r' or 'ن')
+        self.advance();
+
+        // Expect the ':' component of the label
+        if self.current_char != Some(':') {
+            return Err(LexerError::UnexpectedCharacter {
+                character: self.current_char.unwrap_or('\0'),
+                position: start_pos,
+            });
+        }
+
+        // Consume ':'
+        self.advance();
+
+        // Require whitespace after the label to avoid "r:i32" ambiguity
+        if self.current_char.map_or(true, |ch| !ch.is_whitespace()) {
+            return Err(LexerError::MissingSpaceAfterReturnLabel {
+                position: start_pos,
+                label,
+            });
+        }
+
+        Ok(Token::new(TokenType::ReturnTypeLabel, self.return_type_label(), start_pos))
     }
 
     fn read_single_line_comment(&mut self) -> String {

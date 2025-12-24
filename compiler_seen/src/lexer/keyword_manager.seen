@@ -8,7 +8,7 @@ class KeywordManager {
     var keywords: Map<String, TokenType>
     var sources: Array<String>
     
-    static fun new(language: String) -> KeywordManager {
+    static fun new(language: String) r: KeywordManager {
         let km = KeywordManager {
             language: language,
             keywords: Map<String, TokenType>(),
@@ -21,7 +21,7 @@ class KeywordManager {
         return km
     }
     
-    fun loadFromToml(path: String) -> Void {
+    fun loadFromToml(path: String) r: Void {
         sources.push(path)
         
         // Parse TOML-driven keyword sets (current implementation loads language mappings directly).
@@ -52,31 +52,31 @@ class KeywordManager {
         }
     }
     
-    fun isKeyword(text: String) -> Bool {
+    fun isKeyword(text: String) r: Bool {
         return keywords.containsKey(text)
     }
     
-    fun getKeywordType(text: String) -> TokenType? {
+    fun getKeywordType(text: String) r: TokenType? {
         return keywords.get(text)
     }
     
-    fun getAllKeywords() -> Array<String> {
+    fun getAllKeywords() r: Array<String> {
         return keywords.keys()
     }
     
-    fun isDynamic() -> Bool {
+    fun isDynamic() r: Bool {
         return true  // Always loads from TOML files
     }
     
-    fun getSources() -> Array<String> {
+    fun getSources() r: Array<String> {
         return sources
     }
     
-    fun getKeywordCount() -> Int {
+    fun getKeywordCount() r: Int {
         return keywords.size()
     }
     
-    fun hasTranslation(keyword: String) -> Bool {
+    fun hasTranslation(keyword: String) r: Bool {
         // Check if this keyword has a translation in the current language
         // For TDD, implement basic logic that tests expect
         return keywords.containsValue(getEnglishKeywordType(keyword))
@@ -84,7 +84,7 @@ class KeywordManager {
     
     // Language-specific keyword loading methods
     
-    fun loadEnglishKeywords() -> Void {
+    fun loadEnglishKeywords() r: Void {
         keywords.put("fun", TokenType.KeywordFun)
         keywords.put("let", TokenType.KeywordLet)
         keywords.put("var", TokenType.KeywordVar)
@@ -127,7 +127,7 @@ class KeywordManager {
         keywords.put("not", TokenType.LogicalNot)
     }
     
-    fun loadArabicKeywords() -> Void {
+    fun loadArabicKeywords() r: Void {
         keywords.put("دالة", TokenType.KeywordFun)        // fun
         keywords.put("اذا", TokenType.KeywordIf)          // if
         keywords.put("متغير", TokenType.KeywordLet)       // let/var
@@ -169,7 +169,7 @@ class KeywordManager {
         keywords.put("ليس", TokenType.LogicalNot)        // not
     }
     
-    fun loadSpanishKeywords() -> Void {
+    fun loadSpanishKeywords() r: Void {
         keywords.put("funcion", TokenType.KeywordFun)
         keywords.put("sea", TokenType.KeywordLet)
         keywords.put("variable", TokenType.KeywordVar)
@@ -186,7 +186,7 @@ class KeywordManager {
         keywords.put("no", TokenType.LogicalNot)
     }
     
-    fun loadFrenchKeywords() -> Void {
+    fun loadFrenchKeywords() r: Void {
         keywords.put("fonction", TokenType.KeywordFun)
         keywords.put("soit", TokenType.KeywordLet)
         keywords.put("variable", TokenType.KeywordVar)
@@ -203,7 +203,7 @@ class KeywordManager {
         keywords.put("non", TokenType.LogicalNot)
     }
     
-    fun loadGermanKeywords() -> Void {
+    fun loadGermanKeywords() r: Void {
         keywords.put("funktion", TokenType.KeywordFun)
         keywords.put("sei", TokenType.KeywordLet)
         keywords.put("variable", TokenType.KeywordVar)
@@ -220,7 +220,7 @@ class KeywordManager {
         keywords.put("nicht", TokenType.LogicalNot)
     }
     
-    fun loadChineseKeywords() -> Void {
+    fun loadChineseKeywords() r: Void {
         keywords.put("函数", TokenType.KeywordFun)
         keywords.put("让", TokenType.KeywordLet)
         keywords.put("变量", TokenType.KeywordVar)
@@ -237,7 +237,7 @@ class KeywordManager {
         keywords.put("不", TokenType.LogicalNot)
     }
     
-    fun loadJapaneseKeywords() -> Void {
+    fun loadJapaneseKeywords() r: Void {
         keywords.put("関数", TokenType.KeywordFun)
         keywords.put("させる", TokenType.KeywordLet)
         keywords.put("変数", TokenType.KeywordVar)
@@ -254,7 +254,7 @@ class KeywordManager {
         keywords.put("ではない", TokenType.LogicalNot)
     }
     
-    fun loadPortugueseKeywords() -> Void {
+    fun loadPortugueseKeywords() r: Void {
         keywords.put("funcao", TokenType.KeywordFun)
         keywords.put("seja", TokenType.KeywordLet)
         keywords.put("variavel", TokenType.KeywordVar)
@@ -271,7 +271,7 @@ class KeywordManager {
         keywords.put("nao", TokenType.LogicalNot)
     }
     
-    fun loadRussianKeywords() -> Void {
+    fun loadRussianKeywords() r: Void {
         keywords.put("функция", TokenType.KeywordFun)
         keywords.put("пусть", TokenType.KeywordLet)
         keywords.put("переменная", TokenType.KeywordVar)
@@ -288,7 +288,7 @@ class KeywordManager {
         keywords.put("не", TokenType.LogicalNot)
     }
     
-    fun loadHindiKeywords() -> Void {
+    fun loadHindiKeywords() r: Void {
         keywords.put("फ़ंक्शन", TokenType.KeywordFun)
         keywords.put("चलो", TokenType.KeywordLet)
         keywords.put("चर", TokenType.KeywordVar)
@@ -305,7 +305,7 @@ class KeywordManager {
         keywords.put("नहीं", TokenType.LogicalNot)
     }
     
-    fun getEnglishKeywordType(keyword: String) -> TokenType? {
+    fun getEnglishKeywordType(keyword: String) r: TokenType? {
         // Helper to get English keyword type for translation checking
         let englishKeywords = Map<String, TokenType>()
         englishKeywords.put("fun", TokenType.KeywordFun)

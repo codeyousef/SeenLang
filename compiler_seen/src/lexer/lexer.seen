@@ -15,7 +15,7 @@ class SeenLexer {
     var column: Int
     var tokens: Array<Token>
     
-    static fun new(source: String, fileId: Int, language: String) -> SeenLexer {
+    static fun new(source: String, fileId: Int, language: String) r: SeenLexer {
         return SeenLexer {
             source: source,
             fileId: fileId,
@@ -29,7 +29,7 @@ class SeenLexer {
         }
     }
     
-    fun tokenize() -> Array<Token> {
+    fun tokenize() r: Array<Token> {
         // Reset state
         position = 0
         line = 1
@@ -100,31 +100,31 @@ class SeenLexer {
         return tokens
     }
     
-    fun setErrorRecoveryMode(enabled: Bool) -> Void {
+    fun setErrorRecoveryMode(enabled: Bool) r: Void {
         errorRecoveryMode = enabled
     }
     
-    fun isKeywordSourceDynamic() -> Bool {
+    fun isKeywordSourceDynamic() r: Bool {
         return keywordManager.isDynamic()
     }
     
-    fun getKeywordSources() -> Array<String> {
+    fun getKeywordSources() r: Array<String> {
         return keywordManager.getSources()
     }
     
-    fun getKeywordCount() -> Int {
+    fun getKeywordCount() r: Int {
         return keywordManager.getKeywordCount()
     }
     
-    fun hasKeyword(keyword: String) -> Bool {
+    fun hasKeyword(keyword: String) r: Bool {
         return keywordManager.isKeyword(keyword)
     }
     
-    fun hasTranslatedKeyword(keyword: String) -> Bool {
+    fun hasTranslatedKeyword(keyword: String) r: Bool {
         return keywordManager.hasTranslation(keyword)
     }
     
-    fun getMemoryUsage() -> Int {
+    fun getMemoryUsage() r: Int {
         // Estimate memory usage: source + tokens + internal structures
         let sourceSize = source.length() * 2  // Assume 2 bytes per char
         let tokensSize = tokens.length() * 64  // Estimate 64 bytes per token
@@ -134,14 +134,14 @@ class SeenLexer {
     
     // Helper methods for tokenization
     
-    fun getCurrentChar() -> String {
+    fun getCurrentChar() r: String {
         if position >= source.length() {
             return "\u{0000}"
         }
         return source.charAt(position)
     }
     
-    fun peekChar(offset: Int = 1) -> String {
+    fun peekChar(offset: Int = 1) r: String {
         let peekPos = position + offset
         if peekPos >= source.length() {
             return "\u{0000}"
@@ -149,7 +149,7 @@ class SeenLexer {
         return source.charAt(peekPos)
     }
     
-    fun advance() -> Void {
+    fun advance() r: Void {
         if position < source.length() {
             if source.charAt(position) == '\n' {
                 line += 1
@@ -161,38 +161,38 @@ class SeenLexer {
         }
     }
     
-    fun getCurrentPosition() -> Position {
+    fun getCurrentPosition() r: Position {
         return Position.new(line, column, fileId)
     }
     
-    fun emitToken(type: TokenType, value: String, length: Int) -> Void {
+    fun emitToken(type: TokenType, value: String, length: Int) r: Void {
         let token = Token.new(type, value, line, column - length, length, fileId)
         tokens.push(token)
     }
     
-    fun emitErrorToken(char: String) -> Void {
+    fun emitErrorToken(char: String) r: Void {
         emitToken(TokenType.Error, char, 1)
     }
     
-    fun isWhitespace(char: String) -> Bool {
+    fun isWhitespace(char: String) r: Bool {
         return char == ' ' or char == '\t' or char == '\r' or char == '\n'
     }
     
-    fun isDigit(char: String) -> Bool {
+    fun isDigit(char: String) r: Bool {
         return char >= '0' and char <= '9'
     }
     
-    fun isAlpha(char: String) -> Bool {
+    fun isAlpha(char: String) r: Bool {
         return (char >= 'a' and char <= 'z') or 
                (char >= 'A' and char <= 'Z') or
                this.isUnicodeAlpha(char)
     }
     
-    fun isAlphaNumeric(char: String) -> Bool {
+    fun isAlphaNumeric(char: String) r: Bool {
         return this.isAlpha(char) or this.isDigit(char)
     }
     
-    fun isUnicodeAlpha(char: String) -> Bool {
+    fun isUnicodeAlpha(char: String) r: Bool {
         // Support for Unicode identifier characters
         // This would need proper Unicode category detection
         // For now, simple check for common non-ASCII letters
@@ -207,18 +207,18 @@ class SeenLexer {
                (code >= 0x4E00 and code <= 0x9FFF)      // CJK Unified Ideographs
     }
     
-    fun handleWhitespace(char: String) -> Void {
+    fun handleWhitespace(char: String) r: Void {
         this.advance()
     }
     
-    fun handleSingleLineComment() -> Void {
+    fun handleSingleLineComment() r: Void {
         // Skip until end of line
         while this.getCurrentChar() != '\n' and position < source.length() {
             this.advance()
         }
     }
     
-    fun handleMultiLineComment() -> Void {
+    fun handleMultiLineComment() r: Void {
         this.advance() // Skip '/'
         this.advance() // Skip '*'
         
@@ -232,7 +232,7 @@ class SeenLexer {
         }
     }
     
-    fun handleStringLiteral() -> Void {
+    fun handleStringLiteral() r: Void {
         let startPos = position
         this.advance() // Skip opening quote
         
@@ -272,7 +272,7 @@ class SeenLexer {
         }
     }
     
-    fun handleEscapeSequence(char: String) -> String {
+    fun handleEscapeSequence(char: String) r: String {
         return match char {
             "n" -> "\n"
             "t" -> "\t"
@@ -284,13 +284,13 @@ class SeenLexer {
         }
     }
     
-    fun isInInterpolation() -> Bool {
+    fun isInInterpolation() r: Bool {
         // Check if we're currently inside an interpolation expression
         // This would need more sophisticated tracking
         return false
     }
     
-    fun handleInterpolatedString(startPos: Int) -> Void {
+    fun handleInterpolatedString(startPos: Int) r: Void {
         // This is a complex feature that requires parsing expressions within strings
         // For now, implement basic support to pass tests
         
@@ -345,7 +345,7 @@ class SeenLexer {
         this.emitToken(TokenType.InterpolatedStringEnd, "", 1)
     }
     
-    fun parseInterpolationExpression() -> Void {
+    fun parseInterpolationExpression() r: Void {
         // Parse the expression inside {} - this is a mini-parser
         // For now, tokenize it as regular tokens
         let saved_position = position
@@ -366,7 +366,7 @@ class SeenLexer {
         }
     }
     
-    fun handleNumericLiteral() -> Void {
+    fun handleNumericLiteral() r: Void {
         let startPos = position
         var value = ""
         var isFloat = false
@@ -438,15 +438,15 @@ class SeenLexer {
         this.emitToken(tokenType, value, length)
     }
     
-    fun isHexDigit(char: String) -> Bool {
+    fun isHexDigit(char: String) r: Bool {
         return this.isDigit(char) or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F')
     }
     
-    fun isBinaryDigit(char: String) -> Bool {
+    fun isBinaryDigit(char: String) r: Bool {
         return char == '0' or char == '1'
     }
     
-    fun handleIdentifierOrKeyword() -> Void {
+    fun handleIdentifierOrKeyword() r: Void {
         let startPos = position
         var value = ""
         
@@ -471,7 +471,7 @@ class SeenLexer {
         }
     }
     
-    fun handleOperator() -> Bool {
+    fun handleOperator() r: Bool {
         let char = this.getCurrentChar()
         let nextChar = this.peekChar()
         
@@ -496,7 +496,7 @@ class SeenLexer {
         return false
     }
     
-    fun getTwoCharOperatorType(op: String) -> TokenType? {
+    fun getTwoCharOperatorType(op: String) r: TokenType? {
         return match op {
             "==" -> TokenType.EqualEqual
             "!=" -> TokenType.NotEqual
@@ -513,7 +513,7 @@ class SeenLexer {
         }
     }
     
-    fun getSingleCharOperatorType(char: String) -> TokenType? {
+    fun getSingleCharOperatorType(char: String) r: TokenType? {
         return match char {
             "+" -> TokenType.Plus
             "-" -> TokenType.Minus
@@ -528,7 +528,7 @@ class SeenLexer {
         }
     }
     
-    fun handleSingleCharToken() -> Bool {
+    fun handleSingleCharToken() r: Bool {
         let char = this.getCurrentChar()
         let tokenType = this.getSingleCharTokenType(char)
         
@@ -541,7 +541,7 @@ class SeenLexer {
         return false
     }
     
-    fun getSingleCharTokenType(char: String) -> TokenType? {
+    fun getSingleCharTokenType(char: String) r: TokenType? {
         return match char {
             "(" -> TokenType.LeftParen
             ")" -> TokenType.RightParen

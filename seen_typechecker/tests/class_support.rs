@@ -21,6 +21,7 @@ fn class_definition_registers_type_and_methods() {
         name: "Vec".to_string(),
         generics: vec!["T".to_string()],
         superclass: None,
+        attributes: Vec::new(),
         fields: vec![
             ClassField {
                 name: "data".to_string(),
@@ -154,6 +155,7 @@ fn class_methods_can_reference_fields() {
         name: "Counter".to_string(),
         generics: Vec::new(),
         superclass: None,
+        attributes: Vec::new(),
         fields: vec![ClassField {
             name: "length".to_string(),
             field_type: simple_type("Int"),

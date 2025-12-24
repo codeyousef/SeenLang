@@ -15,7 +15,7 @@ class RustRemover {
     var dryRun: Bool
     var searchRoots: Array<String>
 
-    fun new() -> RustRemover {
+    fun new() r: RustRemover {
         let roots = Array<String>()
         roots.push("compiler_seen/src")
         roots.push("seen_cli/src")
@@ -28,27 +28,27 @@ class RustRemover {
         }
     }
 
-    fun withWorkingDir(path: String) -> RustRemover {
+    fun withWorkingDir(path: String) r: RustRemover {
         this.workingDir = path
         return this
     }
 
-    fun withBackupDir(path: String) -> RustRemover {
+    fun withBackupDir(path: String) r: RustRemover {
         this.backupDir = path
         return this
     }
 
-    fun dryRunMode() -> RustRemover {
+    fun dryRunMode() r: RustRemover {
         this.dryRun = true
         return this
     }
 
-    fun addSearchRoot(path: String) -> RustRemover {
+    fun addSearchRoot(path: String) r: RustRemover {
         this.searchRoots.push(path)
         return this
     }
 
-    fun removeRustCode() -> RemovalResult {
+    fun removeRustCode() r: RemovalResult {
         let rustFiles = collectRustFiles()
         let removedFiles = Array<String>()
         let touchedDirectories = Array<String>()
@@ -90,7 +90,7 @@ class RustRemover {
         }
     }
 
-    fun collectRustFiles() -> Array<String> {
+    fun collectRustFiles() r: Array<String> {
         let collected = Array<String>()
         if this.searchRoots.length() == 0 {
             appendAll(collected, runFindCommand("."))
@@ -102,7 +102,7 @@ class RustRemover {
         return collected
     }
 
-    fun runFindCommand(root: String) -> Array<String> {
+    fun runFindCommand(root: String) r: Array<String> {
         let builder = StringBuilder.new()
         builder.append("cd ")
         builder.append(shellQuote(this.workingDir))
@@ -116,7 +116,7 @@ class RustRemover {
         return lines(commandOutput(result), true)
     }
 
-    fun backupFile(relativePath: String, absolutePath: String) -> Void {
+    fun backupFile(relativePath: String, absolutePath: String) r: Void {
         if this.dryRun {
             return
         }
@@ -130,7 +130,7 @@ class RustRemover {
         return
     }
 
-    fun backupPath(relativePath: String) -> String {
+    fun backupPath(relativePath: String) r: String {
         if this.backupDir == "" or relativePath == "" {
             return this.backupDir
         }
@@ -143,7 +143,7 @@ class RustRemover {
         return builder.toString()
     }
 
-    fun absolutePath(relative: String) -> String {
+    fun absolutePath(relative: String) r: String {
         if relative.startsWith("/") {
             return relative
         }
@@ -159,7 +159,7 @@ class RustRemover {
         return builder.toString()
     }
 
-    fun normalizeRelative(path: String) -> String {
+    fun normalizeRelative(path: String) r: String {
         let trimmed = trim(path)
         if trimmed.length() == 0 {
             return ""
@@ -170,7 +170,7 @@ class RustRemover {
         return trimmed
     }
 
-fun parentDirectory(path: String) -> String {
+fun parentDirectory(path: String) r: String {
     let lastSlash = lastSlashIndex(path)
         if lastSlash <= 0 {
             return "."
@@ -178,7 +178,7 @@ fun parentDirectory(path: String) -> String {
         return path.substring(0, lastSlash)
     }
 
-    fun removeDirectories(directories: Array<String>) -> Void {
+    fun removeDirectories(directories: Array<String>) r: Void {
         for dir in directories {
             if dir == "." or dir == "" {
                 continue
@@ -194,7 +194,7 @@ fun parentDirectory(path: String) -> String {
     }
 }
 
-fun appendAll(target: Array<String>, values: Array<String>) -> Void {
+fun appendAll(target: Array<String>, values: Array<String>) r: Void {
     for value in values {
         let trimmed = trim(value)
         if trimmed.length() == 0 {
@@ -204,7 +204,7 @@ fun appendAll(target: Array<String>, values: Array<String>) -> Void {
     }
 }
 
-fun appendUnique(values: Array<String>, entry: String) -> Void {
+fun appendUnique(values: Array<String>, entry: String) r: Void {
     if entry == "" {
         return
     }
@@ -216,7 +216,7 @@ fun appendUnique(values: Array<String>, entry: String) -> Void {
     values.push(entry)
 }
 
-fun ensureParentDirectories(path: String) -> Void {
+fun ensureParentDirectories(path: String) r: Void {
     let lastSlash = lastSlashIndex(path)
     if lastSlash <= 0 {
         return
@@ -225,7 +225,7 @@ fun ensureParentDirectories(path: String) -> Void {
     createDirectoryRecursive(parent)
 }
 
-fun createDirectoryRecursive(path: String) -> Void {
+fun createDirectoryRecursive(path: String) r: Void {
     if path == "" or path == "." {
         return
     }
@@ -240,7 +240,7 @@ fun createDirectoryRecursive(path: String) -> Void {
     return
 }
 
-fun lastSlashIndex(path: String) -> Int {
+fun lastSlashIndex(path: String) r: Int {
     if path.length() == 0 {
         return -1
     }

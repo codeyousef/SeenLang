@@ -6,46 +6,46 @@ import optimization.ml.model.{MLModel}
 class MLTrainingSystem {
     var model: MLModel
 
-    fun new() -> MLTrainingSystem {
+    fun new() r: MLTrainingSystem {
         return MLTrainingSystem{
             model: MLModel.new()
         }
     }
 
-    fun initialize() -> Bool {
+    fun initialize() r: Bool {
         println("[ml-training] bootstrap baseline ready")
         return true
     }
 
-    fun learnFromCompilation(sourceIR: IR, optimizedIR: IR, performance: Float) -> Void {
+    fun learnFromCompilation(sourceIR: IR, optimizedIR: IR, performance: Float) r: Void {
         model.addTrainingData(sourceIR, optimizedIR, performance)
     }
 
-    fun runABTest(ir: IR, strategies: Array<String>) -> ABTestResult {
+    fun runABTest(ir: IR, strategies: Array<String>) r: ABTestResult {
         return ABTestResult{
             winner: "baseline",
             improvement: 0.0
         }
     }
 
-    fun detectRegression() -> Bool {
+    fun detectRegression() r: Bool {
         return false
     }
 
-    fun rollbackToLastGoodState() -> Void {
+    fun rollbackToLastGoodState() r: Void {
         model.updateVersion("rollback")
     }
 
-    fun performBatchTraining() -> Float {
+    fun performBatchTraining() r: Float {
         return model.accuracy
     }
 
-    fun exportTrainingData(path: String) -> Bool {
+    fun exportTrainingData(path: String) r: Bool {
         println("[ml-training] pretending to export data to {path}")
         return true
     }
 
-    fun importTrainingData(path: String) -> Bool {
+    fun importTrainingData(path: String) r: Bool {
         println("[ml-training] pretending to import data from {path}")
         return true
     }
@@ -55,7 +55,7 @@ class ABTestResult {
     var winner: String
     var improvement: Float
 
-    fun new(winner: String = "baseline", improvement: Float = 0.0) -> ABTestResult {
+    fun new(winner: String = "baseline", improvement: Float = 0.0) r: ABTestResult {
         return ABTestResult{
             winner: winner,
             improvement: improvement

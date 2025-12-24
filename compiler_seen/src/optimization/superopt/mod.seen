@@ -6,34 +6,34 @@ import superoptimizer.{Superoptimizer}
 import z3_solver.{Z3Solver}
 // import program_synthesis.{ProgramSynthesizer}
 // Superoptimization engine interface
-fun createSuperoptimizer() -> Superoptimizer {
+fun createSuperoptimizer() r: Superoptimizer {
     return Superoptimizer{}
 }
 
 // Program synthesis interface  
-// fun createProgramSynthesizer() -> ProgramSynthesizer {
+// fun createProgramSynthesizer() r: ProgramSynthesizer {
 //     return ProgramSynthesizer{}
 // }
 
 // SMT solver interface
-fun createZ3Solver() -> Z3Solver {
+fun createZ3Solver() r: Z3Solver {
     return Z3Solver{}
 }
 
 // Utility functions for superoptimization
 
-fun optimizeFunction(function: Function) -> Function? {
+fun optimizeFunction(function: Function) r: Function? {
     let superoptimizer = createSuperoptimizer()
     return superoptimizer.superoptimize(function)
 }
 
-fun synthesizeOptimalCode(spec: ProgramSpecification) -> Function? {
+fun synthesizeOptimalCode(spec: ProgramSpecification) r: Function? {
     // Program synthesizer not required for MVP self-host; return null
     return null
 }
 
 // Integration with existing optimization pipeline
-fun integrateWithEGraphs(egraphOptimizer: EGraphOptimizer, superoptimizer: Superoptimizer) -> CombinedOptimizer {
+fun integrateWithEGraphs(egraphOptimizer: EGraphOptimizer, superoptimizer: Superoptimizer) r: CombinedOptimizer {
     return CombinedOptimizer{
         egraph: egraphOptimizer,
         superopt: superoptimizer
@@ -44,14 +44,14 @@ class CombinedOptimizer {
     var egraph: EGraphOptimizer
     var superopt: Superoptimizer
     
-    fun new() -> CombinedOptimizer {
+    fun new() r: CombinedOptimizer {
         return CombinedOptimizer{
             egraph: EGraphOptimizer{},
             superopt: Superoptimizer{}
         }
     }
     
-    fun Optimize(ir: IR) -> IR? {
+    fun Optimize(ir: IR) r: IR? {
         println("🔥 Combined E-graph + Superoptimization")
         
         // First apply E-graph optimization
@@ -79,7 +79,7 @@ class CombinedOptimizer {
         }
     }
     
-    fun isCriticalFunction(function: Function) -> Bool {
+    fun isCriticalFunction(function: Function) r: Bool {
         // Mark functions as critical if they're small enough for superoptimization
         return function.instructions.size() <= 20
     }

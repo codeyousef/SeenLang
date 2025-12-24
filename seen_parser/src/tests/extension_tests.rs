@@ -20,7 +20,7 @@ fn test_parse_simple_extension() {
     let expr = parse_top_level_item(
         r#"
         extension String {
-            fun Reversed(): String {
+            fun Reversed() r: String {
                 return this.chars().reverse().join()
             }
         }
@@ -50,11 +50,11 @@ fn test_parse_extension_multiple_methods() {
     let expr = parse_top_level_item(
         r#"
         extension String {
-            fun Reversed(): String {
+            fun Reversed() r: String {
                 return this.chars().reverse().join()
             }
             
-            fun cleaned(): String {
+            fun cleaned() r: String {
                 return this.trim().toLowerCase()
             }
         }
@@ -88,7 +88,7 @@ fn test_parse_extension_with_parameters() {
     let expr = parse_top_level_item(
         r#"
         extension Array {
-            fun Contains(item: T): Bool {
+            fun Contains(item: T) r: Bool {
                 return this.any { it == item }
             }
         }
@@ -120,7 +120,7 @@ fn test_parse_extension_generic_target() {
     let expr = parse_top_level_item(
         r#"
         extension List<T> {
-            fun First(): T? {
+            fun First() r: T? {
                 return this.firstOrNull()
             }
         }
@@ -153,11 +153,11 @@ fn test_parse_extension_visibility() {
     let expr = parse_top_level_item(
         r#"
         extension String {
-            fun ToUpper(): String {     // Public method
+            fun ToUpper() r: String {     // Public method
                 return this.toUpperCase()
             }
             
-            fun toLower(): String {     // Private method
+            fun toLower() r: String {     // Private method
                 return this.toLowerCase()
             }
         }
@@ -192,7 +192,7 @@ fn test_parse_extension_with_receiver_modifiers() {
     let expr = parse_top_level_item(
         r#"
         extension StringBuilder {
-            fun Append(text: String): StringBuilder {
+            fun Append(text: String) r: StringBuilder {
                 // Extension method that modifies the receiver
                 return this.append(text)
             }

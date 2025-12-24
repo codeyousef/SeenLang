@@ -9,15 +9,15 @@ import lexer.{SeenLexer}
 // import keyword_manager.{KeywordManager}
 
 // Utility functions for tests
-fun createLexer(source: String, language: String) -> SeenLexer {
+fun createLexer(source: String, language: String) r: SeenLexer {
     return SeenLexer.new(source, 1, language)
 }
 
-fun tokenizeString(source: String, language: String = "en") -> Array<Token> {
+fun tokenizeString(source: String, language: String = "en") r: Array<Token> {
     let lexer = SeenLexer.new(source, 1, language)
     return lexer.tokenize()
 }
 
-fun createKeywordManager(language: String) -> KeywordManager {
+fun createKeywordManager(language: String) r: KeywordManager {
     return KeywordManager.new(language)
 }

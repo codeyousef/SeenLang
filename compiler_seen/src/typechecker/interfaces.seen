@@ -14,22 +14,22 @@ class Type {
     let generics: Array<Type>
     let kind: TypeKind
     
-    fun new(name: String, isNullable: Bool = false, kind: TypeKind = TypeKind.Concrete) -> Type {
+    fun new(name: String, isNullable: Bool = false, kind: TypeKind = TypeKind.Concrete) r: Type {
         this.name = name
         this.isNullable = isNullable
         this.generics = Array<Type>()
         this.kind = kind
     }
     
-    fun getName() -> String {
+    fun getName() r: String {
         return name
     }
     
-    fun isNullable() -> Bool {
+    fun isNullable() r: Bool {
         return isNullable
     }
     
-    fun isCompatibleWith(other: Type) -> Bool {
+    fun isCompatibleWith(other: Type) r: Bool {
         // Same type and nullability compatibility
         if name == other.name and (isNullable or not other.isNullable) {
             return true
@@ -54,12 +54,12 @@ class Type {
         return false
     }
     
-    fun canCastTo(other: Type) -> Bool {
+    fun canCastTo(other: Type) r: Bool {
         // Same as isCompatibleWith for basic implementation
         return isCompatibleWith(other)
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         let result = name
         if generics.length() > 0 {
             result += "<"
@@ -110,7 +110,7 @@ class TypeError extends Error {
     let actual: Type
     let context: String
     
-    fun new(message: String, location: Location, expected: Type, actual: Type, context: String = "") -> TypeError {
+    fun new(message: String, location: Location, expected: Type, actual: Type, context: String = "") r: TypeError {
         super(message)
         this.location = location
         this.expected = expected
@@ -118,19 +118,19 @@ class TypeError extends Error {
         this.context = context
     }
     
-    fun getLocation() -> Location {
+    fun getLocation() r: Location {
         return location
     }
     
-    fun getExpected() -> Type {
+    fun getExpected() r: Type {
         return expected
     }
     
-    fun getActual() -> Type {
+    fun getActual() r: Type {
         return actual
     }
     
-    fun getContext() -> String {
+    fun getContext() r: String {
         return context
     }
 }
@@ -141,7 +141,7 @@ class Location {
     let column: Int
     let file: String
     
-    fun new(line: Int, column: Int, file: String = "") -> Location {
+    fun new(line: Int, column: Int, file: String = "") r: Location {
         this.line = line
         this.column = column
         this.file = file
@@ -156,7 +156,7 @@ class Environment {
     let classes: Map<String, ClassType>
     let interfaces: Map<String, InterfaceType>
     
-    fun new(parent: Environment? = null) -> Environment {
+    fun new(parent: Environment? = null) r: Environment {
         this.parent = parent
         this.variables = Map<String, Type>()
         this.functions = Map<String, FunctionType>()
@@ -164,11 +164,11 @@ class Environment {
         this.interfaces = Map<String, InterfaceType>()
     }
     
-    fun define(name: String, type: Type) -> Void {
+    fun define(name: String, type: Type) r: Void {
         variables.put(name, type)
     }
     
-    fun lookup(name: String) -> Type? {
+    fun lookup(name: String) r: Type? {
         if variables.containsKey(name) {
             return variables.get(name)
         }
@@ -178,11 +178,11 @@ class Environment {
         return null
     }
     
-    fun defineFunction(name: String, functionType: FunctionType) -> Void {
+    fun defineFunction(name: String, functionType: FunctionType) r: Void {
         functions.put(name, functionType)
     }
     
-    fun lookupFunction(name: String) -> FunctionType? {
+    fun lookupFunction(name: String) r: FunctionType? {
         if functions.containsKey(name) {
             return functions.get(name)
         }
@@ -192,11 +192,11 @@ class Environment {
         return null
     }
     
-    fun defineClass(name: String, classType: ClassType) -> Void {
+    fun defineClass(name: String, classType: ClassType) r: Void {
         classes.put(name, classType)
     }
     
-    fun lookupClass(name: String) -> ClassType? {
+    fun lookupClass(name: String) r: ClassType? {
         if classes.containsKey(name) {
             return classes.get(name)
         }
@@ -214,7 +214,7 @@ class FunctionType {
     let isAsync: Bool
     let generics: Array<Type>
     
-    fun new(parameters: Array<Type>, returnType: Type, isAsync: Bool = false) -> FunctionType {
+    fun new(parameters: Array<Type>, returnType: Type, isAsync: Bool = false) r: FunctionType {
         this.parameters = parameters
         this.returnType = returnType
         this.isAsync = isAsync
@@ -230,7 +230,7 @@ class ClassType {
     let superclass: ClassType?
     let interfaces: Array<InterfaceType>
     
-    fun new(name: String) -> ClassType {
+    fun new(name: String) r: ClassType {
         this.name = name
         this.fields = Map<String, Type>()
         this.methods = Map<String, FunctionType>()
@@ -245,7 +245,7 @@ class InterfaceType {
     let methods: Map<String, FunctionType>
     let superinterfaces: Array<InterfaceType>
     
-    fun new(name: String) -> InterfaceType {
+    fun new(name: String) r: InterfaceType {
         this.name = name
         this.methods = Map<String, FunctionType>()
         this.superinterfaces = Array<InterfaceType>()
@@ -260,7 +260,7 @@ class TypeInferenceResult {
     let warnings: Array<String>
     let environment: Environment
     
-    fun new(success: Bool, type: Type, environment: Environment) -> TypeInferenceResult {
+    fun new(success: Bool, type: Type, environment: Environment) r: TypeInferenceResult {
         this.success = success
         this.type = type
         this.errors = Array<TypeError>()
@@ -268,16 +268,16 @@ class TypeInferenceResult {
         this.environment = environment
     }
     
-    fun addError(error: TypeError) -> Void {
+    fun addError(error: TypeError) r: Void {
         errors.push(error)
         success = false
     }
     
-    fun addWarning(warning: String) -> Void {
+    fun addWarning(warning: String) r: Void {
         warnings.push(warning)
     }
     
-    fun getVariableType(name: String) -> Type? {
+    fun getVariableType(name: String) r: Type? {
         return environment.lookup(name)
     }
 }
@@ -287,17 +287,17 @@ class SmartCastContext {
     let casts: Map<String, Type>
     let conditions: Array<String>
     
-    fun new() -> SmartCastContext {
+    fun new() r: SmartCastContext {
         this.casts = Map<String, Type>()
         this.conditions = Array<String>()
     }
     
-    fun addCast(variable: String, type: Type, condition: String) -> Void {
+    fun addCast(variable: String, type: Type, condition: String) r: Void {
         casts.put(variable, type)
         conditions.push(condition)
     }
     
-    fun getCastedType(variable: String) -> Type? {
+    fun getCastedType(variable: String) r: Type? {
         return casts.get(variable)
     }
 }
@@ -310,87 +310,87 @@ class TypeChecker {
     let smartCastContext: SmartCastContext
     var strictMode: Bool
     
-    fun new() -> TypeChecker {
+    fun new() r: TypeChecker {
         // Factory method that returns the real implementation
         return TypeChecker{}
     }
     
-    fun check(ast: AST) -> TypeInferenceResult {
+    fun check(ast: AST) r: TypeInferenceResult {
         // Default implementation - override in concrete implementations
         return TypeInferenceResult.new(true, Type.Void, Environment.new())
     }
     
-    fun checkFunction(function: Function) -> Type {
+    fun checkFunction(function: Function) r: Type {
         // Default implementation - override in concrete implementations
         return Type.Void
     }
     
-    fun checkExpression(expression: Expression) -> Type {
+    fun checkExpression(expression: Expression) r: Type {
         // Default implementation - override in concrete implementations
         return Type.Unknown
     }
     
-    fun checkStatement(statement: Statement) -> Void {
+    fun checkStatement(statement: Statement) r: Void {
         // Default implementation - override in concrete implementations
         // No-op for interface
     }
     
-    fun checkClass(classNode: Class) -> ClassType {
+    fun checkClass(classNode: Class) r: ClassType {
         // Default implementation - override in concrete implementations
         return ClassType.new(classNode.name)
     }
     
-    fun checkInterface(interfaceNode: Interface) -> InterfaceType {
+    fun checkInterface(interfaceNode: Interface) r: InterfaceType {
         // Default implementation - override in concrete implementations
         return InterfaceType.new(interfaceNode.name)
     }
     
-    fun inferType(expression: Expression) -> Type {
+    fun inferType(expression: Expression) r: Type {
         // Default implementation - override in concrete implementations
         return Type.Unknown
     }
     
-    fun unifyTypes(type1: Type, type2: Type) -> Type? {
+    fun unifyTypes(type1: Type, type2: Type) r: Type? {
         // Default implementation - override in concrete implementations
         return if type1.name == type2.name { type1 } else { null }
     }
     
-    fun isAssignableFrom(target: Type, source: Type) -> Bool {
+    fun isAssignableFrom(target: Type, source: Type) r: Bool {
         // Default implementation - override in concrete implementations
         return target.name == source.name or target == Type.Any
     }
     
-    fun resolveMethod(className: String, methodName: String, args: Array<Type>) -> FunctionType? {
+    fun resolveMethod(className: String, methodName: String, args: Array<Type>) r: FunctionType? {
         // Default implementation - override in concrete implementations
         return null
     }
     
-    fun performSmartCast(variable: String, type: Type, condition: String) -> Void {
+    fun performSmartCast(variable: String, type: Type, condition: String) r: Void {
         // Default implementation - override in concrete implementations
         // No-op for interface
     }
     
-    fun setStrictMode(enabled: Bool) -> Void {
+    fun setStrictMode(enabled: Bool) r: Void {
         // Default implementation - override in concrete implementations
         this.strictMode = enabled
     }
     
-    fun getErrors() -> Array<TypeError> {
+    fun getErrors() r: Array<TypeError> {
         return errors
     }
     
-    fun getWarnings() -> Array<String> {
+    fun getWarnings() r: Array<String> {
         return warnings
     }
     
-    fun clearErrors() -> Void {
+    fun clearErrors() r: Void {
         errors = Array<TypeError>()
         warnings = Array<String>()
     }
 }
 
 // Utility functions for tests
-fun typeCheckSource(source: String, language: String = "en") -> TypeInferenceResult {
+fun typeCheckSource(source: String, language: String = "en") r: TypeInferenceResult {
     let lexer = SeenLexer.new(source, 1, language)
     let tokens = lexer.tokenize()
     let parser = RealParser.new(tokens)
@@ -399,10 +399,10 @@ fun typeCheckSource(source: String, language: String = "en") -> TypeInferenceRes
     return checker.check(ast as Any)
 }
 
-fun createTypeChecker() -> TypeChecker {
+fun createTypeChecker() r: TypeChecker {
     return TypeChecker.new()
 }
 
-fun createType(name: String, nullable: Bool = false) -> Type {
+fun createType(name: String, nullable: Bool = false) r: Type {
     return Type.new(name, nullable)
 }

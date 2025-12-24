@@ -6,20 +6,20 @@ import ir.module.Module
 class MemoryOptimizer extends OptimizationPass {
     let iterationLimit: Int
 
-    fun new() -> MemoryOptimizer {
+    fun new() r: MemoryOptimizer {
         return MemoryOptimizer{ iterationLimit: 5 }
     }
 
-    fun Optimize(ir: Module) -> Module {
+    fun Optimize(ir: Module) r: Module {
         println("[mem-opt] running pass (limit={iterationLimit})")
         return ir
     }
 
-    fun optimizeAccessPatterns(ir: Module) -> Void {
+    fun optimizeAccessPatterns(ir: Module) r: Void {
         println("[mem-opt] analyze access patterns")
     }
 
-    fun optimizeLayouts(ir: Module) -> Void {
+    fun optimizeLayouts(ir: Module) r: Void {
         println("[mem-opt] layout pass")
     }
 }

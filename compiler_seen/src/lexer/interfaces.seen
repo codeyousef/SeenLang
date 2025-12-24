@@ -112,7 +112,7 @@ class Token {
     let length: Int
     let fileId: Int
     
-    fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) -> Token {
+    fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
         this.tokenType = tokenType
         this.value = value
         this.line = line
@@ -121,27 +121,27 @@ class Token {
         this.fileId = fileId
     }
     
-    fun getType() -> TokenType {
+    fun getType() r: TokenType {
         return tokenType
     }
     
-    fun getValue() -> String {
+    fun getValue() r: String {
         return value
     }
     
-    fun getLine() -> Int {
+    fun getLine() r: Int {
         return line
     }
     
-    fun getColumn() -> Int {
+    fun getColumn() r: Int {
         return column
     }
     
-    fun getLength() -> Int {
+    fun getLength() r: Int {
         return length
     }
     
-    fun getFileId() -> Int {
+    fun getFileId() r: Int {
         return fileId
     }
 }
@@ -151,17 +151,17 @@ class LexerError extends Error {
     let position: Position
     let character: String
     
-    fun new(message: String, position: Position, character: String) -> LexerError {
+    fun new(message: String, position: Position, character: String) r: LexerError {
         super(message)
         this.position = position
         this.character = character
     }
     
-    fun getPosition() -> Position {
+    fun getPosition() r: Position {
         return position
     }
     
-    fun getCharacter() -> String {
+    fun getCharacter() r: String {
         return character
     }
 }
@@ -172,21 +172,21 @@ class Position {
     let column: Int
     let fileId: Int
     
-    fun new(line: Int, column: Int, fileId: Int) -> Position {
+    fun new(line: Int, column: Int, fileId: Int) r: Position {
         this.line = line
         this.column = column
         this.fileId = fileId
     }
     
-    fun getLine() -> Int {
+    fun getLine() r: Int {
         return line
     }
     
-    fun getColumn() -> Int {
+    fun getColumn() r: Int {
         return column
     }
     
-    fun getFileId() -> Int {
+    fun getFileId() r: Int {
         return fileId
     }
 }
@@ -199,7 +199,7 @@ class Position {
 
 
 // Helper functions for TokenType
-fun tokenTypeIsOperator(tokenType: TokenType) -> Bool {
+fun tokenTypeIsOperator(tokenType: TokenType) r: Bool {
     return match tokenType {
         Plus, Minus, Multiply, Divide, Modulo,
         Equal, PlusEqual, MinusEqual, MultiplyEqual, DivideEqual,
@@ -210,14 +210,14 @@ fun tokenTypeIsOperator(tokenType: TokenType) -> Bool {
     }
 }
 
-fun tokenTypeIsLiteral(tokenType: TokenType) -> Bool {
+fun tokenTypeIsLiteral(tokenType: TokenType) r: Bool {
     return match tokenType {
         IntegerLiteral, FloatLiteral, StringLiteral, BooleanLiteral -> true
         _ -> false
     }
 }
 
-fun tokenTypeIsKeyword(tokenType: TokenType) -> Bool {
+fun tokenTypeIsKeyword(tokenType: TokenType) r: Bool {
     return match tokenType {
         KeywordFun, KeywordLet, KeywordVar, KeywordIf, KeywordElse,
         KeywordWhile, KeywordFor, KeywordIn, KeywordReturn, KeywordBreak,
@@ -231,7 +231,7 @@ fun tokenTypeIsKeyword(tokenType: TokenType) -> Bool {
     }
 }
 
-fun generateLargeSource(tokenCount: Int) -> String {
+fun generateLargeSource(tokenCount: Int) r: String {
     let builder = StringBuilder.new()
     for i in 0..tokenCount/10 {
         builder.append("fun function" + i.toString() + "() { let x" + i.toString() + " = " + i.toString() + "; }\n")
@@ -239,6 +239,6 @@ fun generateLargeSource(tokenCount: Int) -> String {
     return builder.toString()
 }
 
-fun getCurrentTime() -> Int {
+fun getCurrentTime() r: Int {
     return nowMillis()
 }

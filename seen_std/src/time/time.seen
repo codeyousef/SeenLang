@@ -2,21 +2,21 @@
 // Deterministic timestamp + duration helpers atop __GetTimestamp.
 
 // External runtime intrinsics
-extern fun __GetTimestamp(): String
+extern fun __GetTimestamp() r: String
 
-fun nowSeconds() -> Int {
+fun nowSeconds() r: Int {
     return parseTimestamp(__GetTimestamp())
 }
 
-fun nowMillis() -> Int {
+fun nowMillis() r: Int {
     return nowSeconds() * 1000
 }
 
-fun nowNanos() -> Int {
+fun nowNanos() r: Int {
     return nowSeconds() * 1000000000
 }
 
-fun parseTimestamp(value: String) -> Int {
+fun parseTimestamp(value: String) r: Int {
     if value.length() == 0 {
         return 0
     }
@@ -41,19 +41,19 @@ fun parseTimestamp(value: String) -> Int {
 class Duration {
     var seconds: Int
 
-    fun fromSeconds(value: Int) -> Duration {
+    fun fromSeconds(value: Int) r: Duration {
         return Duration{ seconds: value }
     }
 
-    fun totalSeconds() -> Int {
+    fun totalSeconds() r: Int {
         return seconds
     }
 
-    fun totalMillis() -> Int {
+    fun totalMillis() r: Int {
         return seconds * 1000
     }
 }
 
-fun since(startSeconds: Int) -> Duration {
+fun since(startSeconds: Int) r: Duration {
     return Duration.fromSeconds(nowSeconds() - startSeconds)
 }

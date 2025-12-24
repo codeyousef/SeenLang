@@ -2,16 +2,16 @@
 // Deterministic task + channel helpers backed by seen_runtime primitives.
 
 // External runtime intrinsics
-extern fun __await(handle: Any?): Int
-extern fun __scope_push(kind: Int): Void
-extern fun __scope_pop(kind: Int): Void
-extern fun __spawn_task(): Any?
-extern fun __spawn_detached(): Any?
-extern fun __spawn_actor(): Any?
-extern fun seen_channel_new(capacity: Int): Any?
-extern fun seen_channel_send(channel: Any?, payload: Any?): Void
-extern fun seen_channel_recv(channel: Any?): Any?
-extern fun seen_channel_close(channel: Any?): Void
+extern fun __await(handle: Any?) r: Int
+extern fun __scope_push(kind: Int) r: Void
+extern fun __scope_pop(kind: Int) r: Void
+extern fun __spawn_task() r: Any?
+extern fun __spawn_detached() r: Any?
+extern fun __spawn_actor() r: Any?
+extern fun seen_channel_new(capacity: Int) r: Any?
+extern fun seen_channel_send(channel: Any?, payload: Any?) r: Void
+extern fun seen_channel_recv(channel: Any?) r: Any?
+extern fun seen_channel_close(channel: Any?) r: Void
 
 enum TaskKind {
     Task,
@@ -23,18 +23,18 @@ class TaskHandle {
     var rawHandle: Any?
     var kind: TaskKind
 
-    fun new(rawHandle: Any?, kind: TaskKind) -> TaskHandle {
+    fun new(rawHandle: Any?, kind: TaskKind) r: TaskHandle {
         return TaskHandle{
             rawHandle: rawHandle,
             kind: kind
         }
     }
 
-    fun isValid() -> Bool {
+    fun isValid() r: Bool {
         return rawHandle != null
     }
 
-    fun join() -> Bool {
+    fun join() r: Bool {
         if rawHandle == null {
             return true
         }
@@ -48,12 +48,12 @@ class ScopeGuard {
     var kind: Int
     var active: Bool
 
-    fun new(kind: Int) -> ScopeGuard {
+    fun new(kind: Int) r: ScopeGuard {
         __scope_push(kind)
         return ScopeGuard{ kind: kind, active: true }
     }
 
-    fun close() -> Void {
+    fun close() r: Void {
         if not active {
             return
         }
@@ -62,15 +62,15 @@ class ScopeGuard {
     }
 }
 
-fun pushTaskScope() -> ScopeGuard {
+fun pushTaskScope() r: ScopeGuard {
     return ScopeGuard.new(0)
 }
 
-fun pushJobScope() -> ScopeGuard {
+fun pushJobScope() r: ScopeGuard {
     return ScopeGuard.new(1)
 }
 
-fun spawnTask(kind: TaskKind = TaskKind.Task) -> TaskHandle {
+fun spawnTask(kind: TaskKind = TaskKind.Task) r: TaskHandle {
     if kind == TaskKind.Task {
         return TaskHandle.new(__spawn_task(), kind)
     }
@@ -83,25 +83,25 @@ fun spawnTask(kind: TaskKind = TaskKind.Task) -> TaskHandle {
 class Channel {
     var raw: Any?
 
-    fun new(capacity: Int = 0) -> Channel {
+    fun new(capacity: Int = 0) r: Channel {
         return Channel{ raw: seen_channel_new(capacity) }
     }
 
-    fun send(payload: Any?) -> Void {
+    fun send(payload: Any?) r: Void {
         if raw == null {
             abort("channel not initialized")
         }
         seen_channel_send(raw, payload)
     }
 
-    fun recv() -> Any? {
+    fun recv() r: Any? {
         if raw == null {
             return null
         }
         return seen_channel_recv(raw)
     }
 
-    fun close() -> Void {
+    fun close() r: Void {
         if raw == null {
             return
         }

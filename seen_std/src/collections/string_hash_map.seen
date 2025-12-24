@@ -4,11 +4,11 @@
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
 
-fun emptyState() -> Int { return 0 }
-fun occupiedState() -> Int { return 1 }
-fun tombstoneState() -> Int { return 2 }
-fun defaultCapacity() -> Int { return 16 }
-fun maxLoadPercent() -> Int { return 70 }
+fun emptyState() r: Int { return 0 }
+fun occupiedState() r: Int { return 1 }
+fun tombstoneState() r: Int { return 2 }
+fun defaultCapacity() r: Int { return 16 }
+fun maxLoadPercent() r: Int { return 70 }
 
 class HashEntry<V> {
     var key: String
@@ -20,11 +20,11 @@ class StringHashMap<V> {
     var states: Vec<Int>
     var length: Int
 
-    static fun New() -> StringHashMap<V> {
+    static fun New() r: StringHashMap<V> {
         return StringHashMap.withCapacity(defaultCapacity())
     }
 
-    static fun withCapacity(capacity: Int) -> StringHashMap<V> {
+    static fun withCapacity(capacity: Int) r: StringHashMap<V> {
         let buckets = nextPowerOfTwo(capacity)
         return StringHashMap{
             entries: initializeBuckets<V>(buckets),
@@ -33,31 +33,31 @@ class StringHashMap<V> {
         }
     }
 
-    fun Len() -> Int {
+    fun Len() r: Int {
         return length
     }
 
-    fun IsEmpty() -> Bool {
+    fun IsEmpty() r: Bool {
         return length == 0
     }
 
-    fun Capacity() -> Int {
+    fun Capacity() r: Int {
         return entries.len()
     }
 
-    fun Clear() -> Void {
+    fun Clear() r: Void {
         let buckets = this.Capacity()
         entries = initializeBuckets<V>(buckets)
         states = initializeStates(buckets)
         length = 0
     }
 
-    fun Insert(key: String, value: V) -> Void {
+    fun Insert(key: String, value: V) r: Void {
         this.ensureCapacityFor(length + 1)
         this.insertInternal(key, value)
     }
 
-    fun Get(key: String) -> Option<V> {
+    fun Get(key: String) r: Option<V> {
         let slot = this.findSlot(key)
         if slot < 0 {
             return None()
@@ -70,7 +70,7 @@ class StringHashMap<V> {
         return Some(entry.value)
     }
 
-    fun GetOrDefault(key: String, defaultValue: V) -> V {
+    fun GetOrDefault(key: String, defaultValue: V) r: V {
         let opt = this.Get(key)
         if opt.isSome() {
             return opt.Unwrap()
@@ -78,11 +78,11 @@ class StringHashMap<V> {
         return defaultValue
     }
 
-    fun Contains(key: String) -> Bool {
+    fun Contains(key: String) r: Bool {
         return this.findSlot(key) >= 0
     }
 
-    fun Remove(key: String) -> Bool {
+    fun Remove(key: String) r: Bool {
         let slot = this.findSlot(key)
         if slot < 0 {
             return false
@@ -93,7 +93,7 @@ class StringHashMap<V> {
         return true
     }
 
-    fun Keys() -> Array<String> {
+    fun Keys() r: Array<String> {
         let items = Array<String>()
         var index = 0
         while index < entries.len() {
@@ -109,14 +109,14 @@ class StringHashMap<V> {
         return items
     }
 
-    fun loadFactorPercent() -> Int {
+    fun loadFactorPercent() r: Int {
         if this.capacity() == 0 {
             return 0
         }
         return (length * 100) / this.capacity()
     }
 
-    fun insertInternal(key: String, value: V) -> Void {
+    fun insertInternal(key: String, value: V) r: Void {
         var index = this.probeIndex(key)
         var firstTombstone = -1
         while true {
@@ -149,7 +149,7 @@ class StringHashMap<V> {
         }
     }
 
-    fun findSlot(key: String) -> Int {
+    fun findSlot(key: String) r: Int {
         if this.capacity() == 0 {
             return -1
         }
@@ -175,7 +175,7 @@ class StringHashMap<V> {
         return -1
     }
 
-    fun ensureCapacityFor(required: Int) -> Void {
+    fun ensureCapacityFor(required: Int) r: Void {
         if this.capacity() == 0 {
             this.resize(defaultCapacity())
             return
@@ -186,7 +186,7 @@ class StringHashMap<V> {
         this.resize(this.capacity() * 2)
     }
 
-    fun resize(newCapacity: Int) -> Void {
+    fun resize(newCapacity: Int) r: Void {
         let target = nextPowerOfTwo(newCapacity)
         let oldEntries = entries
         let oldStates = states
@@ -206,7 +206,7 @@ class StringHashMap<V> {
         }
     }
 
-    fun probeIndex(key: String) -> Int {
+    fun probeIndex(key: String) r: Int {
         let hash = hashString(key)
         let cap = this.Capacity()
         if cap == 0 {
@@ -220,7 +220,7 @@ class StringHashMap<V> {
     }
 }
 
-fun nextPowerOfTwo(value: Int) -> Int {
+fun nextPowerOfTwo(value: Int) r: Int {
     var size = 1
     while size < value {
         size = size * 2
@@ -228,7 +228,7 @@ fun nextPowerOfTwo(value: Int) -> Int {
     return size
 }
 
-fun initializeBuckets<V>(capacity: Int) -> Vec<Option<HashEntry<V>>> {
+fun initializeBuckets<V>(capacity: Int) r: Vec<Option<HashEntry<V>>> {
     let vec = Vec<Option<HashEntry<V>>>.withCapacity(capacity)
     var index = 0
     while index < capacity {
@@ -238,7 +238,7 @@ fun initializeBuckets<V>(capacity: Int) -> Vec<Option<HashEntry<V>>> {
     return vec
 }
 
-fun initializeStates(capacity: Int) -> Vec<Int> {
+fun initializeStates(capacity: Int) r: Vec<Int> {
     let vec = Vec<Int>.withCapacity(capacity)
     var index = 0
     while index < capacity {
@@ -248,7 +248,7 @@ fun initializeStates(capacity: Int) -> Vec<Int> {
     return vec
 }
 
-fun hashString(text: String) -> Int {
+fun hashString(text: String) r: Int {
     var hash = 2166136261
     var index = 0
     while index < text.length() {

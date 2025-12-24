@@ -8,53 +8,53 @@ const DEG_TO_RAD: Float = PI / 180.0
 const RAD_TO_DEG: Float = 180.0 / PI
 const E: Float = 2.71828182845904523536
 
-fun abs(value: Float) -> Float {
+fun abs(value: Float) r: Float {
     if value < 0.0 {
         return -value
     }
     return value
 }
 
-fun absInt(value: Int) -> Int {
+fun absInt(value: Int) r: Int {
     if value < 0 {
         return -value
     }
     return value
 }
 
-fun min(a: Float, b: Float) -> Float {
+fun min(a: Float, b: Float) r: Float {
     if a < b {
         return a
     }
     return b
 }
 
-fun max(a: Float, b: Float) -> Float {
+fun max(a: Float, b: Float) r: Float {
     if a > b {
         return a
     }
     return b
 }
 
-fun minInt(a: Int, b: Int) -> Int {
+fun minInt(a: Int, b: Int) r: Int {
     if a < b {
         return a
     }
     return b
 }
 
-fun maxInt(a: Int, b: Int) -> Int {
+fun maxInt(a: Int, b: Int) r: Int {
     if a > b {
         return a
     }
     return b
 }
 
-fun clamp01(value: Float) -> Float {
+fun clamp01(value: Float) r: Float {
     return clamp(value, 0.0, 1.0)
 }
 
-fun sign(value: Float) -> Int {
+fun sign(value: Float) r: Int {
     if value > 0.0 {
         return 1
     }
@@ -64,11 +64,11 @@ fun sign(value: Float) -> Int {
     return 0
 }
 
-fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) -> Bool {
+fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) r: Bool {
     return abs(a - b) <= tolerance
 }
 
-fun sin(radians: Float) -> Float {
+fun sin(radians: Float) r: Float {
     let angle = normalizeAngle(radians)
     let x2 = angle * angle
     let x3 = angle * x2
@@ -82,7 +82,7 @@ fun sin(radians: Float) -> Float {
         + (x9 / 362880.0)
 }
 
-fun cos(radians: Float) -> Float {
+fun cos(radians: Float) r: Float {
     let angle = normalizeAngle(radians)
     let x2 = angle * angle
     let x4 = x2 * x2
@@ -95,7 +95,7 @@ fun cos(radians: Float) -> Float {
         + (x8 / 40320.0)
 }
 
-fun tan(radians: Float) -> Float {
+fun tan(radians: Float) r: Float {
     let c = cos(radians)
     if approxEqual(c, 0.0, 0.0000001) {
         abort("tan undefined for angle {radians}")
@@ -103,7 +103,7 @@ fun tan(radians: Float) -> Float {
     return sin(radians) / c
 }
 
-fun sqrt(value: Float) -> Float {
+fun sqrt(value: Float) r: Float {
     if value < 0.0 {
         abort("sqrt of negative input")
     }
@@ -119,7 +119,7 @@ fun sqrt(value: Float) -> Float {
     return guess
 }
 
-fun floor(value: Float) -> Float {
+fun floor(value: Float) r: Float {
     if value >= 0.0 {
         var whole = 0.0
         var remaining = value
@@ -141,7 +141,7 @@ fun floor(value: Float) -> Float {
     return whole - 1.0
 }
 
-fun ceil(value: Float) -> Float {
+fun ceil(value: Float) r: Float {
     if value >= 0.0 {
         var whole = 0.0
         var remaining = value
@@ -163,7 +163,7 @@ fun ceil(value: Float) -> Float {
     return whole
 }
 
-fun round(value: Float) -> Float {
+fun round(value: Float) r: Float {
     let floored = floor(value)
     let fraction = value - floored
     if fraction >= 0.5 {
@@ -175,7 +175,7 @@ fun round(value: Float) -> Float {
     return floored
 }
 
-fun pow(base: Float, exponent: Float) -> Float {
+fun pow(base: Float, exponent: Float) r: Float {
     if exponent == 0.0 {
         return 1.0
     }
@@ -194,7 +194,7 @@ fun pow(base: Float, exponent: Float) -> Float {
     return result
 }
 
-fun exp(value: Float) -> Float {
+fun exp(value: Float) r: Float {
     var term = 1.0
     var result = 1.0
     var n = 1
@@ -206,7 +206,7 @@ fun exp(value: Float) -> Float {
     return result
 }
 
-fun ln(value: Float) -> Float {
+fun ln(value: Float) r: Float {
     if value <= 0.0 {
         abort("ln expects positive input")
     }
@@ -220,11 +220,11 @@ fun ln(value: Float) -> Float {
     return guess
 }
 
-fun log(base: Float, value: Float) -> Float {
+fun log(base: Float, value: Float) r: Float {
     return ln(value) / ln(base)
 }
 
-fun clamp(value: Float, minValue: Float, maxValue: Float) -> Float {
+fun clamp(value: Float, minValue: Float, maxValue: Float) r: Float {
     if value < minValue {
         return minValue
     }
@@ -234,7 +234,7 @@ fun clamp(value: Float, minValue: Float, maxValue: Float) -> Float {
     return value
 }
 
-fun clampInt(value: Int, minValue: Int, maxValue: Int) -> Int {
+fun clampInt(value: Int, minValue: Int, maxValue: Int) r: Int {
     if value < minValue {
         return minValue
     }
@@ -244,15 +244,15 @@ fun clampInt(value: Int, minValue: Int, maxValue: Int) -> Int {
     return value
 }
 
-fun degToRad(degrees: Float) -> Float {
+fun degToRad(degrees: Float) r: Float {
     return degrees * DEG_TO_RAD
 }
 
-fun radToDeg(radians: Float) -> Float {
+fun radToDeg(radians: Float) r: Float {
     return radians * RAD_TO_DEG
 }
 
-fun saturatingAdd(a: Int, b: Int) -> Int {
+fun saturatingAdd(a: Int, b: Int) r: Int {
     let result = a + b
     if (a > 0 and b > 0 and result < 0) {
         return Int.max()
@@ -263,7 +263,7 @@ fun saturatingAdd(a: Int, b: Int) -> Int {
     return result
 }
 
-fun saturatingSub(a: Int, b: Int) -> Int {
+fun saturatingSub(a: Int, b: Int) r: Int {
     let result = a - b
     if (a > 0 and b < 0 and result < 0) {
         return Int.max()
@@ -274,7 +274,7 @@ fun saturatingSub(a: Int, b: Int) -> Int {
     return result
 }
 
-fun saturatingMul(a: Int, b: Int) -> Int {
+fun saturatingMul(a: Int, b: Int) r: Int {
     if a == 0 or b == 0 {
         return 0
     }
@@ -291,7 +291,7 @@ fun saturatingMul(a: Int, b: Int) -> Int {
     return result
 }
 
-fun checkedAdd(a: Int, b: Int) -> Int {
+fun checkedAdd(a: Int, b: Int) r: Int {
     let result = a + b
     if (a > 0 and b > 0 and result < 0) or (a < 0 and b < 0 and result > 0) {
         abort("checkedAdd overflow")
@@ -299,7 +299,7 @@ fun checkedAdd(a: Int, b: Int) -> Int {
     return result
 }
 
-fun checkedSub(a: Int, b: Int) -> Int {
+fun checkedSub(a: Int, b: Int) r: Int {
     let result = a - b
     if (a >= 0 and b < 0 and result < 0) or (a <= 0 and b > 0 and result > 0) {
         abort("checkedSub overflow")
@@ -307,7 +307,7 @@ fun checkedSub(a: Int, b: Int) -> Int {
     return result
 }
 
-fun checkedMul(a: Int, b: Int) -> Int {
+fun checkedMul(a: Int, b: Int) r: Int {
     if a == 0 or b == 0 {
         return 0
     }
@@ -318,19 +318,19 @@ fun checkedMul(a: Int, b: Int) -> Int {
     return result
 }
 
-fun wrappingAdd(a: Int, b: Int) -> Int {
+fun wrappingAdd(a: Int, b: Int) r: Int {
     return (a + b) // wrap via overflow semantics
 }
 
-fun wrappingSub(a: Int, b: Int) -> Int {
+fun wrappingSub(a: Int, b: Int) r: Int {
     return (a - b)
 }
 
-fun wrappingMul(a: Int, b: Int) -> Int {
+fun wrappingMul(a: Int, b: Int) r: Int {
     return (a * b)
 }
 
-fun checkedDiv(a: Int, b: Int) -> Int {
+fun checkedDiv(a: Int, b: Int) r: Int {
     if b == 0 {
         abort("division by zero")
     }
@@ -340,36 +340,36 @@ fun checkedDiv(a: Int, b: Int) -> Int {
     return a / b
 }
 
-fun lerp(a: Float, b: Float, t: Float) -> Float {
+fun lerp(a: Float, b: Float, t: Float) r: Float {
     return a + (b - a) * t
 }
 
-fun inverseLerp(a: Float, b: Float, value: Float) -> Float {
+fun inverseLerp(a: Float, b: Float, value: Float) r: Float {
     if a == b {
         return 0.0
     }
     return (value - a) / (b - a)
 }
 
-fun remap(value: Float, inMin: Float, inMax: Float, outMin: Float, outMax: Float) -> Float {
+fun remap(value: Float, inMin: Float, inMax: Float, outMin: Float, outMax: Float) r: Float {
     let normalized = clamp((value - inMin) / (inMax - inMin), 0.0, 1.0)
     return lerp(outMin, outMax, normalized)
 }
 
-fun smoothstep(edge0: Float, edge1: Float, value: Float) -> Float {
+fun smoothstep(edge0: Float, edge1: Float, value: Float) r: Float {
     let x = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0)
     return x * x * (3.0 - 2.0 * x)
 }
 
-fun radians(value: Float) -> Float {
+fun radians(value: Float) r: Float {
     return degToRad(value)
 }
 
-fun degrees(value: Float) -> Float {
+fun degrees(value: Float) r: Float {
     return radToDeg(value)
 }
 
-fun normalizeAngle(value: Float) -> Float {
+fun normalizeAngle(value: Float) r: Float {
     var angle = value
     while angle > PI {
         angle = angle - TAU

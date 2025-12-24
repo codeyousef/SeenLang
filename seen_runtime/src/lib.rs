@@ -12,7 +12,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use std::fs;
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Write};
 use std::path::Path;
 
 const STATUS_RECEIVED: i64 = 0;
@@ -44,10 +44,32 @@ impl SeenString {
     }
 }
 
+const EMPTY_BYTES: [u8; 0] = [];
+
+fn empty_seen_string() -> SeenString {
+    SeenString {
+        len: 0,
+        data: EMPTY_BYTES.as_ptr(),
+    }
+}
+
+fn leak_seen_string(text: String) -> SeenString {
+    if text.is_empty() {
+        return empty_seen_string();
+    }
+    let mut bytes = text.into_bytes();
+    let len = bytes.len() as i64;
+    let ptr = bytes.as_mut_ptr();
+    std::mem::forget(bytes);
+    SeenString { len, data: ptr }
+}
+
 // Global file descriptor map
 static mut FILE_MAP: Option<Mutex<HashMap<i64, fs::File>>> = None;
 static FILE_MAP_ONCE: Once = Once::new();
 static NEXT_FD: AtomicI64 = AtomicI64::new(100);
+static mut FILE_ERROR_MAP: Option<Mutex<HashMap<i64, String>>> = None;
+static FILE_ERROR_ONCE: Once = Once::new();
 
 fn get_file_map() -> &'static Mutex<HashMap<i64, fs::File>> {
     unsafe {
@@ -57,6 +79,34 @@ fn get_file_map() -> &'static Mutex<HashMap<i64, fs::File>> {
         let ptr = std::ptr::addr_of!(FILE_MAP);
         (*ptr).as_ref().unwrap()
     }
+}
+
+fn get_file_error_map() -> &'static Mutex<HashMap<i64, String>> {
+    unsafe {
+        FILE_ERROR_ONCE.call_once(|| {
+            FILE_ERROR_MAP = Some(Mutex::new(HashMap::new()));
+        });
+        let ptr = std::ptr::addr_of!(FILE_ERROR_MAP);
+        (*ptr).as_ref().unwrap()
+    }
+}
+
+fn clear_file_error(fd: i64) {
+    get_file_error_map().lock().unwrap().insert(fd, String::new());
+}
+
+fn set_file_error(fd: i64, msg: impl Into<String>) {
+    get_file_error_map().lock().unwrap().insert(fd, msg.into());
+}
+
+fn take_file_error(fd: i64) -> SeenString {
+    let msg = get_file_error_map()
+        .lock()
+        .unwrap()
+        .get(&fd)
+        .cloned()
+        .unwrap_or_default();
+    leak_seen_string(msg)
 }
 
 #[repr(C)]
@@ -73,17 +123,45 @@ pub struct CommandResult {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __ExecuteCommand(result: *mut CommandResult, command: &SeenString) {
-    println!("DEBUG: __ExecuteCommand entered");
-    let cmd_str = command.to_str();
-    println!("DEBUG: __ExecuteCommand cmd='{}'", cmd_str);
+pub extern "C" fn __ExecuteCommand(result: *mut CommandResult, command: *const SeenString) {
+    let cmd_str = if command.is_null() {
+        ""
+    } else {
+        let cmd = unsafe { &*command };
+        cmd.to_str()
+    };
+
+    let (success, output_str) = match std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd_str)
+        .output()
+    {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            let combined = if stderr.is_empty() { stdout } else { format!("{}\n{}", stdout, stderr) };
+            (out.status.success(), combined)
+        }
+        Err(e) => (false, format!("Error: {}", e)),
+    };
+
+    let output = leak_seen_string(output_str);
     
-    // Dummy result
     unsafe {
-        *result = CommandResult {
-            success: true,
-            output: SeenString { len: 0, data: std::ptr::null() },
-        };
+        *result = CommandResult { success, output };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __CommandOutput(command: SeenString) -> SeenString {
+    let cmd_str = command.to_str();
+    match std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd_str)
+        .output()
+    {
+        Ok(output) => leak_seen_string(String::from_utf8_lossy(&output.stdout).into_owned()),
+        Err(_) => empty_seen_string(),
     }
 }
 
@@ -115,19 +193,9 @@ pub extern "C" fn __GetCommandLineArgsHelper(argc: i32, argv: *const *const u8) 
 #[unsafe(no_mangle)]
 pub extern "C" fn __ReadFileFromPath(path: SeenString) -> SeenString {
     let path_str = path.to_str();
-    println!("DEBUG: __ReadFileFromPath path='{}' len={}", path_str, path.len);
     match fs::read_to_string(path_str) {
-        Ok(content) => {
-            let len = content.len() as i64;
-            println!("DEBUG: __ReadFileFromPath success, len={}", len);
-            let c_str = std::ffi::CString::new(content).unwrap();
-            let ptr = c_str.into_raw() as *const u8;
-            SeenString { len, data: ptr }
-        }
-        Err(e) => {
-            println!("DEBUG: __ReadFileFromPath error: {}", e);
-            SeenString { len: 0, data: ptr::null() }
-        },
+        Ok(content) => leak_seen_string(content),
+        Err(_) => empty_seen_string(),
     }
 }
 
@@ -147,6 +215,7 @@ pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
         Ok(file) => {
             let fd = NEXT_FD.fetch_add(1, Ordering::SeqCst);
             get_file_map().lock().unwrap().insert(fd, file);
+            clear_file_error(fd);
             fd
         }
         Err(_) => -1,
@@ -156,8 +225,10 @@ pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __CloseFile(fd: i64) -> i64 {
     if get_file_map().lock().unwrap().remove(&fd).is_some() {
+        clear_file_error(fd);
         0
     } else {
+        set_file_error(fd, "invalid fd");
         -1
     }
 }
@@ -168,44 +239,37 @@ pub extern "C" fn __WriteFile(fd: i64, content: SeenString) -> i64 {
     if let Some(file) = map.get_mut(&fd) {
         let bytes = unsafe { slice::from_raw_parts(content.data, content.len as usize) };
         match file.write_all(bytes) {
-            Ok(_) => content.len,
-            Err(_) => -1,
+            Ok(_) => {
+                clear_file_error(fd);
+                content.len
+            }
+            Err(e) => {
+                set_file_error(fd, format!("write failed: {}", e));
+                -1
+            }
         }
     } else {
+        set_file_error(fd, "invalid fd");
         -1
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __WriteFileToPath(path: SeenString, content: SeenString) -> i64 {
-    println!("DEBUG: __WriteFileToPath called");
-    println!("DEBUG: path len={}, data={:?}", path.len, path.data);
-    println!("DEBUG: content len={}, data={:?}", content.len, content.data);
-    
     if path.data.is_null() {
-        println!("DEBUG: path.data is null");
         return 0;
     }
     
     let path_str = path.to_str();
-    println!("DEBUG: path_str='{}'", path_str);
     
     if content.data.is_null() && content.len > 0 {
-        println!("DEBUG: content.data is null but len > 0");
         return 0;
     }
     
     let bytes = unsafe { slice::from_raw_parts(content.data, content.len as usize) };
-    println!("DEBUG: bytes slice created, len={}", bytes.len());
     match fs::write(path_str, bytes) {
-        Ok(_) => {
-            println!("DEBUG: fs::write success");
-            1
-        },
-        Err(e) => {
-            println!("DEBUG: fs::write error: {}", e);
-            0
-        },
+        Ok(_) => 1,
+        Err(_) => 0,
     }
 }
 
@@ -216,14 +280,17 @@ pub extern "C" fn __ReadFile(fd: i64) -> SeenString {
         let mut buffer = String::new();
         match file.read_to_string(&mut buffer) {
             Ok(_) => {
-                let len = buffer.len() as i64;
-                let ptr = Box::into_raw(buffer.into_boxed_str()) as *const u8;
-                SeenString { len, data: ptr }
+                clear_file_error(fd);
+                leak_seen_string(buffer)
             }
-            Err(_) => SeenString { len: 0, data: ptr::null() },
+            Err(e) => {
+                set_file_error(fd, format!("read failed: {}", e));
+                empty_seen_string()
+            }
         }
     } else {
-        SeenString { len: 0, data: ptr::null() }
+        set_file_error(fd, "invalid fd");
+        empty_seen_string()
     }
 }
 
@@ -237,32 +304,119 @@ pub extern "C" fn __DeleteFile(path: SeenString) -> bool {
     fs::remove_file(path.to_str()).is_ok()
 }
 
-// Stubs for others
 #[unsafe(no_mangle)]
 pub extern "C" fn __FileSize(fd: i64) -> i64 {
     let mut map = get_file_map().lock().unwrap();
     if let Some(file) = map.get_mut(&fd) {
-        file.metadata().map(|m| m.len() as i64).unwrap_or(-1)
+        match file.metadata() {
+            Ok(m) => {
+                clear_file_error(fd);
+                m.len() as i64
+            }
+            Err(e) => {
+                set_file_error(fd, format!("stat failed: {}", e));
+                -1
+            }
+        }
     } else {
+        set_file_error(fd, "invalid fd");
         -1
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __FileError(_fd: i64) -> SeenString {
-    SeenString { len: 0, data: ptr::null() } // TODO
+    take_file_error(_fd)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __WriteFileBytes(_fd: i64, _bytes: *const i64) -> i64 {
-    // TODO: Handle array of ints as bytes?
-    -1
+pub extern "C" fn __WriteFileBytes(fd: i64, bytes: SeenArray) -> i64 {
+    if bytes.len < 0 {
+        set_file_error(fd, "negative length");
+        return -1;
+    }
+
+    let mut map = get_file_map().lock().unwrap();
+    let file = match map.get_mut(&fd) {
+        Some(f) => f,
+        None => {
+            set_file_error(fd, "invalid fd");
+            return -1;
+        }
+    };
+
+    if bytes.len == 0 {
+        clear_file_error(fd);
+        return 0;
+    }
+
+    if bytes.data.is_null() {
+        set_file_error(fd, "bytes data is null");
+        return -1;
+    }
+
+    let slice_len = bytes.len as usize;
+    let ints = unsafe { slice::from_raw_parts(bytes.data as *const i64, slice_len) };
+    let mut buf = Vec::with_capacity(slice_len);
+    for &v in ints {
+        if v < 0 || v > 255 {
+            set_file_error(fd, "byte out of range");
+            return -1;
+        }
+        buf.push(v as u8);
+    }
+
+    match file.write_all(&buf) {
+        Ok(_) => {
+            clear_file_error(fd);
+            bytes.len
+        }
+        Err(e) => {
+            set_file_error(fd, format!("write failed: {}", e));
+            -1
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __ReadFileBytes(_fd: i64, _size: i64) -> *mut u8 {
-    // TODO
-    ptr::null_mut()
+pub extern "C" fn __ReadFileBytes(fd: i64, size: i64) -> SeenArray {
+    if size <= 0 {
+        clear_file_error(fd);
+        return SeenArray { len: 0, cap: 0, data: ptr::null_mut() };
+    }
+
+    let mut map = get_file_map().lock().unwrap();
+    let file = match map.get_mut(&fd) {
+        Some(f) => f,
+        None => {
+            set_file_error(fd, "invalid fd");
+            return SeenArray { len: 0, cap: 0, data: ptr::null_mut() };
+        }
+    };
+
+    let mut reader = file.take(size as u64);
+    let mut buf: Vec<u8> = Vec::with_capacity(size as usize);
+    match reader.read_to_end(&mut buf) {
+        Ok(_) => {
+            clear_file_error(fd);
+        }
+        Err(e) => {
+            set_file_error(fd, format!("read failed: {}", e));
+            return SeenArray { len: 0, cap: 0, data: ptr::null_mut() };
+        }
+    }
+
+    let mut ints: Vec<i64> = buf.into_iter().map(|b| b as i64).collect();
+    let len = ints.len() as i64;
+    let ptr = if len == 0 {
+        ptr::null_mut()
+    } else {
+        let raw = ints.as_mut_ptr();
+        std::mem::forget(ints);
+        raw as *mut u8
+    };
+
+    SeenArray { len, cap: len, data: ptr }
 }
 
 #[repr(C)]

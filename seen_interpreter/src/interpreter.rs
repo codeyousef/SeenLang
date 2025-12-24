@@ -4048,6 +4048,7 @@ mod tests {
             name: "Counter".to_string(),
             generics: vec![],
             superclass: None,
+            attributes: vec![],
             fields: vec![counter_field],
             methods: vec![increment_method],
             is_sealed: false,

@@ -1,9 +1,9 @@
 class ReleaseAutomation {
-    fun new() -> ReleaseAutomation {
+    fun new() r: ReleaseAutomation {
         return ReleaseAutomation{}
     }
 
-    fun run(feature: String) -> Void {
+    fun run(feature: String) r: Void {
         println("[release] automate {feature}")
     }
 }

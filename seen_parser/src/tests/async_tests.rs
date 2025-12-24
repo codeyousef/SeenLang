@@ -28,7 +28,7 @@ fn parse_expression(input: &str) -> Result<Expression, crate::ParseError> {
 fn test_parse_async_function() {
     let expr = parse_top_level_item(
         r#"
-        async fun FetchUser(id: UserID): User {
+        async fun FetchUser(id: UserID) r: User {
             let response = await Http.Get("/users/" + id)
             return User.FromJson(response.body)
         }
@@ -60,7 +60,7 @@ fn test_parse_async_function() {
 fn test_parse_private_async_function() {
     let expr = parse_top_level_item(
         r#"
-        async fun processInternal(): Result {
+        async fun processInternal() r: Result {
             return Success()
         }
     "#,
@@ -294,7 +294,7 @@ fn test_parse_scope_with_parallel_for_call() {
 #[test]
 fn test_parse_async_lambda() {
     // Let's first test if a simple lambda works
-    let simple = parse_expression("{ x -> x + 1 }").unwrap();
+    let simple = parse_expression("{ x => x + 1 }").unwrap();
     match simple {
         Expression::Lambda { .. } => {
             println!("Simple lambda parsed correctly");
@@ -303,7 +303,7 @@ fn test_parse_async_lambda() {
     }
 
     // Now test lambda with await
-    let await_lambda = parse_expression("{ x -> await process(x) }").unwrap();
+    let await_lambda = parse_expression("{ x => await process(x) }").unwrap();
     match await_lambda {
         Expression::Lambda { .. } => {
             println!("Await lambda parsed correctly");
@@ -312,7 +312,7 @@ fn test_parse_async_lambda() {
     }
 
     // Finally test async block with lambda
-    let expr = parse_expression("async { x -> await process(x) }").unwrap();
+    let expr = parse_expression("async { x => await process(x) }").unwrap();
 
     match expr {
         Expression::AsyncBlock { body, .. } => match body.as_ref() {

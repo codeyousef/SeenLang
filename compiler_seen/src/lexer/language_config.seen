@@ -1,7 +1,8 @@
 // Simplified Language Config Module
 
 class LanguageConfig {
-    fun new() -> LanguageConfig {
+    static fun new() r: LanguageConfig {
         println("Creating LanguageConfig")
+        return LanguageConfig {}
     }
 }

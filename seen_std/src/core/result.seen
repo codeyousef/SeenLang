@@ -6,7 +6,7 @@ class Result<T, E> {
     var okStorage: Array<T>
     var errStorage: Array<E>
 
-    static fun New() -> Result<T, E> {
+    static fun New() r: Result<T, E> {
         return Result{
             isOk: true,
             okStorage: Array<T>(),
@@ -14,7 +14,7 @@ class Result<T, E> {
         }
     }
 
-    fun StoreOk(value: T) -> Void {
+    fun StoreOk(value: T) r: Void {
         if this.okStorage.length() == 0 {
             this.okStorage.push(value)
         } else {
@@ -24,7 +24,7 @@ class Result<T, E> {
         this.isOk = true
     }
 
-    fun StoreErr(error: E) -> Void {
+    fun StoreErr(error: E) r: Void {
         if this.errStorage.length() == 0 {
             this.errStorage.push(error)
         } else {
@@ -34,22 +34,22 @@ class Result<T, E> {
         this.isOk = false
     }
 
-    fun IsOk() -> Bool {
+    fun IsOk() r: Bool {
         return this.isOk
     }
 
-    fun IsErr() -> Bool {
+    fun IsErr() r: Bool {
         return not this.isOk
     }
 
-    fun Unwrap() -> T {
+    fun Unwrap() r: T {
         if not this.isOk or this.okStorage.length() == 0 {
             abort("called unwrap() on Err result")
         }
         return this.okStorage[0]
     }
 
-    fun Expect(message: String) -> T {
+    fun Expect(message: String) r: T {
         if this.isOk and this.okStorage.length() > 0 {
             return this.okStorage[0]
         }
@@ -57,21 +57,21 @@ class Result<T, E> {
         return this.Unwrap()
     }
 
-    fun UnwrapOr(defaultValue: T) -> T {
+    fun UnwrapOr(defaultValue: T) r: T {
         if this.isOk and this.okStorage.length() > 0 {
             return this.okStorage[0]
         }
         return defaultValue
     }
 
-    fun UnwrapErr() -> E {
+    fun UnwrapErr() r: E {
         if this.isOk or this.errStorage.length() == 0 {
             abort("called unwrapErr() on Ok result")
         }
         return this.errStorage[0]
     }
 
-    fun Swap() -> Result<E, T> {
+    fun Swap() r: Result<E, T> {
         if this.isOk {
             if this.okStorage.length() == 0 {
                 abort("Result.swap called without Ok payload")
@@ -85,13 +85,13 @@ class Result<T, E> {
     }
 }
 
-fun Ok<T, E>(value: T) -> Result<T, E> {
+fun Ok<T, E>(value: T) r: Result<T, E> {
     let result = Result<T, E>.New()
     result.StoreOk(value)
     return result
 }
 
-fun Err<T, E>(error: E) -> Result<T, E> {
+fun Err<T, E>(error: E) r: Result<T, E> {
     let result = Result<T, E>.New()
     result.StoreErr(error)
     return result

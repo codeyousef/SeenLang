@@ -11,7 +11,7 @@ import env.env.{args}
 import collections.list_utils.{push}
 
 
-fun stdoutWrite(text: String) -> Void {
+fun stdoutWrite(text: String) r: Void {
     let wrote: Bool = writeText("/dev/stdout", text)
     if not wrote {
         abort("Failed to write to stdout")
@@ -19,13 +19,13 @@ fun stdoutWrite(text: String) -> Void {
     return
 }
 
-fun stdoutLine(text: String) -> Void {
+fun stdoutLine(text: String) r: Void {
     stdoutWrite(text + "\n")
     return
 }
 
 
-fun main() -> Int {
+fun main() r: Int {
     let args = GetCommandLineArgs()
     if args.size() < 2 {
         printUsage()
@@ -72,7 +72,7 @@ fun main() -> Int {
     return exit
 }
 
-fun printUsage() -> Void {
+fun printUsage() r: Void {
     stdoutLine("Seen Compiler v2.0.0 - Self-hosted Implementation")
     stdoutLine("")
     stdoutLine("Usage: seen <command> [options]")
@@ -92,7 +92,7 @@ fun printUsage() -> Void {
     return
 }
 
-fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
+fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
     // Run real frontend (lexer+parser+typechecker)
     let result = run_frontend(sourceCode, "<memory>", "en")
     if not result.success {
@@ -113,7 +113,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     return commandWasSuccessful(compileResult)
 }
 
-fun buildCommand(sourceFile: String, outputFile: String) -> Int {
+fun buildCommand(sourceFile: String, outputFile: String) r: Int {
     stdoutLine("🚀 Building...")
     
     // Read source file
@@ -135,7 +135,7 @@ fun buildCommand(sourceFile: String, outputFile: String) -> Int {
     }
 }
 
-fun checkCommand(sourceFile: String) -> Int {
+fun checkCommand(sourceFile: String) r: Int {
     stdoutLine("🔍 Checking " + sourceFile + "...")
     
     let sourceCode = readText(sourceFile)
@@ -158,7 +158,7 @@ fun checkCommand(sourceFile: String) -> Int {
 
 
 // disabled
-fun formatCommand(sourceFile: String) -> Int {
+fun formatCommand(sourceFile: String) r: Int {
     stdoutLine("📝 Formatting...")
     
     let sourceCode = readText(sourceFile)
@@ -184,7 +184,7 @@ fun formatCommand(sourceFile: String) -> Int {
 
 // Utility functions
 
-fun getDefaultOutput(sourceFile: String) -> String {
+fun getDefaultOutput(sourceFile: String) r: String {
     // Remove .seen extension if present
     if sourceFile.endsWith(".seen") {
         return sourceFile.substring(0, sourceFile.length() - 5)
@@ -193,7 +193,7 @@ fun getDefaultOutput(sourceFile: String) -> String {
 }
 
 
-fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> Bool {
+fun validateFrontend(sourceCode: String, sourceFile: String, action: String) r: Bool {
     let frontend = run_frontend(sourceCode, sourceFile, "en")
     if not frontend.success {
         stdoutLine("❌ Frontend validation failed before " + action + ".")
@@ -203,7 +203,7 @@ fun validateFrontend(sourceCode: String, sourceFile: String, action: String) -> 
     return true
 }
 
-fun printFrontendDiagnostics(frontend: FrontendResult) -> Void {
+fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
     let diagnostics = frontend.getDiagnostics()
     if diagnostics.length() == 0 {
         stdoutLine("No diagnostics recorded.")
@@ -221,7 +221,7 @@ fun printFrontendDiagnostics(frontend: FrontendResult) -> Void {
     return
 }
 
-fun printFrontendWarnings(frontend: FrontendResult) -> Void {
+fun printFrontendWarnings(frontend: FrontendResult) r: Void {
     let diagnostics = frontend.getDiagnostics()
     var printedHeader = false
     var index = 0
@@ -245,14 +245,14 @@ fun printFrontendWarnings(frontend: FrontendResult) -> Void {
 
 // Argument helpers backed by seen_std Option/Result
 
-fun getOptionalArg(args: List<String>, index: Int) -> Option<String> {
+fun getOptionalArg(args: List<String>, index: Int) r: Option<String> {
     if args.size() > index {
         return Some(args[index])
     }
     return None()
 }
 
-fun requireArg(args: List<String>, index: Int, message: String) -> Result<String, String> {
+fun requireArg(args: List<String>, index: Int, message: String) r: Result<String, String> {
     if args.size() > index {
         return Ok(args[index])
     }
@@ -261,7 +261,7 @@ fun requireArg(args: List<String>, index: Int, message: String) -> Result<String
 
 // System interface functions (would be implemented in runtime)
 
-fun GetCommandLineArgs() -> List<String> {
+fun GetCommandLineArgs() r: List<String> {
     let rawArgs = args()
     var list: List<String> = []
     var index = 0

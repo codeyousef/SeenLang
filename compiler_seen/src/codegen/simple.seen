@@ -3,17 +3,17 @@
 
 // Simple code generator class
 class SimpleCodeGenerator {
-    fun new() -> SimpleCodeGenerator {
+    fun new() r: SimpleCodeGenerator {
         return SimpleCodeGenerator()
     }
     
     // Main code generation method
-    fun generateCode() -> String {
+    fun generateCode() r: String {
         return "define i32 @main() {{\nentry:\n  ret i32 0\n}}\n"
     }
     
     // Generate LLVM IR for a simple program
-    fun generateProgram() -> String {
+    fun generateProgram() r: String {
         let ir = "target triple = \"x86_64-unknown-linux-gnu\"\n\n"
         ir = ir + "; Standard library declarations\n"
         ir = ir + "declare i32 @printf(i8*, ...)\n"
@@ -28,12 +28,12 @@ class SimpleCodeGenerator {
 }
 
 // Factory function
-fun createSimpleCodeGenerator() -> SimpleCodeGenerator {
+fun createSimpleCodeGenerator() r: SimpleCodeGenerator {
     return SimpleCodeGenerator.new()
 }
 
 // Main generation function
-fun generateSimpleCode() -> String {
+fun generateSimpleCode() r: String {
     let generator = createSimpleCodeGenerator()
     return generator.generateProgram()
 }

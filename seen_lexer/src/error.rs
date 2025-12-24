@@ -37,6 +37,9 @@ pub enum LexerError {
 
     #[error("IO error: {message}")]
     IoError { message: String },
+
+    #[error("Expected space after return type label '{label}' at {position}")]
+    MissingSpaceAfterReturnLabel { position: Position, label: String },
 }
 
 impl From<std::io::Error> for LexerError {
@@ -55,7 +58,8 @@ impl From<LexerError> for SeenError {
             | LexerError::InvalidNumber { position, .. }
             | LexerError::InvalidUnicodeEscape { position }
             | LexerError::InvalidInterpolation { position, .. }
-            | LexerError::UnterminatedComment { position } => Some(ErrorLocation::new(
+            | LexerError::UnterminatedComment { position }
+            | LexerError::MissingSpaceAfterReturnLabel { position, .. } => Some(ErrorLocation::new(
                 position.line as u32,
                 position.column as u32,
                 position.offset as u32,

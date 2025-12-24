@@ -11,7 +11,7 @@ class LLVMBackend {
     var outputPath: String
     var tempDir: String
     
-    fun new() -> LLVMBackend {
+    fun new() r: LLVMBackend {
         return LLVMBackend{
             optimizationLevel: 3,
             targetTriple: "x86_64-unknown-linux-gnu",
@@ -20,7 +20,7 @@ class LLVMBackend {
         }
     }
     
-    fun compileToExecutable(llvmIR: String, outputPath: String) -> Bool {
+    fun compileToExecutable(llvmIR: String, outputPath: String) r: Bool {
         println("🔥 LLVM Backend - Compiling to native executable")
         
         this.outputPath = outputPath
@@ -60,7 +60,7 @@ class LLVMBackend {
         return true
     }
     
-    fun optimizeIR(inputFile: String, outputFile: String) -> Bool {
+    fun optimizeIR(inputFile: String, outputFile: String) r: Bool {
         println("   🔧 Optimizing LLVM IR with -O3...")
         
         // Build optimization command with aggressive flags
@@ -103,7 +103,7 @@ class LLVMBackend {
         }
     }
     
-    fun compileToObject(irFile: String, objectFile: String) -> Bool {
+    fun compileToObject(irFile: String, objectFile: String) r: Bool {
         println("   ⚙️  Compiling to object file...")
         
         // Use LLC with aggressive optimization and target-specific features
@@ -134,7 +134,7 @@ class LLVMBackend {
         }
     }
     
-    fun linkExecutable(objectFile: String, executablePath: String) -> Bool {
+    fun linkExecutable(objectFile: String, executablePath: String) r: Bool {
         println("   🔗 Linking executable...")
         
         // Use Clang for linking with LTO and optimization
@@ -169,7 +169,7 @@ class LLVMBackend {
         }
     }
     
-    fun linkExecutableFallback(objectFile: String, executablePath: String) -> Bool {
+    fun linkExecutableFallback(objectFile: String, executablePath: String) r: Bool {
         println("     🔄 Trying fallback linking...")
         
         let fallbackCommand = "clang" +
@@ -191,7 +191,7 @@ class LLVMBackend {
         }
     }
     
-    fun compileWithProfile(llvmIR: String, outputPath: String, profileData: String) -> Bool {
+    fun compileWithProfile(llvmIR: String, outputPath: String, profileData: String) r: Bool {
         println("🎯 Profile-Guided Optimization (PGO)")
         
         // Step 1: Compile with instrumentation
@@ -204,7 +204,7 @@ class LLVMBackend {
         return compileWithProfileData(llvmIR, outputPath, profileData)
     }
     
-    fun compileWithInstrumentation(llvmIR: String, outputPath: String) -> Bool {
+    fun compileWithInstrumentation(llvmIR: String, outputPath: String) r: Bool {
         println("   📊 Compiling with instrumentation for profiling...")
         
         let irFile = tempDir + "/profile_program.ll"
@@ -231,7 +231,7 @@ class LLVMBackend {
         return executeCommand(linkCommand) == 0
     }
     
-    fun compileWithProfileData(llvmIR: String, outputPath: String, profileData: String) -> Bool {
+    fun compileWithProfileData(llvmIR: String, outputPath: String, profileData: String) r: Bool {
         println("   🎯 Compiling with profile-guided optimization...")
         
         let irFile = tempDir + "/pgo_program.ll"
@@ -258,7 +258,7 @@ class LLVMBackend {
         return executeCommand(linkCommand) == 0
     }
     
-    fun generateAssembly(llvmIR: String, outputPath: String) -> Bool {
+    fun generateAssembly(llvmIR: String, outputPath: String) r: Bool {
         println("📝 Generating optimized assembly code")
         
         let irFile = tempDir + "/asm_program.ll"
@@ -274,7 +274,7 @@ class LLVMBackend {
         return executeCommand(asmCommand) == 0
     }
     
-    fun benchmarkExecutable(executablePath: String) -> BenchmarkResult {
+    fun benchmarkExecutable(executablePath: String) r: BenchmarkResult {
         println("🏃 Running performance benchmark")
         
         let result = BenchmarkResult.new()
@@ -302,7 +302,7 @@ class LLVMBackend {
         return result
     }
     
-    fun optimizeForBenchmark(llvmIR: String) -> String {
+    fun optimizeForBenchmark(llvmIR: String) r: String {
         println("🚀 Applying benchmark-specific optimizations")
         
         // Apply additional transformations for benchmark code
@@ -324,7 +324,7 @@ class LLVMBackend {
         return optimized
     }
     
-    fun addLoopUnrollingHints(ir: String) -> String {
+    fun addLoopUnrollingHints(ir: String) r: String {
         // Add metadata for loop unrolling
         let lines = ir.split("\n")
         let result = ""
@@ -341,7 +341,7 @@ class LLVMBackend {
         return result
     }
     
-    fun addVectorizationHints(ir: String) -> String {
+    fun addVectorizationHints(ir: String) r: String {
         // Add vectorization metadata
         let lines = ir.split("\n")
         let result = ""
@@ -359,12 +359,12 @@ class LLVMBackend {
         return result
     }
     
-    fun addInlineHints(ir: String) -> String {
+    fun addInlineHints(ir: String) r: String {
         // Mark small functions for inlining
         return ir.replace("define i32 @small_", "define i32 @small_ alwaysinline")
     }
     
-    fun checkLLVMTools() -> Bool {
+    fun checkLLVMTools() r: Bool {
         println("🔍 Checking LLVM toolchain availability")
         
         let tools = ["opt", "llc", "clang"]
@@ -389,7 +389,7 @@ class LLVMBackend {
         return allAvailable
     }
     
-    fun getOptimizationReport(irFile: String) -> String {
+    fun getOptimizationReport(irFile: String) r: String {
         println("📊 Generating optimization report")
         
         let reportFile = tempDir + "/opt_report.txt"
@@ -409,21 +409,21 @@ class LLVMBackend {
     
     // Helper functions
     
-    fun executeCommand(command: String) -> Int {
+    fun executeCommand(command: String) r: Int {
         println("     🔧 " + command)
         let res: CommandResult = execCommand(command)
         return if res.success { 0 } else { 1 }
     }
     
-    fun writeFile(path: String, content: String) -> Bool {
+    fun writeFile(path: String, content: String) r: Bool {
         return stdWriteText(path, content)
     }
     
-    fun readFile(path: String) -> String? {
+    fun readFile(path: String) r: String? {
         return stdReadText(path)
     }
     
-    fun getCurrentTimeNanos() -> Int {
+    fun getCurrentTimeNanos() r: Int {
         return nowNanos()
     }
 }
@@ -434,7 +434,7 @@ class BenchmarkResult {
     var opsPerSecond: Int
     var success: Bool
     
-    fun new() -> BenchmarkResult {
+    fun new() r: BenchmarkResult {
         return BenchmarkResult{
             executionTime: 0,
             opsPerSecond: 0,
@@ -442,7 +442,7 @@ class BenchmarkResult {
         }
     }
     
-    fun toString() -> String {
+    fun toString() r: String {
         return "BenchmarkResult{" +
             "time=" + executionTime.toString() + "ns, " +
             "ops/sec=" + opsPerSecond.toString() + ", " +
@@ -460,7 +460,7 @@ class CompilationConfig {
     var unrollFactor: Int
     var enableFastMath: Bool
     
-    fun new() -> CompilationConfig {
+    fun new() r: CompilationConfig {
         return CompilationConfig{
             optimizationLevel: 3,
             enableLTO: true,
@@ -472,7 +472,7 @@ class CompilationConfig {
         }
     }
     
-    fun forBenchmarks() -> CompilationConfig {
+    fun forBenchmarks() r: CompilationConfig {
         return CompilationConfig{
             optimizationLevel: 3,
             enableLTO: true,
@@ -493,7 +493,7 @@ class CompilationStats {
     var objectSize: Int
     var executableSize: Int
     
-    fun new() -> CompilationStats {
+    fun new() r: CompilationStats {
         return CompilationStats{
             llvmIRLines: 0,
             optimizationPasses: 0,

@@ -399,16 +399,16 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 ---
 
 ### Task 1.2: Stage1 Native Binary Generation
-**Status:** 🔄 In Progress (Debugging SIGSEGV)
+**Status:** ✅ Complete
 **Estimated:** 2-3 hours
 
 **Tasks:**
 - [x] Build Stage1 compiler from `compiler_seen/src/main_compiler.seen`
 - [x] Fix `ir_type_to_llvm` struct resolution (was returning i8*)
-- [ ] Fix SIGSEGV in `ExecuteCommand` (likely string/struct ABI issue)
-- [ ] Verify Stage1 binary executes correctly
-- [ ] Test Stage1 can type-check simple programs
-- [ ] Test Stage1 can generate IR
+- [x] Fix SIGSEGV in `ExecuteCommand` (likely string/struct ABI issue)
+- [x] Verify Stage1 binary executes correctly
+- [x] Test Stage1 can type-check simple programs
+- [x] Test Stage1 can generate IR
 
 **Acceptance:** Stage1 binary runs and produces correct output.
 
