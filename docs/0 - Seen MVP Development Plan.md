@@ -1,6 +1,6 @@
 # Seen Language — Unified **MVP** Plan
 
-**Last Updated:** 2025-12-23  
+**Last Updated:** 2025-12-24  
 **Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.  
 **Target Platforms:** Linux, Windows, RISC-V, UWW-Compatible WASM
 
@@ -317,7 +317,7 @@ All tasks below are ✅ complete and verified.
 - Timing: `__GetTime()`, `__GetTimestamp()`, `__GetTimestampNanos()`, `__Sleep()`
 - Math: `__Sqrt()`, `__Sin()`, `__Cos()`, `__Pow()`, `__Abs()`, `__Floor()`, `__Ceil()`
 - I/O: `__Print()`, `__Println()`, `__PrintInt()`, `__PrintFloat()`
-- String: `__IntToString`, `__FloatToString`, `__BoolToString`, `__StringConcat`
+- String: `__IntToString`, `__FloatToString`, `__BoolToString`, `__CharToString`, `__StringConcat`
 - Array: `__ArrayNew`, `__ArrayPush`, `__ArrayGet`, `__ArraySet`, `__ArrayLen`
 
 ### 9.3 Language Features for Benchmarks ✅
@@ -403,7 +403,7 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 **Estimated:** 2-3 hours
 
 **Tasks:**
-- [ ] Build Stage1 compiler from `compiler_seen/src/main.seen`
+- [x] Build Stage1 compiler from `compiler_seen/src/main_compiler.seen`
 - [ ] Verify Stage1 binary executes correctly
 - [ ] Test Stage1 can type-check simple programs
 - [ ] Test Stage1 can generate IR

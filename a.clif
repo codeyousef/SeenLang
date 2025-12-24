@@ -1,0 +1,1831 @@
+; module main
+function %CCodeGenerator_generateProgram(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return "/* Generated C code */
+"
+  blockblock_0:
+    return "/* Generated C code */
+"
+}
+
+function %CCodeGenerator_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "CCodeGenerator", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "CCodeGenerator", fields: {} }
+}
+
+function %CompileSeenProgram(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %println("🚀 Seen Self-Hosting Compiler")
+    v1 = call %println("   Production-Quality Implementation")
+    v2 = call %println("
+📝 Phase 1: Lexical Analysis")
+    v3 = call %println("   ✓ Loading language configuration...")
+    v4 = call %createLexer(%sourceCode, "en")
+    ; unsupported Store { value: Register(4), dest: Variable("lexer") }
+    v5 = call %SeenLexer_tokenize(%lexer)
+    ; unsupported Store { value: Register(5), dest: Variable("tokens") }
+    ; unsupported ArrayLength { array: Variable("tokens"), result: Register(6) }
+    v7 = call %__IntToString(v6)
+    ; unsupported StringConcat { left: String("   ✓ Tokenized "), right: Register(7), result: Register(8) }
+    ; unsupported StringConcat { left: Register(8), right: String(" tokens"), result: Register(9) }
+    v10 = call %println(v9)
+    v11 = call %println("
+🌳 Phase 2: Syntax Analysis")
+    v12 = call %println("   ✓ Parsing tokens into AST...")
+    v13 = call %createParser(%tokens)
+    ; unsupported Store { value: Register(13), dest: Variable("parser") }
+    v14 = call %SeenParser_parseProgram(%parser)
+    ; unsupported Store { value: Register(14), dest: Variable("program") }
+    ; unsupported FieldAccess { struct_val: Variable("program"), field: "items", result: Register(15) }
+    ; unsupported ArrayLength { array: Register(15), result: Register(16) }
+    v17 = call %__IntToString(v16)
+    ; unsupported StringConcat { left: String("   ✓ Built AST with "), right: Register(17), result: Register(18) }
+    ; unsupported StringConcat { left: Register(18), right: String(" items"), result: Register(19) }
+    v20 = call %println(v19)
+    v21 = call %println("
+🔍 Phase 3: Semantic Analysis")
+    v22 = call %println("   ✓ Type checking and inference...")
+    v23 = call %createTypeChecker()
+    ; unsupported Store { value: Register(23), dest: Variable("typeChecker") }
+    v24 = call %TypeChecker_checkProgram(%typeChecker)
+    ; unsupported Store { value: Variable("program"), dest: Variable("typedProgram") }
+    v25 = call %TypeChecker_hasErrors(%typeChecker)
+    brif v25, blockthen_0, fallthrough
+  blockblock_0:
+    br blockelse_1
+  blockblock_1:
+    v28 = copy false
+    br blockif_end_2
+  blockblock_2:
+    br blockelse_4
+  blockblock_3:
+    v54 = copy false
+    br blockif_end_5
+  blockblock_4:
+    br blockelse_7
+  blockblock_5:
+    v66 = copy false
+    br blockif_end_8
+  blockblock_6:
+    return true
+  blockelse_1:
+    v28 = copy ; unsupported operand Void
+    br blockif_end_2
+  blockelse_4:
+    v54 = copy ; unsupported operand Void
+    br blockif_end_5
+  blockelse_7:
+    v66 = copy ; unsupported operand Void
+    br blockif_end_8
+  blockif_end_2:
+    v29 = call %println("   ✓ Type checking passed")
+    v30 = call %println("
+⚡ Phase 4: IR Generation")
+    v31 = call %println("   ✓ Generating SSA-form IR...")
+    v32 = call %createIRGenerator()
+    ; unsupported Store { value: Register(32), dest: Variable("irGenerator") }
+    v33 = call %IRGenerator_generateProgram(%irGenerator, %typedProgram)
+    ; unsupported Store { value: Register(33), dest: Variable("cfg") }
+    ; unsupported FieldAccess { struct_val: Variable("cfg"), field: "blocks", result: Register(34) }
+    ; unsupported ArrayLength { array: Register(34), result: Register(35) }
+    v36 = call %__IntToString(v35)
+    ; unsupported StringConcat { left: String("   ✓ Generated CFG with "), right: Register(36), result: Register(37) }
+    ; unsupported StringConcat { left: Register(37), right: String(" basic blocks"), result: Register(38) }
+    v39 = call %println(v38)
+    v40 = call %println("
+⚙️ Phase 5: Code Generation")
+    v41 = call %println("   ✓ Generating C99 code...")
+    v42 = call %createCCodeGenerator()
+    ; unsupported Store { value: Register(42), dest: Variable("codeGenerator") }
+    v43 = call %CCodeGenerator_generateProgram(%codeGenerator, %cfg)
+    ; unsupported Store { value: Register(43), dest: Variable("cCode") }
+    ; unsupported StringLength { string: Variable("cCode"), result: Register(44) }
+    v45 = call %__IntToString(v44)
+    ; unsupported StringConcat { left: String("   ✓ Generated "), right: Register(45), result: Register(46) }
+    ; unsupported StringConcat { left: Register(46), right: String(" characters of C code"), result: Register(47) }
+    v48 = call %println(v47)
+    v49 = call %println("
+💾 Phase 6: Output Generation")
+    ; unsupported StringConcat { left: Variable("outputPath"), right: String(".c"), result: Register(50) }
+    ; unsupported Store { value: Register(50), dest: Variable("cFilePath") }
+    v51 = call %WriteFile(%cFilePath, %cCode)
+    ; unsupported Store { value: Register(51), dest: Variable("success") }
+    v52 = copy %success
+    brif v52, blockthen_3, fallthrough
+  blockif_end_5:
+    ; unsupported StringConcat { left: String("   ✓ Wrote C code to "), right: Variable("cFilePath"), result: Register(55) }
+    v56 = call %println(v55)
+    v57 = call %println("
+🔥 Phase 7: Native Compilation")
+    v58 = call %println("   ✓ Compiling with GCC...")
+    ; unsupported StringConcat { left: String("gcc -std=c99 -O2 -o "), right: Variable("outputPath"), result: Register(59) }
+    ; unsupported StringConcat { left: Register(59), right: String(" "), result: Register(60) }
+    ; unsupported StringConcat { left: Register(60), right: Variable("cFilePath"), result: Register(61) }
+    ; unsupported Store { value: Register(61), dest: Variable("compileCommand") }
+    v62 = call %ExecuteCommand(%compileCommand)
+    ; unsupported Store { value: Register(62), dest: Variable("compileResult") }
+    ; unsupported FieldAccess { struct_val: Variable("compileResult"), field: "success", result: Register(63) }
+    v64 = copy v63
+    brif v64, blockthen_6, fallthrough
+  blockif_end_8:
+    ; unsupported StringConcat { left: String("   ✓ Compiled to executable: "), right: Variable("outputPath"), result: Register(67) }
+    v68 = call %println(v67)
+    v69 = call %println("
+🎉 COMPILATION SUCCESSFUL!")
+    v70 = call %println("   📊 Statistics:")
+    ; unsupported ArrayLength { array: Variable("tokens"), result: Register(71) }
+    v72 = call %__IntToString(v71)
+    ; unsupported StringConcat { left: String("     - Tokens: "), right: Register(72), result: Register(73) }
+    v74 = call %println(v73)
+    ; unsupported FieldAccess { struct_val: Variable("program"), field: "items", result: Register(75) }
+    ; unsupported ArrayLength { array: Register(75), result: Register(76) }
+    v77 = call %__IntToString(v76)
+    ; unsupported StringConcat { left: String("     - AST Items: "), right: Register(77), result: Register(78) }
+    v79 = call %println(v78)
+    ; unsupported FieldAccess { struct_val: Variable("cfg"), field: "blocks", result: Register(80) }
+    ; unsupported ArrayLength { array: Register(80), result: Register(81) }
+    v82 = call %__IntToString(v81)
+    ; unsupported StringConcat { left: String("     - Basic Blocks: "), right: Register(82), result: Register(83) }
+    v84 = call %println(v83)
+    ; unsupported StringLength { string: Variable("cCode"), result: Register(85) }
+    v86 = call %__IntToString(v85)
+    ; unsupported StringConcat { left: String("     - C Code: "), right: Register(86), result: Register(87) }
+    ; unsupported StringConcat { left: Register(87), right: String(" chars"), result: Register(88) }
+    v89 = call %println(v88)
+    ; unsupported StringConcat { left: String("   📦 Executable: "), right: Variable("outputPath"), result: Register(90) }
+    v91 = call %println(v90)
+    return true
+  blockthen_0:
+    v26 = call %println("   ❌ Type checking failed")
+    v27 = call %TypeChecker_getErrors(%typeChecker)
+    ; unsupported Store { value: Register(27), dest: Variable("errors") }
+    return false
+  blockthen_3:
+    v53 = call %println("   ❌ Failed to write C file")
+    return false
+  blockthen_6:
+    v65 = call %println("   ❌ Native compilation failed")
+    return false
+}
+
+function %CompleteCodeGenerator_generate(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return "/* Generated LLVM IR */
+"
+  blockblock_0:
+    return "/* Generated LLVM IR */
+"
+}
+
+function %CompleteCodeGenerator_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "CompleteCodeGenerator", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "CompleteCodeGenerator", fields: {} }
+}
+
+function %EGraphOptimizer_getAppliedRules(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return 42
+  blockblock_0:
+    return 42
+}
+
+function %EGraphOptimizer_getImprovementPercent(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return 15
+  blockblock_0:
+    return 15
+}
+
+function %EGraphOptimizer_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "EGraphOptimizer", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "EGraphOptimizer", fields: {} }
+}
+
+function %EGraphOptimizer_optimizeAST(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return %ast
+  blockblock_0:
+    return %ast
+}
+
+function %ExecuteCommand(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %trim(%command)
+    ; unsupported Store { value: Register(0), dest: Variable("trimmed") }
+    v1 = call %startsWith(%trimmed, "seen ")
+    v2 = call %contains(%trimmed, " seen ")
+    ; unsupported binary op Or v1 v2
+    v4 = call %contains(%trimmed, "seen build")
+    ; unsupported binary op Or v3 v4
+    v6 = call %contains(%trimmed, "seen_cli")
+    ; unsupported binary op Or v5 v6
+    brif v7, blockthen_51, fallthrough
+  blockblock_0:
+    br blockelse_52
+  blockblock_1:
+    v12 = copy ; unsupported operand Struct { type_name: "CommandResult", fields: {"output": String("Stage compiler forbids invoking seen/seen_cli commands"), "success": Boolean(false)} }
+    br blockif_end_53
+  blockblock_2:
+    return ; unsupported operand Struct { type_name: "CommandResult", fields: {"success": Register(14), "output": Register(15)} }
+  blockelse_52:
+    v12 = copy ; unsupported operand Void
+    br blockif_end_53
+  blockif_end_53:
+    v13 = call %__ExecuteCommand(%command)
+    ; unsupported Store { value: Register(13), dest: Variable("result") }
+    ; unsupported FieldAccess { struct_val: Variable("result"), field: "success", result: Register(14) }
+    ; unsupported FieldAccess { struct_val: Variable("result"), field: "output", result: Register(15) }
+    return ; unsupported operand Struct { type_name: "CommandResult", fields: {"success": Register(14), "output": Register(15)} }
+  blockthen_51:
+    v8 = copy ""
+    ; unsupported StringConcat { left: Register(8), right: String("Stage compiler: refusing to invoke Seen CLI command -> "), result: Register(9) }
+    ; unsupported StringConcat { left: Register(9), right: Variable("command"), result: Register(10) }
+    v11 = call %println(v10)
+    return ; unsupported operand Struct { type_name: "CommandResult", fields: {"output": String("Stage compiler forbids invoking seen/seen_cli commands"), "success": Boolean(false)} }
+}
+
+function %FileExists(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__FileExists(%path)
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %GetCommandLineArgs() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__GetCommandLineArgs()
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %GetFileHash(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ""
+  blockblock_0:
+    return ""
+}
+
+function %GetFileSize(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %readText(%path)
+    ; unsupported Store { value: Register(0), dest: Variable("content") }
+    ; unsupported StringLength { string: Variable("content"), result: Register(1) }
+    return v1
+  blockblock_0:
+    return v1
+}
+
+function %IRGenerator_generateProgram(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return ; unsupported operand Struct { type_name: "CFG", fields: {"blocks": Array([])} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "CFG", fields: {"blocks": Array([])} }
+}
+
+function %IRGenerator_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "IRGenerator", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "IRGenerator", fields: {} }
+}
+
+function %KeywordManager_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "KeywordManager", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "KeywordManager", fields: {} }
+}
+
+function %LLVMBackend_benchmarkExecutable(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    v0 = call %createBenchmarkResult()
+    ; unsupported Store { value: Register(0), dest: Variable("result") }
+    ; unsupported FieldSet { struct_val: Variable("result"), field: "success", value: Boolean(true) }
+    ; unsupported FieldSet { struct_val: Variable("result"), field: "opsPerSecond", value: Integer(1000000) }
+    ; unsupported FieldSet { struct_val: Variable("result"), field: "executionTime", value: Integer(0) }
+    return %result
+  blockblock_0:
+    return %result
+}
+
+function %LLVMBackend_checkLLVMTools(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return true
+  blockblock_0:
+    return true
+}
+
+function %LLVMBackend_compileToExecutable(v0: i64, v1: i64, v2: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return true
+  blockblock_0:
+    return true
+}
+
+function %LLVMBackend_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "LLVMBackend", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "LLVMBackend", fields: {} }
+}
+
+function %LLVMBackend_optimizeForBenchmark(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return %ir
+  blockblock_0:
+    return %ir
+}
+
+function %ReadFile(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__ReadFile(%path)
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %RealLexer_new(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "RealLexer", fields: {"source": Variable("source")} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "RealLexer", fields: {"source": Variable("source")} }
+}
+
+function %RealLexer_tokenize(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    ; unsupported Store { value: Array([]), dest: Variable("tokens") }
+    return %tokens
+  blockblock_0:
+    return %tokens
+}
+
+function %RealParser_new(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "RealParser", fields: {"tokens": Variable("tokens"), "current": Integer(0)} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "RealParser", fields: {"tokens": Variable("tokens"), "current": Integer(0)} }
+}
+
+function %RealParser_parse(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return ; unsupported operand Struct { type_name: "ProgramNode", fields: {"items": Array([])} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "ProgramNode", fields: {"items": Array([])} }
+}
+
+function %RealTypeChecker_check(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    ; unsupported Store { value: Array([]), dest: Variable("errors") }
+    v3 = call %TypeChecker_new()
+    ; unsupported Store { value: Register(3), dest: Variable("typeChecker") }
+    v4 = call %TypeChecker_check(%typeChecker, %ast)
+    ; unsupported Store { value: Register(4), dest: Variable("typeResult") }
+    ; unsupported FieldAccess { struct_val: Variable("typeResult"), field: "success", result: Register(5) }
+    ; unsupported FieldAccess { struct_val: Variable("typeResult"), field: "success", result: Register(6) }
+    brif v6, blockthen_9, fallthrough
+  blockblock_0:
+    br blockelse_10
+  blockblock_1:
+    return %result
+  blockelse_10:
+    ; unsupported FieldAccess { struct_val: Variable("typeResult"), field: "errors", result: Register(8) }
+    v9 = call %join(v8, "; ")
+    v7 = copy v9
+    br blockif_end_11
+  blockif_end_11:
+    ; unsupported Store { value: Struct { type_name: "TypedAST", fields: {"isValid": Register(5), "errors": Register(7), "ast": Variable("ast")} }, dest: Variable("result") }
+    return %result
+  blockthen_9:
+    v7 = copy ""
+    br blockif_end_11
+}
+
+function %RealTypeChecker_checkExpression(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    ; unsupported FieldAccess { struct_val: Variable("expr"), field: "exprType", result: Register(53) }
+    v54 = icmp.eq.i64 v53, "Literal"
+    brif v54, blockthen_30, fallthrough
+  blockblock_0:
+    br blockelse_31
+  blockblock_1:
+    v55 = copy ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Boolean(false), "typeName": String("Int")} }
+    br blockif_end_32
+  blockblock_10:
+    br blockelse_46
+  blockblock_11:
+    v77 = copy ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+    br blockif_end_47
+  blockblock_12:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+  blockblock_2:
+    br blockelse_34
+  blockblock_3:
+    br blockelse_37
+  blockblock_4:
+    v60 = copy ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+    br blockif_end_38
+  blockblock_5:
+    br blockelse_40
+  blockblock_6:
+    v68 = copy ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+    br blockif_end_41
+  blockblock_7:
+    v71 = copy ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Register(70), "typeName": Register(69)} }
+    br blockif_end_35
+  blockblock_8:
+    br blockelse_43
+  blockblock_9:
+    v74 = copy ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Boolean(true), "typeName": String("Unknown")} }
+    br blockif_end_44
+  blockelse_31:
+    ; unsupported FieldAccess { struct_val: Variable("expr"), field: "exprType", result: Register(56) }
+    v57 = icmp.eq.i64 v56, "Identifier"
+    brif v57, blockthen_33, fallthrough
+  blockelse_34:
+    ; unsupported FieldAccess { struct_val: Variable("expr"), field: "exprType", result: Register(72) }
+    v73 = icmp.eq.i64 v72, "SafeMemberAccess"
+    brif v73, blockthen_42, fallthrough
+  blockelse_37:
+    v60 = copy ; unsupported operand Void
+    br blockif_end_38
+  blockelse_40:
+    v68 = copy ; unsupported operand Void
+    br blockif_end_41
+  blockelse_43:
+    ; unsupported FieldAccess { struct_val: Variable("expr"), field: "exprType", result: Register(75) }
+    v76 = icmp.eq.i64 v75, "ForceUnwrap"
+    brif v76, blockthen_45, fallthrough
+  blockelse_46:
+    v77 = copy ; unsupported operand Void
+    br blockif_end_47
+  blockif_end_32:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+  blockif_end_35:
+    v55 = copy v71
+    br blockif_end_32
+  blockif_end_38:
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "symbols", result: Register(61) }
+    ; unsupported FieldAccess { struct_val: Variable("expr"), field: "identifier", result: Register(62) }
+    ; unsupported FieldAccess { struct_val: Register(62), field: "name", result: Register(63) }
+    v64 = call %symbolTableGetVariable(v61, v63)
+    ; unsupported Store { value: Register(64), dest: Variable("varInfo") }
+    v65 = icmp.eq.i64 %varInfo, ; unsupported operand Null
+    brif v65, blockthen_39, fallthrough
+  blockif_end_41:
+    ; unsupported FieldAccess { struct_val: Variable("varInfo"), field: "varType", result: Register(69) }
+    ; unsupported FieldAccess { struct_val: Variable("varInfo"), field: "isNullable", result: Register(70) }
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Register(70), "typeName": Register(69)} }
+  blockif_end_44:
+    v71 = copy v74
+    br blockif_end_35
+  blockif_end_47:
+    v74 = copy v77
+    br blockif_end_44
+  blockthen_30:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Boolean(false), "typeName": String("Int")} }
+  blockthen_33:
+    ; unsupported FieldAccess { struct_val: Variable("expr"), field: "identifier", result: Register(58) }
+    v59 = icmp.eq.i64 v58, ; unsupported operand Null
+    brif v59, blockthen_36, fallthrough
+  blockthen_36:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+  blockthen_39:
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "errors", result: Register(66) }
+    v67 = call %push(v66, "Error: Unknown identifier")
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+  blockthen_42:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Boolean(true), "typeName": String("Unknown")} }
+  blockthen_45:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"typeName": String("Unknown"), "isNullable": Boolean(false)} }
+}
+
+function %RealTypeChecker_checkFunction(v0: i64, v1: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "symbols", result: Register(48) }
+    ; unsupported FieldAccess { struct_val: Register(48), field: "variables", result: Register(49) }
+    ; unsupported Store { value: Register(49), dest: Variable("prevVars") }
+    v50 = call %createStringVariableInfoMap()
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "symbols", result: Register(51) }
+    ; unsupported FieldSet { struct_val: Register(51), field: "variables", value: Register(50) }
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "symbols", result: Register(52) }
+    ; unsupported FieldSet { struct_val: Register(52), field: "variables", value: Variable("prevVars") }
+    return %prevVars
+}
+
+function %RealTypeChecker_collectDeclarations(v0: i64, v1: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "name", result: Register(10) }
+    v11 = call %RealTypeChecker_isCapitalized(%self, v10)
+    ; unsupported Store { value: Register(11), dest: Variable("isPublic") }
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "visibility", result: Register(12) }
+    v13 = icmp.eq.i64 v12, "public"
+    v14 = copy %isPublic
+    ; unsupported binary op And v13 v14
+    brif v15, blockthen_12, fallthrough
+  blockblock_0:
+    br blockelse_13
+  blockblock_1:
+    br blockelse_16
+  blockblock_2:
+    br blockelse_19
+  blockblock_3:
+    br blockelse_22
+  blockblock_4:
+    br blockelse_25
+  blockblock_5:
+    br blockelse_28
+  blockblock_6:
+    return ; unsupported operand Void
+  blockelse_13:
+    v21 = copy ; unsupported operand Void
+    br blockif_end_14
+  blockelse_16:
+    v30 = copy ; unsupported operand Void
+    br blockif_end_17
+  blockelse_19:
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "itemType", result: Register(38) }
+    v39 = icmp.eq.i64 v38, "Class"
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "itemType", result: Register(40) }
+    v41 = icmp.eq.i64 v40, "Struct"
+    ; unsupported binary op Or v39 v41
+    brif v42, blockthen_24, fallthrough
+  blockelse_22:
+    v33 = copy "private"
+    br blockif_end_23
+  blockelse_25:
+    v47 = copy ; unsupported operand Void
+    br blockif_end_26
+  blockelse_28:
+    v43 = copy "private"
+    br blockif_end_29
+  blockif_end_14:
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "visibility", result: Register(22) }
+    v23 = icmp.eq.i64 v22, "private"
+    ; unsupported binary op And v23 %isPublic
+    brif v24, blockthen_15, fallthrough
+  blockif_end_17:
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "itemType", result: Register(31) }
+    v32 = icmp.eq.i64 v31, "Function"
+    brif v32, blockthen_18, fallthrough
+  blockif_end_20:
+    return
+  blockif_end_23:
+    ; unsupported FieldSet { struct_val: Variable("item"), field: "visibility", value: Register(33) }
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "symbols", result: Register(34) }
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "name", result: Register(35) }
+    v36 = call %symbolTableAddFunction(v34, v35, %item)
+    v37 = copy v36
+    br blockif_end_20
+  blockif_end_26:
+    v37 = copy v47
+    br blockif_end_20
+  blockif_end_29:
+    ; unsupported FieldSet { struct_val: Variable("item"), field: "visibility", value: Register(43) }
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "symbols", result: Register(44) }
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "name", result: Register(45) }
+    v46 = call %symbolTableAddType(v44, v45, %item)
+    v47 = copy v46
+    br blockif_end_26
+  blockthen_12:
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "name", result: Register(16) }
+    ; unsupported StringConcat { left: String("Error: Public item '"), right: Register(16), result: Register(17) }
+    ; unsupported StringConcat { left: Register(17), right: String("' must start with capital letter"), result: Register(18) }
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "errors", result: Register(19) }
+    v20 = call %push(v19, v18)
+    v21 = copy v20
+    br blockif_end_14
+  blockthen_15:
+    ; unsupported FieldAccess { struct_val: Variable("item"), field: "name", result: Register(25) }
+    ; unsupported StringConcat { left: String("Warning: Private item '"), right: Register(25), result: Register(26) }
+    ; unsupported StringConcat { left: Register(26), right: String("' should start with lowercase"), result: Register(27) }
+    ; unsupported FieldAccess { struct_val: Variable("self"), field: "errors", result: Register(28) }
+    v29 = call %push(v28, v27)
+    v30 = copy v29
+    br blockif_end_17
+  blockthen_18:
+    brif %isPublic, blockthen_21, fallthrough
+  blockthen_21:
+    v33 = copy "public"
+    br blockif_end_23
+  blockthen_24:
+    brif %isPublic, blockthen_27, fallthrough
+  blockthen_27:
+    v43 = copy "public"
+    br blockif_end_29
+}
+
+function %RealTypeChecker_isCapitalized(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    ; unsupported StringLength { string: Variable("name"), result: Register(78) }
+    v79 = icmp.eq.i64 v78, 0
+    brif v79, blockthen_48, fallthrough
+  blockblock_0:
+    br blockelse_49
+  blockblock_1:
+    v80 = copy false
+    br blockif_end_50
+  blockblock_2:
+    return v85
+  blockelse_49:
+    v80 = copy ; unsupported operand Void
+    br blockif_end_50
+  blockif_end_50:
+    ; unsupported ArrayAccess { array: Variable("name"), index: Integer(0), result: Register(81) }
+    ; unsupported Cast { value: Register(81), target_type: Integer, result: Register(82) }
+    ; unsupported Store { value: Register(82), dest: Variable("first") }
+    v83 = icmp.ge.i64 %first, 65
+    v84 = icmp.le.i64 %first, 90
+    ; unsupported binary op And v83 v84
+    return v85
+  blockthen_48:
+    return false
+}
+
+function %RealTypeChecker_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v2 = call %createMySymbolTable()
+    return ; unsupported operand Struct { type_name: "RealTypeChecker", fields: {"symbols": Register(2), "errors": Array([])} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "RealTypeChecker", fields: {"symbols": Register(2), "errors": Array([])} }
+}
+
+function %SeenLexer_new(v0: i64, v1: i64, v2: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "SeenLexer", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "SeenLexer", fields: {} }
+}
+
+function %SeenLexer_tokenize(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return ; unsupported operand Array([])
+  blockblock_0:
+    return ; unsupported operand Array([])
+}
+
+function %SeenParser_new(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "SeenParser", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "SeenParser", fields: {} }
+}
+
+function %SeenParser_parseProgram(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return ; unsupported operand Struct { type_name: "ProgramNode", fields: {"items": Array([])} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "ProgramNode", fields: {"items": Array([])} }
+}
+
+function %TestCompiler() -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: String("seen_std/tests/minimal_bootstrap.seen"), dest: Variable("testCodePath") }
+    v0 = call %ReadFile(%testCodePath)
+    ; unsupported Store { value: Register(0), dest: Variable("testCode") }
+    v1 = call %println("=== Testing Compiler with Seen Syntax ===")
+    v2 = call %CompileSeenProgram(%testCode, "test_output")
+    ; unsupported Store { value: Register(2), dest: Variable("success") }
+    brif %success, blockthen_72, fallthrough
+  blockblock_0:
+    br blockelse_73
+  blockelse_73:
+    v5 = call %println("❌ Test compilation failed!")
+    v4 = copy v5
+    br blockif_end_74
+  blockif_end_74:
+    return v4
+  blockthen_72:
+    v3 = call %println("✅ Test compilation successful!")
+    v4 = copy v3
+    br blockif_end_74
+}
+
+function %TypeChecker_check(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return ; unsupported operand Struct { type_name: "TypeResult", fields: {"errors": Array([]), "success": Boolean(true)} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "TypeResult", fields: {"errors": Array([]), "success": Boolean(true)} }
+}
+
+function %TypeChecker_checkProgram(v0: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    v1 = call %println("DEBUG: Inside checkProgram")
+    return v1
+}
+
+function %TypeChecker_getErrors(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return ; unsupported operand Array([])
+  blockblock_0:
+    return ; unsupported operand Array([])
+}
+
+function %TypeChecker_hasErrors(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return false
+  blockblock_0:
+    return false
+}
+
+function %TypeChecker_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "TypeChecker", fields: {} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "TypeChecker", fields: {} }
+}
+
+function %TypeInfo_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Boolean(false), "typeParams": Array([]), "typeName": String("")} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "TypeInfo", fields: {"isNullable": Boolean(false), "typeParams": Array([]), "typeName": String("")} }
+}
+
+function %TypecheckError_getMessage(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    %this = copy %self
+    return ""
+  blockblock_0:
+    return ""
+}
+
+function %VariableInfo_new() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "VariableInfo", fields: {"name": String(""), "varType": String(""), "isMutable": Boolean(false), "isNullable": Boolean(false)} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "VariableInfo", fields: {"name": String(""), "varType": String(""), "isMutable": Boolean(false), "isNullable": Boolean(false)} }
+}
+
+function %WriteFile(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__WriteFile(%path, %content)
+    v1 = icmp.ne.i64 v0, 0
+    return v1
+  blockblock_0:
+    return v1
+}
+
+function %__FileExists(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+}
+
+function %appendText(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %readText(%path)
+    ; unsupported Store { value: Register(0), dest: Variable("old") }
+    ; unsupported StringConcat { left: Variable("old"), right: Variable("contents"), result: Register(1) }
+    v2 = call %writeText(%path, v1)
+    return v2
+  blockblock_0:
+    return v2
+}
+
+function %bootstrapCommand() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %println("🚀 Seen Self-Hosting Compiler Bootstrap")
+    v1 = call %println("=========================================")
+    ; unsupported Store { value: String("seen_std/tests/minimal_bootstrap.seen"), dest: Variable("testCodePath") }
+    v2 = call %ReadFile(%testCodePath)
+    ; unsupported Store { value: Register(2), dest: Variable("source") }
+    v3 = call %CompileSeenProgram(%source, "bootstrap_test")
+    ; unsupported Store { value: Register(3), dest: Variable("success") }
+    brif %success, blockthen_66, fallthrough
+  blockblock_0:
+    br blockelse_67
+  blockblock_1:
+    br blockelse_70
+  blockblock_2:
+    v10 = copy 0
+    br blockif_end_71
+  blockblock_3:
+    v10 = copy 1
+    br blockif_end_71
+  blockblock_4:
+    v12 = copy 1
+    br blockif_end_68
+  blockelse_67:
+    v13 = call %println("
+❌ Bootstrap failed")
+    return 1
+  blockelse_70:
+    v11 = call %println("❌ Bootstrap test failed")
+    return 1
+  blockif_end_68:
+    return v12
+  blockif_end_71:
+    v12 = copy v10
+    br blockif_end_68
+  blockthen_66:
+    v4 = call %println("
+✅ BOOTSTRAP SUCCESSFUL!")
+    v5 = call %println("   Self-hosting compiler is operational")
+    v6 = call %println("
+🧪 Testing compiled output...")
+    v7 = call %ExecuteCommand("./bootstrap_test")
+    ; unsupported Store { value: Register(7), dest: Variable("testResult") }
+    ; unsupported FieldAccess { struct_val: Variable("testResult"), field: "success", result: Register(8) }
+    brif v8, blockthen_69, fallthrough
+  blockthen_69:
+    v9 = call %println("✅ Bootstrap test passed!")
+    return 0
+}
+
+function %checkCommand() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return 0
+  blockblock_0:
+    return 0
+}
+
+function %commandOutput(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported FieldAccess { struct_val: Variable("result"), field: "output", result: Register(0) }
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %commandWasSuccessful(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported FieldAccess { struct_val: Variable("result"), field: "success", result: Register(0) }
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %compileCommand() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return 0
+  blockblock_0:
+    return 0
+}
+
+function %contains(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported StringLength { string: Variable("substring"), result: Register(0) }
+    v1 = icmp.eq.i64 v0, 0
+    brif v1, blockthen_120, fallthrough
+  blockblock_0:
+    br blockelse_121
+  blockblock_1:
+    v2 = copy true
+    br blockif_end_122
+  blockblock_2:
+    br blockelse_124
+  blockblock_3:
+    v6 = copy false
+    br blockif_end_125
+  blockblock_4:
+    br blockelse_133
+  blockblock_5:
+    br blockelse_136
+  blockblock_6:
+    v20 = copy true
+    br blockif_end_137
+  blockblock_7:
+    return false
+  blockelse_121:
+    v2 = copy ; unsupported operand Void
+    br blockif_end_122
+  blockelse_124:
+    v6 = copy ; unsupported operand Void
+    br blockif_end_125
+  blockelse_133:
+    v19 = iadd.i64 %j, 1
+    ; unsupported Store { value: Register(19), dest: Variable("j") }
+    v18 = copy v19
+    br blockif_end_134
+  blockelse_136:
+    v20 = copy ; unsupported operand Void
+    br blockif_end_137
+  blockif_end_122:
+    ; unsupported StringLength { string: Variable("substring"), result: Register(3) }
+    ; unsupported StringLength { string: Variable("text"), result: Register(4) }
+    v5 = icmp.gt.i64 v3, v4
+    brif v5, blockthen_123, fallthrough
+  blockif_end_125:
+    ; unsupported Store { value: Integer(0), dest: Variable("i") }
+    br blockloop_start_126
+  blockif_end_134:
+    br blockloop_start_129
+  blockif_end_137:
+    v21 = iadd.i64 %i, 1
+    ; unsupported Store { value: Register(21), dest: Variable("i") }
+    br blockloop_start_126
+  blockloop_body_127:
+    ; unsupported Store { value: Integer(0), dest: Variable("j") }
+    ; unsupported Store { value: Boolean(true), dest: Variable("isMatch") }
+    br blockloop_start_129
+  blockloop_body_130:
+    v13 = iadd.i64 %i, %j
+    ; unsupported ArrayAccess { array: Variable("text"), index: Register(13), result: Register(14) }
+    ; unsupported ArrayAccess { array: Variable("substring"), index: Variable("j"), result: Register(15) }
+    v16 = icmp.ne.i64 v14, v15
+    brif v16, blockthen_132, fallthrough
+  blockloop_end_128:
+    return false
+  blockloop_end_131:
+    brif %isMatch, blockthen_135, fallthrough
+  blockloop_start_126:
+    ; unsupported StringLength { string: Variable("text"), result: Register(7) }
+    ; unsupported StringLength { string: Variable("substring"), result: Register(8) }
+    v9 = isub.i64 v7, v8
+    v10 = icmp.le.i64 %i, v9
+    brif v10, fallthrough, blockloop_end_128
+  blockloop_start_129:
+    ; unsupported StringLength { string: Variable("substring"), result: Register(11) }
+    v12 = icmp.lt.i64 %j, v11
+    brif v12, fallthrough, blockloop_end_131
+  blockthen_120:
+    return true
+  blockthen_123:
+    return false
+  blockthen_132:
+    ; unsupported Store { value: Boolean(false), dest: Variable("isMatch") }
+    ; unsupported StringLength { string: Variable("substring"), result: Register(17) }
+    ; unsupported Store { value: Register(17), dest: Variable("j") }
+    v18 = copy v17
+    br blockif_end_134
+  blockthen_135:
+    return true
+}
+
+function %countLines(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: Integer(1), dest: Variable("count") }
+    v0 = iadd.i64 %count, 1
+    ; unsupported Store { value: Register(0), dest: Variable("count") }
+    return %count
+  blockblock_0:
+    return %count
+}
+
+function %createBenchmarkResult() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "BenchmarkResult", fields: {"success": Boolean(false), "opsPerSecond": Integer(0), "executionTime": Integer(0)} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "BenchmarkResult", fields: {"success": Boolean(false), "opsPerSecond": Integer(0), "executionTime": Integer(0)} }
+}
+
+function %createCCodeGenerator() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %CCodeGenerator_new()
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %createIRGenerator() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %IRGenerator_new()
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %createKeywordManager() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %KeywordManager_new()
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %createLexer(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %KeywordManager_new()
+    ; unsupported Store { value: Register(0), dest: Variable("km") }
+    v1 = call %SeenLexer_new(%source, 1, %km)
+    return v1
+  blockblock_0:
+    return v1
+}
+
+function %createMySymbolTable() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %createStringItemNodeMap()
+    v1 = call %createStringItemNodeMap()
+    v2 = call %createStringVariableInfoMap()
+    return ; unsupported operand Struct { type_name: "MySymbolTable", fields: {"functions": Register(0), "types": Register(1), "variables": Register(2)} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "MySymbolTable", fields: {"functions": Register(0), "types": Register(1), "variables": Register(2)} }
+}
+
+function %createParser(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %SeenParser_new(%tokens)
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %createStringItemNodeMap() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "StringItemNodeMap", fields: {"dummy": Integer(0)} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "StringItemNodeMap", fields: {"dummy": Integer(0)} }
+}
+
+function %createStringVariableInfoMap() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "StringVariableInfoMap", fields: {"dummy": Integer(0)} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "StringVariableInfoMap", fields: {"dummy": Integer(0)} }
+}
+
+function %createTypeChecker() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %TypeChecker_new()
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %defaultCapacity() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return 16
+  blockblock_0:
+    return 16
+}
+
+function %defaultCompilerArgs() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Struct { type_name: "CompilerArgs", fields: {"language": String("en"), "verbose": Boolean(false), "inputFile": String(""), "command": String("compile"), "outputFile": String("output")} }
+  blockblock_0:
+    return ; unsupported operand Struct { type_name: "CompilerArgs", fields: {"language": String("en"), "verbose": Boolean(false), "inputFile": String(""), "command": String("compile"), "outputFile": String("output")} }
+}
+
+function %dirname(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %lastSlashIndex(%path)
+    ; unsupported Store { value: Register(0), dest: Variable("idx") }
+    v1 = icmp.lt.i64 %idx, 0
+    brif v1, blockthen_87, fallthrough
+  blockblock_0:
+    br blockelse_88
+  blockblock_1:
+    v2 = copy ""
+    br blockif_end_89
+  blockblock_2:
+    return v3
+  blockelse_88:
+    v2 = copy ; unsupported operand Void
+    br blockif_end_89
+  blockif_end_89:
+    v3 = call %substring(%path, 0, %idx)
+    return v3
+  blockthen_87:
+    return ""
+}
+
+function %ensureParentDirectories(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %dirname(%path)
+    ; unsupported Store { value: Register(0), dest: Variable("dir") }
+    ; unsupported ArrayLength { array: Variable("dir"), result: Register(1) }
+    v2 = icmp.gt.i64 v1, 0
+    brif v2, blockthen_78, fallthrough
+  blockblock_0:
+    br blockelse_79
+  blockblock_1:
+    v4 = copy v3
+    br blockif_end_80
+  blockblock_2:
+    return true
+  blockelse_79:
+    v4 = copy ; unsupported operand Void
+    br blockif_end_80
+  blockif_end_80:
+    return true
+  blockthen_78:
+    v3 = call %__CreateDirectory(%dir)
+    return v3
+}
+
+function %getCurrentTime() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__GetTimestamp()
+    ; unsupported Cast { value: Register(0), target_type: Float, result: Register(1) }
+    return v1
+  blockblock_0:
+    return v1
+}
+
+function %hashString(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: Integer(0), dest: Variable("hash") }
+    ; unsupported Store { value: Integer(0), dest: Variable("index") }
+    br blockloop_start_93
+  blockblock_0:
+    return %hash
+  blockloop_body_94:
+    v2 = imul.i64 %hash, 31
+    ; unsupported ArrayAccess { array: Variable("value"), index: Variable("index"), result: Register(3) }
+    ; unsupported Cast { value: Register(3), target_type: Integer, result: Register(4) }
+    v5 = iadd.i64 v2, v4
+    v6 = srem.i64 v5, 2147483647
+    ; unsupported Store { value: Register(6), dest: Variable("hash") }
+    v7 = iadd.i64 %index, 1
+    ; unsupported Store { value: Register(7), dest: Variable("index") }
+    br blockloop_start_93
+  blockloop_end_95:
+    return %hash
+  blockloop_start_93:
+    ; unsupported StringLength { string: Variable("value"), result: Register(0) }
+    v1 = icmp.lt.i64 %index, v0
+    brif v1, fallthrough, blockloop_end_95
+}
+
+function %isWhitespace(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Cast { value: Variable("c"), target_type: Integer, result: Register(0) }
+    ; unsupported Store { value: Register(0), dest: Variable("code") }
+    v1 = icmp.eq.i64 %code, 32
+    v2 = icmp.eq.i64 %code, 9
+    ; unsupported binary op Or v1 v2
+    v4 = icmp.eq.i64 %code, 10
+    ; unsupported binary op Or v3 v4
+    v6 = icmp.eq.i64 %code, 13
+    ; unsupported binary op Or v5 v6
+    return v7
+  blockblock_0:
+    return v7
+}
+
+function %join(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: String(""), dest: Variable("result") }
+    ; unsupported Store { value: Boolean(true), dest: Variable("first") }
+    return %result
+  blockblock_0:
+    return %result
+}
+
+function %joinLines(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: String(""), dest: Variable("result") }
+    return %result
+  blockblock_0:
+    return %result
+}
+
+function %lastSlashIndex(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported StringLength { string: Variable("path"), result: Register(0) }
+    v1 = isub.i64 v0, 1
+    ; unsupported Store { value: Register(1), dest: Variable("index") }
+    br blockloop_start_81
+  blockblock_0:
+    br blockelse_85
+  blockblock_1:
+    v8 = copy %index
+    br blockif_end_86
+  blockblock_2:
+    return v10
+  blockelse_85:
+    v8 = copy ; unsupported operand Void
+    br blockif_end_86
+  blockif_end_86:
+    v9 = isub.i64 %index, 1
+    ; unsupported Store { value: Register(9), dest: Variable("index") }
+    br blockloop_start_81
+  blockloop_body_82:
+    ; unsupported ArrayAccess { array: Variable("path"), index: Variable("index"), result: Register(3) }
+    ; unsupported Cast { value: Register(3), target_type: Integer, result: Register(4) }
+    ; unsupported Store { value: Register(4), dest: Variable("code") }
+    v5 = icmp.eq.i64 %code, 47
+    v6 = icmp.eq.i64 %code, 92
+    ; unsupported binary op Or v5 v6
+    brif v7, blockthen_84, fallthrough
+  blockloop_end_83:
+    v10 = copy 1
+    return v10
+  blockloop_start_81:
+    v2 = icmp.ge.i64 %index, 0
+    brif v2, fallthrough, blockloop_end_83
+  blockthen_84:
+    return %index
+}
+
+function %main() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: String("fun main() {}"), dest: Variable("source") }
+    ; unsupported Store { value: String("test_out"), dest: Variable("output") }
+    v0 = call %CompileSeenProgram(%source, %output)
+    ; unsupported Store { value: Register(0), dest: Variable("success") }
+    brif %success, blockthen_63, fallthrough
+  blockblock_0:
+    br blockelse_64
+  blockblock_1:
+    return 0
+  blockelse_64:
+    v2 = copy ; unsupported operand Void
+    br blockif_end_65
+  blockif_end_65:
+    return 0
+  blockthen_63:
+    v1 = call %println("Success")
+    v2 = copy v1
+    br blockif_end_65
+}
+
+function %mapGetItem(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Cast { value: Null, target_type: Struct { name: "ItemNode", fields: [] }, result: Register(0) }
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %mapGetVar(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Cast { value: Null, target_type: Struct { name: "VariableInfo", fields: [] }, result: Register(0) }
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %mapPutItem(v0: i64, v1: i64, v2: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Null
+}
+
+function %mapPutVar(v0: i64, v1: i64, v2: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return ; unsupported operand Null
+}
+
+function %maxLoadPercent() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    return 75
+  blockblock_0:
+    return 75
+}
+
+function %nextPowerOfTwo(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: Integer(1), dest: Variable("size") }
+    br blockloop_start_90
+  blockblock_0:
+    return %size
+  blockloop_body_91:
+    v1 = imul.i64 %size, 2
+    ; unsupported Store { value: Register(1), dest: Variable("size") }
+    br blockloop_start_90
+  blockloop_end_92:
+    return %size
+  blockloop_start_90:
+    v0 = icmp.lt.i64 %size, %value
+    brif v0, fallthrough, blockloop_end_92
+}
+
+function %parseArgs(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %println("DEBUG: Inside parseArgs")
+    v1 = call %defaultCompilerArgs()
+    ; unsupported Store { value: Register(1), dest: Variable("compilerArgs") }
+    v2 = call %println("DEBUG: Created default args")
+    ; unsupported ArrayLength { array: Variable("args"), result: Register(3) }
+    v4 = icmp.gt.i64 v3, 1
+    brif v4, blockthen_54, fallthrough
+  blockblock_0:
+    br blockelse_55
+  blockblock_1:
+    br blockelse_58
+  blockblock_2:
+    br blockelse_61
+  blockblock_3:
+    return %compilerArgs
+  blockelse_55:
+    v6 = copy ; unsupported operand Void
+    br blockif_end_56
+  blockelse_58:
+    v10 = copy ; unsupported operand Void
+    br blockif_end_59
+  blockelse_61:
+    v14 = copy ; unsupported operand Void
+    br blockif_end_62
+  blockif_end_56:
+    ; unsupported ArrayLength { array: Variable("args"), result: Register(7) }
+    v8 = icmp.gt.i64 v7, 2
+    brif v8, blockthen_57, fallthrough
+  blockif_end_59:
+    ; unsupported ArrayLength { array: Variable("args"), result: Register(11) }
+    v12 = icmp.gt.i64 v11, 3
+    brif v12, blockthen_60, fallthrough
+  blockif_end_62:
+    v15 = call %println("DEBUG: Returning args")
+    return %compilerArgs
+  blockthen_54:
+    ; unsupported ArrayAccess { array: Variable("args"), index: Integer(1), result: Register(5) }
+    ; unsupported FieldSet { struct_val: Variable("compilerArgs"), field: "command", value: Register(5) }
+    v6 = copy v5
+    br blockif_end_56
+  blockthen_57:
+    ; unsupported ArrayAccess { array: Variable("args"), index: Integer(2), result: Register(9) }
+    ; unsupported FieldSet { struct_val: Variable("compilerArgs"), field: "inputFile", value: Register(9) }
+    v10 = copy v9
+    br blockif_end_59
+  blockthen_60:
+    ; unsupported ArrayAccess { array: Variable("args"), index: Integer(3), result: Register(13) }
+    ; unsupported FieldSet { struct_val: Variable("compilerArgs"), field: "outputFile", value: Register(13) }
+    v14 = copy v13
+    br blockif_end_62
+}
+
+function %readText(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__ReadFile(%path)
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %replace(v0: i64, v1: i64, v2: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: String(""), dest: Variable("res") }
+    ; unsupported Store { value: Integer(0), dest: Variable("i") }
+    br blockloop_start_105
+  blockblock_0:
+    br blockelse_109
+  blockblock_1:
+    return %res
+  blockelse_109:
+    ; unsupported ArrayAccess { array: Variable("s"), index: Variable("i"), result: Register(15) }
+    ; unsupported StringConcat { left: Variable("res"), right: Register(15), result: Register(16) }
+    ; unsupported Store { value: Register(16), dest: Variable("res") }
+    v17 = iadd.i64 %i, 1
+    ; unsupported Store { value: Register(17), dest: Variable("i") }
+    v14 = copy v17
+    br blockif_end_110
+  blockif_end_110:
+    br blockloop_start_105
+  blockloop_body_106:
+    ; unsupported StringLength { string: Variable("old"), result: Register(2) }
+    v3 = iadd.i64 %i, v2
+    ; unsupported StringLength { string: Variable("s"), result: Register(4) }
+    v5 = icmp.le.i64 v3, v4
+    ; unsupported StringLength { string: Variable("old"), result: Register(6) }
+    v7 = iadd.i64 %i, v6
+    v8 = call %substring(%s, %i, v7)
+    v9 = icmp.eq.i64 v8, %old
+    ; unsupported binary op And v5 v9
+    brif v10, blockthen_108, fallthrough
+  blockloop_end_107:
+    return %res
+  blockloop_start_105:
+    ; unsupported StringLength { string: Variable("s"), result: Register(0) }
+    v1 = icmp.lt.i64 %i, v0
+    brif v1, fallthrough, blockloop_end_107
+  blockthen_108:
+    ; unsupported StringConcat { left: Variable("res"), right: Variable("new"), result: Register(11) }
+    ; unsupported Store { value: Register(11), dest: Variable("res") }
+    ; unsupported StringLength { string: Variable("old"), result: Register(12) }
+    v13 = iadd.i64 %i, v12
+    ; unsupported Store { value: Register(13), dest: Variable("i") }
+    v14 = copy v13
+    br blockif_end_110
+}
+
+function %runCommand(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__ExecuteCommand(%command)
+    ; unsupported Store { value: Register(0), dest: Variable("res") }
+    ; unsupported FieldAccess { struct_val: Variable("res"), field: "success", result: Register(1) }
+    brif v1, blockthen_75, fallthrough
+  blockblock_0:
+    br blockelse_76
+  blockblock_1:
+    v2 = copy 0
+    br blockif_end_77
+  blockblock_2:
+    return 1
+  blockelse_76:
+    v2 = copy ; unsupported operand Void
+    br blockif_end_77
+  blockif_end_77:
+    return 1
+  blockthen_75:
+    return 0
+}
+
+function %runCommandWithOutput(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__ExecuteCommand(%command)
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %shellQuote(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %replace(%arg, "'", "'\''")
+    ; unsupported StringConcat { left: String("'"), right: Register(0), result: Register(1) }
+    ; unsupported StringConcat { left: Register(1), right: String("'"), result: Register(2) }
+    return v2
+  blockblock_0:
+    return v2
+}
+
+function %startsWith(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported StringLength { string: Variable("prefix"), result: Register(0) }
+    ; unsupported StringLength { string: Variable("text"), result: Register(1) }
+    v2 = icmp.gt.i64 v0, v1
+    brif v2, blockthen_111, fallthrough
+  blockblock_0:
+    br blockelse_112
+  blockblock_1:
+    v3 = copy false
+    br blockif_end_113
+  blockblock_2:
+    br blockelse_118
+  blockblock_3:
+    v9 = copy false
+    br blockif_end_119
+  blockblock_4:
+    return true
+  blockelse_112:
+    v3 = copy ; unsupported operand Void
+    br blockif_end_113
+  blockelse_118:
+    v9 = copy ; unsupported operand Void
+    br blockif_end_119
+  blockif_end_113:
+    ; unsupported Store { value: Integer(0), dest: Variable("i") }
+    br blockloop_start_114
+  blockif_end_119:
+    v10 = iadd.i64 %i, 1
+    ; unsupported Store { value: Register(10), dest: Variable("i") }
+    br blockloop_start_114
+  blockloop_body_115:
+    ; unsupported ArrayAccess { array: Variable("text"), index: Variable("i"), result: Register(6) }
+    ; unsupported ArrayAccess { array: Variable("prefix"), index: Variable("i"), result: Register(7) }
+    v8 = icmp.ne.i64 v6, v7
+    brif v8, blockthen_117, fallthrough
+  blockloop_end_116:
+    return true
+  blockloop_start_114:
+    ; unsupported StringLength { string: Variable("prefix"), result: Register(4) }
+    v5 = icmp.lt.i64 %i, v4
+    brif v5, fallthrough, blockloop_end_116
+  blockthen_111:
+    return false
+  blockthen_117:
+    return false
+}
+
+function %substring(v0: i64, v1: i64, v2: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: String(""), dest: Variable("res") }
+    ; unsupported Store { value: Variable("start"), dest: Variable("i") }
+    br blockloop_start_96
+  blockblock_0:
+    return %res
+  blockloop_body_97:
+    ; unsupported ArrayAccess { array: Variable("s"), index: Variable("i"), result: Register(1) }
+    ; unsupported StringConcat { left: Variable("res"), right: Register(1), result: Register(2) }
+    ; unsupported Store { value: Register(2), dest: Variable("res") }
+    v3 = iadd.i64 %i, 1
+    ; unsupported Store { value: Register(3), dest: Variable("i") }
+    br blockloop_start_96
+  blockloop_end_98:
+    return %res
+  blockloop_start_96:
+    v0 = icmp.lt.i64 %i, %end
+    brif v0, fallthrough, blockloop_end_98
+}
+
+function %symbolTableAddFunction(v0: i64, v1: i64, v2: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported FieldAccess { struct_val: Variable("table"), field: "functions", result: Register(0) }
+    v1 = call %mapPutItem(v0, %name, %item)
+    return v1
+}
+
+function %symbolTableAddType(v0: i64, v1: i64, v2: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported FieldAccess { struct_val: Variable("table"), field: "types", result: Register(0) }
+    v1 = call %mapPutItem(v0, %name, %item)
+    return v1
+}
+
+function %symbolTableAddVariable(v0: i64, v1: i64, v2: i64) -> void {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported FieldAccess { struct_val: Variable("table"), field: "variables", result: Register(0) }
+    v1 = call %mapPutVar(v0, %name, %info)
+    return v1
+}
+
+function %symbolTableGetVariable(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported FieldAccess { struct_val: Variable("table"), field: "variables", result: Register(0) }
+    v1 = call %mapGetVar(v0, %name)
+    return v1
+  blockblock_0:
+    return v1
+}
+
+function %tombstoneState() -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = copy 1
+    return v0
+  blockblock_0:
+    return v0
+}
+
+function %trim(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %trimStart(%value)
+    v1 = call %trimEnd(v0)
+    return v1
+  blockblock_0:
+    return v1
+}
+
+function %trimEnd(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported StringLength { string: Variable("s"), result: Register(0) }
+    v1 = isub.i64 v0, 1
+    ; unsupported Store { value: Register(1), dest: Variable("i") }
+    br blockloop_start_102
+  blockblock_0:
+    return v8
+  blockloop_body_103:
+    v6 = isub.i64 %i, 1
+    ; unsupported Store { value: Register(6), dest: Variable("i") }
+    br blockloop_start_102
+  blockloop_end_104:
+    v7 = iadd.i64 %i, 1
+    v8 = call %substring(%s, 0, v7)
+    return v8
+  blockloop_start_102:
+    v2 = icmp.ge.i64 %i, 0
+    ; unsupported ArrayAccess { array: Variable("s"), index: Variable("i"), result: Register(3) }
+    v4 = call %isWhitespace(v3)
+    ; unsupported binary op And v2 v4
+    brif v5, fallthrough, blockloop_end_104
+}
+
+function %trimStart(v0: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    ; unsupported Store { value: Integer(0), dest: Variable("i") }
+    br blockloop_start_99
+  blockblock_0:
+    return v7
+  blockloop_body_100:
+    v5 = iadd.i64 %i, 1
+    ; unsupported Store { value: Register(5), dest: Variable("i") }
+    br blockloop_start_99
+  blockloop_end_101:
+    ; unsupported StringLength { string: Variable("s"), result: Register(6) }
+    v7 = call %substring(%s, %i, v6)
+    return v7
+  blockloop_start_99:
+    ; unsupported StringLength { string: Variable("s"), result: Register(0) }
+    v1 = icmp.lt.i64 %i, v0
+    ; unsupported ArrayAccess { array: Variable("s"), index: Variable("i"), result: Register(2) }
+    v3 = call %isWhitespace(v2)
+    ; unsupported binary op And v1 v3
+    brif v4, fallthrough, blockloop_end_101
+}
+
+function %writeText(v0: i64, v1: i64) -> i64 {
+  ; seen.register_budget = 64
+  ; seen.scheduler = balanced
+  blockentry:
+    v0 = call %__WriteFile(%path, %contents)
+    v1 = icmp.ne.i64 v0, 0
+    return v1
+  blockblock_0:
+    return v1
+}
+

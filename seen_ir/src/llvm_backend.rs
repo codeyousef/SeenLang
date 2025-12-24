@@ -28,7 +28,7 @@ use inkwell::values::{
 pub use inkwell::OptimizationLevel as LlvmOptLevel;
 
 use crate::function::{IRFunction, InlineHint, RegisterPressureClass};
-use crate::instruction::{BasicBlock, IRSelectArm, Instruction};
+use crate::instruction::{BasicBlock, BinaryOp, IRSelectArm, Instruction, UnaryOp};
 use crate::module::IRModule;
 use crate::value::{IRType, IRValue};
 use crate::{HardwareProfile, IRProgram};
@@ -334,6 +334,7 @@ pub struct LlvmBackend<'ctx> {
     var_slot_types: HashMap<String, BasicTypeEnum<'ctx>>, // %var -> LLVM storage type
     blocks: HashMap<String, LlvmBasicBlock<'ctx>>,  // label name -> BB
     reg_slots: HashMap<u32, PointerValue<'ctx>>,    // %rN -> alloca i64 slot
+    reg_slot_types: HashMap<u32, BasicTypeEnum<'ctx>>, // %rN -> LLVM storage type
 
     // Arg globals
     g_argc: Option<inkwell::values::GlobalValue<'ctx>>,
@@ -409,6 +410,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             var_slot_types: HashMap::new(),
             blocks: HashMap::new(),
             reg_slots: HashMap::new(),
+            reg_slot_types: HashMap::new(),
             g_argc: None,
             g_argv: None,
             fallthrough_bb: None,
@@ -496,6 +498,51 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.link_artifact(kind, &obj_path, out_path, &triple_string, &static_libs)
     }
 
+    fn predeclare_runtime_functions(&mut self) {
+        self.ensure_int_to_string_fn();
+        self.ensure_float_to_string_fn();
+        self.ensure_box_int_fn();
+        self.ensure_box_bool_fn();
+        self.ensure_box_ptr_fn();
+        self.ensure_channel_send_fn();
+
+        // __ReadFile: (i64) -> SeenString
+        if self.module.get_function("__ReadFile").is_none() {
+            let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
+            self.module.add_function("__ReadFile", ty, None);
+        }
+
+        // __WriteFile: (i64, SeenString) -> i64
+        if self.module.get_function("__WriteFile").is_none() {
+            let ty = self.i64_t.fn_type(&[self.i64_t.into(), self.ty_string().into()], false);
+            self.module.add_function("__WriteFile", ty, None);
+        }
+        
+        // __ExecuteCommand: (SeenString) -> SeenString
+        if self.module.get_function("__ExecuteCommand").is_none() {
+             let ty = self.ty_string().fn_type(&[self.ty_string().into()], false);
+             self.module.add_function("__ExecuteCommand", ty, None);
+        }
+
+        // __GetCommandLineArgs: () -> Array<String> (i8*)
+        if self.module.get_function("__GetCommandLineArgs").is_none() {
+            let ty = self.i8_ptr_t.fn_type(&[], false);
+            self.module.add_function("__GetCommandLineArgs", ty, None);
+        }
+
+        // __CreateDirectory: (SeenString) -> i64
+        if self.module.get_function("__CreateDirectory").is_none() {
+            let ty = self.i64_t.fn_type(&[self.ty_string().into()], false);
+            self.module.add_function("__CreateDirectory", ty, None);
+        }
+
+        // __GetTimestamp: () -> i64
+        if self.module.get_function("__GetTimestamp").is_none() {
+            let ty = self.i64_t.fn_type(&[], false);
+            self.module.add_function("__GetTimestamp", ty, None);
+        }
+    }
+
     fn lower_program(&mut self, prog: &IRProgram) -> Result<()> {
         // Register struct/class types from all modules
         let mut modules: Vec<&IRModule> = prog.modules.iter().collect();
@@ -507,6 +554,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             }
         }
+
+        // Predeclare runtime functions so they are available during register scanning
+        self.predeclare_runtime_functions();
 
         // Predeclare all functions
         let mut fn_map: HashMap<String, FunctionValue<'ctx>> = HashMap::new();
@@ -1214,7 +1264,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRType::Float => self.ctx.f64_type().into(),
             IRType::Boolean => self.bool_t.into(),
             IRType::Char => self.ctx.i8_type().into(),
-            IRType::String => self.i8_ptr_t.into(),
+            IRType::String => self.ty_string().into(),
             IRType::Array(_) => {
                 // Represent arrays as opaque pointer to match runtime ABI
                 self.i8_ptr_t.into()
@@ -1455,6 +1505,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.var_is_int_array.clear();
         self.blocks.clear();
         self.reg_slots.clear();
+        self.reg_slot_types.clear();
 
         // Create all basic blocks first
         let block_names: Vec<_> = if !func.cfg.block_order.is_empty() {
@@ -1493,6 +1544,9 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.blocks.insert("entry".to_string(), bb);
             self.builder.position_at_end(bb);
         }
+
+        // Pre-scan to determine register types and allocate slots
+        self.scan_and_allocate_registers(func)?;
 
         // Preallocate slots for parameters and locals so variable loads work across blocks.
         for param in &func.parameters {
@@ -1544,14 +1598,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
         }
 
-        // Allocate slots for virtual registers as i64 cells
-        for r in 0..func.register_count {
-            let slot = self
-                .builder
-                .build_alloca(self.i64_t, &format!("reg{}_slot", r))
-                .map_err(|e| anyhow!("{e:?}"))?;
-            self.reg_slots.insert(r, slot);
-        }
+        // Allocate slots for virtual registers
+        // (Handled by scan_and_allocate_registers)
 
         // Initialize virtual registers with function parameters in order
         // (assumes IR uses %r0..%rN for the first N arguments)
@@ -1561,33 +1609,39 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let param_val = p.clone();
                 // Map %r{i}
                 self.reg_values.insert(i, param_val.clone());
-                // Also store into slot as i64 if available
+                // Also store into slot if available
                 if let Some(slot) = self.reg_slots.get(&i).copied() {
                     let reg_val = param_val.clone();
-                    let ival = if reg_val.is_int_value() {
-                        let iv = reg_val.into_int_value();
-                        if iv.get_type() == self.i64_t {
-                            iv
-                        } else {
+                    let slot_ty = self.reg_slot_types.get(&i).copied().unwrap_or(self.i64_t.into());
+                    
+                    if reg_val.get_type() == slot_ty {
+                         self.builder.build_store(slot, reg_val).map_err(|e| anyhow!("{e:?}"))?;
+                    } else if slot_ty == self.i64_t.into() {
+                        let ival = if reg_val.is_int_value() {
+                            let iv = reg_val.into_int_value();
+                            if iv.get_type() == self.i64_t {
+                                iv
+                            } else {
+                                self.builder
+                                    .build_int_s_extend(iv, self.i64_t, "sext")
+                                    .map_err(|e| anyhow!("{e:?}"))?
+                            }
+                        } else if reg_val.is_pointer_value() {
                             self.builder
-                                .build_int_s_extend(iv, self.i64_t, "sext")
+                                .build_ptr_to_int(reg_val.into_pointer_value(), self.i64_t, "ptr2i")
                                 .map_err(|e| anyhow!("{e:?}"))?
-                        }
-                    } else if reg_val.is_pointer_value() {
+                        } else if reg_val.is_float_value() {
+                            let fv = reg_val.into_float_value();
+                            self.builder
+                                .build_float_to_signed_int(fv, self.i64_t, "ftoi")
+                                .map_err(|e| anyhow!("{e:?}"))?
+                        } else {
+                            self.i64_t.const_zero()
+                        };
                         self.builder
-                            .build_ptr_to_int(reg_val.into_pointer_value(), self.i64_t, "ptr2i")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                    } else if reg_val.is_float_value() {
-                        let fv = reg_val.into_float_value();
-                        self.builder
-                            .build_float_to_signed_int(fv, self.i64_t, "ftoi")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                    } else {
-                        self.i64_t.const_zero()
-                    };
-                    self.builder
-                        .build_store(slot, ival)
-                        .map_err(|e| anyhow!("{e:?}"))?;
+                            .build_store(slot, ival)
+                            .map_err(|e| anyhow!("{e:?}"))?;
+                    }
                 }
                 // Map by parameter name when available
                 if (i as usize) < func.parameters.len() {
@@ -2024,9 +2078,15 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             Instruction::StringLength { string, result } => {
                 let s_val = self.eval_value(string, fn_map)?;
-                let s_ptr = self.as_cstr_ptr(s_val)?;
-                let slen = self.call_strlen(s_ptr)?;
-                self.assign_value(result, slen.as_basic_value_enum())?;
+                if s_val.is_struct_value() {
+                    let sv = s_val.into_struct_value();
+                    let len = self.builder.build_extract_value(sv, 0, "slen").unwrap();
+                    self.assign_value(result, len.into_int_value().as_basic_value_enum())?;
+                } else {
+                    let s_ptr = self.as_cstr_ptr(s_val)?;
+                    let slen = self.call_strlen(s_ptr)?;
+                    self.assign_value(result, slen.as_basic_value_enum())?;
+                }
             }
             Instruction::StringConcat {
                 left,
@@ -2035,9 +2095,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             } => {
                 let lval = self.eval_value(left, fn_map)?;
                 let rval = self.eval_value(right, fn_map)?;
-                let l = self.to_string_ptr(lval)?;
-                let r = self.to_string_ptr(rval)?;
-                let out = self.runtime_concat(l, r)?;
+                
+                let l_str = self.ensure_string(lval, left)?;
+                let r_str = self.ensure_string(rval, right)?;
+                
+                let out = self.runtime_concat(l_str, r_str)?;
                 self.assign_value(result, out.as_basic_value_enum())?;
             }
             Instruction::SimdSplat {
@@ -2199,23 +2261,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let elem = self.eval_value(&vs[idx_val], fn_map)?;
                     self.assign_value(result, elem)?;
                 } else if is_string {
-                    // String indexing: string is an i8* (pointer to characters)
-                    // We need to index into the character array and return the char code as i64
-                    let str_ptr = if arr_v.is_pointer_value() {
-                        arr_v.into_pointer_value()
-                    } else {
-                        self.builder
-                            .build_int_to_ptr(
-                                arr_v.into_int_value(),
-                                self.i8_ptr_t,
-                                "str_int_to_ptr",
-                            )
-                            .map_err(|e| anyhow!("{e:?}"))?
-                    };
-                    
+                    // String indexing
+                    let str_ptr = self.to_string_ptr(arr_v)?;
+
                     let idx_bv = self.eval_value(index, fn_map)?;
                     let idx_iv = self.as_i64(idx_bv)?;
-                    
+
                     // GEP to the character at index
                     let char_ptr = unsafe {
                         self.builder.build_gep(
@@ -2225,12 +2276,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                             "char_ptr",
                         )?
                     };
-                    
-                    // Load the character as i8 and zero-extend to i64
+
+                    // Load the character as i8
                     let char_val = self.builder.build_load(self.ctx.i8_type(), char_ptr, "char_val")?.into_int_value();
-                    let char_i64 = self.builder.build_int_z_extend(char_val, self.i64_t, "char_i64")?;
-                    
-                    self.assign_value(result, char_i64.as_basic_value_enum())?;
+                    // let char_i64 = self.builder.build_int_z_extend(char_val, self.i64_t, "char_i64")?;
+
+                    self.assign_value(result, char_val.as_basic_value_enum())?;
                 } else if arr_v.is_pointer_value() || arr_v.is_int_value() {
                     // Dynamic array with layout { i64 len, i64 cap, i8* data_ptr }
                     // Data pointer is at offset 16
@@ -2761,7 +2812,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                                     "new_cap"
                                 )?.into_int_value();
 
-                                let elem_size = self.i64_t.const_int(8, false);
+                                let elem_byte_size = if value.is_struct_value() {
+                                    if value.into_struct_value().get_type() == self.ty_string() {
+                                        16
+                                    } else {
+                                        16
+                                    }
+                                } else {
+                                    8
+                                };
+                                let elem_size = self.i64_t.const_int(elem_byte_size, false);
                                 let new_size = self.builder.build_int_mul(new_cap, elem_size, "new_size")?;
                                 
                                 let realloc = self.get_realloc();
@@ -2826,6 +2886,20 @@ impl<'ctx> LlvmBackend<'ctx> {
                                         )?
                                     };
                                     self.builder.build_store(elem_ptr, value.into_pointer_value())?;
+                                } else if value.is_struct_value() {
+                                    let sv = value.into_struct_value();
+                                    let st = sv.get_type();
+                                    let ptr_ty = st.ptr_type(inkwell::AddressSpace::from(0u16));
+                                    let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, ptr_ty, "data_struct_ptr")?;
+                                    let elem_ptr = unsafe {
+                                        self.builder.build_gep(
+                                            st,
+                                            data_struct_ptr,
+                                            &[len],
+                                            "elem_ptr"
+                                        )?
+                                    };
+                                    self.builder.build_store(elem_ptr, sv)?;
                                 } else {
                                     return Err(anyhow!("push: unsupported value type"));
                                 }
@@ -2984,6 +3058,61 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 }
                                 return Ok(());
                             }
+                        }
+                        "__GetCommandLineArgCount" => {
+                            let (_g_argc, _g_argv) = self.ensure_arg_globals();
+                            let argc = self.builder.build_load(
+                                self.ctx.i32_type(),
+                                self.g_argc.unwrap().as_pointer_value(),
+                                "argc",
+                            )?;
+                            let argc_int = argc.into_int_value();
+                            let argc_i64 = self.builder.build_int_z_extend(argc_int, self.i64_t, "argc_i64")?;
+                            if let Some(r) = result {
+                                self.assign_value(r, argc_i64.as_basic_value_enum())?;
+                            }
+                            return Ok(());
+                        }
+                        "__GetCommandLineArg" => {
+                            let index_val = self.eval_value(&args[0], fn_map)?;
+                            let index_int = self.as_i64(index_val)?;
+                            
+                            let (_g_argc, _g_argv) = self.ensure_arg_globals();
+                            let argv = self.builder.build_load(
+                                self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                                self.g_argv.unwrap().as_pointer_value(),
+                                "argv",
+                            )?;
+                            let argv_ptr = argv.into_pointer_value();
+                            
+                            unsafe {
+                                let arg_ptr_ptr = self.builder.build_in_bounds_gep(
+                                    self.i8_ptr_t,
+                                    argv_ptr,
+                                    &[index_int],
+                                    "arg_ptr_ptr"
+                                )?;
+                                let arg_cstr = self.builder.build_load(
+                                    self.i8_ptr_t,
+                                    arg_ptr_ptr,
+                                    "arg_cstr"
+                                )?;
+                                
+                                let strlen_fn = self.get_strlen();
+                                let len_call = self.builder.build_call(strlen_fn, &[arg_cstr.into()], "len")?;
+                                let len = len_call.try_as_basic_value().left().unwrap().into_int_value();
+                                let len64 = self.builder.build_int_z_extend(len, self.i64_t, "len64")?;
+                                
+                                let str_ty = self.ty_string();
+                                let mut str_val = str_ty.get_undef();
+                                str_val = self.builder.build_insert_value(str_val, len64, 0, "str_len")?.into_struct_value();
+                                str_val = self.builder.build_insert_value(str_val, arg_cstr, 1, "str_ptr")?.into_struct_value();
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, str_val.as_basic_value_enum())?;
+                                }
+                            }
+                            return Ok(());
                         }
                         "__GetCommandLineArgs" => {
                             // Build StrArray* from @__argc/@__argv
@@ -3348,8 +3477,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                             )> = None;
                             self.builder.position_at_end(then_bb);
                             let empty = self.builder.build_global_string_ptr("", "empty")?;
-                            let empty_val = empty.as_pointer_value().as_basic_value_enum();
-                            rf_then_val = Some((empty_val, then_bb));
+                            let empty_ptr = empty.as_pointer_value();
+                            let empty_len = self.i64_t.const_zero();
+                            let mut empty_str = self.ty_string().get_undef();
+                            empty_str = self.builder.build_insert_value(empty_str, empty_len, 0, "empty_len")?.into_struct_value();
+                            empty_str = self.builder.build_insert_value(empty_str, empty_ptr, 1, "empty_ptr")?.into_struct_value();
+                            rf_then_val = Some((empty_str.as_basic_value_enum(), then_bb));
                             self.builder.build_unconditional_branch(done_bb)?;
                             self.builder.position_at_end(cont_bb);
                             // size
@@ -3385,12 +3518,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                             self.builder
                                 .build_store(endp, self.ctx.i8_type().const_zero())?;
                             let _ = self.builder.build_call(fclose, &[fval.into()], "fclose")?;
-                            let buf_val = bufp.as_basic_value_enum();
-                            rf_cont_val = Some((buf_val, cont_bb));
+                            
+                            let mut str_val = self.ty_string().get_undef();
+                            str_val = self.builder.build_insert_value(str_val, szv, 0, "str_len")?.into_struct_value();
+                            str_val = self.builder.build_insert_value(str_val, bufp, 1, "str_ptr")?.into_struct_value();
+                            
+                            rf_cont_val = Some((str_val.as_basic_value_enum(), cont_bb));
                             self.builder.build_unconditional_branch(done_bb)?;
                             self.builder.position_at_end(done_bb);
                             if let Some(r) = result {
-                                let phi = self.builder.build_phi(self.i8_ptr_t, "rf_value")?;
+                                let phi = self.builder.build_phi(self.ty_string(), "rf_value")?;
                                 if let Some((val, bb)) = rf_then_val {
                                     phi.add_incoming(&[(&val, bb)]);
                                 }
@@ -4373,8 +4510,17 @@ impl<'ctx> LlvmBackend<'ctx> {
         if let Some(f) = self.module.get_function("__IntToString") {
             f
         } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.i64_t.into()], false);
+            let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
             self.module.add_function("__IntToString", ty, None)
+        }
+    }
+
+    fn ensure_char_to_string_fn(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.module.get_function("__CharToString") {
+            f
+        } else {
+            let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
+            self.module.add_function("__CharToString", ty, None)
         }
     }
 
@@ -4382,7 +4528,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         if let Some(f) = self.module.get_function("__FloatToString") {
             f
         } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.ctx.f64_type().into()], false);
+            let ty = self.ty_string().fn_type(&[self.ctx.f64_type().into()], false);
             self.module.add_function("__FloatToString", ty, None)
         }
     }
@@ -4421,7 +4567,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.builder.build_int_s_extend(iv, self.i64_t, "sext")?
             };
             let call = self.builder.build_call(func, &[i64_val.into()], "i2s")?;
-            return Ok(call.try_as_basic_value().left().unwrap().into_pointer_value());
+            let ret = call.try_as_basic_value().left().unwrap();
+            if ret.is_struct_value() {
+                let sv = ret.into_struct_value();
+                let ptr = self.builder.build_extract_value(sv, 1, "str_ptr")?.into_pointer_value();
+                return Ok(ptr);
+            }
+            return Ok(ret.into_pointer_value());
         }
         if v.is_float_value() {
             let func = self.ensure_float_to_string_fn();
@@ -4432,11 +4584,17 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.builder.build_float_cast(fv, self.ctx.f64_type(), "f2d")?
             };
             let call = self.builder.build_call(func, &[f64_val.into()], "f2s")?;
-            return Ok(call.try_as_basic_value().left().unwrap().into_pointer_value());
+            let ret = call.try_as_basic_value().left().unwrap();
+            if ret.is_struct_value() {
+                let sv = ret.into_struct_value();
+                let ptr = self.builder.build_extract_value(sv, 1, "str_ptr")?.into_pointer_value();
+                return Ok(ptr);
+            }
+            return Ok(ret.into_pointer_value());
         }
         if v.is_struct_value() {
              let sv = v.into_struct_value();
-             if let Ok(val) = self.builder.build_extract_value(sv, 0, "str_ptr") {
+             if let Ok(val) = self.builder.build_extract_value(sv, 1, "str_ptr") {
                 if val.is_pointer_value() {
                     return Ok(val.into_pointer_value());
                 }
@@ -4458,7 +4616,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 .as_basic_value_enum()),
             IRValue::String(s) => {
                 let gv = self.builder.build_global_string_ptr(&(s.clone()), "str")?;
-                Ok(gv.as_pointer_value().as_basic_value_enum())
+                let ptr = gv.as_pointer_value();
+                let len = self.i64_t.const_int(s.len() as u64, false);
+                
+                let ty = self.ty_string();
+                let mut val = ty.get_undef();
+                val = self.builder.build_insert_value(val, len, 0, "slen")?.into_struct_value();
+                val = self.builder.build_insert_value(val, ptr, 1, "sptr")?.into_struct_value();
+                
+                Ok(val.as_basic_value_enum())
             }
             IRValue::Void => Ok(self.i64_t.const_zero().as_basic_value_enum()),
             IRValue::Register(r) => {
@@ -4475,9 +4641,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                     return Ok(val);
                 }
                 if let Some(slot) = self.reg_slots.get(r).copied() {
+                    let ty = self.reg_slot_types.get(r).copied().unwrap_or(self.i64_t.into());
                     let loaded =
                         self.builder
-                            .build_load(self.i64_t, slot, &format!("load_r{}", r))?;
+                            .build_load(ty, slot, &format!("load_r{}", r))?;
                     // If this register contains a float, bitcast to f64
                     if self.reg_is_float.contains(r) {
                         let as_f64 = self.builder.build_bit_cast(
@@ -4489,7 +4656,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                     return Ok(loaded.as_basic_value_enum());
                 }
-                Err(anyhow!("Unknown register %r{r}"))
+                let fn_name = self.current_fn.map(|f| f.get_name().to_str().unwrap_or("?").to_string()).unwrap_or("?".to_string());
+                let available = self.reg_slots.keys().map(|k| k.to_string()).collect::<Vec<_>>().join(", ");
+                Err(anyhow!("Unknown register %r{r} in function {fn_name}. Available: {available}"))
             }
             IRValue::Variable(name) => {
                 if let Some(slot) = self.var_slots.get(name).copied() {
@@ -4663,41 +4832,72 @@ impl<'ctx> LlvmBackend<'ctx> {
         match dest {
             IRValue::Register(r) => {
                 self.reg_values.insert(*r, v.clone());
+
+                // Lazy allocation if not exists
+                if !self.reg_slots.contains_key(r) {
+                    let func = self.current_fn.unwrap();
+                    let entry = func.get_first_basic_block().unwrap();
+                    let current_block = self.builder.get_insert_block();
+
+                    if let Some(first_inst) = entry.get_first_instruction() {
+                        self.builder.position_before(&first_inst);
+                    } else {
+                        self.builder.position_at_end(entry);
+                    }
+
+                    let ty = v.get_type();
+                    let slot = self.builder.build_alloca(ty, &format!("reg{}_slot", r)).map_err(|e| anyhow!("{e:?}"))?;
+                    self.reg_slots.insert(*r, slot);
+                    self.reg_slot_types.insert(*r, ty);
+
+                    if let Some(cb) = current_block {
+                        self.builder.position_at_end(cb);
+                    } else {
+                        self.builder.clear_insertion_position();
+                    }
+                }
+
                 // Also persist through the reg slot if available
                 if let Some(slot) = self.reg_slots.get(r).copied() {
                     let reg_val = v.clone();
-                    let ival = if reg_val.is_int_value() {
-                        let iv = reg_val.into_int_value();
-                        if iv.get_type() == self.i64_t {
-                            iv
-                        } else {
+                    let slot_ty = self.reg_slot_types.get(r).copied().unwrap_or(self.i64_t.into());
+
+                    if reg_val.get_type() == slot_ty {
+                         self.builder.build_store(slot, reg_val).ok();
+                    } else if slot_ty == self.i64_t.into() {
+                        let ival = if reg_val.is_int_value() {
+                            let iv = reg_val.into_int_value();
+                            if iv.get_type() == self.i64_t {
+                                iv
+                            } else {
+                                self.builder
+                                    .build_int_s_extend(iv, self.i64_t, "sext")
+                                    .ok()
+                                    .unwrap_or(self.i64_t.const_zero())
+                            }
+                        } else if reg_val.is_pointer_value() {
                             self.builder
-                                .build_int_s_extend(iv, self.i64_t, "sext")
+                                .build_ptr_to_int(reg_val.into_pointer_value(), self.i64_t, "ptr2i")
                                 .ok()
                                 .unwrap_or(self.i64_t.const_zero())
-                        }
-                    } else if reg_val.is_pointer_value() {
+                        } else if reg_val.is_float_value() {
+                            self.builder
+                                .build_float_to_signed_int(
+                                    reg_val.into_float_value(),
+                                    self.i64_t,
+                                    "ftoi",
+                                )
+                                .ok()
+                                .unwrap_or(self.i64_t.const_zero())
+                        } else if v.is_vector_value() {
+                            self.i64_t.const_zero()
+                        } else {
+                            self.i64_t.const_zero()
+                        };
                         self.builder
-                            .build_ptr_to_int(reg_val.into_pointer_value(), self.i64_t, "ptr2i")
-                            .ok()
-                            .unwrap_or(self.i64_t.const_zero())
-                    } else if reg_val.is_float_value() {
-                        self.builder
-                            .build_float_to_signed_int(
-                                reg_val.into_float_value(),
-                                self.i64_t,
-                                "ftoi",
-                            )
-                            .ok()
-                            .unwrap_or(self.i64_t.const_zero())
-                    } else if v.is_vector_value() {
-                        self.i64_t.const_zero()
-                    } else {
-                        self.i64_t.const_zero()
-                    };
-                    self.builder
-                        .build_store(slot, ival)
-                        .map_err(|e| anyhow!("{e:?}"))?;
+                            .build_store(slot, ival)
+                            .map_err(|e| anyhow!("{e:?}"))?;
+                    }
                 }
                 Ok(())
             }
@@ -4764,8 +4964,9 @@ impl<'ctx> LlvmBackend<'ctx> {
             if iv.get_type() == self.i64_t {
                 Ok(iv)
             } else {
+                // Use zero-extension for smaller types (char/byte/bool) to avoid sign issues
                 self.builder
-                    .build_int_s_extend(iv, self.i64_t, "sext")
+                    .build_int_z_extend(iv, self.i64_t, "zext")
                     .map_err(|e| anyhow!("{e:?}"))
             }
         } else if v.is_pointer_value() {
@@ -4815,8 +5016,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
         if v.is_struct_value() {
             let sv = v.into_struct_value();
-            // Assume String struct wrapper, extract first field
-            if let Ok(val) = self.builder.build_extract_value(sv, 0, "str_ptr") {
+            // Assume String struct wrapper, extract second field (ptr)
+            if let Ok(val) = self.builder.build_extract_value(sv, 1, "str_ptr") {
                 if val.is_pointer_value() {
                     return Ok(val.into_pointer_value());
                 }
@@ -5034,8 +5235,40 @@ impl<'ctx> LlvmBackend<'ctx> {
                     Err(anyhow!("Mismatched scalable vector store type"))
                 }
             }
-            (_, target_ty) => Err(anyhow!(
-                "Cannot cast value to requested type {}",
+            (BasicValueEnum::PointerValue(pv), BasicTypeEnum::StructType(st)) => {
+                if st == self.ty_string() {
+                    // Convert i8* to String struct
+                    let len = self.call_strlen(pv)?;
+                    let mut val = st.get_undef();
+                    val = self.builder.build_insert_value(val, len, 0, "slen").unwrap().into_struct_value();
+                    val = self.builder.build_insert_value(val, pv, 1, "sptr").unwrap().into_struct_value();
+                    Ok(val.as_basic_value_enum())
+                } else {
+                    Err(anyhow!("Cannot cast pointer to struct"))
+                }
+            }
+            (BasicValueEnum::StructValue(sv), BasicTypeEnum::PointerType(pt)) => {
+                if sv.get_type() == self.ty_string() && pt == self.i8_ptr_t {
+                     let ptr = self.builder.build_extract_value(sv, 1, "sptr").unwrap();
+                     Ok(ptr)
+                } else {
+                     Err(anyhow!("Cannot cast struct to pointer"))
+                }
+            }
+            (BasicValueEnum::StructValue(sv), BasicTypeEnum::IntType(it)) => {
+                if sv.get_type() == self.ty_string() && it == self.bool_t {
+                    // String to Bool: check if length > 0
+                    let len = self.builder.build_extract_value(sv, 0, "slen").unwrap().into_int_value();
+                    let zero = self.i64_t.const_zero();
+                    let is_not_empty = self.builder.build_int_compare(inkwell::IntPredicate::NE, len, zero, "str_not_empty")?;
+                    Ok(is_not_empty.as_basic_value_enum())
+                } else {
+                    Err(anyhow!("Cannot cast struct to int"))
+                }
+            }
+            (v, target_ty) => Err(anyhow!(
+                "Cannot cast value {:?} to requested type {}",
+                v,
                 target_ty.print_to_string().to_string()
             )),
         }
@@ -5045,10 +5278,14 @@ impl<'ctx> LlvmBackend<'ctx> {
         if is_string_literal_ir(value) {
             return true;
         }
-        if let IRValue::Variable(name) = value {
-            if let Some(BasicTypeEnum::PointerType(pt)) = self.var_slot_types.get(name) {
-                return *pt == self.i8_ptr_t;
-            }
+        let ty_opt = match value {
+            IRValue::Variable(name) => self.var_slot_types.get(name).copied(),
+            IRValue::Register(id) => self.reg_slot_types.get(&(*id as u32)).copied(),
+            _ => None,
+        };
+
+        if let Some(ty) = ty_opt {
+             return ty == self.ty_string().into();
         }
         false
     }
@@ -5199,23 +5436,66 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(call.try_as_basic_value().left().unwrap().into_int_value())
     }
 
+    fn get_string_ptr_len(&mut self, val: inkwell::values::BasicValueEnum<'ctx>) -> Result<(PointerValue<'ctx>, inkwell::values::IntValue<'ctx>)> {
+        if val.is_struct_value() {
+            let sv = val.into_struct_value();
+            let len = self.builder.build_extract_value(sv, 0, "len").unwrap().into_int_value();
+            let ptr = self.builder.build_extract_value(sv, 1, "ptr").unwrap().into_pointer_value();
+            Ok((ptr, len))
+        } else if val.is_pointer_value() {
+            let ptr = val.into_pointer_value();
+            let len = self.call_strlen(ptr)?;
+            Ok((ptr, len))
+        } else {
+             Err(anyhow!("Not a string value: {:?}", val))
+        }
+    }
+
+    fn ensure_string(&mut self, val: BasicValueEnum<'ctx>, ir_val: &IRValue) -> Result<BasicValueEnum<'ctx>> {
+        if self.is_string_value_ir(ir_val) {
+            return Ok(val);
+        }
+        
+        // Check if it's a char or int
+        let is_char = if let IRValue::Register(id) = ir_val {
+             self.reg_slot_types.get(&(*id as usize)).map(|ty| *ty == self.ctx.i8_type().into()).unwrap_or(false)
+        } else {
+            false
+        };
+        
+        if is_char {
+             let iv = self.as_i64(val)?;
+             let func = self.ensure_char_to_string_fn();
+             let call = self.builder.build_call(func, &[iv.into()], "c2s")?;
+             return Ok(call.try_as_basic_value().left().unwrap());
+        }
+        
+        if val.is_int_value() {
+             let iv = self.as_i64(val)?;
+             let func = self.ensure_int_to_string_fn();
+             let call = self.builder.build_call(func, &[iv.into()], "i2s")?;
+             return Ok(call.try_as_basic_value().left().unwrap());
+        }
+        
+        Ok(val)
+    }
+
     fn runtime_concat(
         &mut self,
-        left: PointerValue<'ctx>,
-        right: PointerValue<'ctx>,
-    ) -> Result<PointerValue<'ctx>> {
-        let l_len = self.call_strlen(left)?;
-        let r_len = self.call_strlen(right)?;
+        left: inkwell::values::BasicValueEnum<'ctx>,
+        right: inkwell::values::BasicValueEnum<'ctx>,
+    ) -> Result<inkwell::values::BasicValueEnum<'ctx>> {
+        let (l_ptr, l_len) = self.get_string_ptr_len(left)?;
+        let (r_ptr, r_len) = self.get_string_ptr_len(right)?;
+
         let one = self.i64_t.const_int(1, false);
-        let total = self.builder.build_int_add(
-            self.builder.build_int_add(l_len, r_len, "sum")?,
-            one,
-            "plus1",
-        )?;
+        let total_len = self.builder.build_int_add(l_len, r_len, "sum")?;
+        let alloc_size = self.builder.build_int_add(total_len, one, "plus1")?;
+
         let malloc = self.get_malloc();
         let buf = self
             .builder
-            .build_call(malloc, &[total.into()], "malloc")
+            .build_call(malloc, &[alloc_size.into()], "malloc")
             .map_err(|e| anyhow!("{e:?}"))?;
         let dest = buf
             .try_as_basic_value()
@@ -5226,7 +5506,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         // memcpy(dest, left, l_len)
         let memcpy = self.get_memcpy();
         self.builder
-            .build_call(memcpy, &[dest.into(), left.into(), l_len.into()], "cpy1")
+            .build_call(memcpy, &[dest.into(), l_ptr.into(), l_len.into()], "cpy1")
             .map_err(|e| anyhow!("{e:?}"))?;
         // memcpy(dest + l_len, right, r_len)
         let dest_off = unsafe {
@@ -5236,22 +5516,23 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.builder
             .build_call(
                 memcpy,
-                &[dest_off.into(), right.into(), r_len.into()],
+                &[dest_off.into(), r_ptr.into(), r_len.into()],
                 "cpy2",
             )
             .map_err(|e| anyhow!("{e:?}"))?;
         // null terminate at dest[l_len + r_len]
-        let total_minus_one = self
-            .builder
-            .build_int_sub(total, one, "last_index")
-            .map_err(|e| anyhow!("{e:?}"))?;
         let end_ptr = unsafe {
             self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[total_minus_one], "end")?
+                .build_gep(self.ctx.i8_type(), dest, &[total_len], "end")?
         };
-        let zero = self.ctx.i8_type().const_int(0, false);
-        self.builder.build_store(end_ptr, zero)?;
-        Ok(dest)
+        self.builder
+            .build_store(end_ptr, self.ctx.i8_type().const_int(0, false))?;
+
+        let st = self.ty_string().const_zero();
+        let st = self.builder.build_insert_value(st, total_len, 0, "st_len").unwrap();
+        let st = self.builder.build_insert_value(st, dest, 1, "st_ptr").unwrap();
+
+        Ok(st.as_basic_value_enum())
     }
 
     fn runtime_endswith(
@@ -5431,6 +5712,11 @@ impl<'ctx> LlvmBackend<'ctx> {
         )
     }
 
+    fn ty_string(&self) -> inkwell::types::StructType<'ctx> {
+        self.ctx.struct_type(&[self.i64_t.into(), self.i8_ptr_t.into()], false)
+    }
+
+
     fn ty_cmd_result(&self) -> inkwell::types::StructType<'ctx> {
         self.ctx
             .struct_type(&[self.bool_t.into(), self.i8_ptr_t.into()], false)
@@ -5565,6 +5851,320 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
         let ty = self.ctx.void_type().fn_type(params, varargs);
         self.module.add_function(name, ty, None)
+    }
+
+    pub fn scan_and_allocate_registers(&mut self, func: &IRFunction) -> Result<()> {
+        let mut reg_types: HashMap<usize, BasicTypeEnum<'ctx>> = HashMap::new();
+        
+        // Initialize with parameters
+        for (i, param) in func.parameters.iter().enumerate() {
+            reg_types.insert(i, self.ir_type_to_llvm(&param.param_type));
+        }
+
+        let mut changed = true;
+
+        // Iterative type inference
+        while changed {
+            changed = false;
+            for block in func.cfg.blocks_iter() {
+                for inst in &block.instructions {
+                    if let Some((reg_id, ty)) = self.infer_instruction_result_type(inst, &reg_types) {
+                        if !reg_types.contains_key(&reg_id) {
+                            reg_types.insert(reg_id, ty);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: ensure all defined registers have a slot, defaulting to i64 if inference failed
+        for block in func.cfg.blocks_iter() {
+            for inst in &block.instructions {
+                self.collect_defined_registers(inst, &mut reg_types);
+            }
+        }
+
+        // Allocate slots in entry block
+        let function = self.current_fn.ok_or_else(|| anyhow!("Current function not set"))?;
+        let entry_block = function
+            .get_first_basic_block()
+            .ok_or_else(|| anyhow!("No entry block"))?;
+
+        let builder = &self.builder;
+        let saved_block = builder.get_insert_block();
+
+        if let Some(first_inst) = entry_block.get_first_instruction() {
+            builder.position_before(&first_inst);
+        } else {
+            builder.position_at_end(entry_block);
+        }
+
+        for (reg_id, ty) in reg_types {
+            let ptr = builder.build_alloca(ty, &format!("r{}", reg_id)).map_err(|e| anyhow!("{e:?}"))?;
+            self.reg_slots.insert(reg_id as u32, ptr);
+            self.reg_slot_types.insert(reg_id as u32, ty);
+        }
+
+        if let Some(block) = saved_block {
+            builder.position_at_end(block);
+        }
+
+        Ok(())
+    }
+
+    fn infer_instruction_result_type(
+        &self,
+        inst: &Instruction,
+        reg_types: &HashMap<usize, BasicTypeEnum<'ctx>>,
+    ) -> Option<(usize, BasicTypeEnum<'ctx>)> {
+        match inst {
+            Instruction::Binary {
+                op,
+                left,
+                right,
+                result,
+            } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                match op {
+                    BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::LessThan
+                    | BinaryOp::LessEqual
+                    | BinaryOp::GreaterThan
+                    | BinaryOp::GreaterEqual => Some((reg_id, self.bool_t.into())),
+                    _ => self
+                        .get_value_type(left, reg_types)
+                        .or_else(|| self.get_value_type(right, reg_types))
+                        .map(|ty| (reg_id, ty)),
+                }
+            }
+            Instruction::Unary {
+                op,
+                operand,
+                result,
+            } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                match op {
+                    UnaryOp::Not => Some((reg_id, self.bool_t.into())),
+                    _ => self
+                        .get_value_type(operand, reg_types)
+                        .map(|ty| (reg_id, ty)),
+                }
+            }
+            Instruction::Call {
+                target,
+                result: Some(result),
+                ..
+            } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                if let IRValue::Variable(name) = target {
+                    if let Some(func) = self.module.get_function(name) {
+                        func.get_type().get_return_type().map(|ty| (reg_id, ty))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Instruction::Load { source, dest } => {
+                let reg_id = if let IRValue::Register(id) = dest {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                if let IRValue::Variable(name) = source {
+                    self.var_slot_types.get(name).map(|ty| (reg_id, *ty))
+                } else {
+                    None
+                }
+            }
+            Instruction::Move { source, dest } => {
+                let reg_id = if let IRValue::Register(id) = dest {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                self.get_value_type(source, reg_types)
+                    .map(|ty| (reg_id, ty))
+            }
+            Instruction::Cast {
+                target_type,
+                result,
+                ..
+            } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                Some((reg_id, self.ir_type_to_llvm(target_type)))
+            }
+            Instruction::ArrayAccess { array, result, .. } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                if let Some(arr_ty) = self.get_value_type(array, reg_types) {
+                    if arr_ty == self.ty_string().into() {
+                        return Some((reg_id, self.ctx.i8_type().into()));
+                    }
+                }
+                None
+            }
+            Instruction::FieldAccess {
+                struct_val,
+                field,
+                result,
+            } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                let struct_name = if let IRValue::Variable(name) = struct_val {
+                    self.var_struct_types.get(name)
+                } else {
+                    None
+                };
+
+                if let Some(name) = struct_name {
+                    if let Some((_, fields)) = self.struct_types.get(name) {
+                        if let Some(idx) = fields.iter().position(|f| f == field) {
+                            if let Some(def_fields) = self.struct_definitions.get(name) {
+                                if let Some((_, field_ty)) = def_fields.get(idx) {
+                                    return Some((reg_id, self.ir_type_to_llvm(field_ty)));
+                                }
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            Instruction::StringConcat { result, .. } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                Some((reg_id, self.ty_string().into()))
+            }
+            Instruction::StringLength { result, .. } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                Some((reg_id, self.i64_t.into()))
+            }
+            Instruction::ConstructObject { result, .. } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                Some((reg_id, self.i8_ptr_t.into()))
+            }
+            Instruction::GetEnumTag { result, .. } => {
+                let reg_id = if let IRValue::Register(id) = result {
+                    *id as usize
+                } else {
+                    return None;
+                };
+                Some((reg_id, self.i64_t.into()))
+            }
+            _ => None,
+        }
+    }
+
+    fn get_value_type(
+        &self,
+        val: &IRValue,
+        reg_types: &HashMap<usize, BasicTypeEnum<'ctx>>,
+    ) -> Option<BasicTypeEnum<'ctx>> {
+        match val {
+            IRValue::Integer(_) => Some(self.i64_t.into()),
+            IRValue::Float(_) => Some(self.ctx.f64_type().into()),
+            IRValue::Boolean(_) => Some(self.bool_t.into()),
+            IRValue::Register(id) => reg_types.get(&(*id as usize)).cloned(),
+            IRValue::Variable(name) => self.var_slot_types.get(name).cloned(),
+            IRValue::String(_) | IRValue::StringConstant(_) => Some(self.ty_string().into()),
+            _ => None,
+        }
+    }
+
+    fn collect_defined_registers(
+        &self,
+        inst: &Instruction,
+        reg_types: &mut HashMap<usize, BasicTypeEnum<'ctx>>,
+    ) {
+        let mut add_if_missing = |val: &IRValue| {
+            if let IRValue::Register(id) = val {
+                reg_types
+                    .entry(*id as usize)
+                    .or_insert_with(|| self.i64_t.into());
+            }
+        };
+
+        match inst {
+            Instruction::Binary { result, .. } => add_if_missing(result),
+            Instruction::Unary { result, .. } => add_if_missing(result),
+            Instruction::Call {
+                result: Some(result),
+                ..
+            } => add_if_missing(result),
+            Instruction::Load { dest, .. } => add_if_missing(dest),
+            Instruction::Move { dest, .. } => add_if_missing(dest),
+            Instruction::Allocate { result, .. } => add_if_missing(result),
+            Instruction::ArrayAccess { result, .. } => add_if_missing(result),
+            Instruction::ArrayLength { result, .. } => add_if_missing(result),
+            Instruction::FieldAccess { result, .. } => add_if_missing(result),
+            Instruction::GetEnumTag { result, .. } => add_if_missing(result),
+            Instruction::GetEnumField { result, .. } => add_if_missing(result),
+            Instruction::Cast { result, .. } => add_if_missing(result),
+            Instruction::TypeCheck { result, .. } => add_if_missing(result),
+            Instruction::StringConcat { result, .. } => add_if_missing(result),
+            Instruction::StringLength { result, .. } => add_if_missing(result),
+            Instruction::SimdSplat { result, .. } => add_if_missing(result),
+            Instruction::SimdReduceAdd { result, .. } => add_if_missing(result),
+            Instruction::VirtualCall {
+                result: Some(result),
+                ..
+            } => add_if_missing(result),
+            Instruction::StaticCall {
+                result: Some(result),
+                ..
+            } => add_if_missing(result),
+            Instruction::ConstructObject { result, .. } => add_if_missing(result),
+            Instruction::ConstructEnum { result, .. } => add_if_missing(result),
+            Instruction::ChannelSelect {
+                payload_result,
+                index_result,
+                status_result,
+                ..
+            } => {
+                add_if_missing(payload_result);
+                add_if_missing(index_result);
+                add_if_missing(status_result);
+            }
+            Instruction::Spawn { result, .. } => add_if_missing(result),
+            Instruction::Scoped { result, .. } => add_if_missing(result),
+            _ => {}
+        }
     }
 }
 

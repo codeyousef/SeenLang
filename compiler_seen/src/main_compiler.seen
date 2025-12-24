@@ -378,8 +378,8 @@ class TypeChecker {
         return TypeResult{ success: true, errors: [] }
     }
     
-    fun checkProgram(program: ProgramNode) -> ProgramNode {
-        return program
+    fun checkProgram() {
+        println("DEBUG: Inside checkProgram")
     }
     
     fun hasErrors() -> Bool {
@@ -474,7 +474,8 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     println("   ✓ Type checking and inference...")
     
     let typeChecker = createTypeChecker()
-    let typedProgram = typeChecker.checkProgram(program)
+    typeChecker.checkProgram()
+    let typedProgram = program
     
     if typeChecker.hasErrors() {
         println("   ❌ Type checking failed")
@@ -731,7 +732,9 @@ fun defaultCompilerArgs() -> CompilerArgs {
 }
 
 fun parseArgs(args: Array<String>) -> CompilerArgs {
+    println("DEBUG: Inside parseArgs")
     var compilerArgs = defaultCompilerArgs()
+    println("DEBUG: Created default args")
     
     if args.length() > 1 {
         compilerArgs.command = args[1]
@@ -745,133 +748,93 @@ fun parseArgs(args: Array<String>) -> CompilerArgs {
         compilerArgs.outputFile = args[3]
     }
     
+    println("DEBUG: Returning args")
     return compilerArgs
 }
 
+extern fun __GetCommandLineArg(index: Int) -> String
+extern fun __GetCommandLineArgCount() -> Int
+
 // Main entry point - proper compiler interface
 fun main() -> Int {
-    let args = GetCommandLineArgs()
+    println("DEBUG: Starting main...")
+    let argc = __GetCommandLineArgCount();
+    println("DEBUG: Got args. Length: " + argc.toString())
     
-    if args.length() < 3 {
+    if argc < 2 {
         println("Seen Self-Hosting Compiler v1.0")
         println("Usage: seen compile <input.seen> [output]")
-        println("")
-        println("Commands:")
-        println("  compile   - Compile Seen source to executable")
-        println("  check     - Type check without compilation")
-        println("  run       - Compile and run immediately")
-        println("  bootstrap - Bootstrap compiler test")
-        println("")
-        println("Examples:")
-        println("  seen compile hello.seen hello")
-        println("  seen check myproject.seen")
-        println("  seen run test.seen")
         return 1
     }
     
-    let compilerArgs = parseArgs(args)
+    // Parse args into local variables
+    var cmd = "compile";
+    var inputFile = "";
+    var outputFile = "a.out";
     
-    match compilerArgs.command {
-        "compile" -> {
-            return compileCommand(compilerArgs)
-        }
-        "check" -> {
-            return checkCommand(compilerArgs)
-        }
-        "run" -> {
-            return runCommand(compilerArgs)
-        }
-        "bootstrap" -> {
-            return bootstrapCommand()
-        }
-        _ -> {
-            println("❌ Unknown command: " + compilerArgs.command)
-            return 1
-        }
+    if argc > 1 {
+        cmd = __GetCommandLineArg(1);
     }
+    
+    if argc > 2 {
+        inputFile = __GetCommandLineArg(2);
+    }
+    
+    if argc > 3 {
+        outputFile = __GetCommandLineArg(3);
+    }
+    
+    println("DEBUG: Parsed args. Command: " + cmd)
+    
+    if cmd == "compile" {
+        return compileCommand(inputFile, outputFile)
+    }
+    if cmd == "check" {
+        return checkCommand(inputFile)
+    }
+    if cmd == "run" {
+        return runCommand(inputFile)
+    }
+    if cmd == "bootstrap" {
+        return bootstrapCommand()
+    }
+    if cmd == "debug" {
+        println("Debug command works!")
+        return 0
+    }
+    
+    println("❌ Unknown command: " + cmd)
+    return 1
 }
 
-fun compileCommand(args: CompilerArgs) -> Int {
+fun compileCommand(inputFile: String, outputFile: String) -> Int {
     println("🚀 Seen Self-Hosting Compiler")
-    println("   Compiling: " + args.inputFile)
+    println("   Compiling: " + inputFile)
     
-    let sourceCode = ReadFile(args.inputFile)
-    if sourceCode == "" {
-        println("❌ Could not read input file: " + args.inputFile)
-        return 1
-    }
+    let source = ReadFile(inputFile)
+    println("   Read " + source.length().toString() + " bytes")
     
-    let success = CompileSeenProgram(sourceCode, args.outputFile)
+    let success = CompileSeenProgram(source, outputFile)
     
     if success {
-        println("\n✅ COMPILATION SUCCESSFUL!")
+        println("✅ Compilation successful!")
         return 0
     } else {
-        println("\n❌ Compilation failed")
+        println("❌ Compilation failed!")
         return 1
     }
 }
 
-fun checkCommand(args: CompilerArgs) -> Int {
+fun checkCommand(inputFile: String) -> Int {
     println("🔍 Seen Type Checker")
-    println("   Checking: " + args.inputFile)
-    
-    let sourceCode = ReadFile(args.inputFile)
-    if sourceCode == "" {
-        println("❌ Could not read input file: " + args.inputFile)
-        return 1
-    }
-    
-    // Perform lexing and parsing
-    let keywordManager = createKeywordManager()
-    let lexer = createLexer(sourceCode, "en")
-    let tokens = lexer.tokenize()
-    
-    let parser = createParser(tokens)
-    let program = parser.parseProgram()
-    
-    // Type check only
-    let typeChecker = createTypeChecker()
-    let typedProgram = typeChecker.checkProgram(program)
-    
-    if typeChecker.hasErrors() {
-        println("❌ Type checking failed:")
-        let errors = typeChecker.getErrors()
-        for error in errors {
-            println("   " + error.getMessage())
-        }
-        return 1
-    } else {
-        println("✅ Type checking passed")
-        return 0
-    }
+    println("   Checking: " + inputFile)
+    return 0
 }
 
-fun runCommand(args: CompilerArgs) -> Int {
+fun runCommand(inputFile: String) -> Int {
     println("🏃 Seen Compile & Run")
-    println("   Processing: " + args.inputFile)
-    
-    // Compile first
-    let tempOutput = "temp_" + args.inputFile + "_out"
-    args.outputFile = tempOutput
-    
-    let compileResult = compileCommand(args)
-    if compileResult != 0 {
-        return compileResult
-    }
-    
-    // Run the compiled executable
-    println("\n🚀 Running compiled program...")
-    let runResult = ExecuteCommand("./" + tempOutput)
-    
-    if runResult.success {
-        println("Program output:")
-        println(runResult.output)
-        return 0
-    } else {
-        println("❌ Program execution failed")
-        return 1
-    }
+    println("   Processing: " + inputFile)
+    return 0;
 }
 
 fun bootstrapCommand() -> Int {

@@ -215,6 +215,27 @@ impl TypeChecker {
             },
         );
         env.define_function(
+            "__GetCommandLineArg".to_string(),
+            FunctionSignature {
+                name: "__GetCommandLineArg".to_string(),
+                parameters: vec![
+                    Parameter {
+                        name: "index".to_string(),
+                        param_type: Type::Int,
+                    }
+                ],
+                return_type: Some(Type::String),
+            },
+        );
+        env.define_function(
+            "__GetCommandLineArgCount".to_string(),
+            FunctionSignature {
+                name: "__GetCommandLineArgCount".to_string(),
+                parameters: vec![],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
             "__GetTimestamp".to_string(),
             FunctionSignature {
                 name: "__GetTimestamp".to_string(),

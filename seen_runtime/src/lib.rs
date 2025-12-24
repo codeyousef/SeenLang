@@ -778,37 +778,34 @@ pub extern "C" fn __Println(msg: *const u8) {
 /// Convert Int to String (returns heap-allocated null-terminated string)
 /// Caller must free the returned pointer with __FreeString
 #[unsafe(no_mangle)]
-pub extern "C" fn __IntToString(value: i64) -> *mut u8 {
-    use std::ffi::CString;
+pub extern "C" fn __IntToString(value: i64) -> SeenString {
     let s = value.to_string();
-    match CString::new(s) {
-        Ok(c_str) => c_str.into_raw() as *mut u8,
-        Err(_) => ptr::null_mut(),
-    }
+    string_to_seen_string(s)
 }
 
-/// Convert Float to String (returns heap-allocated null-terminated string)
-/// Caller must free the returned pointer with __FreeString
 #[unsafe(no_mangle)]
-pub extern "C" fn __FloatToString(value: f64) -> *mut u8 {
-    use std::ffi::CString;
+pub extern "C" fn __FloatToString(value: f64) -> SeenString {
     let s = value.to_string();
-    match CString::new(s) {
-        Ok(c_str) => c_str.into_raw() as *mut u8,
-        Err(_) => ptr::null_mut(),
-    }
+    string_to_seen_string(s)
 }
 
-/// Convert Bool to String (returns heap-allocated null-terminated string)
-/// Caller must free the returned pointer with __FreeString
 #[unsafe(no_mangle)]
-pub extern "C" fn __BoolToString(value: i32) -> *mut u8 {
-    use std::ffi::CString;
-    let s = if value != 0 { "true" } else { "false" };
-    match CString::new(s) {
-        Ok(c_str) => c_str.into_raw() as *mut u8,
-        Err(_) => ptr::null_mut(),
-    }
+pub extern "C" fn __BoolToString(value: i32) -> SeenString {
+    let s = if value != 0 { "true" } else { "false" }.to_string();
+    string_to_seen_string(s)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __CharToString(value: i64) -> SeenString {
+    let ch = std::char::from_u32(value as u32).unwrap_or('\u{FFFD}');
+    string_to_seen_string(ch.to_string())
+}
+
+fn string_to_seen_string(s: String) -> SeenString {
+    let len = s.len() as i64;
+    let c_str = std::ffi::CString::new(s).unwrap();
+    let ptr = c_str.into_raw() as *const u8;
+    SeenString { len, data: ptr }
 }
 
 /// Parse String to Int (returns 0 on error)

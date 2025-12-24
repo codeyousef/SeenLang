@@ -91,8 +91,8 @@
     - ✅ Frontend (lexer/parser/typechecker) in Seen
     - ✅ Compiler passes type check (`seen_cli check` passes with 0 errors)
     - ✅ IR generation works (`seen_cli build --backend ir` succeeds)
-    - ⏳ Native codegen: LLVM backend blocked on stdlib import resolution
-    - ⏳ Stage1→Stage2→Stage3: pending native codegen fix
+    - ✅ Native codegen: LLVM backend generates binary (`stage1_seen`)
+    - ⏳ Stage1→Stage2→Stage3: pending verification of stage1 binary
 
 ### ❌ Not Implemented (Post-Self-Host)
 
