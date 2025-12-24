@@ -28,6 +28,10 @@ fun ProgramNode.new() -> ProgramNode {
     }
 }
 
+fun ProgramNode.getItems() -> Array<ItemNode> {
+    return this.items
+}
+
 // Top-level item (function, class, data, etc.)
 data ItemNode {
     itemType: String // "Function", "Class", "Struct", "Enum", "Import"

@@ -591,6 +591,7 @@ impl KeywordManager {
 
         for path_str in possible_paths {
             let path = Path::new(&path_str);
+            println!("Checking path: {:?}", path.canonicalize().unwrap_or(path.to_path_buf()));
             if path.exists() {
                 if path.is_dir() {
                     return self.load_from_directory(path, language);

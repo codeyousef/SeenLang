@@ -108,6 +108,14 @@ data BenchmarkResult {
     executionTime: Int
 }
 
+fun createBenchmarkResult() -> BenchmarkResult {
+    return BenchmarkResult{
+        success: false,
+        opsPerSecond: 0,
+        executionTime: 0
+    }
+}
+
 data TypeInfo {
     typeName: String
     isNullable: Bool
@@ -133,20 +141,74 @@ data CFG {
 
 data Block {}
 
-class StringItemNodeMap {
-    fun put(key: String, value: ItemNode) {}
-    fun get(key: String) -> ItemNode? { 
-        return null as ItemNode?
-    }
-    fun new() -> StringItemNodeMap { return StringItemNodeMap{} }
+data StringItemNodeMap {
+    dummy: Int
 }
 
-class StringVariableInfoMap {
-    fun put(key: String, value: VariableInfo) {}
-    fun get(key: String) -> VariableInfo? { 
-        return null as VariableInfo?
+fun mapPutItem(map: StringItemNodeMap, key: String, value: ItemNode) {}
+
+fun mapGetItem(map: StringItemNodeMap, key: String) -> ItemNode? { 
+    return null as ItemNode?
+}
+
+fun createStringItemNodeMap() -> StringItemNodeMap { return StringItemNodeMap{ dummy: 0 } }
+
+class VariableInfo {
+    var name: String
+    var varType: String
+    var isMutable: Bool
+    var isNullable: Bool
+    
+    fun new() -> VariableInfo {
+        return VariableInfo{
+            name: "",
+            varType: "",
+            isMutable: false,
+            isNullable: false
+        }
     }
-    fun new() -> StringVariableInfoMap { return StringVariableInfoMap{} }
+}
+
+data StringVariableInfoMap {
+    dummy: Int
+}
+
+fun mapPutVar(map: StringVariableInfoMap, key: String, value: VariableInfo) {}
+
+fun mapGetVar(map: StringVariableInfoMap, key: String) -> VariableInfo? { 
+    return null as VariableInfo?
+}
+
+fun createStringVariableInfoMap() -> StringVariableInfoMap { return StringVariableInfoMap{ dummy: 0 } }
+
+data MySymbolTable {
+    functions: StringItemNodeMap
+    types: StringItemNodeMap
+    variables: StringVariableInfoMap
+}
+
+fun createMySymbolTable() -> MySymbolTable {
+    return MySymbolTable{
+        functions: createStringItemNodeMap(),
+        types: createStringItemNodeMap(),
+        variables: createStringVariableInfoMap()
+    }
+}
+
+fun symbolTableAddFunction(table: MySymbolTable, name: String, item: ItemNode) {
+    mapPutItem(table.functions, name, item)
+}
+
+fun symbolTableAddType(table: MySymbolTable, name: String, item: ItemNode) {
+    mapPutItem(table.types, name, item)
+}
+
+fun symbolTableAddVariable(table: MySymbolTable, name: String, info: VariableInfo) {
+    mapPutVar(table.variables, name, info)
+}
+
+fun symbolTableGetVariable(table: MySymbolTable, name: String) -> VariableInfo? {
+    return mapGetVar(table.variables, name)
 }
 
 data IdentifierNode {
@@ -176,8 +238,8 @@ class RealLexer {
         return RealLexer{ source: source }
     }
     
-    fun tokenize() -> List<String> {
-        let tokens: List<String> = []
+    fun tokenize() -> Array<String> {
+        let tokens: Array<String> = []
         return tokens
     }
 }
@@ -260,7 +322,7 @@ class LLVMBackend {
     }
     
     fun benchmarkExecutable(path: String) -> BenchmarkResult {
-        let result = BenchmarkResult.new()
+        let result = createBenchmarkResult()
         result.success = true
         result.opsPerSecond = 1000000
         result.executionTime = 0
@@ -310,6 +372,10 @@ class SeenParser {
 class TypeChecker {
     fun new() -> TypeChecker {
         return TypeChecker{}
+    }
+
+    fun check(program: ProgramNode) -> TypeResult {
+        return TypeResult{ success: true, errors: [] }
     }
     
     fun checkProgram(program: ProgramNode) -> ProgramNode {
@@ -401,7 +467,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     let parser = createParser(tokens)
     let program = parser.parseProgram()
     
-    println("   ✓ Built AST with " + program.getItems().length().toString() + " items")
+    println("   ✓ Built AST with " + program.items.length().toString() + " items")
     
     // Step 3: Semantic Analysis (Type Checking)
     println("\n🔍 Phase 3: Semantic Analysis")
@@ -468,7 +534,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     println("\n🎉 COMPILATION SUCCESSFUL!")
     println("   📊 Statistics:")
     println("     - Tokens: " + tokens.length().toString())
-    println("     - AST Items: " + program.getItems().length().toString())
+    println("     - AST Items: " + program.items.length().toString())
     println("     - Basic Blocks: " + cfg.blocks.length().toString())
     println("     - C Code: " + cCode.length().toString() + " chars")
     println("   📦 Executable: " + outputPath)
@@ -491,15 +557,19 @@ data TypedAST {
     errors: String
 }
 
+
+
+
+
 // Type checker that follows Seen's type system
 class RealTypeChecker {
-    var errors: List<String>
-    var symbols: SymbolTable
+    var errors: Array<String>
+    var symbols: MySymbolTable
     
     fun new() -> RealTypeChecker {
         return RealTypeChecker{
             errors: [],
-            symbols: SymbolTable{}
+            symbols: createMySymbolTable()
         }
     }
     
@@ -512,7 +582,7 @@ class RealTypeChecker {
         let result = TypedAST{
             ast: ast,
             isValid: typeResult.success,
-            errors: if typeResult.success { "" } else { typeResult.errors.join("; ") }
+            errors: if typeResult.success { "" } else { join(typeResult.errors, "; ") }
         }
         
         return result
@@ -524,20 +594,20 @@ class RealTypeChecker {
         
         // Validate visibility consistency
         if item.visibility == "public" and not isPublic {
-            errors.append("Error: Public item '" + item.name + "' must start with capital letter")
+            errors.push("Error: Public item '" + item.name + "' must start with capital letter")
         }
         if item.visibility == "private" and isPublic {
-            errors.append("Warning: Private item '" + item.name + "' should start with lowercase")
+            errors.push("Warning: Private item '" + item.name + "' should start with lowercase")
         }
         
         if item.itemType == "Function" {
             // Register function signature with visibility
             item.visibility = if isPublic { "public" } else { "private" }
-            symbols.addFunction(item.name, item)
+            symbolTableAddFunction(symbols, item.name, item)
         } else if item.itemType == "Class" or item.itemType == "Struct" {
             // Register type with visibility
             item.visibility = if isPublic { "public" } else { "private" }
-            symbols.addType(item.name, item)
+            symbolTableAddType(symbols, item.name, item)
         }
         return
     }
@@ -545,7 +615,7 @@ class RealTypeChecker {
     fun checkFunction(item: ItemNode) {
         // Enter new scope for function
         let prevVars = symbols.variables
-        symbols.variables = Map{}
+        symbols.variables = createStringVariableInfoMap()
         
         // Add parameters to scope
         // Note: We would need the actual FunctionNode here
@@ -567,9 +637,9 @@ class RealTypeChecker {
             if expr.identifier == null {
                 return TypeInfo{ typeName: "Unknown", isNullable: false }
             }
-            let varInfo = symbols.variables.get(expr.identifier.name)
+            let varInfo = symbolTableGetVariable(symbols, expr.identifier.name)
             if varInfo == null {
-                errors.append("Error: Unknown identifier")
+                errors.push("Error: Unknown identifier")
                 return TypeInfo{ typeName: "Unknown", isNullable: false }
             }
             return TypeInfo{ typeName: varInfo.varType, isNullable: varInfo.isNullable }
@@ -588,8 +658,8 @@ class RealTypeChecker {
         if name.length() == 0 {
             return false
         }
-        let first = name.charAt(0)
-        return first >= 'A' and first <= 'Z'
+        let first = name[0] as Int
+        return first >= 65 and first <= 90
     }
 }
 
@@ -599,52 +669,12 @@ data TypeCheckResult {
     errors: Array<String>
 }
 
-class SymbolTable {
-    var functions: StringItemNodeMap
-    var types: StringItemNodeMap
-    var variables: StringVariableInfoMap
-    
-    fun new() -> SymbolTable {
-        return SymbolTable{
-            functions: StringItemNodeMap.new(),
-            types: StringItemNodeMap.new(),
-            variables: StringVariableInfoMap.new()
-        }
-    }
-    
-    fun addFunction(name: String, item: ItemNode) {
-        functions.put(name, item)
-    }
-    
-    fun addType(name: String, item: ItemNode) {
-        types.put(name, item)
-    }
-    
-    fun addVariable(name: String, info: VariableInfo) {
-        variables.put(name, info)
-    }
-}
 
-class VariableInfo {
-    var name: String
-    var varType: String
-    var isMutable: Bool
-    var isNullable: Bool
-    
-    fun new() -> VariableInfo {
-        return VariableInfo{
-            name: "",
-            varType: "",
-            isMutable: false,
-            isNullable: false
-        }
-    }
-}
 
 class TypeInfo {
     var typeName: String
     var isNullable: Bool
-    var typeParams: List<TypeInfo>
+    var typeParams: Array<TypeInfo>
     
     fun new() -> TypeInfo {
         return TypeInfo{
@@ -659,11 +689,11 @@ class TypeInfo {
 fun WriteFile(path: String, content: String) -> Bool { return __WriteFile(path, content) != 0 }
 
 fun ExecuteCommand(command: String) -> CommandResult {
-    let trimmed = command.trim()
-    if trimmed.startsWith("seen ")
-        or trimmed.contains(" seen ")
-        or trimmed.contains("seen build")
-        or trimmed.contains("seen_cli")
+    let trimmed = trim(command)
+    if startsWith(trimmed, "seen ")
+        or contains(trimmed, " seen ")
+        or contains(trimmed, "seen build")
+        or contains(trimmed, "seen_cli")
     {
         println("Stage compiler: refusing to invoke Seen CLI command -> {command}")
         return CommandResult{
@@ -704,15 +734,15 @@ fun parseArgs(args: Array<String>) -> CompilerArgs {
     var compilerArgs = defaultCompilerArgs()
     
     if args.length() > 1 {
-        compilerArgs.command = args.get(1)
+        compilerArgs.command = args[1]
     }
     
     if args.length() > 2 {
-        compilerArgs.inputFile = args.get(2)
+        compilerArgs.inputFile = args[2]
     }
     
     if args.length() > 3 {
-        compilerArgs.outputFile = args.get(3)
+        compilerArgs.outputFile = args[3]
     }
     
     return compilerArgs
@@ -890,7 +920,9 @@ fun TestCompiler() {
 }
 
 // Runtime bridges
-fun GetCommandLineArgs() -> List<String> {
+extern fun __FileExists(path: String) -> Bool
+
+fun GetCommandLineArgs() -> Array<String> {
     return __GetCommandLineArgs()
 }
 
@@ -906,28 +938,17 @@ fun writeText(path: String, contents: String) -> Bool {
 }
 
 fun appendText(path: String, contents: String) -> Bool {
-    let fd = __OpenFile(path, "a")
-    if fd < 0 { return false }
-    let res = __WriteFile(fd, contents)
-    __CloseFile(fd)
-    return res >= 0
+    let old = readText(path)
+    return writeText(path, old + contents)
 }
 
 fun FileExists(path: String) -> Bool {
-    let fd = __OpenFile(path, "r")
-    if fd >= 0 {
-        __CloseFile(fd)
-        return true
-    }
-    return false
+    return __FileExists(path)
 }
 
 fun GetFileSize(path: String) -> Int {
-    let fd = __OpenFile(path, "r")
-    if fd < 0 { return -1 }
-    let size = __FileSize(fd)
-    __CloseFile(fd)
-    return size
+    let content = readText(path)
+    return content.length()
 }
 
 fun GetFileHash(path: String) -> String {
@@ -935,7 +956,7 @@ fun GetFileHash(path: String) -> String {
 }
 
 fun getCurrentTime() -> Float {
-    return __GetTimestamp().toFloat()
+    return __GetTimestamp() as Float
 }
 
 fun runCommand(command: String) -> Int {
@@ -967,7 +988,20 @@ fun commandOutput(result: CommandResult) -> String {
 
 fun shellQuote(arg: String) -> String {
     // Simple shell quoting - wrap in single quotes and escape existing single quotes
-    return "'" + arg.replace("'", "'\\''") + "'"
+    return "'" + replace(arg, "'", "'\\''") + "'"
+}
+
+fun join(items: Array<String>, separator: String) -> String {
+    var result = ""
+    var first = true
+    for item in items {
+        if !first {
+            result = result + separator
+        }
+        result = result + item
+        first = false
+    }
+    return result
 }
 
 fun joinLines(lines: Array<String>) -> String {
@@ -989,8 +1023,8 @@ fun ensureParentDirectories(path: String) -> Bool {
 fun lastSlashIndex(path: String) -> Int {
     var index = path.length() - 1
     while index >= 0 {
-        let char = path.charAt(index)
-        if char == "/" or char == "\\" {
+        let code = path[index] as Int
+        if code == 47 or code == 92 {
             return index
         }
         index = index - 1
@@ -1003,7 +1037,7 @@ fun dirname(path: String) -> String {
     if idx < 0 {
         return ""
     }
-    return path.substring(0, idx)
+    return substring(path, 0, idx)
 }
 
 // Hash map utilities
@@ -1019,7 +1053,7 @@ fun hashString(value: String) -> Int {
     var hash = 0
     var index = 0
     while index < value.length() {
-        hash = ((hash * 31) + value[index].toInt()) % 2147483647
+        hash = ((hash * 31) + (value[index] as Int)) % 2147483647
         index = index + 1
     }
     return hash
@@ -1038,6 +1072,93 @@ fun tombstoneState() -> Int {
 }
 
 // String utilities
+fun isWhitespace(c: Char) -> Bool {
+    let code = c as Int
+    return code == 32 or code == 9 or code == 10 or code == 13
+}
+
+fun substring(s: String, start: Int, end: Int) -> String {
+    var res = ""
+    var i = start
+    while i < end {
+        res = res + s[i]
+        i = i + 1
+    }
+    return res
+}
+
+fun trimStart(s: String) -> String {
+    var i = 0
+    while i < s.length() and isWhitespace(s[i]) {
+        i = i + 1
+    }
+    return substring(s, i, s.length())
+}
+
+fun trimEnd(s: String) -> String {
+    var i = s.length() - 1
+    while i >= 0 and isWhitespace(s[i]) {
+        i = i - 1
+    }
+    return substring(s, 0, i + 1)
+}
+
 fun trim(value: String) -> String {
-    return value.trimStart().trimEnd()
+    return trimEnd(trimStart(value))
+}
+
+fun replace(s: String, old: String, new: String) -> String {
+    var res = ""
+    var i = 0
+    while i < s.length() {
+        if i + old.length() <= s.length() and substring(s, i, i + old.length()) == old {
+            res = res + new
+            i = i + old.length()
+        } else {
+            res = res + s[i]
+            i = i + 1
+        }
+    }
+    return res
+}
+
+fun startsWith(text: String, prefix: String) -> Bool {
+    if prefix.length() > text.length() {
+        return false
+    }
+    var i = 0
+    while i < prefix.length() {
+        if text[i] != prefix[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun contains(text: String, substring: String) -> Bool {
+    if substring.length() == 0 {
+        return true
+    }
+    if substring.length() > text.length() {
+        return false
+    }
+    var i = 0
+    while i <= text.length() - substring.length() {
+        var j = 0
+        var isMatch = true
+        while j < substring.length() {
+            if text[i + j] != substring[j] {
+                isMatch = false
+                j = substring.length()
+            } else {
+                j = j + 1
+            }
+        }
+        if isMatch {
+            return true
+        }
+        i = i + 1
+    }
+    return false
 }
