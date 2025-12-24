@@ -832,6 +832,21 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 
 ---
 
+### Task 7.6: Incremental Compilation & Caching
+**Status:** ⏳ Pending
+**Estimated:** 20-30 hours
+
+**Tasks:**
+- [ ] Design `.seen_lib` binary format for pre-compiled headers/symbols
+- [ ] Implement serialization of Type/AST state for modules
+- [ ] Implement "check-only" mode that loads `.seen_lib` without re-parsing
+- [ ] Add file-hash based invalidation logic
+- [ ] Integrate with `seen build` to skip unchanged modules
+
+**Acceptance:** Recompiling a project with 1 changed file takes <1s.
+
+---
+
 ## Validation Gates
 
 Before MVP closure, all must pass:
