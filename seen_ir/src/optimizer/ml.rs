@@ -1,13 +1,16 @@
 use crate::function::{IRFunction, InlineHint, RegisterPressureClass};
 use serde::Deserialize;
 use serde_json::json;
+use indexmap::IndexMap;
 use std::{
-    collections::HashMap,
     env,
     fs::{self, File},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
+
+// Deterministic map to stabilize learned optimizer decisions
+type HashMap<K, V> = IndexMap<K, V>;
 
 #[derive(Debug, Clone, Deserialize)]
 struct ModelWeights {

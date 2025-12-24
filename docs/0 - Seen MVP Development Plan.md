@@ -415,35 +415,35 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 ---
 
 ### Task 1.3: Stage2 Compilation
-**Status:** ⏳ Blocked on Task 1.2  
+**Status:** ✅ Complete  
 **Estimated:** 2-3 hours
 
 **Tasks:**
-- [ ] Use Stage1 to compile Stage2 from same sources
-- [ ] Compare Stage1 and Stage2 binaries
-- [ ] Debug any differences
-- [ ] Record Stage2 hash
+- [x] Use Stage1 to compile Stage2 from same sources (`stage2.out`)
+- [x] Compare Stage1 and Stage2 binaries (hashes differ)
+- [x] Debug any differences (ELF build-id differs between outputs; determinism still pending)
+- [x] Record Stage2 hash (sha256: `da03a271f80831b2971d414cf37c074862a6403542bdfb7e9de87def38c83454`; Stage1 sha256: `fa64e3a517e09c07eb0b719c0a317848718a41d7b81c17b843252ad030e58f27`)
 
 **Acceptance:** Stage2 binary generated successfully.
 
 ---
 
 ### Task 1.4: Stage3 and Determinism Verification
-**Status:** ⏳ Blocked on Task 1.3  
+**Status:** ✅ Complete  
 **Estimated:** 1-2 hours
 
 **Tasks:**
-- [ ] Use Stage2 to compile Stage3
-- [ ] Verify Stage2 == Stage3 (hash equality)
-- [ ] Record hashes in documentation
-- [ ] Update `validate_d2_determinism.sh`
+- [x] Use Stage2 to compile Stage3 (`stage3.out`)
+- [x] Verify Stage2 == Stage3 (hash equality) — hashes identical (sha256: `dfd61c3dcb90fcfcaf6e0f2aa7e53c810c3bce8e06276de888707dce35e2fd0b` for stage1/stage2/stage3)
+- [x] Record hashes in documentation (stage1/stage2/stage3 sha256: `dfd61c3dcb90fcfcaf6e0f2aa7e53c810c3bce8e06276de888707dce35e2fd0b`; build-id not emitted under deterministic profile)
+- [x] Update `validate_d2_determinism.sh`
 
 **Acceptance:** Stage2 and Stage3 are byte-identical.
 
 ---
 
 ### Task 1.5: Rust Removal Validation
-**Status:** ⏳ Blocked on Task 1.4  
+**Status:** ⏳ Not started  
 **Estimated:** 2-3 hours
 
 **Tasks:**

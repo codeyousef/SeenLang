@@ -1,6 +1,8 @@
 use crate::{instruction::BinaryOp, value::IRValue};
 use egg::{define_language, rewrite as rw, CostFunction, Id, RecExpr, Rewrite, Runner, Symbol};
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic map to stabilize e-graph processing
+type HashMap<K, V> = IndexMap<K, V>;
 
 define_language! {
     enum SeenLang {

@@ -4,7 +4,9 @@ use crate::arena::{Arena, ArenaIndex};
 use crate::value::{IRType, IRValue};
 use seen_parser::Expression as AstExpression;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic maps for stable block lookups
+type HashMap<K, V> = IndexMap<K, V>;
 use std::fmt;
 
 /// A label for jumps and basic block identification

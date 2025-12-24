@@ -24,7 +24,8 @@ fun run(command: String, label: String) r: Bool {
 
 fun compileCommand(inputFile: String, outputFile: String) r: Int {
     println("🚀 Stage1 compiling (production path)")
-    let cmd = "./target/release/seen_cli build " + inputFile + " --backend llvm -o " + outputFile
+    // Enforce deterministic profile + epoch for repeatable Stage2/3 builds.
+    let cmd = "SOURCE_DATE_EPOCH=0 ./target/release/seen_cli build " + inputFile + " --backend llvm --profile deterministic --simd off -o " + outputFile
     if run(cmd, "build") {
         println("✅ Build succeeded -> " + outputFile)
         return 0
@@ -33,7 +34,7 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
 }
 
 fun checkCommand(inputFile: String) r: Int {
-    let cmd = "./target/release/seen_cli check " + inputFile
+    let cmd = "SOURCE_DATE_EPOCH=0 ./target/release/seen_cli check " + inputFile + " --profile deterministic"
     if run(cmd, "check") {
         println("✅ Check passed")
         return 0

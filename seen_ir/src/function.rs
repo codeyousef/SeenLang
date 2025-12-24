@@ -5,7 +5,9 @@ use crate::instruction::{BasicBlock, ControlFlowGraph};
 use crate::value::{IRType, IRValue};
 use crate::SimdPolicy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic maps for stable function lookups
+type HashMap<K, V> = IndexMap<K, V>;
 use std::fmt;
 
 /// Function parameter representation

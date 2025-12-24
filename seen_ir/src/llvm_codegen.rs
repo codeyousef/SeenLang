@@ -7,7 +7,9 @@ use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::Either;
 use inkwell::OptimizationLevel;
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic map for stable variable tracking in codegen
+type HashMap<K, V> = IndexMap<K, V>;
 use std::task::Context;
 use std::thread::Builder;
 use crate::error::{CodeGenError, Result};

@@ -7,7 +7,9 @@
 use crate::arena::{Arena, ArenaIndex};
 use seen_support::{SeenError, SeenErrorKind};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic maps to stabilize IR serialization/deserialization
+type HashMap<K, V> = IndexMap<K, V>;
 use std::fmt;
 
 // IR system modules

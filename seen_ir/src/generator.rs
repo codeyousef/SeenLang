@@ -12,7 +12,9 @@ use seen_parser::{
     AssignmentOperator, Attribute, AttributeArgument, AttributeValue, BinaryOperator, Expression,
     ForBinding, Pattern, Program, UnaryOperator,
 };
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic maps to keep codegen stable
+type HashMap<K, V> = IndexMap<K, V>;
 use std::fs;
 
 const SELECT_STATUS_RECEIVED: i64 = 0;
@@ -1423,7 +1425,7 @@ impl IRGenerator {
         fields: &[(String, Expression)],
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let mut instructions = Vec::new();
-        let mut field_values = std::collections::HashMap::new();
+        let mut field_values = HashMap::new();
 
         // Generate IR for all field values
         for (field_name, field_expr) in fields {

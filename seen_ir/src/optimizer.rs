@@ -14,7 +14,10 @@ use ml::{
     DecisionLogger, DecisionReplay, FunctionFeatures, MlDecision, MlHeuristicModel,
     OptimizationProfileWriter, RegisterPressurePlan,
 };
-use std::collections::{HashMap, HashSet};
+use indexmap::{IndexMap, IndexSet};
+// Deterministic maps/sets to stabilize optimizer passes
+type HashMap<K, V> = IndexMap<K, V>;
+type HashSet<T> = IndexSet<T>;
 
 #[cfg(test)]
 use crate::value::IRType;

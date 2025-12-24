@@ -4,7 +4,10 @@
 //! Scope: Implements a minimal but solid subset required to compile the
 //! self‑hosting entry (`compiler_seen/src/main.seen`) and similar programs.
 
-use std::collections::{HashMap, HashSet};
+use indexmap::{IndexMap, IndexSet};
+// Deterministic insertion-ordered maps/sets so repeated builds are reproducible.
+type HashMap<K, V> = IndexMap<K, V>;
+type HashSet<T> = IndexSet<T>;
 use std::convert::TryFrom;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -734,6 +737,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             invocation.program, invocation.flavor
         );
         let mut cmd = std::process::Command::new(&invocation.program);
+        Self::apply_deterministic_env(&mut cmd);
         cmd.args(&invocation.args);
         cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
         cmd.arg(obj_path);
@@ -762,6 +766,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             invocation.program, invocation.flavor
         );
         let mut cmd = std::process::Command::new(&invocation.program);
+        Self::apply_deterministic_env(&mut cmd);
         cmd.args(&invocation.args);
         cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
         cmd.arg(obj_path);
@@ -778,6 +783,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         let tool = Self::select_archiver(triple)?;
         eprintln!("LLVM backend: invoking archiver {}", tool.display());
         let mut cmd = std::process::Command::new(&tool);
+        Self::apply_deterministic_env(&mut cmd);
         if triple.contains("windows")
             && tool
                 .file_name()
@@ -806,6 +812,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         let program = Self::lookup_wasm_linker()?;
         eprintln!("LLVM backend: invoking wasm linker {:?}", program);
         let mut cmd = std::process::Command::new(&program);
+        Self::apply_deterministic_env(&mut cmd);
         cmd.arg(obj_path);
         cmd.arg("-o");
         cmd.arg(out_path);
@@ -934,9 +941,14 @@ impl<'ctx> LlvmBackend<'ctx> {
         match kind {
             LinkOutput::Executable => {
                 if triple.contains("android") {
-                    vec!["-lm".to_string()]
+                    vec!["-Wl,--build-id=none".to_string(), "-lm".to_string()]
                 } else if triple.contains("linux") {
-                    vec!["-no-pie".to_string(), "-lm".to_string()]
+                    // Force deterministic ELF: no build-id tag and no PIE randomization.
+                    vec![
+                        "-Wl,--build-id=none".to_string(),
+                        "-no-pie".to_string(),
+                        "-lm".to_string(),
+                    ]
                 } else if triple.contains("apple") {
                     vec!["-lm".to_string()]
                 } else {
@@ -945,7 +957,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             LinkOutput::SharedLibrary => {
                 if triple.contains("android") || triple.contains("linux") {
-                    vec!["-lm".to_string()]
+                    vec!["-Wl,--build-id=none".to_string(), "-lm".to_string()]
                 } else {
                     vec![]
                 }
@@ -966,6 +978,13 @@ impl<'ctx> LlvmBackend<'ctx> {
             ));
         }
         Ok(())
+    }
+
+    fn apply_deterministic_env(cmd: &mut std::process::Command) {
+        // Respect caller override but default to a zero epoch to strip timestamps/build IDs.
+        if std::env::var_os("SOURCE_DATE_EPOCH").is_none() {
+            cmd.env("SOURCE_DATE_EPOCH", "0");
+        }
     }
 
     fn lookup_wasm_linker() -> Result<PathBuf> {

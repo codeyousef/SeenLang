@@ -4,7 +4,9 @@ use crate::arena::{Arena, ArenaIndex};
 use crate::function::{CallGraph, IRFunction};
 use crate::value::{IRType, IRValue};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic maps for reproducible module ordering
+type HashMap<K, V> = IndexMap<K, V>;
 use std::fmt;
 
 /// Module visibility levels

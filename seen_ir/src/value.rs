@@ -1,7 +1,9 @@
 //! IR value and type system for the Seen programming language
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use indexmap::IndexMap;
+// Deterministic maps for reproducible builds
+type HashMap<K, V> = IndexMap<K, V>;
 use std::fmt;
 
 /// Types in the IR system
