@@ -1,0 +1,7 @@
+data Foo {
+    x: Int
+}
+
+fun main() {
+    let f = Foo { x: 1 };
+}
