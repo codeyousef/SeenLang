@@ -1,6 +1,6 @@
 // Minimal CLI sample for Linux builds
 
-fun main() -> Int {
+fun main() r: Int {
     let a = 2
     let b = 3
     return a + b

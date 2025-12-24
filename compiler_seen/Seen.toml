@@ -7,21 +7,12 @@ description = "Self-hosted Seen compiler - written in Seen"
 authors = ["Seen Language Team"]
 edition = "2025"
 modules = [
-    "src/compiler_utils.seen",
+    # Minimal set needed for the bootstrap compiler to run the frontend and emit a stub binary
     "src/bootstrap",
     "src/lexer",
-    "src/parser/ast.seen",
-    "src/parser/real_parser.seen",
-    "src/parser/mod.seen",
-    "src/typechecker/interfaces.seen",
-    "src/ir",
-    "src/codegen",
-    "src/optimization",
-    "src/runtime",
-    "src/tools",
-    "src/testing",
+    "src/parser",
+    "src/typechecker",
     "src/main.seen",
-
 ]
 
 [build]

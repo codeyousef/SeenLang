@@ -309,15 +309,22 @@ class TypeChecker {
     var warnings: Array<String>
     let smartCastContext: SmartCastContext
     var strictMode: Bool
-    
+
     fun new() r: TypeChecker {
-        // Factory method that returns the real implementation
-        return TypeChecker{}
+        // Deterministic, side-effect-free default implementation
+        return TypeChecker{
+            environment: Environment.new(),
+            errors: Array<TypeError>(),
+            warnings: Array<String>(),
+            smartCastContext: SmartCastContext.new(),
+            strictMode: true,
+        }
     }
     
     fun check(ast: AST) r: TypeInferenceResult {
         // Default implementation - override in concrete implementations
-        return TypeInferenceResult.new(true, Type.Void, Environment.new())
+        // Return successful inference with the current environment snapshot.
+        return TypeInferenceResult.new(true, Type.Void, environment)
     }
     
     fun checkFunction(function: Function) r: Type {
