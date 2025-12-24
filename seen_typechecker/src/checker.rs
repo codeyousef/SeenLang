@@ -349,6 +349,17 @@ impl TypeChecker {
             },
         );
         env.define_function(
+            "__WriteFileToPath".to_string(),
+            FunctionSignature {
+                name: "__WriteFileToPath".to_string(),
+                parameters: vec![
+                    Parameter { name: "path".to_string(), param_type: Type::String },
+                    Parameter { name: "content".to_string(), param_type: Type::String },
+                ],
+                return_type: Some(Type::Int),
+            },
+        );
+        env.define_function(
             "__ReadFileBytes".to_string(),
             FunctionSignature {
                 name: "__ReadFileBytes".to_string(),

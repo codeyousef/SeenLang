@@ -59,6 +59,78 @@ fn get_file_map() -> &'static Mutex<HashMap<i64, fs::File>> {
     }
 }
 
+#[repr(C)]
+pub struct SeenArray {
+    pub len: i64,
+    pub cap: i64,
+    pub data: *mut u8,
+}
+
+#[repr(C)]
+pub struct CommandResult {
+    pub success: bool,
+    pub output: SeenString,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __ExecuteCommand(result: *mut CommandResult, command: &SeenString) {
+    println!("DEBUG: __ExecuteCommand entered");
+    let cmd_str = command.to_str();
+    println!("DEBUG: __ExecuteCommand cmd='{}'", cmd_str);
+    
+    // Dummy result
+    unsafe {
+        *result = CommandResult {
+            success: true,
+            output: SeenString { len: 0, data: std::ptr::null() },
+        };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __GetCommandLineArgsHelper(argc: i32, argv: *const *const u8) -> *mut SeenArray {
+    let mut args = Vec::with_capacity(argc as usize);
+    for i in 0..argc {
+        let c_str = unsafe { std::ffi::CStr::from_ptr(*argv.add(i as usize) as *const i8) };
+        let s = c_str.to_string_lossy().into_owned();
+        let len = s.len() as i64;
+        let c_string = std::ffi::CString::new(s).unwrap();
+        let ptr = c_string.into_raw() as *const u8;
+        args.push(SeenString { len, data: ptr });
+    }
+    
+    // Leak the vector content to keep strings alive
+    let args_ptr = args.as_mut_ptr();
+    std::mem::forget(args); // Don't drop the vector, but we need to construct a new array for Seen
+    
+    // Construct SeenArray on heap
+    let array = Box::new(SeenArray {
+        len: argc as i64,
+        cap: argc as i64,
+        data: args_ptr as *mut u8,
+    });
+    Box::into_raw(array)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __ReadFileFromPath(path: SeenString) -> SeenString {
+    let path_str = path.to_str();
+    println!("DEBUG: __ReadFileFromPath path='{}' len={}", path_str, path.len);
+    match fs::read_to_string(path_str) {
+        Ok(content) => {
+            let len = content.len() as i64;
+            println!("DEBUG: __ReadFileFromPath success, len={}", len);
+            let c_str = std::ffi::CString::new(content).unwrap();
+            let ptr = c_str.into_raw() as *const u8;
+            SeenString { len, data: ptr }
+        }
+        Err(e) => {
+            println!("DEBUG: __ReadFileFromPath error: {}", e);
+            SeenString { len: 0, data: ptr::null() }
+        },
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
     let path_str = path.to_str();
@@ -101,6 +173,39 @@ pub extern "C" fn __WriteFile(fd: i64, content: SeenString) -> i64 {
         }
     } else {
         -1
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __WriteFileToPath(path: SeenString, content: SeenString) -> i64 {
+    println!("DEBUG: __WriteFileToPath called");
+    println!("DEBUG: path len={}, data={:?}", path.len, path.data);
+    println!("DEBUG: content len={}, data={:?}", content.len, content.data);
+    
+    if path.data.is_null() {
+        println!("DEBUG: path.data is null");
+        return 0;
+    }
+    
+    let path_str = path.to_str();
+    println!("DEBUG: path_str='{}'", path_str);
+    
+    if content.data.is_null() && content.len > 0 {
+        println!("DEBUG: content.data is null but len > 0");
+        return 0;
+    }
+    
+    let bytes = unsafe { slice::from_raw_parts(content.data, content.len as usize) };
+    println!("DEBUG: bytes slice created, len={}", bytes.len());
+    match fs::write(path_str, bytes) {
+        Ok(_) => {
+            println!("DEBUG: fs::write success");
+            1
+        },
+        Err(e) => {
+            println!("DEBUG: fs::write error: {}", e);
+            0
+        },
     }
 }
 
@@ -542,15 +647,6 @@ pub extern "C" fn __await(_handle: *mut SeenTaskHandle) -> i32 {
 // Array Runtime (for generic array allocation and management)
 // ============================================================================
 
-/// Array struct layout (matches Story 1.1/1.2 implementation):
-/// struct Array<T> { i64 len; i64 capacity; T* data; }
-#[repr(C)]
-pub struct SeenArray {
-    pub len: i64,
-    pub capacity: i64,
-    pub data: *mut u8,
-}
-
 /// Allocate a new array with specified element size and capacity
 /// Returns pointer to Array<T> struct on heap
 #[unsafe(no_mangle)]
@@ -575,7 +671,7 @@ pub extern "C" fn __ArrayNew(element_size: i64, capacity: i64) -> *mut SeenArray
 
     Box::into_raw(Box::new(SeenArray {
         len: 0,
-        capacity,
+        cap: capacity,
         data: data_ptr,
     }))
 }
@@ -601,8 +697,8 @@ pub extern "C" fn __ArrayFree(arr_ptr: *mut SeenArray, element_size: i64) {
 
     unsafe {
         let arr = Box::from_raw(arr_ptr);
-        if !arr.data.is_null() && arr.capacity > 0 && element_size > 0 {
-            let byte_capacity = (element_size * arr.capacity) as usize;
+        if !arr.data.is_null() && arr.cap > 0 && element_size > 0 {
+            let byte_capacity = (element_size * arr.cap) as usize;
             let layout = std::alloc::Layout::from_size_align_unchecked(byte_capacity, 8);
             std::alloc::dealloc(arr.data, layout);
         }
@@ -621,8 +717,8 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
         let arr = &mut *arr_ptr;
         
         // Grow if needed
-        if arr.len >= arr.capacity {
-            let new_capacity = if arr.capacity == 0 { 8 } else { arr.capacity * 2 };
+        if arr.len >= arr.cap {
+            let new_capacity = if arr.cap == 0 { 8 } else { arr.cap * 2 };
             let new_byte_capacity = (element_size * new_capacity) as usize;
             let new_layout = std::alloc::Layout::from_size_align_unchecked(new_byte_capacity, 8);
             let new_data = std::alloc::alloc_zeroed(new_layout);
@@ -637,15 +733,15 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
                 std::ptr::copy_nonoverlapping(arr.data, new_data, old_byte_size);
                 
                 // Free old data
-                if arr.capacity > 0 {
-                    let old_byte_capacity = (element_size * arr.capacity) as usize;
+                if arr.cap > 0 {
+                    let old_byte_capacity = (element_size * arr.cap) as usize;
                     let old_layout = std::alloc::Layout::from_size_align_unchecked(old_byte_capacity, 8);
                     std::alloc::dealloc(arr.data, old_layout);
                 }
             }
 
             arr.data = new_data;
-            arr.capacity = new_capacity;
+            arr.cap = new_capacity;
         }
 
         // Copy element to end

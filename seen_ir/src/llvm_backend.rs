@@ -15,6 +15,7 @@ use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
 use inkwell::module::{Linkage, Module as LlvmModule};
+use inkwell::AddressSpace;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple,
 };
@@ -512,15 +513,29 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.module.add_function("__ReadFile", ty, None);
         }
 
+        // __ReadFileFromPath: (SeenString) -> SeenString
+        if self.module.get_function("__ReadFileFromPath").is_none() {
+            let ty = self.ty_string().fn_type(&[self.ty_string().into()], false);
+            self.module.add_function("__ReadFileFromPath", ty, None);
+        }
+
         // __WriteFile: (i64, SeenString) -> i64
         if self.module.get_function("__WriteFile").is_none() {
             let ty = self.i64_t.fn_type(&[self.i64_t.into(), self.ty_string().into()], false);
             self.module.add_function("__WriteFile", ty, None);
         }
+
+        // __WriteFileToPath: (SeenString, SeenString) -> i64
+        if self.module.get_function("__WriteFileToPath").is_none() {
+            let ty = self.i64_t.fn_type(&[self.ty_string().into(), self.ty_string().into()], false);
+            self.module.add_function("__WriteFileToPath", ty, None);
+        }
         
-        // __ExecuteCommand: (SeenString) -> SeenString
+        // __ExecuteCommand: (CommandResult*, SeenString*) -> void
         if self.module.get_function("__ExecuteCommand").is_none() {
-             let ty = self.ty_string().fn_type(&[self.ty_string().into()], false);
+             let result_ptr_ty = self.ty_cmd_result().ptr_type(AddressSpace::default());
+             let str_ptr_ty = self.ty_string().ptr_type(AddressSpace::default());
+             let ty = self.ctx.void_type().fn_type(&[result_ptr_ty.into(), str_ptr_ty.into()], false);
              self.module.add_function("__ExecuteCommand", ty, None);
         }
 
@@ -528,6 +543,14 @@ impl<'ctx> LlvmBackend<'ctx> {
         if self.module.get_function("__GetCommandLineArgs").is_none() {
             let ty = self.i8_ptr_t.fn_type(&[], false);
             self.module.add_function("__GetCommandLineArgs", ty, None);
+        }
+
+        // __GetCommandLineArgsHelper: (i32, *const *const i8) -> *mut SeenArray
+        if self.module.get_function("__GetCommandLineArgsHelper").is_none() {
+            let ptr_ptr_i8 = self.i8_ptr_t.ptr_type(AddressSpace::default());
+            let ret_ty = self.ty_array(self.ty_string().into()).ptr_type(AddressSpace::default());
+            let ty = ret_ty.fn_type(&[self.ctx.i32_type().into(), ptr_ptr_i8.into()], false);
+            self.module.add_function("__GetCommandLineArgsHelper", ty, None);
         }
 
         // __CreateDirectory: (SeenString) -> i64
@@ -1289,9 +1312,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 }
             }
-            IRType::Struct { .. } => {
-                // Use i8* as a placeholder pointer to struct
-                self.i8_ptr_t.into()
+            IRType::Struct { name, .. } => {
+                if let Some((st, _)) = self.struct_types.get(name) {
+                    st.into()
+                } else {
+                    // Use i8* as a placeholder pointer to struct if not found
+                    self.i8_ptr_t.into()
+                }
             }
             IRType::Enum { .. } => self.i64_t.into(),
             IRType::Pointer(inner) | IRType::Reference(inner) => self
@@ -2199,6 +2226,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                     self.i64_t
                         .const_int(values.len() as u64, false)
                         .as_basic_value_enum()
+                } else if arr_v.is_struct_value() {
+                    let sv = arr_v.into_struct_value();
+                    let len = self.builder.build_extract_value(sv, 0, "alen").unwrap();
+                    len.as_basic_value_enum()
                 } else if arr_v.is_pointer_value() || arr_v.is_int_value() {
                     let arr_ptr = if arr_v.is_pointer_value() {
                         arr_v.into_pointer_value()
@@ -3018,8 +3049,43 @@ impl<'ctx> LlvmBackend<'ctx> {
                         "println" => {
                             if let Some(arg0) = args.get(0) {
                                 let a0 = self.eval_value(arg0, fn_map)?;
-                                let s = self.as_cstr_ptr(a0)?;
-                                self.call_printf(&[s.into()])?;
+                                
+                                if a0.is_struct_value() {
+                                    // Safe print for SeenString { len, ptr }
+                                    let sv = a0.into_struct_value();
+                                    // Extract len (index 0)
+                                    let len_i64 = self.builder.build_extract_value(sv, 0, "len")?.into_int_value();
+                                    // Extract ptr (index 1)
+                                    let ptr = self.builder.build_extract_value(sv, 1, "ptr")?.into_pointer_value();
+                                    
+                                    // Cast len to i32 for printf precision
+                                    let len_i32 = self.builder.build_int_cast(len_i64, self.ctx.i32_type(), "len_i32")?;
+                                    
+                                    // Create format string "%.*s\n"
+                                    let fmt_str = self.builder.build_global_string_ptr("%.*s\n", "fmt_println_safe")?;
+                                    let fmt_ptr = self.builder.build_pointer_cast(
+                                        fmt_str.as_pointer_value(),
+                                        self.i8_ptr_t,
+                                        "fmt_ptr"
+                                    )?;
+                                    
+                                    self.call_printf(&[
+                                        fmt_ptr.into(),
+                                        len_i32.into(),
+                                        ptr.into()
+                                    ])?;
+                                } else {
+                                    // Fallback for C-strings (pointers)
+                                    let s = self.as_cstr_ptr(a0)?;
+                                    let fmt_str = self.builder.build_global_string_ptr("%s\n", "fmt_println_cstr")?;
+                                    let fmt_ptr = self.builder.build_pointer_cast(
+                                        fmt_str.as_pointer_value(),
+                                        self.i8_ptr_t,
+                                        "fmt_ptr"
+                                    )?;
+                                    self.call_printf(&[fmt_ptr.into(), s.into()])?;
+                                }
+
                                 if let Some(r) = result {
                                     self.assign_value(
                                         r,
@@ -3115,7 +3181,6 @@ impl<'ctx> LlvmBackend<'ctx> {
                             return Ok(());
                         }
                         "__GetCommandLineArgs" => {
-                            // Build StrArray* from @__argc/@__argv
                             let (_g_argc, _g_argv) = self.ensure_arg_globals();
                             let argc = self.builder.build_load(
                                 self.ctx.i32_type(),
@@ -3127,54 +3192,19 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 self.g_argv.unwrap().as_pointer_value(),
                                 "argv",
                             )?;
-                            let ty = self.ty_str_array();
-                            let sizeof = ty
-                                .size_of()
-                                .ok_or_else(|| anyhow!("Failed to compute StrArray size"))?;
-                            let size64 = if sizeof.get_type() == self.i64_t {
-                                sizeof
-                            } else {
-                                self.builder
-                                    .build_int_z_extend(sizeof, self.i64_t, "strarray_size")
-                                    .map_err(|e| anyhow!("{e:?}"))?
-                            };
-                            let malloc = self.get_malloc();
-                            let arr_call = self.builder.build_call(
-                                malloc,
-                                &[size64.into()],
-                                "malloc_strarray",
-                            )?;
-                            let raw_ptr = arr_call
-                                .try_as_basic_value()
-                                .left()
-                                .ok_or_else(|| anyhow!("malloc returned void"))?
-                                .into_pointer_value();
-                            let arr_ptr = self
-                                .builder
-                                .build_pointer_cast(
-                                    raw_ptr,
-                                    ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                    "strarray_cast",
-                                )
-                                .map_err(|e| anyhow!("{e:?}"))?;
-                            // store len and data
-                            let len64 = self.builder.build_int_z_extend(
-                                argc.into_int_value(),
-                                self.i64_t,
-                                "argc64",
-                            )?;
-                            let len_ptr = self.builder.build_struct_gep(ty, arr_ptr, 0, "lenp")?;
-                            self.builder.build_store(len_ptr, len64)?;
-                            let data_ptr =
-                                self.builder.build_struct_gep(ty, arr_ptr, 1, "datap")?;
-                            self.builder.build_store(data_ptr, argv)?;
+                            
+                            let helper = self.declare_c_fn(
+                                "__GetCommandLineArgsHelper",
+                                self.i8_ptr_t.into(),
+                                &[self.ctx.i32_type().into(), self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)).into()],
+                                false
+                            );
+                            
+                            let call = self.builder.build_call(helper, &[argc.into(), argv.into()], "get_args")?;
+                            let ptr = call.try_as_basic_value().left().unwrap().into_pointer_value();
+                            
                             if let Some(r) = result {
-                                let arr_int = self
-                                    .builder
-                                    .build_ptr_to_int(arr_ptr, self.i64_t, "strarray_int")
-                                    .map_err(|e| anyhow!("{e:?}"))?
-                                    .as_basic_value_enum();
-                                self.assign_value(r, arr_int)?;
+                                self.assign_value(r, ptr.as_basic_value_enum())?;
                             }
                             return Ok(());
                         }
@@ -3663,52 +3693,6 @@ impl<'ctx> LlvmBackend<'ctx> {
                             }
                             return Ok(());
                         }
-                        "__ExecuteCommand" => {
-                            // Use system() to execute, cannot capture output: set success = rc==0, output = ""
-                            let system = self.declare_c_fn(
-                                "system",
-                                self.ctx.i32_type().into(),
-                                &[self.i8_ptr_t.into()],
-                                false,
-                            );
-                            let cmd_v = self.eval_value(&args[0], fn_map)?;
-                            let cmd = self.as_cstr_ptr(cmd_v)?;
-                            let rc = self.builder.build_call(system, &[cmd.into()], "system")?;
-                            let rcv = rc.try_as_basic_value().left().unwrap().into_int_value();
-                            let ok = self.builder.build_int_compare(
-                                inkwell::IntPredicate::EQ,
-                                rcv,
-                                self.ctx.i32_type().const_zero(),
-                                "ok",
-                            )?;
-                            let ty = self.ty_cmd_result();
-                            let malloc = self.get_malloc();
-                            let bytes = self.i64_t.const_int(16, false);
-                            let buf = self.builder.build_call(
-                                malloc,
-                                &[bytes.into()],
-                                "malloc_cmdres",
-                            )?;
-                            let p = buf
-                                .try_as_basic_value()
-                                .left()
-                                .unwrap()
-                                .into_pointer_value();
-                            let cast = self.builder.build_pointer_cast(
-                                p,
-                                ty.ptr_type(inkwell::AddressSpace::from(0u16)),
-                                "cmdres",
-                            )?;
-                            let sp = self.builder.build_struct_gep(ty, cast, 0, "succp")?;
-                            self.builder.build_store(sp, ok)?;
-                            let op = self.builder.build_struct_gep(ty, cast, 1, "outp")?;
-                            let empty = self.builder.build_global_string_ptr("", "empty_out")?;
-                            self.builder.build_store(op, empty.as_pointer_value())?;
-                            if let Some(r) = result {
-                                self.assign_value(r, cast.as_basic_value_enum())?;
-                            }
-                            return Ok(());
-                        }
                         "__FormatSeenCode" => {
                             // Identity: return input
                             if let Some(arg0) = args.get(0) {
@@ -3859,6 +3843,45 @@ impl<'ctx> LlvmBackend<'ctx> {
                             is_float_vec_call = true;
                         }
                     }
+                }
+
+                // Handle __ExecuteCommand specially (manual sret)
+                if func_name.as_deref() == Some("__ExecuteCommand") {
+                    let f = self.module.get_function("__ExecuteCommand").expect("__ExecuteCommand not found");
+                    let cmd_arg = args.get(0).expect("missing command arg");
+                    let cmd_val = self.eval_value(cmd_arg, fn_map)?;
+                    
+                    // Allocate result struct on stack
+                    let result_ty = self.ty_cmd_result().as_basic_type_enum();
+                    let result_ptr = self.alloca_for_type(result_ty, "cmd_result")?;
+                    
+                    // Spill command string to stack to pass by pointer
+                    let cmd_ptr = if cmd_val.is_pointer_value() {
+                        cmd_val.into_pointer_value()
+                    } else if cmd_val.is_struct_value() {
+                        let tmp = self.alloca_for_type(self.ty_string().as_basic_type_enum(), "cmd_spill")?;
+                        self.builder.build_store(tmp, cmd_val)?;
+                        tmp
+                    } else {
+                        return Err(anyhow!("Invalid command value type: {:?}", cmd_val));
+                    };
+                    
+                    // Call: __ExecuteCommand(result_ptr, cmd_ptr)
+                    self.builder.build_call(f, &[result_ptr.into(), cmd_ptr.into()], "call_exec")?;
+                    
+                    // Load result from stack
+                    let loaded = self.builder.build_load(result_ty, result_ptr, "loaded_result")?;
+                    
+                    if let Some(r) = result {
+                        self.assign_value(r, loaded.as_basic_value_enum())?;
+                        
+                        // Propagate return struct type info
+                        if let IRValue::Register(reg_id) = r {
+                            self.reg_struct_types.insert(*reg_id, "CommandResult".to_string());
+                        }
+                    }
+                    // Skip normal call handling
+                    return Ok(());
                 }
 
                 // Normal call by name
@@ -4688,9 +4711,73 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
                 Err(anyhow!(format!("Unknown variable {}", name)))
             }
-            IRValue::Array(_vals) => {
-                // Materialize arrays on demand in consumers; here return opaque null as placeholder
-                Ok(self.i8_ptr_t.const_null().as_basic_value_enum())
+            IRValue::Array(vals) => {
+                let len = vals.len() as u64;
+                let cap = if len < 8 { 8 } else { len };
+                
+                // Determine element type and size
+                let (elem_ty, elem_size_val) = if let Some(first) = vals.first() {
+                    let v = self.eval_value(first, fn_map)?;
+                    let ty = v.get_type();
+                    let size = ty.size_of().unwrap(); // IntValue
+                    (ty, size)
+                } else {
+                    // Default to i64/ptr size
+                    (self.i64_t.into(), self.i64_t.const_int(8, false))
+                };
+                
+                // Calculate data size: cap * elem_size
+                let cap_val = self.i64_t.const_int(cap, false);
+                let elem_size_i64 = self.builder.build_int_z_extend(elem_size_val, self.i64_t, "sz_ext")?;
+                let data_size = self.builder.build_int_mul(cap_val, elem_size_i64, "data_sz")?;
+                
+                let malloc_fn = self.get_malloc();
+                let data_ptr = self.builder
+                    .build_call(malloc_fn, &[data_size.into()], "malloc_data")?
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+                
+                // Store elements
+                for (i, val) in vals.iter().enumerate() {
+                    let v = self.eval_value(val, fn_map)?;
+                    // Cast data_ptr to elem_ty*
+                    let ptr_ty = elem_ty.ptr_type(AddressSpace::default());
+                    let elem_ptr = self.builder.build_pointer_cast(data_ptr, ptr_ty, "elem_ptr")?;
+                    // GEP to index i
+                    let slot = unsafe { self.builder.build_gep(elem_ty, elem_ptr, &[self.i64_t.const_int(i as u64, false)], "slot")? };
+                    self.builder.build_store(slot, v)?;
+                }
+                
+                // Allocate Array Struct {len, cap, data}
+                // Use i8 for generic data ptr in struct type to match malloc
+                let struct_ty = self.ty_array(self.ctx.i8_type().into());
+                let struct_size = struct_ty.size_of().unwrap();
+                let struct_size_i64 = self.builder.build_int_z_extend(struct_size, self.i64_t, "struct_sz")?;
+                
+                let arr_ptr = self.builder
+                    .build_call(malloc_fn, &[struct_size_i64.into()], "malloc_arr")?
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+                    
+                let arr_ptr_typed = self.builder.build_pointer_cast(arr_ptr, struct_ty.ptr_type(AddressSpace::default()), "arr_ptr_typed")?;
+                
+                // Set len
+                let len_ptr = self.builder.build_struct_gep(struct_ty, arr_ptr_typed, 0, "len_ptr").unwrap();
+                self.builder.build_store(len_ptr, self.i64_t.const_int(len, false))?;
+                
+                // Set cap
+                let cap_ptr = self.builder.build_struct_gep(struct_ty, arr_ptr_typed, 1, "cap_ptr").unwrap();
+                self.builder.build_store(cap_ptr, self.i64_t.const_int(cap, false))?;
+                
+                // Set data
+                let data_field_ptr = self.builder.build_struct_gep(struct_ty, arr_ptr_typed, 2, "data_ptr").unwrap();
+                self.builder.build_store(data_field_ptr, data_ptr)?;
+                
+                Ok(arr_ptr.as_basic_value_enum())
             }
             IRValue::ByteArray(data) => self.byte_array_ptr(data),
             IRValue::Null => Ok(self.i8_ptr_t.const_null().as_basic_value_enum()),
@@ -5252,7 +5339,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                      let ptr = self.builder.build_extract_value(sv, 1, "sptr").unwrap();
                      Ok(ptr)
                 } else {
-                     Err(anyhow!("Cannot cast struct to pointer"))
+                     // Spill to stack and return pointer
+                     let ty = sv.get_type().as_basic_type_enum();
+                     let tmp = self.alloca_for_type(ty, "struct_spill")?;
+                     self.builder.build_store(tmp, sv)?;
+                     // Cast pointer to target pointer type
+                     let cast = self.builder.build_pointer_cast(tmp, pt, "struct_ptr_cast").map_err(|e| anyhow!("{e:?}"))?;
+                     Ok(cast.as_basic_value_enum())
                 }
             }
             (BasicValueEnum::StructValue(sv), BasicTypeEnum::IntType(it)) => {
@@ -5458,7 +5551,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         
         // Check if it's a char or int
         let is_char = if let IRValue::Register(id) = ir_val {
-             self.reg_slot_types.get(&(*id as usize)).map(|ty| *ty == self.ctx.i8_type().into()).unwrap_or(false)
+             self.reg_slot_types.get(id).map(|ty| *ty == self.ctx.i8_type().into()).unwrap_or(false)
         } else {
             false
         };
@@ -5716,10 +5809,21 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.ctx.struct_type(&[self.i64_t.into(), self.i8_ptr_t.into()], false)
     }
 
+    fn ty_array(&self, elem_ty: BasicTypeEnum<'ctx>) -> inkwell::types::StructType<'ctx> {
+        self.ctx.struct_type(
+            &[
+                self.i64_t.into(), // len
+                self.i64_t.into(), // cap
+                elem_ty.ptr_type(AddressSpace::default()).into(), // data
+            ],
+            false,
+        )
+    }
+
 
     fn ty_cmd_result(&self) -> inkwell::types::StructType<'ctx> {
         self.ctx
-            .struct_type(&[self.bool_t.into(), self.i8_ptr_t.into()], false)
+            .struct_type(&[self.bool_t.into(), self.ty_string().into()], false)
     }
 
     fn ty_handle(&mut self) -> StructType<'ctx> {
@@ -5972,6 +6076,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
                 if let IRValue::Variable(name) = target {
                     if let Some(func) = self.module.get_function(name) {
+                        if name == "__ExecuteCommand" {
+                             println!("DEBUG: infer_instruction_result_type for __ExecuteCommand");
+                             println!("DEBUG: return type: {:?}", func.get_type().get_return_type());
+                        }
                         func.get_type().get_return_type().map(|ty| (reg_id, ty))
                     } else {
                         None

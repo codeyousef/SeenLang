@@ -450,13 +450,21 @@ fun createCCodeGenerator() -> CCodeGenerator {
 fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     println("🚀 Seen Self-Hosting Compiler")
     println("   Production-Quality Implementation")
+    println("DEBUG: Before Phase 1 print")
     
     // Step 1: Lexical Analysis
-    println("\n📝 Phase 1: Lexical Analysis")
+    println("Phase 1: Lexical Analysis")
+    println("DEBUG: After Phase 1 print")
     println("   ✓ Loading language configuration...")
     
     let lexer = createLexer(sourceCode, "en")
+    println("DEBUG: Lexer created")
     let tokens = lexer.tokenize()
+    println("DEBUG: Tokenized")
+    let tLen = tokens.length()
+    println("DEBUG: Tokens length: " + tLen.toString())
+    
+    println("   ✓ Tokenized " + tLen.toString() + " tokens")
     
     println("   ✓ Tokenized " + tokens.length().toString() + " tokens")
     
@@ -507,9 +515,13 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     println("   ✓ Generated " + cCode.length().toString() + " characters of C code")
     
     // Step 6: Write output
-    println("\n💾 Phase 6: Output Generation")
+    // println("\n Phase 6: Output Generation")
+    println("DEBUG: Constructing cFilePath...")
     let cFilePath = outputPath + ".c"
+    println("DEBUG: cFilePath constructed: " + cFilePath)
+    println("DEBUG: Calling WriteFile...")
     let success = WriteFile(cFilePath, cCode)
+    println("DEBUG: WriteFile returned")
     
     if not success {
         println("   ❌ Failed to write C file")
@@ -523,6 +535,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) -> Bool {
     println("   ✓ Compiling with GCC...")
     
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath
+    println("DEBUG: compileCommand: " + compileCommand)
     let compileResult = ExecuteCommand(compileCommand)
     
     if not compileResult.success {
@@ -687,7 +700,11 @@ class TypeInfo {
 }
 
 // Utility functions
-fun WriteFile(path: String, content: String) -> Bool { return __WriteFile(path, content) != 0 }
+fun WriteFile(path: String, content: String) -> Bool { 
+    let res = __WriteFileToPath(path, content)
+    println("DEBUG: __WriteFileToPath returned " + res.toString())
+    return res != 0 
+}
 
 fun ExecuteCommand(command: String) -> CommandResult {
     let trimmed = trim(command)
@@ -884,20 +901,21 @@ fun TestCompiler() {
 
 // Runtime bridges
 extern fun __FileExists(path: String) -> Bool
+extern fun __ReadFileFromPath(path: String) -> String
 
 fun GetCommandLineArgs() -> Array<String> {
     return __GetCommandLineArgs()
 }
 
 fun ReadFile(path: String) -> String {
-    return __ReadFile(path)
+    return __ReadFileFromPath(path)
 }
 fun readText(path: String) -> String {
-    return __ReadFile(path)
+    return __ReadFileFromPath(path)
 }
 
 fun writeText(path: String, contents: String) -> Bool {
-    return __WriteFile(path, contents) != 0
+    return __WriteFileToPath(path, contents) != 0
 }
 
 fun appendText(path: String, contents: String) -> Bool {
@@ -1125,3 +1143,5 @@ fun contains(text: String, substring: String) -> Bool {
     }
     return false
 }
+
+extern fun __WriteFileToPath(path: String, content: String) -> Int
