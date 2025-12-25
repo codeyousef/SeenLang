@@ -1500,23 +1500,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             .map(|p| p.param_type.clone())
             .collect();
         
-        // Debug: print function declaration for constructors
-        if name == "SeenLexer_new" {
-            //             println!("DEBUG: declaring function {} with return type {:?}", name, func.return_type);
-            if let IRType::Struct { name: struct_name, .. } = &func.return_type {
-            //                 println!("DEBUG:   struct_types contains {}: {}", struct_name, self.struct_types.contains_key(struct_name));
-                if let Some((st, _)) = self.struct_types.get(struct_name) {
-            //                     println!("DEBUG:   struct type for {}: {:?}", struct_name, st);
-                }
-            }
-        }
-        
         let fn_ty = self.fn_type_from_ir(&func.return_type, &params_ir);
-        
-        // Debug: print the actual LLVM function type
-        if name == "SeenLexer_new" {
-            //             println!("DEBUG:   LLVM fn_ty for {}: {:?}", name, fn_ty);
-        }
         
         let f = self.module.add_function(name, fn_ty, None);
         self.apply_ir_function_attributes(func, f);
@@ -4257,6 +4241,17 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 let func_ty = self.i64_t.fn_type(&param_types, false);
                                 let func = self.module.add_function(name, func_ty, None);
                                 func
+                            } else if name == "remove" || name == "write" || name == "set" {
+                                // C library functions that return int
+                                // remove: file removal, returns 0 on success
+                                // write: file write, returns bytes written
+                                // set: array/map set, returns success
+                                let param_types: Vec<BasicMetadataTypeEnum> = (0..args.len())
+                                    .map(|_| self.i8_ptr_t.into())
+                                    .collect();
+                                let func_ty = self.ctx.i32_type().fn_type(&param_types, false);
+                                let func = self.module.add_function(name, func_ty, None);
+                                func
                             } else if name == "isEmpty" || name == "isValid" || name == "contains" 
                                    || name == "isOk" || name == "isErr" || name == "isNone" || name == "isSome"
                                    || name.ends_with("_isEmpty") || name.ends_with("_contains")
@@ -4305,8 +4300,37 @@ impl<'ctx> LlvmBackend<'ctx> {
 
                 let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
                 let params = f.get_params();
+                let fn_name = func_name.as_deref().unwrap_or("");
 
-                for (i, a) in args.iter().enumerate() {
+                // Handle argument count mismatch for *_new constructors
+                // If function expects 0 args but we have args (or vice versa), adjust
+                let expected_arg_count = params.len();
+                let actual_arg_count = args.len();
+                
+                // Determine which args to use
+                let args_to_process: Vec<&IRValue> = if expected_arg_count == 0 && actual_arg_count > 0 && fn_name.ends_with("_new") {
+                    // Constructor expects 0 args but was called with args - skip args
+                    vec![]
+                } else if expected_arg_count > actual_arg_count && fn_name.ends_with("_new") {
+                    // Constructor expects more args (e.g., self) - prepend null pointers
+                    args.iter().collect()
+                } else {
+                    args.iter().collect()
+                };
+                
+                // If function expects more args than provided, add null/default values
+                let mut extra_args_needed = if expected_arg_count > args_to_process.len() {
+                    expected_arg_count - args_to_process.len()
+                } else {
+                    0
+                };
+
+                for (i, a) in args_to_process.iter().enumerate() {
+                    // Skip if we've already filled all expected params
+                    if i >= expected_arg_count && expected_arg_count > 0 {
+                        break;
+                    }
+                    
                     let v = self.eval_value(a, fn_map)?;
                     // For Vec_push and Vec_set, convert non-i64 values to i64
                     let should_convert = (is_vec_push && i == 1) || (is_vec_set && i == 2);
@@ -4325,10 +4349,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                             call_args.push(v.into());
                         }
                     } else {
-                        // Check if we need to cast i64 back to pointer for the function call
+                        // Check if we need to coerce argument type to match function signature
                         let mut pushed = false;
                         if let Some(param) = params.get(i) {
                             let expected_ty = param.get_type();
+                            
+                            // i64 → pointer conversion
                             if expected_ty.is_pointer_type() && v.is_int_value() {
                                 let ptr = self.builder.build_int_to_ptr(
                                     v.into_int_value(), 
@@ -4338,6 +4364,85 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 call_args.push(ptr.into());
                                 pushed = true;
                             }
+                            // struct → i64 conversion (for generic functions like Ok, Err, Some that expect i64)
+                            else if expected_ty.is_int_type() && v.is_struct_value() {
+                                // Extract first field if it's an integer, otherwise spill to ptr and convert
+                                let sv = v.into_struct_value();
+                                let first = self.builder.build_extract_value(sv, 0, "struct_first");
+                                if let Ok(first_val) = first {
+                                    if first_val.is_int_value() {
+                                        call_args.push(first_val.into_int_value().into());
+                                        pushed = true;
+                                    } else if first_val.is_pointer_value() {
+                                        let as_i64 = self.builder.build_ptr_to_int(
+                                            first_val.into_pointer_value(),
+                                            self.i64_t,
+                                            "struct_ptr_to_i64"
+                                        )?;
+                                        call_args.push(as_i64.into());
+                                        pushed = true;
+                                    }
+                                }
+                                if !pushed {
+                                    // Fallback: spill struct to stack and convert ptr to int
+                                    let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "struct_spill")?;
+                                    self.builder.build_store(tmp, sv)?;
+                                    let as_i64 = self.builder.build_ptr_to_int(tmp, self.i64_t, "struct_ptr_i64")?;
+                                    call_args.push(as_i64.into());
+                                    pushed = true;
+                                }
+                            }
+                            // struct → pointer conversion (spill to stack)
+                            else if expected_ty.is_pointer_type() && v.is_struct_value() {
+                                let sv = v.into_struct_value();
+                                let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "struct_spill")?;
+                                self.builder.build_store(tmp, sv)?;
+                                call_args.push(tmp.into());
+                                pushed = true;
+                            }
+                            // pointer → i64 conversion
+                            else if expected_ty.is_int_type() && v.is_pointer_value() {
+                                let as_i64 = self.builder.build_ptr_to_int(
+                                    v.into_pointer_value(),
+                                    expected_ty.into_int_type(),
+                                    "ptr_to_int"
+                                )?;
+                                call_args.push(as_i64.into());
+                                pushed = true;
+                            }
+                            // float → i64 bitcast
+                            else if expected_ty.is_int_type() && v.is_float_value() {
+                                let f64_val = v.into_float_value();
+                                let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_generic")?.into_int_value();
+                                call_args.push(as_i64.into());
+                                pushed = true;
+                            }
+                            // float → pointer (via bitcast to i64 then int_to_ptr)  
+                            else if expected_ty.is_pointer_type() && v.is_float_value() {
+                                let f64_val = v.into_float_value();
+                                let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_ptr")?.into_int_value();
+                                let ptr = self.builder.build_int_to_ptr(as_i64, self.i8_ptr_t, "i2p_ptr")?;
+                                call_args.push(ptr.into());
+                                pushed = true;
+                            }
+                            // Different struct types - if struct arg doesn't match expected struct, spill to ptr
+                            else if expected_ty.is_struct_type() && v.is_struct_value() {
+                                let sv = v.into_struct_value();
+                                let actual_ty = sv.get_type();
+                                if actual_ty != expected_ty.into_struct_type() {
+                                    // Different struct types - try to bitcast via memory
+                                    let tmp = self.alloca_for_type(actual_ty.as_basic_type_enum(), "struct_conv")?;
+                                    self.builder.build_store(tmp, sv)?;
+                                    let target_ptr = self.builder.build_pointer_cast(
+                                        tmp,
+                                        expected_ty.into_struct_type().ptr_type(inkwell::AddressSpace::default()),
+                                        "struct_ptr_cast"
+                                    )?;
+                                    let loaded = self.builder.build_load(expected_ty, target_ptr, "struct_load")?;
+                                    call_args.push(loaded.into());
+                                    pushed = true;
+                                }
+                            }
                         }
                         
                         if !pushed {
@@ -4345,6 +4450,26 @@ impl<'ctx> LlvmBackend<'ctx> {
                         }
                     }
                 }
+                
+                // Fill in missing arguments with null/default values
+                while extra_args_needed > 0 && call_args.len() < expected_arg_count {
+                    let param_idx = call_args.len();
+                    if let Some(param) = params.get(param_idx) {
+                        let expected_ty = param.get_type();
+                        if expected_ty.is_pointer_type() {
+                            call_args.push(expected_ty.into_pointer_type().const_null().into());
+                        } else if expected_ty.is_int_type() {
+                            call_args.push(expected_ty.into_int_type().const_zero().into());
+                        } else if expected_ty.is_float_type() {
+                            call_args.push(expected_ty.into_float_type().const_zero().into());
+                        } else {
+                            // Default to i64 zero
+                            call_args.push(self.i64_t.const_zero().into());
+                        }
+                    }
+                    extra_args_needed -= 1;
+                }
+                
                 let call = self.builder.build_call(f, &call_args, "call")?;
                 // Debug: check the return type of the call
                 let target_name = match target {

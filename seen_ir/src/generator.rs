@@ -316,6 +316,8 @@ impl IRGenerator {
                         let old_receiver_name = self.context.current_receiver_name.clone();
                         
                         // Build effective params - include receiver as first param for extension methods
+                        // BUT: for constructors (name == "new"), don't inject receiver param
+                        let is_constructor = name == "new";
                         let effective_params: Vec<seen_parser::Parameter> = if let Some(recv) = receiver {
                             // Look up the receiver type from type definitions, or create it for builtins
                             let recv_type = self.context.type_definitions.get(&recv.type_name).cloned()
@@ -345,21 +347,26 @@ impl IRGenerator {
                             // Register 'this' as an alias
                             self.context.variable_types.insert("this".to_string(), recv_type);
                             
-                            // Inject receiver as first parameter
-                            let recv_ast_type = seen_parser::Type {
-                                name: recv.type_name.clone(),
-                                is_nullable: false,
-                                generics: recv.generics.clone(),
-                            };
-                            let recv_param = seen_parser::Parameter {
-                                name: recv.name.clone(), // "self"
-                                type_annotation: Some(recv_ast_type),
-                                default_value: None,
-                                memory_modifier: None,
-                            };
-                            let mut all_params = vec![recv_param];
-                            all_params.extend(params.clone());
-                            all_params
+                            // For constructors, don't inject receiver as parameter
+                            if is_constructor {
+                                params.clone()
+                            } else {
+                                // Inject receiver as first parameter for instance methods
+                                let recv_ast_type = seen_parser::Type {
+                                    name: recv.type_name.clone(),
+                                    is_nullable: false,
+                                    generics: recv.generics.clone(),
+                                };
+                                let recv_param = seen_parser::Parameter {
+                                    name: recv.name.clone(), // "self"
+                                    type_annotation: Some(recv_ast_type),
+                                    default_value: None,
+                                    memory_modifier: None,
+                                };
+                                let mut all_params = vec![recv_param];
+                                all_params.extend(params.clone());
+                                all_params
+                            }
                         } else {
                             params.clone()
                         };
@@ -856,7 +863,11 @@ impl IRGenerator {
                 // eprintln!("DEBUG: checking static call: {}.{}", class_name, member);
                 // eprintln!("DEBUG:   type_definitions has {}: {}", class_name, self.context.type_definitions.contains_key(class_name));
                 // Check if this is a known class/type name (static method call)
-                if let Some(class_type) = self.context.type_definitions.get(class_name).cloned() {
+                // Also check if this looks like a static constructor call (ClassName.new with no args)
+                let is_static_call = self.context.type_definitions.contains_key(class_name);
+                
+                if is_static_call {
+                    let class_type = self.context.type_definitions.get(class_name).cloned();
                     // Static method call: Class.method(args) -> Class_method(args)
                     let mangled_name = format!("{}_{}", class_name, member);
                     // eprintln!("DEBUG:   mangled to: {}", mangled_name);
@@ -864,7 +875,9 @@ impl IRGenerator {
                     let result_value = IRValue::Register(result_reg);
                     
                     // Track the return type for this register
-                    self.context.set_register_type(result_reg, class_type);
+                    if let Some(ct) = class_type {
+                        self.context.set_register_type(result_reg, ct);
+                    }
                     
                     instructions.push(Instruction::Call {
                         target: IRValue::Variable(mangled_name),
