@@ -1539,7 +1539,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     ) -> inkwell::types::FunctionType<'ctx> {
         let params_ll: Vec<BasicMetadataTypeEnum> = params
             .iter()
-            .map(|p| self.ir_type_to_llvm(p).into())
+            .map(|p| self.ir_type_to_llvm_param(p).into())
             .collect();
         match ret {
             IRType::Void => self.ctx.void_type().fn_type(&params_ll, false),
@@ -1547,6 +1547,17 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let r: BasicTypeEnum = self.ir_type_to_llvm(ret);
                 r.fn_type(&params_ll, false)
             }
+        }
+    }
+    
+    /// Convert IR type to LLVM type for function parameters.
+    /// Struct types are passed as pointers (consistent with C ABI and call sites).
+    fn ir_type_to_llvm_param(&self, t: &IRType) -> BasicTypeEnum<'ctx> {
+        match t {
+            // Struct parameters are passed as pointers for ABI compatibility
+            IRType::Struct { .. } => self.i8_ptr_t.into(),
+            // All other types use the standard conversion
+            _ => self.ir_type_to_llvm(t),
         }
     }
 
@@ -1698,6 +1709,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                     if let IRType::Struct { name, .. } = element_type.as_ref() {
                         self.var_array_element_struct.insert(param.name.clone(), name.clone());
                     }
+                    // Track String arrays behind pointers/references
+                    if matches!(element_type.as_ref(), IRType::String) {
+                        self.var_array_element_struct.insert(param.name.clone(), "String".to_string());
+                    }
                     if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
                         self.var_is_int_array.insert(param.name.clone());
                     }
@@ -1707,6 +1722,10 @@ impl<'ctx> LlvmBackend<'ctx> {
             if let IRType::Array(element_type) = &param.param_type {
                 if let IRType::Struct { name, .. } = element_type.as_ref() {
                     self.var_array_element_struct.insert(param.name.clone(), name.clone());
+                }
+                // Track String arrays (String is a built-in struct type)
+                if matches!(element_type.as_ref(), IRType::String) {
+                    self.var_array_element_struct.insert(param.name.clone(), "String".to_string());
                 }
                 // Track integer and char arrays for proper array access
                 if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
@@ -1737,6 +1756,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                     if let IRType::Struct { name, .. } = element_type.as_ref() {
                         self.var_array_element_struct.insert(local.name.clone(), name.clone());
                     }
+                    // Track String arrays behind pointers/references
+                    if matches!(element_type.as_ref(), IRType::String) {
+                        self.var_array_element_struct.insert(local.name.clone(), "String".to_string());
+                    }
                     if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
                         self.var_is_int_array.insert(local.name.clone());
                     }
@@ -1746,6 +1769,10 @@ impl<'ctx> LlvmBackend<'ctx> {
             if let IRType::Array(element_type) = &local.var_type {
                 if let IRType::Struct { name, .. } = element_type.as_ref() {
                     self.var_array_element_struct.insert(local.name.clone(), name.clone());
+                }
+                // Track String arrays (String is a built-in struct type)
+                if matches!(element_type.as_ref(), IRType::String) {
+                    self.var_array_element_struct.insert(local.name.clone(), "String".to_string());
                 }
                 // Track integer and char arrays for proper array access
                 if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
@@ -1787,6 +1814,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                                         IRType::Array(inner) => {
                                             if let IRType::Struct { name, .. } = inner.as_ref() {
                                                 self.var_array_element_struct.insert(fname.clone(), name.clone());
+                                            }
+                                            // Track String arrays (String is a built-in struct type)
+                                            if matches!(inner.as_ref(), IRType::String) {
+                                                self.var_array_element_struct.insert(fname.clone(), "String".to_string());
                                             }
                                             if matches!(inner.as_ref(), IRType::Integer | IRType::Char) {
                                                 self.var_is_int_array.insert(fname.clone());
@@ -2036,6 +2067,14 @@ impl<'ctx> LlvmBackend<'ctx> {
                     (None, Some(ret_ty)) => {
                         if ret_ty.is_int_type() {
                             self.builder.build_return(Some(&ret_ty.into_int_type().const_zero()))?;
+                        } else if ret_ty.is_pointer_type() {
+                            // Return null pointer for pointer return types
+                            let null_ptr = ret_ty.into_pointer_type().const_null();
+                            self.builder.build_return(Some(&null_ptr.as_basic_value_enum()))?;
+                        } else if ret_ty.is_struct_type() {
+                            // Return zeroed struct for struct return types
+                            let zero_struct = ret_ty.into_struct_type().const_zero();
+                            self.builder.build_return(Some(&zero_struct.as_basic_value_enum()))?;
                         } else {
                             self.builder.build_return(None)?;
                         }
@@ -2888,7 +2927,89 @@ impl<'ctx> LlvmBackend<'ctx> {
             } => {
                 // Handle known intrinsics
                 if let IRValue::Variable(name) = target {
-                    match name.as_str() {
+                    // Normalize method names: strip Type_ prefix (e.g., String_charAt -> charAt)
+                    // Also handle Result/File method naming issues
+                    let normalized_name = if let Some(stripped) = name.strip_prefix("String_") {
+                        stripped
+                    } else if let Some(stripped) = name.strip_prefix("List_") {
+                        stripped
+                    } else {
+                        name.as_str()
+                    };
+                    
+                    // Strip numeric suffix (e.g., List_size.546 -> List_size -> size)
+                    let base_normalized = normalized_name.split('.').next().unwrap_or(normalized_name);
+                    
+                    // Handle Result/File method aliases - forward to actual Result methods
+                    // This handles cases like File_isOk -> Result_isOkay, File_unwrap -> Result_unwrap
+                    let result_method = match normalized_name {
+                        // isOk -> isOkay (Result's actual method name)
+                        "isOk" | "Result_isOk" | "File_isOk" | "Option_isSome" => Some("isOkay"),
+                        // isErr stays isErr
+                        "isErr" | "Result_isErr" | "File_isErr" | "Option_isNone" => Some("isErr"),
+                        // unwrap methods
+                        "unwrap" | "Result_unwrap" | "File_unwrap" | "Option_unwrap" => Some("unwrap"),
+                        "unwrapErr" | "Result_unwrapErr" | "File_unwrapErr" => Some("unwrapErr"),
+                        "unwrapOr" | "Result_unwrapOr" | "Option_unwrapOr" => Some("unwrapOr"),
+                        _ => None,
+                    };
+                    
+                    // If this is a Result/File method, call the actual Result method
+                    if let Some(method) = result_method {
+                        let result_fn_name = format!("Result_{}", method);
+                        let func_opt = fn_map.get(&result_fn_name).copied()
+                            .or_else(|| self.module.get_function(&result_fn_name));
+                        if let Some(func) = func_opt {
+                            // Call the Result method directly
+                            let fn_type = func.get_type();
+                            let param_types: Vec<_> = fn_type.get_param_types();
+                            
+                            let mut call_args = Vec::new();
+                            for (i, arg) in args.iter().enumerate() {
+                                let val = self.eval_value(arg, fn_map)?;
+                                let expected_ty = param_types.get(i).copied();
+                                
+                                // Coerce argument type to match function signature
+                                let arg_val = if let Some(expected) = expected_ty {
+                                    let expected_is_ptr = matches!(expected, inkwell::types::BasicMetadataTypeEnum::PointerType(_));
+                                    
+                                    if expected_is_ptr {
+                                        // Function expects pointer
+                                        if val.is_pointer_value() {
+                                            val
+                                        } else if val.is_struct_value() {
+                                            // Spill struct to stack and pass pointer
+                                            let tmp = self.alloca_for_type(val.get_type(), "result_arg")?;
+                                            self.builder.build_store(tmp, val)?;
+                                            tmp.as_basic_value_enum()
+                                        } else if val.is_int_value() {
+                                            // Treat int as pointer (int-to-ptr)
+                                            let iv = val.into_int_value();
+                                            let ptr = self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "int_to_ptr")?;
+                                            ptr.as_basic_value_enum()
+                                        } else {
+                                            val
+                                        }
+                                    } else {
+                                        val
+                                    }
+                                } else {
+                                    val
+                                };
+                                call_args.push(arg_val.into());
+                            }
+                            
+                            let call = self.builder.build_call(func, &call_args, "result_call")?;
+                            if let Some(r) = result {
+                                if let Some(val) = call.try_as_basic_value().left() {
+                                    self.assign_value(r, val)?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                    }
+                    
+                    match base_normalized {
                         "toFloat" => {
                             // Convert integer to float
                             if let Some(arg) = args.get(0) {
@@ -3021,6 +3142,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 
                                 let arr_ptr = if arr_val.is_pointer_value() {
                                     arr_val.into_pointer_value()
+                                } else if arr_val.is_struct_value() {
+                                    // Vec struct value - spill to stack and use pointer
+                                    let sv = arr_val.into_struct_value();
+                                    let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
+                                    self.builder.build_store(spill, sv)?;
+                                    spill
                                 } else {
                                     self.builder.build_int_to_ptr(
                                         arr_val.into_int_value(),
@@ -3633,6 +3760,264 @@ impl<'ctx> LlvmBackend<'ctx> {
                             }
                             return Ok(());
                         }
+                        "__HasEnv" => {
+                            // Check if environment variable exists: getenv(name) != NULL
+                            if let Some(arg) = args.get(0) {
+                                let name_val = self.eval_value(arg, fn_map)?;
+                                let name_ptr = self.as_cstr_ptr(name_val)?;
+                                
+                                let getenv_fn = self.declare_c_fn(
+                                    "getenv",
+                                    self.i8_ptr_t.into(),
+                                    &[self.i8_ptr_t.into()],
+                                    false,
+                                );
+                                let result_ptr = self.builder.build_call(getenv_fn, &[name_ptr.into()], "getenv_result")?
+                                    .try_as_basic_value().left().unwrap().into_pointer_value();
+                                
+                                let null = self.i8_ptr_t.const_null();
+                                let has_val = self.builder.build_int_compare(
+                                    inkwell::IntPredicate::NE,
+                                    result_ptr,
+                                    null,
+                                    "has_env",
+                                )?;
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, has_val.as_basic_value_enum())?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                        "__GetEnv" => {
+                            // Get environment variable: getenv(name) -> string struct
+                            if let Some(arg) = args.get(0) {
+                                let name_val = self.eval_value(arg, fn_map)?;
+                                let name_ptr = self.as_cstr_ptr(name_val)?;
+                                
+                                let getenv_fn = self.declare_c_fn(
+                                    "getenv",
+                                    self.i8_ptr_t.into(),
+                                    &[self.i8_ptr_t.into()],
+                                    false,
+                                );
+                                let result_ptr = self.builder.build_call(getenv_fn, &[name_ptr.into()], "getenv_result")?
+                                    .try_as_basic_value().left().unwrap().into_pointer_value();
+                                
+                                // Build a String struct from the C string
+                                let str_struct = self.cstr_to_string_struct(result_ptr)?;
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, str_struct)?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                        "__SetEnv" => {
+                            // Set environment variable: setenv(name, value, 1) -> 0 on success
+                            if args.len() >= 2 {
+                                let name_val = self.eval_value(&args[0], fn_map)?;
+                                let name_ptr = self.as_cstr_ptr(name_val)?;
+                                let value_val = self.eval_value(&args[1], fn_map)?;
+                                let value_ptr = self.as_cstr_ptr(value_val)?;
+                                
+                                let setenv_fn = self.declare_c_fn(
+                                    "setenv",
+                                    self.ctx.i32_type().into(),
+                                    &[self.i8_ptr_t.into(), self.i8_ptr_t.into(), self.ctx.i32_type().into()],
+                                    false,
+                                );
+                                let overwrite = self.ctx.i32_type().const_int(1, false);
+                                let ret = self.builder.build_call(setenv_fn, &[name_ptr.into(), value_ptr.into(), overwrite.into()], "setenv_result")?
+                                    .try_as_basic_value().left().unwrap().into_int_value();
+                                
+                                // Return true if setenv returned 0
+                                let success = self.builder.build_int_compare(
+                                    inkwell::IntPredicate::EQ,
+                                    ret,
+                                    self.ctx.i32_type().const_zero(),
+                                    "setenv_success",
+                                )?;
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, success.as_basic_value_enum())?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                        "__RemoveEnv" => {
+                            // Remove environment variable: unsetenv(name) -> 0 on success
+                            if let Some(arg) = args.get(0) {
+                                let name_val = self.eval_value(arg, fn_map)?;
+                                let name_ptr = self.as_cstr_ptr(name_val)?;
+                                
+                                let unsetenv_fn = self.declare_c_fn(
+                                    "unsetenv",
+                                    self.ctx.i32_type().into(),
+                                    &[self.i8_ptr_t.into()],
+                                    false,
+                                );
+                                let ret = self.builder.build_call(unsetenv_fn, &[name_ptr.into()], "unsetenv_result")?
+                                    .try_as_basic_value().left().unwrap().into_int_value();
+                                
+                                // Return true if unsetenv returned 0
+                                let success = self.builder.build_int_compare(
+                                    inkwell::IntPredicate::EQ,
+                                    ret,
+                                    self.ctx.i32_type().const_zero(),
+                                    "unsetenv_success",
+                                )?;
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, success.as_basic_value_enum())?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                        // Handle getMessage for error types - return empty string for now
+                        // The actual message is stored in the error struct but we'd need to know the field offset
+                        _ if base_normalized.ends_with("_getMessage") || base_normalized == "getMessage" => {
+                            // Return empty string as placeholder
+                            let empty = self.builder.build_global_string_ptr("", "empty_msg")?;
+                            let empty_ptr = empty.as_pointer_value();
+                            let mut str_val = self.ty_string().get_undef();
+                            str_val = self.builder.build_insert_value(str_val, self.i64_t.const_zero(), 0, "empty_len")?.into_struct_value();
+                            str_val = self.builder.build_insert_value(str_val, empty_ptr, 1, "empty_ptr")?.into_struct_value();
+                            if let Some(r) = result {
+                                self.assign_value(r, str_val.as_basic_value_enum())?;
+                            }
+                            return Ok(());
+                        }
+                        // Handle size/length/len as getting array length
+                        "size" | "length" | "len" if args.len() == 1 => {
+                            let arr_val = self.eval_value(&args[0], fn_map)?;
+                            // For arrays/vecs, length is stored at offset 0
+                            let arr_ptr = if arr_val.is_pointer_value() {
+                                arr_val.into_pointer_value()
+                            } else if arr_val.is_int_value() {
+                                let iv = arr_val.into_int_value();
+                                self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "arr_ptr")?
+                            } else if arr_val.is_struct_value() {
+                                // Spill struct to stack and get pointer
+                                let tmp = self.alloca_for_type(arr_val.get_type(), "size_arg")?;
+                                self.builder.build_store(tmp, arr_val)?;
+                                tmp
+                            } else {
+                                // Fall through to default call handling
+                                // Don't error - let the auto-declare logic handle it
+                                let _ = arr_val; // silence warning
+                                // Can't inline, use default path
+                                // Don't return Ok here, let it fall through
+                                unreachable!()
+                            };
+                            let len_ptr = arr_ptr;
+                            let len = self.builder.build_load(self.i64_t, len_ptr, "arr_len")?;
+                            if let Some(r) = result {
+                                self.assign_value(r, len)?;
+                            }
+                            return Ok(());
+                        }
+                        // Handle push for List/Vec - forward to Vec_push
+                        "push" | "List_push" if args.len() == 2 => {
+                            // Try to call Vec_push if it exists
+                            if let Some(vec_push) = fn_map.get("Vec_push").copied()
+                                .or_else(|| self.module.get_function("Vec_push")) {
+                                let arr_val = self.eval_value(&args[0], fn_map)?;
+                                let item_val = self.eval_value(&args[1], fn_map)?;
+                                
+                                // Convert args to pointers if needed
+                                let arr_ptr = if arr_val.is_pointer_value() {
+                                    arr_val
+                                } else if arr_val.is_struct_value() {
+                                    let tmp = self.alloca_for_type(arr_val.get_type(), "push_arr")?;
+                                    self.builder.build_store(tmp, arr_val)?;
+                                    tmp.as_basic_value_enum()
+                                } else {
+                                    arr_val
+                                };
+                                
+                                let item_ptr = if item_val.is_pointer_value() {
+                                    item_val
+                                } else if item_val.is_struct_value() {
+                                    let tmp = self.alloca_for_type(item_val.get_type(), "push_item")?;
+                                    self.builder.build_store(tmp, item_val)?;
+                                    tmp.as_basic_value_enum()
+                                } else if item_val.is_int_value() {
+                                    let iv = item_val.into_int_value();
+                                    self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "item_ptr")?.as_basic_value_enum()
+                                } else {
+                                    item_val
+                                };
+                                
+                                let call = self.builder.build_call(vec_push, &[arr_ptr.into(), item_ptr.into()], "vec_push")?;
+                                if let Some(r) = result {
+                                    if let Some(val) = call.try_as_basic_value().left() {
+                                        self.assign_value(r, val)?;
+                                    }
+                                }
+                                return Ok(());
+                            }
+                        }
+                        // Handle close - call fclose or __CloseFile
+                        "close" if args.len() == 1 => {
+                            let file_val = self.eval_value(&args[0], fn_map)?;
+                            let fd = self.as_i64(file_val)?;
+                            
+                            // Try calling File_close if it exists
+                            if let Some(file_close) = fn_map.get("File_close").copied()
+                                .or_else(|| self.module.get_function("File_close")) {
+                                let file_ptr = if file_val.is_pointer_value() {
+                                    file_val.into_pointer_value()
+                                } else {
+                                    self.builder.build_int_to_ptr(fd, self.i8_ptr_t, "file_ptr")?
+                                };
+                                let call = self.builder.build_call(file_close, &[file_ptr.into()], "file_close")?;
+                                if let Some(r) = result {
+                                    if let Some(val) = call.try_as_basic_value().left() {
+                                        self.assign_value(r, val)?;
+                                    }
+                                }
+                            } else {
+                                // Fallback: use C's close()
+                                let close_fn = self.declare_c_fn(
+                                    "close",
+                                    self.ctx.i32_type().into(),
+                                    &[self.ctx.i32_type().into()],
+                                    false,
+                                );
+                                let fd_i32 = self.builder.build_int_truncate(fd, self.ctx.i32_type(), "fd_i32")?;
+                                let call = self.builder.build_call(close_fn, &[fd_i32.into()], "close")?;
+                                if let Some(r) = result {
+                                    if let Some(val) = call.try_as_basic_value().left() {
+                                        self.assign_value(r, val)?;
+                                    }
+                                }
+                            }
+                            return Ok(());
+                        }
+                        // Handle readToString - forward to File_readToString
+                        "readToString" if args.len() == 1 => {
+                            if let Some(read_fn) = fn_map.get("File_readToString").copied()
+                                .or_else(|| self.module.get_function("File_readToString")) {
+                                let file_val = self.eval_value(&args[0], fn_map)?;
+                                let file_ptr = if file_val.is_pointer_value() {
+                                    file_val
+                                } else if file_val.is_int_value() {
+                                    let iv = file_val.into_int_value();
+                                    self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "file_ptr")?.as_basic_value_enum()
+                                } else {
+                                    file_val
+                                };
+                                
+                                let call = self.builder.build_call(read_fn, &[file_ptr.into()], "readToString")?;
+                                if let Some(r) = result {
+                                    if let Some(val) = call.try_as_basic_value().left() {
+                                        self.assign_value(r, val)?;
+                                    }
+                                }
+                                return Ok(());
+                            }
+                        }
                         "__BoolToString" => {
                             // Convert bool to "true" or "false" - returns string struct { i64 len, ptr data }
                             if let Some(arg) = args.get(0) {
@@ -4241,11 +4626,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 let func_ty = self.i64_t.fn_type(&param_types, false);
                                 let func = self.module.add_function(name, func_ty, None);
                                 func
-                            } else if name == "remove" || name == "write" || name == "set" {
+                            } else if name == "write" || name == "set" {
                                 // C library functions that return int
-                                // remove: file removal, returns 0 on success
                                 // write: file write, returns bytes written
                                 // set: array/map set, returns success
+                                // NOTE: "remove" excluded because Map_remove returns Option, not i32
                                 let param_types: Vec<BasicMetadataTypeEnum> = (0..args.len())
                                     .map(|_| self.i8_ptr_t.into())
                                     .collect();
@@ -4332,123 +4717,165 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                     
                     let v = self.eval_value(a, fn_map)?;
-                    // For Vec_push and Vec_set, convert non-i64 values to i64
-                    let should_convert = (is_vec_push && i == 1) || (is_vec_set && i == 2);
-                    if should_convert {
-                        if v.is_float_value() {
-                            // Float: bitcast to i64 to preserve bits
-                            let f64_val = v.into_float_value();
-                            let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_bitcast")?.into_int_value();
-                            call_args.push(as_i64.into());
-                        } else if v.is_pointer_value() {
-                            // Pointer: convert to i64
-                            let ptr_val = v.into_pointer_value();
-                            let as_i64 = self.builder.build_ptr_to_int(ptr_val, self.i64_t, "ptr2i_vec")?;
-                            call_args.push(as_i64.into());
-                        } else {
-                            call_args.push(v.into());
-                        }
-                    } else {
-                        // Check if we need to coerce argument type to match function signature
-                        let mut pushed = false;
-                        if let Some(param) = params.get(i) {
-                            let expected_ty = param.get_type();
-                            
-                            // i64 → pointer conversion
-                            if expected_ty.is_pointer_type() && v.is_int_value() {
-                                let ptr = self.builder.build_int_to_ptr(
-                                    v.into_int_value(), 
-                                    expected_ty.into_pointer_type(), 
-                                    "arg_cast"
-                                )?;
-                                call_args.push(ptr.into());
+                    
+                    // General argument coercion logic
+                    // This handles:
+                    // 1. Passing structs as pointers (spilling) when function expects pointer (e.g. generic T)
+                    // 2. Loading structs from pointers when function expects struct (e.g. String)
+                    // 3. Int <-> Pointer conversions
+                    // 4. Legacy i64 conversion for Vec methods (if they still expect i64)
+                    
+                    let mut pushed = false;
+                    if let Some(param) = params.get(i) {
+                        let expected_ty = param.get_type();
+                        
+                        // Case 1: Function expects Pointer
+                        if expected_ty.is_pointer_type() {
+                            if v.is_struct_value() {
+                                // Struct -> Pointer (Spill)
+                                let sv = v.into_struct_value();
+                                let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "arg_spill")?;
+                                self.builder.build_store(tmp, sv)?;
+                                call_args.push(tmp.into());
+                                pushed = true;
+                            } else if v.is_int_value() {
+                                // Int -> Pointer
+                                // If it's a generic function (T), we might need to spill int to stack?
+                                // Or cast int to pointer?
+                                // For Vec_push(T), T is generic. If we push int, we should spill it.
+                                // But if function expects i8* as "opaque pointer to object", casting int to ptr is wrong if int IS the object.
+                                // However, in Seen, Int is a value type. T can hold Int.
+                                // If T is represented as i8*, we must box Int?
+                                // Or spill Int to stack and pass pointer to it?
+                                // The current ABI for generics seems to be "pointer to data".
+                                // So we should spill Int.
+                                
+                                // BUT, legacy code might expect Int cast to Ptr?
+                                // Let's check if it's a collection method
+                                let is_collection = fn_name.starts_with("Vec_") || fn_name.starts_with("Map_") || fn_name.starts_with("List_");
+                                if is_collection {
+                                    // Spill Int to stack
+                                    let iv = v.into_int_value();
+                                    let tmp = self.alloca_for_type(self.i64_t.into(), "int_spill")?;
+                                    self.builder.build_store(tmp, iv)?;
+                                    call_args.push(tmp.into());
+                                    pushed = true;
+                                } else {
+                                    // Standard Int -> Ptr cast (e.g. null check or address calculation)
+                                    let ptr = self.builder.build_int_to_ptr(
+                                        v.into_int_value(), 
+                                        expected_ty.into_pointer_type(), 
+                                        "arg_cast"
+                                    )?;
+                                    call_args.push(ptr.into());
+                                    pushed = true;
+                                }
+                            } else if v.is_float_value() {
+                                // Float -> Pointer (Spill)
+                                let fv = v.into_float_value();
+                                let tmp = self.alloca_for_type(self.ctx.f64_type().into(), "float_spill")?;
+                                self.builder.build_store(tmp, fv)?;
+                                call_args.push(tmp.into());
                                 pushed = true;
                             }
-                            // struct → i64 conversion (for generic functions like Ok, Err, Some that expect i64)
-                            else if expected_ty.is_int_type() && v.is_struct_value() {
-                                // Extract first field if it's an integer, otherwise spill to ptr and convert
+                        }
+                        // Case 2: Function expects Struct (e.g. String)
+                        else if expected_ty.is_struct_type() {
+                            if v.is_pointer_value() {
+                                // Pointer -> Struct (Load)
+                                let ptr = v.into_pointer_value();
+                                let loaded = self.builder.build_load(expected_ty, ptr, "struct_load")?;
+                                call_args.push(loaded.into());
+                                pushed = true;
+                            }
+                        }
+                        // Case 3: Function expects Int (Legacy Vec support or standard int arg)
+                        else if expected_ty.is_int_type() {
+                            let expected_int_ty = expected_ty.into_int_type();
+                            let expected_bits = expected_int_ty.get_bit_width();
+                            
+                            if v.is_struct_value() {
+                                // Struct -> Int (Extract first field or Spill & Cast)
                                 let sv = v.into_struct_value();
+                                // Try to extract first field if it's an int (optimization)
                                 let first = self.builder.build_extract_value(sv, 0, "struct_first");
                                 if let Ok(first_val) = first {
                                     if first_val.is_int_value() {
-                                        call_args.push(first_val.into_int_value().into());
-                                        pushed = true;
-                                    } else if first_val.is_pointer_value() {
-                                        let as_i64 = self.builder.build_ptr_to_int(
-                                            first_val.into_pointer_value(),
-                                            self.i64_t,
-                                            "struct_ptr_to_i64"
-                                        )?;
-                                        call_args.push(as_i64.into());
+                                        let int_val = first_val.into_int_value();
+                                        let actual_bits = int_val.get_type().get_bit_width();
+                                        // Truncate or extend to match expected size
+                                        if actual_bits > expected_bits {
+                                            let truncated = self.builder.build_int_truncate(int_val, expected_int_ty, "int_trunc")?;
+                                            call_args.push(truncated.into());
+                                        } else if actual_bits < expected_bits {
+                                            let extended = self.builder.build_int_z_extend(int_val, expected_int_ty, "int_ext")?;
+                                            call_args.push(extended.into());
+                                        } else {
+                                            call_args.push(int_val.into());
+                                        }
                                         pushed = true;
                                     }
                                 }
                                 if !pushed {
-                                    // Fallback: spill struct to stack and convert ptr to int
-                                    let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "struct_spill")?;
+                                    // Fallback: spill and cast pointer to int
+                                    let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "elem_spill")?;
                                     self.builder.build_store(tmp, sv)?;
-                                    let as_i64 = self.builder.build_ptr_to_int(tmp, self.i64_t, "struct_ptr_i64")?;
+                                    let as_i64 = self.builder.build_ptr_to_int(tmp, self.i64_t, "elem_ptr_i64")?;
+                                    // Truncate if needed
+                                    if expected_bits < 64 {
+                                        let truncated = self.builder.build_int_truncate(as_i64, expected_int_ty, "ptr_trunc")?;
+                                        call_args.push(truncated.into());
+                                    } else {
+                                        call_args.push(as_i64.into());
+                                    }
+                                    pushed = true;
+                                }
+                            } else if v.is_int_value() {
+                                // Int -> Int (truncate/extend to match expected bit width)
+                                let int_val = v.into_int_value();
+                                let actual_bits = int_val.get_type().get_bit_width();
+                                if actual_bits > expected_bits {
+                                    let truncated = self.builder.build_int_truncate(int_val, expected_int_ty, "int_trunc")?;
+                                    call_args.push(truncated.into());
+                                } else if actual_bits < expected_bits {
+                                    let extended = self.builder.build_int_z_extend(int_val, expected_int_ty, "int_ext")?;
+                                    call_args.push(extended.into());
+                                } else {
+                                    call_args.push(int_val.into());
+                                }
+                                pushed = true;
+                            } else if v.is_pointer_value() {
+                                // Pointer -> Int
+                                let ptr_val = v.into_pointer_value();
+                                let as_i64 = self.builder.build_ptr_to_int(ptr_val, self.i64_t, "ptr2i")?;
+                                // Truncate if needed
+                                if expected_bits < 64 {
+                                    let truncated = self.builder.build_int_truncate(as_i64, expected_int_ty, "ptr_trunc")?;
+                                    call_args.push(truncated.into());
+                                } else {
                                     call_args.push(as_i64.into());
-                                    pushed = true;
                                 }
-                            }
-                            // struct → pointer conversion (spill to stack)
-                            else if expected_ty.is_pointer_type() && v.is_struct_value() {
-                                let sv = v.into_struct_value();
-                                let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "struct_spill")?;
-                                self.builder.build_store(tmp, sv)?;
-                                call_args.push(tmp.into());
                                 pushed = true;
-                            }
-                            // pointer → i64 conversion
-                            else if expected_ty.is_int_type() && v.is_pointer_value() {
-                                let as_i64 = self.builder.build_ptr_to_int(
-                                    v.into_pointer_value(),
-                                    expected_ty.into_int_type(),
-                                    "ptr_to_int"
-                                )?;
-                                call_args.push(as_i64.into());
-                                pushed = true;
-                            }
-                            // float → i64 bitcast
-                            else if expected_ty.is_int_type() && v.is_float_value() {
+                            } else if v.is_float_value() {
+                                // Float -> Int (Bitcast)
                                 let f64_val = v.into_float_value();
-                                let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_generic")?.into_int_value();
-                                call_args.push(as_i64.into());
-                                pushed = true;
-                            }
-                            // float → pointer (via bitcast to i64 then int_to_ptr)  
-                            else if expected_ty.is_pointer_type() && v.is_float_value() {
-                                let f64_val = v.into_float_value();
-                                let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_ptr")?.into_int_value();
-                                let ptr = self.builder.build_int_to_ptr(as_i64, self.i8_ptr_t, "i2p_ptr")?;
-                                call_args.push(ptr.into());
-                                pushed = true;
-                            }
-                            // Different struct types - if struct arg doesn't match expected struct, spill to ptr
-                            else if expected_ty.is_struct_type() && v.is_struct_value() {
-                                let sv = v.into_struct_value();
-                                let actual_ty = sv.get_type();
-                                if actual_ty != expected_ty.into_struct_type() {
-                                    // Different struct types - try to bitcast via memory
-                                    let tmp = self.alloca_for_type(actual_ty.as_basic_type_enum(), "struct_conv")?;
-                                    self.builder.build_store(tmp, sv)?;
-                                    let target_ptr = self.builder.build_pointer_cast(
-                                        tmp,
-                                        expected_ty.into_struct_type().ptr_type(inkwell::AddressSpace::default()),
-                                        "struct_ptr_cast"
-                                    )?;
-                                    let loaded = self.builder.build_load(expected_ty, target_ptr, "struct_load")?;
-                                    call_args.push(loaded.into());
-                                    pushed = true;
+                                let as_i64 = self.builder.build_bit_cast(f64_val, self.i64_t, "f2i_bitcast")?.into_int_value();
+                                // Truncate if needed
+                                if expected_bits < 64 {
+                                    let truncated = self.builder.build_int_truncate(as_i64, expected_int_ty, "float_trunc")?;
+                                    call_args.push(truncated.into());
+                                } else {
+                                    call_args.push(as_i64.into());
                                 }
+                                pushed = true;
                             }
-                        }
-                        
-                        if !pushed {
-                            call_args.push(v.into());
                         }
                     }
+                    
+                    if !pushed {
+                        call_args.push(v.into());
+                    }
+
                 }
                 
                 // Fill in missing arguments with null/default values
@@ -5664,6 +6091,38 @@ impl<'ctx> LlvmBackend<'ctx> {
                 )
                 .map_err(|e| anyhow!("{e:?}"));
         }
+        if v.is_struct_value() {
+            // For struct values, try to extract first field as bool
+            // This handles Result<T,E>, Option<T> and similar types
+            let sv = v.into_struct_value();
+            if sv.get_type().count_fields() > 0 {
+                if let Some(first_field_ty) = sv.get_type().get_field_type_at_index(0) {
+                    if first_field_ty.is_int_type() {
+                        if let Ok(first_field) = self.builder.build_extract_value(sv, 0, "struct_first_field") {
+                            if first_field.is_int_value() {
+                                let iv = first_field.into_int_value();
+                                if iv.get_type() == self.bool_t {
+                                    return Ok(iv);
+                                }
+                                // For other int types, compare to zero
+                                let zero = iv.get_type().const_zero();
+                                return self.builder
+                                    .build_int_compare(inkwell::IntPredicate::NE, iv, zero, "tobool")
+                                    .map_err(|e| anyhow!("{e:?}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if v.is_pointer_value() {
+            // Pointer to bool - compare to null
+            let pv = v.into_pointer_value();
+            let null = pv.get_type().const_null();
+            return self.builder
+                .build_int_compare(inkwell::IntPredicate::NE, pv, null, "ptr_tobool")
+                .map_err(|e| anyhow!("{e:?}"));
+        }
         Err(anyhow!("Cannot convert value to bool"))
     }
 
@@ -6354,6 +6813,47 @@ impl<'ctx> LlvmBackend<'ctx> {
             .build_call(strlen, &[s.into()], "strlen")
             .map_err(|e| anyhow!("{e:?}"))?;
         Ok(call.try_as_basic_value().left().unwrap().into_int_value())
+    }
+
+    /// Convert a C string pointer to a Seen String struct { i64 len, ptr data }
+    fn cstr_to_string_struct(&mut self, cstr: PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>> {
+        // Handle null pointer: return empty string
+        let null = self.i8_ptr_t.const_null();
+        let is_null = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            cstr,
+            null,
+            "is_null",
+        )?;
+        
+        let str_ty = self.ty_string();
+        
+        // Get strlen for non-null case
+        let strlen_fn = self.get_strlen();
+        let len_call = self.builder.build_call(strlen_fn, &[cstr.into()], "cstr_len")?;
+        let len = len_call.try_as_basic_value().left().unwrap().into_int_value();
+        let len64 = self.builder.build_int_z_extend(len, self.i64_t, "len64")?;
+        
+        // Build non-null string struct
+        let mut str_val = str_ty.get_undef();
+        str_val = self.builder.build_insert_value(str_val, len64, 0, "str_len")?.into_struct_value();
+        str_val = self.builder.build_insert_value(str_val, cstr, 1, "str_ptr")?.into_struct_value();
+        
+        // Build empty string struct for null case
+        let empty_ptr = self.builder.build_global_string_ptr("", "empty_str")?.as_pointer_value();
+        let mut empty_str = str_ty.get_undef();
+        empty_str = self.builder.build_insert_value(empty_str, self.i64_t.const_zero(), 0, "empty_len")?.into_struct_value();
+        empty_str = self.builder.build_insert_value(empty_str, empty_ptr, 1, "empty_ptr")?.into_struct_value();
+        
+        // Select based on null check
+        let result = self.builder.build_select(
+            is_null,
+            empty_str.as_basic_value_enum(),
+            str_val.as_basic_value_enum(),
+            "cstr_to_string",
+        )?;
+        
+        Ok(result)
     }
 
     fn call_strcmp(

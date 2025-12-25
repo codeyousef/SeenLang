@@ -992,18 +992,32 @@ impl IRGenerator {
                 
                 if let Some(obj_type) = obj_type {
                     // eprintln!("DEBUG:   var type: {:?}", obj_type);
-                    if let IRType::Struct { name: struct_name, .. } = obj_type {
+                    if let IRType::Struct { name: struct_name, .. } = &obj_type {
                         // eprintln!("DEBUG:   struct_name: {}", struct_name);
                         // eprintln!("DEBUG:   type_definitions keys: {:?}", self.context.type_definitions.keys().collect::<Vec<_>>());
-                        if self.context.type_definitions.contains_key(&struct_name) {
-                            // This is a class instance method call
-                            let mangled = format!("{}_{}", struct_name, member);
+                        // Check if this is a known class/type OR a builtin container type
+                        // Also check for generic types like "Vec<K>" by checking the base name before '<'
+                        let base_name = struct_name.split('<').next().unwrap_or(struct_name);
+                        let is_builtin_container = matches!(base_name, 
+                            "Map" | "Vec" | "String" | "Array" | "Result" | "Option" | "StringBuilder" | "List");
+                        if self.context.type_definitions.contains_key(struct_name) 
+                            || self.context.type_definitions.contains_key(base_name)
+                            || is_builtin_container {
+                            // This is a class instance method call or builtin container method
+                            // Use base name without generics for mangling
+                            let mangled = format!("{}_{}", base_name, member);
                             // eprintln!("DEBUG:   mangled to: {}", mangled);
                             mangled
                         } else {
                             // eprintln!("DEBUG:   struct not in type_definitions, using raw member");
                             member.clone()
                         }
+                    } else if let IRType::String = &obj_type {
+                        // String methods should be mangled as String_method
+                        format!("String_{}", member)
+                    } else if let IRType::Array(_) = &obj_type {
+                        // Array methods should be mangled as Array_method or Vec_method
+                        format!("Vec_{}", member)
                     } else {
                         // eprintln!("DEBUG:   not a struct type, using raw member");
                         member.clone()
@@ -1013,10 +1027,36 @@ impl IRGenerator {
                     member.clone()
                 }
             } else {
-                // For non-identifier objects, try to infer from the value type
-                // For now, just use the member name
-                // eprintln!("DEBUG: method call on non-identifier, member '{}'", member);
-                member.clone()
+                // For non-identifier objects (like field access results, chained calls),
+                // try to infer type from the object value's register type
+                let obj_type = match &obj_val {
+                    IRValue::Register(reg) => self.context.get_register_type(*reg).cloned(),
+                    _ => None,
+                };
+                
+                if let Some(obj_type) = obj_type {
+                    if let IRType::Struct { name: struct_name, .. } = &obj_type {
+                        // Check for builtin containers by extracting base name
+                        let base_name = struct_name.split('<').next().unwrap_or(struct_name);
+                        let is_builtin_container = matches!(base_name, 
+                            "Map" | "Vec" | "String" | "Array" | "Result" | "Option" | "StringBuilder" | "List");
+                        if is_builtin_container 
+                            || self.context.type_definitions.contains_key(struct_name)
+                            || self.context.type_definitions.contains_key(base_name) {
+                            format!("{}_{}", base_name, member)
+                        } else {
+                            member.clone()
+                        }
+                    } else if let IRType::Array(_) = &obj_type {
+                        format!("Vec_{}", member)
+                    } else if let IRType::String = &obj_type {
+                        format!("String_{}", member)
+                    } else {
+                        member.clone()
+                    }
+                } else {
+                    member.clone()
+                }
             };
 
             let result_reg = self.context.allocate_register();
@@ -1624,9 +1664,22 @@ impl IRGenerator {
             _ => None,
         };
 
-        if let Some(IRType::Struct { name: _, fields }) = obj_type {
-            if let Some((_, field_ty)) = fields.iter().find(|(f, _)| f == member) {
-                self.context.set_register_type(result_reg, field_ty.clone());
+        if let Some(IRType::Struct { name: struct_name, fields }) = &obj_type {
+            // First try inline fields
+            let field_ty = fields.iter().find(|(f, _)| f == member).map(|(_, t)| t.clone());
+            
+            // If not found in inline fields, look up the type definition
+            let field_ty = field_ty.or_else(|| {
+                if let Some(IRType::Struct { fields: def_fields, .. }) = 
+                    self.context.type_definitions.get(struct_name) {
+                    def_fields.iter().find(|(f, _)| f == member).map(|(_, t)| t.clone())
+                } else {
+                    None
+                }
+            });
+            
+            if let Some(ft) = field_ty {
+                self.context.set_register_type(result_reg, ft);
             }
         }
 
@@ -2555,6 +2608,14 @@ impl IRGenerator {
                     IRType::Array(Box::new(IRType::Integer))
                 }
             }
+            // Handle builtin container types that need to be represented as Struct for method dispatch
+            "Map" | "Vec" | "Result" | "Option" | "StringBuilder" => {
+                // These are builtin types that should be represented as Struct for method dispatch
+                IRType::Struct {
+                    name: ast_type.name.clone(),
+                    fields: Vec::new(), // Fields not needed for method dispatch
+                }
+            }
             _ => {
                 // Look up in registered type definitions (classes, structs, enums)
                 if let Some(ir_type) = self.context.type_definitions.get(&ast_type.name) {
@@ -2567,8 +2628,12 @@ impl IRGenerator {
                         fields: Vec::new(), // Placeholder
                      }
                 } else {
-                    // Default fallback for unknown types
-                    IRType::Integer
+                    // Default fallback for unknown types - treat as a named struct
+                    // This allows method calls on unknown types to be properly mangled
+                    IRType::Struct {
+                        name: ast_type.name.clone(),
+                        fields: Vec::new(),
+                    }
                 }
             }
         };
