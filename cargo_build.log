@@ -1,0 +1,715 @@
+warning: /mnt/Storage/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `bench` profile
+warning: /mnt/Storage/Projects/Rust/seenlang/Cargo.toml: `panic` setting is ignored for `test` profile
+    Blocking waiting for file lock on build directory
+   Compiling seen_cli v0.1.0 (/mnt/Storage/Projects/Rust/seenlang/seen_cli)
+warning: unused variable: `e`
+   --> seen_lexer/src/keyword_manager.rs:191:20
+    |
+191 |         if let Err(e) = manager.load_from_toml("en") {
+    |                    ^ help: if this is intentional, prefix it with an underscore: `_e`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_lexer` (lib) generated 1 warning
+warning: unreachable pattern
+    --> seen_typechecker/src/checker.rs:1389:13
+     |
+ 996 |             "io.file" => {
+     |             --------- matches all the relevant values
+...
+1389 |             "io.file" | "seen_std.io.file" => {
+     |             ^^^^^^^^^ no value can reach this
+     |
+     = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+    --> seen_typechecker/src/checker.rs:1791:13
+     |
+1028 |             "process.process" => {
+     |             ----------------- matches all the relevant values
+...
+1791 |             "process.process" | "seen_std.process.process" => {
+     |             ^^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: method `predeclare_enum_type` is never used
+   --> seen_typechecker/src/checker.rs:837:8
+    |
+139 | impl TypeChecker {
+    | ---------------- method in this implementation
+...
+837 |     fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `VectorType`
+  --> seen_ir/src/llvm_backend.rs:26:88
+   |
+26 |     BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType, VectorType,
+   |                                                                                        ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `VectorValue`
+  --> seen_ir/src/llvm_backend.rs:30:21
+   |
+30 |     UnnamedAddress, VectorValue,
+   |                     ^^^^^^^^^^^
+
+warning: unused import: `BasicBlock`
+  --> seen_ir/src/llvm_backend.rs:35:26
+   |
+35 | use crate::instruction::{BasicBlock, BinaryOp, IRSelectArm, Instruction, UnaryOp};
+   |                          ^^^^^^^^^^
+
+warning: use of deprecated method `indexmap::IndexMap::<K, V, S>::remove`: `remove` disrupts the map order -- use `swap_remove` or `shift_remove` for explicit behavior.
+   --> seen_ir/src/generator.rs:118:33
+    |
+118 |             self.variable_types.remove(&name);
+    |                                 ^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated method `indexmap::IndexMap::<K, V, S>::remove`: `remove` disrupts the map order -- use `swap_remove` or `shift_remove` for explicit behavior.
+   --> seen_ir/src/instruction.rs:718:31
+    |
+718 |             self.block_lookup.remove(old_label);
+    |                               ^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+   --> seen_ir/src/llvm_backend.rs:393:38
+    |
+393 |         let i8_ptr_t = ctx.i8_type().ptr_type(inkwell::AddressSpace::from(0u16));
+    |                                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+   --> seen_ir/src/llvm_backend.rs:567:55
+    |
+567 |              let result_ptr_ty = self.ty_cmd_result().ptr_type(AddressSpace::default());
+    |                                                       ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+   --> seen_ir/src/llvm_backend.rs:568:48
+    |
+568 |              let str_ptr_ty = self.ty_string().ptr_type(AddressSpace::default());
+    |                                                ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+   --> seen_ir/src/llvm_backend.rs:581:44
+    |
+581 |             let ptr_ptr_i8 = self.i8_ptr_t.ptr_type(AddressSpace::default());
+    |                                            ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+   --> seen_ir/src/llvm_backend.rs:582:65
+    |
+582 |             let ret_ty = self.ty_array(self.ty_string().into()).ptr_type(AddressSpace::default());
+    |                                                                 ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:1230:39
+     |
+1230 | ...                   result_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                 ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::FunctionType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:1393:23
+     |
+1393 |                 fn_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into()
+     |                       ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::BasicType::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:1419:18
+     |
+1419 |                 .ptr_type(inkwell::AddressSpace::from(0u16))
+     |                  ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::BasicType::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:1424:22
+     |
+1424 |                     .ptr_type(inkwell::AddressSpace::from(0u16))
+     |                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2464:44
+     |
+2464 | ...                   self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                  ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2472:36
+     |
+2472 |                         self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                    ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2559:81
+     |
+2559 | ...                   self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
+     |                                                                           ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2566:39
+     |
+2566 |                         self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                       ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2577:36
+     |
+2577 |                         self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                    ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2619:64
+     |
+2619 | ...                   let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                          ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2620:60
+     |
+2620 | ...                   let ptr_ptr_ty = struct_ptr_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2654:53
+     |
+2654 |                         let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                     ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::FloatType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2671:58
+     |
+2671 |                     let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                          ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2724:77
+     |
+2724 |                         self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
+     |                                                                             ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2731:35
+     |
+2731 |                     self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                   ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2742:32
+     |
+2742 |                     self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2782:53
+     |
+2782 |                         let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                     ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2815:97
+     |
+2815 | ...   let struct_ptr = self.builder.build_pointer_cast(raw_ptr, struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)), "struct_spill_cast...
+     |                                                                           ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2828:49
+     |
+2828 |                     let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                 ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::FloatType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2863:54
+     |
+2863 |                 let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:2995:48
+     |
+2995 | ...                   self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                  ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3022:51
+     |
+3022 | ...                   self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                     ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3051:48
+     |
+3051 | ...                   self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                  ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3078:51
+     |
+3078 | ...                   self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                     ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::FloatType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3135:74
+     |
+3135 | ...                   let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                            ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::IntType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3149:65
+     |
+3149 | ...                   let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                   ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3167:68
+     |
+3167 | ...                   let ptr_ptr_ty = self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3181:53
+     |
+3181 | ...                   let ptr_ty = st.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                       ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3442:47
+     |
+3442 | ...                   self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                     ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3485:47
+     |
+3485 | ...                   self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                     ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:3493:77
+     |
+3493 | ...                   &[self.ctx.i32_type().into(), self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)).into()],
+     |                                                                   ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:4363:52
+     |
+4363 | ...                   llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:4381:44
+     |
+4381 | ...                   llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:4421:32
+     |
+4421 | ...                   ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                          ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:4434:32
+     |
+4434 | ...                   ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                          ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:4489:76
+     |
+4489 | ...   self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+     |                                             ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:4506:76
+     |
+4506 | ...   self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+     |                                             ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:4524:56
+     |
+4524 | ...                   llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::BasicType::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:5155:42
+     |
+5155 |                     let ptr_ty = elem_ty.ptr_type(AddressSpace::default());
+     |                                          ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:5175:88
+     |
+5175 |                 let arr_ptr_typed = self.builder.build_pointer_cast(arr_ptr, struct_ty.ptr_type(AddressSpace::default()), "arr_ptr_typed")?;
+     |                                                                                        ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:5725:46
+     |
+5725 | ...                   self.ty_string().ptr_type(AddressSpace::from(0u16)),
+     |                                        ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:5803:46
+     |
+5803 | ...                   self.ty_string().ptr_type(AddressSpace::from(0u16)),
+     |                                        ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:5819:48
+     |
+5819 |                     .build_pointer_cast(pv, st.ptr_type(AddressSpace::from(0u16)), "ptrcast_struct")
+     |                                                ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6063:25
+     |
+6063 |             timespec_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into(),
+     |                         ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6371:40
+     |
+6371 |         let i8_ptr_ptr = self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                        ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6432:27
+     |
+6432 |             self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+     |                           ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6439:18
+     |
+6439 |                 .ptr_type(inkwell::AddressSpace::from(0u16))
+     |                  ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::PointerType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6452:22
+     |
+6452 |                     .ptr_type(inkwell::AddressSpace::from(0u16))
+     |                      ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::BasicType::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6468:25
+     |
+6468 |                 elem_ty.ptr_type(AddressSpace::default()).into(), // data
+     |                         ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6539:43
+     |
+6539 |             let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                           ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6549:43
+     |
+6549 |             let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                           ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6560:43
+     |
+6560 |             let arg_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                           ^^^^^^^^
+
+warning: use of deprecated method `inkwell::types::StructType::<'ctx>::ptr_type`: Starting from version 15.0, LLVM doesn't differentiate between pointer types. Use Context::ptr_type instead.
+    --> seen_ir/src/llvm_backend.rs:6571:46
+     |
+6571 |         let handle_ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+     |                                              ^^^^^^^^
+
+warning: unused variable: `return_type`
+    --> seen_ir/src/generator.rs:1127:29
+     |
+1127 |                 if let Some(return_type) = self.context.function_return_types.get(func_name) {
+     |                             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_return_type`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> seen_ir/src/llvm_backend.rs:625:14
+    |
+625 |         for (name, (ty, _)) in &self.struct_types {
+    |              ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+
+warning: unused variable: `ty`
+   --> seen_ir/src/llvm_backend.rs:625:21
+    |
+625 |         for (name, (ty, _)) in &self.struct_types {
+    |                     ^^ help: if this is intentional, prefix it with an underscore: `_ty`
+
+warning: unused variable: `name`
+   --> seen_ir/src/llvm_backend.rs:631:14
+    |
+631 |         for (name, variants) in &self.enum_types {
+    |              ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+
+warning: unused variable: `variants`
+   --> seen_ir/src/llvm_backend.rs:631:20
+    |
+631 |         for (name, variants) in &self.enum_types {
+    |                    ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_variants`
+
+warning: unused variable: `st`
+    --> seen_ir/src/llvm_backend.rs:1508:30
+     |
+1508 |                 if let Some((st, _)) = self.struct_types.get(struct_name) {
+     |                              ^^ help: if this is intentional, prefix it with an underscore: `_st`
+
+warning: unreachable pattern
+    --> seen_ir/src/llvm_backend.rs:3720:25
+     |
+2908 |                         "toFloat" => {
+     |                         --------- matches all the relevant values
+...
+3720 |                         "toFloat" | "__toFloat" => {
+     |                         ^^^^^^^^^ no value can reach this
+     |
+     = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `target`
+    --> seen_ir/src/llvm_backend.rs:1941:36
+     |
+1941 |         if let Instruction::Call { target, .. } = inst {
+     |                                    ^^^^^^-
+     |                                    |
+     |                                    help: try removing the field
+
+warning: value assigned to `rf_then_val` is never read
+    --> seen_ir/src/llvm_backend.rs:3810:37
+     |
+3810 | ...                   let mut rf_then_val: Option<(
+     |                               ^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `rf_cont_val` is never read
+    --> seen_ir/src/llvm_backend.rs:3814:37
+     |
+3814 | ...                   let mut rf_cont_val: Option<(
+     |                               ^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: unused variable: `is_null`
+    --> seen_ir/src/llvm_backend.rs:3918:33
+     |
+3918 | ...                   let is_null = self
+     |                           ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_null`
+
+warning: unreachable pattern
+    --> seen_ir/src/llvm_backend.rs:5827:13
+     |
+5642 |             (BasicValueEnum::IntValue(iv), BasicTypeEnum::FloatType(ft)) => {
+     |             ------------------------------------------------------------ matches all the relevant values
+...
+5827 |             (BasicValueEnum::IntValue(iv), BasicTypeEnum::FloatType(ft)) => {
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unreachable pattern
+    --> seen_ir/src/llvm_backend.rs:5871:13
+     |
+5782 |             (BasicValueEnum::VectorValue(vv), BasicTypeEnum::VectorType(vt)) => {
+     |             ---------------------------------------------------------------- matches all the relevant values
+...
+5871 |             (BasicValueEnum::VectorValue(vv), BasicTypeEnum::VectorType(vt)) => {
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unreachable pattern
+    --> seen_ir/src/llvm_backend.rs:5885:13
+     |
+5815 |             (BasicValueEnum::PointerValue(pv), BasicTypeEnum::StructType(st)) => {
+     |             ----------------------------------------------------------------- matches all the relevant values
+...
+5885 |             (BasicValueEnum::PointerValue(pv), BasicTypeEnum::StructType(st)) => {
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unreachable pattern
+    --> seen_ir/src/llvm_backend.rs:5916:13
+     |
+5706 |             (BasicValueEnum::StructValue(sv), BasicTypeEnum::IntType(it)) => {
+     |             ------------------------------------------------------------- matches all the relevant values
+...
+5916 |             (BasicValueEnum::StructValue(sv), BasicTypeEnum::IntType(it)) => {
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no value can reach this
+
+warning: unused variable: `inst`
+    --> seen_ir/src/llvm_backend.rs:6620:21
+     |
+6620 |                 for inst in &block.instructions {
+     |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_inst`
+
+warning: fields `free`, `array_element_types`, and `reg_array_element_types` are never read
+   --> seen_ir/src/llvm_backend.rs:325:5
+    |
+309 | pub struct LlvmBackend<'ctx> {
+    |            ----------- fields in this struct
+...
+325 |     free: Option<FunctionValue<'ctx>>,
+    |     ^^^^
+...
+378 |     array_element_types: HashMap<String, BasicTypeEnum<'ctx>>,
+    |     ^^^^^^^^^^^^^^^^^^^
+379 |     // Register id -> LLVM element type (for arrays)
+380 |     reg_array_element_types: HashMap<u32, BasicTypeEnum<'ctx>>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `inject_runtime_stubs`, `ensure_bool_to_string_fn`, `get_free`, `get_fflush`, `call_fflush`, and `ty_str_array` are never used
+    --> seen_ir/src/llvm_backend.rs:1137:8
+     |
+ 383 | impl<'ctx> LlvmBackend<'ctx> {
+     | ---------------------------- methods in this implementation
+...
+1137 |     fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
+     |        ^^^^^^^^^^^^^^^^^^^^
+...
+4953 |     fn ensure_bool_to_string_fn(&mut self) -> FunctionValue<'ctx> {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+6023 |     fn get_free(&mut self) -> FunctionValue<'ctx> {
+     |        ^^^^^^^^
+...
+6076 |     fn get_fflush(&self) -> FunctionValue<'ctx> {
+     |        ^^^^^^^^^^
+...
+6086 |     fn call_fflush(&mut self) -> Result<()> {
+     |        ^^^^^^^^^^^
+...
+6447 |     fn ty_str_array(&self) -> inkwell::types::StructType<'ctx> {
+     |        ^^^^^^^^^^^^
+
+warning: unused `Result` that must be used
+    --> seen_ir/src/llvm_backend.rs:1262:21
+     |
+1262 | /                     backend
+1263 | |                         .builder
+1264 | |                         .build_return(Some(&out_ptr.as_basic_value_enum()));
+     | |___________________________________________________________________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+1262 |                     let _ = backend
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> seen_ir/src/llvm_backend.rs:1272:21
+     |
+1272 |                     backend.builder.build_return(None);
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1272 |                     let _ = backend.builder.build_return(None);
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> seen_ir/src/llvm_backend.rs:1280:21
+     |
+1280 |                     backend.builder.build_return(None);
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1280 |                     let _ = backend.builder.build_return(None);
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> seen_ir/src/llvm_backend.rs:1289:21
+     |
+1289 | /                     backend
+1290 | |                         .builder
+1291 | |                         .build_return(Some(&handle.as_basic_value_enum()));
+     | |__________________________________________________________________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1289 |                     let _ = backend
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> seen_ir/src/llvm_backend.rs:1299:21
+     |
+1299 | /                     backend
+1300 | |                         .builder
+1301 | |                         .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+     | |_________________________________________________________________________________________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1299 |                     let _ = backend
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> seen_ir/src/llvm_backend.rs:1309:21
+     |
+1309 | /                     backend
+1310 | |                         .builder
+1311 | |                         .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+     | |_________________________________________________________________________________________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1309 |                     let _ = backend
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> seen_ir/src/llvm_backend.rs:1319:21
+     |
+1319 | /                     backend
+1320 | |                         .builder
+1321 | |                         .build_return(Some(&backend.i8_ptr_t.const_zero().as_basic_value_enum()));
+     | |_________________________________________________________________________________________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1319 |                     let _ = backend
+     |                     +++++++
+
+warning: `seen_typechecker` (lib) generated 3 warnings
+warning: `seen_ir` (lib) generated 88 warnings (run `cargo fix --lib -p seen_ir` to apply 4 suggestions)
+warning: unused import: `std::env::args`
+  --> seen_cli/src/main.rs:27:5
+   |
+27 | use std::env::args;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> seen_cli/src/main.rs:4932:9
+     |
+4932 |     let mut ast = parser.parse_program().map_err(SeenError::from)?;
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `STUB_CLASSES_DEX` is never used
+    --> seen_cli/src/main.rs:2677:7
+     |
+2677 | const STUB_CLASSES_DEX: &[u8] = include_bytes!("android_stub/classes.dex");
+     |       ^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `seen_cli` (bin "seen_cli") generated 3 warnings (run `cargo fix --bin "seen_cli"` to apply 2 suggestions)
+    Finished `release` profile [optimized] target(s) in 38.66s
+DONE

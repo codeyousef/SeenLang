@@ -1,0 +1,15 @@
+extern fun __ExecuteCommand(command: String): CommandResult
+extern fun __Println(s: String)
+
+data CommandResult {
+    success: Bool
+    output: String
+}
+
+fun main() {
+    let s = "echo " + "hello"
+    let res = __ExecuteCommand(s)
+    if res.success {
+        __Println(res.output)
+    }
+}

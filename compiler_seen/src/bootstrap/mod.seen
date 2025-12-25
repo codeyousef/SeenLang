@@ -1,7 +1,7 @@
 // Simplified Bootstrap Module
 class BootstrapManager {
     fun new() r: BootstrapManager {
-        return BootstrapManager()
+        return BootstrapManager{}
     }
     
     fun getVerifier() r: String {

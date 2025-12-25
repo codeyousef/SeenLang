@@ -4,6 +4,15 @@ import core.unit.{Unit}
 
 extern fun __FileExists(path: String) r: Bool
 extern fun __DeleteFile(path: String) r: Bool
+extern fun __CreateDirectory(path: String) r: Bool
+extern fun __OpenFile(path: String, mode: String) r: Int
+extern fun __ReadFile(fd: Int) r: String
+extern fun __ReadFileBytes(fd: Int, size: Int) r: Array<Int>
+extern fun __WriteFile(fd: Int, content: String) r: Int
+extern fun __WriteFileBytes(fd: Int, bytes: Array<Int>) r: Int
+extern fun __CloseFile(fd: Int) r: Int
+extern fun __FileSize(fd: Int) r: Int
+extern fun __FileError(fd: Int) r: String
 
 class File {
     var fd: Int
@@ -119,4 +128,8 @@ fun exists(path: String) r: Bool {
 
 fun deleteFile(path: String) r: Bool {
     return __DeleteFile(path)
+}
+
+fun createDirectory(path: String) r: Bool {
+    return __CreateDirectory(path)
 }

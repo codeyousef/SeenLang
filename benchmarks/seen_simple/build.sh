@@ -8,7 +8,7 @@ echo "🚀 Building Seen Arithmetic Benchmarks"
 echo "   Using Seen compiler with complete optimization pipeline"
 
 # Paths
-SEEN_COMPILER="../../compiler_seen/target/native/debug/seen_compiler"
+SEEN_COMPILER="../../compiler_seen/target/native/release/seen_compiler"
 SOURCE_FILE="src/main.seen"
 OUTPUT_EXECUTABLE="arithmetic_benchmark"
 

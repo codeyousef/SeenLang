@@ -1,0 +1,7 @@
+// seen_std.core.intrinsics
+// Runtime intrinsic declarations shared across stdlib and compiler.
+
+extern fun abort(message: String) r: Never
+
+// Allocates a new array header with at least the requested capacity.
+extern fun __ArrayNew<T>(elementSize: Int, capacity: Int) r: Array<T>

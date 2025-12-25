@@ -1,0 +1,150 @@
+// seen_std.collections.map
+// Simple Map<K, V> implementation using parallel arrays.
+// This is a basic linear probe hash map optimized for simplicity.
+
+import collections.vec.{Vec}
+import core.option.{Option, Some, None}
+
+class Map<K, V> {
+    var keys: Vec<K>
+    var values: Vec<V>
+    var hashes: Vec<Int>
+    var length: Int
+
+    static fun new() r: Map<K, V> {
+        return Map{
+            keys: Vec.new(),
+            values: Vec.new(),
+            hashes: Vec.new(),
+            length: 0
+        }
+    }
+
+    fun put(key: K, value: V) r: Void {
+        // Check if key already exists
+        var i = 0
+        while i < this.length {
+            if this.keys.get(i) == key {
+                // Update existing value
+                this.values.set(i, value)
+                return
+            }
+            i = i + 1
+        }
+        // Add new entry
+        // Route through locals so the stage-1 type checker resolves Vec.push correctly
+        var keysVec = this.keys
+        keysVec.push(key)
+        this.keys = keysVec
+
+        var valuesVec = this.values
+        valuesVec.push(value)
+        this.values = valuesVec
+
+        var hashesVec = this.hashes
+        hashesVec.push(0)
+        this.hashes = hashesVec
+        this.length = this.length + 1
+    }
+
+    fun get(key: K) r: Option<V> {
+        var i = 0
+        while i < this.length {
+            if this.keys.get(i) == key {
+                return Some(this.values.get(i))
+            }
+            i = i + 1
+        }
+        return None()
+    }
+
+    fun containsKey(key: K) r: Bool {
+        var i = 0
+        while i < this.length {
+            if this.keys.get(i) == key {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun containsValue(value: V) r: Bool {
+        var i = 0
+        while i < this.length {
+            if this.values.get(i) == value {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun keys() r: Vec<K> {
+        // Return a copy of the keys
+        var result = Vec.new()
+        var i = 0
+        while i < this.length {
+            result.push(this.keys.get(i))
+            i = i + 1
+        }
+        return result
+    }
+
+    fun values() r: Vec<V> {
+        // Return a copy of the values
+        var result = Vec.new()
+        var i = 0
+        while i < this.length {
+            result.push(this.values.get(i))
+            i = i + 1
+        }
+        return result
+    }
+
+    fun remove(key: K) r: Option<V> {
+        var i = 0
+        while i < this.length {
+            if this.keys.get(i) == key {
+                let value = this.values.get(i)
+                // Swap with last element and pop
+                let lastIdx = this.length - 1
+                if i != lastIdx {
+                    this.keys.set(i, this.keys.get(lastIdx))
+                    this.values.set(i, this.values.get(lastIdx))
+                    this.hashes.set(i, this.hashes.get(lastIdx))
+                }
+                var keysVec = this.keys
+                keysVec.pop()
+                this.keys = keysVec
+
+                var valuesVec = this.values
+                valuesVec.pop()
+                this.values = valuesVec
+
+                var hashesVec = this.hashes
+                hashesVec.pop()
+                this.hashes = hashesVec
+                this.length = this.length - 1
+                return Some(value)
+            }
+            i = i + 1
+        }
+        return None()
+    }
+
+    fun size() r: Int {
+        return this.length
+    }
+
+    fun isEmpty() r: Bool {
+        return this.length == 0
+    }
+
+    fun clear() r: Void {
+        this.keys = Vec.new()
+        this.values = Vec.new()
+        this.hashes = Vec.new()
+        this.length = 0
+    }
+}

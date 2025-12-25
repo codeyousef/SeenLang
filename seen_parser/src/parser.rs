@@ -278,6 +278,11 @@ impl Parser {
             return self.parse_struct_definition(attributes);
         }
 
+        // Check for data definitions (record types, same as struct)
+        if self.check_keyword(KeywordType::KeywordData) {
+            return self.parse_struct_definition(attributes);
+        }
+
         // Check for enum definitions
         if self.check_keyword(KeywordType::KeywordEnum) {
             return self.parse_enum_definition(attributes);

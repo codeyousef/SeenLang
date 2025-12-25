@@ -1,0 +1,20 @@
+// Test data type handling
+
+data CompilerInfo {
+    Path: String
+    Name: String
+    StageNumber: Int
+}
+
+fun CompilerInfo.new(path: String, name: String, stageNumber: Int) r: CompilerInfo {
+    return CompilerInfo{
+        Path: path,
+        Name: name,
+        StageNumber: stageNumber
+    }
+}
+
+fun main() r: Int {
+    let info = CompilerInfo.new("/path", "test", 1)
+    return 0
+}

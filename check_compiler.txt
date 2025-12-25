@@ -1,0 +1,3 @@
+.[1;33mr[31mw[4;32mx[0m[33mr[31mw[32mx[33mr[1;90m-[0m[32mx[0m [1;32m220k[0m [1;33myousef[0m [34m25 Dec 12:06[0m [36m/mnt/Storage/Projects/Rust/seenlang/compiler_seen/target/native/release/[1;32mseen_compiler[0m
+/mnt/Storage/Projects/Rust/seenlang/compiler_seen/target/native/release/seen_compiler: line 1: syntax error near unexpected token `;'
+/mnt/Storage/Projects/Rust/seenlang/compiler_seen/target/native/release/seen_compiler: line 1: `; Seen IR Program'

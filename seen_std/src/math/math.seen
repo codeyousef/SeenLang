@@ -245,11 +245,13 @@ fun clampInt(value: Int, minValue: Int, maxValue: Int) r: Int {
 }
 
 fun degToRad(degrees: Float) r: Float {
-    return degrees * DEG_TO_RAD
+    let factor = 3.14159265358979323846 / 180.0
+    return degrees * factor
 }
 
 fun radToDeg(radians: Float) r: Float {
-    return radians * RAD_TO_DEG
+    let factor = 180.0 / 3.14159265358979323846
+    return radians * factor
 }
 
 fun saturatingAdd(a: Int, b: Int) r: Int {

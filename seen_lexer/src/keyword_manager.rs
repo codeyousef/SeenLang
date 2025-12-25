@@ -189,7 +189,7 @@ impl KeywordManager {
 
         // Load default English keywords
         if let Err(e) = manager.load_from_toml("en") {
-            println!("DEBUG: Failed to load English keywords from file: {}", e);
+            // println!("DEBUG: Failed to load English keywords from file: {}", e);
             // If we can't load from file, use hardcoded defaults for bootstrapping
             // This is temporary until we have a proper language file loading mechanism
             let default_keywords = Self::get_default_keywords();

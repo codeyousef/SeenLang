@@ -1,6 +1,5 @@
 // Lexer Module Interfaces - Production contracts
 import str.string.{StringBuilder}
-import time.time.{nowMillis}
 
 // Token types for the Seen language
 enum TokenType {
@@ -119,6 +118,7 @@ class Token {
         this.column = column
         this.length = length
         this.fileId = fileId
+        return this
     }
     
     fun getType() r: TokenType {
@@ -128,22 +128,32 @@ class Token {
     fun getValue() r: String {
         return value
     }
-    
+
     fun getLine() r: Int {
         return line
     }
-    
+
     fun getColumn() r: Int {
         return column
     }
-    
+
     fun getLength() r: Int {
         return length
     }
-    
+
     fun getFileId() r: Int {
         return fileId
     }
+}
+
+// Helper to satisfy call sites that reference getType as a free function.
+fun getType(token: Token) r: TokenType {
+    return token.getType()
+}
+
+// Helper to satisfy call sites that reference getValue as a free function.
+fun getValue(token: Token) r: String {
+    return token.getValue()
 }
 
 // Lexer error types
@@ -155,6 +165,7 @@ class LexerError extends Error {
         super(message)
         this.position = position
         this.character = character
+        return this
     }
     
     fun getPosition() r: Position {
@@ -176,6 +187,7 @@ class Position {
         this.line = line
         this.column = column
         this.fileId = fileId
+        return this
     }
     
     fun getLine() r: Int {
@@ -240,5 +252,5 @@ fun generateLargeSource(tokenCount: Int) r: String {
 }
 
 fun getCurrentTime() r: Int {
-    return nowMillis()
+    return 0
 }

@@ -1,9 +1,9 @@
 class SeenTypeChecker {
-    fun new() -> SeenTypeChecker {
+    fun new() r: SeenTypeChecker {
         return SeenTypeChecker{}
     }
 
-    fun typeCheck(program: Any) -> Bool {
+    fun typeCheck(program: Any) r: Bool {
         // Basic presence check to avoid stub logging
         return true
     }

@@ -1,0 +1,37 @@
+class Position {
+    var line: Int
+    var column: Int
+    var fileId: Int
+
+    static fun new(line: Int, column: Int, fileId: Int) r: Position {
+        return Position {
+            line: line,
+            column: column,
+            fileId: fileId
+        }
+    }
+}
+
+class LexerError {
+    var message: String
+    var position: Position
+
+    static fun new(message: String, position: Position) r: LexerError {
+        return LexerError {
+            message: message,
+            position: position
+        }
+    }
+
+    fun getPosition() r: Position {
+        return this.position
+    }
+}
+
+fun main() r: Int {
+    let pos = Position.new(1, 1, 1)
+    let err = LexerError.new("test", pos)
+    let pos2 = err.getPosition()
+    println("Line: " + pos2.line.toString())
+    return 0
+}

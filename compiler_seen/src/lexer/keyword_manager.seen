@@ -2,6 +2,7 @@
 // Loads keywords from TOML files based on language
 
 import lexer.interfaces.{TokenType}
+import collections.map.{Map}
 
 class KeywordManager {
     let language: String

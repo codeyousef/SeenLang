@@ -1,0 +1,1116 @@
+// Abstract Syntax Tree Node Definitions
+// DEPRECATED: This file is being phased out. Use ast_types.seen instead.
+// Kept for backward compatibility only.
+// 
+// NOTE: Deprecated shim. Imports must use ast_types; this file remains only for backward compatibility during the transition.
+
+// Base node for all AST nodes
+data ASTNode {
+    line: Int
+    column: Int
+}
+
+fun ASTNode.new() r: ASTNode {
+    return ASTNode{
+        line: 0,
+        column: 0
+    }
+}
+
+// Program root node
+data ProgramNode {
+    items: Array<ItemNode>
+}
+
+fun ProgramNode.new() r: ProgramNode {
+    return ProgramNode{
+        items: Array<ItemNode>()
+    }
+}
+
+fun ProgramNode.getItems() r: Array<ItemNode> {
+    return this.items
+}
+
+// Top-level item (function, class, data, etc.)
+data ItemNode {
+    itemType: String // "Function", "Class", "Struct", "Enum", "Import"
+    name: String
+    visibility: String // "public" or "private"
+    importPath: Array<String>
+    importSymbols: Array<ImportSymbolNode>
+    function: FunctionNode?
+    classNode: ClassNode?
+    dataNode: DataNode?
+}
+
+fun ItemNode.new() r: ItemNode {
+    return ItemNode{
+        itemType: "",
+        name: "",
+        visibility: "private",
+        importPath: Array<String>(),
+        importSymbols: Array<ImportSymbolNode>(),
+        function: null,
+        classNode: null,
+        dataNode: null
+    }
+}
+
+data ImportSymbolNode {
+    name: String
+    alias: String
+}
+
+fun ImportSymbolNode.new() r: ImportSymbolNode {
+    return ImportSymbolNode{
+        name: "",
+        alias: ""
+    }
+}
+
+// Function definition
+data FunctionNode {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode?
+    body: BlockNode
+    isAsync: Bool
+    isInline: Bool
+}
+
+fun FunctionNode.new() r: FunctionNode {
+    return FunctionNode{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: null,
+        body: BlockNode.new(),
+        isAsync: false,
+        isInline: false
+    }
+}
+
+// Function parameter
+data ParamNode {
+    name: String
+    paramType: TypeNode
+    isMutable: Bool
+    defaultValue: ExpressionNode?
+}
+
+fun ParamNode.new() r: ParamNode {
+    return ParamNode{
+        name: "",
+        paramType: TypeNode.new(),
+        isMutable: false,
+        defaultValue: null
+    }
+}
+
+// Type reference
+data TypeNode {
+    typeName: String
+    isNullable: Bool
+    typeParams: Array<TypeNode>
+    isArray: Bool
+    arraySize: Int?
+}
+
+fun TypeNode.new() r: TypeNode {
+    return TypeNode{
+        typeName: "",
+        isNullable: false,
+        typeParams: Array<TypeNode>(),
+        isArray: false,
+        arraySize: null
+    }
+}
+
+// Statement block
+data BlockNode {
+    statements: Array<StatementNode>
+}
+
+fun BlockNode.new() r: BlockNode {
+    return BlockNode{
+        statements: Array<StatementNode>()
+    }
+}
+
+// Statement types
+data StatementNode {
+    stmtType: String // "Let", "Var", ...
+    letStmt: LetStatement?
+    varStmt: VarStatement?
+    returnStmt: ReturnStatement?
+    ifStmt: IfStatement?
+    whileStmt: WhileStatement?
+    forStmt: ForStatement?
+    exprStmt: ExpressionStatement?
+    blockStmt: BlockNode?
+    matchStmt: MatchStatement?
+    loopStmt: LoopStatement?
+    breakStmt: BreakStatement?
+    continueStmt: ContinueStatement?
+    deferStmt: DeferStatement?
+    assertStmt: AssertStatement?
+    regionStmt: RegionStatement?
+    arenaStmt: ArenaStatement?
+    handleStmt: HandleStatement?
+}
+
+fun StatementNode.new() r: StatementNode {
+    return StatementNode{
+        stmtType: "",
+        letStmt: null,
+        varStmt: null,
+        returnStmt: null,
+        ifStmt: null,
+        whileStmt: null,
+        forStmt: null,
+        exprStmt: null,
+        blockStmt: null,
+        matchStmt: null,
+        loopStmt: null,
+        breakStmt: null,
+        continueStmt: null,
+        deferStmt: null,
+        assertStmt: null,
+        regionStmt: null,
+        arenaStmt: null,
+        handleStmt: null
+    }
+}
+
+// Let statement (immutable binding)
+data LetStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode
+}
+
+fun LetStatement.new() r: LetStatement {
+    return LetStatement{
+        name: "",
+        varType: null,
+        value: ExpressionNode.new()
+    }
+}
+
+// Var statement (mutable binding)
+data VarStatement {
+    name: String
+    varType: TypeNode?
+    value: ExpressionNode?
+}
+
+fun VarStatement.new() r: VarStatement {
+    return VarStatement{
+        name: "",
+        varType: null,
+        value: null
+    }
+}
+
+// Return statement
+data ReturnStatement {
+    value: ExpressionNode?
+}
+
+fun ReturnStatement.new() r: ReturnStatement {
+    return ReturnStatement{
+        value: null
+    }
+}
+
+// If statement
+data IfStatement {
+    condition: ExpressionNode
+    thenBranch: BlockNode
+    elseBranch: BlockNode?
+}
+
+fun IfStatement.new() r: IfStatement {
+    return IfStatement{
+        condition: ExpressionNode.new(),
+        thenBranch: BlockNode.new(),
+        elseBranch: null
+    }
+}
+
+// While loop
+data WhileStatement {
+    condition: ExpressionNode
+    body: BlockNode
+}
+
+fun WhileStatement.new() r: WhileStatement {
+    return WhileStatement{
+        condition: ExpressionNode.new(),
+        body: BlockNode.new()
+    }
+}
+
+// For loop
+data ForStatement {
+    variable: String
+    iterable: ExpressionNode
+    body: BlockNode
+}
+
+fun ForStatement.new() r: ForStatement {
+    return ForStatement{
+        variable: "",
+        iterable: ExpressionNode.new(),
+        body: BlockNode.new()
+    }
+}
+
+// Expression statement
+data ExpressionStatement {
+    expr: ExpressionNode
+}
+
+fun ExpressionStatement.new() r: ExpressionStatement {
+    return ExpressionStatement{
+        expr: ExpressionNode.new()
+    }
+}
+
+// Expression types
+data ExpressionNode {
+    exprType: String // "Literal", "Identifier", "Binary", "Unary", "Call", "Member", "Index", "Cast", "If", "Match", "Range", "Lambda", "Await", "Spawn", "Select", "StringInterpolation"
+    literal: LiteralNode?
+    identifier: IdentifierNode?
+    binary: BinaryNode?
+    unary: UnaryNode?
+    call: CallNode?
+    member: MemberNode?
+    index: IndexNode?
+    cast: CastNode?
+    ifExpr: IfExpressionNode?
+    matchExpr: MatchExpressionNode?
+    rangeExpr: RangeNode?
+    lambda: LambdaNode?
+    awaitExpr: AwaitNode?
+    spawnExpr: SpawnNode?
+    selectExpr: SelectNode?
+    stringInterp: StringInterpolationNode?
+    isExpr: IsExpressionNode?
+    elvisExpr: ElvisNode?
+    forceUnwrap: ForceUnwrapNode?
+}
+
+fun ExpressionNode.new() r: ExpressionNode {
+    return ExpressionNode{
+        exprType: "",
+        literal: null,
+        identifier: null,
+        binary: null,
+        unary: null,
+        call: null,
+        member: null,
+        index: null,
+        cast: null,
+        ifExpr: null,
+        matchExpr: null,
+        rangeExpr: null,
+        lambda: null,
+        awaitExpr: null,
+        spawnExpr: null,
+        selectExpr: null,
+        stringInterp: null,
+        isExpr: null,
+        elvisExpr: null,
+        forceUnwrap: null
+    }
+}
+
+// Literal values
+data LiteralNode {
+    literalType: String // "Int", "Float", "String", "Bool", "Null"
+    intValue: Int?
+    floatValue: Float?
+    stringValue: String?
+    boolValue: Bool?
+}
+
+fun LiteralNode.new() r: LiteralNode {
+    return LiteralNode{
+        literalType: "",
+        intValue: null,
+        floatValue: null,
+        stringValue: null,
+        boolValue: null
+    }
+}
+
+// Identifier reference
+data IdentifierNode {
+    name: String
+}
+
+fun IdentifierNode.new() r: IdentifierNode {
+    return IdentifierNode{
+        name: ""
+    }
+}
+
+// Binary operation
+data BinaryNode {
+    left: ExpressionNode
+    operator: String // "+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">=", "and", "or", "^", "&", "|", "<<", ">>", "is", "as", "in"
+    right: ExpressionNode
+}
+
+fun BinaryNode.new() r: BinaryNode {
+    return BinaryNode{
+        left: ExpressionNode.new(),
+        operator: "",
+        right: ExpressionNode.new()
+    }
+}
+
+// Unary operation
+data UnaryNode {
+    operator: String // "-", "not", "~", "move", "borrow", "mut"
+    operand: ExpressionNode
+}
+
+fun UnaryNode.new() r: UnaryNode {
+    return UnaryNode{
+        operator: "",
+        operand: ExpressionNode.new()
+    }
+}
+
+// Function call
+data CallNode {
+    function: ExpressionNode
+    arguments: Array<ExpressionNode>
+}
+
+fun CallNode.new() r: CallNode {
+    return CallNode{
+        function: ExpressionNode.new(),
+        arguments: Array<ExpressionNode>()
+    }
+}
+
+// Member access
+data MemberNode {
+    object: ExpressionNode
+    member: String
+    isSafe: Bool // ?. operator
+}
+
+fun MemberNode.new() r: MemberNode {
+    return MemberNode{
+        object: ExpressionNode.new(),
+        member: "",
+        isSafe: false
+    }
+}
+
+// Array/index access
+data IndexNode {
+    object: ExpressionNode
+    index: ExpressionNode
+}
+
+fun IndexNode.new() r: IndexNode {
+    return IndexNode{
+        object: ExpressionNode.new(),
+        index: ExpressionNode.new()
+    }
+}
+
+// Type cast
+data CastNode {
+    expr: ExpressionNode
+    targetType: TypeNode
+    isForced: Bool // as! vs as?
+}
+
+fun CastNode.new() r: CastNode {
+    return CastNode{
+        expr: ExpressionNode.new(),
+        targetType: TypeNode.new(),
+        isForced: false
+    }
+}
+
+// If expression (ternary)
+data IfExpressionNode {
+    condition: ExpressionNode
+    thenExpr: ExpressionNode
+    elseExpr: ExpressionNode
+}
+
+fun IfExpressionNode.new() r: IfExpressionNode {
+    return IfExpressionNode{
+        condition: ExpressionNode.new(),
+        thenExpr: ExpressionNode.new(),
+        elseExpr: ExpressionNode.new()
+    }
+}
+
+// Class definition
+data ClassNode {
+    name: String
+    superClass: String?
+    interfaces: Array<String>
+    fields: Array<FieldNode>
+    methods: Array<FunctionNode>
+    isData: Bool
+    isSealed: Bool
+}
+
+fun ClassNode.new() r: ClassNode {
+    return ClassNode{
+        name: "",
+        superClass: null,
+        interfaces: Array<String>(),
+        fields: Array<FieldNode>(),
+        methods: Array<FunctionNode>(),
+        isData: false,
+        isSealed: false
+    }
+}
+
+// Data definition (formerly Struct)
+data DataNode {
+    name: String
+    fields: Array<FieldNode>
+}
+
+fun DataNode.new() r: DataNode {
+    return DataNode{
+        name: "",
+        fields: Array<FieldNode>()
+    }
+}
+
+// Field definition
+data FieldNode {
+    name: String
+    fieldType: TypeNode
+    isMutable: Bool
+    defaultValue: ExpressionNode?
+    visibility: String
+}
+
+fun FieldNode.new() r: FieldNode {
+    return FieldNode{
+        name: "",
+        fieldType: TypeNode.new(),
+        isMutable: false,
+        defaultValue: null,
+        visibility: "private"
+    }
+}
+
+// NEW AST NODES FOR SYNTAX DESIGN FEATURES
+
+// Match expression (pattern matching)
+data MatchExpressionNode {
+    expr: ExpressionNode
+    Arms: Array<MatchArm>
+}
+
+fun MatchExpressionNode.new() r: MatchExpressionNode {
+    return MatchExpressionNode{
+        expr: ExpressionNode.new(),
+        Arms: Array<MatchArm>()
+    }
+}
+
+// Match statement
+data MatchStatement {
+    expr: ExpressionNode
+    Arms: Array<MatchArm>
+}
+
+fun MatchStatement.new() r: MatchStatement {
+    return MatchStatement{
+        expr: ExpressionNode.new(),
+        Arms: Array<MatchArm>()
+    }
+}
+
+// Match arm with optional guard
+data MatchArm {
+    Pattern: PatternNode
+    Guard: ExpressionNode? // Optional 'if' guard
+    body: ExpressionNode
+}
+
+fun MatchArm.new() r: MatchArm {
+    return MatchArm{
+        Pattern: PatternNode.new(),
+        Guard: null,
+        body: ExpressionNode.new()
+    }
+}
+
+// Pattern for pattern matching
+data PatternNode {
+    PatternType: String // "Literal", "Identifier", "Wildcard", "Range", "Struct", "Enum", "Array"
+    literal: LiteralNode?
+    identifier: String?
+    RangePattern: RangePatternNode?
+    StructPattern: StructPatternNode?
+    EnumPattern: EnumPatternNode?
+    ArrayPattern: ArrayPatternNode?
+}
+
+fun PatternNode.new() r: PatternNode {
+    return PatternNode{
+        PatternType: "",
+        literal: null,
+        identifier: null,
+        RangePattern: null,
+        StructPattern: null,
+        EnumPattern: null,
+        ArrayPattern: null
+    }
+}
+
+// Range pattern (1..10)
+data RangePatternNode {
+    Start: ExpressionNode?
+    End: ExpressionNode?
+    IsInclusive: Bool
+}
+
+fun RangePatternNode.new() r: RangePatternNode {
+    return RangePatternNode{
+        Start: null,
+        End: null,
+        IsInclusive: true
+    }
+}
+
+// Struct pattern for destructuring
+data StructPatternNode {
+    typeName: String
+    fields: Array<FieldPattern>
+}
+
+fun StructPatternNode.new() r: StructPatternNode {
+    return StructPatternNode{
+        typeName: "",
+        fields: Array<FieldPattern>()
+    }
+}
+
+// Field pattern
+data FieldPattern {
+    name: String
+    Pattern: PatternNode?
+}
+
+fun FieldPattern.new() r: FieldPattern {
+    return FieldPattern{
+        name: "",
+        Pattern: null
+    }
+}
+
+// Enum pattern
+data EnumPatternNode {
+    typeName: String
+    Variant: String
+    fields: Array<PatternNode>
+}
+
+fun EnumPatternNode.new() r: EnumPatternNode {
+    return EnumPatternNode{
+        typeName: "",
+        Variant: "",
+        fields: Array<PatternNode>()
+    }
+}
+
+// Array pattern
+data ArrayPatternNode {
+    Patterns: Array<PatternNode>
+}
+
+fun ArrayPatternNode.new() r: ArrayPatternNode {
+    return ArrayPatternNode{
+        Patterns: Array<PatternNode>()
+    }
+}
+
+// Range expression (1..10 or 1..<10)
+data RangeNode {
+    Start: ExpressionNode?
+    End: ExpressionNode?
+    IsInclusive: Bool
+    Step: ExpressionNode?
+}
+
+fun RangeNode.new() r: RangeNode {
+    return RangeNode{
+        Start: null,
+        End: null,
+        IsInclusive: true,
+        Step: null
+    }
+}
+
+// Lambda expression
+data LambdaNode {
+    params: Array<String>
+    body: ExpressionNode
+    isAsync: Bool
+}
+
+fun LambdaNode.new() r: LambdaNode {
+    return LambdaNode{
+        params: Array<String>(),
+        body: ExpressionNode.new(),
+        isAsync: false
+    }
+}
+
+// Await expression
+data AwaitNode {
+    expr: ExpressionNode
+}
+
+fun AwaitNode.new() r: AwaitNode {
+    return AwaitNode{
+        expr: ExpressionNode.new()
+    }
+}
+
+// Spawn expression
+data SpawnNode {
+    expr: ExpressionNode
+    IsActor: Bool
+}
+
+fun SpawnNode.new() r: SpawnNode {
+    return SpawnNode{
+        expr: ExpressionNode.new(),
+        IsActor: false
+    }
+}
+
+// Select expression (for channels)
+data SelectNode {
+    Branches: Array<SelectBranch>
+    TimeoutBranch: SelectTimeoutBranch?
+}
+
+fun SelectNode.new() r: SelectNode {
+    return SelectNode{
+        Branches: Array<SelectBranch>(),
+        TimeoutBranch: null
+    }
+}
+
+// Select branch
+data SelectBranch {
+    Channel: ExpressionNode
+    variable: String
+    body: BlockNode
+}
+
+fun SelectBranch.new() r: SelectBranch {
+    return SelectBranch{
+        Channel: ExpressionNode.new(),
+        variable: "",
+        body: BlockNode.new()
+    }
+}
+
+// Select timeout branch
+data SelectTimeoutBranch {
+    Duration: ExpressionNode
+    body: BlockNode
+}
+
+fun SelectTimeoutBranch.new() r: SelectTimeoutBranch {
+    return SelectTimeoutBranch{
+        Duration: ExpressionNode.new(),
+        body: BlockNode.new()
+    }
+}
+
+// String interpolation
+data StringInterpolationNode {
+    Parts: Array<StringPart>
+}
+
+fun StringInterpolationNode.new() r: StringInterpolationNode {
+    return StringInterpolationNode{
+        Parts: Array<StringPart>()
+    }
+}
+
+// String part (literal or interpolated expression)
+data StringPart {
+    IsLiteral: Bool
+    literal: String?
+    expr: ExpressionNode?
+}
+
+fun StringPart.new() r: StringPart {
+    return StringPart{
+        IsLiteral: true,
+        literal: "",
+        expr: null
+    }
+}
+
+// Type checking expression (value is Type)
+data IsExpressionNode {
+    expr: ExpressionNode
+    TypeNode: TypeNode
+}
+
+fun IsExpressionNode.new() r: IsExpressionNode {
+    return IsExpressionNode{
+        expr: ExpressionNode.new(),
+        TypeNode: TypeNode.new()
+    }
+}
+
+// Elvis operator (?:)
+data ElvisNode {
+    Nullable: ExpressionNode
+    defaultValue: ExpressionNode
+}
+
+fun ElvisNode.new() r: ElvisNode {
+    return ElvisNode{
+        Nullable: ExpressionNode.new(),
+        defaultValue: ExpressionNode.new()
+    }
+}
+
+// Force unwrap (!!)
+data ForceUnwrapNode {
+    expr: ExpressionNode
+}
+
+fun ForceUnwrapNode.new() r: ForceUnwrapNode {
+    return ForceUnwrapNode{
+        expr: ExpressionNode.new()
+    }
+}
+
+// Loop statement (with optional return value)
+data LoopStatement {
+    body: BlockNode
+    Label: String?
+}
+
+fun LoopStatement.new() r: LoopStatement {
+    return LoopStatement{
+        body: BlockNode.new(),
+        Label: null
+    }
+}
+
+// Break statement (can return value)
+data BreakStatement {
+    value: ExpressionNode?
+    Label: String?
+}
+
+fun BreakStatement.new() r: BreakStatement {
+    return BreakStatement{
+        value: null,
+        Label: null
+    }
+}
+
+// Continue statement
+data ContinueStatement {
+    Label: String?
+}
+
+fun ContinueStatement.new() r: ContinueStatement {
+    return ContinueStatement{
+        Label: null
+    }
+}
+
+// Defer statement
+data DeferStatement {
+    body: BlockNode
+}
+
+fun DeferStatement.new() r: DeferStatement {
+    return DeferStatement{
+        body: BlockNode.new()
+    }
+}
+
+// Assert statement
+data AssertStatement {
+    condition: ExpressionNode
+    Message: ExpressionNode?
+}
+
+fun AssertStatement.new() r: AssertStatement {
+    return AssertStatement{
+        condition: ExpressionNode.new(),
+        Message: null
+    }
+}
+
+// Region statement (memory management)
+data RegionStatement {
+    name: String?
+    body: BlockNode
+}
+
+fun RegionStatement.new() r: RegionStatement {
+    return RegionStatement{
+        name: null,
+        body: BlockNode.new()
+    }
+}
+
+// Arena statement (bulk allocation)
+data ArenaStatement {
+    body: BlockNode
+}
+
+fun ArenaStatement.new() r: ArenaStatement {
+    return ArenaStatement{
+        body: BlockNode.new()
+    }
+}
+
+// Handle statement (effect handling)
+data HandleStatement {
+    body: BlockNode
+    EffectName: String
+    Handlers: Array<EffectHandler>
+}
+
+fun HandleStatement.new() r: HandleStatement {
+    return HandleStatement{
+        body: BlockNode.new(),
+        EffectName: "",
+        Handlers: Array<EffectHandler>()
+    }
+}
+
+// Effect handler
+data EffectHandler {
+    name: String
+    params: Array<ParamNode>
+    body: BlockNode
+}
+
+fun EffectHandler.new() r: EffectHandler {
+    return EffectHandler{
+        name: "",
+        params: Array<ParamNode>(),
+        body: BlockNode.new()
+    }
+}
+
+// Annotation (decorators)
+data AnnotationNode {
+    name: String
+    arguments: Array<ExpressionNode>
+}
+
+fun AnnotationNode.new() r: AnnotationNode {
+    return AnnotationNode{
+        name: "",
+        arguments: Array<ExpressionNode>()
+    }
+}
+
+// Extension methods
+data ExtensionNode {
+    targetType: TypeNode
+    methods: Array<FunctionNode>
+}
+
+fun ExtensionNode.new() r: ExtensionNode {
+    return ExtensionNode{
+        targetType: TypeNode.new(),
+        methods: Array<FunctionNode>()
+    }
+}
+
+// Companion object
+data CompanionNode {
+    fields: Array<FieldNode>
+    methods: Array<FunctionNode>
+}
+
+fun CompanionNode.new() r: CompanionNode {
+    return CompanionNode{
+        fields: Array<FieldNode>(),
+        methods: Array<FunctionNode>()
+    }
+}
+
+// Interface definition
+data InterfaceNode {
+    name: String
+    typeParams: Array<TypeParam>
+    methods: Array<InterfaceMethod>
+    visibility: String
+}
+
+fun InterfaceNode.new() r: InterfaceNode {
+    return InterfaceNode{
+        name: "",
+        typeParams: Array<TypeParam>(),
+        methods: Array<InterfaceMethod>(),
+        visibility: "private"
+    }
+}
+
+// Interface method signature
+data InterfaceMethod {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode?
+    IsDefault: Bool
+    DefaultImpl: BlockNode?
+}
+
+fun InterfaceMethod.new() r: InterfaceMethod {
+    return InterfaceMethod{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: null,
+        IsDefault: false,
+        DefaultImpl: null
+    }
+}
+
+// Type parameter for generics
+data TypeParam {
+    name: String
+    Constraints: Array<String>
+    Variance: String // "in", "out", or ""
+}
+
+fun TypeParam.new() r: TypeParam {
+    return TypeParam{
+        name: "",
+        Constraints: Array<String>(),
+        Variance: ""
+    }
+}
+
+// Actor definition
+data ActorNode {
+    name: String
+    State: Array<FieldNode>
+    Receivers: Array<ReceiverNode>
+    visibility: String
+}
+
+fun ActorNode.new() r: ActorNode {
+    return ActorNode{
+        name: "",
+        State: Array<FieldNode>(),
+        Receivers: Array<ReceiverNode>(),
+        visibility: "private"
+    }
+}
+
+// Actor receiver
+data ReceiverNode {
+    MessageType: TypeNode
+    params: Array<ParamNode>
+    body: BlockNode
+    ReplyType: TypeNode?
+}
+
+fun ReceiverNode.new() r: ReceiverNode {
+    return ReceiverNode{
+        MessageType: TypeNode.new(),
+        params: Array<ParamNode>(),
+        body: BlockNode.new(),
+        ReplyType: null
+    }
+}
+
+// Effect definition
+data EffectNode {
+    name: String
+    Operations: Array<EffectOperation>
+}
+
+fun EffectNode.new() r: EffectNode {
+    return EffectNode{
+        name: "",
+        Operations: Array<EffectOperation>()
+    }
+}
+
+// Effect operation
+data EffectOperation {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode?
+}
+
+fun EffectOperation.new() r: EffectOperation {
+    return EffectOperation{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: null
+    }
+}
+
+// Contract (requires/ensures)
+data ContractNode {
+    Requires: Array<ExpressionNode>
+    Ensures: Array<ExpressionNode>
+    Invariants: Array<ExpressionNode>
+}
+
+fun ContractNode.new() r: ContractNode {
+    return ContractNode{
+        Requires: Array<ExpressionNode>(),
+        Ensures: Array<ExpressionNode>(),
+        Invariants: Array<ExpressionNode>()
+    }
+}
+
+// Data class (automatic equals, hashcode, etc.)
+data DataClassNode {
+    name: String
+    fields: Array<FieldNode>
+    visibility: String
+}
+
+fun DataClassNode.new() r: DataClassNode {
+    return DataClassNode{
+        name: "",
+        fields: Array<FieldNode>(),
+        visibility: "private"
+    }
+}
+
+// Sealed class (exhaustive matching)
+data SealedClassNode {
+    name: String
+    Subclasses: Array<ClassNode>
+    visibility: String
+}
+
+fun SealedClassNode.new() r: SealedClassNode {
+    return SealedClassNode{
+        name: "",
+        Subclasses: Array<ClassNode>(),
+        visibility: "private"
+    }
+}

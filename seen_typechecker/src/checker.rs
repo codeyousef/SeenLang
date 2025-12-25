@@ -887,11 +887,11 @@ impl TypeChecker {
         // Special handling for commonly imported modules - add stubs for known functions
         // This allows the self-hosted compiler to reference standard functions
         let module_name = module_path.join(".");
-        println!("DEBUG: Handling import: {}", module_name);
+        // println!("DEBUG: Handling import: {}", module_name);
 
         match module_name.as_str() {
             "core.result" => {
-                println!("DEBUG: Stubbing core.result");
+                // println!("DEBUG: Stubbing core.result");
                 // Define Result<T, E>
                 let mut fields = HashMap::new();
                 fields.insert("isOk".to_string(), Type::Bool);
@@ -1179,7 +1179,7 @@ impl TypeChecker {
                     },
                 );
             }
-            "seen_std.collections.vec" => {
+            "collections.vec" | "seen_std.collections.vec" => {
                 // Define Vec<T>
                 let mut fields = HashMap::new();
                 fields.insert("length".to_string(), Type::Int);
@@ -1659,6 +1659,86 @@ impl TypeChecker {
                         return_type: Some(Type::String),
                     },
                 );
+
+                // lastIndexOf(s: String, sub: String) -> Int
+                self.env.define_function(
+                    "lastIndexOf".to_string(),
+                    FunctionSignature {
+                        name: "lastIndexOf".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "s".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "sub".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::Int),
+                    },
+                );
+
+                // indexOf(text: String, needle: String, startIndex: Int = 0) -> Int
+                self.env.define_function(
+                    "indexOf".to_string(),
+                    FunctionSignature {
+                        name: "indexOf".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "text".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "needle".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "startIndex".to_string(),
+                                param_type: Type::Int,
+                            },
+                        ],
+                        return_type: Some(Type::Int),
+                    },
+                );
+
+                // join(parts: Array<String>, separator: String) -> String
+                self.env.define_function(
+                    "join".to_string(),
+                    FunctionSignature {
+                        name: "join".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "parts".to_string(),
+                                param_type: Type::Array(Box::new(Type::String)),
+                            },
+                            Parameter {
+                                name: "separator".to_string(),
+                                param_type: Type::String,
+                            },
+                        ],
+                        return_type: Some(Type::String),
+                    },
+                );
+
+                // lines(text: String, dropEmpty: Bool = false) -> Array<String>
+                self.env.define_function(
+                    "lines".to_string(),
+                    FunctionSignature {
+                        name: "lines".to_string(),
+                        parameters: vec![
+                            Parameter {
+                                name: "text".to_string(),
+                                param_type: Type::String,
+                            },
+                            Parameter {
+                                name: "dropEmpty".to_string(),
+                                param_type: Type::Bool,
+                            },
+                        ],
+                        return_type: Some(Type::Array(Box::new(Type::String))),
+                    },
+                );
             }
             "seen_std.collections.string_hash_map" => {
                 // StringHashMap type
@@ -1746,6 +1826,211 @@ impl TypeChecker {
                     },
                 );
             }
+            "ffi.cinterop" | "seen_std.ffi.cinterop" => {
+                // CString type definition
+                let mut cstring_fields = HashMap::new();
+                cstring_fields.insert("text".to_string(), Type::String);
+                let cstring_type = Type::Struct {
+                    name: "CString".to_string(),
+                    fields: cstring_fields,
+                    generics: vec![],
+                };
+                self.env.define_type("CString".to_string(), cstring_type.clone());
+                self.env.define_variable("CString".to_string(), cstring_type.clone());
+
+                // CString::new(text: String = "") -> CString
+                self.env.define_function(
+                    "CString::new".to_string(),
+                    FunctionSignature {
+                        name: "CString::new".to_string(),
+                        parameters: vec![Parameter {
+                            name: "text".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(cstring_type.clone()),
+                    },
+                );
+
+                // toCString(text: String) -> CString
+                self.env.define_function(
+                    "toCString".to_string(),
+                    FunctionSignature {
+                        name: "toCString".to_string(),
+                        parameters: vec![Parameter {
+                            name: "text".to_string(),
+                            param_type: Type::String,
+                        }],
+                        return_type: Some(cstring_type.clone()),
+                    },
+                );
+
+                // fromCString(cString: CString) -> String
+                self.env.define_function(
+                    "fromCString".to_string(),
+                    FunctionSignature {
+                        name: "fromCString".to_string(),
+                        parameters: vec![Parameter {
+                            name: "cString".to_string(),
+                            param_type: cstring_type.clone(),
+                        }],
+                        return_type: Some(Type::String),
+                    },
+                );
+            }
+            "lexer.interfaces" => {
+                // TokenType enum
+                let token_type = Type::Enum {
+                    name: "TokenType".to_string(),
+                    variants: vec![
+                        "IntegerLiteral".to_string(), "FloatLiteral".to_string(), "StringLiteral".to_string(), "BooleanLiteral".to_string(),
+                        "Identifier".to_string(), "KeywordFun".to_string(), "KeywordLet".to_string(), "KeywordVar".to_string(), "KeywordIf".to_string(),
+                        "KeywordElse".to_string(), "KeywordWhile".to_string(), "KeywordFor".to_string(), "KeywordIn".to_string(), "KeywordReturn".to_string(),
+                        "KeywordBreak".to_string(), "KeywordContinue".to_string(), "KeywordClass".to_string(), "KeywordInterface".to_string(),
+                        "KeywordEnum".to_string(), "KeywordExtends".to_string(), "KeywordImplements".to_string(), "KeywordAsync".to_string(),
+                        "KeywordAwait".to_string(), "KeywordSpawn".to_string(), "KeywordMatch".to_string(), "KeywordTry".to_string(), "KeywordCatch".to_string(),
+                        "KeywordFinally".to_string(), "KeywordThrow".to_string(), "KeywordImport".to_string(), "KeywordExport".to_string(),
+                        "KeywordAs".to_string(), "KeywordIs".to_string(), "KeywordNull".to_string(), "KeywordTrue".to_string(), "KeywordFalse".to_string(),
+                        "KeywordThis".to_string(), "KeywordSuper".to_string(), "KeywordMove".to_string(), "KeywordBorrow".to_string(),
+                        "Plus".to_string(), "Minus".to_string(), "Multiply".to_string(), "Divide".to_string(), "Modulo".to_string(),
+                        "Equal".to_string(), "PlusEqual".to_string(), "MinusEqual".to_string(), "MultiplyEqual".to_string(), "DivideEqual".to_string(),
+                        "EqualEqual".to_string(), "NotEqual".to_string(), "LessThan".to_string(), "LessEqual".to_string(), "GreaterThan".to_string(), "GreaterEqual".to_string(),
+                        "LogicalAnd".to_string(), "LogicalOr".to_string(), "LogicalNot".to_string(),
+                        "SafeNavigation".to_string(), "Elvis".to_string(), "Question".to_string(),
+                        "LeftParen".to_string(), "RightParen".to_string(), "LeftBrace".to_string(), "RightBrace".to_string(), "LeftBracket".to_string(), "RightBracket".to_string(),
+                        "Comma".to_string(), "Semicolon".to_string(), "Colon".to_string(), "Dot".to_string(), "Arrow".to_string(),
+                        "InterpolatedStringStart".to_string(), "InterpolatedStringMiddle".to_string(), "InterpolatedStringEnd".to_string(),
+                        "Newline".to_string(), "Whitespace".to_string(), "Comment".to_string(), "Error".to_string(), "EndOfFile".to_string(),
+                    ],
+                    generics: vec![],
+                };
+                self.env.define_type("TokenType".to_string(), token_type.clone());
+                self.env.define_variable("TokenType".to_string(), token_type.clone());
+
+                // Token class
+                let mut token_fields = HashMap::new();
+                token_fields.insert("tokenType".to_string(), token_type.clone());
+                token_fields.insert("value".to_string(), Type::String);
+                token_fields.insert("line".to_string(), Type::Int);
+                token_fields.insert("column".to_string(), Type::Int);
+                token_fields.insert("length".to_string(), Type::Int);
+                token_fields.insert("fileId".to_string(), Type::Int);
+                let token_class = Type::Struct {
+                    name: "Token".to_string(),
+                    fields: token_fields,
+                    generics: vec![],
+                };
+                self.env.define_type("Token".to_string(), token_class.clone());
+
+                // Token::new constructor
+                self.env.define_function(
+                    "Token::new".to_string(),
+                    FunctionSignature {
+                        name: "Token::new".to_string(),
+                        parameters: vec![
+                            Parameter { name: "tokenType".to_string(), param_type: token_type.clone() },
+                            Parameter { name: "value".to_string(), param_type: Type::String },
+                            Parameter { name: "line".to_string(), param_type: Type::Int },
+                            Parameter { name: "column".to_string(), param_type: Type::Int },
+                            Parameter { name: "length".to_string(), param_type: Type::Int },
+                            Parameter { name: "fileId".to_string(), param_type: Type::Int },
+                        ],
+                        return_type: Some(token_class.clone()),
+                    },
+                );
+            }
+            "typechecker.interfaces" => {
+                // Type class (from the self-hosted compiler)
+                let mut type_fields = HashMap::new();
+                type_fields.insert("name".to_string(), Type::String);
+                type_fields.insert("isNullable".to_string(), Type::Bool);
+                let tc_type = Type::Struct {
+                    name: "Type".to_string(),
+                    fields: type_fields,
+                    generics: vec![],
+                };
+                self.env.define_type("Type".to_string(), tc_type.clone());
+
+                // Type::new constructor
+                self.env.define_function(
+                    "Type::new".to_string(),
+                    FunctionSignature {
+                        name: "Type::new".to_string(),
+                        parameters: vec![
+                            Parameter { name: "name".to_string(), param_type: Type::String },
+                            Parameter { name: "isNullable".to_string(), param_type: Type::Bool },
+                        ],
+                        return_type: Some(tc_type.clone()),
+                    },
+                );
+
+                // Type factory functions
+                for factory_name in &["typeInt", "typeFloat", "typeString", "typeBool", "typeVoid", "typeUnit", "typeAny", "typeNever", "typeUnknown"] {
+                    self.env.define_function(
+                        factory_name.to_string(),
+                        FunctionSignature {
+                            name: factory_name.to_string(),
+                            parameters: vec![],
+                            return_type: Some(tc_type.clone()),
+                        },
+                    );
+                }
+
+                // Empty stub classes
+                for class_name in &["AST", "Function", "Expression", "Statement", "Class", "Interface"] {
+                    let stub_type = Type::Struct {
+                        name: class_name.to_string(),
+                        fields: HashMap::new(),
+                        generics: vec![],
+                    };
+                    self.env.define_type(class_name.to_string(), stub_type);
+                }
+
+                // FunctionType class
+                let mut fn_type_fields = HashMap::new();
+                fn_type_fields.insert("parameters".to_string(), Type::Array(Box::new(tc_type.clone())));
+                fn_type_fields.insert("returnType".to_string(), tc_type.clone());
+                fn_type_fields.insert("isAsync".to_string(), Type::Bool);
+                let fn_type_class = Type::Struct {
+                    name: "FunctionType".to_string(),
+                    fields: fn_type_fields,
+                    generics: vec![],
+                };
+                self.env.define_type("FunctionType".to_string(), fn_type_class.clone());
+
+                // FunctionType::new
+                self.env.define_function(
+                    "FunctionType::new".to_string(),
+                    FunctionSignature {
+                        name: "FunctionType::new".to_string(),
+                        parameters: vec![
+                            Parameter { name: "parameters".to_string(), param_type: Type::Array(Box::new(tc_type.clone())) },
+                            Parameter { name: "returnType".to_string(), param_type: tc_type.clone() },
+                            Parameter { name: "isAsync".to_string(), param_type: Type::Bool },
+                        ],
+                        return_type: Some(fn_type_class.clone()),
+                    },
+                );
+
+                // ClassType class
+                let mut class_type_fields = HashMap::new();
+                class_type_fields.insert("name".to_string(), Type::String);
+                let class_type_class = Type::Struct {
+                    name: "ClassType".to_string(),
+                    fields: class_type_fields,
+                    generics: vec![],
+                };
+                self.env.define_type("ClassType".to_string(), class_type_class.clone());
+
+                // ClassType::new
+                self.env.define_function(
+                    "ClassType::new".to_string(),
+                    FunctionSignature {
+                        name: "ClassType::new".to_string(),
+                        parameters: vec![Parameter { name: "name".to_string(), param_type: Type::String }],
+                        return_type: Some(class_type_class.clone()),
+                    },
+                );
+            }
             _ => {
                 // For other modules, just mark them as imported without error
                 // This allows the compiler to continue checking the rest of the code
@@ -1798,6 +2083,7 @@ impl TypeChecker {
             "String" => Type::String,
             "Char" => Type::Char,
             "Void" | "()" | "Unit" => Type::Unit,
+            "Any" => Type::Unknown,  // Any type is represented as Unknown (compatible with everything)
             "Array" | "List" => {
                 if resolved_args.len() == 1 {
                     Type::Array(Box::new(resolved_args[0].clone()))
@@ -2272,7 +2558,7 @@ impl TypeChecker {
                     if &fixed != ret_ty {
                         changed = true;
                         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                            eprintln!("[DEBUG] Fixed function {} return type", func_name);
+                            // eprintln!("[DEBUG] Fixed function {} return type", func_name);
                         }
                     }
                     Some(fixed)
@@ -2455,7 +2741,7 @@ impl TypeChecker {
                     if &fixed_type != field_type {
                         changed = true;
                         if std::env::var("SEEN_DEBUG_TYPES").is_ok() {
-                            eprintln!("[DEBUG] Fixed nested field {}.{}", name, field_name);
+                            // eprintln!("[DEBUG] Fixed nested field {}.{}", name, field_name);
                         }
                     }
                     fixed_fields.insert(field_name.clone(), fixed_type);

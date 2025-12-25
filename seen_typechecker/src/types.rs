@@ -343,6 +343,38 @@ impl Type {
                 },
             ) => k1.is_assignable_to(k2) && v1.is_assignable_to(v2),
 
+            // Map struct can be assigned to Map type and vice versa
+            (
+                Type::Struct {
+                    name,
+                    generics,
+                    ..
+                },
+                Type::Map {
+                    key_type,
+                    value_type,
+                },
+            ) if name == "Map" || name == "HashMap" => {
+                generics.len() == 2
+                    && generics[0].is_assignable_to(key_type)
+                    && generics[1].is_assignable_to(value_type)
+            }
+            (
+                Type::Map {
+                    key_type,
+                    value_type,
+                },
+                Type::Struct {
+                    name,
+                    generics,
+                    ..
+                },
+            ) if name == "Map" || name == "HashMap" => {
+                generics.len() == 2
+                    && key_type.is_assignable_to(&generics[0])
+                    && value_type.is_assignable_to(&generics[1])
+            }
+
             // Task types must agree on payload
             (Type::Task(a), Type::Task(b)) => a.is_assignable_to(b),
 

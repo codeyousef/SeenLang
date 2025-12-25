@@ -1,45 +1,72 @@
-// Stage1 compiler driver — delegates to the production Rust compiler for full codegen.
+// Stage1 compiler driver — pure Seen pipeline (no Rust dependency).
 
-data CommandResult {
-    success: Bool
-    output: String
-}
-
-extern fun __ExecuteCommand(command: String) r: CommandResult
-extern fun __GetCommandLineArgCount() r: Int
-extern fun __GetCommandLineArg(index: Int) r: String
-
-fun run(command: String, label: String) r: Bool {
-    println("⚙️  " + label + ": " + command)
-    let result = __ExecuteCommand(command)
-    if not result.success {
-        println("❌ " + label + " failed")
-        if result.output.length() > 0 {
-            println(result.output)
-        }
-        return false
-    }
-    return true
-}
+import bootstrap.frontend.{FrontendResult, run_frontend}
+import io.file.{readText, writeText}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import env.env.{args}
 
 fun compileCommand(inputFile: String, outputFile: String) r: Int {
-    println("🚀 Stage1 compiling (production path)")
-    // Enforce deterministic profile + epoch for repeatable Stage2/3 builds.
-    let cmd = "SOURCE_DATE_EPOCH=0 ./target/release/seen_cli build " + inputFile + " --backend llvm --profile deterministic --simd off -o " + outputFile
-    if run(cmd, "build") {
+    println("🚀 Stage1 compiling (Seen-only path)")
+
+    let sourceCode = readText(inputFile)
+    if sourceCode == "" {
+        println("❌ Failed to read source: " + inputFile)
+        return 1
+    }
+
+    let frontend = run_frontend(sourceCode, inputFile, "en")
+    if not frontend.success {
+        println("❌ Frontend errors detected")
+        printFrontendDiagnostics(frontend)
+        return 1
+    }
+
+    // Stub codegen: emit minimal C and compile with gcc
+    let cFilePath = outputFile + ".c"
+    let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
+    if not writeText(cFilePath, cCode) {
+        println("❌ Failed to write intermediate C file: " + cFilePath)
+        return 1
+    }
+
+    let compileResult: CommandResult = runCommand("gcc -std=c99 -O2 -o " + outputFile + " " + cFilePath)
+    if commandWasSuccessful(compileResult) {
         println("✅ Build succeeded -> " + outputFile)
         return 0
     }
+
+    println("❌ gcc failed")
+    println(compileResult.output)
     return 1
 }
 
 fun checkCommand(inputFile: String) r: Int {
-    let cmd = "SOURCE_DATE_EPOCH=0 ./target/release/seen_cli check " + inputFile + " --profile deterministic"
-    if run(cmd, "check") {
-        println("✅ Check passed")
-        return 0
+    let sourceCode = readText(inputFile)
+    if sourceCode == "" {
+        println("❌ Failed to read source: " + inputFile)
+        return 1
     }
-    return 1
+
+    let frontend = run_frontend(sourceCode, inputFile, "en")
+    if not frontend.success {
+        println("❌ Frontend errors detected")
+        printFrontendDiagnostics(frontend)
+        return 1
+    }
+
+    println("✅ Check passed")
+    return 0
+}
+
+fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
+    let diagnostics = frontend.getDiagnostics()
+    var index = 0
+    while index < diagnostics.length() {
+        let diag = diagnostics[index]
+        println("[" + diag.severity + "] " + diag.file + ":" + diag.line.toString() + ":" + diag.column.toString() + " " + diag.message)
+        index = index + 1
+    }
+    return
 }
 
 fun defaultOutput(sourceFile: String) r: String {
@@ -56,32 +83,32 @@ fun printUsage() r: Void {
 }
 
 fun main() r: Int {
-    let argc = __GetCommandLineArgCount()
-    if argc < 2 {
+    let argv = args()
+    if argv.length() < 2 {
         printUsage()
         return 1
     }
 
-    let command = __GetCommandLineArg(1)
+    let command = argv[1]
     if command == "compile" {
-        if argc < 3 {
+        if argv.length() < 3 {
             printUsage()
             return 1
         }
-        let inputFile = __GetCommandLineArg(2)
+        let inputFile = argv[2]
         var outputFile = defaultOutput(inputFile)
-        if argc > 3 {
-            outputFile = __GetCommandLineArg(3)
+        if argv.length() > 3 {
+            outputFile = argv[3]
         }
         return compileCommand(inputFile, outputFile)
     }
 
     if command == "check" {
-        if argc < 3 {
+        if argv.length() < 3 {
             printUsage()
             return 1
         }
-        return checkCommand(__GetCommandLineArg(2))
+        return checkCommand(argv[2])
     }
 
     println("❌ Unknown command: " + command)

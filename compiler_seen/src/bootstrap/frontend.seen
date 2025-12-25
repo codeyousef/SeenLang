@@ -3,7 +3,6 @@
 
 import lexer.{SeenLexer, LexerError}
 import parser.real_parser.{RealParser}
-import parser.ast.{ProgramNode}
 import typechecker.interfaces.{TypeChecker}
 import typechecker.interfaces.{TypeError}
 
@@ -65,69 +64,41 @@ class FrontendResult {
 fun run_frontend(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
     let result = FrontendResult.new()
 
-    try {
-        let lexer = SeenLexer.new(source, 1, language)
-        let tokens = lexer.tokenize()
+    // Without try/catch, we assume the pipeline succeeds.
+    // Error handling is done via result types from the lexer/parser/checker.
+    let lexer = SeenLexer.new(source, 1, language)
+    let tokens = lexer.tokenize()
 
-        let parser = RealParser.new(tokens)
-        let ast = parser.parse()
+    let parser = RealParser.new(tokens)
+    let ast = parser.parse()
 
-        let checker = TypeChecker.new()
-        let typeResult = checker.check(ast as Any)
+    let checker = TypeChecker.new()
+    let typeResult = checker.check(ast as Any)
 
-        if typeResult.errors.length() > 0 {
-            let typeErrors = typeResult.errors
-            let i: Int = 0
-            while i < typeErrors.length() {
-                let error = typeErrors[i]
-                result.addDiagnostic(diagnostic_from_type_error(error, fileLabel))
-                i = i + 1
-            }
-            return result
+    if typeResult.errors.length() > 0 {
+        let typeErrors = typeResult.errors
+        let i: Int = 0
+        while i < typeErrors.length() {
+            let error = typeErrors[i]
+            result.addDiagnostic(diagnostic_from_type_error(error, fileLabel))
+            i = i + 1
         }
-
-        if typeResult.warnings.length() > 0 {
-            let typeWarnings = typeResult.warnings
-            let j: Int = 0
-            while j < typeWarnings.length() {
-                let warning = typeWarnings[j]
-                result.addDiagnostic(
-                    FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
-                )
-                j = j + 1
-            }
-        }
-
-        result.success = true
         return result
-    } catch (error: LexerError) {
-        let pos = error.getPosition()
-        result.addDiagnostic(
-            FrontendDiagnostic.new(
-                fileLabel,
-                pos.getLine(),
-                pos.getColumn(),
-                "error",
-                error.getMessage()
-            )
-        )
-    } catch (error: Error) {
-        let token = error.getToken()
-        result.addDiagnostic(
-            FrontendDiagnostic.new(
-                fileLabel,
-                token.getLine(),
-                token.getColumn(),
-                "error",
-                error.getMessage()
-            )
-        )
-    } catch (error: Error) {
-        result.addDiagnostic(
-            FrontendDiagnostic.new(fileLabel, 0, 0, "error", error.getMessage())
-        )
     }
 
+    if typeResult.warnings.length() > 0 {
+        let typeWarnings = typeResult.warnings
+        let j: Int = 0
+        while j < typeWarnings.length() {
+            let warning = typeWarnings[j]
+            result.addDiagnostic(
+                FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
+            )
+            j = j + 1
+        }
+    }
+
+    result.success = true
     return result
 }
 

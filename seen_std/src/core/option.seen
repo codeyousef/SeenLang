@@ -1,23 +1,22 @@
 // seen_std.core.option
-// Deterministic Option<T> container with storage that the bootstrap type checker understands.
+// Deterministic Option<T> container backed by an inline slot (no Array intrinsics).
+
+// Runtime-provided default initializer for generic T (handled as intrinsic in backend).
+extern fun __default<T>() r: T
 
 class Option<T> {
     var hasValue: Bool
-    var storage: Array<T>
+    var value: T
 
     static fun New() r: Option<T> {
         return Option{
             hasValue: false,
-            storage: Array<T>()
+            value: __default<T>()
         }
     }
 
     fun Store(value: T) r: Void {
-        if this.storage.length() == 0 {
-            this.storage.push(value)
-        } else {
-            this.storage[0] = value
-        }
+        this.value = value
         this.hasValue = true
     }
 
@@ -30,30 +29,30 @@ class Option<T> {
     }
 
     fun Unwrap() r: T {
-        if not this.hasValue or this.storage.length() == 0 {
+        if not this.hasValue {
             abort("called unwrap() on None option")
         }
-        return this.storage[0]
+        return this.value
     }
 
     fun Expect(message: String) r: T {
-        if this.hasValue and this.storage.length() > 0 {
-            return this.storage[0]
+        if this.hasValue {
+            return this.value
         }
         abort(message)
         return this.Unwrap()
     }
 
     fun UnwrapOr(defaultValue: T) r: T {
-        if this.hasValue and this.storage.length() > 0 {
-            return this.storage[0]
+        if this.hasValue {
+            return this.value
         }
         return defaultValue
     }
 
     fun Replace(value: T) r: Option<T> {
-        let previous = if this.hasValue and this.storage.length() > 0 {
-            Some(this.storage[0])
+        let previous = if this.hasValue {
+            Some(this.value)
         } else {
             None()
         }
@@ -62,8 +61,8 @@ class Option<T> {
     }
 
     fun Clear() r: Void {
-        this.storage = Array<T>()
         this.hasValue = false
+        this.value = __default<T>()
     }
 }
 
@@ -75,4 +74,8 @@ fun Some<T>(value: T) r: Option<T> {
 
 fun None<T>() r: Option<T> {
     return Option.New()
+}
+
+fun UnwrapOr<T>(option: Option<T>, defaultValue: T) r: T {
+    return option.UnwrapOr(defaultValue)
 }

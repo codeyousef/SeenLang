@@ -17,10 +17,14 @@ if [ -f "Cargo.toml" ]; then
     echo "   🔧 Building Rust bootstrap compiler (optimized release)"
     
     # Build with optimizations
-    CARGO_TARGET_DIR=target-wsl cargo build --release --quiet
+    CARGO_TARGET_DIR=target-wsl cargo build --release --quiet --features llvm
     
     if [ $? -eq 0 ]; then
         echo "   ✅ Bootstrap compiler built successfully"
+        # Create a symlink if it doesn't exist to match expected name
+        if [ ! -f "target-wsl/release/seen" ]; then
+            ln -sf seen_cli target-wsl/release/seen
+        fi
         echo "   📍 Location: target-wsl/release/seen"
     else
         echo "   ❌ Bootstrap compiler build failed"
@@ -48,13 +52,15 @@ if [ -f "src/main_compiler.seen" ]; then
     echo "      - LLVM backend with -O3 + LTO"
     
     # Use the bootstrap compiler to build the self-hosted version
-    if ../target-wsl/release/seen build src/main.seen; then
+    mkdir -p target/native/release
+    if ../target-wsl/release/seen build src/main.seen --backend llvm -o target/native/release/seen_compiler; then
         echo "   ✅ Self-hosted compiler built successfully!"
         echo "   📍 Location: compiler_seen/target/native/release/seen_compiler"
         
         # Test the compiler
         echo "   🧪 Testing self-hosted compiler..."
         if [ -f "target/native/release/seen_compiler" ]; then
+            chmod +x target/native/release/seen_compiler
             echo "   ✅ Self-hosted compiler executable created"
         else
             echo "   ❌ Error: Self-hosted compiler executable not found"

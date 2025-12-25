@@ -3,8 +3,67 @@
 // functions) so higher layers can start consuming deterministic data while the
 // full parser port continues.
 
-import parser.ast.{ProgramNode, ItemNode, FunctionNode, ParamNode, TypeNode, BlockNode, ImportSymbolNode, ClassNode}
-import lexer.interfaces.{TokenType, Token}
+import lexer.interfaces.{Token}
+
+// Minimal AST scaffolding local to the parser
+data ProgramNode { items: Array<ItemNode> }
+fun ProgramNode.new() r: ProgramNode { return ProgramNode{ items: Array<ItemNode>() } }
+
+data ItemNode {
+    itemType: String
+    name: String
+    visibility: String
+    importPath: Array<String>
+    importSymbols: Array<ImportSymbolNode>
+    function: FunctionNode
+    classNode: ClassNode
+}
+fun ItemNode.new() r: ItemNode {
+    return ItemNode{
+        itemType: "",
+        name: "",
+        visibility: "private",
+        importPath: Array<String>(),
+        importSymbols: Array<ImportSymbolNode>(),
+        function: FunctionNode.new(),
+        classNode: ClassNode.new()
+    }
+}
+
+data ImportSymbolNode { name: String; alias: String }
+fun ImportSymbolNode.new() r: ImportSymbolNode { return ImportSymbolNode{ name: "", alias: "" } }
+
+data FunctionNode {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode
+    body: BlockNode
+    isAsync: Bool
+    isInline: Bool
+}
+fun FunctionNode.new() r: FunctionNode {
+    return FunctionNode{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: TypeNode.new(),
+        body: BlockNode.new(),
+        isAsync: false,
+        isInline: false
+    }
+}
+
+data ParamNode { name: String; paramType: TypeNode; isMutable: Bool }
+fun ParamNode.new() r: ParamNode { return ParamNode{ name: "", paramType: TypeNode.new(), isMutable: false } }
+
+data TypeNode { typeName: String; isNullable: Bool }
+fun TypeNode.new() r: TypeNode { return TypeNode{ typeName: "Unknown", isNullable: false } }
+
+data BlockNode { statements: Array<String> }
+fun BlockNode.new() r: BlockNode { return BlockNode{ statements: Array<String>() } }
+
+data ClassNode { name: String }
+fun ClassNode.new() r: ClassNode { return ClassNode{ name: "" } }
+data ImportPathInfo { text: String; segments: Array<String> }
 // Use the canonical Token from lexer.interfaces for type consistency
 
 class RealParser {
@@ -22,33 +81,33 @@ class RealParser {
         let program = ProgramNode.new()
 
         while not isAtEnd() {
-            if matchToken(TokenType.KeywordImport) {
+            if matchToken("KeywordImport") {
                 let importItem = parseImportItem()
-                if importItem != null {
+                if importItem.itemType != "" {
                     program.items.push(importItem)
                 }
                 continue
             }
 
-            if matchToken(TokenType.KeywordUse) {
+            if matchToken("KeywordUse") {
                 let importItem = parseImportItem()
-                if importItem != null {
+                if importItem.itemType != "" {
                     program.items.push(importItem)
                 }
                 continue
             }
 
-            if matchToken(TokenType.KeywordFun) {
+            if matchToken("KeywordFun") {
                 let functionItem = parseFunctionItem()
-                if functionItem != null {
+                if functionItem.itemType != "" {
                     program.items.push(functionItem)
                 }
                 continue
             }
 
-            if matchToken(TokenType.KeywordClass) {
+            if matchToken("KeywordClass") {
                 let classItem = parseClassItem()
-                if classItem != null {
+                if classItem.itemType != "" {
                     program.items.push(classItem)
                 }
                 continue
@@ -61,12 +120,12 @@ class RealParser {
         return program
     }
 
-    fun parseFunctionItem() r: ItemNode? {
+    fun parseFunctionItem() r: ItemNode {
         if isAtEnd() {
-            return null
+            return ItemNode.new()
         }
 
-        let nameToken = consume(TokenType.Identifier, "Expected function name")
+        let nameToken = consume("Identifier", "Expected function name")
         let func = FunctionNode.new()
         func.name = nameToken.getValue()
 
@@ -85,12 +144,12 @@ class RealParser {
         return item
     }
 
-    fun parseClassItem() r: ItemNode? {
+    fun parseClassItem() r: ItemNode {
         if isAtEnd() {
-            return null
+            return ItemNode.new()
         }
 
-        let nameToken = consume(TokenType.Identifier, "Expected class name")
+        let nameToken = consume("Identifier", "Expected class name")
         let classNode = ClassNode.new()
         classNode.name = nameToken.getValue()
 
@@ -107,33 +166,33 @@ class RealParser {
     }
 
     fun parseParameterList(func: FunctionNode) r: Void {
-        if not matchToken(TokenType.LeftParen) {
+        if not matchToken("LeftParen") {
             return
         }
 
-        if checkToken(TokenType.RightParen) {
+        if checkToken("RightParen") {
             advance()
             return
         }
 
         while not isAtEnd() {
             let param = parseParam()
-            if param != null {
+            if param.name != "" {
                 func.params.push(param)
             }
 
-            if matchToken(TokenType.Comma) {
+            if matchToken("Comma") {
                 continue
             }
 
-            consume(TokenType.RightParen, "Expected ')' after parameters")
+            consume("RightParen", "Expected ')' after parameters")
             break
         }
     }
 
-    fun parseParam() r: ParamNode? {
-        if !checkToken(TokenType.Identifier) {
-            return null
+    fun parseParam() r: ParamNode {
+        if !checkToken("Identifier") {
+            return ParamNode.new()
         }
         let nameToken = advance()
 
@@ -142,7 +201,7 @@ class RealParser {
         param.paramType = parseOptionalTypeAnnotation()
 
         // Skip default values.
-        if matchToken(TokenType.Equal) {
+        if matchToken("Equal") {
             skipExpression()
         }
 
@@ -150,7 +209,7 @@ class RealParser {
     }
 
     fun parseOptionalTypeAnnotation() r: TypeNode {
-        if !matchToken(TokenType.Colon) {
+        if !matchToken("Colon") {
             let fallback = TypeNode.new()
             fallback.typeName = "Unknown"
             return fallback
@@ -159,9 +218,9 @@ class RealParser {
         return parseTypeNode()
     }
 
-    fun parseOptionalReturnType() r: TypeNode? {
-        if !matchToken(TokenType.Arrow) {
-            return null
+    fun parseOptionalReturnType() r: TypeNode {
+        if !matchToken("Arrow") {
+            return TypeNode.new()
         }
         return parseTypeNode()
     }
@@ -169,21 +228,21 @@ class RealParser {
     fun parseTypeNode() r: TypeNode {
         let typeNode = TypeNode.new()
 
-        if checkToken(TokenType.Identifier) {
+        if checkToken("Identifier") {
             let token = advance()
             var name = token.getValue()
             // Support qualified names
-            while matchToken(TokenType.Dot) {
-                if checkToken(TokenType.Identifier) {
+            while matchToken("Dot") {
+                if checkToken("Identifier") {
                     name = name + "." + advance().getValue()
                 } else { break }
             }
             // Skip generic parameters <...>
-            if matchToken(TokenType.LessThan) {
+            if matchToken("LessThan") {
                 var depth = 1
                 while depth > 0 and not isAtEnd() {
-                    if matchToken(TokenType.LessThan) { depth = depth + 1; continue }
-                    if matchToken(TokenType.GreaterThan) { depth = depth - 1; continue }
+                    if matchToken("LessThan") { depth = depth + 1; continue }
+                    if matchToken("GreaterThan") { depth = depth - 1; continue }
                     advance()
                 }
             }
@@ -192,18 +251,18 @@ class RealParser {
             typeNode.typeName = "Unknown"
         }
 
-        if matchToken(TokenType.Question) { typeNode.isNullable = true }
+        if matchToken("Question") { typeNode.isNullable = true }
         return typeNode
     }
 
     fun skipOptionalFunctionBody() r: Void {
-        if matchToken(TokenType.LeftBrace) {
+        if matchToken("LeftBrace") {
             skipBlockBody()
             return
         }
 
         // Support trailing semicolons (declarations)
-        if matchToken(TokenType.Semicolon) {
+        if matchToken("Semicolon") {
             // no-op
         }
     }
@@ -212,24 +271,25 @@ class RealParser {
         var depth = 1
         while depth > 0 and not isAtEnd() {
             let token = advance()
-            if token.getType() == TokenType.LeftBrace {
+            let kind = token.getType().toString()
+            if kind == "LeftBrace" {
                 depth = depth + 1
-            } else if token.getType() == TokenType.RightBrace {
+            } else if kind == "RightBrace" {
                 depth = depth - 1
             }
         }
     }
 
-    fun parseImportItem() r: ItemNode? {
+    fun parseImportItem() r: ItemNode {
         let pathInfo = parseImportPath()
         let importSymbols = parseImportSymbols(pathInfo)
 
-        matchToken(TokenType.Semicolon)
+        matchToken("Semicolon")
 
         let item = ItemNode.new()
         item.itemType = "Import"
-        item.name = pathInfo.Text
-        item.importPath = pathInfo.Segments
+        item.name = pathInfo.text
+        item.importPath = pathInfo.segments
         item.importSymbols = importSymbols
         item.visibility = ""
         return item
@@ -238,28 +298,28 @@ class RealParser {
     fun parseImportPath() r: ImportPathInfo {
         let segments = Array<String>()
 
-        if checkToken(TokenType.Identifier) {
+        if checkToken("Identifier") {
             segments.push(advance().getValue())
         }
 
         var text = joinSegments(segments, ".")
 
         while not isAtEnd() {
-            if matchToken(TokenType.Dot) {
-                if checkToken(TokenType.LeftBrace) or checkToken(TokenType.KeywordAs) {
+            if matchToken("Dot") {
+                if checkToken("LeftBrace") or checkToken("KeywordAs") {
                     break
                 }
-                let segment = consume(TokenType.Identifier, "Expected identifier in import path")
+                let segment = consume("Identifier", "Expected identifier in import path")
                 segments.push(segment.getValue())
                 text = text + "." + segment.getValue()
                 continue
             }
 
-            if matchToken(TokenType.Colon) and matchToken(TokenType.Colon) {
-                if checkToken(TokenType.LeftBrace) or checkToken(TokenType.KeywordAs) {
+            if matchToken("Colon") and matchToken("Colon") {
+                if checkToken("LeftBrace") or checkToken("KeywordAs") {
                     break
                 }
-                let segment = consume(TokenType.Identifier, "Expected identifier after '::'")
+                let segment = consume("Identifier", "Expected identifier after '::'")
                 segments.push(segment.getValue())
                 text = text + "::" + segment.getValue()
                 continue
@@ -269,48 +329,48 @@ class RealParser {
         }
 
         return ImportPathInfo{
-            Text: text,
-            Segments: segments
+            text: text,
+            segments: segments
         }
     }
 
     fun parseImportSymbols(pathInfo: ImportPathInfo) r: Array<ImportSymbolNode> {
         let symbols = Array<ImportSymbolNode>()
 
-        if matchToken(TokenType.KeywordAs) and pathInfo.Segments.length() > 0 {
-            let alias = consume(TokenType.Identifier, "Expected alias after 'as'")
-            let baseName = pathInfo.Segments[pathInfo.Segments.length() - 1]
+        if matchToken("KeywordAs") and pathInfo.segments.length() > 0 {
+            let alias = consume("Identifier", "Expected alias after 'as'")
+            let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
             symbols.push(makeImportSymbol(baseName, alias.getValue()))
             return symbols
         }
 
-        if !matchToken(TokenType.LeftBrace) {
-            if pathInfo.Segments.length() > 0 {
-                let baseName = pathInfo.Segments[pathInfo.Segments.length() - 1]
+        if !matchToken("LeftBrace") {
+            if pathInfo.segments.length() > 0 {
+                let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
                 symbols.push(makeImportSymbol(baseName, ""))
             }
             return symbols
         }
 
         while not isAtEnd() {
-            if matchToken(TokenType.RightBrace) {
+            if matchToken("RightBrace") {
                 break
             }
 
-            let symbolToken = consume(TokenType.Identifier, "Expected symbol name")
+            let symbolToken = consume("Identifier", "Expected symbol name")
             var aliasValue = ""
-            if matchToken(TokenType.KeywordAs) {
-                let aliasToken = consume(TokenType.Identifier, "Expected alias name")
+            if matchToken("KeywordAs") {
+                let aliasToken = consume("Identifier", "Expected alias name")
                 aliasValue = aliasToken.getValue()
             }
 
             symbols.push(makeImportSymbol(symbolToken.getValue(), aliasValue))
 
-            if matchToken(TokenType.Comma) {
+            if matchToken("Comma") {
                 continue
             }
 
-            consume(TokenType.RightBrace, "Expected '}' after import list")
+            consume("RightBrace", "Expected '}' after import list")
             break
         }
 
@@ -330,15 +390,16 @@ class RealParser {
         if name.length() == 0 {
             return "private"
         }
-        let first = name.substring(0, 1)
-        return if first == first.toUpperCase() { "public" } else { "private" }
+        let first = name.charAt(0)
+        let isUpper = first >= 'A' and first <= 'Z'
+        return if isUpper { "public" } else { "private" }
     }
 
     fun skipExpression() r: Void {
         // Skip tokens until we reach a comma, semicolon, or closing paren.
         while not isAtEnd() {
-            let t = peek().getType()
-            if t == TokenType.Comma or t == TokenType.RightParen or t == TokenType.Semicolon {
+            let t = peek().getType().toString()
+            if t == "Comma" or t == "RightParen" or t == "Semicolon" {
                 break
             }
             advance()
@@ -358,7 +419,7 @@ class RealParser {
         return result
     }
 
-    fun matchToken(tokenType: TokenType) r: Bool {
+    fun matchToken(tokenType: String) r: Bool {
         if checkToken(tokenType) {
             advance()
             return true
@@ -366,11 +427,11 @@ class RealParser {
         return false
     }
 
-    fun checkToken(tokenType: TokenType) r: Bool {
+    fun checkToken(tokenType: String) r: Bool {
         if isAtEnd() {
             return false
         }
-        return peek().getType() == tokenType
+        return peek().getType().toString() == tokenType
     }
 
     fun advance() r: Token {
@@ -381,7 +442,7 @@ class RealParser {
     }
 
     fun isAtEnd() r: Bool {
-        return current >= tokens.length() or peek().getType() == TokenType.EndOfFile
+        return current >= tokens.length() or peek().getType().toString() == "EndOfFile"
     }
 
     fun peek() r: Token {
@@ -398,7 +459,7 @@ class RealParser {
         return tokens[current - 1]
     }
 
-    fun consume(tokenType: TokenType, message: String) r: Token {
+    fun consume(tokenType: String, message: String) r: Token {
         if checkToken(tokenType) {
             return advance()
         }
@@ -415,7 +476,4 @@ class RealParser {
     }
 }
 
-data ImportPathInfo {
-    Text: String
-    Segments: Array<String>
-}
+ 

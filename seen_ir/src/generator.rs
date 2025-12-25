@@ -175,8 +175,14 @@ impl GenerationContext {
             IRValue::Register(reg) => {
                 // Check if we have type information for this register
                 if let Some(reg_type) = self.register_types.get(reg) {
+                    // if name.contains("stage1Result") || name.contains("stage2Result") || name.contains("stage3Result") {
+                    //     // eprintln!("DEBUG: define_variable '{}' from reg {} has type {:?}", name, reg, reg_type);
+                    // }
                     reg_type.clone()
                 } else {
+                    // if name.contains("stage1Result") || name.contains("stage2Result") || name.contains("stage3Result") {
+                    //     // eprintln!("DEBUG: define_variable '{}' from reg {} has NO type registered", name, reg);
+                    // }
                     IRType::Void
                 }
             }
@@ -206,9 +212,18 @@ pub struct IRGenerator {
 
 impl IRGenerator {
     pub fn new() -> Self {
-        Self {
+        let mut gen = Self {
             context: GenerationContext::new(),
-        }
+        };
+        // Pre-register builtin types that need to be available for method call mangling
+        gen.register_builtin_types();
+        gen
+    }
+    
+    /// Register builtin types that are needed for method call mangling
+    fn register_builtin_types(&mut self) {
+        // Builtin types are now handled by the frontend and passed in the AST
+        // or discovered during IR generation.
     }
 
     /// Generate IR from an AST program
@@ -220,7 +235,59 @@ impl IRGenerator {
         let mut program = IRProgram::new();
         let mut module = IRModule::new("main");
 
-        // First pass: collect all function definitions and struct definitions
+        // Zero pass: Collect all type names to allow forward references
+        for expression in expressions {
+            match expression {
+                Expression::StructDefinition { name, .. } |
+                Expression::ClassDefinition { name, .. } |
+                Expression::EnumDefinition { name, .. } |
+                Expression::TypeAlias { name, .. } |
+                Expression::Interface { name, .. } => {
+                    // Register as opaque struct for now
+                    self.context.type_definitions.insert(name.clone(), IRType::Struct {
+                        name: name.clone(),
+                        fields: Vec::new(),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        // First pass: Register all type definitions (structs, classes, enums, type aliases)
+        // This ensures types are available when generating function bodies
+        for expression in expressions {
+            match expression {
+                Expression::StructDefinition { name, fields, .. } => {
+                    self.register_struct_type(&mut module, name, fields)?;
+                }
+                Expression::EnumDefinition { name, variants, .. } => {
+                    self.register_enum_type(&mut module, name, variants)?;
+                }
+                Expression::ClassDefinition {
+                    name,
+                    fields,
+                    methods,
+                    ..
+                } => {
+                    self.register_class_type(&mut module, name, fields, methods)?;
+                }
+                Expression::TypeAlias {
+                    name, target_type, ..
+                } => {
+                    self.register_type_alias(&mut module, name, target_type)?;
+                }
+                Expression::Interface { name, methods, .. } => {
+                    self.register_interface_type(&mut module, name, methods)?;
+                }
+                Expression::Import { module_path, symbols, .. } => {
+                    let module_str = module_path.join(".");
+                    self.register_import_types(&mut module, &module_str, symbols)?;
+                }
+                _ => {}
+            }
+        }
+
+        // Second pass: Generate functions and collect main expressions
         let mut main_expressions = Vec::new();
         for expression in expressions {
             match expression {
@@ -230,16 +297,81 @@ impl IRGenerator {
                     return_type,
                     body,
                     is_external,
+                    receiver,
                     ..
                 } => {
+                    // Generate mangled name for extension methods (fun Type.method)
+                    let func_name = if let Some(recv) = receiver {
+                        format!("{}_{}", recv.type_name, name)
+                    } else {
+                        name.clone()
+                    };
+                    
                     if *is_external {
-                        let function = self.generate_extern_function_definition(name, params, return_type)?;
+                        let function = self.generate_extern_function_definition(&func_name, params, return_type)?;
                         module.add_function(function);
                     } else {
+                        // Set up receiver context for extension methods
+                        let old_receiver_type = self.context.current_receiver_type.clone();
+                        let old_receiver_name = self.context.current_receiver_name.clone();
+                        
+                        // Build effective params - include receiver as first param for extension methods
+                        let effective_params: Vec<seen_parser::Parameter> = if let Some(recv) = receiver {
+                            // Look up the receiver type from type definitions, or create it for builtins
+                            let recv_type = self.context.type_definitions.get(&recv.type_name).cloned()
+                                .unwrap_or_else(|| {
+                                    // Handle builtin types that aren't in type_definitions
+                                    match recv.type_name.as_str() {
+                                        "Array" => IRType::Array(Box::new(IRType::Integer)), // Default element type
+                                        "String" => IRType::String,
+                                        "Int" | "Integer" => IRType::Integer,
+                                        "Float" => IRType::Float,
+                                        "Bool" | "Boolean" => IRType::Boolean,
+                                        "Char" => IRType::Char,
+                                        "List" => IRType::Array(Box::new(IRType::Integer)), // List is like Array
+                                        "Map" | "HashMap" | "StringHashMap" => {
+                                            // Use a struct type for Map-like types
+                                            IRType::Struct {
+                                                name: recv.type_name.clone(),
+                                                fields: vec![("length".to_string(), IRType::Integer)],
+                                            }
+                                        }
+                                        "CString" => IRType::Pointer(Box::new(IRType::Char)), // CString is char*
+                                        _ => IRType::Generic(recv.type_name.clone()), // Fallback to Generic
+                                    }
+                                });
+                            self.context.current_receiver_type = Some(recv_type.clone());
+                            self.context.current_receiver_name = Some(recv.name.clone());
+                            // Register 'this' as an alias
+                            self.context.variable_types.insert("this".to_string(), recv_type);
+                            
+                            // Inject receiver as first parameter
+                            let recv_ast_type = seen_parser::Type {
+                                name: recv.type_name.clone(),
+                                is_nullable: false,
+                                generics: recv.generics.clone(),
+                            };
+                            let recv_param = seen_parser::Parameter {
+                                name: recv.name.clone(), // "self"
+                                type_annotation: Some(recv_ast_type),
+                                default_value: None,
+                                memory_modifier: None,
+                            };
+                            let mut all_params = vec![recv_param];
+                            all_params.extend(params.clone());
+                            all_params
+                        } else {
+                            params.clone()
+                        };
+                        
                         // Generate the function and add to module
                         let function =
-                            self.generate_function_definition(name, params, return_type, body)?;
+                            self.generate_function_definition(&func_name, &effective_params, return_type, body)?;
                         module.add_function(function);
+                        
+                        // Restore receiver context
+                        self.context.current_receiver_type = old_receiver_type;
+                        self.context.current_receiver_name = old_receiver_name;
                     }
                 }
                 Expression::ContractedFunction {
@@ -294,42 +426,17 @@ impl IRGenerator {
                         module.add_function(function);
                     }
                 }
-                Expression::StructDefinition { name, fields, .. } => {
-                    // Struct definitions are handled at the module level for type registration
-                    // Add the struct type to the module
-                    self.register_struct_type(&mut module, name, fields)?;
+                // Type definitions are handled in the first pass, but class methods need generation
+                Expression::StructDefinition { .. } |
+                Expression::EnumDefinition { .. } |
+                Expression::TypeAlias { .. } |
+                Expression::Interface { .. } |
+                Expression::Import { .. } => {
+                    // Already processed in first pass
                 }
-                Expression::EnumDefinition { name, variants, .. } => {
-                    // Enum definitions are handled at the module level for type registration
-                    // Add the enum type to the module
-                    self.register_enum_type(&mut module, name, variants)?;
-                }
-                Expression::ClassDefinition {
-                    name,
-                    fields,
-                    methods,
-                    ..
-                } => {
-                    // Class definitions are handled at the module level for type registration
-                    // Add the class type to the module and generate methods
-                    self.register_class_type(&mut module, name, fields, methods)?;
-                }
-                Expression::TypeAlias {
-                    name, target_type, ..
-                } => {
-                    // Type aliases are handled at the module level for type registration
-                    // Register the type alias in the module
-                    self.register_type_alias(&mut module, name, target_type)?;
-                }
-                Expression::Interface { name, methods, .. } => {
-                    // Interface definitions are handled at the module level for type registration
-                    // Register the interface in the module
-                    self.register_interface_type(&mut module, name, methods)?;
-                }
-                Expression::Import { module_path, symbols, .. } => {
-                    // Register types from known stdlib modules
-                    let module_str = module_path.join(".");
-                    self.register_import_types(&mut module, &module_str, symbols)?;
+                Expression::ClassDefinition { name, methods, .. } => {
+                    // Type was registered in first pass, now generate methods in second pass
+                    self.generate_class_methods(&mut module, name, methods)?;
                 }
                 other => {
                     // Regular expression, add to main function body
@@ -427,7 +534,7 @@ impl IRGenerator {
             Expression::InterpolatedString { parts, .. } => {
                 self.generate_string_interpolation(parts)
             }
-            Expression::Let { name, value, .. } => self.generate_let_binding(name, value),
+            Expression::Let { name, value, type_annotation, .. } => self.generate_let_binding(name, value, type_annotation.as_ref()),
             Expression::Const {
                 name,
                 value,
@@ -507,7 +614,7 @@ impl IRGenerator {
                     // Get the actual receiver parameter name
                     let receiver_name = self.context.current_receiver_name.clone()
                         .unwrap_or_else(|| "self".to_string());
-                    eprintln!("DEBUG: implicit this field access: {} -> {}.{}", name, receiver_name, name);
+                    // eprintln!("DEBUG: implicit this field access: {} -> {}.{}", name, receiver_name, name);
                     // Generate field access using the actual receiver name
                     let receiver_val = IRValue::Variable(receiver_name);
                     let result_reg = self.context.allocate_register();
@@ -525,6 +632,16 @@ impl IRGenerator {
                     }];
                     return Ok((result_value, instructions));
                 }
+            }
+        }
+        
+        // Handle 'this' keyword - resolve to the actual receiver parameter
+        if name == "this" {
+            if let Some(receiver_name) = self.context.current_receiver_name.clone() {
+                // eprintln!("DEBUG: Resolved 'this' to receiver '{}'", receiver_name);
+                return Ok((IRValue::Variable(receiver_name), vec![]));
+            } else {
+                // eprintln!("DEBUG: WARNING - 'this' used but no receiver_name set. current_function: {:?}", self.context.current_function);
             }
         }
         
@@ -694,6 +811,12 @@ impl IRGenerator {
                 });
                 return Ok((result_value, instructions));
             }
+            
+            if name == "super" {
+                // super(args) call in constructor - for now, treat as no-op in bootstrap
+                // as we don't have full inheritance support in the IR path yet
+                return Ok((IRValue::Void, instructions));
+            }
         }
 
         // Method-call desugaring and intrinsics
@@ -730,10 +853,13 @@ impl IRGenerator {
             
             // Check if this is a static method call (Class.method)
             if let Expression::Identifier { name: class_name, .. } = object.as_ref() {
+                // eprintln!("DEBUG: checking static call: {}.{}", class_name, member);
+                // eprintln!("DEBUG:   type_definitions has {}: {}", class_name, self.context.type_definitions.contains_key(class_name));
                 // Check if this is a known class/type name (static method call)
                 if let Some(class_type) = self.context.type_definitions.get(class_name).cloned() {
                     // Static method call: Class.method(args) -> Class_method(args)
                     let mangled_name = format!("{}_{}", class_name, member);
+                    // eprintln!("DEBUG:   mangled to: {}", mangled_name);
                     let result_reg = self.context.allocate_register();
                     let result_value = IRValue::Register(result_reg);
                     
@@ -757,24 +883,40 @@ impl IRGenerator {
             if (member == "length" || member == "size" || member == "len") && arguments.is_empty() {
                 let result_reg = self.context.allocate_register();
                 let result_value = IRValue::Register(result_reg);
-                // Best-effort type check: identifier tracked in context
-                let is_string_ident = if let Expression::Identifier { name, .. } = object.as_ref() {
-                    matches!(self.context.get_variable_type(name), Some(IRType::String))
+                
+                let obj_type = if let Expression::Identifier { name, .. } = object.as_ref() {
+                    self.context.get_variable_type(name).cloned()
+                } else if let IRValue::Register(id) = &obj_val {
+                    self.context.get_register_type(*id).cloned()
                 } else {
-                    false
+                    None
                 };
-                if is_string_ident {
-                    instructions.push(Instruction::StringLength {
-                        string: obj_val.clone(),
-                        result: result_value.clone(),
-                    });
-                } else {
-                    instructions.push(Instruction::ArrayLength {
-                        array: obj_val.clone(),
-                        result: result_value.clone(),
-                    });
+
+                let should_optimize = match obj_type {
+                    Some(IRType::Array(_)) | Some(IRType::String) => true,
+                    Some(IRType::Struct { .. }) | Some(IRType::Pointer(_)) => false,
+                    None => {
+                        // If unknown, only optimize 'length' (safe bet for Array)
+                        // or 'len' (to support bytes.len() from externs)
+                        member == "length" || member == "len"
+                    }
+                    _ => false,
+                };
+
+                if should_optimize {
+                    if matches!(obj_type, Some(IRType::String)) {
+                        instructions.push(Instruction::StringLength {
+                            string: obj_val.clone(),
+                            result: result_value.clone(),
+                        });
+                    } else {
+                        instructions.push(Instruction::ArrayLength {
+                            array: obj_val.clone(),
+                            result: result_value.clone(),
+                        });
+                    }
+                    return Ok((result_value, instructions));
                 }
-                return Ok((result_value, instructions));
             }
 
             // Handle toString() method on primitive types
@@ -812,33 +954,55 @@ impl IRGenerator {
             // Try to determine if this is a class method call
             // If the object has a struct type that's registered as a class, mangle the name
             let method_name = if let Expression::Identifier { name: var_name, .. } = object.as_ref() {
-                eprintln!("DEBUG: method call on identifier '{}', member '{}'", var_name, member);
-                if let Some(obj_type) = self.context.get_variable_type(var_name) {
-                    eprintln!("DEBUG:   var type: {:?}", obj_type);
+                // eprintln!("DEBUG: method call on identifier '{}', member '{}'", var_name, member);
+                
+                // First try to get variable type from local variables
+                let obj_type: Option<IRType> = if let Some(t) = self.context.get_variable_type(var_name) {
+                    Some(t.clone())
+                } else {
+                    // If not found, check if this is a field of the current class (implicit this)
+                    if let Some(receiver_type) = &self.context.current_receiver_type {
+                        if let IRType::Struct { fields, .. } = receiver_type {
+                            if let Some((_, field_type)) = fields.iter().find(|(f, _)| f == var_name) {
+                                // eprintln!("DEBUG:   '{}' is a field of current class, type: {:?}", var_name, field_type);
+                                Some(field_type.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+                
+                if let Some(obj_type) = obj_type {
+                    // eprintln!("DEBUG:   var type: {:?}", obj_type);
                     if let IRType::Struct { name: struct_name, .. } = obj_type {
-                        eprintln!("DEBUG:   struct_name: {}", struct_name);
-                        eprintln!("DEBUG:   type_definitions keys: {:?}", self.context.type_definitions.keys().collect::<Vec<_>>());
-                        if self.context.type_definitions.contains_key(struct_name) {
+                        // eprintln!("DEBUG:   struct_name: {}", struct_name);
+                        // eprintln!("DEBUG:   type_definitions keys: {:?}", self.context.type_definitions.keys().collect::<Vec<_>>());
+                        if self.context.type_definitions.contains_key(&struct_name) {
                             // This is a class instance method call
                             let mangled = format!("{}_{}", struct_name, member);
-                            eprintln!("DEBUG:   mangled to: {}", mangled);
+                            // eprintln!("DEBUG:   mangled to: {}", mangled);
                             mangled
                         } else {
-                            eprintln!("DEBUG:   struct not in type_definitions, using raw member");
+                            // eprintln!("DEBUG:   struct not in type_definitions, using raw member");
                             member.clone()
                         }
                     } else {
-                        eprintln!("DEBUG:   not a struct type, using raw member");
+                        // eprintln!("DEBUG:   not a struct type, using raw member");
                         member.clone()
                     }
                 } else {
-                    eprintln!("DEBUG:   no var type found, using raw member");
+                    // eprintln!("DEBUG:   no var type found, using raw member");
                     member.clone()
                 }
             } else {
                 // For non-identifier objects, try to infer from the value type
                 // For now, just use the member name
-                eprintln!("DEBUG: method call on non-identifier, member '{}'", member);
+                // eprintln!("DEBUG: method call on non-identifier, member '{}'", member);
                 member.clone()
             };
 
@@ -862,6 +1026,12 @@ impl IRGenerator {
         // If we're inside a method and the call is to a bare function name that matches a method,
         // transform it to this.method(args) -> ClassName_method(this, args)
         if let Expression::Identifier { name: func_name, .. } = function {
+            // if func_name == "compileWithStage" || func_name == "log" {
+            //     eprintln!("DEBUG: checking implicit this for '{}': receiver_type = {:?}", func_name, self.context.current_receiver_type.as_ref().map(|t| match t {
+            //         IRType::Struct { name, .. } => name.clone(),
+            //         _ => format!("{:?}", t),
+            //     }));
+            // }
             if let Some(receiver_type) = &self.context.current_receiver_type {
                 if let IRType::Struct { name: class_name, .. } = receiver_type {
                     // Check if this might be a method of the current class
@@ -871,7 +1041,7 @@ impl IRGenerator {
                         // Get the actual receiver parameter name
                         let receiver_name = self.context.current_receiver_name.clone()
                             .unwrap_or_else(|| "self".to_string());
-                        eprintln!("DEBUG: implicit this call: {} -> {} (receiver: {})", func_name, mangled_name, receiver_name);
+                        // eprintln!("DEBUG: implicit this call: {} -> {} (receiver: {})", func_name, mangled_name, receiver_name);
                         // Use the actual receiver variable
                         let receiver_val = IRValue::Variable(receiver_name);
                         // Prepend receiver to arguments
@@ -882,6 +1052,9 @@ impl IRGenerator {
                         let result_value = IRValue::Register(result_reg);
                         
                         if let Some(return_type) = self.context.function_return_types.get(&mangled_name).cloned() {
+                            if func_name == "compileWithStage" {
+                                // eprintln!("DEBUG: compileWithStage return type for reg {}: {:?}", result_reg, return_type);
+                            }
                             self.context.set_register_type(result_reg, return_type);
                         }
                         
@@ -891,8 +1064,51 @@ impl IRGenerator {
                             result: Some(result_value.clone()),
                         });
                         return Ok((result_value, instructions));
+                    } else if func_name == "compileWithStage" || func_name == "log" {
+                        // eprintln!("DEBUG: implicit this check failed for {} (class: {}, mangled: {})", func_name, class_name, mangled_name);
+                        // eprintln!("DEBUG:   function_return_types keys: {:?}", self.context.function_return_types.keys().filter(|k| k.contains("Bootstrap")).collect::<Vec<_>>());
                     }
                 }
+            }
+        }
+
+        // Handle type constructor calls: TypeName() -> creates a default-initialized struct
+        // This pattern is used in Seen code like `let x = ClassType()` to create an empty instance
+        if let Expression::Identifier { name: type_name, .. } = function {
+            if self.context.type_definitions.contains_key(type_name) {
+                // This is calling a type as a constructor - create an empty struct literal
+                // eprintln!("DEBUG: type constructor call: {}() -> creating empty struct", type_name);
+                let struct_type = self.context.type_definitions.get(type_name).cloned().unwrap();
+                
+                // Generate a struct literal with default values
+                if let IRType::Struct { name, fields } = struct_type.clone() {
+                    let mut field_map = indexmap::IndexMap::new();
+                    for (field_name, field_type) in &fields {
+                        let default_val = match field_type {
+                            IRType::Integer => IRValue::Integer(0),
+                            IRType::Float => IRValue::Float(0.0),
+                            IRType::Boolean => IRValue::Boolean(false),
+                            IRType::String => IRValue::String(String::new()),
+                            _ => IRValue::Null,
+                        };
+                        field_map.insert(field_name.clone(), default_val);
+                    }
+                    
+                    let struct_val = IRValue::Struct { type_name: name, fields: field_map };
+                    return Ok((struct_val, instructions));
+                }
+                
+                // Fallback for non-struct types
+                let result_reg = self.context.allocate_register();
+                let result_value = IRValue::Register(result_reg);
+                self.context.set_register_type(result_reg, struct_type);
+                
+                instructions.push(Instruction::Move {
+                    source: IRValue::Null,
+                    dest: result_value.clone(),
+                });
+                
+                return Ok((result_value, instructions));
             }
         }
 
@@ -907,11 +1123,11 @@ impl IRGenerator {
         // Try to infer return type from function name for downstream type tracking
         if let IRValue::Variable(func_name) = &func_val {
             if func_name == "__ExecuteCommand" {
-                eprintln!("DEBUG: generate_call_expression for __ExecuteCommand");
+                // eprintln!("DEBUG: generate_call_expression for __ExecuteCommand");
                 if let Some(return_type) = self.context.function_return_types.get(func_name) {
-                    eprintln!("DEBUG:   found return type: {:?}", return_type);
+                    // eprintln!("DEBUG:   found return type: {:?}", return_type);
                 } else {
-                    eprintln!("DEBUG:   return type NOT FOUND");
+                    // eprintln!("DEBUG:   return type NOT FOUND");
                 }
             }
             if let Some(return_type) = self.context.function_return_types.get(func_name).cloned() {
@@ -1388,6 +1604,19 @@ impl IRGenerator {
         let result_reg = self.context.allocate_register();
         let result_value = IRValue::Register(result_reg);
 
+        // Try to track the type of the field for downstream method-call lowering
+        let obj_type = match &obj_val {
+            IRValue::Variable(name) => self.context.get_variable_type(name).cloned(),
+            IRValue::Register(id) => self.context.get_register_type(*id).cloned(),
+            _ => None,
+        };
+
+        if let Some(IRType::Struct { name: _, fields }) = obj_type {
+            if let Some((_, field_ty)) = fields.iter().find(|(f, _)| f == member) {
+                self.context.set_register_type(result_reg, field_ty.clone());
+            }
+        }
+
         let access_instruction = Instruction::FieldAccess {
             struct_val: obj_val,
             field: member.to_string(),
@@ -1501,6 +1730,7 @@ impl IRGenerator {
         &mut self,
         name: &str,
         value: &Expression,
+        type_annotation: Option<&seen_parser::ast::Type>,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let (value_val, mut instructions) = self.generate_expression(value)?;
 
@@ -1513,7 +1743,13 @@ impl IRGenerator {
         });
 
         // Track variable type for downstream method-call lowering
-        self.context.define_variable(name, value_val.clone());
+        // If there's an explicit type annotation, use it. Otherwise infer from value.
+        if let Some(type_ann) = type_annotation {
+            let ir_type = self.convert_ast_type_to_ir(type_ann);
+            self.context.set_variable_type(name.to_string(), ir_type);
+        } else {
+            self.context.define_variable(name, value_val.clone());
+        }
 
         // Let expressions return the bound value
         Ok((value_val, instructions))
@@ -1918,17 +2154,34 @@ impl IRGenerator {
         params: &[seen_parser::Parameter],
         return_type: &Option<seen_parser::Type>,
         body: &Expression,
-        is_static: bool,
+        is_constructor: bool,
+        class_name: Option<&str>,
     ) -> IRResult<IRFunction> {
         // Methods optionally include an explicit receiver as the first parameter.
-        // Static methods have no receiver, instance methods have receiver as first param.
-        // Extract receiver type (first parameter is receiver in instance methods)
-        let receiver_type_opt = if !is_static && !params.is_empty() {
+        // Constructors behave like instance methods with an implicit receiver slot that
+        // lives in `this`, even though they are called like static functions.
+
+        let receiver_type_opt = if !is_constructor && !params.is_empty() {
             if let Some(type_ann) = &params[0].type_annotation {
-                let recv_type = self.convert_ast_type_to_ir(type_ann);
-                Some(recv_type)
+                Some(self.convert_ast_type_to_ir(type_ann))
             } else {
                 Some(IRType::Generic("Self".to_string()))
+            }
+        } else if is_constructor {
+            // Prefer the registered class type so fields are available for FieldSet.
+            if let Some(c_name) = class_name {
+                if let Some(t) = self.context.type_definitions.get(c_name).cloned() {
+                    Some(t)
+                } else {
+                    Some(IRType::Struct {
+                        name: c_name.to_string(),
+                        fields: Vec::new(),
+                    })
+                }
+            } else if let Some(ret_type) = return_type {
+                Some(self.convert_ast_type_to_ir(ret_type))
+            } else {
+                None
             }
         } else {
             None
@@ -1959,7 +2212,14 @@ impl IRGenerator {
         if let Some(receiver_type) = receiver_type_opt.clone() {
             self.context.current_receiver_type = Some(receiver_type.clone());
             // Track the actual receiver parameter name (first param)
-            let receiver_name = params.first().map(|p| p.name.clone()).unwrap_or_else(|| "self".to_string());
+            let receiver_name = if is_constructor {
+                "this".to_string()
+            } else {
+                params
+                    .first()
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| "self".to_string())
+            };
             self.context.current_receiver_name = Some(receiver_name.clone());
             // Register 'this' as an alias to the receiver parameter
             self.context.variable_types.insert("this".to_string(), receiver_type.clone());
@@ -1977,8 +2237,13 @@ impl IRGenerator {
         self.context.function_return_types.insert(name.to_string(), ir_return_type.clone());
 
         // Generate method body with receiver context
-        let (body_value, body_instructions) = self.generate_expression(body)?;
+        let (body_value, mut body_instructions) = self.generate_expression(body)?;
         
+        // If this is a constructor and it doesn't end with a return, add one
+        if is_constructor && !matches!(body_instructions.last(), Some(Instruction::Return(_))) {
+            body_instructions.push(Instruction::Return(Some(IRValue::Variable("this".to_string()))));
+        }
+
         // Restore previous receiver context
         self.context.current_receiver_type = old_receiver_type;
         self.context.current_receiver_name = old_receiver_name;
@@ -1995,10 +2260,10 @@ impl IRGenerator {
 
         // If this is a method with a receiver, add 'this' as a local variable
         if let Some(receiver_type) = receiver_type_opt.clone() {
-            if !param_names.is_empty() {
-                let this_local = crate::function::LocalVariable::new("this", receiver_type);
-                ir_function.add_local(this_local);
-            }
+            let this_local = crate::function::LocalVariable::new("this", receiver_type.clone());
+            ir_function.add_local(this_local);
+            // Also register 'this' in the generator context so it's known during body generation
+            self.context.variable_types.insert("this".to_string(), receiver_type);
         }
 
         // Collect all instructions (like generate_function does)
@@ -2006,7 +2271,7 @@ impl IRGenerator {
         let mut instructions = vec![Instruction::Label(entry_label.clone())];
         
         // If this is a method with a receiver, emit a move: this = <first_param>
-        if receiver_type_opt.is_some() && !param_names.is_empty() {
+        if receiver_type_opt.is_some() && !param_names.is_empty() && !is_constructor {
             let receiver_param_name = &param_names[0];
             instructions.push(Instruction::Move {
                 source: IRValue::Variable(receiver_param_name.clone()),
@@ -2343,10 +2608,31 @@ impl IRGenerator {
                 // Vec is a builtin, no explicit registration needed
             }
             "core.option" | "seen_std.core.option" => {
-                // Option is builtin
+                // Register Option type
+                let option_type = IRType::Struct {
+                    name: "Option".to_string(),
+                    fields: vec![
+                        ("hasValue".to_string(), IRType::Boolean),
+                        ("value".to_string(), IRType::Integer), // Placeholder - actual type depends on generic
+                    ],
+                };
+                self.context.type_definitions.insert("Option".to_string(), option_type.clone());
+                let type_def = crate::module::TypeDefinition::new("Option", option_type);
+                module.add_type(type_def);
             }
             "core.result" | "seen_std.core.result" => {
-                // Result is builtin
+                // Register Result type for method calls
+                let result_type = IRType::Struct {
+                    name: "Result".to_string(),
+                    fields: vec![
+                        ("isOk".to_string(), IRType::Boolean),
+                        ("okStorage".to_string(), IRType::Array(Box::new(IRType::Integer))), // Placeholder
+                        ("errStorage".to_string(), IRType::Array(Box::new(IRType::String))),
+                    ],
+                };
+                self.context.type_definitions.insert("Result".to_string(), result_type.clone());
+                let type_def = crate::module::TypeDefinition::new("Result", result_type);
+                module.add_type(type_def);
             }
             "ffi.cinterop" | "seen_std.ffi.cinterop" => {
                 // FFI types
@@ -2365,6 +2651,7 @@ impl IRGenerator {
         name: &str,
         fields: &[seen_parser::StructField],
     ) -> IRResult<()> {
+        // eprintln!("DEBUG: first-pass registering struct type: {}", name);
         self.context.current_type_definition = Some(name.to_string());
         // Convert AST struct fields to IR type fields
         let mut ir_fields = Vec::new();
@@ -2485,6 +2772,18 @@ impl IRGenerator {
             self.context.function_return_types.insert(mangled_name, ir_return_type);
         }
 
+        // NOTE: Method bodies are generated in the second pass via generate_class_methods
+        // to ensure all types are registered before generating function bodies
+        Ok(())
+    }
+
+    /// Generate class methods (second pass - after all types are registered)
+    fn generate_class_methods(
+        &mut self,
+        module: &mut IRModule,
+        name: &str,
+        methods: &[seen_parser::Method],
+    ) -> IRResult<()> {
         // Generate methods as separate functions
         for method in methods {
             // Ensure receiver parameter exists for instance methods
@@ -2524,6 +2823,7 @@ impl IRGenerator {
                 &method.return_type,
                 &method.body,
                 is_constructor,  // is_static: true if constructor, false if instance method
+                Some(name),      // class_name
             )?;
             module.add_function(function);
         }
