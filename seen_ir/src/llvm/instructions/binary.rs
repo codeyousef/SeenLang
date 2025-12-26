@@ -8,6 +8,7 @@ use inkwell::values::{BasicValue, BasicValueEnum};
 use crate::instruction::{BinaryOp, UnaryOp};
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::string_ops::RuntimeStringOps;
+use crate::llvm::type_cast::TypeCastOps;
 use crate::value::IRValue;
 
 /// Trait for binary operation emission.

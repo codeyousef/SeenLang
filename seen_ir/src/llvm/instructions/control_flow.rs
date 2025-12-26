@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use crate::instruction::Label;
 use crate::value::IRValue;
 use crate::llvm_backend::LlvmBackend;
+use crate::llvm::type_cast::TypeCastOps;
 
 type HashMap<K, V> = IndexMap<K, V>;
 

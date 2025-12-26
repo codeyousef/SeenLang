@@ -20,6 +20,9 @@ use crate::instruction::Instruction;
 use crate::value::{IRValue, IRType};
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::string_ops::RuntimeStringOps;
+use crate::llvm::type_cast::TypeCastOps;
+use crate::llvm::runtime_fns::RuntimeFunctions;
+use crate::llvm::concurrency::ConcurrencyOps;
 
 type HashMap<K, V> = IndexMap<K, V>;
 

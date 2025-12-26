@@ -48,6 +48,9 @@ use crate::llvm::instructions::{normalize_method_name, get_result_method_alias, 
 use crate::llvm::instructions::binary::UnaryOps as _;
 use crate::llvm::string_ops::RuntimeStringOps;
 use crate::llvm::type_inference::TypeInference;
+use crate::llvm::type_cast::TypeCastOps;
+use crate::llvm::runtime_fns::RuntimeFunctions;
+use crate::llvm::concurrency::ConcurrencyOps;
 
 fn block_sort_key(name: &str) -> (i64, String, String) {
     if let Some(idx) = name.rfind('_') {
@@ -399,7 +402,7 @@ impl<'ctx> LlvmBackend<'ctx> {
 
     /// Declare an external function if it doesn't already exist.
     /// This is the DRY pattern for all the ensure_*_fn and get_* methods.
-    fn declare_if_missing(
+    pub(crate) fn declare_if_missing(
         &mut self,
         name: &str,
         fn_ty: inkwell::types::FunctionType<'ctx>,
@@ -1942,256 +1945,12 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(())
     }
 
-    fn lower_channel_select(
-        &mut self,
-        cases: &[IRSelectArm],
-        payload_result: &IRValue,
-        index_result: &IRValue,
-        status_result: &IRValue,
-        fn_map: &HashMap<String, FunctionValue<'ctx>>,
-    ) -> Result<()> {
-        if cases.is_empty() {
-            return Err(anyhow!("ChannelSelect emitted without any cases"));
-        }
+    // lower_channel_select moved to crate::llvm::concurrency::ConcurrencyOps trait
 
-        let count = cases.len() as u64;
-        let count_i32 = self.ctx.i32_type().const_int(count, false);
-        let case_buffer = self
-            .builder
-            .build_array_alloca(self.i8_ptr_t, count_i32, "select_cases")
-            .map_err(|e| anyhow!("{e:?}"))?;
+    // box_runtime_value, ensure_box_*_fn moved to crate::llvm::runtime_fns::RuntimeFunctions trait
 
-        for (idx, case) in cases.iter().enumerate() {
-            let channel_val = self.eval_value(&case.channel, fn_map)?;
-            let channel_ptr = self.to_i8_ptr(channel_val, &format!("select_case_ptr_{idx}"))?;
-            let slot = unsafe {
-                self.builder.build_gep(
-                    self.i8_ptr_t,
-                    case_buffer,
-                    &[self.ctx.i32_type().const_int(idx as u64, false)],
-                    &format!("select_case_slot_{idx}"),
-                )
-            }
-            .map_err(|e| anyhow!("{e:?}"))?;
-            self.builder
-                .build_store(slot, channel_ptr.as_basic_value_enum())
-                .map_err(|e| anyhow!("{e:?}"))?;
-        }
-
-        let result_ty = self.ty_select_result();
-        let result_alloca = self
-            .builder
-            .build_alloca(result_ty, "select_result")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.builder
-            .build_store(result_alloca, result_ty.const_zero().as_basic_value_enum())
-            .map_err(|e| anyhow!("{e:?}"))?;
-
-        let select_fn = self.ensure_channel_select_fn();
-        let case_buffer_raw = self
-            .builder
-            .build_pointer_cast(case_buffer, self.i8_ptr_t, "select_cases_raw")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let result_raw = self
-            .builder
-            .build_pointer_cast(result_alloca, self.i8_ptr_t, "select_result_raw")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let count_i64 = self.i64_t.const_int(count, false);
-        let args = &[
-            case_buffer_raw.as_basic_value_enum().into(),
-            result_raw.as_basic_value_enum().into(),
-            count_i64.into(),
-        ];
-        self.builder.build_call(select_fn, args, "select_call")?;
-
-        let payload_ptr = self
-            .builder
-            .build_struct_gep(result_ty, result_alloca, 0, "select_payload_ptr")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let payload_val = self
-            .builder
-            .build_load(self.i8_ptr_t, payload_ptr, "select_payload")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.assign_value(payload_result, payload_val.as_basic_value_enum())?;
-
-        let index_ptr = self
-            .builder
-            .build_struct_gep(result_ty, result_alloca, 1, "select_index_ptr")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let index_val = self
-            .builder
-            .build_load(self.i64_t, index_ptr, "select_index")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.assign_value(index_result, index_val.as_basic_value_enum())?;
-
-        let status_ptr = self
-            .builder
-            .build_struct_gep(result_ty, result_alloca, 2, "select_status_ptr")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let status_val = self
-            .builder
-            .build_load(self.i64_t, status_ptr, "select_status")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        self.assign_value(status_result, status_val.as_basic_value_enum())?;
-
-        Ok(())
-    }
-
-    pub(crate) fn box_runtime_value(&mut self, value: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
-        if value.is_int_value() {
-            let int_val = value.into_int_value();
-            let width = int_val.get_type().get_bit_width();
-            if width == 1 {
-                let bool_val = self
-                    .builder
-                    .build_int_z_extend(int_val, self.ctx.i32_type(), "box_bool_zext")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                let func = self.ensure_box_bool_fn();
-                let call = self
-                    .builder
-                    .build_call(func, &[bool_val.into()], "box_bool")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                return call
-                    .try_as_basic_value()
-                    .left()
-                    .map(|v| v.into_pointer_value())
-                    .ok_or_else(|| anyhow!("box_bool returned void"));
-            } else {
-                let i64_val = if width == 64 {
-                    int_val
-                } else {
-                    self.builder
-                        .build_int_s_extend(int_val, self.i64_t, "box_int_sext")
-                        .map_err(|e| anyhow!("{e:?}"))?
-                };
-                let func = self.ensure_box_int_fn();
-                let call = self
-                    .builder
-                    .build_call(func, &[i64_val.into()], "box_int")
-                    .map_err(|e| anyhow!("{e:?}"))?;
-                return call
-                    .try_as_basic_value()
-                    .left()
-                    .map(|v| v.into_pointer_value())
-                    .ok_or_else(|| anyhow!("box_int returned void"));
-            }
-        }
-
-        if value.is_pointer_value() {
-            let ptr_val = self
-                .builder
-                .build_pointer_cast(value.into_pointer_value(), self.i8_ptr_t, "box_ptr_cast")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            let func = self.ensure_box_ptr_fn();
-            let call = self
-                .builder
-                .build_call(func, &[ptr_val.as_basic_value_enum().into()], "box_ptr")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            return call
-                .try_as_basic_value()
-                .left()
-                .map(|v| v.into_pointer_value())
-                .ok_or_else(|| anyhow!("box_ptr returned void"));
-        }
-
-        if value.is_float_value() {
-            let float_val = value.into_float_value();
-            let as_int = self
-                .builder
-                .build_bit_cast(float_val, self.ctx.f64_type(), "box_float_cast")
-                .map_err(|e| anyhow!("{e:?}"))?
-                .into_float_value();
-            let bits = self
-                .builder
-                .build_float_to_signed_int(as_int, self.i64_t, "box_float_bits")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            let func = self.ensure_box_int_fn();
-            let call = self
-                .builder
-                .build_call(func, &[bits.into()], "box_float")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            return call
-                .try_as_basic_value()
-                .left()
-                .map(|v| v.into_pointer_value())
-                .ok_or_else(|| anyhow!("box_float returned void"));
-        }
-
-        // Fallback: treat as pointer by copying to heap.
-        let ptr = self.to_i8_ptr(value, "box_fallback")?;
-        let func = self.ensure_box_ptr_fn();
-        let call = self
-            .builder
-            .build_call(
-                func,
-                &[ptr.as_basic_value_enum().into()],
-                "box_fallback_ptr",
-            )
-            .map_err(|e| anyhow!("{e:?}"))?;
-        call.try_as_basic_value()
-            .left()
-            .map(|v| v.into_pointer_value())
-            .ok_or_else(|| anyhow!("box_ptr fallback returned void"))
-    }
-
-    fn ensure_box_int_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.box_int_fn {
-            f
-        } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.i64_t.into()], false);
-            let func = self.module.add_function("seen_box_int", ty, None);
-            self.box_int_fn = Some(func);
-            func
-        }
-    }
-
-    fn ensure_box_bool_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.box_bool_fn {
-            f
-        } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.ctx.i32_type().into()], false);
-            let func = self.module.add_function("seen_box_bool", ty, None);
-            self.box_bool_fn = Some(func);
-            func
-        }
-    }
-
-    fn ensure_box_ptr_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.box_ptr_fn {
-            f
-        } else {
-            let ty = self.i8_ptr_t.fn_type(&[self.i8_ptr_t.into()], false);
-            let func = self.module.add_function("seen_box_ptr", ty, None);
-            self.box_ptr_fn = Some(func);
-            func
-        }
-    }
-
-    pub(crate) fn ensure_channel_send_fn(&mut self) -> FunctionValue<'ctx> {
-        let ty = self.i8_ptr_t.fn_type(&[self.i8_ptr_t.into(), self.i8_ptr_t.into()], false);
-        self.declare_if_missing("seen_channel_send", ty)
-    }
-
-    fn ensure_int_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
-        self.declare_if_missing("__IntToString", ty)
-    }
-
-    fn ensure_char_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
-        self.declare_if_missing("__CharToString", ty)
-    }
-
-    fn ensure_float_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        let ty = self.ty_string().fn_type(&[self.ctx.f64_type().into()], false);
-        self.declare_if_missing("__FloatToString", ty)
-    }
-
-    fn ensure_bool_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        // Takes i64 (0 or 1), returns string struct
-        let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
-        self.declare_if_missing("__BoolToString", ty)
-    }
+    // ensure_int_to_string_fn, ensure_char_to_string_fn, ensure_float_to_string_fn, ensure_bool_to_string_fn 
+    // moved to crate::llvm::runtime_fns::RuntimeFunctions trait
 
     /// Auto-declare an external runtime function with a generic signature.
     /// All parameters and return type default to i64 for simplicity.
@@ -2473,30 +2232,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    pub(crate) fn to_i8_ptr(&mut self, value: BasicValueEnum<'ctx>, name: &str) -> Result<PointerValue<'ctx>> {
-        match value {
-            BasicValueEnum::PointerValue(ptr) => self
-                .builder
-                .build_pointer_cast(ptr, self.i8_ptr_t, name)
-                .map_err(|e| anyhow!("{e:?}")),
-            BasicValueEnum::IntValue(int_val) => self
-                .builder
-                .build_int_to_ptr(int_val, self.i8_ptr_t, name)
-                .map_err(|e| anyhow!("{e:?}")),
-            BasicValueEnum::StructValue(struct_val) => {
-                let ty = struct_val.get_type().as_basic_type_enum();
-                let tmp = self.alloca_for_type(ty, &format!("{name}_stack"))?;
-                self.builder.build_store(tmp, struct_val)?;
-                self.builder
-                    .build_pointer_cast(tmp, self.i8_ptr_t, &format!("{name}_stack_ptr"))
-                    .map_err(|e| anyhow!("{e:?}"))
-            }
-            other => Err(anyhow!(
-                "select requires pointer compatible value, got {:?}",
-                other
-            )),
-        }
-    }
+    // to_i8_ptr moved to crate::llvm::type_cast::TypeCastOps trait
 
     fn byte_array_ptr(&mut self, data: &[u8]) -> Result<BasicValueEnum<'ctx>> {
         let global = self.byte_array_global(data)?;
@@ -2664,187 +2400,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    pub(crate) fn as_bool(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
-        if v.is_int_value() && v.into_int_value().get_type() == self.bool_t {
-            return Ok(v.into_int_value());
-        }
-        if v.is_int_value() {
-            let zero = v.into_int_value().get_type().const_zero();
-            return self
-                .builder
-                .build_int_compare(
-                    inkwell::IntPredicate::NE,
-                    v.into_int_value(),
-                    zero,
-                    "tobool",
-                )
-                .map_err(|e| anyhow!("{e:?}"));
-        }
-        if v.is_struct_value() {
-            // For struct values, try to extract first field as bool
-            // This handles Result<T,E>, Option<T> and similar types
-            let sv = v.into_struct_value();
-            if sv.get_type().count_fields() > 0 {
-                if let Some(first_field_ty) = sv.get_type().get_field_type_at_index(0) {
-                    if first_field_ty.is_int_type() {
-                        if let Ok(first_field) = self.builder.build_extract_value(sv, 0, "struct_first_field") {
-                            if first_field.is_int_value() {
-                                let iv = first_field.into_int_value();
-                                if iv.get_type() == self.bool_t {
-                                    return Ok(iv);
-                                }
-                                // For other int types, compare to zero
-                                let zero = iv.get_type().const_zero();
-                                return self.builder
-                                    .build_int_compare(inkwell::IntPredicate::NE, iv, zero, "tobool")
-                                    .map_err(|e| anyhow!("{e:?}"));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if v.is_pointer_value() {
-            // Pointer to bool - compare to null
-            let pv = v.into_pointer_value();
-            let null = pv.get_type().const_null();
-            return self.builder
-                .build_int_compare(inkwell::IntPredicate::NE, pv, null, "ptr_tobool")
-                .map_err(|e| anyhow!("{e:?}"));
-        }
-        Err(anyhow!("Cannot convert value to bool"))
-    }
-
-    pub(crate) fn as_i64(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
-        if v.is_int_value() {
-            let iv = v.into_int_value();
-            if iv.get_type() == self.i64_t {
-                Ok(iv)
-            } else {
-                // Use zero-extension for smaller types (char/byte/bool) to avoid sign issues
-                self.builder
-                    .build_int_z_extend(iv, self.i64_t, "zext")
-                    .map_err(|e| anyhow!("{e:?}"))
-            }
-        } else if v.is_pointer_value() {
-            // Handle pointer values by converting to int
-            self.builder
-                .build_ptr_to_int(v.into_pointer_value(), self.i64_t, "ptr2i")
-                .map_err(|e| anyhow!("{e:?}"))
-        } else if v.is_float_value() {
-            // Handle float values by converting to int
-            self.builder
-                .build_float_to_signed_int(v.into_float_value(), self.i64_t, "f2i")
-                .map_err(|e| anyhow!("{e:?}"))
-        } else if v.is_struct_value() {
-            // Handle struct values - try to extract integer field
-            // Common patterns: {i64, ptr} for Char, {ptr, i64} for StringBuilder, etc.
-            let sv = v.into_struct_value();
-            // Try field 0 first
-            if let Ok(field0) = self.builder.build_extract_value(sv, 0, "struct_f0") {
-                if field0.is_int_value() {
-                    let iv = field0.into_int_value();
-                    if iv.get_type() == self.i64_t {
-                        return Ok(iv);
-                    } else {
-                        return self.builder
-                            .build_int_z_extend(iv, self.i64_t, "zext")
-                            .map_err(|e| anyhow!("{e:?}"));
-                    }
-                }
-            }
-            // Try field 1 if field 0 wasn't int
-            if let Ok(field1) = self.builder.build_extract_value(sv, 1, "struct_f1") {
-                if field1.is_int_value() {
-                    let iv = field1.into_int_value();
-                    if iv.get_type() == self.i64_t {
-                        return Ok(iv);
-                    } else {
-                        return self.builder
-                            .build_int_z_extend(iv, self.i64_t, "zext")
-                            .map_err(|e| anyhow!("{e:?}"));
-                    }
-                }
-            }
-            Err(anyhow!("Expected integer value, got struct {:?}", v))
-        } else {
-            Err(anyhow!("Expected integer value, got {:?}", v))
-        }
-    }
-
-    pub(crate) fn as_f64(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::FloatValue<'ctx>> {
-        if v.is_float_value() {
-            Ok(v.into_float_value())
-        } else if v.is_int_value() {
-            // Convert int to float
-            self.builder
-                .build_signed_int_to_float(v.into_int_value(), self.ctx.f64_type(), "i2f")
-                .map_err(|e| anyhow!("{e:?}"))
-        } else if v.is_pointer_value() {
-            // Convert pointer to int, then to float
-            let int_val = self.builder
-                .build_ptr_to_int(v.into_pointer_value(), self.i64_t, "ptr2i")
-                .map_err(|e| anyhow!("{e:?}"))?;
-            self.builder
-                .build_signed_int_to_float(int_val, self.ctx.f64_type(), "i2f")
-                .map_err(|e| anyhow!("{e:?}"))
-        } else {
-            Err(anyhow!("Cannot convert {:?} to float", v))
-        }
-    }
-
-    pub(crate) fn as_usize(&self, v: BasicValueEnum<'ctx>) -> Result<u64> {
-        let iv = self.as_i64(v)?;
-        Ok(iv.get_zero_extended_constant().unwrap_or(0))
-    }
-
-    pub(crate) fn as_cstr_ptr(&self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
-        if v.is_pointer_value() {
-            return Ok(v.into_pointer_value());
-        }
-        if v.is_struct_value() {
-            let sv = v.into_struct_value();
-            // String struct wrapper - try both field positions since it could be {ptr, i64} or {i64, ptr}
-            // Try field 0 first (for {ptr, i64} structs)
-            if let Ok(val) = self.builder.build_extract_value(sv, 0, "str_ptr_f0") {
-                if val.is_pointer_value() {
-                    return Ok(val.into_pointer_value());
-                }
-            }
-            // Try field 1 (for {i64, ptr} or other structs)
-            if let Ok(val) = self.builder.build_extract_value(sv, 1, "str_ptr_f1") {
-                if val.is_pointer_value() {
-                    return Ok(val.into_pointer_value());
-                }
-            }
-            // Couldn't find pointer field - try returning first field as potential pointer
-            if let Ok(val) = self.builder.build_extract_value(sv, 0, "str_ptr_fallback") {
-                if val.is_int_value() {
-                    return self.builder
-                        .build_int_to_ptr(val.into_int_value(), self.i8_ptr_t, "i2ptr_struct")
-                        .map_err(|e| anyhow!("{e:?}"));
-                }
-            }
-        }
-        if v.is_int_value() {
-            return self
-                .builder
-                .build_int_to_ptr(v.into_int_value(), self.i8_ptr_t, "i2ptr")
-                .map_err(|e| anyhow!("{e:?}"));
-        }
-        if v.is_float_value() {
-            // Float is likely a mistyped pointer - bitcast to i64 first
-            let as_i64 = self.builder
-                .build_bit_cast(v.into_float_value(), self.i64_t, "f2i_ptr")
-                .map_err(|e| anyhow!("{e:?}"))?
-                .into_int_value();
-            return self
-                .builder
-                .build_int_to_ptr(as_i64, self.i8_ptr_t, "i2ptr")
-                .map_err(|e| anyhow!("{e:?}"));
-        }
-        Err(anyhow!("Expected pointer to cstr, got {:?}", v))
-    }
+    // as_bool, as_i64, as_f64, as_usize, as_cstr_ptr moved to crate::llvm::type_cast::TypeCastOps trait
 
     pub(crate) fn alloca_for_type(
         &mut self,
@@ -3802,7 +3358,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn ty_select_result(&mut self) -> StructType<'ctx> {
+    pub(crate) fn ty_select_result(&mut self) -> StructType<'ctx> {
         if let Some(ty) = self.select_result_ty {
             ty
         } else {
@@ -3815,60 +3371,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn ensure_channel_select_fn(&mut self) -> FunctionValue<'ctx> {
-        let fn_ty = self.i8_ptr_t.fn_type(
-            &[
-                self.i8_ptr_t.into(),
-                self.i8_ptr_t.into(),
-                self.i64_t.into(),
-            ],
-            false,
-        );
-        self.declare_if_missing("seen_channel_select", fn_ty)
-    }
-
-    pub(crate) fn ensure_scope_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
-        let fn_ty = self.ctx.void_type().fn_type(&[self.ctx.i32_type().into()], false);
-        self.declare_if_missing(name, fn_ty)
-    }
-
-    pub(crate) fn ensure_spawn_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
-        let ptr_ty = self.ctx.ptr_type(AddressSpace::default());
-        let fn_ty = ptr_ty.fn_type(&[], false);
-        self.declare_if_missing(name, fn_ty)
-    }
-
-    pub(crate) fn ensure_task_handle_new_fn(&mut self) -> FunctionValue<'ctx> {
-        let ptr_ty = self.ctx.ptr_type(AddressSpace::default());
-        let fn_ty = ptr_ty.fn_type(&[self.ctx.i32_type().into()], false);
-        self.declare_if_missing("__task_handle_new", fn_ty)
-    }
-
-    pub(crate) fn ensure_await_fn(&mut self) -> FunctionValue<'ctx> {
-        let ret_ty = self.ctx.i32_type();
-        let arg_ty = self.ctx.ptr_type(AddressSpace::default());
-        let fn_ty = ret_ty.fn_type(&[arg_ty.into()], false);
-        self.declare_if_missing("__await", fn_ty)
-    }
-
-    pub(crate) fn cast_handle_ptr(
-        &mut self,
-        value: BasicValueEnum<'ctx>,
-        label: &str,
-    ) -> Result<PointerValue<'ctx>> {
-        let handle_ptr_ty = self.ctx.ptr_type(AddressSpace::default());
-        if value.is_pointer_value() {
-            self.builder
-                .build_pointer_cast(value.into_pointer_value(), handle_ptr_ty, label)
-                .map_err(|e| anyhow!("{e:?}"))
-        } else if value.is_int_value() {
-            self.builder
-                .build_int_to_ptr(value.into_int_value(), handle_ptr_ty, label)
-                .map_err(|e| anyhow!("{e:?}"))
-        } else {
-            Err(anyhow!("expected task handle pointer"))
-        }
-    }
+    // ensure_channel_select_fn, ensure_scope_fn, ensure_spawn_fn, ensure_task_handle_new_fn,
+    // ensure_await_fn, cast_handle_ptr moved to crate::llvm::concurrency::ConcurrencyOps trait
 
     pub(crate) fn declare_c_fn(
         &self,
