@@ -13,6 +13,56 @@ use seen_parser::{Expression, Parameter as ASTParameter};
 use super::IRGenerator;
 
 impl IRGenerator {
+    // ==================== DRY Helpers ====================
+
+    /// Convert an optional return type to IRType (defaults to Void).
+    fn resolve_return_type(&self, return_type: &Option<seen_parser::ast::Type>) -> IRType {
+        return_type
+            .as_ref()
+            .map(|t| self.convert_ast_type_to_ir(t))
+            .unwrap_or(IRType::Void)
+    }
+
+    /// Convert AST parameters to IR parameters.
+    fn convert_parameters(&self, params: &[ASTParameter]) -> Vec<crate::function::Parameter> {
+        params
+            .iter()
+            .map(|p| {
+                let param_type = p
+                    .type_annotation
+                    .as_ref()
+                    .map(|t| self.convert_ast_type_to_ir(t))
+                    .unwrap_or(IRType::Integer);
+                crate::function::Parameter::new(p.name.clone(), param_type)
+            })
+            .collect()
+    }
+
+    /// Convert seen_parser::Parameter to IR parameters with index-based fallback types.
+    fn convert_method_parameters(
+        &self,
+        params: &[seen_parser::Parameter],
+    ) -> Vec<crate::function::Parameter> {
+        params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let param_type = p
+                    .type_annotation
+                    .as_ref()
+                    .map(|t| self.convert_ast_type_to_ir(t))
+                    .unwrap_or_else(|| IRType::Generic(format!("T{}", i)));
+                crate::function::Parameter {
+                    name: p.name.clone(),
+                    param_type,
+                    is_mutable: false,
+                }
+            })
+            .collect()
+    }
+
+    // ==================== Function Generation ====================
+
     /// Generate IR for function definitions (module level)
     pub(crate) fn generate_function_definition(
         &mut self,
@@ -21,28 +71,12 @@ impl IRGenerator {
         return_type: &Option<seen_parser::ast::Type>,
         body: &Expression,
     ) -> IRResult<IRFunction> {
-        // Determine return type
-        let ir_return_type = if let Some(ret_type) = return_type {
-            self.convert_ast_type_to_ir(ret_type)
-        } else {
-            IRType::Void
-        };
-
-        // Create the function
+        // Determine return type and create function
+        let ir_return_type = self.resolve_return_type(return_type);
         let mut function = IRFunction::new(name, ir_return_type);
 
-        // Add parameters
-        for param in params {
-            let param_type = if let Some(type_annotation) = &param.type_annotation {
-                self.convert_ast_type_to_ir(type_annotation)
-            } else {
-                IRType::Integer // Default fallback
-            };
-            function.parameters.push(crate::function::Parameter::new(
-                param.name.clone(),
-                param_type,
-            ));
-        }
+        // Add parameters using helper
+        function.parameters = self.convert_parameters(params);
 
         // Save current context
         let saved_function = self.context.current_function.clone();
@@ -55,11 +89,11 @@ impl IRGenerator {
 
         // Add parameters to context as variables
         for param in params {
-            let param_type = if let Some(type_annotation) = &param.type_annotation {
-                self.convert_ast_type_to_ir(type_annotation)
-            } else {
-                IRType::Integer // Default fallback
-            };
+            let param_type = param
+                .type_annotation
+                .as_ref()
+                .map(|t| self.convert_ast_type_to_ir(t))
+                .unwrap_or(IRType::Integer);
             self.context
                 .set_variable_type(param.name.clone(), param_type);
         }
@@ -103,37 +137,23 @@ impl IRGenerator {
         // Methods optionally include an explicit receiver as the first parameter.
         // If absent, treat as a static method (no receiver) for bootstrap resilience.
         let _receiver_type_opt = if !params.is_empty() {
-            if let Some(type_ann) = &params[0].type_annotation {
-                Some(self.convert_ast_type_to_ir(type_ann))
-            } else {
-                Some(IRType::Generic("Self".to_string()))
-            }
+            params[0]
+                .type_annotation
+                .as_ref()
+                .map(|t| self.convert_ast_type_to_ir(t))
+                .or_else(|| Some(IRType::Generic("Self".to_string())))
         } else {
             None
         };
 
-        // Build IR parameters including explicit receiver when present
-        let mut ir_params = Vec::new();
-        for (i, param) in params.iter().enumerate() {
-            let param_type = if let Some(type_ann) = &param.type_annotation {
-                self.convert_ast_type_to_ir(type_ann)
-            } else {
-                IRType::Generic(format!("T{}", i))
-            };
+        // Build IR parameters using helper
+        let ir_params = self.convert_method_parameters(params);
 
-            ir_params.push(crate::function::Parameter {
-                name: param.name.clone(),
-                param_type,
-                is_mutable: false,
-            });
-        }
-
-        // Determine return type
-        let ir_return_type = if let Some(ret_type) = return_type {
-            self.convert_ast_type_to_ir(ret_type)
-        } else {
-            IRType::Void
-        };
+        // Determine return type using helper
+        let ir_return_type = return_type
+            .as_ref()
+            .map(|t| self.convert_ast_type_to_ir(t))
+            .unwrap_or(IRType::Void);
 
         // Generate method body with receiver context
         let (body_value, body_instructions) = self.generate_expression(body)?;
@@ -167,28 +187,27 @@ impl IRGenerator {
         params: &[seen_parser::Parameter],
         return_type: &Option<seen_parser::Type>,
     ) -> IRResult<IRFunction> {
-        // Determine return type
-        let ir_return_type = if let Some(ret_type) = return_type {
-            self.convert_ast_type_to_ir(ret_type)
-        } else {
-            IRType::Void
-        };
+        // Determine return type using consistent pattern
+        let ir_return_type = return_type
+            .as_ref()
+            .map(|t| self.convert_ast_type_to_ir(t))
+            .unwrap_or(IRType::Void);
 
         // Create the function signature (no body for interfaces)
         let mut function = IRFunction::new(name, ir_return_type);
 
-        // Add parameters
-        for param in params {
-            let param_type = if let Some(type_annotation) = &param.type_annotation {
-                self.convert_ast_type_to_ir(type_annotation)
-            } else {
-                IRType::Integer // Default fallback
-            };
-            function.parameters.push(crate::function::Parameter::new(
-                param.name.clone(),
-                param_type,
-            ));
-        }
+        // Add parameters - use convert_parameters pattern for consistency
+        function.parameters = params
+            .iter()
+            .map(|p| {
+                let param_type = p
+                    .type_annotation
+                    .as_ref()
+                    .map(|t| self.convert_ast_type_to_ir(t))
+                    .unwrap_or(IRType::Integer);
+                crate::function::Parameter::new(p.name.clone(), param_type)
+            })
+            .collect();
 
         // Interface methods are abstract - no body implementation
         function.is_public = true;

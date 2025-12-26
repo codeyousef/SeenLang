@@ -13,27 +13,22 @@ use std::fs;
 use super::IRGenerator;
 
 impl IRGenerator {
-    /// Generate IR for let bindings
-    pub(crate) fn generate_let_binding(
+    // ==================== DRY Helpers ====================
+
+    /// Core binding generation logic shared by let and const.
+    /// Generates IR to store a value in a named variable.
+    fn generate_binding_core(
         &mut self,
         name: &str,
-        value: &Expression,
-    ) -> IRResult<(IRValue, Vec<Instruction>)> {
-        let (value_val, mut instructions) = self.generate_expression(value)?;
-
-        // Store the variable mapping
+        value_val: IRValue,
+        instructions: &mut Vec<Instruction>,
+    ) {
         let var_val = IRValue::Variable(name.to_string());
-
         instructions.push(Instruction::Store {
             value: value_val.clone(),
             dest: var_val,
         });
-
-        // Track variable type for downstream method-call lowering
-        self.context.define_variable(name, value_val.clone());
-
-        // Let expressions return the bound value
-        Ok((value_val, instructions))
+        self.context.define_variable(name, value_val);
     }
 
     /// Load embedded bytes from an attribute
@@ -61,6 +56,19 @@ impl IRGenerator {
         })
     }
 
+    // ==================== Public Generation Methods ====================
+
+    /// Generate IR for let bindings
+    pub(crate) fn generate_let_binding(
+        &mut self,
+        name: &str,
+        value: &Expression,
+    ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        let (value_val, mut instructions) = self.generate_expression(value)?;
+        self.generate_binding_core(name, value_val.clone(), &mut instructions);
+        Ok((value_val, instructions))
+    }
+
     /// Generate IR for const bindings
     pub(crate) fn generate_const_binding(
         &mut self,
@@ -68,34 +76,18 @@ impl IRGenerator {
         value: &Expression,
         attributes: &[Attribute],
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Handle embed attribute specially
         if let Some(embed_attr) = attributes.iter().find(|attr| attr.name == "embed") {
             let bytes = self.load_embed_bytes(embed_attr)?;
             let embed_value = IRValue::ByteArray(bytes);
             let mut instructions = Vec::new();
-            let var_val = IRValue::Variable(name.to_string());
-
-            instructions.push(Instruction::Store {
-                value: embed_value.clone(),
-                dest: var_val,
-            });
-
-            self.context.define_variable(name, embed_value.clone());
-
+            self.generate_binding_core(name, embed_value.clone(), &mut instructions);
             return Ok((embed_value, instructions));
         }
 
-        // For constants without embed attributes, evaluate normally.
+        // For constants without embed attributes, use shared binding logic
         let (value_val, mut instructions) = self.generate_expression(value)?;
-
-        let var_val = IRValue::Variable(name.to_string());
-
-        instructions.push(Instruction::Store {
-            value: value_val.clone(),
-            dest: var_val,
-        });
-
-        self.context.define_variable(name, value_val.clone());
-
+        self.generate_binding_core(name, value_val.clone(), &mut instructions);
         Ok((value_val, instructions))
     }
 

@@ -7,6 +7,35 @@ use super::IRGenerator;
 use seen_parser::{ClassField, EnumVariant, ImportSymbol, InterfaceMethod, Method, StructField, Type};
 
 impl IRGenerator {
+    // ==================== DRY Helpers ====================
+
+    /// Register a type in both the context and the module.
+    fn register_type(&mut self, module: &mut IRModule, name: &str, ir_type: IRType) {
+        self.context
+            .type_definitions
+            .insert(name.to_string(), ir_type.clone());
+        let type_def = TypeDefinition::new(name, ir_type);
+        module.add_type(type_def);
+    }
+
+    /// Convert struct-like fields (from StructField or ClassField) to IR type tuples.
+    fn convert_struct_fields(&self, fields: &[StructField]) -> Vec<(String, IRType)> {
+        fields
+            .iter()
+            .map(|f| (f.name.clone(), self.convert_ast_type_to_ir(&f.field_type)))
+            .collect()
+    }
+
+    /// Convert class fields to IR type tuples.
+    fn convert_class_fields(&self, fields: &[ClassField]) -> Vec<(String, IRType)> {
+        fields
+            .iter()
+            .map(|f| (f.name.clone(), self.convert_ast_type_to_ir(&f.field_type)))
+            .collect()
+    }
+
+    // ==================== Type Conversion ====================
+
     pub(crate) fn convert_ast_type_to_ir(&self, ast_type: &Type) -> IRType {
         let base_type = match ast_type.name.as_str() {
             "Int" => IRType::Integer,
@@ -126,22 +155,14 @@ impl IRGenerator {
         fields: &[StructField],
     ) -> IRResult<()> {
         self.context.current_type_definition = Some(name.to_string());
-        let mut ir_fields = Vec::new();
-        for field in fields {
-            let field_type = self.convert_ast_type_to_ir(&field.field_type);
-            ir_fields.push((field.name.clone(), field_type));
-        }
+        let ir_fields = self.convert_struct_fields(fields);
         self.context.current_type_definition = None;
 
         let struct_type = IRType::Struct {
             name: name.to_string(),
             fields: ir_fields,
         };
-        self.context
-            .type_definitions
-            .insert(name.to_string(), struct_type.clone());
-        let type_def = TypeDefinition::new(name, struct_type);
-        module.add_type(type_def);
+        self.register_type(module, name, struct_type);
         Ok(())
     }
 
@@ -151,30 +172,24 @@ impl IRGenerator {
         name: &str,
         variants: &[EnumVariant],
     ) -> IRResult<()> {
-        let mut ir_variants = Vec::new();
-        for variant in variants {
-            let variant_name = variant.name.clone();
-            let variant_fields = if let Some(fields) = &variant.fields {
-                let field_types: Vec<IRType> = fields
-                    .iter()
-                    .map(|field| self.convert_ast_type_to_ir(&field.type_annotation))
-                    .collect();
-                Some(field_types)
-            } else {
-                None
-            };
-            ir_variants.push((variant_name, variant_fields));
-        }
+        let ir_variants: Vec<_> = variants
+            .iter()
+            .map(|v| {
+                let variant_fields = v.fields.as_ref().map(|fields| {
+                    fields
+                        .iter()
+                        .map(|f| self.convert_ast_type_to_ir(&f.type_annotation))
+                        .collect()
+                });
+                (v.name.clone(), variant_fields)
+            })
+            .collect();
 
         let enum_type = IRType::Enum {
             name: name.to_string(),
             variants: ir_variants,
         };
-        self.context
-            .type_definitions
-            .insert(name.to_string(), enum_type.clone());
-        let type_def = TypeDefinition::new(name, enum_type);
-        module.add_type(type_def);
+        self.register_type(module, name, enum_type);
         Ok(())
     }
 
@@ -186,25 +201,14 @@ impl IRGenerator {
         methods: &[Method],
     ) -> IRResult<()> {
         self.context.current_type_definition = Some(name.to_string());
-        let mut ir_fields = Vec::new();
-        for field in fields {
-            let field_type = self.convert_ast_type_to_ir(&field.field_type);
-            ir_fields.push((field.name.clone(), field_type));
-        }
+        let class_fields = self.convert_class_fields(fields);
         self.context.current_type_definition = None;
-
-        let mut class_fields = Vec::new();
-        class_fields.extend(ir_fields);
 
         let class_type = IRType::Struct {
             name: name.to_string(),
             fields: class_fields,
         };
-        self.context
-            .type_definitions
-            .insert(name.to_string(), class_type.clone());
-        let type_def = TypeDefinition::new(name, class_type);
-        module.add_type(type_def);
+        self.register_type(module, name, class_type);
 
         for method in methods {
             let mangled_name = format!("{}_{}", name, method.name);
@@ -290,21 +294,22 @@ impl IRGenerator {
         let mut method_signatures = Vec::new();
 
         for method in methods {
-            let mut param_types = Vec::new();
-            for param in &method.params {
-                let param_type = if let Some(type_ann) = &param.type_annotation {
-                    self.convert_ast_type_to_ir(type_ann)
-                } else {
-                    IRType::Generic("T".to_string())
-                };
-                param_types.push(param_type);
-            }
+            let param_types: Vec<_> = method
+                .params
+                .iter()
+                .map(|p| {
+                    p.type_annotation
+                        .as_ref()
+                        .map(|t| self.convert_ast_type_to_ir(t))
+                        .unwrap_or_else(|| IRType::Generic("T".to_string()))
+                })
+                .collect();
 
-            let return_type = if let Some(ret_type) = &method.return_type {
-                self.convert_ast_type_to_ir(ret_type)
-            } else {
-                IRType::Void
-            };
+            let return_type = method
+                .return_type
+                .as_ref()
+                .map(|t| self.convert_ast_type_to_ir(t))
+                .unwrap_or(IRType::Void);
 
             let method_func_type = IRType::Function {
                 parameters: param_types,
@@ -315,29 +320,25 @@ impl IRGenerator {
             method_signatures.push((method.name.clone(), method_func_type));
         }
 
+        // Register vtable struct
         let vtable_struct_name = format!("{}__vtable", name);
         let vtable_struct_type = IRType::Struct {
             name: vtable_struct_name.clone(),
             fields: vtable_fields,
         };
-        self.context
-            .type_definitions
-            .insert(vtable_struct_name.clone(), vtable_struct_type.clone());
-        let vtable_def = TypeDefinition::new(&vtable_struct_name, vtable_struct_type);
-        module.add_type(vtable_def);
+        self.register_type(module, &vtable_struct_name, vtable_struct_type);
 
+        // Register interface struct
         let interface_struct = IRType::Struct {
             name: name.to_string(),
-            fields: vec![
-                ("vtable".to_string(), IRType::Pointer(Box::new(IRType::Generic(vtable_struct_name)))),
-            ],
+            fields: vec![(
+                "vtable".to_string(),
+                IRType::Pointer(Box::new(IRType::Generic(vtable_struct_name))),
+            )],
         };
-        self.context
-            .type_definitions
-            .insert(name.to_string(), interface_struct.clone());
-        let interface_def = TypeDefinition::new(name, interface_struct.clone());
-        module.add_type(interface_def);
+        self.register_type(module, name, interface_struct);
 
+        // Register method return types
         for (method_name, method_signature) in method_signatures {
             let function_name = format!("{}_{}", name, method_name);
             if let IRType::Function { return_type, .. } = method_signature {

@@ -15,22 +15,54 @@ use super::IRGenerator;
 const SELECT_STATUS_RECEIVED: i64 = 0;
 
 impl IRGenerator {
+    // ==================== DRY Helpers ====================
+
+    /// Emit a runtime function call with no result (fire-and-forget).
+    fn emit_runtime_call_void(&self, name: &str, args: Vec<IRValue>) -> Instruction {
+        Instruction::Call {
+            target: IRValue::Function {
+                name: name.to_string(),
+                parameters: Vec::new(),
+            },
+            args,
+            result: None,
+        }
+    }
+
+    /// Emit a runtime function call that returns a result.
+    fn emit_runtime_call_with_result(&mut self, name: &str, args: Vec<IRValue>) -> (IRValue, Instruction) {
+        let result_reg = self.context.allocate_register();
+        let result_value = IRValue::Register(result_reg);
+        let call = Instruction::Call {
+            target: IRValue::Function {
+                name: name.to_string(),
+                parameters: Vec::new(),
+            },
+            args,
+            result: Some(result_value.clone()),
+        };
+        (result_value, call)
+    }
+
+    /// Generate a scope runtime call (__scope_push / __scope_pop).
+    fn scope_runtime_call(&self, name: &str, kind: ScopeKind) -> Instruction {
+        let kind_arg = match kind {
+            ScopeKind::Task => 0,
+            ScopeKind::Jobs => 1,
+        };
+        self.emit_runtime_call_void(name, vec![IRValue::Integer(kind_arg)])
+    }
+
+    // ==================== Public Generation Methods ====================
+
     /// Generate IR for await expressions
     pub(crate) fn generate_await_expression(
         &mut self,
         awaited: &Expression,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let (value, mut instructions) = self.generate_expression(awaited)?;
-        let result_reg = self.context.allocate_register();
-        let result_value = IRValue::Register(result_reg);
-        instructions.push(Instruction::Call {
-            target: IRValue::Function {
-                name: "__await".to_string(),
-                parameters: Vec::new(),
-            },
-            args: vec![value],
-            result: Some(result_value.clone()),
-        });
+        let (result_value, call) = self.emit_runtime_call_with_result("__await", vec![value]);
+        instructions.push(call);
         Ok((result_value, instructions))
     }
 
@@ -208,47 +240,17 @@ impl IRGenerator {
         Ok((body_value, instructions))
     }
 
-    /// Generate a runtime call for scope operations
-    fn scope_runtime_call(&self, name: &str, kind: ScopeKind) -> Instruction {
-        Instruction::Call {
-            target: IRValue::Function {
-                name: name.to_string(),
-                parameters: Vec::new(),
-            },
-            args: vec![IRValue::Integer(match kind {
-                ScopeKind::Task => 0,
-                ScopeKind::Jobs => 1,
-            })],
-            result: None,
-        }
-    }
-
     /// Generate IR for spawn expressions
     pub(crate) fn generate_spawn_expression(
         &mut self,
         expr: &Expression,
         detached: bool,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
-        // Spawn bodies are currently lowered to runtime stubs; we emit the body
-        // purely for side effects (so nested scopes run) and rely on runtime
-        // handles to mirror interpreter semantics.
         let (_body_value, mut instructions) = self.generate_expression(expr)?;
 
-        let result_reg = self.context.allocate_register();
-        let result_value = IRValue::Register(result_reg);
-        let runtime_name = if detached {
-            "__spawn_detached"
-        } else {
-            "__spawn_task"
-        };
-        instructions.push(Instruction::Call {
-            target: IRValue::Function {
-                name: runtime_name.to_string(),
-                parameters: Vec::new(),
-            },
-            args: Vec::new(),
-            result: Some(result_value.clone()),
-        });
+        let runtime_name = if detached { "__spawn_detached" } else { "__spawn_task" };
+        let (result_value, call) = self.emit_runtime_call_with_result(runtime_name, Vec::new());
+        instructions.push(call);
 
         Ok((result_value, instructions))
     }
@@ -263,17 +265,11 @@ impl IRGenerator {
         let (target_val, target_instrs) = self.generate_expression(target)?;
         instructions.extend(target_instrs);
 
-        let result_reg = self.context.allocate_register();
-        let result_value = IRValue::Register(result_reg);
-
-        instructions.push(Instruction::Call {
-            target: IRValue::Function {
-                name: "seen_channel_send".to_string(),
-                parameters: Vec::new(),
-            },
-            args: vec![target_val, msg_val],
-            result: Some(result_value.clone()),
-        });
+        let (result_value, call) = self.emit_runtime_call_with_result(
+            "seen_channel_send",
+            vec![target_val, msg_val],
+        );
+        instructions.push(call);
 
         Ok((result_value, instructions))
     }

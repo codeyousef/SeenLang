@@ -12,6 +12,86 @@ use seen_parser::{BinaryOperator, Expression, ForBinding, Pattern};
 use super::IRGenerator;
 
 impl IRGenerator {
+    // ==================== DRY Helpers ====================
+
+    /// Generate the core range-based for loop structure.
+    /// `inclusive` determines whether to use LessEqual (inclusive) or LessThan (exclusive).
+    fn generate_range_loop(
+        &mut self,
+        variable: &str,
+        start_val: IRValue,
+        end_val: IRValue,
+        body: &Expression,
+        inclusive: bool,
+        instructions: &mut Vec<Instruction>,
+    ) -> IRResult<()> {
+        // Initialize loop variable
+        let loop_var = IRValue::Variable(variable.to_string());
+        instructions.push(Instruction::Store {
+            value: start_val,
+            dest: loop_var.clone(),
+        });
+
+        // Allocate labels
+        let loop_start = self.context.allocate_label("for_start");
+        let loop_body_label = self.context.allocate_label("for_body");
+        let loop_end = self.context.allocate_label("for_end");
+
+        self.context
+            .push_loop_labels(loop_end.0.clone(), loop_start.0.clone());
+
+        instructions.push(Instruction::Label(loop_start.clone()));
+
+        // Check loop condition
+        let cond_reg = self.context.allocate_register();
+        let cond_result = IRValue::Register(cond_reg);
+        let comparison_op = if inclusive {
+            BinaryOp::LessEqual
+        } else {
+            BinaryOp::LessThan
+        };
+
+        instructions.push(Instruction::Binary {
+            op: comparison_op,
+            left: loop_var.clone(),
+            right: end_val,
+            result: cond_result.clone(),
+        });
+
+        instructions.push(Instruction::JumpIfNot {
+            condition: cond_result,
+            target: loop_end.clone(),
+        });
+
+        // Loop body
+        instructions.push(Instruction::Label(loop_body_label));
+        let (_, body_instrs) = self.generate_expression(body)?;
+        instructions.extend(body_instrs);
+
+        // Increment loop variable
+        let inc_reg = self.context.allocate_register();
+        let inc_result = IRValue::Register(inc_reg);
+        instructions.push(Instruction::Binary {
+            op: BinaryOp::Add,
+            left: loop_var.clone(),
+            right: IRValue::Integer(1),
+            result: inc_result.clone(),
+        });
+        instructions.push(Instruction::Store {
+            value: inc_result,
+            dest: loop_var,
+        });
+
+        // Jump back to start
+        instructions.push(Instruction::Jump(loop_start));
+        instructions.push(Instruction::Label(loop_end));
+
+        self.context.pop_loop_labels();
+        Ok(())
+    }
+
+    // ==================== Public Generation Methods ====================
+
     /// Generate IR for if expressions
     pub(crate) fn generate_if_expression(
         &mut self,
@@ -142,64 +222,15 @@ impl IRGenerator {
                         instructions.extend(start_instructions);
                         instructions.extend(end_instructions);
 
-                        // Initialize loop variable
-                        let loop_var = IRValue::Variable(variable.to_string());
-                        instructions.push(Instruction::Store {
-                            value: start_val.clone(),
-                            dest: loop_var.clone(),
-                        });
-
-                        // Generate loop with exclusive range behavior (like range() function)
-                        let loop_start = self.context.allocate_label("for_start");
-                        let loop_body = self.context.allocate_label("for_body");
-                        let loop_end = self.context.allocate_label("for_end");
-
-                        self.context
-                            .push_loop_labels(loop_end.0.clone(), loop_start.0.clone());
-
-                        instructions.push(Instruction::Label(loop_start.clone()));
-
-                        // Check loop condition (exclusive range)
-                        let cond_reg = self.context.allocate_register();
-                        let cond_result = IRValue::Register(cond_reg);
-
-                        instructions.push(Instruction::Binary {
-                            op: BinaryOp::LessThan, // range() is exclusive
-                            left: loop_var.clone(),
-                            right: end_val,
-                            result: cond_result.clone(),
-                        });
-
-                        instructions.push(Instruction::JumpIfNot {
-                            condition: cond_result,
-                            target: loop_end.clone(),
-                        });
-
-                        // Loop body
-                        instructions.push(Instruction::Label(loop_body));
-                        let (_, body_instructions) = self.generate_expression(body)?;
-                        instructions.extend(body_instructions);
-
-                        // Increment loop variable
-                        let inc_reg = self.context.allocate_register();
-                        let inc_result = IRValue::Register(inc_reg);
-                        instructions.push(Instruction::Binary {
-                            op: BinaryOp::Add,
-                            left: loop_var.clone(),
-                            right: IRValue::Integer(1),
-                            result: inc_result.clone(),
-                        });
-                        instructions.push(Instruction::Store {
-                            value: inc_result,
-                            dest: loop_var,
-                        });
-
-                        // Jump back to start
-                        instructions.push(Instruction::Jump(loop_start));
-
-                        instructions.push(Instruction::Label(loop_end));
-
-                        self.context.pop_loop_labels();
+                        // Generate range loop (range() is exclusive)
+                        self.generate_range_loop(
+                            variable,
+                            start_val,
+                            end_val,
+                            body,
+                            false, // range() is exclusive
+                            &mut instructions,
+                        )?;
 
                         Ok((IRValue::Void, instructions))
                     } else {
@@ -223,70 +254,15 @@ impl IRGenerator {
                         instructions.extend(start_instructions);
                         instructions.extend(end_instructions);
 
-                        // Initialize loop variable
-                        let loop_var = IRValue::Variable(variable.to_string());
-                        instructions.push(Instruction::Store {
-                            value: start_val.clone(),
-                            dest: loop_var.clone(),
-                        });
-
-                        // Generate loop
-                        let loop_start = self.context.allocate_label("for_start");
-                        let loop_body = self.context.allocate_label("for_body");
-                        let loop_end = self.context.allocate_label("for_end");
-
-                        self.context
-                            .push_loop_labels(loop_end.0.clone(), loop_start.0.clone());
-
-                        instructions.push(Instruction::Label(loop_start.clone()));
-
-                        // Check loop condition
-                        let cond_reg = self.context.allocate_register();
-                        let cond_result = IRValue::Register(cond_reg);
-
-                        let comparison_op = if matches!(op, BinaryOperator::InclusiveRange) {
-                            BinaryOp::LessEqual
-                        } else {
-                            BinaryOp::LessThan
-                        };
-
-                        instructions.push(Instruction::Binary {
-                            op: comparison_op,
-                            left: loop_var.clone(),
-                            right: end_val,
-                            result: cond_result.clone(),
-                        });
-
-                        instructions.push(Instruction::JumpIfNot {
-                            condition: cond_result,
-                            target: loop_end.clone(),
-                        });
-
-                        // Loop body
-                        instructions.push(Instruction::Label(loop_body));
-                        let (_, body_instructions) = self.generate_expression(body)?;
-                        instructions.extend(body_instructions);
-
-                        // Increment loop variable
-                        let inc_reg = self.context.allocate_register();
-                        let inc_result = IRValue::Register(inc_reg);
-                        instructions.push(Instruction::Binary {
-                            op: BinaryOp::Add,
-                            left: loop_var.clone(),
-                            right: IRValue::Integer(1),
-                            result: inc_result.clone(),
-                        });
-                        instructions.push(Instruction::Store {
-                            value: inc_result,
-                            dest: loop_var,
-                        });
-
-                        // Jump back to start
-                        instructions.push(Instruction::Jump(loop_start));
-
-                        instructions.push(Instruction::Label(loop_end));
-
-                        self.context.pop_loop_labels();
+                        // Generate range loop (inclusive for ..=, exclusive for ..)
+                        self.generate_range_loop(
+                            variable,
+                            start_val,
+                            end_val,
+                            body,
+                            matches!(op, BinaryOperator::InclusiveRange),
+                            &mut instructions,
+                        )?;
 
                         Ok((IRValue::Void, instructions))
                     }
