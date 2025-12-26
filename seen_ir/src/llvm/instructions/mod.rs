@@ -11,9 +11,11 @@ pub mod call;
 pub mod binary;
 pub mod control_flow;
 pub mod memory_ops;
+pub mod aggregate;
 
 // Re-export commonly used items
 pub use call::{categorize_call, normalize_method_name, get_result_method_alias, CallCategory};
 pub use binary::BinaryOps;
 pub use control_flow::ControlFlowOps;
 pub use memory_ops::MemoryOps;
+pub use aggregate::AggregateOps;
