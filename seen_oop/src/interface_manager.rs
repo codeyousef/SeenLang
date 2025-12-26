@@ -4,7 +4,7 @@
 //! to support polymorphism and contract-based programming.
 
 use crate::types::{
-    Interface, InterfaceImplementation, Method, MethodError, MethodSignature, Parameter,
+    Interface, InterfaceImplementation, MethodError, MethodSignature, Parameter,
 };
 use seen_lexer::Position;
 use std::collections::HashMap;

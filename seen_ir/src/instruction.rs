@@ -715,7 +715,7 @@ impl ControlFlowGraph {
         }
 
         if old_label != new_label {
-            self.block_lookup.remove(old_label);
+            let _ = self.block_lookup.shift_remove(old_label);
             self.block_lookup.insert(new_label.clone(), index);
 
             if let Some(entry) = self.entry_block.as_mut() {

@@ -38,10 +38,6 @@ impl SeenString {
             std::str::from_utf8(slice).unwrap_or("")
         }
     }
-    
-    fn to_string(&self) -> String {
-        self.to_str().to_string()
-    }
 }
 
 const EMPTY_BYTES: [u8; 0] = [];

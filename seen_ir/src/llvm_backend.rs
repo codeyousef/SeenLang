@@ -356,6 +356,8 @@ pub struct LlvmBackend<'ctx> {
     reg_struct_types: HashMap<u32, String>,
     // Function name -> return struct type name (for call result tagging)
     fn_return_struct_types: HashMap<String, String>,
+    // Function name -> return array element struct type name (for array access)
+    fn_return_array_element_struct: HashMap<String, String>,
     // Variable name -> array element struct type name (for array access -> field access patterns)
     var_array_element_struct: HashMap<String, String>,
     // Variable name -> true if it's a string (for string indexing)
@@ -431,6 +433,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             var_struct_types: HashMap::new(),
             reg_struct_types: HashMap::new(),
             fn_return_struct_types: HashMap::new(),
+            fn_return_array_element_struct: HashMap::new(),
             var_array_element_struct: HashMap::new(),
             var_is_string: HashSet::new(),
             var_is_int_array: HashSet::new(),
@@ -648,6 +651,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if let IRType::Struct { name, .. } = &func.return_type {
                     self.fn_return_struct_types.insert(func.name.clone(), name.clone());
                 }
+                
+                // Track return array element struct type (for functions returning Array<Struct>)
+                if let IRType::Array(inner) = &func.return_type {
+                    if let IRType::Struct { name, .. } = inner.as_ref() {
+                        self.fn_return_array_element_struct.insert(func.name.clone(), name.clone());
+                    } else if matches!(inner.as_ref(), IRType::String) {
+                        self.fn_return_array_element_struct.insert(func.name.clone(), "String".to_string());
+                    }
+                }
             }
         }
 
@@ -674,6 +686,11 @@ impl<'ctx> LlvmBackend<'ctx> {
         {
             self.declare_main_wrapper();
         }
+
+        // Generate the __GetCommandLineArgsHelper intrinsic function if runtime is not linked
+        // NOTE: When linking against seen_runtime, this function is already provided.
+        // We only generate it for standalone builds without the runtime.
+        // self.generate_get_command_line_args_helper();
 
         // Do not inject any runtime stubs in production builds; rely on real runtime symbols.
         // If a symbol is genuinely missing, the linker should fail to reveal the gap.
@@ -1767,18 +1784,27 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             // Track array element struct types for array[i].field patterns
             if let IRType::Array(element_type) = &local.var_type {
+                eprintln!("DEBUG: Found Array type for '{}', element_type: {:?}", local.name, element_type);
                 if let IRType::Struct { name, .. } = element_type.as_ref() {
                     self.var_array_element_struct.insert(local.name.clone(), name.clone());
+                    eprintln!("DEBUG: Tracked struct array element type '{}' for '{}'", name, local.name);
                 }
                 // Track String arrays (String is a built-in struct type)
                 if matches!(element_type.as_ref(), IRType::String) {
                     self.var_array_element_struct.insert(local.name.clone(), "String".to_string());
+                    eprintln!("DEBUG: Tracked String array element type for '{}'", local.name);
                 }
                 // Track integer and char arrays for proper array access
                 if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
                     self.var_is_int_array.insert(local.name.clone());
                 }
             }
+            
+            // Debug: print local variable types
+            if func.name == "GetCommandLineArgs" && local.name.contains("rawArgs") {
+                eprintln!("DEBUG: GetCommandLineArgs local '{}' has type {:?}", local.name, local.var_type);
+            }
+            
             // Track string types for string indexing
             if matches!(local.var_type, IRType::String) {
                 self.var_is_string.insert(local.name.clone());
@@ -2114,10 +2140,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                             if let Some(struct_name) = self.reg_struct_types.get(reg_id) {
                                 self.var_struct_types.insert(var_name.clone(), struct_name.clone());
                             }
+                            // Propagate array element struct type info
+                            if let Some(elem_struct) = self.reg_array_element_struct.get(reg_id) {
+                                self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
+                            }
                         }
                         IRValue::Variable(src_name) => {
                             if let Some(struct_name) = self.var_struct_types.get(src_name) {
                                 self.var_struct_types.insert(var_name.clone(), struct_name.clone());
+                            }
+                            // Propagate array element struct type info
+                            if let Some(elem_struct) = self.var_array_element_struct.get(src_name) {
+                                self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
                             }
                         }
                         _ => {}
@@ -2509,6 +2543,12 @@ impl<'ctx> LlvmBackend<'ctx> {
             } => {
                 let arr_v = self.eval_value(array, fn_map)?;
                 
+                // Debug: print array access type info
+                if let IRValue::Variable(var_name) = array {
+                    if var_name.contains("rawArgs") {
+                        eprintln!("DEBUG: ArrayAccess on '{}', element_struct_type: {:?}", var_name, self.var_array_element_struct.get(var_name));
+                    }
+                }
                 // Check if this is a string variable (for string indexing)
                 let is_string = if let IRValue::Variable(var_name) = array {
                     self.var_is_string.contains(var_name)
@@ -2629,6 +2669,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     
                     // Check if we're accessing a struct array
                     if let Some(ref struct_type_name) = element_struct_type {
+                        eprintln!("DEBUG: ArrayAccess taking struct array path for '{:?}', struct_type_name: {}", array, struct_type_name);
                         // Resolve the LLVM struct type, handling the built-in String explicitly
                         let llvm_struct_ty = if struct_type_name == "String" {
                             Some(self.ty_string())
@@ -2637,29 +2678,24 @@ impl<'ctx> LlvmBackend<'ctx> {
                         };
 
                         if let Some(llvm_struct_ty) = llvm_struct_ty {
-                            // Struct arrays store pointers to heap-allocated structs
-                            // Each element is a pointer (8 bytes)
+                            eprintln!("DEBUG: Using direct struct access (inline), generating data_struct_ptr");
+                            // Struct arrays store structs directly (inline), not pointers
+                            // Cast data_ptr to pointer-to-struct
                             let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
-                            let ptr_ptr_ty = struct_ptr_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                            let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
                             
-                            // Cast data_ptr to pointer-to-struct-pointer
-                            let data_ptr_ptr = self.builder.build_pointer_cast(data_ptr, ptr_ptr_ty, "data_struct_ptr_ptr")?;
-                            
-                            // GEP to the element (pointer at index i)
-                            let elem_ptr_ptr = unsafe {
+                            // GEP to the element (struct at index i)
+                            let elem_ptr = unsafe {
                                 self.builder.build_gep(
-                                    struct_ptr_ty,
-                                    data_ptr_ptr,
+                                    llvm_struct_ty,
+                                    data_struct_ptr,
                                     &[idx_iv],
-                                    "struct_elem_ptr_ptr",
+                                    "struct_elem_ptr",
                                 )?
                             };
                             
-                            // Load the struct pointer
-                            let struct_ptr = self.builder.build_load(struct_ptr_ty, elem_ptr_ptr, "struct_ptr_load")?.into_pointer_value();
-                            
-                            // Load the actual struct value
-                            let struct_val = self.builder.build_load(llvm_struct_ty, struct_ptr, "struct_load")?;
+                            // Load the actual struct value directly
+                            let struct_val = self.builder.build_load(llvm_struct_ty, elem_ptr, "struct_load")?;
                             
                             // Assign the struct value to result
                             self.assign_value(result, struct_val)?;
@@ -2800,48 +2836,33 @@ impl<'ctx> LlvmBackend<'ctx> {
                         self.struct_types.get(struct_type_name).map(|(ty, _)| *ty)
                     };
 
-                    if llvm_struct_ty.is_some() {
-                        // Struct arrays store pointers to heap-allocated structs
-                        let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
-                        let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_ptr_ptr")?;
+                    if let Some(llvm_struct_ty) = llvm_struct_ty {
+                        // Struct arrays store structs directly (inline)
+                        let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                        let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
                         
+                        // GEP to the element (struct at index i)
                         let elem_ptr = unsafe {
                             self.builder.build_gep(
-                                self.i64_t,
-                                data_i64_ptr,
+                                llvm_struct_ty,
+                                data_struct_ptr,
                                 &[idx_iv],
-                                "struct_elem_ptr_ptr",
+                                "struct_elem_ptr",
                             )?
                         };
                         
-                        // Ensure we have a pointer to store
-                        let ptr_as_i64 = if val_v.is_int_value() {
-                            val_v.into_int_value()
+                        // Get the struct value to store
+                        let struct_to_store = if val_v.is_struct_value() {
+                            val_v.into_struct_value()
                         } else if val_v.is_pointer_value() {
-                            self.builder.build_ptr_to_int(
-                                val_v.into_pointer_value(),
-                                self.i64_t,
-                                "ptr2i_struct"
-                            )?
-                        } else if val_v.is_struct_value() {
-                            // Spill struct value to heap and store pointer
-                            let struct_val = val_v.into_struct_value();
-                            let struct_ty = llvm_struct_ty.unwrap();
-                            let malloc = self.get_malloc();
-                            let size = struct_ty
-                                .size_of()
-                                .unwrap_or(self.i64_t.const_int(16, false));
-                            let raw_ptr = self.builder.build_call(malloc, &[size.into()], "struct_spill_alloc")?
-                                .try_as_basic_value().left()
-                                .ok_or_else(|| anyhow!("malloc returned void for struct array"))?
-                                .into_pointer_value();
-                            let struct_ptr = self.builder.build_pointer_cast(raw_ptr, struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)), "struct_spill_cast")?;
-                            self.builder.build_store(struct_ptr, struct_val)?;
-                            self.builder.build_ptr_to_int(struct_ptr, self.i64_t, "ptr2i_struct")?
+                            // Load struct from pointer
+                            self.builder.build_load(llvm_struct_ty, val_v.into_pointer_value(), "load_struct")?.into_struct_value()
                         } else {
-                            return Err(anyhow!("ArraySet struct: unsupported value type"));
+                            return Err(anyhow!("ArraySet struct: expected struct value"));
                         };
-                        self.builder.build_store(elem_ptr, ptr_as_i64)?;
+                        
+                        // Store struct directly
+                        self.builder.build_store(elem_ptr, struct_to_store)?;
                         return Ok(());
                     }
                 }
@@ -3134,7 +3155,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 }
                                 return Ok(());
                         }
-                        "push" => {
+                        "push" | "Vec_push" | "List_push" | "Array_push" => {
                             // push(array, value) - append value to dynamic array
                             if args.len() == 2 {
                                 let arr_val = self.eval_value(&args[0], fn_map)?;
@@ -4930,6 +4951,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                             if let Some(struct_name) = self.fn_return_struct_types.get(name) {
                                 if let IRValue::Register(reg_id) = r {
                                     self.reg_struct_types.insert(*reg_id, struct_name.clone());
+                                }
+                            }
+                            
+                            // Propagate return array element struct type info
+                            if let Some(elem_struct) = self.fn_return_array_element_struct.get(name) {
+                                if let IRValue::Register(reg_id) = r {
+                                    self.reg_array_element_struct.insert(*reg_id, elem_struct.clone());
                                 }
                             }
                         }
@@ -7199,6 +7227,131 @@ impl<'ctx> LlvmBackend<'ctx> {
         (g_argc, g_argv)
     }
 
+    /// Generate the `__GetCommandLineArgsHelper` function that converts C argc/argv
+    /// into a Seen array of String structs.
+    fn generate_get_command_line_args_helper(&mut self) {
+        // Check if already defined or if there's only a declaration
+        if let Some(existing) = self.module.get_function("__GetCommandLineArgsHelper") {
+            // If it has a body, don't redefine
+            if existing.get_first_basic_block().is_some() {
+                return;
+            }
+            // Remove the declaration so we can define it properly
+            unsafe { existing.delete(); }
+        }
+
+        let i32_t = self.ctx.i32_type();
+        let i64_t = self.i64_t;
+        let i8_ptr_t = self.i8_ptr_t;
+        let i8_ptr_ptr_t = i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16));
+        
+        // String struct type: { i64 len, ptr data }
+        let string_ty = self.ty_string();
+        // Array struct type: { i64 len, i64 cap, ptr data }
+        let array_ty = self.ctx.struct_type(
+            &[i64_t.into(), i64_t.into(), string_ty.ptr_type(inkwell::AddressSpace::from(0u16)).into()],
+            false,
+        );
+        let ret_ty = array_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+        
+        // Function type: (i32 argc, ptr argv) -> ptr to array
+        let fn_ty = ret_ty.fn_type(&[i32_t.into(), i8_ptr_ptr_t.into()], false);
+        let func = self.module.add_function("__GetCommandLineArgsHelper", fn_ty, None);
+        
+        // Create basic blocks
+        let entry_bb = self.ctx.append_basic_block(func, "entry");
+        let loop_start_bb = self.ctx.append_basic_block(func, "loop_start");
+        let loop_body_bb = self.ctx.append_basic_block(func, "loop_body");
+        let loop_end_bb = self.ctx.append_basic_block(func, "loop_end");
+        
+        // Entry block
+        self.builder.position_at_end(entry_bb);
+        let argc = func.get_nth_param(0).unwrap().into_int_value();
+        let argv = func.get_nth_param(1).unwrap().into_pointer_value();
+        
+        // Extend argc to i64
+        let argc64 = self.builder.build_int_z_extend(argc, i64_t, "argc64").unwrap();
+        
+        // Allocate array struct: malloc(sizeof(array_struct))
+        let malloc = self.get_malloc();
+        let array_struct_size = array_ty.size_of().unwrap();
+        let array_ptr = self.builder.build_call(malloc, &[array_struct_size.into()], "array_malloc").unwrap()
+            .try_as_basic_value().left().unwrap().into_pointer_value();
+        let array_ptr_typed = self.builder.build_pointer_cast(array_ptr, ret_ty, "array_ptr_typed").unwrap();
+        
+        // Allocate data buffer: malloc(argc * sizeof(String))
+        let string_size = string_ty.size_of().unwrap();
+        let data_size = self.builder.build_int_mul(argc64, string_size, "data_size").unwrap();
+        let data_ptr = self.builder.build_call(malloc, &[data_size.into()], "data_malloc").unwrap()
+            .try_as_basic_value().left().unwrap().into_pointer_value();
+        let data_ptr_typed = self.builder.build_pointer_cast(
+            data_ptr, 
+            string_ty.ptr_type(inkwell::AddressSpace::from(0u16)), 
+            "data_ptr_typed"
+        ).unwrap();
+        
+        // Store len = argc, cap = argc, data = data_ptr
+        let len_ptr = self.builder.build_struct_gep(array_ty, array_ptr_typed, 0, "len_ptr").unwrap();
+        self.builder.build_store(len_ptr, argc64).unwrap();
+        let cap_ptr = self.builder.build_struct_gep(array_ty, array_ptr_typed, 1, "cap_ptr").unwrap();
+        self.builder.build_store(cap_ptr, argc64).unwrap();
+        let data_ptr_ptr = self.builder.build_struct_gep(array_ty, array_ptr_typed, 2, "data_ptr_ptr").unwrap();
+        self.builder.build_store(data_ptr_ptr, data_ptr_typed).unwrap();
+        
+        // Allocate loop index
+        let index_ptr = self.builder.build_alloca(i64_t, "index").unwrap();
+        self.builder.build_store(index_ptr, i64_t.const_zero()).unwrap();
+        
+        self.builder.build_unconditional_branch(loop_start_bb).unwrap();
+        
+        // Loop start: check if index < argc
+        self.builder.position_at_end(loop_start_bb);
+        let index = self.builder.build_load(i64_t, index_ptr, "index_load").unwrap().into_int_value();
+        let cond = self.builder.build_int_compare(inkwell::IntPredicate::SLT, index, argc64, "loop_cond").unwrap();
+        self.builder.build_conditional_branch(cond, loop_body_bb, loop_end_bb).unwrap();
+        
+        // Loop body: get argv[index], compute strlen, store String struct
+        self.builder.position_at_end(loop_body_bb);
+        let index_in_body = self.builder.build_load(i64_t, index_ptr, "idx").unwrap().into_int_value();
+        
+        // Get argv[index] - argv is char**, so argv[i] is char*
+        let argv_elem_ptr = unsafe {
+            self.builder.build_gep(i8_ptr_t, argv, &[index_in_body], "argv_elem_ptr").unwrap()
+        };
+        let cstr = self.builder.build_load(i8_ptr_t, argv_elem_ptr, "cstr").unwrap().into_pointer_value();
+        
+        // Get strlen(cstr)
+        let strlen_fn = self.get_strlen();
+        let len_call = self.builder.build_call(strlen_fn, &[cstr.into()], "strlen_call").unwrap();
+        let cstr_len = len_call.try_as_basic_value().left().unwrap().into_int_value();
+        let cstr_len64 = if cstr_len.get_type().get_bit_width() != 64 {
+            self.builder.build_int_z_extend(cstr_len, i64_t, "len64").unwrap()
+        } else {
+            cstr_len
+        };
+        
+        // Build String struct {len, ptr}
+        let mut str_val = string_ty.get_undef();
+        str_val = self.builder.build_insert_value(str_val, cstr_len64, 0, "str_len").unwrap().into_struct_value();
+        str_val = self.builder.build_insert_value(str_val, cstr, 1, "str_ptr").unwrap().into_struct_value();
+        
+        // Store in data_ptr[index]
+        let elem_ptr = unsafe {
+            self.builder.build_gep(string_ty, data_ptr_typed, &[index_in_body], "elem_ptr").unwrap()
+        };
+        self.builder.build_store(elem_ptr, str_val).unwrap();
+        
+        // Increment index
+        let next_index = self.builder.build_int_add(index_in_body, i64_t.const_int(1, false), "next_idx").unwrap();
+        self.builder.build_store(index_ptr, next_index).unwrap();
+        
+        self.builder.build_unconditional_branch(loop_start_bb).unwrap();
+        
+        // Loop end: return array pointer
+        self.builder.position_at_end(loop_end_bb);
+        self.builder.build_return(Some(&array_ptr_typed)).unwrap();
+    }
+
     fn ty_str_array(&self) -> inkwell::types::StructType<'ctx> {
         self.ctx.struct_type(
             &[
@@ -7501,6 +7654,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                                         }
                                         if matches!(inner.as_ref(), IRType::Integer | IRType::Char) {
                                             self.reg_is_int_array.insert(*reg_id);
+                                        }
+                                        // Also track generic type parameters (T, E) as structs
+                                        if let IRType::Struct { name, .. } = &**inner {
+                                            if name == "T" || name == "E" {
+                                                self.reg_array_element_struct.insert(*reg_id, name.clone());
+                                                eprintln!("DEBUG: Tracked struct array element type '{}' for field '{}'", name, field);
+                                            }
                                         }
                                     }
                                 }

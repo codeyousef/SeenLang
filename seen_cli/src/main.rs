@@ -24,7 +24,6 @@ use seen_shaders::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::env::args;
 #[cfg(feature = "llvm")]
 use std::ffi::OsStr;
 use std::fmt;
@@ -4929,7 +4928,7 @@ fn parse_file(input: &Path, format: &str, keyword_manager: Arc<KeywordManager>) 
     let visibility_policy = lexer_config.visibility_policy;
     let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let mut ast = parser.parse_program().map_err(SeenError::from)?;
+    let ast = parser.parse_program().map_err(SeenError::from)?;
 
     // Output AST
     match format {

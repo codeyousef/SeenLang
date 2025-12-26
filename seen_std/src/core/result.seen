@@ -86,13 +86,21 @@ class Result<T, E> {
 }
 
 fun Ok<T, E>(value: T) r: Result<T, E> {
-    let result = Result<T, E>.new()
-    result.storeOk(value)
-    return result
+    var okArr = Array<T>()
+    okArr.push(value)
+    return Result<T, E>{
+        isOk: true,
+        okStorage: okArr,
+        errStorage: Array<E>()
+    }
 }
 
 fun Err<T, E>(error: E) r: Result<T, E> {
-    let result = Result<T, E>.new()
-    result.storeErr(error)
-    return result
+    var errArr = Array<E>()
+    errArr.push(error)
+    return Result<T, E>{
+        isOk: false,
+        okStorage: Array<T>(),
+        errStorage: errArr
+    }
 }

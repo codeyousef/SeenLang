@@ -834,18 +834,6 @@ impl TypeChecker {
         self.env.define_type(name.to_string(), placeholder);
     }
 
-    fn predeclare_enum_type(&mut self, name: &str, generics: &[String]) {
-        if self.env.get_type(name).is_some() {
-            return;
-        }
-        let placeholder = Type::Enum {
-            name: name.to_string(),
-            variants: Vec::new(),
-            generics: generics.iter().map(|g| Type::Generic(g.clone())).collect(),
-        };
-        self.env.define_type(name.to_string(), placeholder);
-    }
-
     fn predeclare_enum_type_with_variants(
         &mut self,
         name: &str,
@@ -993,7 +981,7 @@ impl TypeChecker {
                     },
                 );
             }
-            "io.file" => {
+            "io.file" | "seen_std.io.file" => {
                 // readText(path: String) -> String
                 self.env.define_function(
                     "readText".to_string(),
@@ -1025,7 +1013,7 @@ impl TypeChecker {
                     },
                 );
             }
-            "process.process" => {
+            "process.process" | "seen_std.process.process" => {
                 // CommandResult struct
                 let mut fields = HashMap::new();
                 fields.insert("success".to_string(), Type::Bool);
@@ -1065,46 +1053,6 @@ impl TypeChecker {
                 );
             }
             "env.env" | "seen_std.env.env" => {
-                // args() -> Array<String>
-                self.env.define_function(
-                    "args".to_string(),
-                    FunctionSignature {
-                        name: "args".to_string(),
-                        parameters: vec![],
-                        return_type: Some(Type::Array(Box::new(Type::String))),
-                    },
-                );
-                // tryGet(name: String) -> Option<String>
-                self.env.define_function(
-                    "tryGet".to_string(),
-                    FunctionSignature {
-                        name: "tryGet".to_string(),
-                        parameters: vec![Parameter {
-                            name: "name".to_string(),
-                            param_type: Type::String,
-                        }],
-                        return_type: Some(Type::Nullable(Box::new(Type::String))),
-                    },
-                );
-                // getOrDefault(name: String, defaultValue: String) -> String
-                self.env.define_function(
-                    "getOrDefault".to_string(),
-                    FunctionSignature {
-                        name: "getOrDefault".to_string(),
-                        parameters: vec![
-                            Parameter {
-                                name: "name".to_string(),
-                                param_type: Type::String,
-                            },
-                            Parameter {
-                                name: "defaultValue".to_string(),
-                                param_type: Type::String,
-                            },
-                        ],
-                        return_type: Some(Type::String),
-                    },
-                );
-                // get(name: String) -> String
                 self.env.define_function(
                     "get".to_string(),
                     FunctionSignature {
@@ -1385,62 +1333,6 @@ impl TypeChecker {
                         _ => {}
                     }
                 }
-            }
-            "io.file" | "seen_std.io.file" => {
-                // readText(path: String) -> String
-                self.env.define_function(
-                    "readText".to_string(),
-                    FunctionSignature {
-                        name: "readText".to_string(),
-                        parameters: vec![Parameter {
-                            name: "path".to_string(),
-                            param_type: Type::String,
-                        }],
-                        return_type: Some(Type::String),
-                    },
-                );
-                // writeText(path: String, content: String) -> Bool
-                self.env.define_function(
-                    "writeText".to_string(),
-                    FunctionSignature {
-                        name: "writeText".to_string(),
-                        parameters: vec![
-                            Parameter {
-                                name: "path".to_string(),
-                                param_type: Type::String,
-                            },
-                            Parameter {
-                                name: "content".to_string(),
-                                param_type: Type::String,
-                            },
-                        ],
-                        return_type: Some(Type::Bool),
-                    },
-                );
-                // exists(path: String) -> Bool
-                self.env.define_function(
-                    "exists".to_string(),
-                    FunctionSignature {
-                        name: "exists".to_string(),
-                        parameters: vec![Parameter {
-                            name: "path".to_string(),
-                            param_type: Type::String,
-                        }],
-                        return_type: Some(Type::Bool),
-                    },
-                );
-                // deleteFile(path: String) -> Bool
-                self.env.define_function(
-                    "deleteFile".to_string(),
-                    FunctionSignature {
-                        name: "deleteFile".to_string(),
-                        parameters: vec![Parameter {
-                            name: "path".to_string(),
-                            param_type: Type::String,
-                        }],
-                        return_type: Some(Type::Bool),
-                    },
-                );
             }
             "str.string" | "seen_std.str.string" => {
                 // split(s: String, sep: String) -> Array<String>
@@ -1785,44 +1677,6 @@ impl TypeChecker {
                             param_type: Type::Int,
                         }],
                         return_type: Some(Type::Unit),
-                    },
-                );
-            }
-            "process.process" | "seen_std.process.process" => {
-                // CommandResult struct
-                let mut fields = HashMap::new();
-                fields.insert("success".to_string(), Type::Bool);
-                fields.insert("output".to_string(), Type::String);
-                let cmd_res_type = Type::Struct {
-                    name: "CommandResult".to_string(),
-                    fields: fields.clone(),
-                    generics: vec![],
-                };
-                self.env.define_type("CommandResult".to_string(), cmd_res_type.clone());
-
-                // runCommand(cmd: String) -> CommandResult
-                self.env.define_function(
-                    "runCommand".to_string(),
-                    FunctionSignature {
-                        name: "runCommand".to_string(),
-                        parameters: vec![Parameter {
-                            name: "command".to_string(),
-                            param_type: Type::String,
-                        }],
-                        return_type: Some(cmd_res_type.clone()),
-                    },
-                );
-
-                // commandWasSuccessful(res: CommandResult) -> Bool
-                self.env.define_function(
-                    "commandWasSuccessful".to_string(),
-                    FunctionSignature {
-                        name: "commandWasSuccessful".to_string(),
-                        parameters: vec![Parameter {
-                            name: "result".to_string(),
-                            param_type: cmd_res_type.clone(),
-                        }],
-                        return_type: Some(Type::Bool),
                     },
                 );
             }
