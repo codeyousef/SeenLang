@@ -1,0 +1,11 @@
+// Test: File creation
+import io.file.{File}
+import core.result.{Result, Ok, Err}
+
+fun main() r: Int {
+    let res = File.create("/dev/null")
+    if res.isOk() {
+        return 0
+    }
+    return 1
+}

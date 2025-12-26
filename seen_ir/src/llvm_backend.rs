@@ -9,10 +9,9 @@ use indexmap::{IndexMap, IndexSet};
 type HashMap<K, V> = IndexMap<K, V>;
 type HashSet<T> = IndexSet<T>;
 use std::convert::TryFrom;
-use std::env;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
 use inkwell::builder::Builder;
@@ -20,22 +19,33 @@ use inkwell::context::Context as LlvmContext;
 use inkwell::module::{Linkage, Module as LlvmModule};
 use inkwell::AddressSpace;
 use inkwell::targets::{
-    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple,
+    FileType, InitializationConfig, Target, TargetMachine, TargetTriple,
 };
 use inkwell::types::{
-    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType, VectorType,
+    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType,
 };
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue,
-    UnnamedAddress, VectorValue,
+    UnnamedAddress,
 };
 pub use inkwell::OptimizationLevel as LlvmOptLevel;
 
 use crate::function::{IRFunction, InlineHint, RegisterPressureClass};
-use crate::instruction::{BasicBlock, BinaryOp, IRSelectArm, Instruction, UnaryOp};
+use crate::instruction::{BinaryOp, IRSelectArm, Instruction, UnaryOp};
 use crate::module::IRModule;
 use crate::value::{IRType, IRValue};
 use crate::{HardwareProfile, IRProgram};
+
+// Re-export types from the new llvm module
+pub use crate::llvm::types::{
+    Avx10Width, CpuFeature, LinkOutput, MemoryTopologyHint, SveVectorLength, TargetOptions,
+    LinkerFlavor, LinkerInvocation,
+};
+
+// Import helper modules
+use crate::llvm::target;
+use crate::llvm::instructions::{normalize_method_name, get_result_method_alias};
+use crate::llvm::string_ops::RuntimeStringOps;
 
 fn block_sort_key(name: &str) -> (i64, String, String) {
     if let Some(idx) = name.rfind('_') {
@@ -51,99 +61,12 @@ fn is_string_literal_ir(value: &IRValue) -> bool {
     matches!(value, IRValue::String(_) | IRValue::StringConstant(_))
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum LinkOutput {
-    Executable,
-    ObjectOnly,
-    SharedLibrary,
-    StaticLibrary,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Avx10Width {
-    Bits256,
-    Bits512,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum SveVectorLength {
-    Bits128,
-    Bits256,
-    Bits512,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CpuFeature {
-    IntelApx,
-    IntelAvx10(Avx10Width),
-    ArmSve(SveVectorLength),
-}
-
-impl CpuFeature {
-    fn llvm_feature_flags(&self) -> &'static [&'static str] {
-        match self {
-            CpuFeature::IntelApx => &[],
-            CpuFeature::IntelAvx10(Avx10Width::Bits256) => &["+avx2"],
-            CpuFeature::IntelAvx10(Avx10Width::Bits512) => &["+avx512f", "+avx512vl"],
-            CpuFeature::ArmSve(_) => &["+sve"],
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
-pub enum MemoryTopologyHint {
-    #[default]
-    Default,
-    CxlNear,
-    CxlFar,
-}
-
-#[derive(Clone, Debug)]
-pub struct TargetOptions<'a> {
-    pub triple: Option<&'a str>,
-    pub cpu: Option<&'a str>,
-    pub features: Option<String>,
-    pub static_libraries: Vec<PathBuf>,
-    pub hardware_features: Vec<CpuFeature>,
-    pub memory_topology: MemoryTopologyHint,
-    pub opt_level: Option<LlvmOptLevel>,
-}
-
-impl<'a> Default for TargetOptions<'a> {
-    fn default() -> Self {
-        Self {
-            triple: None,
-            cpu: None,
-            features: None,
-            static_libraries: Vec::new(),
-            hardware_features: Vec::new(),
-            memory_topology: MemoryTopologyHint::Default,
-            opt_level: None,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct LinkerInvocation {
-    program: PathBuf,
-    args: Vec<String>,
-    flavor: LinkerFlavor,
-}
-
-#[derive(Debug)]
-enum LinkerFlavor {
-    ClangLike,
-    WasmLd,
-    Custom,
-    AndroidClang,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::function::{InlineHint, RegisterPressureClass};
+    use crate::instruction::{BasicBlock, Label};
     use crate::{IRFunction, IRModule, IRProgram, IRType, IRValue, Instruction};
-    use inkwell::targets::TargetTriple;
     use std::env;
     use std::fs;
     use std::path::Path;
@@ -167,10 +90,8 @@ mod tests {
 
     #[test]
     fn object_file_extension_matches_target() {
-        let triple_linux = TargetTriple::create("x86_64-unknown-linux-gnu");
-        let triple_windows = TargetTriple::create("x86_64-pc-windows-msvc");
-        let linux_path = LlvmBackend::object_file_path(Path::new("foo"), &triple_linux);
-        let windows_path = LlvmBackend::object_file_path(Path::new("foo"), &triple_windows);
+        let linux_path = target::object_file_path(Path::new("foo"), "x86_64-unknown-linux-gnu");
+        let windows_path = target::object_file_path(Path::new("foo"), "x86_64-pc-windows-msvc");
         assert!(linux_path.ends_with("foo.o"));
         assert!(windows_path.ends_with("foo.obj"));
     }
@@ -178,9 +99,9 @@ mod tests {
     #[test]
     fn shared_library_flags_match_platform() {
         let linux_flags =
-            LlvmBackend::linker_pre_args("x86_64-unknown-linux-gnu", LinkOutput::SharedLibrary);
+            target::linker_pre_args("x86_64-unknown-linux-gnu", LinkOutput::SharedLibrary);
         let mac_flags =
-            LlvmBackend::linker_pre_args("aarch64-apple-darwin", LinkOutput::SharedLibrary);
+            target::linker_pre_args("aarch64-apple-darwin", LinkOutput::SharedLibrary);
         assert!(linux_flags.contains(&"-shared".to_string()));
         assert!(mac_flags.contains(&"-dynamiclib".to_string()));
     }
@@ -188,7 +109,7 @@ mod tests {
     #[test]
     fn executable_link_flags_include_libm_on_linux() {
         let flags =
-            LlvmBackend::linker_post_args("x86_64-unknown-linux-gnu", LinkOutput::Executable);
+            target::linker_post_args("x86_64-unknown-linux-gnu", LinkOutput::Executable);
         assert!(flags.contains(&"-lm".to_string()));
         assert!(flags.contains(&"-no-pie".to_string()));
     }
@@ -198,7 +119,7 @@ mod tests {
         with_env_lock(|| {
             let original = env::var("ANDROID_NDK_HOME").ok();
             env::remove_var("ANDROID_NDK_HOME");
-            let result = LlvmBackend::android_clang_path("aarch64-linux-android");
+            let result = target::android_clang_path("aarch64-linux-android");
             assert!(result.is_err());
             match original {
                 Some(val) => env::set_var("ANDROID_NDK_HOME", val),
@@ -216,7 +137,7 @@ mod tests {
                 .join("toolchains")
                 .join("llvm")
                 .join("prebuilt")
-                .join(LlvmBackend::default_ndk_host_tag())
+                .join(target::default_ndk_host_tag())
                 .join("bin");
             fs::create_dir_all(&bin_dir).expect("create bin dir");
             let clang_path = bin_dir.join("aarch64-linux-android21-clang");
@@ -230,7 +151,7 @@ mod tests {
             env::remove_var("ANDROID_NDK_HOST");
             env::remove_var("ANDROID_API_LEVEL");
 
-            let resolved = LlvmBackend::android_clang_path("aarch64-linux-android")
+            let resolved = target::android_clang_path("aarch64-linux-android")
                 .expect("resolve clang path");
             assert_eq!(resolved, clang_path);
 
@@ -286,7 +207,7 @@ mod tests {
         });
         entry.terminator = Some(Instruction::Return(Some(IRValue::Register(1))));
         func.cfg.add_block(entry);
-        func.cfg.set_entry_block("entry".to_string());
+        func.cfg.entry_block = Some("entry".to_string());
 
         let mut module = IRModule::new("simd_mod");
         module.add_function(func);
@@ -304,82 +225,93 @@ mod tests {
             "expected reduce_fadd sequence in IR:\n{ir}"
         );
     }
+
+    #[test]
+    fn handle_struct_is_i32_pair() {
+        let mut backend = LlvmBackend::new();
+        let ty = backend.ty_handle();
+        let fields = ty.get_field_types();
+        assert_eq!(fields.len(), 2);
+        assert!(fields
+            .iter()
+            .all(|f| f.into_int_type().get_bit_width() == 32));
+    }
 }
 
 pub struct LlvmBackend<'ctx> {
-    ctx: &'ctx LlvmContext,
-    module: LlvmModule<'ctx>,
-    builder: Builder<'ctx>,
-    i64_t: IntType<'ctx>,
-    bool_t: IntType<'ctx>,
-    i8_ptr_t: PointerType<'ctx>,
-    handle_ty: Option<StructType<'ctx>>,
-    select_result_ty: Option<StructType<'ctx>>,
+    pub(crate) ctx: &'ctx LlvmContext,
+    pub(crate) module: LlvmModule<'ctx>,
+    pub(crate) builder: Builder<'ctx>,
+    pub(crate) i64_t: IntType<'ctx>,
+    pub(crate) bool_t: IntType<'ctx>,
+    pub(crate) i8_ptr_t: PointerType<'ctx>,
+    pub(crate) handle_ty: Option<StructType<'ctx>>,
+    pub(crate) select_result_ty: Option<StructType<'ctx>>,
 
     // Runtime/extern declarations
-    printf: Option<FunctionValue<'ctx>>,
-    strlen: Option<FunctionValue<'ctx>>,
-    strcmp: Option<FunctionValue<'ctx>>,
-    malloc: Option<FunctionValue<'ctx>>,
-    realloc: Option<FunctionValue<'ctx>>,
-    free: Option<FunctionValue<'ctx>>,
-    memcpy: Option<FunctionValue<'ctx>>,
-    box_int_fn: Option<FunctionValue<'ctx>>,
-    box_bool_fn: Option<FunctionValue<'ctx>>,
-    box_ptr_fn: Option<FunctionValue<'ctx>>,
-    use_channel_runtime_stubs: bool,
-    cli_mode: bool,
+    pub(crate) printf: Option<FunctionValue<'ctx>>,
+    pub(crate) strlen: Option<FunctionValue<'ctx>>,
+    pub(crate) strcmp: Option<FunctionValue<'ctx>>,
+    pub(crate) malloc: Option<FunctionValue<'ctx>>,
+    pub(crate) realloc: Option<FunctionValue<'ctx>>,
+    pub(crate) free: Option<FunctionValue<'ctx>>,
+    pub(crate) memcpy: Option<FunctionValue<'ctx>>,
+    pub(crate) box_int_fn: Option<FunctionValue<'ctx>>,
+    pub(crate) box_bool_fn: Option<FunctionValue<'ctx>>,
+    pub(crate) box_ptr_fn: Option<FunctionValue<'ctx>>,
+    pub(crate) use_channel_runtime_stubs: bool,
+    pub(crate) cli_mode: bool,
 
     // Per‑function state (set during codegen)
-    current_fn: Option<FunctionValue<'ctx>>,
-    reg_values: HashMap<u32, BasicValueEnum<'ctx>>, // %rN -> value
-    var_values: HashMap<String, BasicValueEnum<'ctx>>, // %var -> last assigned value (SSA‑like)
-    var_slots: HashMap<String, PointerValue<'ctx>>, // %var -> alloca i64 slot
-    var_slot_types: HashMap<String, BasicTypeEnum<'ctx>>, // %var -> LLVM storage type
-    blocks: HashMap<String, LlvmBasicBlock<'ctx>>,  // label name -> BB
-    reg_slots: HashMap<u32, PointerValue<'ctx>>,    // %rN -> alloca i64 slot
-    reg_slot_types: HashMap<u32, BasicTypeEnum<'ctx>>, // %rN -> LLVM storage type
+    pub(crate) current_fn: Option<FunctionValue<'ctx>>,
+    pub(crate) reg_values: HashMap<u32, BasicValueEnum<'ctx>>, // %rN -> value
+    pub(crate) var_values: HashMap<String, BasicValueEnum<'ctx>>, // %var -> last assigned value (SSA‑like)
+    pub(crate) var_slots: HashMap<String, PointerValue<'ctx>>, // %var -> alloca i64 slot
+    pub(crate) var_slot_types: HashMap<String, BasicTypeEnum<'ctx>>, // %var -> LLVM storage type
+    pub(crate) blocks: HashMap<String, LlvmBasicBlock<'ctx>>,  // label name -> BB
+    pub(crate) reg_slots: HashMap<u32, PointerValue<'ctx>>,    // %rN -> alloca i64 slot
+    pub(crate) reg_slot_types: HashMap<u32, BasicTypeEnum<'ctx>>, // %rN -> LLVM storage type
 
     // Arg globals
-    g_argc: Option<inkwell::values::GlobalValue<'ctx>>,
-    g_argv: Option<inkwell::values::GlobalValue<'ctx>>,
-    fallthrough_bb: Option<LlvmBasicBlock<'ctx>>,
-    byte_array_globals: HashMap<Vec<u8>, GlobalValue<'ctx>>,
-    hardware_profile: HardwareProfile,
+    pub(crate) g_argc: Option<inkwell::values::GlobalValue<'ctx>>,
+    pub(crate) g_argv: Option<inkwell::values::GlobalValue<'ctx>>,
+    pub(crate) fallthrough_bb: Option<LlvmBasicBlock<'ctx>>,
+    pub(crate) byte_array_globals: HashMap<Vec<u8>, GlobalValue<'ctx>>,
+    pub(crate) hardware_profile: HardwareProfile,
     // Struct type registry: type_name -> (LLVM struct type, field names in order)
-    struct_types: HashMap<String, (StructType<'ctx>, Vec<String>)>,
+    pub(crate) struct_types: HashMap<String, (StructType<'ctx>, Vec<String>)>,
     // Enum type registry: enum_name -> variant names (variant value = index)
-    enum_types: HashMap<String, Vec<String>>,
+    pub(crate) enum_types: HashMap<String, Vec<String>>,
     // Variable name -> struct type name (for field access lookup)
-    var_struct_types: HashMap<String, String>,
+    pub(crate) var_struct_types: HashMap<String, String>,
     // Register id -> struct type name (for field access on expression results)
-    reg_struct_types: HashMap<u32, String>,
+    pub(crate) reg_struct_types: HashMap<u32, String>,
     // Function name -> return struct type name (for call result tagging)
-    fn_return_struct_types: HashMap<String, String>,
+    pub(crate) fn_return_struct_types: HashMap<String, String>,
     // Function name -> return array element struct type name (for array access)
-    fn_return_array_element_struct: HashMap<String, String>,
+    pub(crate) fn_return_array_element_struct: HashMap<String, String>,
     // Variable name -> array element struct type name (for array access -> field access patterns)
-    var_array_element_struct: HashMap<String, String>,
+    pub(crate) var_array_element_struct: HashMap<String, String>,
     // Variable name -> true if it's a string (for string indexing)
-    var_is_string: HashSet<String>,
+    pub(crate) var_is_string: HashSet<String>,
     // Variable name -> true if it's an integer array (for array indexing)
-    var_is_int_array: HashSet<String>,
+    pub(crate) var_is_int_array: HashSet<String>,
     // Struct definitions (Seen types): type_name -> fields
-    struct_definitions: HashMap<String, Vec<(String, IRType)>>,
+    pub(crate) struct_definitions: HashMap<String, Vec<(String, IRType)>>,
     // Register id -> array element struct type name
-    reg_array_element_struct: HashMap<u32, String>,
+    pub(crate) reg_array_element_struct: HashMap<u32, String>,
     // Register id -> true if it's an integer array (for array indexing)
-    reg_is_int_array: HashSet<u32>,
+    pub(crate) reg_is_int_array: HashSet<u32>,
     // Variable name -> true if it's a Vec that stores floats
-    var_is_float_vec: HashSet<String>,
+    pub(crate) var_is_float_vec: HashSet<String>,
     // Register id -> true if it holds a float value (for proper storage)
-    reg_is_float: HashSet<u32>,
+    pub(crate) reg_is_float: HashSet<u32>,
     // Variable name -> true if it holds a float value (stored as i64 bits)
-    var_is_float: HashSet<String>,
+    pub(crate) var_is_float: HashSet<String>,
     // Variable name -> LLVM element type (for arrays)
-    array_element_types: HashMap<String, BasicTypeEnum<'ctx>>,
+    pub(crate) array_element_types: HashMap<String, BasicTypeEnum<'ctx>>,
     // Register id -> LLVM element type (for arrays)
-    reg_array_element_types: HashMap<u32, BasicTypeEnum<'ctx>>,
+    pub(crate) reg_array_element_types: HashMap<u32, BasicTypeEnum<'ctx>>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -448,6 +380,113 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
+    // ========================================================================
+    // DRY Helper Methods - Common patterns extracted for maintainability
+    // ========================================================================
+
+    /// Declare an external function if it doesn't already exist.
+    /// This is the DRY pattern for all the ensure_*_fn and get_* methods.
+    fn declare_if_missing(
+        &mut self,
+        name: &str,
+        fn_ty: inkwell::types::FunctionType<'ctx>,
+    ) -> FunctionValue<'ctx> {
+        if let Some(f) = self.module.get_function(name) {
+            f
+        } else {
+            self.module.add_function(name, fn_ty, None)
+        }
+    }
+
+    /// Get the llvm.trap intrinsic, declaring it if needed.
+    fn get_trap(&mut self) -> FunctionValue<'ctx> {
+        let trap_ty = self.ctx.void_type().fn_type(&[], false);
+        self.declare_if_missing("llvm.trap", trap_ty)
+    }
+
+    /// Build array bounds check and branch to trap on failure.
+    /// Returns the continuation block where execution resumes if bounds check passes.
+    fn build_bounds_check(
+        &mut self,
+        index: inkwell::values::IntValue<'ctx>,
+        length: inkwell::values::IntValue<'ctx>,
+    ) -> Result<LlvmBasicBlock<'ctx>> {
+        let cmp = self.builder.build_int_compare(
+            inkwell::IntPredicate::UGE,
+            index,
+            length,
+            "bounds_check",
+        )?;
+
+        let fail_bb = self
+            .ctx
+            .append_basic_block(self.current_fn.unwrap(), "bounds_fail");
+        let cont_bb = self
+            .ctx
+            .append_basic_block(self.current_fn.unwrap(), "bounds_ok");
+
+        self.builder.build_conditional_branch(cmp, fail_bb, cont_bb)?;
+
+        self.builder.position_at_end(fail_bb);
+        let trap = self.get_trap();
+        self.builder.build_call(trap, &[], "trap")?;
+        self.builder.build_unreachable()?;
+
+        self.builder.position_at_end(cont_bb);
+        Ok(cont_bb)
+    }
+
+    /// Get the length field from an array pointer (field 0).
+    fn get_array_len(&mut self, arr_ptr: PointerValue<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
+        let len_ptr = self.builder.build_pointer_cast(
+            arr_ptr,
+            self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+            "len_ptr",
+        )?;
+        let len = self
+            .builder
+            .build_load(self.i64_t, len_ptr, "len")?
+            .into_int_value();
+        Ok(len)
+    }
+
+    /// Get the data pointer from an array (offset by sizeof(i64) for length, then load i8*).
+    fn get_array_data_ptr(&mut self, arr_ptr: PointerValue<'ctx>) -> Result<PointerValue<'ctx>> {
+        // Data pointer is at offset 8 (after the i64 length field)
+        let data_ptr_ptr = unsafe {
+            self.builder.build_gep(
+                self.i8_ptr_t,
+                arr_ptr,
+                &[self.i64_t.const_int(8, false)],
+                "data_ptr_ptr",
+            )?
+        };
+        let data_ptr_ptr_casted = self.builder.build_pointer_cast(
+            data_ptr_ptr,
+            self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+            "data_ptr_ptr_casted",
+        )?;
+        let data_ptr = self
+            .builder
+            .build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?
+            .into_pointer_value();
+        Ok(data_ptr)
+    }
+
+    /// Get or create a fallthrough block for the current function.
+    /// Used when a block needs an unconditional continuation.
+    fn get_or_create_fallthrough_block(&mut self) -> LlvmBasicBlock<'ctx> {
+        if let Some(bb) = self.fallthrough_bb {
+            bb
+        } else {
+            let bb = self
+                .ctx
+                .append_basic_block(self.current_fn.unwrap(), "fallthrough");
+            self.fallthrough_bb = Some(bb);
+            bb
+        }
+    }
+
     pub fn set_cli_mode(&mut self, enabled: bool) {
         self.cli_mode = enabled;
     }
@@ -458,7 +497,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         out_path: &Path,
         options: TargetOptions<'_>,
     ) -> Result<()> {
-        let (triple, target_machine) = Self::target_machine_for(&options)?;
+        let (triple, target_machine) = target::target_machine_for(&options)?;
         self.configure_module_target(&triple, &target_machine);
         self.hardware_profile = prog.hardware_profile.clone();
 
@@ -488,7 +527,7 @@ impl<'ctx> LlvmBackend<'ctx> {
 
         // Build object
         let static_libs = options.static_libraries.clone();
-        let (target_triple, target_machine) = Self::target_machine_for(&options)?;
+        let (target_triple, target_machine) = target::target_machine_for(&options)?;
         self.configure_module_target(&target_triple, &target_machine);
 
         if let Err(e) = self.module.verify() {
@@ -496,7 +535,12 @@ impl<'ctx> LlvmBackend<'ctx> {
              return Err(anyhow!("Module verification failed after target config: {}", e.to_string()));
         }
 
-        let obj_path = Self::object_file_path(out_path, &target_triple);
+        let triple_str = target_triple
+            .as_str()
+            .to_str()
+            .unwrap_or_else(|_| "")
+            .to_string();
+        let obj_path = target::object_file_path(out_path, &triple_str);
         eprintln!("LLVM backend: writing object file {:?}", obj_path);
         target_machine
             .write_to_file(&self.module, FileType::Object, &obj_path)
@@ -506,12 +550,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             return Ok(());
         }
 
-        let triple_string = target_triple
-            .as_str()
-            .to_str()
-            .unwrap_or_else(|_| "")
-            .to_string();
-        self.link_artifact(kind, &obj_path, out_path, &triple_string, &static_libs)
+        self.link_artifact(kind, &obj_path, out_path, &triple_str, &static_libs)
     }
 
     fn predeclare_runtime_functions(&mut self) {
@@ -697,62 +736,10 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(())
     }
 
-    fn target_machine_for(options: &TargetOptions<'_>) -> Result<(TargetTriple, TargetMachine)> {
-        let triple = if let Some(triple) = options.triple {
-            TargetTriple::create(triple)
-        } else {
-            TargetMachine::get_default_triple()
-        };
-        let target = Target::from_triple(&triple)
-            .map_err(|e| anyhow!("Target from triple failed: {e:?}"))?;
-        let cpu = options.cpu.unwrap_or("generic");
-        let mut feature_parts = Vec::new();
-        if let Some(explicit) = options.features.as_deref() {
-            if !explicit.trim().is_empty() {
-                feature_parts.push(explicit.to_string());
-            }
-        }
-        let hardware_flags: Vec<&'static str> = options
-            .hardware_features
-            .iter()
-            .flat_map(|feature| feature.llvm_feature_flags().iter().copied())
-            .collect();
-        if !hardware_flags.is_empty() {
-            feature_parts.push(hardware_flags.join(","));
-        }
-        let feature_string = feature_parts.join(",");
-        let features = if feature_string.is_empty() {
-            ""
-        } else {
-            feature_string.as_str()
-        };
-        let machine = target
-            .create_target_machine(
-                &triple,
-                cpu,
-                features,
-                options.opt_level.unwrap_or(LlvmOptLevel::Default),
-                RelocMode::Default,
-                CodeModel::Default,
-            )
-            .ok_or_else(|| anyhow!("Create target machine failed"))?;
-        Ok((triple, machine))
-    }
-
     fn configure_module_target(&mut self, triple: &TargetTriple, machine: &TargetMachine) {
         self.module.set_triple(triple);
         let layout = machine.get_target_data().get_data_layout();
         self.module.set_data_layout(&layout);
-    }
-
-    fn object_file_path(out_path: &Path, triple: &TargetTriple) -> PathBuf {
-        let triple_str = triple.to_string();
-        let ext = if triple_str.contains("windows") {
-            "obj"
-        } else {
-            "o"
-        };
-        out_path.with_extension(ext)
     }
 
     fn link_artifact(
@@ -781,23 +768,23 @@ impl<'ctx> LlvmBackend<'ctx> {
         if triple.contains("wasm32") {
             return self.link_wasm(obj_path, out_path, LinkOutput::Executable);
         }
-        let invocation = self.select_linker(triple)?;
+        let invocation = target::select_linker(triple)?;
         eprintln!(
             "LLVM backend: invoking linker {:?} (flavor {:?})",
             invocation.program, invocation.flavor
         );
         let mut cmd = std::process::Command::new(&invocation.program);
-        Self::apply_deterministic_env(&mut cmd);
+        target::apply_deterministic_env(&mut cmd);
         cmd.args(&invocation.args);
-        cmd.args(Self::linker_pre_args(triple, LinkOutput::Executable));
+        cmd.args(target::linker_pre_args(triple, LinkOutput::Executable));
         cmd.arg(obj_path);
         cmd.arg("-o");
         cmd.arg(out_path);
         for lib in extra_libs {
             cmd.arg(lib);
         }
-        cmd.args(Self::linker_post_args(triple, LinkOutput::Executable));
-        Self::exec_command(cmd, "link executable")
+        cmd.args(target::linker_post_args(triple, LinkOutput::Executable));
+        target::exec_command(cmd, "link executable")
     }
 
     fn link_shared(
@@ -810,30 +797,30 @@ impl<'ctx> LlvmBackend<'ctx> {
         if triple.contains("wasm32") {
             return self.link_wasm(obj_path, out_path, LinkOutput::SharedLibrary);
         }
-        let invocation = self.select_linker(triple)?;
+        let invocation = target::select_linker(triple)?;
         eprintln!(
             "LLVM backend: invoking linker {:?} (flavor {:?})",
             invocation.program, invocation.flavor
         );
         let mut cmd = std::process::Command::new(&invocation.program);
-        Self::apply_deterministic_env(&mut cmd);
+        target::apply_deterministic_env(&mut cmd);
         cmd.args(&invocation.args);
-        cmd.args(Self::linker_pre_args(triple, LinkOutput::SharedLibrary));
+        cmd.args(target::linker_pre_args(triple, LinkOutput::SharedLibrary));
         cmd.arg(obj_path);
         cmd.arg("-o");
         cmd.arg(out_path);
         for lib in extra_libs {
             cmd.arg(lib);
         }
-        cmd.args(Self::linker_post_args(triple, LinkOutput::SharedLibrary));
-        Self::exec_command(cmd, "link shared library")
+        cmd.args(target::linker_post_args(triple, LinkOutput::SharedLibrary));
+        target::exec_command(cmd, "link shared library")
     }
 
     fn link_static(&self, obj_path: &Path, out_path: &Path, triple: &str) -> Result<()> {
-        let tool = Self::select_archiver(triple)?;
+        let tool = target::select_archiver(triple)?;
         eprintln!("LLVM backend: invoking archiver {}", tool.display());
         let mut cmd = std::process::Command::new(&tool);
-        Self::apply_deterministic_env(&mut cmd);
+        target::apply_deterministic_env(&mut cmd);
         if triple.contains("windows")
             && tool
                 .file_name()
@@ -846,23 +833,23 @@ impl<'ctx> LlvmBackend<'ctx> {
         } else {
             cmd.arg("rcs").arg(out_path).arg(obj_path);
         }
-        Self::exec_command(cmd, "archive static library")?;
+        target::exec_command(cmd, "archive static library")?;
 
         if triple.contains("apple") {
-            let ranlib = Self::select_ranlib(triple)?;
+            let ranlib = target::select_ranlib(triple)?;
             let mut cmd = std::process::Command::new(&ranlib);
             cmd.arg(out_path);
-            Self::exec_command(cmd, "ranlib static library")?;
+            target::exec_command(cmd, "ranlib static library")?;
         }
 
         Ok(())
     }
 
     fn link_wasm(&self, obj_path: &Path, out_path: &Path, kind: LinkOutput) -> Result<()> {
-        let program = Self::lookup_wasm_linker()?;
+        let program = target::lookup_wasm_linker()?;
         eprintln!("LLVM backend: invoking wasm linker {:?}", program);
         let mut cmd = std::process::Command::new(&program);
-        Self::apply_deterministic_env(&mut cmd);
+        target::apply_deterministic_env(&mut cmd);
         cmd.arg(obj_path);
         cmd.arg("-o");
         cmd.arg(out_path);
@@ -875,280 +862,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         if matches!(kind, LinkOutput::SharedLibrary) {
             cmd.arg("--shared");
         }
-        Self::exec_command(cmd, "link wasm artifact")
-    }
-
-    fn select_linker(&self, triple: &str) -> Result<LinkerInvocation> {
-        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
-            if !explicit.is_empty() {
-                return Ok(LinkerInvocation {
-                    program: PathBuf::from(explicit),
-                    args: Vec::new(),
-                    flavor: LinkerFlavor::Custom,
-                });
-            }
-        }
-
-        if triple.contains("wasm32") {
-            let program = which::which("wasm-ld")
-                .ok()
-                .unwrap_or_else(|| PathBuf::from("wasm-ld"));
-            return Ok(LinkerInvocation {
-                program,
-                args: Vec::new(),
-                flavor: LinkerFlavor::WasmLd,
-            });
-        }
-
-        if triple.contains("android") {
-            let clang = Self::android_clang_path(triple)?;
-            return Ok(LinkerInvocation {
-                program: clang,
-                args: Vec::new(),
-                flavor: LinkerFlavor::AndroidClang,
-            });
-        }
-
-        let program = which::which("clang").ok().unwrap_or_else(|| {
-            which::which("cc")
-                .ok()
-                .unwrap_or_else(|| PathBuf::from("clang"))
-        });
-
-        let mut args = Vec::new();
-        let program_is_clang = program
-            .file_name()
-            .map(|n| n.to_string_lossy().contains("clang"))
-            .unwrap_or(false);
-        if program_is_clang {
-            args.push(format!("--target={}", triple));
-        }
-
-        Ok(LinkerInvocation {
-            program,
-            args,
-            flavor: LinkerFlavor::ClangLike,
-        })
-    }
-
-    fn select_archiver(triple: &str) -> Result<PathBuf> {
-        if let Ok(explicit) = env::var("SEEN_LLVM_ARCHIVER") {
-            if !explicit.is_empty() {
-                return Ok(PathBuf::from(explicit));
-            }
-        }
-
-        if triple.contains("android") {
-            return Self::android_tool_path("llvm-ar");
-        }
-
-        if triple.contains("windows") {
-            Ok(which::which("llvm-ar")
-                .ok()
-                .unwrap_or_else(|| PathBuf::from("lib")))
-        } else {
-            Ok(which::which("llvm-ar")
-                .ok()
-                .unwrap_or_else(|| PathBuf::from("ar")))
-        }
-    }
-
-    fn select_ranlib(triple: &str) -> Result<PathBuf> {
-        if let Ok(explicit) = env::var("SEEN_LLVM_RANLIB") {
-            if !explicit.is_empty() {
-                return Ok(PathBuf::from(explicit));
-            }
-        }
-        if triple.contains("android") {
-            return Self::android_tool_path("llvm-ranlib");
-        }
-        Ok(which::which("llvm-ranlib")
-            .ok()
-            .unwrap_or_else(|| PathBuf::from("ranlib")))
-    }
-
-    fn linker_pre_args(triple: &str, kind: LinkOutput) -> Vec<String> {
-        match kind {
-            LinkOutput::SharedLibrary => {
-                if triple.contains("apple") {
-                    vec!["-dynamiclib".to_string()]
-                } else {
-                    vec!["-shared".to_string()]
-                }
-            }
-            LinkOutput::Executable => {
-                if triple.contains("windows") {
-                    vec![]
-                } else {
-                    vec![]
-                }
-            }
-            _ => vec![],
-        }
-    }
-
-    fn linker_post_args(triple: &str, kind: LinkOutput) -> Vec<String> {
-        match kind {
-            LinkOutput::Executable => {
-                if triple.contains("android") {
-                    vec!["-Wl,--build-id=none".to_string(), "-lm".to_string()]
-                } else if triple.contains("linux") {
-                    // Force deterministic ELF: no build-id tag and no PIE randomization.
-                    vec![
-                        "-Wl,--build-id=none".to_string(),
-                        "-no-pie".to_string(),
-                        "-lm".to_string(),
-                    ]
-                } else if triple.contains("apple") {
-                    vec!["-lm".to_string()]
-                } else {
-                    vec![]
-                }
-            }
-            LinkOutput::SharedLibrary => {
-                if triple.contains("android") || triple.contains("linux") {
-                    vec!["-Wl,--build-id=none".to_string(), "-lm".to_string()]
-                } else {
-                    vec![]
-                }
-            }
-            _ => vec![],
-        }
-    }
-
-    fn exec_command(mut cmd: std::process::Command, action: &str) -> Result<()> {
-        let status = cmd
-            .status()
-            .with_context(|| format!("Spawning {}", action))?;
-        if !status.success() {
-            return Err(anyhow!(
-                "Command to {} failed with status {}",
-                action,
-                status
-            ));
-        }
-        Ok(())
-    }
-
-    fn apply_deterministic_env(cmd: &mut std::process::Command) {
-        // Respect caller override but default to a zero epoch to strip timestamps/build IDs.
-        if std::env::var_os("SOURCE_DATE_EPOCH").is_none() {
-            cmd.env("SOURCE_DATE_EPOCH", "0");
-        }
-    }
-
-    fn lookup_wasm_linker() -> Result<PathBuf> {
-        if let Ok(explicit) = env::var("SEEN_LLVM_LINKER") {
-            if !explicit.is_empty() {
-                let path = PathBuf::from(&explicit);
-                if path.components().count() > 1 || path.is_absolute() {
-                    if path.exists() {
-                        return Ok(path);
-                    } else {
-                        bail!(
-                            "SEEN_LLVM_LINKER points to {}, but the file does not exist",
-                            path.display()
-                        );
-                    }
-                } else if let Ok(found) = which::which(&path) {
-                    return Ok(found);
-                } else {
-                    bail!("SEEN_LLVM_LINKER={} was not found on PATH", explicit);
-                }
-            }
-        }
-
-        which::which("wasm-ld").map_err(|_| {
-            anyhow!(
-                "wasm-ld linker not found; install LLVM 15 wasm-ld or set SEEN_LLVM_LINKER to an available linker"
-            )
-        })
-    }
-
-    fn android_clang_path(triple: &str) -> Result<PathBuf> {
-        let bin_dir = Self::android_bin_dir()?;
-        let api = Self::android_api_level();
-        let prefix = if triple.contains("aarch64") {
-            "aarch64-linux-android"
-        } else if triple.contains("armv7") || triple.contains("armeabi") || triple.contains("arm") {
-            "armv7a-linux-androideabi"
-        } else if triple.contains("x86_64") {
-            "x86_64-linux-android"
-        } else if triple.contains("i686") || triple.contains("x86") {
-            "i686-linux-android"
-        } else {
-            bail!(
-                "Android target {} not yet supported; expected aarch64, armv7a, x86_64, or i686 variants",
-                triple
-            );
-        };
-        let tool_name = format!("{prefix}{api}-clang");
-        let path = bin_dir.join(tool_name);
-        if path.exists() {
-            Ok(path)
-        } else {
-            bail!(
-                "Expected Android NDK clang at {}, but it was not found",
-                path.display()
-            );
-        }
-    }
-
-    fn android_tool_path(tool: &str) -> Result<PathBuf> {
-        let bin_dir = Self::android_bin_dir()?;
-        let path = bin_dir.join(tool);
-        if path.exists() {
-            Ok(path)
-        } else {
-            bail!(
-                "Expected Android NDK tool {} inside {}; ensure the NDK is installed",
-                tool,
-                bin_dir.display()
-            );
-        }
-    }
-
-    fn android_bin_dir() -> Result<PathBuf> {
-        let ndk_home = env::var("ANDROID_NDK_HOME")
-            .map_err(|_| anyhow!("ANDROID_NDK_HOME must be set to cross-compile for Android"))?;
-        let host_tag = env::var("ANDROID_NDK_HOST")
-            .ok()
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| Self::default_ndk_host_tag());
-        let bin_path = Path::new(&ndk_home)
-            .join("toolchains")
-            .join("llvm")
-            .join("prebuilt")
-            .join(&host_tag)
-            .join("bin");
-        if bin_path.exists() {
-            Ok(bin_path)
-        } else {
-            bail!(
-                "Android NDK toolchain bin directory {} does not exist; check ANDROID_NDK_HOME and ANDROID_NDK_HOST (currently using {})",
-                bin_path.display(),
-                host_tag
-            );
-        }
-    }
-
-    fn default_ndk_host_tag() -> String {
-        if cfg!(target_os = "linux") {
-            "linux-x86_64".to_string()
-        } else if cfg!(target_os = "macos") {
-            "darwin-x86_64".to_string()
-        } else if cfg!(target_os = "windows") {
-            "windows-x86_64".to_string()
-        } else {
-            "linux-x86_64".to_string()
-        }
-    }
-
-    fn android_api_level() -> String {
-        env::var("ANDROID_API_LEVEL")
-            .ok()
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| "21".to_string())
+        target::exec_command(cmd, "link wasm artifact")
     }
 
     fn inject_runtime_stubs(&mut self, include_channel: bool) -> Result<()> {
@@ -2634,38 +2348,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let idx_bv = self.eval_value(index, fn_map)?;
                     let idx_iv = self.as_i64(idx_bv)?;
 
-                    // BOUNDS CHECK
-                    let len_ptr = self.builder.build_pointer_cast(
-                        arr_ptr,
-                        self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-                        "len_ptr"
-                    )?;
-                    let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
-
-                    let cmp = self.builder.build_int_compare(
-                        inkwell::IntPredicate::UGE,
-                        idx_iv,
-                        len,
-                        "bounds_check"
-                    )?;
-                    
-                    let fail_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_fail");
-                    let cont_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_ok");
-                    
-                    self.builder.build_conditional_branch(cmp, fail_bb, cont_bb)?;
-                    
-                    self.builder.position_at_end(fail_bb);
-                    // Trap
-                    if let Some(trap) = self.module.get_function("llvm.trap") {
-                        self.builder.build_call(trap, &[], "trap")?;
-                    } else {
-                        let trap_ty = self.ctx.void_type().fn_type(&[], false);
-                        let trap = self.module.add_function("llvm.trap", trap_ty, None);
-                        self.builder.build_call(trap, &[], "trap")?;
-                    }
-                    self.builder.build_unreachable()?;
-                    
-                    self.builder.position_at_end(cont_bb);
+                    // BOUNDS CHECK (using DRY helper)
+                    let len = self.get_array_len(arr_ptr)?;
+                    self.build_bounds_check(idx_iv, len)?;
                     
                     // Check if we're accessing a struct array
                     if let Some(ref struct_type_name) = element_struct_type {
@@ -2795,38 +2480,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let idx_bv = self.eval_value(index, fn_map)?;
                 let idx_iv = self.as_i64(idx_bv)?;
 
-                // BOUNDS CHECK
-                let len_ptr = self.builder.build_pointer_cast(
-                    arr_ptr,
-                    self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-                    "len_ptr"
-                )?;
-                let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
-
-                let cmp = self.builder.build_int_compare(
-                    inkwell::IntPredicate::UGE,
-                    idx_iv,
-                    len,
-                    "bounds_check"
-                )?;
-                
-                let fail_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_fail");
-                let cont_bb = self.ctx.append_basic_block(self.current_fn.unwrap(), "bounds_ok");
-                
-                self.builder.build_conditional_branch(cmp, fail_bb, cont_bb)?;
-                
-                self.builder.position_at_end(fail_bb);
-                // Trap
-                if let Some(trap) = self.module.get_function("llvm.trap") {
-                    self.builder.build_call(trap, &[], "trap")?;
-                } else {
-                    let trap_ty = self.ctx.void_type().fn_type(&[], false);
-                    let trap = self.module.add_function("llvm.trap", trap_ty, None);
-                    self.builder.build_call(trap, &[], "trap")?;
-                }
-                self.builder.build_unreachable()?;
-                
-                self.builder.position_at_end(cont_bb);
+                // BOUNDS CHECK (using DRY helper)
+                let len = self.get_array_len(arr_ptr)?;
+                self.build_bounds_check(idx_iv, len)?;
                 
                 // Check if we're setting a struct array element
                 if let Some(ref struct_type_name) = element_struct_type {
@@ -2948,32 +2604,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             } => {
                 // Handle known intrinsics
                 if let IRValue::Variable(name) = target {
-                    // Normalize method names: strip Type_ prefix (e.g., String_charAt -> charAt)
-                    // Also handle Result/File method naming issues
-                    let normalized_name = if let Some(stripped) = name.strip_prefix("String_") {
-                        stripped
-                    } else if let Some(stripped) = name.strip_prefix("List_") {
-                        stripped
-                    } else {
-                        name.as_str()
-                    };
+                    // Normalize method names using helper from instructions module
+                    let base_normalized = normalize_method_name(name);
                     
-                    // Strip numeric suffix (e.g., List_size.546 -> List_size -> size)
-                    let base_normalized = normalized_name.split('.').next().unwrap_or(normalized_name);
-                    
-                    // Handle Result/File method aliases - forward to actual Result methods
-                    // This handles cases like File_isOk -> Result_isOkay, File_unwrap -> Result_unwrap
-                    let result_method = match normalized_name {
-                        // isOk -> isOkay (Result's actual method name)
-                        "isOk" | "Result_isOk" | "File_isOk" | "Option_isSome" => Some("isOkay"),
-                        // isErr stays isErr
-                        "isErr" | "Result_isErr" | "File_isErr" | "Option_isNone" => Some("isErr"),
-                        // unwrap methods
-                        "unwrap" | "Result_unwrap" | "File_unwrap" | "Option_unwrap" => Some("unwrap"),
-                        "unwrapErr" | "Result_unwrapErr" | "File_unwrapErr" => Some("unwrapErr"),
-                        "unwrapOr" | "Result_unwrapOr" | "Option_unwrapOr" => Some("unwrapOr"),
-                        _ => None,
-                    };
+                    // Handle Result/File method aliases using helper
+                    let result_method = get_result_method_alias(base_normalized);
                     
                     // If this is a Result/File method, call the actual Result method
                     if let Some(method) = result_method {
@@ -5568,51 +5203,29 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn ensure_channel_send_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function("seen_channel_send") {
-            f
-        } else {
-            let ty = self
-                .i8_ptr_t
-                .fn_type(&[self.i8_ptr_t.into(), self.i8_ptr_t.into()], false);
-            self.module.add_function("seen_channel_send", ty, None)
-        }
+        let ty = self.i8_ptr_t.fn_type(&[self.i8_ptr_t.into(), self.i8_ptr_t.into()], false);
+        self.declare_if_missing("seen_channel_send", ty)
     }
 
     fn ensure_int_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function("__IntToString") {
-            f
-        } else {
-            let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
-            self.module.add_function("__IntToString", ty, None)
-        }
+        let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
+        self.declare_if_missing("__IntToString", ty)
     }
 
     fn ensure_char_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function("__CharToString") {
-            f
-        } else {
-            let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
-            self.module.add_function("__CharToString", ty, None)
-        }
+        let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
+        self.declare_if_missing("__CharToString", ty)
     }
 
     fn ensure_float_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function("__FloatToString") {
-            f
-        } else {
-            let ty = self.ty_string().fn_type(&[self.ctx.f64_type().into()], false);
-            self.module.add_function("__FloatToString", ty, None)
-        }
+        let ty = self.ty_string().fn_type(&[self.ctx.f64_type().into()], false);
+        self.declare_if_missing("__FloatToString", ty)
     }
 
     fn ensure_bool_to_string_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(f) = self.module.get_function("__BoolToString") {
-            f
-        } else {
-            // Takes i64 (0 or 1), returns string struct
-            let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
-            self.module.add_function("__BoolToString", ty, None)
-        }
+        // Takes i64 (0 or 1), returns string struct
+        let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
+        self.declare_if_missing("__BoolToString", ty)
     }
 
     /// Auto-declare an external runtime function with a generic signature.
@@ -6742,7 +6355,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         f
     }
 
-    fn get_malloc(&mut self) -> FunctionValue<'ctx> {
+    pub(crate) fn get_malloc(&mut self) -> FunctionValue<'ctx> {
         if let Some(f) = self.malloc {
             return f;
         }
@@ -6772,7 +6385,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         f
     }
 
-    fn get_memcpy(&mut self) -> FunctionValue<'ctx> {
+    pub(crate) fn get_memcpy(&mut self) -> FunctionValue<'ctx> {
         if let Some(f) = self.memcpy {
             return f;
         }
@@ -6834,7 +6447,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             .map_err(|e| anyhow!("{e:?}"))
     }
 
-    fn call_strlen(&mut self, s: PointerValue<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
+    pub(crate) fn call_strlen(&mut self, s: PointerValue<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
         let strlen = self.get_strlen();
         let call = self
             .builder
@@ -6884,7 +6497,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(result)
     }
 
-    fn call_strcmp(
+    pub(crate) fn call_strcmp(
         &mut self,
         a: PointerValue<'ctx>,
         b: PointerValue<'ctx>,
@@ -6897,20 +6510,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(call.try_as_basic_value().left().unwrap().into_int_value())
     }
 
-    fn get_string_ptr_len(&mut self, val: inkwell::values::BasicValueEnum<'ctx>) -> Result<(PointerValue<'ctx>, inkwell::values::IntValue<'ctx>)> {
-        if val.is_struct_value() {
-            let sv = val.into_struct_value();
-            let len = self.builder.build_extract_value(sv, 0, "len").unwrap().into_int_value();
-            let ptr = self.builder.build_extract_value(sv, 1, "ptr").unwrap().into_pointer_value();
-            Ok((ptr, len))
-        } else if val.is_pointer_value() {
-            let ptr = val.into_pointer_value();
-            let len = self.call_strlen(ptr)?;
-            Ok((ptr, len))
-        } else {
-             Err(anyhow!("Not a string value: {:?}", val))
-        }
-    }
+    // Note: get_string_ptr_len is now in crate::llvm::string_ops::RuntimeStringOps
 
     fn ensure_string(&mut self, val: BasicValueEnum<'ctx>, ir_val: &IRValue) -> Result<BasicValueEnum<'ctx>> {
         // Check actual LLVM value type first - if it's already a string struct, return it
@@ -7001,150 +6601,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(val)
     }
 
-    fn runtime_concat(
-        &mut self,
-        left: inkwell::values::BasicValueEnum<'ctx>,
-        right: inkwell::values::BasicValueEnum<'ctx>,
-    ) -> Result<inkwell::values::BasicValueEnum<'ctx>> {
-        let (l_ptr, l_len) = self.get_string_ptr_len(left)?;
-        let (r_ptr, r_len) = self.get_string_ptr_len(right)?;
-
-        let one = self.i64_t.const_int(1, false);
-        let total_len = self.builder.build_int_add(l_len, r_len, "sum")?;
-        let alloc_size = self.builder.build_int_add(total_len, one, "plus1")?;
-
-        let malloc = self.get_malloc();
-        let buf = self
-            .builder
-            .build_call(malloc, &[alloc_size.into()], "malloc")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let dest = buf
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_pointer_value();
-
-        // memcpy(dest, left, l_len)
-        let memcpy = self.get_memcpy();
-        self.builder
-            .build_call(memcpy, &[dest.into(), l_ptr.into(), l_len.into()], "cpy1")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        // memcpy(dest + l_len, right, r_len)
-        let dest_off = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[l_len], "off")?
-        };
-        self.builder
-            .build_call(
-                memcpy,
-                &[dest_off.into(), r_ptr.into(), r_len.into()],
-                "cpy2",
-            )
-            .map_err(|e| anyhow!("{e:?}"))?;
-        // null terminate at dest[l_len + r_len]
-        let end_ptr = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[total_len], "end")?
-        };
-        self.builder
-            .build_store(end_ptr, self.ctx.i8_type().const_int(0, false))?;
-
-        let st = self.ty_string().const_zero();
-        let st = self.builder.build_insert_value(st, total_len, 0, "st_len").unwrap();
-        let st = self.builder.build_insert_value(st, dest, 1, "st_ptr").unwrap();
-
-        Ok(st.as_basic_value_enum())
-    }
-
-    fn runtime_endswith(
-        &mut self,
-        s: PointerValue<'ctx>,
-        suffix: PointerValue<'ctx>,
-    ) -> Result<inkwell::values::IntValue<'ctx>> {
-        let s_len = self.call_strlen(s)?;
-        let suf_len = self.call_strlen(suffix)?;
-        let suf_gt =
-            self.builder
-                .build_int_compare(inkwell::IntPredicate::UGT, suf_len, s_len, "suf_gt")?;
-        let len_ok = self
-            .builder
-            .build_not(suf_gt, "len_ok")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let start = self
-            .builder
-            .build_int_sub(s_len, suf_len, "start")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let off = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), s, &[start], "s_off")
-                .map_err(|e| anyhow!("{e:?}"))?
-        };
-        let cmp = self.call_strcmp(off, suffix)?;
-        let zero32 = self.ctx.i32_type().const_zero();
-        let cmp_eq = self
-            .builder
-            .build_int_compare(inkwell::IntPredicate::EQ, cmp, zero32, "ends_eq")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let suf_zero = self
-            .builder
-            .build_int_compare(
-                inkwell::IntPredicate::EQ,
-                suf_len,
-                self.i64_t.const_zero(),
-                "suf_zero",
-            )
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let eq_or_zero = self
-            .builder
-            .build_or(cmp_eq, suf_zero, "ends_match")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let result = self
-            .builder
-            .build_and(len_ok, eq_or_zero, "ends_res")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        Ok(result)
-    }
-
-    fn runtime_substring(
-        &mut self,
-        s: PointerValue<'ctx>,
-        start: inkwell::values::IntValue<'ctx>,
-        end: inkwell::values::IntValue<'ctx>,
-    ) -> Result<BasicValueEnum<'ctx>> {
-        let len = self.builder.build_int_sub(end, start, "sub_len")?;
-        let one = self.i64_t.const_int(1, false);
-        let total = self.builder.build_int_add(len, one, "plus1")?;
-        let malloc = self.get_malloc();
-        let buf = self
-            .builder
-            .build_call(malloc, &[total.into()], "malloc")
-            .map_err(|e| anyhow!("{e:?}"))?;
-        let dest = buf
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_pointer_value();
-        let src = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), s, &[start], "src_off")?
-        };
-        let memcpy = self.get_memcpy();
-        self.builder
-            .build_call(memcpy, &[dest.into(), src.into(), len.into()], "cpy")?;
-        let end_ptr = unsafe {
-            self.builder
-                .build_gep(self.ctx.i8_type(), dest, &[len], "end")?
-        };
-        self.builder
-            .build_store(end_ptr, self.ctx.i8_type().const_zero())?;
-        
-        // Return as String struct { i64, ptr } instead of just ptr
-        let str_ty = self.ty_string();
-        let mut str_val = str_ty.get_undef();
-        str_val = self.builder.build_insert_value(str_val, len, 0, "str_len").unwrap().into_struct_value();
-        str_val = self.builder.build_insert_value(str_val, dest, 1, "str_ptr").unwrap().into_struct_value();
-        Ok(str_val.as_basic_value_enum())
-    }
+    // Note: runtime_concat, runtime_endswith, runtime_substring are now in
+    // crate::llvm::string_ops::RuntimeStringOps trait implementation
 
     fn declare_main_wrapper(&mut self) {
         if self.module.get_function("main").is_some() {
@@ -7364,7 +6822,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         )
     }
 
-    fn ty_string(&self) -> inkwell::types::StructType<'ctx> {
+    pub(crate) fn ty_string(&self) -> inkwell::types::StructType<'ctx> {
         self.ctx.struct_type(&[self.i64_t.into(), self.i8_ptr_t.into()], false)
     }
 
@@ -7413,62 +6871,39 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     fn ensure_channel_select_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("seen_channel_select") {
-            func
-        } else {
-            let fn_ty = self.i8_ptr_t.fn_type(
-                &[
-                    self.i8_ptr_t.into(),
-                    self.i8_ptr_t.into(),
-                    self.i64_t.into(),
-                ],
-                false,
-            );
-            self.module.add_function("seen_channel_select", fn_ty, None)
-        }
+        let fn_ty = self.i8_ptr_t.fn_type(
+            &[
+                self.i8_ptr_t.into(),
+                self.i8_ptr_t.into(),
+                self.i64_t.into(),
+            ],
+            false,
+        );
+        self.declare_if_missing("seen_channel_select", fn_ty)
     }
 
     fn ensure_scope_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function(name) {
-            func
-        } else {
-            let fn_ty = self
-                .ctx
-                .void_type()
-                .fn_type(&[self.ctx.i32_type().into()], false);
-            self.module.add_function(name, fn_ty, None)
-        }
+        let fn_ty = self.ctx.void_type().fn_type(&[self.ctx.i32_type().into()], false);
+        self.declare_if_missing(name, fn_ty)
     }
 
     fn ensure_spawn_fn(&mut self, name: &str) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function(name) {
-            func
-        } else {
-            let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
-            let fn_ty = ptr_ty.fn_type(&[], false);
-            self.module.add_function(name, fn_ty, None)
-        }
+        let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+        let fn_ty = ptr_ty.fn_type(&[], false);
+        self.declare_if_missing(name, fn_ty)
     }
 
     fn ensure_task_handle_new_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("__task_handle_new") {
-            func
-        } else {
-            let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
-            let fn_ty = ptr_ty.fn_type(&[self.ctx.i32_type().into()], false);
-            self.module.add_function("__task_handle_new", fn_ty, None)
-        }
+        let ptr_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+        let fn_ty = ptr_ty.fn_type(&[self.ctx.i32_type().into()], false);
+        self.declare_if_missing("__task_handle_new", fn_ty)
     }
 
     fn ensure_await_fn(&mut self) -> FunctionValue<'ctx> {
-        if let Some(func) = self.module.get_function("__await") {
-            func
-        } else {
-            let ret_ty = self.ctx.i32_type();
-            let arg_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
-            let fn_ty = ret_ty.fn_type(&[arg_ty.into()], false);
-            self.module.add_function("__await", fn_ty, None)
-        }
+        let ret_ty = self.ctx.i32_type();
+        let arg_ty = self.ty_handle().ptr_type(inkwell::AddressSpace::from(0u16));
+        let fn_ty = ret_ty.fn_type(&[arg_ty.into()], false);
+        self.declare_if_missing("__await", fn_ty)
     }
 
     fn cast_handle_ptr(
@@ -8217,18 +7652,3 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn handle_struct_is_i32_pair() {
-        let mut backend = LlvmBackend::new();
-        let ty = backend.ty_handle();
-        let fields = ty.get_field_types();
-        assert_eq!(fields.len(), 2);
-        assert!(fields
-            .iter()
-            .all(|f| f.into_int_type().get_bit_width() == 32));
-    }
-}

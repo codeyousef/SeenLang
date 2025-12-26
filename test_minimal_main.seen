@@ -1,0 +1,9 @@
+import env.env.{args}
+
+fun main() r: Int {
+    let myArgs = args()
+    if myArgs.size() < 2 {
+        return 1
+    }
+    return 0
+}

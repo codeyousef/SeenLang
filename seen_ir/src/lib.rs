@@ -20,6 +20,8 @@ pub mod generator;
 pub mod instruction;
 #[cfg(feature = "llvm")]
 pub mod llvm_backend;
+#[cfg(feature = "llvm")]
+pub mod llvm;
 pub mod module;
 pub mod optimizer;
 pub mod value;

@@ -1,0 +1,12 @@
+import env.env.{args}
+
+fun main() r: Int {
+    let rawArgs = args()
+    var list: Array<String> = []
+    var index = 0
+    while index < rawArgs.length() {
+        list.push(rawArgs[index])
+        index = index + 1
+    }
+    return list.length()
+}

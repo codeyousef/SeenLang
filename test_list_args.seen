@@ -1,0 +1,12 @@
+import env.env.{args}
+
+fun main() r: Int {
+    let rawArgs = args()
+    var index = 0
+    var count = 0
+    while index < rawArgs.length() {
+        count = count + 1
+        index = index + 1
+    }
+    return count
+}

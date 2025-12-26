@@ -1,0 +1,28 @@
+// Test: imports like main.seen with GetCommandLineArgs
+
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import io.file.{readText, writeText}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import env.env.{args}
+import collections.list_utils.{push}
+
+// Get command line arguments - workaround to convert Array<String> to List<String>
+fun GetCommandLineArgs() r: List<String> {
+    let cmdArgs = args()
+    var result: List<String> = []
+    var i = 0
+    while i < cmdArgs.size() {
+        result.push(cmdArgs[i])
+        i = i + 1
+    }
+    return result
+}
+
+
+fun main() r: Int {
+    let args = GetCommandLineArgs()
+    return args.size()
+}

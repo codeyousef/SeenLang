@@ -1,0 +1,6 @@
+import env.env.{args}
+
+fun main() r: Int {
+    let myArgs = args()
+    return myArgs.size()
+}

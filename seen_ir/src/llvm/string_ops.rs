@@ -1,0 +1,263 @@
+//! String operations for LLVM code generation.
+//!
+//! This module provides high-level string operations such as concatenation,
+//! substring extraction, and string comparison utilities.
+
+use anyhow::Result;
+use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
+
+use crate::llvm_backend::LlvmBackend;
+
+/// Trait for runtime string operations.
+///
+/// These operations handle the Seen language's String type which is represented
+/// as a struct `{ i64 len, i8* data }` in LLVM IR.
+pub trait RuntimeStringOps<'ctx> {
+    /// Concatenate two strings and return a new String struct.
+    fn runtime_concat(
+        &mut self,
+        left: BasicValueEnum<'ctx>,
+        right: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>>;
+
+    /// Check if a string ends with a given suffix.
+    fn runtime_endswith(
+        &mut self,
+        s: PointerValue<'ctx>,
+        suffix: PointerValue<'ctx>,
+    ) -> Result<IntValue<'ctx>>;
+
+    /// Extract a substring from a string.
+    fn runtime_substring(
+        &mut self,
+        s: PointerValue<'ctx>,
+        start: IntValue<'ctx>,
+        end: IntValue<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>>;
+
+    /// Extract pointer and length from a String value.
+    fn get_string_ptr_len(
+        &mut self,
+        val: BasicValueEnum<'ctx>,
+    ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>)>;
+
+    /// Ensure a value is a valid string pointer.
+    fn ensure_string_ptr(&mut self, val: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>>;
+}
+
+impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
+    fn runtime_concat(
+        &mut self,
+        left: BasicValueEnum<'ctx>,
+        right: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let (l_ptr, l_len) = self.get_string_ptr_len(left)?;
+        let (r_ptr, r_len) = self.get_string_ptr_len(right)?;
+
+        let one = self.i64_t.const_int(1, false);
+        let total_len = self.builder.build_int_add(l_len, r_len, "sum")?;
+        let alloc_size = self.builder.build_int_add(total_len, one, "plus1")?;
+
+        let malloc = self.get_malloc();
+        let buf = self
+            .builder
+            .build_call(malloc, &[alloc_size.into()], "malloc")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let dest = buf
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+
+        // memcpy(dest, left, l_len)
+        let memcpy = self.get_memcpy();
+        self.builder
+            .build_call(memcpy, &[dest.into(), l_ptr.into(), l_len.into()], "cpy1")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        // memcpy(dest + l_len, right, r_len)
+        let dest_off = unsafe {
+            self.builder
+                .build_gep(self.ctx.i8_type(), dest, &[l_len], "off")?
+        };
+        self.builder
+            .build_call(
+                memcpy,
+                &[dest_off.into(), r_ptr.into(), r_len.into()],
+                "cpy2",
+            )
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        // null terminate at dest[l_len + r_len]
+        let end_ptr = unsafe {
+            self.builder
+                .build_gep(self.ctx.i8_type(), dest, &[total_len], "end")?
+        };
+        self.builder
+            .build_store(end_ptr, self.ctx.i8_type().const_int(0, false))?;
+
+        let st = self.ty_string().const_zero();
+        let st = self
+            .builder
+            .build_insert_value(st, total_len, 0, "st_len")
+            .unwrap()
+            .into_struct_value();
+        let st = self
+            .builder
+            .build_insert_value(st, dest, 1, "st_ptr")
+            .unwrap()
+            .into_struct_value();
+
+        Ok(st.into())
+    }
+
+    fn runtime_endswith(
+        &mut self,
+        s: PointerValue<'ctx>,
+        suffix: PointerValue<'ctx>,
+    ) -> Result<IntValue<'ctx>> {
+        let s_len = self.call_strlen(s)?;
+        let suf_len = self.call_strlen(suffix)?;
+        let suf_gt = self.builder.build_int_compare(
+            inkwell::IntPredicate::UGT,
+            suf_len,
+            s_len,
+            "suf_gt",
+        )?;
+        let len_ok = self
+            .builder
+            .build_not(suf_gt, "len_ok")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let start = self
+            .builder
+            .build_int_sub(s_len, suf_len, "start")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let off = unsafe {
+            self.builder
+                .build_gep(self.ctx.i8_type(), s, &[start], "s_off")
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?
+        };
+        let cmp = self.call_strcmp(off, suffix)?;
+        let zero32 = self.ctx.i32_type().const_zero();
+        let cmp_eq = self
+            .builder
+            .build_int_compare(inkwell::IntPredicate::EQ, cmp, zero32, "ends_eq")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let suf_zero = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                suf_len,
+                self.i64_t.const_zero(),
+                "suf_zero",
+            )
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let eq_or_zero = self
+            .builder
+            .build_or(cmp_eq, suf_zero, "ends_match")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let result = self
+            .builder
+            .build_and(len_ok, eq_or_zero, "ends_res")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        Ok(result)
+    }
+
+    fn runtime_substring(
+        &mut self,
+        s: PointerValue<'ctx>,
+        start: IntValue<'ctx>,
+        end: IntValue<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let len = self.builder.build_int_sub(end, start, "sub_len")?;
+        let one = self.i64_t.const_int(1, false);
+        let total = self.builder.build_int_add(len, one, "plus1")?;
+        let malloc = self.get_malloc();
+        let buf = self
+            .builder
+            .build_call(malloc, &[total.into()], "malloc")
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let dest = buf
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        let src = unsafe {
+            self.builder
+                .build_gep(self.ctx.i8_type(), s, &[start], "src_off")?
+        };
+        let memcpy = self.get_memcpy();
+        self.builder
+            .build_call(memcpy, &[dest.into(), src.into(), len.into()], "cpy")?;
+        let end_ptr = unsafe {
+            self.builder
+                .build_gep(self.ctx.i8_type(), dest, &[len], "end")?
+        };
+        self.builder
+            .build_store(end_ptr, self.ctx.i8_type().const_zero())?;
+
+        // Return as String struct { i64, ptr } instead of just ptr
+        let str_ty = self.ty_string();
+        let mut str_val = str_ty.get_undef();
+        str_val = self
+            .builder
+            .build_insert_value(str_val, len, 0, "str_len")
+            .unwrap()
+            .into_struct_value();
+        str_val = self
+            .builder
+            .build_insert_value(str_val, dest, 1, "str_ptr")
+            .unwrap()
+            .into_struct_value();
+        Ok(str_val.into())
+    }
+
+    fn get_string_ptr_len(
+        &mut self,
+        val: BasicValueEnum<'ctx>,
+    ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>)> {
+        if val.is_struct_value() {
+            let sv = val.into_struct_value();
+            let len = self
+                .builder
+                .build_extract_value(sv, 0, "str_len")
+                .unwrap()
+                .into_int_value();
+            let ptr = self
+                .builder
+                .build_extract_value(sv, 1, "str_ptr")
+                .unwrap()
+                .into_pointer_value();
+            Ok((ptr, len))
+        } else if val.is_pointer_value() {
+            let ptr = val.into_pointer_value();
+            let len = self.call_strlen(ptr)?;
+            Ok((ptr, len))
+        } else {
+            anyhow::bail!("get_string_ptr_len: expected struct or pointer, got {:?}", val)
+        }
+    }
+
+    fn ensure_string_ptr(&mut self, val: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
+        if val.is_struct_value() {
+            let sv = val.into_struct_value();
+            let ptr = self
+                .builder
+                .build_extract_value(sv, 1, "str_ptr")
+                .unwrap()
+                .into_pointer_value();
+            Ok(ptr)
+        } else if val.is_pointer_value() {
+            Ok(val.into_pointer_value())
+        } else {
+            anyhow::bail!("ensure_string_ptr: expected struct or pointer, got {:?}", val)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_module_compiles() {
+        assert!(true);
+    }
+}
+
