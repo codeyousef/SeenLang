@@ -44,7 +44,7 @@ pub use crate::llvm::types::{
 
 // Import helper modules
 use crate::llvm::target;
-use crate::llvm::instructions::{normalize_method_name, get_result_method_alias};
+use crate::llvm::instructions::{normalize_method_name, get_result_method_alias, BinaryOps};
 use crate::llvm::string_ops::RuntimeStringOps;
 
 fn block_sort_key(name: &str) -> (i64, String, String) {
@@ -1882,42 +1882,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 result,
             } => {
                 let val = self.eval_value(operand, fn_map)?;
-                let res = match op {
-                    crate::instruction::UnaryOp::Not => {
-                        let bool_val = self.as_bool(val)?;
-                        self.builder
-                            .build_not(bool_val, "not")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::UnaryOp::Negate => {
-                        if let BasicValueEnum::FloatValue(fv) = val {
-                            self.builder
-                                .build_float_neg(fv, "fneg")
-                                .map_err(|e| anyhow!("{e:?}"))?
-                                .as_basic_value_enum()
-                        } else {
-                            let int_val = self.as_i64(val)?;
-                            self.builder
-                                .build_int_neg(int_val, "ineg")
-                                .map_err(|e| anyhow!("{e:?}"))?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::UnaryOp::BitwiseNot => {
-                        let int_val = self.as_i64(val)?;
-                        self.builder
-                            .build_not(int_val, "bnot")
-                            .map_err(|e| anyhow!("{e:?}"))?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::UnaryOp::Reference
-                    | crate::instruction::UnaryOp::Dereference => {
-                        return Err(anyhow!(
-                            "Reference/dereference unary ops are not yet supported in LLVM backend"
-                        ));
-                    }
-                };
+                let res = self.emit_unary_op(op, val)?;
                 self.assign_value(result, res)?;
             }
             Instruction::Binary {
@@ -1928,174 +1893,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             } => {
                 let l = self.eval_value(left, fn_map)?;
                 let r = self.eval_value(right, fn_map)?;
-                // Check if either operand is a float for arithmetic operations
-                let is_float_op = l.is_float_value() || r.is_float_value();
-                let res = match op {
-                    crate::instruction::BinaryOp::Add => {
-                        if self.is_string_value_ir(left) || self.is_string_value_ir(right) {
-                            let l_str = self.ensure_string(l.clone(), left)?;
-                            let r_str = self.ensure_string(r.clone(), right)?;
-                            self.runtime_concat(l_str, r_str)?
-                        } else if is_float_op {
-                            let lf = self.as_f64(l.clone())?;
-                            let rf = self.as_f64(r.clone())?;
-                            self.builder
-                                .build_float_add(lf, rf, "fadd")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_add(li, ri, "add")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Subtract => {
-                        if is_float_op {
-                            let lf = self.as_f64(l.clone())?;
-                            let rf = self.as_f64(r.clone())?;
-                            self.builder
-                                .build_float_sub(lf, rf, "fsub")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_sub(li, ri, "sub")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Multiply => {
-                        if is_float_op {
-                            let lf = self.as_f64(l.clone())?;
-                            let rf = self.as_f64(r.clone())?;
-                            self.builder
-                                .build_float_mul(lf, rf, "fmul")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_mul(li, ri, "mul")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Divide => {
-                        if is_float_op {
-                            let lf = self.as_f64(l.clone())?;
-                            let rf = self.as_f64(r.clone())?;
-                            self.builder
-                                .build_float_div(lf, rf, "fdiv")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_signed_div(li, ri, "div")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::Modulo => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_signed_rem(li, ri, "mod")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::Equal
-                    | crate::instruction::BinaryOp::NotEqual => {
-                        let pred = match op {
-                            crate::instruction::BinaryOp::Equal => inkwell::IntPredicate::EQ,
-                            _ => inkwell::IntPredicate::NE,
-                        };
-                        if self.is_string_value_ir(left) || self.is_string_value_ir(right) {
-                            let lp = self.as_cstr_ptr(l.clone())?;
-                            let rp = self.as_cstr_ptr(r.clone())?;
-                            let cmp = self.call_strcmp(lp, rp)?;
-                            let zero = self.ctx.i32_type().const_zero();
-                            self.builder
-                                .build_int_compare(pred, cmp, zero, "strcmp")?
-                                .as_basic_value_enum()
-                        } else {
-                            let li = self.as_i64(l.clone())?;
-                            let ri = self.as_i64(r.clone())?;
-                            self.builder
-                                .build_int_compare(pred, li, ri, "icmp")?
-                                .as_basic_value_enum()
-                        }
-                    }
-                    crate::instruction::BinaryOp::LessThan => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SLT, li, ri, "lt")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::LessEqual => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SLE, li, ri, "le")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::GreaterThan => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SGT, li, ri, "gt")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::GreaterEqual => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_int_compare(inkwell::IntPredicate::SGE, li, ri, "ge")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::And => {
-                        let li = self.as_bool(l.clone())?;
-                        let ri = self.as_bool(r.clone())?;
-                        self.builder.build_and(li, ri, "and")?.as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::Or => {
-                        let li = self.as_bool(l.clone())?;
-                        let ri = self.as_bool(r.clone())?;
-                        self.builder.build_or(li, ri, "or")?.as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::BitwiseAnd => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_and(li, ri, "band")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::BitwiseOr => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder.build_or(li, ri, "bor")?.as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::BitwiseXor => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_xor(li, ri, "bxor")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::LeftShift => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_left_shift(li, ri, "shl")?
-                            .as_basic_value_enum()
-                    }
-                    crate::instruction::BinaryOp::RightShift => {
-                        let li = self.as_i64(l.clone())?;
-                        let ri = self.as_i64(r.clone())?;
-                        self.builder
-                            .build_right_shift(li, ri, true, "shr")?
-                            .as_basic_value_enum()
-                    }
-                };
+                let res = self.emit_binary_op(op, l, r, left, right)?;
                 self.assign_value(result, res)?;
             }
             Instruction::StringLength { string, result } => {
@@ -5298,7 +5096,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Err(anyhow!("Cannot convert {:?} to string pointer", v))
     }
 
-    fn eval_value(
+    pub(crate) fn eval_value(
         &mut self,
         v: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
@@ -5592,7 +5390,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(global)
     }
 
-    fn assign_value(&mut self, dest: &IRValue, v: BasicValueEnum<'ctx>) -> Result<()> {
+    pub(crate) fn assign_value(&mut self, dest: &IRValue, v: BasicValueEnum<'ctx>) -> Result<()> {
         match dest {
             IRValue::Register(r) => {
                 self.reg_values.insert(*r, v.clone());
@@ -5716,7 +5514,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn as_bool(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
+    pub(crate) fn as_bool(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
         if v.is_int_value() && v.into_int_value().get_type() == self.bool_t {
             return Ok(v.into_int_value());
         }
@@ -5767,7 +5565,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Err(anyhow!("Cannot convert value to bool"))
     }
 
-    fn as_i64(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
+    pub(crate) fn as_i64(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
         if v.is_int_value() {
             let iv = v.into_int_value();
             if iv.get_type() == self.i64_t {
@@ -5824,7 +5622,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn as_f64(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::FloatValue<'ctx>> {
+    pub(crate) fn as_f64(&self, v: BasicValueEnum<'ctx>) -> Result<inkwell::values::FloatValue<'ctx>> {
         if v.is_float_value() {
             Ok(v.into_float_value())
         } else if v.is_int_value() {
@@ -5850,7 +5648,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(iv.get_zero_extended_constant().unwrap_or(0))
     }
 
-    fn as_cstr_ptr(&self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
+    pub(crate) fn as_cstr_ptr(&self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
         if v.is_pointer_value() {
             return Ok(v.into_pointer_value());
         }
@@ -6307,7 +6105,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn is_string_value_ir(&self, value: &IRValue) -> bool {
+    pub(crate) fn is_string_value_ir(&self, value: &IRValue) -> bool {
         if is_string_literal_ir(value) {
             return true;
         }
@@ -6512,7 +6310,7 @@ impl<'ctx> LlvmBackend<'ctx> {
 
     // Note: get_string_ptr_len is now in crate::llvm::string_ops::RuntimeStringOps
 
-    fn ensure_string(&mut self, val: BasicValueEnum<'ctx>, ir_val: &IRValue) -> Result<BasicValueEnum<'ctx>> {
+    pub(crate) fn ensure_string(&mut self, val: BasicValueEnum<'ctx>, ir_val: &IRValue) -> Result<BasicValueEnum<'ctx>> {
         // Check actual LLVM value type first - if it's already a string struct, return it
         if val.is_struct_value() {
             let sv = val.into_struct_value();

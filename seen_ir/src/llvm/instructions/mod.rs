@@ -8,6 +8,8 @@
 //! and maintainability, not encapsulation.
 
 pub mod call;
+pub mod binary;
 
 // Re-export commonly used items
 pub use call::{categorize_call, normalize_method_name, get_result_method_alias, CallCategory};
+pub use binary::BinaryOps;
