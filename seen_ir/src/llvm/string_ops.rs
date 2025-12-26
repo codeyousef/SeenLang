@@ -7,6 +7,7 @@ use anyhow::Result;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use crate::llvm_backend::LlvmBackend;
+use crate::llvm::c_library::CLibraryOps;
 
 /// Trait for runtime string operations.
 ///

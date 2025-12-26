@@ -13,6 +13,8 @@
 //! - [`runtime_fns`] - Runtime function declarations (boxing, string conversion)
 //! - [`concurrency`] - Channel operations, spawn, scope, and await
 //! - [`type_cast`] - Type casting operations (as_bool, as_i64, etc.)
+//! - [`linking`] - Artifact linking (executables, libraries, WASM)
+//! - [`type_builders`] - LLVM type construction (strings, arrays, handles)
 //!
 //! For now, this module re-exports the existing llvm_backend.rs implementation.
 //! Future refactoring will extract more functionality into sub-modules.
@@ -28,6 +30,8 @@ pub mod type_inference;
 pub mod runtime_fns;
 pub mod concurrency;
 pub mod type_cast;
+pub mod linking;
+pub mod type_builders;
 
 // Re-export public types
 pub use types::{
@@ -39,6 +43,9 @@ pub use types::{
 pub use runtime_fns::RuntimeFunctions;
 pub use concurrency::ConcurrencyOps;
 pub use type_cast::TypeCastOps;
+pub use c_library::CLibraryOps;
+pub use linking::LinkingOps;
+pub use type_builders::TypeBuilders;
 
 // Re-export the main backend from the original file
 pub use super::llvm_backend::LlvmBackend;

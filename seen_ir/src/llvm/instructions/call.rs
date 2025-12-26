@@ -23,6 +23,8 @@ use crate::llvm::string_ops::RuntimeStringOps;
 use crate::llvm::type_cast::TypeCastOps;
 use crate::llvm::runtime_fns::RuntimeFunctions;
 use crate::llvm::concurrency::ConcurrencyOps;
+use crate::llvm::c_library::CLibraryOps;
+use crate::llvm::type_builders::TypeBuilders;
 
 type HashMap<K, V> = IndexMap<K, V>;
 

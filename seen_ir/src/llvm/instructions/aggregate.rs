@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use crate::value::{IRType, IRValue};
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::type_cast::TypeCastOps;
+use crate::llvm::type_builders::TypeBuilders;
 
 type HashMap<K, V> = IndexMap<K, V>;
 

@@ -268,6 +268,172 @@ pub fn call_strcmp<'ctx>(
     Ok(call.try_as_basic_value().left().unwrap().into_int_value())
 }
 
+// ============================================================================
+// CLibraryOps Trait - Cached C library function access for LlvmBackend
+// ============================================================================
+
+use crate::llvm_backend::LlvmBackend;
+use inkwell::values::BasicValue;
+
+/// Trait for cached C library function access on the LLVM backend.
+/// These methods use the backend's cached function pointers for efficiency.
+pub trait CLibraryOps<'ctx> {
+    /// Get or declare printf (cached).
+    fn get_printf(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare strlen (cached).
+    fn get_strlen(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare strcmp (cached).
+    fn get_strcmp(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare malloc (cached).
+    fn get_malloc(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare realloc (cached).
+    fn get_realloc(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare free (cached).
+    fn get_free(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare memcpy (cached).
+    fn get_memcpy(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare fflush.
+    fn get_fflush(&self) -> FunctionValue<'ctx>;
+    
+    /// Get or declare clock_gettime.
+    fn get_or_declare_clock_gettime(&mut self) -> FunctionValue<'ctx>;
+    
+    /// Call printf with the given arguments.
+    fn call_printf(&mut self, args: &[BasicMetadataValueEnum<'ctx>]) -> Result<()>;
+    
+    /// Call fflush(NULL) to flush stdout.
+    fn call_fflush(&mut self) -> Result<()>;
+    
+    /// Call strlen and return the length.
+    fn call_strlen(&mut self, s: PointerValue<'ctx>) -> Result<inkwell::values::IntValue<'ctx>>;
+    
+    /// Call strcmp and return the comparison result.
+    fn call_strcmp(
+        &mut self,
+        a: PointerValue<'ctx>,
+        b: PointerValue<'ctx>,
+    ) -> Result<inkwell::values::IntValue<'ctx>>;
+}
+
+impl<'ctx> CLibraryOps<'ctx> for LlvmBackend<'ctx> {
+    fn get_printf(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.printf {
+            return f;
+        }
+        let f = get_printf(&self.module, self.i64_t, self.i8_ptr_t);
+        self.printf = Some(f);
+        f
+    }
+
+    fn get_strlen(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.strlen {
+            return f;
+        }
+        let f = get_strlen(&self.module, self.i64_t, self.i8_ptr_t);
+        self.strlen = Some(f);
+        f
+    }
+
+    fn get_strcmp(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.strcmp {
+            return f;
+        }
+        let f = get_strcmp(self.ctx, &self.module, self.i8_ptr_t);
+        self.strcmp = Some(f);
+        f
+    }
+
+    fn get_malloc(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.malloc {
+            return f;
+        }
+        let f = get_malloc(&self.module, self.i64_t, self.i8_ptr_t);
+        self.malloc = Some(f);
+        f
+    }
+
+    fn get_realloc(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.realloc {
+            return f;
+        }
+        let f = get_realloc(&self.module, self.i64_t, self.i8_ptr_t);
+        self.realloc = Some(f);
+        f
+    }
+
+    fn get_free(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.free {
+            return f;
+        }
+        let f = get_free(self.ctx, &self.module, self.i8_ptr_t);
+        self.free = Some(f);
+        f
+    }
+
+    fn get_memcpy(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.memcpy {
+            return f;
+        }
+        let f = get_memcpy(&self.module, self.i64_t, self.i8_ptr_t);
+        self.memcpy = Some(f);
+        f
+    }
+
+    fn get_fflush(&self) -> FunctionValue<'ctx> {
+        get_fflush(self.ctx, &self.module, self.i8_ptr_t)
+    }
+
+    fn get_or_declare_clock_gettime(&mut self) -> FunctionValue<'ctx> {
+        get_clock_gettime(self.ctx, &self.module, self.i64_t)
+    }
+
+    fn call_printf(&mut self, args: &[BasicMetadataValueEnum<'ctx>]) -> Result<()> {
+        let printf = self.get_printf();
+        self.builder
+            .build_call(printf, args, "printf_call")
+            .map(|_| ())
+            .map_err(|e| anyhow!("{e:?}"))
+    }
+
+    fn call_fflush(&mut self) -> Result<()> {
+        let fflush = self.get_fflush();
+        let null = self.i8_ptr_t.const_zero();
+        self.builder
+            .build_call(fflush, &[null.into()], "fflush_call")
+            .map(|_| ())
+            .map_err(|e| anyhow!("{e:?}"))
+    }
+
+    fn call_strlen(&mut self, s: PointerValue<'ctx>) -> Result<inkwell::values::IntValue<'ctx>> {
+        let strlen = self.get_strlen();
+        let call = self
+            .builder
+            .build_call(strlen, &[s.into()], "strlen")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        Ok(call.try_as_basic_value().left().unwrap().into_int_value())
+    }
+
+    fn call_strcmp(
+        &mut self,
+        a: PointerValue<'ctx>,
+        b: PointerValue<'ctx>,
+    ) -> Result<inkwell::values::IntValue<'ctx>> {
+        let strcmp = self.get_strcmp();
+        let call = self
+            .builder
+            .build_call(strcmp, &[a.into(), b.into()], "strcmp")
+            .map_err(|e| anyhow!("{e:?}"))?;
+        Ok(call.try_as_basic_value().left().unwrap().into_int_value())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
