@@ -18,6 +18,16 @@ impl IRGenerator {
         module.add_type(type_def);
     }
 
+    /// Register a class type in both the context and the module.
+    /// Classes are heap-allocated and represented as pointers (i64) at runtime.
+    fn register_class_type_def(&mut self, module: &mut IRModule, name: &str, ir_type: IRType) {
+        self.context
+            .type_definitions
+            .insert(name.to_string(), ir_type.clone());
+        let type_def = TypeDefinition::new(name, ir_type).as_class();
+        module.add_type(type_def);
+    }
+
     /// Convert struct-like fields (from StructField or ClassField) to IR type tuples.
     fn convert_struct_fields(&self, fields: &[StructField]) -> Vec<(String, IRType)> {
         fields
@@ -190,6 +200,13 @@ impl IRGenerator {
             variants: ir_variants,
         };
         self.register_type(module, name, enum_type);
+        
+        // Register implicit toString() method for enums that returns String
+        let to_string_underscore = format!("{}_toString", name);
+        let to_string_dot = format!("{}.toString", name);
+        self.context.function_return_types.insert(to_string_underscore, IRType::String);
+        self.context.function_return_types.insert(to_string_dot, IRType::String);
+        
         Ok(())
     }
 
@@ -208,7 +225,8 @@ impl IRGenerator {
             name: name.to_string(),
             fields: class_fields,
         };
-        self.register_type(module, name, class_type);
+        // Use register_class_type_def to mark this as a class (heap-allocated)
+        self.register_class_type_def(module, name, class_type);
 
         for method in methods {
             let mangled_name = format!("{}_{}", name, method.name);
@@ -230,21 +248,43 @@ impl IRGenerator {
         name: &str,
         methods: &[Method],
     ) -> IRResult<()> {
+        // Set the current type definition so method bodies can resolve bare method calls
+        let old_type_definition = self.context.current_type_definition.clone();
+        self.context.current_type_definition = Some(name.to_string());
+        
         for method in methods {
             let is_constructor = method.is_static || method.name == "new";
             let mut effective_params: Vec<seen_parser::Parameter> = Vec::new();
+            let mut receiver_name = "self".to_string();
             if !is_constructor {
                 let recv_type = Type {
                     name: name.to_string(),
                     is_nullable: false,
                     generics: vec![],
                 };
+                receiver_name = method
+                    .receiver
+                    .as_ref()
+                    .map(|r| if r.name == "self" { "this".to_string() } else { r.name.clone() })
+                    .unwrap_or_else(|| "this".to_string());
                 let recv = seen_parser::Parameter {
-                    name: method
-                        .receiver
-                        .as_ref()
-                        .map(|r| r.name.clone())
-                        .unwrap_or_else(|| "self".to_string()),
+                    name: receiver_name.clone(),
+                    type_annotation: Some(recv_type),
+                    default_value: None,
+                    memory_modifier: None,
+                };
+                effective_params.push(recv);
+            } else {
+                // For constructors, add 'this' as a hidden first parameter
+                // The caller will pass the newly allocated object
+                receiver_name = "this".to_string();
+                let recv_type = Type {
+                    name: name.to_string(),
+                    is_nullable: false,
+                    generics: vec![],
+                };
+                let recv = seen_parser::Parameter {
+                    name: receiver_name.clone(),
                     type_annotation: Some(recv_type),
                     default_value: None,
                     memory_modifier: None,
@@ -253,6 +293,10 @@ impl IRGenerator {
             }
             effective_params.extend(method.parameters.clone());
 
+            // Set receiver name in context
+            let old_receiver_name = self.context._current_receiver_name.clone();
+            self.context._current_receiver_name = Some(receiver_name);
+
             let mangled_name = format!("{}_{}", name, method.name);
             let function = self.generate_method_function(
                 &mangled_name,
@@ -260,8 +304,16 @@ impl IRGenerator {
                 &method.return_type,
                 &method.body,
             )?;
+
+            // Restore receiver name
+            self.context._current_receiver_name = old_receiver_name;
+
             module.add_function(function);
         }
+        
+        // Restore the old type definition
+        self.context.current_type_definition = old_type_definition;
+        
         Ok(())
     }
 

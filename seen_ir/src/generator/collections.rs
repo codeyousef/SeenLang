@@ -2,7 +2,7 @@
 //!
 //! Handles array/struct literals, index access, member access, and string interpolation.
 
-use crate::{instruction::Instruction, value::IRValue, IRResult};
+use crate::{instruction::Instruction, value::{IRValue, IRType}, IRResult};
 use indexmap::IndexMap;
 use seen_parser::Expression;
 
@@ -44,6 +44,38 @@ impl IRGenerator {
 
         let result_reg = self.context.allocate_register();
         let result_value = IRValue::Register(result_reg);
+
+        // Try to determine the field type from the object's struct type
+        // First, get the struct type name of the object
+        let obj_type_name = match &obj_val {
+            IRValue::Register(reg) => {
+                match self.context.register_types.get(reg) {
+                    Some(IRType::Struct { name, .. }) => Some(name.clone()),
+                    _ => None,
+                }
+            }
+            IRValue::Variable(var_name) => {
+                match self.context.get_variable_type(var_name) {
+                    Some(IRType::Struct { name, .. }) => Some(name.clone()),
+                    _ => None,
+                }
+            }
+            _ => None
+        };
+
+        // If we know the struct type, look up the field type and set it on the result register
+        if let Some(type_name) = obj_type_name {
+            if let Some(type_def) = self.context.type_definitions.get(&type_name) {
+                if let IRType::Struct { fields, .. } = type_def {
+                    for (field_name, field_type) in fields {
+                        if field_name == member {
+                            self.context.set_register_type(result_reg, field_type.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         let access_instruction = Instruction::FieldAccess {
             struct_val: obj_val,

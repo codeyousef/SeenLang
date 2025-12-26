@@ -73,6 +73,10 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
             match value {
                 IRValue::Register(reg_id) => {
                     if let Some(struct_name) = self.reg_struct_types.get(reg_id) {
+                        if var_name == "location" {
+                            eprintln!("DEBUG: emit_store overwriting var_struct_types['location'] from {:?} to {:?} (from reg {})", 
+                                self.var_struct_types.get("location"), struct_name, reg_id);
+                        }
                         self.var_struct_types.insert(var_name.clone(), struct_name.clone());
                     }
                     // Propagate array element struct type info

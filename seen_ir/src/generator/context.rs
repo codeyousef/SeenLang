@@ -139,29 +139,43 @@ impl GenerationContext {
     }
 
     pub fn define_variable(&mut self, name: &str, value: IRValue) {
-        let var_type = match &value {
-            IRValue::Integer(_) => IRType::Integer,
-            IRValue::Float(_) => IRType::Float,
-            IRValue::Boolean(_) => IRType::Boolean,
-            IRValue::StringConstant(_) | IRValue::String(_) => IRType::String,
-            IRValue::ByteArray(bytes) => {
-                if bytes.is_empty() {
-                    IRType::Array(Box::new(IRType::Void))
-                } else {
-                    IRType::Array(Box::new(IRType::Integer))
+        // Check if we already have an explicit type for this variable (from type annotation)
+        // Only infer type from value if we don't have one already
+        let existing_type = self.variable_types.get(name).cloned();
+        let has_explicit_type = existing_type.as_ref().map_or(false, |t| {
+            matches!(t, IRType::Struct { .. })
+        });
+        
+        let var_type = if has_explicit_type {
+            existing_type.unwrap()
+        } else {
+            match &value {
+                IRValue::Integer(_) => IRType::Integer,
+                IRValue::Float(_) => IRType::Float,
+                IRValue::Boolean(_) => IRType::Boolean,
+                IRValue::StringConstant(_) | IRValue::String(_) => IRType::String,
+                IRValue::ByteArray(bytes) => {
+                    if bytes.is_empty() {
+                        IRType::Array(Box::new(IRType::Void))
+                    } else {
+                        IRType::Array(Box::new(IRType::Integer))
+                    }
                 }
-            }
-            IRValue::Register(reg) => {
-                if let Some(reg_type) = self.register_types.get(reg) {
-                    reg_type.clone()
-                } else {
-                    IRType::Void
+                IRValue::Register(reg) => {
+                    if let Some(reg_type) = self.register_types.get(reg) {
+                        reg_type.clone()
+                    } else {
+                        IRType::Void
+                    }
                 }
+                IRValue::Struct { .. } | IRValue::Array(_) => value.get_type(),
+                _ => IRType::Void,
             }
-            IRValue::Struct { .. } | IRValue::Array(_) => value.get_type(),
-            _ => IRType::Void,
         };
-        self.set_variable_type(name.to_string(), var_type.clone());
+        
+        if !has_explicit_type {
+            self.set_variable_type(name.to_string(), var_type.clone());
+        }
 
         if let IRValue::Register(reg) = &value {
             if let Some(inner_type) = self.result_inner_types.get(&format!("reg_{}", reg)).cloned() {

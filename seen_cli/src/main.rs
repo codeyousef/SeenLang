@@ -3850,11 +3850,26 @@ fn check_file(input: &Path, keyword_manager: Arc<KeywordManager>) -> SeenResult<
     })?;
 
     // Lex and parse
-    let (_project_config, lexer_config) = project_context_for(input)?;
+    let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
+    let lexer = Lexer::with_config(source, keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
     let mut ast = parser.parse_program().map_err(SeenError::from)?;
+
+    // Bundle imports when manifest modules are enabled
+    if std::env::var("SEEN_ENABLE_MANIFEST_MODULES").is_ok() {
+        let manifest_modules = manifest_module_roots(&project_config)?;
+        let dependency_roots = project_config.dependency_roots();
+        ast = bundle_imports(
+            ast,
+            input,
+            keyword_manager.clone(),
+            visibility_policy,
+            &project_config.root_dir,
+            &dependency_roots,
+            &manifest_modules,
+        )?;
+    }
 
     // Type check
     let mut type_checker = TypeChecker::new();

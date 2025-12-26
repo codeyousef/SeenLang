@@ -98,6 +98,8 @@ pub struct TypeDefinition {
     pub type_def: IRType,
     pub visibility: Visibility,
     pub is_opaque: bool, // For forward declarations
+    #[serde(default)]
+    pub is_class: bool,  // True if this is a class (heap-allocated, represented as pointer)
 }
 
 /// Type alias definition
@@ -115,6 +117,7 @@ impl TypeDefinition {
             type_def,
             visibility: Visibility::Private,
             is_opaque: false,
+            is_class: false,
         }
     }
 
@@ -125,6 +128,12 @@ impl TypeDefinition {
 
     pub fn opaque(mut self) -> Self {
         self.is_opaque = true;
+        self
+    }
+
+    /// Mark this type definition as a class (heap-allocated, represented as pointer)
+    pub fn as_class(mut self) -> Self {
+        self.is_class = true;
         self
     }
 }

@@ -1,6 +1,8 @@
 // Simplified typechecker interfaces for bootstrap determinism. These definitions
 // are intentionally minimal and side-effect free.
 
+import parser.ast.{ProgramNode}
+
 class AST {}
 class Function {}
 class Expression {}
@@ -168,7 +170,7 @@ class TypeChecker {
         return checker
     }
 
-    fun check(ast: AST) r: TypeInferenceResult { return TypeInferenceResult.new(true, typeVoid(), environment) }
+    fun check(ast: ProgramNode) r: TypeInferenceResult { return TypeInferenceResult.new(true, typeVoid(), environment) }
     fun checkFunction(function: Function) r: Type { return typeVoid() }
     fun checkExpression(expression: Expression) r: Type { return typeUnknown() }
     fun checkStatement(statement: Statement) r: Void { return }

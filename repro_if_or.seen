@@ -1,0 +1,12 @@
+
+fun main() {
+    test(true)
+}
+
+fun test(cond: Bool) {
+    foo(cond == true)
+}
+
+fun foo(b: Bool) {
+    if b { println("yes") }
+}

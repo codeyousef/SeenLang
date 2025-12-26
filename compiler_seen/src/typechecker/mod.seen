@@ -6,13 +6,14 @@
 
 // Import the real implementation
 import typechecker.interfaces.{TypeChecker}
+import parser.ast.{ProgramNode}
 
 // Utility functions for tests
 fun createTypeChecker() r: TypeChecker {
     return TypeChecker.new()
 }
 
-fun typeCheckAST(ast: AST) r: TypeInferenceResult {
+fun typeCheckAST(ast: ProgramNode) r: TypeInferenceResult {
     let checker = TypeChecker.new()
     return checker.check(ast)
 }

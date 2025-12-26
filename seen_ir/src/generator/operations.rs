@@ -22,6 +22,13 @@ impl IRGenerator {
         let (left_val, mut left_instructions) = self.generate_expression(left)?;
         let (right_val, right_instructions) = self.generate_expression(right)?;
 
+        // Debug: show Binary IR generation for Subtract with Register
+        if matches!(operator, BinaryOperator::Subtract) {
+            if let IRValue::Register(r) = &left_val {
+                eprintln!("DEBUG IR generate_binary_expression: op=Subtract, left=Register({}), right={:?}, left_expr={:?}", r, right_val, left);
+            }
+        }
+
         left_instructions.extend(right_instructions);
 
         // Helper: detect string-typed expressions (basic cases)

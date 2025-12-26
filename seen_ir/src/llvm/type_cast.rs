@@ -79,6 +79,14 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
                 .build_int_compare(inkwell::IntPredicate::NE, pv, null, "ptr_tobool")
                 .map_err(|e| anyhow!("{e:?}"));
         }
+        if v.is_float_value() {
+            let fv = v.into_float_value();
+            let zero = fv.get_type().const_float(0.0);
+            return self.builder
+                .build_float_compare(inkwell::FloatPredicate::ONE, fv, zero, "float_tobool")
+                .map_err(|e| anyhow!("{e:?}"));
+        }
+        eprintln!("DEBUG: as_bool failed! val type: {:?}", v.get_type());
         Err(anyhow!("Cannot convert value to bool"))
     }
 
@@ -133,7 +141,7 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
                     }
                 }
             }
-            Err(anyhow!("Expected integer value, got struct {:?}", v))
+            Err(anyhow!("Expected integer value, got struct {:?}", sv))
         } else {
             Err(anyhow!("Expected integer value, got {:?}", v))
         }

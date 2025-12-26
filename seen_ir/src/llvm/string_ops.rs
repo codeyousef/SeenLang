@@ -217,11 +217,55 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
     ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>)> {
         if val.is_struct_value() {
             let sv = val.into_struct_value();
+            // println!("DEBUG: get_string_ptr_len val type: {:?}", sv.get_type());
+            
+            let field_count = sv.get_type().count_fields();
+            
+            // Handle { ptr, ptr, ptr, i64 } layout (likely Vec-based String or similar)
+            if field_count == 4 {
+                 let f0 = sv.get_type().get_field_type_at_index(0).unwrap();
+                 let f3 = sv.get_type().get_field_type_at_index(3).unwrap();
+                 if f0.is_pointer_type() && f3.is_int_type() {
+                     let ptr = self.builder.build_extract_value(sv, 0, "vec_ptr").unwrap().into_pointer_value();
+                     let len = self.builder.build_extract_value(sv, 3, "vec_len").unwrap().into_int_value();
+                     return Ok((ptr, len));
+                 }
+            }
+            
+            // Handle single-field struct { ptr } - likely a class-as-pointer that got wrapped
+            if field_count == 1 {
+                let f0 = sv.get_type().get_field_type_at_index(0).unwrap();
+                if f0.is_pointer_type() {
+                    // Single pointer field - treat as C string pointer
+                    let ptr = self.builder.build_extract_value(sv, 0, "cstr_ptr").unwrap().into_pointer_value();
+                    let len = self.call_strlen(ptr)?;
+                    return Ok((ptr, len));
+                } else if f0.is_int_type() {
+                    // Single int field - might be class pointer as i64
+                    let ptr_int = self.builder.build_extract_value(sv, 0, "ptr_int").unwrap().into_int_value();
+                    let ptr = self.builder.build_int_to_ptr(ptr_int, self.i8_ptr_t, "i64_to_ptr")?;
+                    let len = self.call_strlen(ptr)?;
+                    return Ok((ptr, len));
+                }
+            }
+
             let len = self
                 .builder
                 .build_extract_value(sv, 0, "str_len")
-                .unwrap()
-                .into_int_value();
+                .unwrap();
+            
+            if len.is_struct_value() {
+                 eprintln!("DEBUG: get_string_ptr_len: extracted struct instead of int! val type: {:?}, extracted type: {:?}", sv.get_type(), len.get_type());
+                 // Try to extract from the inner struct if it's a wrapper
+                 let inner = len.into_struct_value();
+                 let inner_len = self.builder.build_extract_value(inner, 0, "inner_len").unwrap();
+                 if inner_len.is_int_value() {
+                     let ptr = self.builder.build_extract_value(inner, 1, "inner_ptr").unwrap().into_pointer_value();
+                     return Ok((ptr, inner_len.into_int_value()));
+                 }
+            }
+
+            let len = len.into_int_value();
             let ptr = self
                 .builder
                 .build_extract_value(sv, 1, "str_ptr")

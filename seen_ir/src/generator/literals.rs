@@ -10,6 +10,49 @@ use super::IRGenerator;
 impl IRGenerator {
     /// Generate IR for variable access
     pub(crate) fn generate_variable(&mut self, name: &str) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Check if variable is a local variable or argument
+        if self.context.get_variable_type(name).is_some() {
+            // If name is "self" but "this" also exists (and likely is the canonical one), prefer "this"
+            let var_name = if name == "self" && self.context.get_variable_type("this").is_some() {
+                "this"
+            } else {
+                name
+            };
+            let value = IRValue::Variable(var_name.to_string());
+            return Ok((value, vec![]));
+        }
+
+        // Check for implicit field access on 'self'
+        let field_info = if let Some(recv_type) = &self.context._current_receiver_type {
+            if let crate::value::IRType::Struct { name: _struct_name, fields } = recv_type {
+                // Check if 'name' is a field
+                fields.iter().find(|(f_name, _)| f_name == name).map(|(_, f_type)| f_type.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(field_type) = field_info {
+            // It is a field! Generate self.name
+            let self_name = self.context._current_receiver_name.clone().unwrap_or_else(|| "self".to_string());
+            let self_var = IRValue::Variable(self_name);
+            
+            let result_reg = self.context.allocate_register();
+            let result_val = IRValue::Register(result_reg);
+            
+            self.context.set_register_type(result_reg, field_type);
+            
+            let instructions = vec![Instruction::FieldAccess {
+                struct_val: self_var,
+                field: name.to_string(),
+                result: result_val.clone(),
+            }];
+            
+            return Ok((result_val, instructions));
+        }
+
         let value = IRValue::Variable(name.to_string());
         Ok((value, vec![]))
     }

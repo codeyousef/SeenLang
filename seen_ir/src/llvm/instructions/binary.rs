@@ -35,6 +35,13 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
         let l = self.eval_value(left, fn_map)?;
         let r = self.eval_value(right, fn_map)?;
         
+        // Debug: print struct values
+        if l.is_struct_value() || r.is_struct_value() {
+            eprintln!("DEBUG emit_binary_op: op={:?}, left={:?}, right={:?}", op, left, right);
+            eprintln!("DEBUG emit_binary_op: l is_struct={}, r is_struct={}", l.is_struct_value(), r.is_struct_value());
+            eprintln!("DEBUG emit_binary_op: l_type={:?}, r_type={:?}", l.get_type(), r.get_type());
+        }
+        
         // Check if either operand is a float for arithmetic operations
         let is_float_op = l.is_float_value() || r.is_float_value();
         

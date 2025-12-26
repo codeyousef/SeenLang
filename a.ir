@@ -4,63 +4,31 @@
 ; Module: main
 
 ; Type definitions
-type LexerError = struct LexerError
-type Position = struct Position
+type Environment = struct Environment
+type Type = struct Type
 
 ; Functions
-fn LexerError_getPosition(self: struct LexerError) -> struct Position {
-  ; Local variables
-  this: struct LexerError
-
+fn Environment_new(parent: struct Environment?) -> struct Environment {
 ; Entry: entry
 entry:
-  mov %self -> %this
-  field_get %self.position -> %r0
-  ret %r0
+  call %Environment () -> %r0
+  store %r0 -> %env
+  field_set %env.parent = %parent
+  ret %env
 
 block_0:
-  ret %r0
-
-}
-
-fn LexerError_new(message: string, position: struct Position) -> struct LexerError {
-; Entry: entry
-entry:
-  ret struct LexerError
-
-block_0:
-  ret struct LexerError
-
-}
-
-fn Position_new(line: i64, column: i64, fileId: i64) -> struct Position {
-; Entry: entry
-entry:
-  ret struct Position
-
-block_0:
-  ret struct Position
+  ret %env
 
 }
 
 fn main() -> i64 {
   ; Local variables
-  err: struct LexerError
-  pos: struct Position
-  pos2: struct Position
+  e: struct Environment
 
 ; Entry: entry
 entry:
-  call %Position_new (1, 1, 1) -> %r0
-  store %r0 -> %pos
-  call %LexerError_new ("test", %pos) -> %r1
-  store %r1 -> %err
-  call %LexerError_getPosition (%err) -> %r2
-  store %r2 -> %pos2
-  field_get %pos2.line -> %r3
-  call %__IntToString (%r3) -> %r4
-  str_concat "Line: " %r4 -> %r5
-  call %println (%r5) -> %r6
+  call %Environment.new () -> %r0
+  store %r0 -> %e
   ret 0
 
 block_0:

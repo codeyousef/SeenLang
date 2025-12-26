@@ -73,7 +73,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     let ast = parser.parse()
 
     let checker = TypeChecker.new()
-    let typeResult = checker.check(ast as Any)
+    let typeResult = checker.check(ast)
 
     if typeResult.errors.length() > 0 {
         let typeErrors = typeResult.errors

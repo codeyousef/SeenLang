@@ -193,7 +193,14 @@ impl fmt::Display for IRType {
                 }
                 write!(f, ") -> {}", return_type)
             }
-            IRType::Struct { name, .. } => write!(f, "struct {}", name),
+            IRType::Struct { name, fields } => {
+                write!(f, "struct {} {{ ", name)?;
+                for (i, (fname, ftype)) in fields.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}: {}", fname, ftype)?;
+                }
+                write!(f, " }}")
+            }
             IRType::Enum { name, .. } => write!(f, "enum {}", name),
             IRType::Pointer(inner) => write!(f, "*{}", inner),
             IRType::Reference(inner) => write!(f, "&{}", inner),

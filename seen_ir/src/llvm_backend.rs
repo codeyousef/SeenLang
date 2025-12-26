@@ -328,6 +328,8 @@ pub struct LlvmBackend<'ctx> {
     pub(crate) array_element_types: HashMap<String, BasicTypeEnum<'ctx>>,
     // Register id -> LLVM element type (for arrays)
     pub(crate) reg_array_element_types: HashMap<u32, BasicTypeEnum<'ctx>>,
+    // Class type names (heap-allocated, passed by pointer)
+    pub(crate) class_types: HashSet<String>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -396,6 +398,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             var_is_float: HashSet::new(),
             array_element_types: HashMap::new(),
             reg_array_element_types: HashMap::new(),
+            class_types: HashSet::new(),
         }
     }
 
@@ -672,6 +675,10 @@ impl<'ctx> LlvmBackend<'ctx> {
             for type_def in module.types.iter() {
                 if let IRType::Struct { name, fields, .. } = &type_def.type_def {
                     self.register_struct_type(name.as_str(), fields);
+                    // Track class types (heap-allocated, represented as pointers)
+                    if type_def.is_class {
+                        self.class_types.insert(name.clone());
+                    }
                 }
                 // Register enum types
                 if let IRType::Enum { name, variants } = &type_def.type_def {
@@ -800,7 +807,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             }
             IRType::Struct { name, .. } => {
-                if let Some((st, _)) = self.struct_types.get(name) {
+                // Check if this is a class type (heap-allocated, represented as pointer/i64)
+                if self.class_types.contains(name) {
+                    // Classes are represented as i64 (pointer-to-int) for ABI compatibility
+                    self.i64_t.into()
+                } else if let Some((st, _)) = self.struct_types.get(name) {
                     (*st).into()
                 } else {
                     // Use i8* as a placeholder pointer to struct if not found
@@ -826,6 +837,14 @@ impl<'ctx> LlvmBackend<'ctx> {
     fn register_struct_type(&mut self, name: &str, fields: &[(String, IRType)]) {
         if self.struct_types.contains_key(name) {
             return; // Already registered
+        }
+        
+        // Debug TypeError registration
+        if name == "TypeError" || name == "Location" {
+            eprintln!("DEBUG: register_struct_type '{}' with {} fields:", name, fields.len());
+            for (fname, ftype) in fields {
+                eprintln!("DEBUG:   field '{}': {:?}", fname, ftype);
+            }
         }
         
         // Store Seen type definition
@@ -1037,6 +1056,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.var_struct_types.clear();
         self.reg_struct_types.clear();
         self.var_array_element_struct.clear();
+        self.reg_array_element_struct.clear();
         self.var_is_string.clear();
         self.var_is_int_array.clear();
         self.blocks.clear();
@@ -1132,13 +1152,16 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
         }
         for local in func.locals_iter() {
-            //             println!("DEBUG: {} local: {} type: {:?}", func.name, local.name, local.var_type);
             let ty = self.ir_type_to_llvm(&local.var_type);
             self.var_slot_types.insert(local.name.clone(), ty);
             let slot = self.alloca_for_type(ty, &format!("local_slot_{}", local.name))?;
             self.var_slots.insert(local.name.clone(), slot);
             // Track struct type names for field access
             if let IRType::Struct { name, .. } = &local.var_type {
+                // Debug: show location variable type
+                if local.name == "location" || local.name == "error" || local.name == "typeError" {
+                    eprintln!("DEBUG: local var '{}' has struct type '{}' in func '{}'", local.name, name, func.name);
+                }
                 self.var_struct_types.insert(local.name.clone(), name.clone());
             }
             // Also track struct types behind references/pointers
@@ -1338,10 +1361,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                 .get_block(name)
                 .expect("basic block must exist in CFG");
             for inst in &b.instructions {
-                self.emit_instruction(inst, fn_map)?;
+                // If the builder position is cleared (e.g. by an early return or jump in the instruction list),
+                // subsequent instructions are unreachable. Skip them to avoid "Builder position is not set" errors.
+                if self.builder.get_insert_block().is_some() {
+                    self.emit_instruction(inst, fn_map)?;
+                }
             }
             if let Some(term) = &b.terminator {
-                self.emit_instruction(term, fn_map)?;
+                if self.builder.get_insert_block().is_some() {
+                    self.emit_instruction(term, fn_map)?;
+                }
             }
             self.fallthrough_bb = None;
             self.reg_values.clear();
@@ -1405,8 +1434,37 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let s_val = self.eval_value(string, fn_map)?;
                 if s_val.is_struct_value() {
                     let sv = s_val.into_struct_value();
-                    let len = self.builder.build_extract_value(sv, 0, "slen").unwrap();
-                    self.assign_value(result, len.into_int_value().as_basic_value_enum())?;
+                    let field_count = sv.get_type().count_fields();
+                    // Check if this is a proper String struct with 2 fields (len, ptr)
+                    if field_count >= 2 {
+                        let len = self.builder.build_extract_value(sv, 0, "slen").unwrap();
+                        if len.is_int_value() {
+                            self.assign_value(result, len.into_int_value().as_basic_value_enum())?;
+                        } else {
+                            // Field 0 is not an int - likely a class stored as pointer
+                            // Try to get the string from memory if it's a pointer
+                            let s_ptr = self.as_cstr_ptr(s_val)?;
+                            let slen = self.call_strlen(s_ptr)?;
+                            self.assign_value(result, slen.as_basic_value_enum())?;
+                        }
+                    } else {
+                        // Single-field struct - treat as pointer to C string
+                        let ptr_val = self.builder.build_extract_value(sv, 0, "str_ptr").unwrap();
+                        let s_ptr = if ptr_val.is_pointer_value() {
+                            ptr_val.into_pointer_value()
+                        } else if ptr_val.is_int_value() {
+                            self.builder.build_int_to_ptr(ptr_val.into_int_value(), self.i8_ptr_t, "int_to_ptr")?
+                        } else {
+                            return Err(anyhow::anyhow!("StringLength: unexpected value type in struct field"));
+                        };
+                        let slen = self.call_strlen(s_ptr)?;
+                        self.assign_value(result, slen.as_basic_value_enum())?;
+                    }
+                } else if s_val.is_int_value() {
+                    // Might be a class pointer (i64) - convert to pointer and call strlen
+                    let s_ptr = self.builder.build_int_to_ptr(s_val.into_int_value(), self.i8_ptr_t, "class_to_ptr")?;
+                    let slen = self.call_strlen(s_ptr)?;
+                    self.assign_value(result, slen.as_basic_value_enum())?;
                 } else {
                     let s_ptr = self.as_cstr_ptr(s_val)?;
                     let slen = self.call_strlen(s_ptr)?;
@@ -1574,16 +1632,65 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.assign_value(result, casted)?;
             }
             Instruction::ConstructObject { class_name, args, result } => {
-                if let Some((struct_ty, _)) = self.struct_types.get(class_name).cloned() {
-                     let mut val = struct_ty.get_undef();
-                     for (i, arg) in args.iter().enumerate() {
-                         let arg_val = self.eval_value(arg, fn_map)?;
-                         val = self.builder.build_insert_value(val, arg_val, i as u32, &format!("construct_{}_{}", class_name, i))?.into_struct_value();
-                     }
-                     self.assign_value(result, val.as_basic_value_enum())?;
+                if let Some((struct_ty, field_names)) = self.struct_types.get(class_name).cloned() {
+                    // Heap-allocate the struct and return a pointer (class-as-pointer semantics)
+                    let struct_size = struct_ty.size_of().unwrap_or(self.i64_t.const_int(64, false));
+                    let malloc_fn = self.get_malloc();
+                    let heap_ptr = self.builder
+                        .build_call(malloc_fn, &[struct_size.into()], "alloc_obj")?
+                        .try_as_basic_value()
+                        .left()
+                        .ok_or_else(|| anyhow!("malloc didn't return a value"))?
+                        .into_pointer_value();
+                    
+                    // Cast to the struct pointer type
+                    let struct_ptr_ty = self.ctx.ptr_type(AddressSpace::default());
+                    let typed_ptr = self.builder
+                        .build_pointer_cast(heap_ptr, struct_ptr_ty, "typed_ptr")?;
+                    
+                    // Store field values via GEP
+                    for (i, arg) in args.iter().enumerate() {
+                        let arg_val = self.eval_value(arg, fn_map)?;
+                        let field_ptr = self.builder
+                            .build_struct_gep(struct_ty, typed_ptr, i as u32, &format!("field_{}_ptr", i))?;
+                        self.builder.build_store(field_ptr, arg_val)?;
+                    }
+                    
+                    // Return the pointer as i64 for ABI compatibility
+                    let ptr_as_int = self.builder
+                        .build_ptr_to_int(typed_ptr, self.i64_t, "obj_ptr")?;
+                    
+                    self.assign_value(result, ptr_as_int.as_basic_value_enum())?;
+                    
+                    // Track struct type for this register
+                    if let IRValue::Register(r) = result {
+                        self.reg_struct_types.insert(*r, class_name.clone());
+                    }
                 } else {
-                     return Err(anyhow!("ConstructObject not implemented for class {}", class_name));
+                    return Err(anyhow!("ConstructObject: unknown class type '{}'", class_name));
                 }
+            }
+            Instruction::Allocate { size, result } => {
+                // Handle generic allocation instruction
+                let size_val = self.eval_value(size, fn_map)?;
+                let size_int = if size_val.is_int_value() {
+                    size_val.into_int_value()
+                } else {
+                    self.i64_t.const_int(8, false) // Default 8 bytes
+                };
+                
+                let malloc_fn = self.get_malloc();
+                let heap_ptr = self.builder
+                    .build_call(malloc_fn, &[size_int.into()], "alloc")?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("malloc didn't return a value"))?;
+                
+                // Return pointer as i64
+                let ptr_as_int = self.builder
+                    .build_ptr_to_int(heap_ptr.into_pointer_value(), self.i64_t, "ptr")?;
+                
+                self.assign_value(result, ptr_as_int.as_basic_value_enum())?;
             }
             _ => {
                 // Many IR ops are not required for bootstrap subset; ignore nops etc.
@@ -2212,36 +2319,32 @@ impl<'ctx> LlvmBackend<'ctx> {
                 Ok(cast.as_basic_value_enum())
             }
             (BasicValueEnum::StructValue(sv), BasicTypeEnum::IntType(it)) => {
-                // Treat String structs as heap values and return their pointer bits
-                if sv.get_type() == self.ty_string() {
-                    let malloc = self.get_malloc();
-                    let size = self
-                        .ty_string()
-                        .size_of()
-                        .unwrap_or(self.i64_t.const_int(16, false));
-                    let raw_ptr = self
-                        .builder
-                        .build_call(malloc, &[size.into()], "string_autobox")?
-                        .try_as_basic_value()
-                        .left()
-                        .ok_or_else(|| anyhow!("malloc returned void for string cast"))?
-                        .into_pointer_value();
-                    let str_ptr = self
-                        .builder
-                        .build_pointer_cast(
-                            raw_ptr,
-                            self.ctx.ptr_type(AddressSpace::from(0u16)),
-                            "string_autobox_cast",
-                        )?;
-                    self.builder.build_store(str_ptr, sv)?;
-                    let cast = self
-                        .builder
-                        .build_ptr_to_int(str_ptr, it, "string_ptr2int")
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                    Ok(cast.as_basic_value_enum())
-                } else {
-                    Err(anyhow!("Unsupported struct->int cast"))
-                }
+                // Treat structs as heap values and return their pointer bits
+                // This handles String and other structs being cast to int (pointer)
+                let malloc = self.get_malloc();
+                let size = sv.get_type()
+                    .size_of()
+                    .unwrap_or(self.i64_t.const_int(16, false));
+                let raw_ptr = self
+                    .builder
+                    .build_call(malloc, &[size.into()], "struct_autobox")?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("malloc returned void for struct cast"))?
+                    .into_pointer_value();
+                let struct_ptr = self
+                    .builder
+                    .build_pointer_cast(
+                        raw_ptr,
+                        self.ctx.ptr_type(AddressSpace::from(0u16)),
+                        "struct_autobox_cast",
+                    )?;
+                self.builder.build_store(struct_ptr, sv)?;
+                let cast = self
+                    .builder
+                    .build_ptr_to_int(struct_ptr, it, "struct_ptr2int")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                Ok(cast.as_basic_value_enum())
             }
             (BasicValueEnum::PointerValue(pv), BasicTypeEnum::FloatType(ft)) => {
                 // Pointer to int, then int to float
@@ -2302,23 +2405,21 @@ impl<'ctx> LlvmBackend<'ctx> {
                 Ok(cast.as_basic_value_enum())
             }
             (BasicValueEnum::IntValue(iv), BasicTypeEnum::StructType(st)) => {
-                // If we have an i64 that really represents a String*, load the struct
-                if st == self.ty_string() {
-                    let str_ptr = self
-                        .builder
-                        .build_int_to_ptr(
-                            iv,
-                            self.ctx.ptr_type(AddressSpace::from(0u16)),
-                            "int2ptr_string",
-                        )
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                    let loaded = self
-                        .builder
-                        .build_load(self.ty_string(), str_ptr, "load_string_from_ptr")
-                        .map_err(|e| anyhow!("{e:?}"))?;
-                    return Ok(loaded.as_basic_value_enum());
-                }
-                Err(anyhow!("Unsupported int->struct cast"))
+                // If we have an i64 that really represents a pointer to the struct, load it
+                // This handles String and other structs passed as pointers/ints
+                let ptr = self
+                    .builder
+                    .build_int_to_ptr(
+                        iv,
+                        self.ctx.ptr_type(AddressSpace::from(0u16)),
+                        "int2ptr_struct",
+                    )
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                let loaded = self
+                    .builder
+                    .build_load(st, ptr, "load_struct_from_int_ptr")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                return Ok(loaded.as_basic_value_enum());
             }
             (BasicValueEnum::PointerValue(pv), BasicTypeEnum::StructType(st)) => {
                 // Treat pointer as *struct and load

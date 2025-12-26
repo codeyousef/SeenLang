@@ -82,6 +82,8 @@ impl IRGenerator {
         let saved_function = self.context.current_function.clone();
         let saved_block = self.context.current_block.clone();
         let saved_register_counter = self.context.register_counter;
+        let saved_local_variables = std::mem::take(&mut self.context.local_variables);
+        let saved_variable_types = std::mem::take(&mut self.context.variable_types);
 
         // Set up function context
         self.context.current_function = Some(name.to_string());
@@ -105,6 +107,15 @@ impl IRGenerator {
         // Generate function body
         let (result_value, mut instructions) = self.generate_expression(body)?;
 
+        if name.contains("compareExecutables") {
+             println!("DEBUG: generate_function_definition for {}, instructions len: {}", name, instructions.len());
+             for inst in &instructions {
+                if format!("{:?}", inst).contains("then_596") {
+                    println!("DEBUG: generate_function_definition: Found then_596");
+                }
+            }
+        }
+
         // Add entry label at the beginning
         instructions.insert(0, Instruction::Label(entry_label));
 
@@ -113,6 +124,9 @@ impl IRGenerator {
 
         // Update function register count
         function.register_count = self.context.register_counter;
+        
+        // Add locals to function
+        function.locals = self.context.local_variables.clone();
 
         // Build proper CFG from instruction list
         let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);
@@ -122,6 +136,8 @@ impl IRGenerator {
         self.context.current_function = saved_function;
         self.context.current_block = saved_block;
         self.context.register_counter = saved_register_counter;
+        self.context.local_variables = saved_local_variables;
+        self.context.variable_types = saved_variable_types;
 
         Ok(function)
     }
@@ -134,9 +150,20 @@ impl IRGenerator {
         return_type: &Option<seen_parser::Type>,
         body: &Expression,
     ) -> IRResult<IRFunction> {
+        // Save current context
+        let saved_function = self.context.current_function.clone();
+        let saved_block = self.context.current_block.clone();
+        let saved_register_counter = self.context.register_counter;
+        let saved_local_variables = std::mem::take(&mut self.context.local_variables);
+        let saved_variable_types = std::mem::take(&mut self.context.variable_types);
+
+        // Set up function context
+        self.context.current_function = Some(name.to_string());
+        self.context.register_counter = 0;
+
         // Methods optionally include an explicit receiver as the first parameter.
         // If absent, treat as a static method (no receiver) for bootstrap resilience.
-        let _receiver_type_opt = if !params.is_empty() {
+        let receiver_type_opt = if !params.is_empty() {
             params[0]
                 .type_annotation
                 .as_ref()
@@ -149,14 +176,31 @@ impl IRGenerator {
         // Build IR parameters using helper
         let ir_params = self.convert_method_parameters(params);
 
+        // Add parameters to context as variables
+        for param in &ir_params {
+            self.context.set_variable_type(param.name.clone(), param.param_type.clone());
+            
+            // Alias 'self' -> 'this' if 'this' is present
+            if param.name == "this" {
+                self.context.set_variable_type("self".to_string(), param.param_type.clone());
+            }
+        }
+
         // Determine return type using helper
         let ir_return_type = return_type
             .as_ref()
             .map(|t| self.convert_ast_type_to_ir(t))
             .unwrap_or(IRType::Void);
 
+        // Set receiver context
+        let old_receiver_type = self.context._current_receiver_type.clone();
+        self.context._current_receiver_type = receiver_type_opt;
+
         // Generate method body with receiver context
         let (body_value, body_instructions) = self.generate_expression(body)?;
+
+        // Restore receiver context
+        self.context._current_receiver_type = old_receiver_type;
 
         // Create IR function with method semantics
         let mut ir_function = crate::function::IRFunction::new(name, ir_return_type);
@@ -168,13 +212,27 @@ impl IRGenerator {
 
         // Create an entry block if missing and append instructions + return
         let entry_label = crate::instruction::Label::new("entry");
-        let mut entry_block = crate::instruction::BasicBlock::new(entry_label.clone());
-        entry_block.instructions.extend(body_instructions);
-        entry_block.terminator = Some(crate::instruction::Instruction::Return(Some(
-            body_value.clone(),
-        )));
-        ir_function.add_block(entry_block);
+        
+        // Prepare instructions for CFG builder
+        let mut instructions = body_instructions;
+        instructions.insert(0, crate::instruction::Instruction::Label(entry_label));
+        instructions.push(crate::instruction::Instruction::Return(Some(body_value)));
+
+        // Build proper CFG from instruction list
+        let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);
+        ir_function.cfg = cfg;
+        
         ir_function.register_count = self.context.register_counter;
+        
+        // Add locals to function
+        ir_function.locals = self.context.local_variables.clone();
+
+        // Restore context
+        self.context.current_function = saved_function;
+        self.context.current_block = saved_block;
+        self.context.register_counter = saved_register_counter;
+        self.context.local_variables = saved_local_variables;
+        self.context.variable_types = saved_variable_types;
 
         Ok(ir_function)
     }

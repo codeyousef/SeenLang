@@ -55,7 +55,7 @@ impl<'ctx> ControlFlowOps<'ctx> for LlvmBackend<'ctx> {
         let dst = *self
             .blocks
             .get(&target.0)
-            .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
+            .ok_or_else(|| anyhow!("Unknown label {} in function {}", target.0, self.current_fn.map(|f| f.get_name().to_str().unwrap_or("?").to_string()).unwrap_or("?".to_string())))?;
         self.builder.build_unconditional_branch(dst)?;
         self.builder.clear_insertion_position();
         Ok(())
@@ -72,7 +72,7 @@ impl<'ctx> ControlFlowOps<'ctx> for LlvmBackend<'ctx> {
         let dst = *self
             .blocks
             .get(&target.0)
-            .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
+            .ok_or_else(|| anyhow!("Unknown label {} in function {}", target.0, self.current_fn.map(|f| f.get_name().to_str().unwrap_or("?").to_string()).unwrap_or("?".to_string())))?;
         let false_bb = match self.fallthrough_bb {
             Some(block) => block,
             None => {

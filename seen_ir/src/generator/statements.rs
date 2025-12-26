@@ -63,8 +63,25 @@ impl IRGenerator {
         &mut self,
         name: &str,
         value: &Expression,
+        type_annotation: Option<&seen_parser::ast::Type>,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let (value_val, mut instructions) = self.generate_expression(value)?;
+        
+        // If there's an explicit type annotation, use that type for the variable
+        if let Some(ty) = type_annotation {
+            let ir_type = self.convert_ast_type_to_ir(ty);
+            self.context.set_variable_type(name.to_string(), ir_type.clone());
+            
+            // Also register the struct type name for field access tracking
+            if let crate::value::IRType::Struct { name: struct_name, .. } = &ir_type {
+                // Track this in local_variables for the LLVM backend
+                if !self.context.local_variables.iter().any(|lv| lv.name == name) {
+                    let local = crate::function::LocalVariable::new(name, ir_type);
+                    self.context.local_variables.push(local);
+                }
+            }
+        }
+        
         self.generate_binding_core(name, value_val.clone(), &mut instructions);
         Ok((value_val, instructions))
     }

@@ -204,7 +204,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Check if we're accessing a struct array
             if let Some(ref struct_type_name) = element_struct_type {
-                eprintln!("DEBUG: ArrayAccess taking struct array path for '{:?}', struct_type_name: {}", array, struct_type_name);
+                eprintln!("DEBUG: ArrayAccess taking struct array path for '{:?}', struct_type_name: {}, index={:?}, result={:?}", array, struct_type_name, index, result);
                 // Resolve the LLVM struct type, handling the built-in String explicitly
                 let llvm_struct_ty = if struct_type_name == "String" {
                     Some(self.ty_string())
@@ -484,7 +484,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         // Try to determine the struct type from the variable name or register
         let struct_type_name = match struct_val {
             IRValue::Variable(var_name) => {
-                self.var_struct_types.get(var_name).cloned()
+                let result = self.var_struct_types.get(var_name).cloned();
+                if var_name == "location" || var_name == "error" {
+                    eprintln!("DEBUG: FieldAccess lookup var_struct_types['{}'] = {:?}", var_name, result);
+                }
+                result
             }
             IRValue::Register(reg_id) => {
                 self.reg_struct_types.get(reg_id).cloned()
@@ -493,11 +497,20 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         };
         
         // Check if we have a registered struct type
-        if let Some(type_name) = struct_type_name {
-            if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(&type_name).cloned() {
+        if let Some(type_name) = &struct_type_name {
+            if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(type_name).cloned() {
                 // Find field index
                 let field_idx = field_names.iter().position(|n| n == field)
-                    .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, type_name))?;
+                    .ok_or_else(|| {
+                        let available = field_names.join(", ");
+                        eprintln!("ERROR: Field '{}' not found in struct '{}' (struct_val={:?}). Available: [{}]", 
+                            field, type_name, struct_val, available);
+                        anyhow!(
+                            "Field '{}' not found in struct '{}'. Available fields: [{}]. \
+                             This may indicate type confusion - check that the variable is the correct type.",
+                            field, type_name, available
+                        )
+                    })?;
                 
                 let ptr = if sv.is_pointer_value() {
                     sv.into_pointer_value()
@@ -533,8 +546,16 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 self.assign_value(result, loaded.as_basic_value_enum())?;
                 
                 // Check if the field is an array of structs and record it for the result register
-                if let Some(fields) = self.struct_definitions.get(&type_name) {
+                if let Some(fields) = self.struct_definitions.get(type_name) {
                     if let Some((_, field_type)) = fields.iter().find(|(n, _)| n == field) {
+                        // Track struct fields for nested field access
+                        if let IRType::Struct { name: field_struct_name, .. } = field_type {
+                            if let IRValue::Register(reg_id) = result {
+                                eprintln!("DEBUG: FieldAccess {}.{} result Register({}) -> struct type '{}'", type_name, field, reg_id, field_struct_name);
+                                self.reg_struct_types.insert(*reg_id, field_struct_name.clone());
+                            }
+                        }
+                        
                         if let IRType::Array(inner) = field_type {
                             if let IRType::Struct { name: inner_struct_name, .. } = &**inner {
                                 if let IRValue::Register(reg_id) = result {
@@ -549,9 +570,19 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                             }
                         }
                     }
+                } else {
+                    eprintln!("DEBUG: FieldAccess {}.{} - no struct_definitions found for type", type_name, field);
                 }
 
                 return Ok(());
+            } else {
+                // Struct type name is known but not registered - this is a bug
+                return Err(anyhow!(
+                    "Struct type '{}' is referenced but not registered in module.types. \
+                     This indicates the type definition is missing from the IR. \
+                     Ensure ClassDefinition or StructDefinition is processed before use.",
+                    type_name
+                ));
             }
         }
         
@@ -627,7 +658,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(&type_name).cloned() {
                 // Find field index
                 let field_idx = field_names.iter().position(|n| n == field)
-                    .ok_or_else(|| anyhow!("Field '{}' not found in struct '{}'", field, type_name))?;
+                    .ok_or_else(|| {
+                        eprintln!("DEBUG: FieldSet: Field '{}' not found in struct '{}'. Available fields: {:?}", field, type_name, field_names);
+                        anyhow!("Field '{}' not found in struct '{}'", field, type_name)
+                    })?;
                 
                 let ptr = if let IRValue::Variable(name) = struct_val {
                      if let Some(slot) = self.var_slots.get(name).copied() {
@@ -636,6 +670,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                              slot
                          } else if slot_ty.is_pointer_type() {
                              self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+                         } else if slot_ty.is_int_type() {
+                             // Class type stored as i64 (pointer-to-int) - load and convert
+                             let ptr_int = self.builder.build_load(self.i64_t, slot, "load_class_ptr")?.into_int_value();
+                             self.builder.build_int_to_ptr(ptr_int, llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)), "class_ptr")?
                          } else {
                              return Err(anyhow!("Variable {} has unexpected type for FieldSet", name));
                          }
@@ -653,6 +691,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                              slot
                          } else if slot_ty.is_pointer_type() {
                              self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+                         } else if slot_ty.is_int_type() {
+                             // Class type stored as i64 (pointer-to-int) - load and convert
+                             let ptr_int = self.builder.build_load(self.i64_t, slot, "load_class_ptr")?.into_int_value();
+                             self.builder.build_int_to_ptr(ptr_int, llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)), "class_ptr")?
                          } else {
                              return Err(anyhow!("Register {} has unexpected type for FieldSet", id));
                          }

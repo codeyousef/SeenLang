@@ -2030,8 +2030,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 };
                 
                 if let Some(name) = func_name {
+                    if name.contains("getLocation") || name.contains("TypeError") {
+                        eprintln!("DEBUG: Call to '{}', fn_return_struct_types.get = {:?}, r = {:?}", 
+                            name, self.fn_return_struct_types.get(name), r);
+                    }
                     if let Some(struct_name) = self.fn_return_struct_types.get(name) {
                         if let IRValue::Register(reg_id) = r {
+                            eprintln!("DEBUG: Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);
                             self.reg_struct_types.insert(*reg_id, struct_name.clone());
                         }
                     }
