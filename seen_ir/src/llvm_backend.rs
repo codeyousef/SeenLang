@@ -44,7 +44,7 @@ pub use crate::llvm::types::{
 
 // Import helper modules
 use crate::llvm::target;
-use crate::llvm::instructions::{normalize_method_name, get_result_method_alias, BinaryOps, ControlFlowOps};
+use crate::llvm::instructions::{normalize_method_name, get_result_method_alias, BinaryOps, ControlFlowOps, MemoryOps};
 use crate::llvm::string_ops::RuntimeStringOps;
 
 fn block_sort_key(name: &str) -> (i64, String, String) {
@@ -1712,58 +1712,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                 self.emit_return(val_opt, fn_map)?;
             }
             Instruction::Move { source, dest } => {
-                let v = self.eval_value(source, fn_map)?;
-                self.assign_value(dest, v)?;
+                self.emit_move(source, dest, fn_map)?;
             }
             Instruction::Store { value, dest } => {
-                // Propagate float type info BEFORE assign_value so it can use bitcast
-                if let IRValue::Variable(var_name) = dest {
-                    match value {
-                        IRValue::Register(reg_id) => {
-                            if self.reg_is_float.contains(reg_id) {
-                                self.var_is_float.insert(var_name.clone());
-                            }
-                        }
-                        IRValue::Variable(src_name) => {
-                            if self.var_is_float.contains(src_name) {
-                                self.var_is_float.insert(var_name.clone());
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                
-                let v = self.eval_value(value, fn_map)?;
-                self.assign_value(dest, v)?;
-
-                // Propagate struct type info
-                if let IRValue::Variable(var_name) = dest {
-                    match value {
-                        IRValue::Register(reg_id) => {
-                            if let Some(struct_name) = self.reg_struct_types.get(reg_id) {
-                                self.var_struct_types.insert(var_name.clone(), struct_name.clone());
-                            }
-                            // Propagate array element struct type info
-                            if let Some(elem_struct) = self.reg_array_element_struct.get(reg_id) {
-                                self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
-                            }
-                        }
-                        IRValue::Variable(src_name) => {
-                            if let Some(struct_name) = self.var_struct_types.get(src_name) {
-                                self.var_struct_types.insert(var_name.clone(), struct_name.clone());
-                            }
-                            // Propagate array element struct type info
-                            if let Some(elem_struct) = self.var_array_element_struct.get(src_name) {
-                                self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                self.emit_store(value, dest, fn_map)?;
             }
             Instruction::Load { source, dest } => {
-                let v = self.eval_value(source, fn_map)?;
-                self.assign_value(dest, v)?;
+                self.emit_load(source, dest, fn_map)?;
             }
             Instruction::Unary {
                 op,
