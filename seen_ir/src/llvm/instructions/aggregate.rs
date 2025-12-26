@@ -10,7 +10,7 @@ use crate::llvm_backend::LlvmBackend;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
-pub(crate) trait AggregateOps<'ctx> {
+pub trait AggregateOps<'ctx> {
     fn emit_array_length(
         &mut self,
         array: &IRValue,

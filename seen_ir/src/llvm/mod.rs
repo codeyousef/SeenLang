@@ -9,6 +9,7 @@
 //! - [`memory`] - Memory operations and slot management
 //! - [`string_ops`] - Runtime string operations (concat, substring, etc.)
 //! - [`instructions`] - Instruction handlers and categorization
+//! - [`type_inference`] - Register type inference and slot allocation
 //!
 //! For now, this module re-exports the existing llvm_backend.rs implementation.
 //! Future refactoring will extract more functionality into sub-modules.
@@ -20,6 +21,7 @@ pub mod c_library;
 pub mod memory;
 pub mod string_ops;
 pub mod instructions;
+pub mod type_inference;
 
 // Re-export public types
 pub use types::{

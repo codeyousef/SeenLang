@@ -10,16 +10,16 @@
 
 use anyhow::{anyhow, Result};
 use indexmap::IndexMap;
-use inkwell::values::{BasicValueEnum, FunctionValue, InstructionValue, PointerValue, BasicMetadataValueEnum};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, InstructionValue, PointerValue, BasicMetadataValueEnum};
 use inkwell::AddressSpace;
-use inkwell::types::{BasicTypeEnum, BasicMetadataTypeEnum};
+use inkwell::types::{BasicType, BasicTypeEnum, BasicMetadataTypeEnum};
 use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
 
 use crate::instruction::Instruction;
-use crate::value::IRValue;
+use crate::value::{IRValue, IRType};
 use crate::llvm_backend::LlvmBackend;
-use crate::ir::IRType;
+use crate::llvm::string_ops::RuntimeStringOps;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
