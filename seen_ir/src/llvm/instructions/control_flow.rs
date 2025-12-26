@@ -1,3 +1,4 @@
+use inkwell::values::BasicValue;
 use anyhow::{anyhow, Result};
 use inkwell::values::FunctionValue;
 use indexmap::IndexMap;
@@ -8,7 +9,7 @@ use crate::llvm_backend::LlvmBackend;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
-pub(crate) trait ControlFlowOps<'ctx> {
+pub trait ControlFlowOps<'ctx> {
     fn emit_label(&mut self, lbl: &Label) -> Result<()>;
     
     fn emit_jump(&mut self, target: &Label) -> Result<()>;

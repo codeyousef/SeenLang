@@ -7,7 +7,7 @@ use crate::llvm_backend::LlvmBackend;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
-pub(crate) trait MemoryOps<'ctx> {
+pub trait MemoryOps<'ctx> {
     fn emit_move(
         &mut self,
         source: &IRValue,

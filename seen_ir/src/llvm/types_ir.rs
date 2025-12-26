@@ -48,8 +48,8 @@ pub fn ir_type_to_llvm<'ctx>(
             parameters,
             return_type,
         } => {
-            let fn_ty = fn_type_from_ir(ctx, return_type, parameters, i64_t, bool_t, i8_ptr_t, struct_types);
-            fn_ty.ptr_type(AddressSpace::from(0u16)).into()
+            let _fn_ty = fn_type_from_ir(ctx, return_type, parameters, i64_t, bool_t, i8_ptr_t, struct_types);
+            ctx.ptr_type(AddressSpace::from(0u16)).into()
         }
         IRType::Vector { lanes, lane_type } => {
             let lane = ir_type_to_llvm(ctx, lane_type, i64_t, bool_t, i8_ptr_t, struct_types);
@@ -73,14 +73,14 @@ pub fn ir_type_to_llvm<'ctx>(
             }
         }
         IRType::Enum { .. } => i64_t.into(),
-        IRType::Pointer(inner) | IRType::Reference(inner) => ir_type_to_llvm(ctx, inner, i64_t, bool_t, i8_ptr_t, struct_types)
-            .ptr_type(AddressSpace::from(0u16))
-            .into(),
+        IRType::Pointer(inner) | IRType::Reference(inner) => {
+            ir_type_to_llvm(ctx, inner, i64_t, bool_t, i8_ptr_t, struct_types);
+            ctx.ptr_type(AddressSpace::from(0u16)).into()
+        }
         IRType::Optional(inner) => {
             // Use pointer to inner where practical
-            ir_type_to_llvm(ctx, inner, i64_t, bool_t, i8_ptr_t, struct_types)
-                .ptr_type(AddressSpace::from(0u16))
-                .into()
+            ir_type_to_llvm(ctx, inner, i64_t, bool_t, i8_ptr_t, struct_types);
+            ctx.ptr_type(AddressSpace::from(0u16)).into()
         }
         IRType::Generic(_) => i8_ptr_t.into(),
     }
@@ -144,13 +144,13 @@ pub fn ty_string<'ctx>(
 pub fn ty_array<'ctx>(
     ctx: &'ctx LlvmContext,
     i64_t: IntType<'ctx>,
-    elem_ty: BasicTypeEnum<'ctx>,
+    _elem_ty: BasicTypeEnum<'ctx>,
 ) -> StructType<'ctx> {
     ctx.struct_type(
         &[
             i64_t.into(), // len
             i64_t.into(), // cap
-            elem_ty.ptr_type(AddressSpace::default()).into(), // data
+            ctx.ptr_type(AddressSpace::default()).into(), // data
         ],
         false,
     )
@@ -160,14 +160,12 @@ pub fn ty_array<'ctx>(
 pub fn ty_str_array<'ctx>(
     ctx: &'ctx LlvmContext,
     i64_t: IntType<'ctx>,
-    i8_ptr_t: PointerType<'ctx>,
+    _i8_ptr_t: PointerType<'ctx>,
 ) -> StructType<'ctx> {
     ctx.struct_type(
         &[
             i64_t.into(),
-            i8_ptr_t
-                .ptr_type(AddressSpace::from(0u16))
-                .into(),
+            ctx.ptr_type(AddressSpace::from(0u16)).into(),
         ],
         false,
     )

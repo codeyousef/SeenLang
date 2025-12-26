@@ -3,9 +3,9 @@
 //! This module handles arithmetic, comparison, and logical operations.
 
 use anyhow::{anyhow, Result};
-use inkwell::values::BasicValueEnum;
+use inkwell::values::{BasicValue, BasicValueEnum};
 
-use crate::instruction::BinaryOp;
+use crate::instruction::{BinaryOp, UnaryOp};
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::string_ops::RuntimeStringOps;
 use crate::value::IRValue;
@@ -199,6 +199,48 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 Ok(self.builder
                     .build_right_shift(li, ri, true, "shr")?
                     .as_basic_value_enum())
+            }
+        }
+    }
+}
+
+/// Trait for unary operation emission.
+pub trait UnaryOps<'ctx> {
+    fn emit_unary_op(
+        &mut self,
+        op: &UnaryOp,
+        val: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>>;
+}
+
+impl<'ctx> UnaryOps<'ctx> for LlvmBackend<'ctx> {
+    fn emit_unary_op(
+        &mut self,
+        op: &UnaryOp,
+        val: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        match op {
+            UnaryOp::Negate => {
+                if val.is_float_value() {
+                    let f = val.into_float_value();
+                    Ok(self.builder.build_float_neg(f, "fneg")?.as_basic_value_enum())
+                } else {
+                    let i = self.as_i64(val)?;
+                    Ok(self.builder.build_int_neg(i, "neg")?.as_basic_value_enum())
+                }
+            }
+            UnaryOp::Not => {
+                let i = self.as_i64(val)?;
+                let zero = self.i64_t.const_zero();
+                let cmp = self.builder.build_int_compare(inkwell::IntPredicate::EQ, i, zero, "not")?;
+                Ok(self.builder.build_int_z_extend(cmp, self.i64_t, "not_ext")?.as_basic_value_enum())
+            }
+            UnaryOp::BitwiseNot => {
+                let i = self.as_i64(val)?;
+                Ok(self.builder.build_not(i, "bnot")?.as_basic_value_enum())
+            }
+            UnaryOp::Reference | UnaryOp::Dereference => {
+                Err(anyhow!("Reference/Dereference not supported in emit_unary_op"))
             }
         }
     }

@@ -1,5 +1,8 @@
 use anyhow::{anyhow, Result};
+use inkwell::values::BasicValue;
 use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::AddressSpace;
+use inkwell::types::BasicType;
 use indexmap::IndexMap;
 
 use crate::value::{IRType, IRValue};
@@ -439,7 +442,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 val_v.into_pointer_value(),
                 self.i64_t,
                 "ptr2i"
-            )?
+            )?;
             self.builder.build_signed_int_to_float(
                 int_val,
                 self.ctx.f64_type(),
