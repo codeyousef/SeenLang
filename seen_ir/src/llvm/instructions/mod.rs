@@ -9,7 +9,9 @@
 
 pub mod call;
 pub mod binary;
+pub mod control_flow;
 
 // Re-export commonly used items
 pub use call::{categorize_call, normalize_method_name, get_result_method_alias, CallCategory};
 pub use binary::BinaryOps;
+pub use control_flow::ControlFlowOps;

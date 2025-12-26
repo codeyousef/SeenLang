@@ -44,7 +44,7 @@ pub use crate::llvm::types::{
 
 // Import helper modules
 use crate::llvm::target;
-use crate::llvm::instructions::{normalize_method_name, get_result_method_alias, BinaryOps};
+use crate::llvm::instructions::{normalize_method_name, get_result_method_alias, BinaryOps, ControlFlowOps};
 use crate::llvm::string_ops::RuntimeStringOps;
 
 fn block_sort_key(name: &str) -> (i64, String, String) {
@@ -1697,130 +1697,19 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
         match inst {
             Instruction::Label(lbl) => {
-                if let Some(bb) = self.blocks.get(&lbl.0) {
-                    if self
-                        .builder
-                        .get_insert_block()
-                        .map(|b| b != *bb)
-                        .unwrap_or(true)
-                    {
-                        self.builder.position_at_end(*bb);
-                    }
-                }
+                self.emit_label(lbl)?;
             }
             Instruction::Jump(target) => {
-                let dst = *self
-                    .blocks
-                    .get(&target.0)
-                    .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                self.builder.build_unconditional_branch(dst)?;
-                self.builder.clear_insertion_position();
+                self.emit_jump(target)?;
             }
             Instruction::JumpIf { condition, target } => {
-                let cond = self.eval_value(condition, fn_map)?;
-                let i1 = self.as_bool(cond)?;
-                let dst = *self
-                    .blocks
-                    .get(&target.0)
-                    .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                let false_bb = match self.fallthrough_bb {
-                    Some(block) => block,
-                    None => {
-                        let fb = self
-                            .ctx
-                            .append_basic_block(self.current_fn.unwrap(), "fallthrough");
-                        self.builder.position_at_end(fb);
-                        self.builder.build_unreachable()?;
-                        self.builder.clear_insertion_position();
-                        fb
-                    }
-                };
-                self.builder.build_conditional_branch(i1, dst, false_bb)?;
-                self.builder.clear_insertion_position();
+                self.emit_jump_if(condition, target, fn_map)?;
             }
             Instruction::JumpIfNot { condition, target } => {
-                let cond = self.eval_value(condition, fn_map)?;
-                let i1 = self.as_bool(cond)?;
-                let dst = *self
-                    .blocks
-                    .get(&target.0)
-                    .ok_or_else(|| anyhow!("Unknown label {}", target.0))?;
-                let true_bb = match self.fallthrough_bb {
-                    Some(block) => block,
-                    None => {
-                        let fb = self
-                            .ctx
-                            .append_basic_block(self.current_fn.unwrap(), "fallthrough");
-                        self.builder.position_at_end(fb);
-                        self.builder.build_unreachable()?;
-                        self.builder.clear_insertion_position();
-                        fb
-                    }
-                };
-                let not = self.builder.build_not(i1, "not")?;
-                self.builder.build_conditional_branch(not, dst, true_bb)?;
-                self.builder.clear_insertion_position();
+                self.emit_jump_if_not(condition, target, fn_map)?;
             }
             Instruction::Return(val_opt) => {
-                let current_fn = self
-                    .current_fn
-                    .ok_or_else(|| anyhow!("return outside of function"))?;
-                let ret_ty_opt = current_fn.get_type().get_return_type();
-                let fn_name = current_fn.get_name().to_str().unwrap_or("unknown");
-                match (val_opt, ret_ty_opt) {
-                    (Some(v), Some(ret_ty)) => {
-                        if fn_name == "createLexer" {
-            //                             println!("DEBUG: Return in {} - evaluating {:?}", fn_name, v);
-                        }
-                        let mut bv = self.eval_value(v, fn_map)?;
-                        if bv.get_type() != ret_ty {
-            //                             println!("DEBUG: Return cast in {} - value type: {:?}, expected ret_ty: {:?}", fn_name, bv.get_type(), ret_ty);
-                            
-                            // Special case: if we are returning a struct but have a pointer, load it
-                            if ret_ty.is_struct_type() && bv.is_pointer_value() {
-            //                                 println!("DEBUG:   Auto-loading struct from pointer for return");
-                                bv = self.builder.build_load(ret_ty, bv.into_pointer_value(), "ret_load")?;
-                            } else if bv.is_struct_value() && ret_ty.is_int_type() && ret_ty.into_int_type() == self.i64_t {
-                                // Generics workaround: if we have a struct (like String) but the declared
-                                // return type is i64 (due to unmonomorphized generics), return the struct
-                                // value directly. This happens with Result<T,E>.unwrapErr() when E=String.
-                                // The function signature is wrong, but the actual value is correct.
-                                // We return the struct by spilling to stack and returning a pointer as i64.
-            //                                 println!("DEBUG:   Generics workaround: struct value with i64 return type in {}", fn_name);
-                                let struct_ty = bv.get_type();
-                                let tmp = self.alloca_for_type(struct_ty, "generic_ret_spill")?;
-                                self.builder.build_store(tmp, bv)?;
-                                let ptr_as_int = self.builder.build_ptr_to_int(tmp, self.i64_t, "ptr_to_i64")?;
-                                bv = ptr_as_int.as_basic_value_enum();
-                            } else {
-                                bv = self.cast_basic_to_type(bv, ret_ty)?;
-                            }
-                        }
-                        self.builder.build_return(Some(&bv))?;
-                    }
-                    (Some(_), None) => {
-                        self.builder.build_return(None)?;
-                    }
-                    (None, None) => {
-                        self.builder.build_return(None)?;
-                    }
-                    (None, Some(ret_ty)) => {
-                        if ret_ty.is_int_type() {
-                            self.builder.build_return(Some(&ret_ty.into_int_type().const_zero()))?;
-                        } else if ret_ty.is_pointer_type() {
-                            // Return null pointer for pointer return types
-                            let null_ptr = ret_ty.into_pointer_type().const_null();
-                            self.builder.build_return(Some(&null_ptr.as_basic_value_enum()))?;
-                        } else if ret_ty.is_struct_type() {
-                            // Return zeroed struct for struct return types
-                            let zero_struct = ret_ty.into_struct_type().const_zero();
-                            self.builder.build_return(Some(&zero_struct.as_basic_value_enum()))?;
-                        } else {
-                            self.builder.build_return(None)?;
-                        }
-                    }
-                }
-                self.builder.clear_insertion_position();
+                self.emit_return(val_opt, fn_map)?;
             }
             Instruction::Move { source, dest } => {
                 let v = self.eval_value(source, fn_map)?;
@@ -5696,7 +5585,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         Err(anyhow!("Expected pointer to cstr, got {:?}", v))
     }
 
-    fn alloca_for_type(
+    pub(crate) fn alloca_for_type(
         &mut self,
         ty: BasicTypeEnum<'ctx>,
         name: &str,
@@ -5771,7 +5660,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         })
     }
 
-    fn cast_basic_to_type(
+    pub(crate) fn cast_basic_to_type(
         &mut self,
         value: BasicValueEnum<'ctx>,
         target: BasicTypeEnum<'ctx>,
