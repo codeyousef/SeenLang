@@ -24,7 +24,9 @@ fun stdoutLine(text: String) r: Void {
 
 
 fun main() r: Int {
+    stdoutLine("[trace] enter main")
     let args = GetCommandLineArgs()
+    stdoutLine("[trace] args len=" + args.size().toString())
     if args.size() < 2 {
         printUsage()
         return 1
@@ -32,7 +34,9 @@ fun main() r: Int {
 
     var exit: Int = 0
     let command = args[1]
+    stdoutLine("[trace] command=" + command)
     if command == "build" {
+        stdoutLine("[trace] branch build")
         let sourceResult = requireArg(args, 2, "Error: build command requires a source file")
         if sourceResult.isErr() {
             stdoutLine(sourceResult.unwrapErr())
@@ -44,6 +48,7 @@ fun main() r: Int {
             exit = buildCommand(sourceFile, outputFile)
         }
     } else if command == "check" {
+        stdoutLine("[trace] branch check")
         let sourceResult = requireArg(args, 2, "Error: check command requires a source file")
         if sourceResult.isErr() {
             stdoutLine(sourceResult.unwrapErr())
@@ -112,6 +117,7 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) r: Int {
+    stdoutLine("[trace] enter buildCommand")
     stdoutLine("🚀 Building...")
     
     // Read source file
@@ -261,6 +267,7 @@ fun requireArg(args: List<String>, index: Int, message: String) r: Result<String
 
 fun GetCommandLineArgs() r: List<String> {
     let rawArgs = args()
+    stdoutLine("[trace] rawArgs len=" + rawArgs.length().toString())
     var list: List<String> = []
     var index = 0
     while index < rawArgs.length() {
